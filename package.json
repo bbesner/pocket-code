@@ -1,0 +1,38 @@
+{
+  "name": "pocket-code",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Your Claude Code and Codex sessions, from your phone — a mobile PWA plus a server-side turn runner, so work keeps going when the screen goes dark.",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "pwa",
+    "mobile",
+    "ai-coding",
+    "coding-agent",
+    "remote",
+    "memstem"
+  ],
+  "homepage": "https://github.com/bbesner/pocket-code#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bbesner/pocket-code.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bbesner/pocket-code/issues"
+  },
+  "license": "MIT",
+  "author": "Brad Besner",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "web-push": "^3.6.7"
+  }
+}

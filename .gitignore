@@ -1,0 +1,12 @@
+node_modules/
+.env
+*.log
+push-subs.json
+test-chart.png
+turnlogs/
+mutes.json
+session-meta.json
+pocket-settings.json
+
+# local project notes (not part of the public repo)
+STATE.md
