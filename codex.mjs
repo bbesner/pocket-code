@@ -300,15 +300,31 @@ function threadToSession(t) {
   };
 }
 
+// thread/list's default mode re-scans the JSONL rollouts to repair thread metadata, which
+// grows with the whole store — 5.4s per list on 2,800 rollouts / 4.5 GB (2026-09-28). The
+// state DB answers the same rows in ~20ms. Repair still happens: pollCodexActivity() runs
+// the scanning form over the newest threads every 15s, off the request path.
+// Codex builds that don't know useStateDbOnly get the scanning call instead.
+async function threadList(params, timeoutMs) {
+  try {
+    return await rpc('thread/list', { ...params, useStateDbOnly: true }, timeoutMs);
+  } catch (e) {
+    if (e?.rpc?.code !== -32602 && e?.rpc?.code !== -32601) throw e;
+    return rpc('thread/list', params, timeoutMs);
+  }
+}
+
 export async function listCodexSessions(limit = 60) {
-  const r = await rpc('thread/list', { limit: Math.min(limit, 200), archived: false }, 30_000);
+  // sorted like the merged list (by last update), so a long-lived thread resumed today
+  // isn't pushed out of the page by newer-created ones
+  const r = await threadList({ limit: Math.min(limit, 200), archived: false, sortKey: 'updated_at' }, 30_000);
   const rows = (r?.data || []).filter(t => t && t.id && !t.ephemeral);
   // subagent threads (spawned by a parent) are machinery, not sessions the user started
   return rows.filter(t => !t.parentThreadId).map(threadToSession);
 }
 
 export async function searchCodexSessions(term, limit = 40) {
-  const r = await rpc('thread/list', { limit, archived: false, searchTerm: term }, 30_000);
+  const r = await threadList({ limit, archived: false, searchTerm: term }, 30_000);
   return (r?.data || []).filter(t => t && t.id && !t.parentThreadId).map(threadToSession);
 }
 

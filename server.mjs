@@ -266,10 +266,17 @@ async function listSessions(limit = 60) {
   const sorted = stats.filter(Boolean).sort((a, b) => b.mtimeMs - a.mtimeMs);
   const recent = sorted.slice(0, Math.min(limit * 2, 400));
   for (const x of sorted.slice(recent.length)) if (isPinned(x.id)) recent.push(x); // pins never age out
+  // read metadata 8 files at a time — a cold cache (every restart) meant up to 400 serial
+  // head/tail reads; the dedupe walk below is order-dependent, the reads aren't
+  const metas = new Array(recent.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: 8 }, async () => {
+    while (next < recent.length) { const i = next++; metas[i] = await sessionMeta(recent[i].file, recent[i].id); }
+  }));
   const seen = new Map(); // title+cwd -> listed entry (resumed sessions repeat both)
-  for (const x of recent) {
+  for (const [i, x] of recent.entries()) {
     const pinned = isPinned(x.id);
-    const meta = await sessionMeta(x.file, x.id);
+    const meta = metas[i];
     if (meta.cwd?.startsWith('/tmp/') && !pinned) continue; // scratch/test sessions
     const active = turns.has(x.id) || extActive(x.id);
     if (meta.noise && !active && !pinned) continue; // hook/subagent noise: no user message, no summary

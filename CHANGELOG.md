@@ -4,6 +4,17 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
+## [1.0.1] — 2026-09-28 · build 19
+
+- **The session list loads in well under a second again.** The Codex half of the list asked
+  Codex to re-scan every saved rollout on each load, which took about 5 seconds on a busy
+  server and kept growing. It now reads Codex's session database instead (same results, ~20 ms);
+  the existing 15-second activity poll keeps that database repaired in the background.
+- Codex sessions are ordered by last update, matching the rest of the list, so an old session
+  picked back up today isn't pushed off the page.
+- After a restart, the first list load reads session metadata eight files at a time instead
+  of one by one.
+
 ## [1.0.0] — 2026-09-26 · build 19
 
 First public release. Before this, the project ran privately as "Pocket Claude" through

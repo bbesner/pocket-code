@@ -1,6 +1,6 @@
 {
   "name": "pocket-code",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Your Claude Code and Codex sessions, from your phone — a mobile PWA plus a server-side turn runner, so work keeps going when the screen goes dark.",
