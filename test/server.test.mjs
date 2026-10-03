@@ -25,6 +25,10 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  const call=async(p,body)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()}};
  const calls=()=>fs.existsSync(path.join(dir,'calls'))?fs.readFileSync(path.join(dir,'calls'),'utf8').trim().split('\n').filter(Boolean).map(JSON.parse):[];
  await start();
+ for (const asset of ['/', '/sw.js']) {
+  const response=await fetch(`http://127.0.0.1:${port}${asset}`);
+  assert.equal(response.headers.get('cache-control'),'no-cache');
+ }
  const request={cwd:repo,text:'__SLOW__ Inventory report',provider:'claude',clientMessageId:randomUUID()};
  const [a,b]=await Promise.all([call('/new',request),call('/new',request)]);
  assert.equal(a.status,202);assert.equal(a.body.id,b.body.id);

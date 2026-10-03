@@ -1,4 +1,4 @@
-# Session workspace: 1.1 release candidate
+# Session workspace: 1.1
 
 The first increment focuses on finding active work and recovering messages when a
 connection fails. It keeps the existing agent runners and transcript stores.
@@ -40,7 +40,8 @@ and the existing slash-menu shadow. Paragraph edge warnings refer to padded boxe
 not text touching the viewport; the footnote has a bounded reading width. These are
 reviewed exceptions, not a claim of zero automated findings.
 
-Physical phones, software keyboards, assistive technology and real Claude/Codex
-turns remain release checks. The API test uses a fake Claude executable; browser
-fixtures include both providers. This change does not introduce employee isolation
+Real Claude and Codex smoke checks also passed new turns, resumed turns and
+duplicate-request recovery. Physical phones, software keyboards and assistive
+technology still need operator validation. Automated API tests use a fake Claude
+executable; browser fixtures include both providers. This change does not introduce employee isolation
 or a new permissions model. See [the plan](../IMPLEMENTATION-PLAN.md) for later stages.

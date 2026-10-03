@@ -877,7 +877,9 @@ adoptOrphans();
 // ---------- app ----------
 const app = express();
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index.html', maxAge: '5m' }));
+app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index.html', maxAge: '5m',
+  setHeaders(res, file) { if (['index.html', 'sw.js'].includes(path.basename(file))) res.setHeader('Cache-Control', 'no-cache'); },
+}));
 
 app.post('/api/login', (req, res) => {
   const ip = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '?';

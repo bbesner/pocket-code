@@ -4,7 +4,7 @@ This plan turns the October 2026 mobile/desktop design review into four releases
 The first priority is keeping track of running sessions. Pocket Code remains a
 standalone, mobile-first PWA; Mission Control integration follows daily-use validation.
 
-## 1. Session visibility and delivery reliability — 1.1.0 candidate implemented
+## 1. Session visibility and delivery reliability — implemented in 1.1.0
 
 - Group and filter recent sessions by confirmed running work, recent external
   activity, and recorded failures. Do not turn transcript recency into a claim
@@ -25,8 +25,9 @@ execute once; restart receipt recovery; both providers retain their existing API
 
 Verification completed: eight unit/API tests and fixture-browser checks at all four
 widths, including response-loss recovery for existing and new sessions. These use a
-fake Claude CLI and synthetic Claude/Codex session rows. Physical-device testing and
-live-provider smoke tests remain release checks; this branch is not deployed.
+fake Claude CLI and synthetic Claude/Codex session rows. Real Claude and Codex smoke tests also passed new turns, resumed turns and
+duplicate-request recovery. Physical-device and assistive-technology checks remain
+operator validation; rollout is controlled separately from the public release.
 
 ## 2. Conversation quality and interactive controls — next
 

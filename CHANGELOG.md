@@ -4,7 +4,7 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
-## [1.1.0] — Unreleased · build 20
+## [1.1.0] — 2026-10-03 · build 20
 
 - Group sessions by confirmed runs, external activity, failures, waiting and recent
   history. Filter active work and unread results; search titles and workspaces.
@@ -16,6 +16,7 @@ front-end release so browsers load fresh assets.
   reloads. Durable request receipts prevent duplicate dispatch on retry; ambiguous
   interrupted requests require conversation review before sending again.
 - Add isolated server-state configuration and fixture-based API/browser tests.
+- Revalidate the app entry page and service worker so installed clients pick up releases.
 - Settings show the semantic version alongside the browser asset build number.
 
 ## [1.0.1] — 2026-09-28 · build 19
