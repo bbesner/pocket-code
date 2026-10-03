@@ -58,3 +58,12 @@ Keep the warm charcoal/clay identity. Variance 4, motion 2, density 5. Status te
 carries meaning without relying on color or animation. Dialogs contain keyboard
 focus, close with Escape and restore focus. New toolbar targets are at least 44px.
 Delivery errors preserve the message and show recovery actions beside the composer.
+
+## Conversation workspace (1.2)
+
+Reports retain document typography with real heading levels, nested lists and
+quotes. Tables scroll in a named keyboard-focusable region without widening the
+page. Results and Queue are visible next to the session switcher; phone sheets
+use the available height, desktop sheets keep a bounded measure. New Session starts
+with the task; skill discovery inserts editable instructions, with workspace and
+agent setup below the start action. Existing color/type identity stays pinned.

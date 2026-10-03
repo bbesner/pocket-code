@@ -21,8 +21,8 @@ sit back down, and the reverse.
   lose signal, lock the phone: the turn still finishes.
 - **The same sessions everywhere.** Claude Code transcripts in `~/.claude/projects` and
   Codex threads in `~/.codex` are the only source of truth.
-- **Tiny footprint.** One Node process, two dependencies (`express`, `web-push`), no
-  build step, no database.
+- **Tiny footprint.** One Node process, no application build step, and no database.
+  Marked and DOMPurify provide the Markdown parser and browser sanitizer.
 
 ## Works great with MemStem
 
@@ -215,7 +215,7 @@ Screenshots in this README show demo projects and sessions.
 
 See [the session workspace preview](docs/session-workspace.md) and
 [the implementation plan](IMPLEMENTATION-PLAN.md) for the staged mobile/desktop
-workspace improvements. Version 1.1.0 is the first session-workspace release. Each
+workspace improvements. Version 1.2.0 adds reports, session results, saved follow-ups and skill discovery. Each
 release updates `package.json`, `package-lock.json`, the changelog and in-app notes.
 Frontend releases also increment the asset number in `public/index.html` and
 `public/sw.js`. Create the matching Git tag and GitHub release after validation and
@@ -246,5 +246,40 @@ Keep `delivery-receipts.json` with the instance's persistent data, including acr
 upgrades and rollbacks. Receipts are retained indefinitely to protect old pending
 requests. A process interruption between dispatch and saving acknowledgment is
 reported as uncertain and is never automatically dispatched again. These receipts
-prevent duplicate dispatch; they do not guarantee that a queued turn or tool action
-completes. The existing single-user trust model remains unchanged.
+prevent duplicate dispatch; they do not guarantee that a tool action completes.
+Keep `followup-queue.json` as well: it contains pending instructions. The existing single-user trust model remains unchanged.
+
+## Reports, Results and follow-ups (1.2)
+
+- Reports render tables, quotes, nested lists, checklists and headings. Tables scroll
+  horizontally inside the message on a phone. Agent-supplied HTML is escaped and
+  parsed Markdown is sanitized with [DOMPurify](https://github.com/cure53/DOMPurify),
+  following [Marked's security guidance](https://marked.js.org/using_advanced).
+- **Results** collects assistant-shared links and report paths from up to the latest
+  4,000 normalized messages, keeping the latest 200 unique references. Some Codex
+  threads have runtime paging limits. A result is a reference, not a guarantee that
+  a remote document exists or that a local file was successfully generated.
+- Supported local reports must be referenced by that session and resolve inside
+  the operator's home directory, outside hidden folders. Downloads require login
+  and use attachment disposition, a sandbox policy and no-store headers. Existing
+  external document links retain their own sharing and authentication rules.
+- **Steer now** sends to the active turn. **After this turn** saves a separate
+  follow-up. Open **Queue** to edit/remove pending text or run a paused queue.
+  Stopping or failing a turn pauses automatic drain. A later successful turn can
+  resume the backlog; after a server restart, unowned queues wait for an explicit
+  new turn or **Run next instruction**. An uncertain dispatch blocks later entries
+  until you review the conversation and remove the uncertain entry.
+- The queue stores text and options in `followup-queue.json` (private runtime data).
+  Keep it across upgrades and rollbacks, with one daemon per data directory.
+  Edits use revisions to reject stale writes; dispatched items cannot be edited.
+- **Choose a skill** searches skills installed for the selected agent/workspace.
+  Claude scans its skill/command folders; Codex uses its installed runtime's
+  `skills/list`. Choosing a skill inserts an editable instruction; it does not run
+  anything until you press Start. Discovery is not an employee permissions system.
+- Drafts and reading position stay on the current browser/device. This release
+  retains the existing unattended permission model. Interactive agent questions,
+  approval cards and employee roles remain future work.
+
+Browser libraries are pinned in package-lock.json and vendored with their licenses.
+After updating either package deliberately, run `npm run vendor`, review the diff,
+then run the Markdown security and browser tests before releasing.

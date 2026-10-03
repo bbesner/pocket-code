@@ -269,45 +269,8 @@ function toolIcon(name) {
 const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // code block with its own copy affordance — selecting text on a touchscreen is miserable
 const codeHTML = t => `<div class="codewrap"><button class="copybtn" data-copy aria-label="Copy code">${IC.copy}</button><pre><code>${esc(t)}</code></pre></div>`;
-function md(src) { // minimal, safe markdown: fences, inline code, bold, links, lists, headings
-  const out = [];
-  const lines = src.split('\n');
-  let i = 0, inFence = false, fence = [];
-  const inline = t => esc(t)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-  let list = null; // 'ul' | 'ol'
-  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
-  for (; i < lines.length; i++) {
-    const L = lines[i];
-    if (/^```/.test(L)) {
-      if (inFence) { out.push(codeHTML(fence.join('\n'))); fence = []; }
-      inFence = !inFence; continue;
-    }
-    if (inFence) { fence.push(L); continue; }
-    // inline images: markdown image syntax, or a bare local image path on its own line
-    const img = L.trim().match(/^!\[[^\]]*\]\((\S+)\)$/) || L.trim().match(/^(\/home\/\S+\.(?:png|jpe?g|gif|webp))$/i)
-      || L.trim().match(/^`(\/home\/\S+\.(?:png|jpe?g|gif|webp))`$/i);
-    if (img) {
-      closeList();
-      const src = /^https?:/.test(img[1]) ? img[1] : '/api/file?path=' + encodeURIComponent(img[1]);
-      out.push(`<a href="${esc(src)}" target="_blank" rel="noopener"><img class="genimg" src="${esc(src)}" alt="image" loading="lazy"></a>`);
-      continue;
-    }
-    const h = L.match(/^(#{1,4})\s+(.*)/);
-    const ul = L.match(/^\s*[-*]\s+(.*)/);
-    const ol = L.match(/^\s*\d+[.)]\s+(.*)/);
-    if (h) { closeList(); out.push(`<h3>${inline(h[2])}</h3>`); }
-    else if (ul) { if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; } out.push(`<li>${inline(ul[1])}</li>`); }
-    else if (ol) { if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; } out.push(`<li>${inline(ol[1])}</li>`); }
-    else if (!L.trim()) { closeList(); }
-    else { closeList(); out.push(`<p>${inline(L)}</p>`); }
-  }
-  if (inFence && fence.length) out.push(codeHTML(fence.join('\n')));
-  closeList();
-  return out.join('');
-}
+function md(src) { return PocketFormat.render(src, chatId); }
+
 function rel(ms) {
   const d = Date.now() - ms;
   if (d < 90e3) return 'just now';
@@ -529,6 +492,7 @@ function paintSessionPanels() {
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
   const current = allSessions.find(s => s.id === chatId);
   if (current && $('#chat-state')) { $('#chat-state').textContent = sessionsStale ? 'Unconfirmed' : rowState(current).label; if (!sessionsStale) markRead(chatId, current.state); }
+  const queueButton=$('#queue-open');if(queueButton)queueButton.textContent='Queue'+(current?.state?.queued?' ('+current.state.queued+')':'');
   const quick = $('#session-switch');
   if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Sessions · status unavailable' : `Sessions · ${c.running} running${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
 }
@@ -577,6 +541,62 @@ function openSessionSwitcher() {
 setInterval(() => { if (document.visibilityState === 'visible' && !document.querySelector('.login')) refreshSessions(); }, 10000);
 window.addEventListener('offline', () => { sessionsStale = true; paintSessionPanels(); setConnection('Offline. Your draft is kept on this device.'); });
 window.addEventListener('online', () => { refreshSessions(); if (chatId) openES(); });
+
+/* ---------- saved follow-ups ---------- */
+async function openQueue(id) {
+  const scrim=document.createElement('div');scrim.className='scrim';
+  const sh=document.createElement('div');sh.className='sheet queue-sheet';
+  sh.innerHTML='<h2>Queued instructions</h2><p class="sheet-help">Each saved instruction runs as a separate turn. Stopping the current turn pauses the queue.</p><button class="chip" id="queue-refresh">Refresh</button><div id="queue-items" role="status">Loading queue…</div>';
+  mountSheet(scrim,sh);
+  const load=async()=>{
+    try{
+      const d=await api('/session/'+encodeURIComponent(id)+'/queue');if(!sh.isConnected)return;
+      const target=sh.querySelector('#queue-items');
+      target.innerHTML=d.items.length?d.items.map((r,i)=>`<article class="queue-item"><div class="result-detail">${i+1} · ${r.status==='pending'?(d.active?'After the current turn':'Paused'):r.status==='dispatching'?'Starting…':'Needs review'}</div><p>${esc(r.text)}</p>${r.error?`<p class="sheet-help">${esc(r.error)}</p>`:''}<div class="queue-actions">${r.status==='pending'?`<button class="chip" data-edit="${r.id}">Edit</button>`:''}${r.status!=='dispatching'?`<button class="chip" data-remove="${r.id}">Remove</button>`:''}</div></article>`).join(''):'<p class="empty">No queued instructions. While the agent works, choose After this turn before sending.</p>';
+      if(d.items[0]?.status==='pending'&&!d.active)target.insertAdjacentHTML('beforeend',`<button class="primary" id="queue-start" ${d.external?'disabled':''}>Run next instruction</button>${d.external?'<p class="sheet-help">Recent activity was seen elsewhere. Refresh after that turn finishes.</p>':''}`);
+      target.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{const r=d.items.find(x=>x.id===b.dataset.remove);b.disabled=true;
+        try{await api('/session/'+id+'/queue/'+r.id,{method:'DELETE',body:JSON.stringify({revision:r.revision})});await load();refreshSessions();}catch(e){toast(e.message);b.disabled=false;}
+      });
+      target.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
+        const r=d.items.find(x=>x.id===b.dataset.edit),article=b.closest('article');
+        article.innerHTML='<label class="sheet-help">Queued instruction<textarea class="queue-editor" aria-label="Edit queued instruction"></textarea></label><div class="queue-actions"><button class="chip" data-save>Save changes</button><button class="chip" data-cancel>Cancel</button></div>';
+        const input=article.querySelector('textarea');input.value=r.text;input.focus();
+        article.querySelector('[data-cancel]').onclick=load;
+        article.querySelector('[data-save]').onclick=async e=>{e.currentTarget.disabled=true;try{await api('/session/'+id+'/queue/'+r.id,{method:'PATCH',body:JSON.stringify({text:input.value,revision:r.revision})});await load();}catch(err){toast(err.message);e.target.disabled=false;}};
+      });
+      const start=target.querySelector('#queue-start');if(start)start.onclick=async()=>{start.disabled=true;
+        try{await api('/session/'+id+'/queue/start',{method:'POST',body:JSON.stringify({itemId:d.items[0].id})});closeCurrentSheet?.();if(chatId===id)renderChat(id);}
+        catch(e){toast(e.message);await load();}
+      };
+    }catch(e){if(sh.isConnected)sh.querySelector('#queue-items').textContent=e.message;}
+  };
+  sh.querySelector('#queue-refresh').onclick=load;await load();
+}
+
+/* ---------- session results ---------- */
+async function openResults(id) {
+  const scrim=document.createElement('div');scrim.className='scrim';
+  const sh=document.createElement('div');sh.className='sheet results-sheet';
+  sh.innerHTML='<h2>Results & links</h2><p class="sheet-help">Reports, files and links shared in this conversation.</p><div class="results-tools"><input type="search" id="result-query" placeholder="Find a result" aria-label="Find a result"><button class="chip" id="result-refresh">Refresh</button></div><div id="result-list" role="status">Loading results…</div>';
+  mountSheet(scrim,sh);let data={results:[]};
+  const paint=()=>{
+    const q=sh.querySelector('#result-query').value.trim().toLowerCase();
+    const rows=data.results.filter(r=>(r.label+' '+r.detail+' '+r.target).toLowerCase().includes(q));
+    sh.querySelector('#result-list').innerHTML=rows.map(r=>{
+      const href=r.kind==='file'?'/api/session/'+encodeURIComponent(id)+'/artifact?path='+encodeURIComponent(r.target):PocketFormat.href(r.target);
+      if(!href)return '';
+      return `<article class="result-row"><a href="${esc(href)}" target="_blank" rel="noopener noreferrer"><span class="result-name">${esc(r.label)}</span><span class="result-detail">${esc(r.detail)}${r.at?' · '+esc(rel(new Date(r.at).getTime())):''}${r.kind==='file'?' · Download':''}</span></a><button class="chip result-copy" data-url="${esc(r.kind==='file'?new URL(href,location.origin).href:r.target)}" aria-label="Copy link for ${esc(r.label)}">Copy link</button></article>`;
+    }).join('') || `<p class="empty">${q?'No matching results.':'No results linked yet. Ask the agent to share a report or file link.'}</p>`;
+    if(data.truncated||data.limited)sh.querySelector('#result-list').insertAdjacentHTML('beforeend','<p class="sheet-help">Showing recent references. Older results may still be in the conversation.</p>');
+    sh.querySelectorAll('.result-copy').forEach(b=>b.onclick=()=>copyText(b.dataset.url,b));
+  };
+  const load=async()=>{const b=sh.querySelector('#result-refresh');b.disabled=true;
+    try {data=await api('/session/'+encodeURIComponent(id)+'/results');if(sh.isConnected)paint();}
+    catch(e){if(sh.isConnected)sh.querySelector('#result-list').innerHTML=`<p class="sheet-help">${esc(e.message)}</p>`;}
+    finally{b.disabled=false;}
+  };
+  sh.querySelector('#result-query').oninput=paint;sh.querySelector('#result-refresh').onclick=load;await load();
+}
 
 /* ---------- chat ---------- */
 let chatRenderVersion = 0;
@@ -814,6 +834,14 @@ function chime() {
 }
 
 /* ---------- composer drafts (Android kills backgrounded PWAs mid-sentence) ---------- */
+const readingPositions = (()=>{try{return JSON.parse(localStorage.getItem('pc-reading')||'{}');}catch{return {};}})();
+let readingTimer;
+function rememberReading() {
+  const m=$('#msgs')?.closest('main.scroll');if(!m||!chatId)return;
+  readingPositions[chatId]={top:m.scrollTop,bottom:m.scrollHeight-m.scrollTop-m.clientHeight<100};
+  const keys=Object.keys(readingPositions);if(keys.length>80)delete readingPositions[keys[0]];
+  try{localStorage.setItem('pc-reading',JSON.stringify(readingPositions));}catch{}
+}
 const draftKey = id => 'pc-draft-' + (id || 'new');
 const saveDraft = (id, v) => { try { v.trim() ? localStorage.setItem(draftKey(id), v) : localStorage.removeItem(draftKey(id)); } catch { } };
 const loadDraft = id => { try { return localStorage.getItem(draftKey(id)) || ''; } catch { return ''; } };
@@ -868,7 +896,7 @@ function extPulse() { // ember while another surface (code-server) drives this s
 
 async function renderChat(id) {
   const renderVersion = ++chatRenderVersion;
-  stashAttachments();
+  stashAttachments();rememberReading();
   chatId = id; closeES();
   fmarks = []; fidx = -1; // marks from the previous render are gone with the DOM
   const chatCol = `
@@ -881,7 +909,7 @@ async function renderChat(id) {
       <button class="icon" id="findb" aria-label="Find in conversation">${IC.search}</button>
       <button class="icon" id="chatmore" aria-label="Session options">${IC.more}</button>
     </header>
-    <div class="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span></div>
+    <div class="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button></div>
     <p id="connection-state" class="connection-state" role="status" hidden></p>
     <div class="findbar" id="findbar" hidden>
       <input type="search" id="fq" placeholder="Find in conversation" autocomplete="off" enterkeyhint="search">
@@ -897,6 +925,8 @@ async function renderChat(id) {
   wireShell();
   $('#back').onclick = () => { location.hash = '#/'; };
   $('#session-switch').onclick = openSessionSwitcher;
+  $('#results-open').onclick = () => openResults(chatId);
+  $('#queue-open').onclick = () => openQueue(chatId);
   $('#chgb').onclick = () => openChanges();
   $('#findb').onclick = () => findOpen(!findIsOpen());
   $('#fq').oninput = e => { findRun(e.target.value); findDeep(e.target.value.trim()); };
@@ -931,14 +961,16 @@ async function renderChat(id) {
   (isCx ? loadCodexModels() : loadClaudeModels()).then(renderToolbar);
   chatMuted = Boolean(s.muted);
   chatCmds = null;
-  api('/commands?cwd=' + encodeURIComponent(s.cwd || '')).then(r => { chatCmds = r.commands; }).catch(() => { });
+  api('/commands?provider=' + (isCx?'codex':'claude') + '&cwd=' + encodeURIComponent(s.cwd || '')).then(r => { chatCmds = r.commands; }).catch(() => { });
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const msgs = $('#msgs');
   msgs.innerHTML = s.messages.map(msgHTML).join('');
   openLastTodo();
   if (lastMeta && lastMeta.id === id) { msgs.insertAdjacentHTML('beforeend', lastMeta.html); lastMeta = null; }
-  scrollBottom(true);
   setComposer(s.active);
+  const reading=readingPositions[id],scroller=msgs.closest('main.scroll');
+  if(reading&&!reading.bottom)scroller.scrollTop=reading.top;else scrollBottom(true);
+  scroller.addEventListener('scroll',()=>{clearTimeout(readingTimer);readingTimer=setTimeout(rememberReading,200);},{passive:true});
   if (s.ext && !s.active) extPulse();
   paintDelivery(id); refreshSessions();
   openES(); // always: daemon turns stream events, idle sessions mirror the transcript live
@@ -962,11 +994,14 @@ function slashUpdate(box) {
   panel.innerHTML = hits.map(c => `
     <button data-n="${esc(c.name)}"><span class="cmd">/${esc(c.name)}</span>${c.desc ? `<span class="d">${esc(c.desc)}</span>` : ''}</button>`).join('');
   panel.querySelectorAll('button').forEach(b => b.onclick = () => {
-    box.value = '/' + b.dataset.n + ' '; panel.hidden = true; box.focus();
+    const skill=chatCmds.find(s=>s.name===b.dataset.n);
+    box.value = (tb?.provider==='codex'?(skill?.invocation||'Use the $'+b.dataset.n+' skill.'):'/'+b.dataset.n)+' ';
+    saveDraft(chatId,box.value);panel.hidden = true; box.focus();
   });
   panel.hidden = false;
 }
 
+const sendModes = new Map();
 let composerWorking = false;
 function setComposer(working) {
   const c = $('#comp'); if (!c) return;
@@ -975,10 +1010,11 @@ function setComposer(working) {
   const p = $('#slash'); if (p) p.hidden = true;
   c.innerHTML = `
     ${working ? `
-      <div class="workrow"><span class="ember"></span><span>Working — messages steer the turn</span>
+      <div class="workrow"><span class="ember"></span><span>Working</span>
         <button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>
         <button class="chip stopchip" id="stopb" aria-label="Stop this turn">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
+    ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer">Steer now</button><button data-mode="queue">After this turn</button></div>' : ''}
     <textarea id="box" rows="1" placeholder="${working ? 'Steer this turn…' : 'Message this session…'}" enterkeyhint="send"></textarea>
     <button class="send" id="send" aria-label="Send">${IC.up}</button>`;
   if (working) {
@@ -990,6 +1026,9 @@ function setComposer(working) {
   } else {
     renderToolbar();
   }
+  const modeButtons=c.querySelectorAll('[data-mode]');
+  const paintMode=()=>modeButtons.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===(sendModes.get(chatId)||'steer'))));
+  modeButtons.forEach(b=>b.onclick=()=>{sendModes.set(chatId,b.dataset.mode);paintMode();$('#box').placeholder=b.dataset.mode==='queue'?'Run this after the current turn…':'Steer this turn…';});paintMode();
   const box = $('#box');
   const grow = () => { box.style.height = 'auto'; box.style.height = Math.min(box.scrollHeight, innerHeight * .4) + 'px'; };
   const draft = loadOutbox(chatId)?.text || loadDraft(chatId);
@@ -1034,13 +1073,13 @@ function paintDelivery(id = chatId) {
   } else el.textContent = notice || '';
   const box = $('#box'), send = $('#send');
   if (box) box.readOnly = Boolean(pending);
-  document.querySelectorAll('#c-att,#c-model,#c-eff,#attrow button').forEach(b => { b.disabled = Boolean(pending); });
+  document.querySelectorAll('#c-att,#c-model,#c-eff,#attrow button,[data-mode]').forEach(b => { b.disabled = Boolean(pending); });
   if (send) { send.disabled = Boolean(pending); send.setAttribute('aria-label', pending ? 'Resolve pending delivery first' : 'Send'); }
 }
 async function sendMsg(text) {
   text = text.trim(); const id = chatId;
   if (!text || !id || sendsInFlight.has(id) || loadOutbox(id)) return;
-  const opts = composerWorking ? {} : turnOpts();
+  const opts = composerWorking ? {mode:sendModes.get(id)||'steer'} : turnOpts();
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
     files: composerWorking ? [] : [...(tb?.attachments || [])], createdAt: Date.now() };
   try { saveDraft(id, text); saveOutbox(id, pending); }
@@ -1056,7 +1095,7 @@ async function submitPending(id) {
     const result = await api(`/session/${id}/message`, { method: 'POST', body: JSON.stringify({ text: pending.text, ...pending.opts, clientMessageId: pending.clientMessageId }) });
     saveOutbox(id, null); clearDraft(id);
     if (pending.files.length) localStorage.removeItem('pc-attachments-' + id);
-    deliveryNotices.set(id, result.queued ? 'Queued after the current turn.' : result.steered ? 'Sent to the running turn.' : 'Sent. Work continues on the server.');
+    deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current turn.' : result.steered ? 'Sent to the running turn.' : 'Sent. Work continues on the server.');
     if (chatId === id) {
       if (tb?.key === id && pending.files.length) tb.attachments = [];
       const box = $('#box'); if (box) box.value = '';
@@ -1136,13 +1175,35 @@ function openES() {
 
 /* resync when the phone comes back — the turn kept running server-side */
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
+  if (document.visibilityState !== 'visible') {rememberReading();return;}
   if (location.hash.startsWith('#/chat/') && chatId) renderChat(chatId);
   else if (location.hash === '' || location.hash === '#/') renderList();
 });
 
+/* ---------- discover existing agent skills ---------- */
+async function openSkills(provider,cwd,box) {
+  const scrim=document.createElement('div');scrim.className='scrim';
+  const sh=document.createElement('div');sh.className='sheet skills-sheet';
+  sh.innerHTML='<h2>Choose a skill</h2><p class="sheet-help">Choose a starting point, then add your instructions before sending.</p><input class="skill-search" type="search" aria-label="Search skills" placeholder="Search skills and tasks"><div class="skill-list" role="status">Loading installed skills…</div>';
+  mountSheet(scrim,sh);let skills=[];
+  const paint=()=>{
+    const q=sh.querySelector('input').value.toLowerCase().trim();
+    const hits=skills.filter(s=>(s.name+' '+(s.label||'')+' '+s.desc).toLowerCase().includes(q));
+    sh.querySelector('.skill-list').innerHTML=hits.map((s,i)=>`<button class="skill-choice" data-skill="${i}"><span>${esc(s.label||s.name.replace(/[-_]/g,' '))}</span><span class="skill-description">${esc(s.desc||s.name)}</span></button>`).join('')||'<p class="empty">No matching skills. You can still describe your task directly.</p>';
+    sh.querySelectorAll('[data-skill]').forEach(b=>b.onclick=()=>{
+      const s=hits[Number(b.dataset.skill)];closeCurrentSheet?.();if(!box.isConnected)return;
+      box.value=(s.invocation || (provider==='codex'?'Use the $'+s.name+' skill.':'Use the /'+s.name+' skill.'))+'\n\n'+box.value;
+      box.dispatchEvent(new Event('input',{bubbles:true}));box.focus();box.setSelectionRange(box.value.length,box.value.length);
+    });
+  };
+  sh.querySelector('input').oninput=paint;
+  try{const d=await api('/commands?provider='+provider+'&cwd='+encodeURIComponent(cwd));if(!sh.isConnected)return;skills=d.commands||[];paint();if(d.warning)sh.querySelector('.sheet-help').textContent=d.warning;}
+  catch(e){if(sh.isConnected)sh.querySelector('.skill-list').textContent=e.message;}
+}
+
 /* ---------- new session ---------- */
 async function renderNew() {
+  const viewVersion=++chatRenderVersion;
   const pendingNew = loadOutbox('new');
   const col = `
     <header class="bar">
@@ -1150,17 +1211,20 @@ async function renderNew() {
       <h1>New session</h1>
     </header>
     <div id="new-delivery" class="delivery-status" role="status" hidden></div>
-    <main class="scroll"><div class="pane">
+    <main class="scroll"><div class="pane task-pane">
+      <div><label class="task-heading" for="first">What would you like done?</label><textarea id="first" placeholder="Describe the task, or choose a skill below."></textarea></div>
+      <div class="task-actions"><button class="chip" id="choose-skill">Choose a skill</button><button class="chip" id="choose-workspace">Choose workspace</button></div>
+      <p class="task-context" id="task-context"></p>
+      <div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>
+      <button class="primary" id="start">Start session</button>
+      <details id="new-setup"><summary>Workspace & agent settings</summary><div class="setup-fields">
       <div><span class="h" id="agenth">Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth">
         <button class="row" role="radio" aria-checked="false" data-a="claude"><span class="dot"></span>${IC.term}<span class="p">Claude Code</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="codex"><span class="dot"></span>${IC.term}<span class="p">Codex</span></button>
       </div></div>
       <div><span class="h" id="projh">Project</span><div class="projlist" id="plist" role="radiogroup" aria-labelledby="projh"><div class="empty">Loading…</div></div></div>
       <div><label class="h" for="cpath">Or a custom path</label><input type="text" id="cpath" placeholder="/full/path/to/project" autocapitalize="off" autocorrect="off"></div>
-      <div><label class="h" for="first">First message</label><textarea id="first" placeholder="What should Claude work on?"></textarea></div>
-      <div class="toolbar" id="tbar"></div>
-      <div class="attachrow" id="attrow"></div>
-      <button class="primary" id="start">Start session</button>
+      </div></details>
     </div></main>`;
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
@@ -1169,6 +1233,11 @@ async function renderNew() {
   renderToolbar();
   // which agent runs this session — remembered, since most days you stay on one
   let provider = pendingNew?.payload.provider || (localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude');
+  let sel = null;
+  const context = () => {const cwd=$('#cpath')?.value.trim()||sel;const el=$('#task-context');if(el)el.textContent=(cwd?projName(cwd):'Choose a workspace before starting')+' · '+(provider==='codex'?'Codex':'Claude Code');};
+  $('#choose-workspace').onclick=()=>{$('#new-setup').open=true;$('#new-setup').scrollIntoView({block:'start'});};
+  $('#cpath').oninput=context;
+  $('#choose-skill').onclick=()=>openSkills(provider,$('#cpath').value.trim()||sel||'', $('#first'));
   const ap = $('#apick');
   const pickAgent = a => {
     provider = a;
@@ -1181,7 +1250,7 @@ async function renderNew() {
     const fm = $('#first');
     if (fm) fm.placeholder = a === 'codex' ? 'What should Codex work on?' : 'What should Claude work on?';
     renderToolbar();
-    (a === 'codex' ? loadCodexModels() : loadClaudeModels()).then(renderToolbar);
+    (a === 'codex' ? loadCodexModels() : loadClaudeModels()).then(renderToolbar);context();
   };
   ap.querySelectorAll('.row').forEach(r => r.onclick = () => pickAgent(r.dataset.a));
   pickAgent(provider);
@@ -1189,18 +1258,18 @@ async function renderNew() {
   const first = $('#first');
   first.value = pendingNew?.payload.text || loadDraft('new');
   first.oninput = () => saveDraft('new', first.value);
-  let sel = null;
   try {
     const { projects } = await api('/projects');
+    if(viewVersion!==chatRenderVersion)return;
     const pl = $('#plist');
     pl.innerHTML = projects.slice(0, 10).map((p, i) => `
       <button class="row" role="radio" aria-checked="false" data-p="${esc(p)}">
-        <span class="dot"></span>${IC.folder}<span class="p">${esc(projShort(p))}</span>
+        <span class="dot"></span>${IC.folder}<span class="p">${esc(projName(p))}<span class="workspace-path">${esc(projShort(p))}</span></span>
       </button>`).join('');
     const pick = r => {
       pl.querySelectorAll('.row').forEach(x => { x.classList.remove('sel'); x.setAttribute('aria-checked', 'false'); });
       r.classList.add('sel'); r.setAttribute('aria-checked', 'true');
-      sel = r.dataset.p; $('#cpath').value = '';
+      sel = r.dataset.p; $('#cpath').value = '';context();
     };
     pl.querySelectorAll('.row').forEach(r => r.onclick = () => pick(r));
     // preselect where you last started a session — most people work out of one root
@@ -1208,7 +1277,8 @@ async function renderNew() {
     const lastRow = last && pl.querySelector(`.row[data-p="${CSS.escape(last)}"]`);
     if (lastRow) pick(lastRow);
   } catch { }
-  if (pendingNew) $('#cpath').value = pendingNew.payload.cwd;
+  if(viewVersion!==chatRenderVersion)return;
+  if (pendingNew) $('#cpath').value = pendingNew.payload.cwd;context();
   const paintNewDelivery = () => {
     const pending = loadOutbox('new'), note = $('#new-delivery');
     if (!note) return;
@@ -1224,7 +1294,7 @@ async function renderNew() {
     const savedStart = loadOutbox('new');
     const cwd = savedStart?.payload.cwd || $('#cpath').value.trim() || sel;
     const text = savedStart?.payload.text || $('#first').value.trim();
-    if (!cwd) return toast('Pick a project or enter a path');
+    if (!cwd) {$('#new-setup').open=true;$('#new-setup').scrollIntoView({block:'start'});return toast('Choose a workspace or enter its path');}
     if (!text) return toast('Write the first message');
     $('#start').disabled = true; $('#start').textContent = 'Starting…';
     try {
@@ -1247,7 +1317,7 @@ async function renderNew() {
 
 /* ---------- router ---------- */
 async function route() {
-  stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
+  rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
   try { await api('/me'); } catch { return; } // renders login on 401
   const h = location.hash;
