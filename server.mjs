@@ -15,6 +15,8 @@ import readline from 'node:readline';
 import * as codex from './codex.mjs';
 import { DeliveryReceipts, withDeliveryReceipt } from './delivery.mjs';
 import { sessionState, prioritizeSessions } from './session-state.mjs';
+import { collectResults } from './results.mjs';
+import { FollowupQueue } from './queue.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -27,6 +29,7 @@ const PROJECTS_ROOT = process.env.POCKET_SESSION_ROOT || path.join(HOME, '.claud
 const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const deliveryReceipts = new DeliveryReceipts(path.join(DATA_DIR, 'delivery-receipts.json'));
+const followups = new FollowupQueue(path.join(DATA_DIR, 'followup-queue.json'));
 const PORT = Number(process.env.PORT || 3610);
 const PASSWORD = process.env.POCKET_PASSWORD;
 const SECRET = process.env.POCKET_SECRET;
@@ -270,7 +273,7 @@ async function listSessions(limit = 60) {
   // overshoot the limit: hygiene below drops noise rows and collapses duplicates
   const sorted = stats.filter(Boolean).sort((a, b) => b.mtimeMs - a.mtimeMs);
   const recent = sorted.slice(0, Math.min(limit * 2, 400));
-  for (const x of sorted.slice(recent.length)) if (isPinned(x.id) || turns.has(x.id) || extActive(x.id)) recent.push(x); // pins never age out
+  for (const x of sorted.slice(recent.length)) if (isPinned(x.id) || turns.has(x.id) || extActive(x.id) || followups.list(x.id).length) recent.push(x); // pins never age out
   // read metadata 8 files at a time — a cold cache (every restart) meant up to 400 serial
   // head/tail reads; the dedupe walk below is order-dependent, the reads aren't
   const metas = new Array(recent.length);
@@ -762,7 +765,7 @@ function finalizeTurn(sessionId, turn, code) {
   }
   // rate-limit auto-continue: schedule a resume for just after the reset
   let retryAt = null;
-  if (!turn.stopped && !turn.queue.length && (turn.retryAttempt || 0) < RETRY_MAX_ATTEMPTS) {
+  if (!turn.stopped && !followups.list(sessionId).length && (turn.retryAttempt || 0) < RETRY_MAX_ATTEMPTS) {
     const failed = turn.events.find(e => e.type === 'result' && !e.ok);
     if (failed) {
       const rl = detectRateLimit(`${failed.error || ''} ${stderrTail}`);
@@ -776,18 +779,10 @@ function finalizeTurn(sessionId, turn, code) {
   turns.delete(sessionId);
   try { fs.unlinkSync(turn.files.meta); } catch { }
   if (retryAt) scheduleRetry(sessionId, turn, retryAt); // after turns.delete — cancelRetry in startTurn
-  // queued follow-ups run as the next turn; notify only when everything is finished
-  if (turn.queue.length && !turn.stopped) {
-    const q = turn.queue;
-    try {
-      startTurn({
-        sessionId, cwd: turn.cwd, resume: true,
-        text: q.map(x => x.text).join('\n\n'),
-        model: q[q.length - 1].model, effort: q[q.length - 1].effort,
-        attachments: q.flatMap(x => x.attachments || []),
-      });
-      return;
-    } catch (e) { log(`queued turn failed to start session=${sessionId}: ${e.message}`); }
+  // Drain one saved follow-up at a time; each entry gets its own turn.
+  if (!turn.stopped && [...turn.events].reverse().find(e=>e.type==='result')?.ok && followups.list(sessionId)[0]?.status === 'pending') {
+    runNextFollowup(sessionId, turn.cwd).catch(e => log(`queue start failed session=${sessionId}: ${e.message}`));
+    return;
   }
   if (!watching && !turn.stopped) {
     const result = turn.events.find(e => e.type === 'result');
@@ -906,8 +901,11 @@ function stateFor(s) {
   if (!cx && retryTimers.has(s.id)) {
     try { retryAt = JSON.parse(fs.readFileSync(turnFiles(s.id).retry, 'utf8')).at; } catch { }
   }
-  return sessionState({ turn, external: cx ? codex.codexExtActive(codex.bareId(s.id)) : extActive(s.id),
-    retryAt, outcome: smeta[s.id]?.outcome, mtimeMs: s.mtimeMs });
+  const queue=followups.list(s.id);
+  const state=sessionState({ turn: turn ? {...turn,queue} : null, external: cx ? codex.codexExtActive(codex.bareId(s.id)) : extActive(s.id),
+    retryAt, outcome: smeta[s.id]?.outcome, mtimeMs:s.mtimeMs });
+  if(queue.length&&!turn && state.kind!=='failed')return {kind:'waiting',label:queue[0].status==='uncertain'?'Queue needs review':'Queue paused',queued:queue.length,confirmed:true};
+  return {...state,...(queue.length?{queued:queue.length}:{})};
 }
 function recordOutcome(id, turn, result, retryAt = null) {
   const kind = retryAt ? 'waiting' : turn.stopped ? 'stopped' : result?.ok ? 'finished' : result ? 'failed' : 'ended';
@@ -932,6 +930,12 @@ async function listAllSessions(limit) {
   const owned = [...turns.entries(), ...[...codex.codexTurns].map(([id, t]) => [codex.CX + id, t])];
   for (const [id, t] of owned) if (!known.has(id)) rows.push({ id, title: smeta[id]?.name || t.userText?.slice(0,120) || 'New session',
     cwd: t.cwd, provider: codex.isCodexId(id) ? 'codex' : 'claude', active: true, mtimeMs: t.startedAt, pinned: isPinned(id) });
+  for(const id of new Set(followups.rows.map(r=>r.sessionId))){
+    if(rows.some(s=>s.id===id))continue;
+    const file=!isCx(id)?await findSessionFile(id):null;
+    const meta=isCx(id)?await codex.codexThreadMeta(codex.bareId(id)).catch(()=>null):file?await sessionMeta(file,id):null;
+    rows.push({...meta,id,provider:isCx(id)?'codex':'claude',title:smeta[id]?.name||meta?.title||'Queued session',mtimeMs:meta?.mtimeMs||followups.list(id)[0].createdAt});
+  }
   rows = rows.map(s => ({ ...s, state: stateFor(s) })).sort((a,b) => b.mtimeMs-a.mtimeMs);
   const result = prioritizeSessions(rows, limit);
   result.warnings = warnings;
@@ -995,6 +999,47 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
   res.json({ ...meta, state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), messages, total });
 });
 
+// Extract references from assistant messages on demand; no second document store.
+const resultCache = new Map();
+async function sessionResults(id) {
+  const cached = resultCache.get(id);
+  if (cached && Date.now() - cached.at < 5000) return cached.value;
+  let transcript;
+  if (isCx(id)) transcript = await codex.readCodexThread(codex.bareId(id), 4000);
+  else {
+    const file = await findSessionFile(id);
+    if (!file) throw Object.assign(new Error('Session not found'), {status:404});
+    transcript = await readTranscript(file, 4000);
+  }
+  const refs = collectResults(transcript.msgs);
+  const value = { ...refs, truncated: transcript.total > transcript.msgs.length,
+    scannedMessages: transcript.msgs.length };
+  resultCache.set(id, {at:Date.now(),value});
+  if(resultCache.size > 40) resultCache.delete(resultCache.keys().next().value);
+  return value;
+}
+app.get('/api/session/:id/results', requireAuth, async (req,res) => {
+  if(!anyId(req.params.id)) return res.status(400).json({error:'Invalid session'});
+  try { res.json(await sessionResults(req.params.id)); }
+  catch(e) { res.status(e.status || 503).json({error:e.status===404 ? e.message : 'Results could not be loaded. Try again.'}); }
+});
+app.get('/api/session/:id/artifact', requireAuth, async (req,res) => {
+  if(!anyId(req.params.id)) return res.status(400).json({error:'Invalid session'});
+  const requested=String(req.query.path || '');
+  try {
+    const {results}=await sessionResults(req.params.id);
+    if(!results.some(r=>r.kind==='file'&&r.target===requested))return res.status(403).json({error:'This file is not a result referenced by the session.'});
+    const real=await fsp.realpath(requested);
+    if(!real.startsWith(HOME+'/')||real.slice(HOME.length+1).split('/').some(p=>p.startsWith('.')))return res.status(403).json({error:'File is outside the supported report location.'});
+    const stat=await fsp.stat(real);if(!stat.isFile())return res.status(404).end();
+    res.setHeader('Cache-Control','private, no-store');
+    res.setHeader('X-Content-Type-Options','nosniff');
+    res.setHeader('Content-Security-Policy',"sandbox; default-src 'none'");
+    // HTML and other active documents must never execute under the app origin.
+    res.download(real,path.basename(requested),err=>{if(err&&!res.headersSent)res.status(404).end();});
+  }catch(e){res.status(e.code==='ENOENT'||e.status===404?404:503).json({error:'This result is not available. It may have moved or been removed.'});}
+});
+
 // read-only "what did it do to my code": every Edit/Write with real before/after
 app.get('/api/session/:id/changes', requireAuth, async (req, res) => {
   // Codex records edits as unified diff hunks, not before/after pairs — the view can't
@@ -1037,25 +1082,46 @@ function turnOpts(body) {
 // run whatever was queued while it worked) mirror the Claude side's finalizeTurn.
 async function codexTurnFinished(id, turn, ev) {
   recordOutcome(id, turn, ev);
-  const next = turn.queue.shift();
-  if (!mutes.has(id) && !next) {
-    const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
-    const last = [...turn.events].reverse().find(e => e.type === 'assistant');
-    const body = last?.msg?.blocks?.filter(b => b.t === 'text').map(b => b.text).join(' ').slice(0, 160)
-      || (ev.ok ? 'Turn finished' : `Turn failed: ${ev.error || ''}`);
-    pushNotify(id, meta?.title || 'Codex session', body);
+  if (!turn.stopped && ev.ok && followups.list(id)[0]?.status === 'pending') {
+    // Let the previous app-server release its writer lock before resuming.
+    await new Promise(resolve=>setTimeout(resolve,600));
+    if(ownedTurn(id))return;
+    await runNextFollowup(id, turn.cwd).catch(e => log(`codex queue start failed thread=${id}: ${e.message}`));
+    return;
   }
-  if (next) {
-    try {
-      const t = await codex.startCodexTurn({
-        threadId: codex.bareId(id), text: next.text, model: next.model, effort: next.effort,
-        attachments: next.attachments, onFinish: (e, nt) => codexTurnFinished(id, nt, e),
-      });
-      t.queue = turn.queue; // carry the rest of the backlog forward
-      log(`codex queued message started thread=${id}`);
-    } catch (e) { log(`codex queue drain failed thread=${id}: ${e.message}`); }
+  if (!mutes.has(id)) {
+    const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
+    pushNotify(id, meta?.title || 'Codex session', ev.ok ? 'Response ready' : 'Turn ended — tap to review').catch(() => {});
   }
 }
+async function runNextFollowup(id, cwd) {
+  return followups.dispatch(id, async row => {
+    if (isCx(id)) return startCodexFromApi({id,threadId:codex.bareId(id),cwd,text:row.text,body:row});
+    const file=await findSessionFile(id);
+    const meta=file?await sessionMeta(file,id):null;
+    return startTurn({sessionId:id,cwd:cwd||meta?.cwd||HOME,text:row.text,resume:true,...turnOpts(row)});
+  });
+}
+function ownedTurn(id){return isCx(id)?codex.codexTurns.get(codex.bareId(id)):turns.get(id);}
+function queueError(res,e){return res.status(e.status||503).json({error:e.status?e.message:'Queue could not be saved. Refresh and try again.'});}
+app.get('/api/session/:id/queue',requireAuth,(req,res)=>{
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
+  const id=req.params.id;
+  res.json({items:followups.list(id),active:Boolean(ownedTurn(id)),external:isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)});
+});
+app.patch('/api/session/:id/queue/:item',requireAuth,(req,res)=>{
+  const text=String(req.body.text||'').trim();if(!text||text.length>100000)return res.status(400).json({error:'Enter a message under 100,000 characters.'});
+  try {res.json({item:followups.edit(req.params.id,req.params.item,req.body.revision,text)});}catch(e){queueError(res,e);}
+});
+app.delete('/api/session/:id/queue/:item',requireAuth,(req,res)=>{
+  try {followups.remove(req.params.id,req.params.item,req.body.revision);res.json({ok:true});}catch(e){queueError(res,e);}
+});
+app.post('/api/session/:id/queue/start',requireAuth,async(req,res)=>{
+  const id=req.params.id;if(!anyId(id))return res.status(400).json({error:'Invalid session'});
+  if(ownedTurn(id)|| (isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)))return res.status(409).json({error:'A turn is running or activity was seen elsewhere. Wait before starting queued work.'});
+  if(followups.list(id)[0]?.id!==req.body.itemId)return res.status(409).json({error:'The queue changed. Refresh before starting the next message.'});
+  try {const started=await runNextFollowup(id);res.json({ok:true,started:Boolean(started)});}catch(e){queueError(res,e);}
+});
 
 async function startCodexFromApi({ id, threadId, cwd, text, body }) {
   const opts = turnOpts(body);
@@ -1069,20 +1135,30 @@ async function startCodexFromApi({ id, threadId, cwd, text, body }) {
 
 app.post('/api/session/:id/message', requireAuth, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const id = req.params.id;
+  if(!anyId(id))return res.status(400).json({error:'Invalid session'});
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
+  const mode=req.body.mode || 'auto';
+  if(!['auto','steer','queue'].includes(mode))return res.status(400).json({error:'Invalid delivery mode'});
+  if(mode==='steer'&&!ownedTurn(id))return res.status(409).json({error:'The turn has ended. Review the conversation, then send a new message.'});
+  if(mode==='queue'&&!ownedTurn(id)){
+    if(isCx(id)?!await codex.codexThreadMeta(codex.bareId(id)):!await findSessionFile(id))return res.status(404).json({error:'Session not found'});
+    try{const item=followups.add(id,{text,...turnOpts(req.body)});return res.status(202).json({ok:true,queued:true,paused:true,itemId:item.id});}
+    catch(e){return queueError(res,e);}
+  }
   if (isCx(id)) {
     const tid = codex.bareId(id);
     const running = codex.codexTurns.get(tid);
     if (running) {
       const opts = turnOpts(req.body);
-      if (codex.steerCodexTurn(tid, promptText(text, opts.attachments))) {
+      try { if (mode !== 'queue' && await codex.steerCodexTurn(tid, promptText(text, opts.attachments))) {
         log(`steered message into running codex turn thread=${tid}`);
         return res.status(202).json({ ok: true, steered: true });
-      }
-      if (running.queue.length >= 10) return res.status(429).json({ error: 'queue full' });
-      running.queue.push({ text, ...opts });
-      return res.status(202).json({ ok: true, queued: true });
+      } } catch {return res.status(503).json({error:'Steering was not confirmed. Review the conversation before sending again.',code:'delivery_uncertain'});}
+      if(mode==='steer')return res.status(409).json({error:'This turn cannot accept steering now. Choose After this turn to queue it.'});
+      try {const item=followups.add(id,{text,...opts});return res.status(202).json({ok:true,queued:true,itemId:item.id});}
+      catch(e){return queueError(res,e);}
+
     }
     try {
       await startCodexFromApi({ id, threadId: tid, text, body: req.body });
@@ -1100,15 +1176,15 @@ app.post('/api/session/:id/message', requireAuth, withDeliveryReceipt(deliveryRe
     const opts = turnOpts(req.body);
     // steer first: inject into the running turn (model sees it at the next boundary);
     // fall back to the queue for adopted turns (no stdin) or a just-closed pipe
-    if (steerTurn(running, promptText(text, opts.attachments))) {
+    if (mode !== 'queue' && steerTurn(running, promptText(text, opts.attachments))) {
       broadcast(running, { type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
       log(`steered message into running turn session=${id}`);
       return res.status(202).json({ ok: true, steered: true });
     }
-    if (running.queue.length >= 10) return res.status(429).json({ error: 'queue full' });
-    running.queue.push({ text, ...opts });
-    log(`queued message session=${id} depth=${running.queue.length}`);
-    return res.status(202).json({ ok: true, queued: true });
+    if(mode==='steer')return res.status(409).json({error:'This turn cannot accept steering now. Choose After this turn to queue it.'});
+    try {const item=followups.add(id,{text,...opts});return res.status(202).json({ok:true,queued:true,itemId:item.id});}
+    catch(e){return queueError(res,e);}
+
   }
   try {
     startTurn({ sessionId: id, cwd, text, resume: true, ...turnOpts(req.body) });
@@ -1229,12 +1305,18 @@ app.post('/api/upload', requireAuth, express.raw({ type: () => true, limit: '30m
 function readSkillDesc(file) {
   try {
     const head = fs.readFileSync(file, 'utf8').slice(0, 2000);
+    if(/^user-invocable:\s*false\s*$/mi.test(head))return null;
     const m = head.match(/^description:\s*(.+)$/m);
     return m ? m[1].replace(/^['"]|['"]$/g, '').slice(0, 90) : '';
   } catch { return ''; }
 }
-app.get('/api/commands', requireAuth, (req, res) => {
+app.get('/api/commands', requireAuth, async (req, res) => {
   const cwd = String(req.query.cwd || '');
+  if(req.query.provider==='codex'){
+    if(!CODEX_ON)return res.json({commands:[],warning:'Codex is not available on this instance.'});
+    try{return res.json({commands:await codex.listCodexSkills(cwd.startsWith('/')?cwd:HOME)});}
+    catch{return res.status(503).json({error:'Codex skills are unavailable. Try again, or describe your task directly.'});}
+  }
   const out = new Map();
   const scan = base => {
     for (const kind of ['skills', 'commands']) {
@@ -1244,17 +1326,17 @@ app.get('/api/commands', requireAuth, (req, res) => {
         // skills may be symlinked dirs (house convention) — probe for SKILL.md directly
         const sk = path.join(dir, e.name, 'SKILL.md');
         if (fs.existsSync(sk)) {
-          if (!out.has(e.name)) out.set(e.name, readSkillDesc(sk));
+          const desc=readSkillDesc(sk);if (desc!==null && !out.has(e.name)) out.set(e.name,desc);
         } else if (e.isFile() && e.name.endsWith('.md')) {
           const name = e.name.replace(/\.md$/, '');
-          if (!out.has(name)) out.set(name, readSkillDesc(path.join(dir, e.name)));
+          const desc=readSkillDesc(path.join(dir,e.name));if (desc!==null && !out.has(name)) out.set(name,desc);
         }
       }
     }
   };
-  scan(HOME);
   if (cwd.startsWith('/') && cwd !== HOME && fs.existsSync(cwd)) scan(cwd);
-  res.json({ commands: [...out.entries()].map(([name, desc]) => ({ name, desc })).sort((a, b) => a.name.localeCompare(b.name)) });
+  scan(HOME);
+  res.json({ commands: [...out.entries()].map(([name, desc]) => ({ name, desc, label:name.replace(/[-_]/g,' '), invocation:`Use the /${name} skill or command.` })).sort((a, b) => a.name.localeCompare(b.name)) });
 });
 
 app.get('/api/session/:id/events', requireAuth, async (req, res) => {
@@ -1347,9 +1429,10 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  'Session groups and filters separate confirmed runs, external activity, failed turns and new responses.',
-  'Switch sessions from your phone or desktop, with visible session actions and saved drafts.',
-  'Messages and attachments survive connection failures; retrying the same request does not dispatch a duplicate turn.',
+  'Reports now support tables, nested lists, quotes and readable headings, with safe Markdown rendering.',
+  'Open Results to find shared reports, links and downloadable files in each session.',
+  'Choose Steer now or After this turn. Saved follow-ups can be edited, removed and recovered after restart.',
+  'Start with your task, choose an installed skill, and keep your reading position when returning to a conversation.',
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

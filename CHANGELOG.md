@@ -4,6 +4,21 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
+## [1.2.0] — 2026-10-03 · build 21
+
+- Render safe GitHub-flavored Markdown: tables, nested lists, checklists, quotes and
+  proper headings. Wide tables scroll inside the conversation on small screens.
+- Add per-session Results with search, shared links and session-bound report
+  downloads. Local HTML and other active reports download instead of executing.
+- Add explicit Steer now / After this turn controls and a persistent, editable
+  follow-up queue. Stop/failure pauses automatic drain; ambiguous starts require
+  review. Codex steering and turn starts await runtime acknowledgment.
+- Put the task first on New Session, add searchable installed-skill discovery for
+  Claude and Codex, and collapse workspace/agent setup below the main action.
+- Preserve reading position when switching/reopening conversations, including phone
+  sleep/resume. Honor reduced motion in sheets.
+- Vendor pinned Marked and DOMPurify with licenses; expand API/browser coverage.
+
 ## [1.1.0] — 2026-10-03 · build 20
 
 - Group sessions by confirmed runs, external activity, failures, waiting and recent

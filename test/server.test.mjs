@@ -22,7 +22,7 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  };
  const stop=async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}};
  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true});});
- const call=async(p,body)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()}};
+ const call=async(p,body,method)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:method||(body?'POST':'GET'),headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()}};
  const calls=()=>fs.existsSync(path.join(dir,'calls'))?fs.readFileSync(path.join(dir,'calls'),'utf8').trim().split('\n').filter(Boolean).map(JSON.parse):[];
  await start();
  for (const asset of ['/', '/sw.js']) {
@@ -50,4 +50,38 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  const failed=await call(`/session/${id}/message`,{text:'__FAIL__',clientMessageId:randomUUID()});assert.equal(failed.status,202);
  await sleep(800);
  assert.equal((await call('/sessions')).body.sessions.find(s=>s.id===id).state.kind,'failed');
+ // Saved follow-ups can be edited, paused by stop, and recovered after restart.
+ const slow=await call('/new',{cwd:repo,text:'__SLOW__ queue test',clientMessageId:randomUUID()});
+ const sid=slow.body.id;await sleep(250);
+ const queuedBody={text:'Original follow-up',mode:'queue',clientMessageId:randomUUID()};
+ const q1=await call(`/session/${sid}/message`,queuedBody);assert.equal(q1.body.queued,true);
+ await call(`/session/${sid}/message`,queuedBody);
+ let q=(await call(`/session/${sid}/queue`)).body.items;assert.equal(q.length,1);
+ const qid=q[0].id;
+ assert.equal((await call(`/session/${sid}/queue/${qid}`,{text:'Edited follow-up',revision:1},'PATCH')).status,200);
+ assert.equal((await call(`/session/${sid}/queue/${qid}`,{text:'Stale overwrite',revision:1},'PATCH')).status,409);
+ await call(`/session/${sid}/message`,{text:'Remove this',mode:'queue',clientMessageId:randomUUID()});
+ q=(await call(`/session/${sid}/queue`)).body.items;assert.equal(q.length,2);
+ await call(`/session/${sid}/queue/${q[1].id}`,{revision:q[1].revision},'DELETE');
+ await call(`/session/${sid}/stop`,{});await sleep(300);await stop();await start();
+ q=(await call(`/session/${sid}/queue`)).body.items;assert.equal(q.length,1);assert.equal(q[0].text,'Edited follow-up');
+ const started=await call(`/session/${sid}/queue/start`,{itemId:qid});assert.equal(started.status,200);assert.equal(started.body.started,true);
+ await sleep(800);assert.equal((await call(`/session/${sid}/queue`)).body.items.length,0);
+ assert.equal(calls().filter(x=>x.text==='Edited follow-up').length,1);
+ assert.equal((await call(`/session/${sid}/queue/start`,{itemId:qid})).status,409);
+ // Linked report downloads are authenticated, session-bound and non-executable.
+ const artifacts=fs.mkdtempSync(path.join(os.homedir(),'pocket-artifact-test-'));
+ t.after(()=>fs.rmSync(artifacts,{recursive:true,force:true}));
+ const html=path.join(artifacts,'report.html'),csv=path.join(artifacts,'stock.csv'),hidden=path.join(artifacts,'.private');
+ fs.writeFileSync(html,'<script>danger()</script>');fs.writeFileSync(csv,'sku,count\nA,2');fs.mkdirSync(hidden);fs.writeFileSync(path.join(hidden,'secret.txt'),'not a report');
+ const link=path.join(artifacts,'alias.txt');fs.symlinkSync(path.join(hidden,'secret.txt'),link);
+ const transcript=path.join(dir,'sessions','test-workspace',sid+'.jsonl');
+ fs.appendFileSync(transcript,JSON.stringify({type:'assistant',message:{content:[{type:'text',text:`[Report](${html}) [Stock](${csv}) [Alias](${link})`}]},timestamp:new Date().toISOString()})+'\n');
+ const results=await call(`/session/${sid}/results`);assert.equal(results.status,200);assert.equal(results.body.results.filter(r=>r.kind==='file').length,3);
+ const url=`http://127.0.0.1:${port}/api/session/${sid}/artifact?path=`;
+ const download=await fetch(url+encodeURIComponent(html),{headers});assert.equal(download.status,200);assert.match(download.headers.get('content-disposition'),/^attachment/);assert.match(download.headers.get('content-security-policy'),/sandbox/);
+ assert.equal((await fetch(url+encodeURIComponent(csv))).status,401);
+ assert.equal((await fetch(url+encodeURIComponent(link),{headers})).status,403);
+ assert.equal((await fetch(url+encodeURIComponent(path.join(artifacts,'unknown.csv')),{headers})).status,403);
+
 });

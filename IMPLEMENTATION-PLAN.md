@@ -1,8 +1,8 @@
 # Pocket Code product improvement plan
 
-This plan turns the October 2026 mobile/desktop design review into four releases.
+This plan turns the October 2026 mobile/desktop design review into four stages.
 The first priority is keeping track of running sessions. Pocket Code remains a
-standalone, mobile-first PWA; Mission Control integration follows daily-use validation.
+standalone, mobile-first PWA; the Mission Control entry point is deployed, and employee packaging follows daily-use validation.
 
 ## 1. Session visibility and delivery reliability — implemented in 1.1.0
 
@@ -29,21 +29,24 @@ fake Claude CLI and synthetic Claude/Codex session rows. Real Claude and Codex s
 duplicate-request recovery. Physical-device and assistive-technology checks remain
 operator validation; rollout is controlled separately from the public release.
 
-## 2. Conversation quality and interactive controls — next
+## 2. Conversation quality and interactive controls — mostly delivered in 1.2.0
 
 - Safe Markdown tables, quotes, nested lists and heading structure; contained
   scrolling for wide content and readable result links.
 - Full dialog focus/keyboard behavior, readable secondary text and comfortable
   touch targets throughout, including settings, model/effort and copy controls.
-- Explicit steer/queue choices, editable queue, actionable agent questions and
-  required approvals. Advertise provider capabilities honestly.
+- Delivered: explicit steer/queue choices, a persistent editable queue, and runtime
+  acknowledgments for Codex starts/steering.
+- Remaining: structured agent questions and required approvals. These need real
+  request/response handling in each provider; the unattended permission model is
+  unchanged. Do not infer a waiting question from prose or simulate an approval.
 - Session result index linking to existing document destinations.
 
 Acceptance: representative inventory/product reports; sanitized hostile Markdown;
 keyboard-only navigation; structured questions tested against each provider;
 real phone software-keyboard and screen-reader checks before release claims.
 
-## 3. Mobile and desktop composition — after core flows are dependable
+## 3. Mobile and desktop composition — task-first launch and skills delivered in 1.2.0
 
 - Task-first New Session, friendly workspace labels, advanced options collapsed.
 - Persistent desktop shell, searchable session rail, optional result panel.
@@ -55,9 +58,9 @@ real phone software-keyboard and screen-reader checks before release claims.
 Acceptance: one complete task on phone and desktop, cold load, phone sleep/resume,
 long conversations, empty/error states, responsive and rendered design review.
 
-## 4. Mission Control and employee instances — deferred
+## 4. Mission Control integration delivered; employee instances deferred
 
-- Integrate the proven workspace into Mission Control while preserving direct PWA entry.
+- Delivered: Mission Control embeds the same app origin while preserving direct PWA entry.
 - One maintained release with per-instance modules, defaults and authorized skills.
 - Separate persistent session storage, credentials, workspaces and MemStem access.
 - Versioned container packaging, health checks, backup/restore and rollback.
@@ -84,3 +87,15 @@ identity. Later stages may be reordered based on daily-use evidence.
   and publish matching GitHub release notes; deployment is a separate step.
 - Keep implementation, tests, documentation and synthetic screenshots in this public
   repository. Keep credentials, real transcripts and private deployment notes out.
+
+## Current stopping point
+
+1.2.0 implements report rendering, Results, saved follow-ups with edit/remove/start,
+provider-aware skill discovery, task-first launch and reading-position restoration.
+Regression coverage includes unsafe Markdown, authenticated report downloads,
+queue edits/conflicts/restarts, message retries and mobile/desktop layouts. Real
+Claude and Codex runs verified steering, edited follow-ups and removed work not run.
+
+Next: native interactive questions and approvals with explicit capability handling,
+then a persistent desktop result panel and the employee-instance pilot. Do not
+change the unattended permission model merely to make an approval UI appear.

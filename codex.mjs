@@ -457,13 +457,16 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, attac
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
 
   const input = [{ type: 'text', text: promptWithAttachments(text, attachments) }];
-  conn.request('turn/start', {
-    threadId: turn.threadId, input,
-    ...(model ? { model } : {}),
-    ...(effort ? { effort } : {}),
-  }, 120_000).then(r => {
-    turn.turnId = r?.turn?.id || null;
-  }).catch(e => finish(turn, { type: 'result', ok: false, error: e.message }));
+  try {
+    const r=await conn.request('turn/start', {
+      threadId:turn.threadId,input,
+      ...(model?{model}:{}),...(effort?{effort}:{}),
+    },120_000);
+    turn.turnId=r?.turn?.id || turn.turnId;
+  }catch(e){
+    finish(turn,{type:'result',ok:false,error:e.message});
+    throw e;
+  }
 
   log(`turn start thread=${turn.threadId} pid=${conn.pid} cwd=${cwd || '(thread cwd)'}`);
   return turn;
@@ -519,12 +522,12 @@ function onTurnNotify(turn, method, params) {
 // Mid-turn steering: same idea as writing to the CLI's stdin, but the protocol has a
 // precondition — the turn id must still be the live one, so a steer can't land in the
 // wrong turn after a race.
-export function steerCodexTurn(threadId, text) {
+export async function steerCodexTurn(threadId, text) {
   const turn = codexTurns.get(threadId);
   if (!turn || turn.done || !turn.turnId) return false;
-  turn.conn.request('turn/steer', {
+  await turn.conn.request('turn/steer', {
     threadId, expectedTurnId: turn.turnId, input: [{ type: 'text', text }],
-  }, 30_000).catch(e => log(`steer failed thread=${threadId}: ${e.message}`));
+  }, 30_000);
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
   return true;
 }
@@ -631,4 +634,14 @@ export async function codexVersion() {
     const c = await readConn();
     return c.userAgent || null;
   } catch { return null; }
+}
+
+// Let the installed runtime resolve project, user and plugin skills itself.
+export async function listCodexSkills(cwd) {
+  const r=await rpc('skills/list',{cwds:cwd?[cwd]:[],forceReload:false},30000);
+  const rows=(r?.data||[]).flatMap(entry=>entry.skills||[]).filter(s=>s.enabled!==false);
+  const unique=new Map(rows.map(s=>[s.path,s]));
+  return [...unique.values()].map(s=>({name:s.name,label:s.interface?.displayName||s.name,
+    desc:s.interface?.shortDescription||s.shortDescription||s.description||'',path:s.path,
+    invocation:`Use the $${s.name} skill at ${s.path}.`}));
 }

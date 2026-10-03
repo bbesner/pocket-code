@@ -18,20 +18,22 @@ const rows=[
  {id:'55555555-5555-4555-8555-555555555555',title:'Camera ordering review with a deliberately long title that remains readable on a narrow phone',cwd:'/workspaces/purchasing',provider:'claude',mtimeMs:now-300000,state:{kind:'idle',label:'Recent'}},
 ];
 const idle=rows.at(-1);let dispatches=0,failNext=false,stale=false;const receipts=new Map();const received=[];
-const conversations=new Map(rows.map(r=>[r.id,[{role:'user',text:'Review the stock report.'},{role:'assistant',blocks:[{t:'text',text:'The report is ready to review.\n\n**Next step**\nCheck the incoming quantities before you finalize the order.'}]}]]));
+const queueRows=[{id:'q1',revision:1,text:'Check incoming quantities before placing an order.',status:'pending'}];
+const report='## Inventory review\n\n| Product | On hand | Incoming | Supplier reference |\n|---|---:|---:|---|\n| Outdoor camera | 24 | 12 | WAREHOUSE-LONG-REFERENCE-001 |\n| Recorder | 8 | 4 | PURCHASE-ORDER-2026-10-03 |\n\n> Incoming stock is separate from the on-hand count.\n\n1. Review stock\n   - Exclude discontinued products\n   - Check expected delivery dates\n2. Confirm the order\n\n[Open the report](https://example.com/inventory)';
+const conversations=new Map(rows.map(r=>[r.id,[{role:'user',text:'Review the stock report.'},{role:'assistant',blocks:[{t:'text',text:report}]}]]));
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost');
  const json=(body,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(body));};
  if(url.pathname==='/api/me')return json({ok:true});
  if(url.pathname==='/api/sessions')return stale?json({error:'Fixture offline'},503):json({sessions:rows,warnings:[],checkedAt:Date.now()});
  if(url.pathname==='/api/projects')return json({projects:['/workspaces/warehouse','/workspaces/products']});
- if(url.pathname==='/api/commands')return json({commands:[]});
+ if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}]});
  if(url.pathname==='/api/claude/models')return json({models:[{id:'test',label:'Test agent'}],defaultLabel:'Test agent'});
  if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'}]});
  if(url.pathname==='/api/push/key')return json({});
  if(url.pathname==='/api/settings')return json({});
- if(url.pathname==='/api/about')return json({assetV:20,notes:[],cli:'test',host:'preview'});
- if(url.pathname.endsWith('/events')){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache'});res.write('data: {"type":"watch"}\n\n');const t=setInterval(()=>res.write(': keepalive\n\n'),1000);req.on('close',()=>clearInterval(t));return;}
+ if(url.pathname==='/api/about')return json({assetV:21,notes:[],cli:'test',host:'preview'});
+ if(url.pathname.endsWith('/events')){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache'});res.write(url.pathname.includes(rows[0].id)?': running\n\n':'data: {"type":"watch"}\n\n');const t=setInterval(()=>res.write(': keepalive\n\n'),1000);req.on('close',()=>clearInterval(t));return;}
  if(url.pathname==='/api/new'){
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   if(!receipts.has(body.clientMessageId)){
@@ -40,9 +42,16 @@ const server=http.createServer(async(req,res)=>{
   }
   if(failNext){req.socket.destroy();return;}return json(receipts.get(body.clientMessageId),202);
  }
+ if(url.pathname.endsWith('/results'))return json({results:[{kind:'link',target:'https://example.com/inventory',label:'Inventory report',detail:'example.com'},{kind:'file',target:'/home/test/reports/stock.csv',label:'Stock CSV',detail:'CSV file'}]});
+ if(url.pathname.includes('/queue')){
+  if(req.method==='GET')return json({items:queueRows,active:true,external:false});
+  let raw='';for await(const chunk of req)raw+=chunk;const b=JSON.parse(raw);const id=url.pathname.split('/').at(-1),idx=queueRows.findIndex(x=>x.id===id);
+  if(req.method==='PATCH'){queueRows[idx]={...queueRows[idx],text:b.text,revision:queueRows[idx].revision+1};return json({ok:true});}
+  if(req.method==='DELETE'){queueRows.splice(idx,1);return json({ok:true});}
+ }
  const match=url.pathname.match(/^\/api\/session\/([^/]+)(\/message)?$/);
  if(match){const id=decodeURIComponent(match[1]),r=rows.find(x=>x.id===id);
-  if(!match[2])return json({...r,active:false,ext:false,messages:conversations.get(id),total:conversations.get(id).length});
+  if(!match[2])return json({...r,active:r.state.kind==='running',ext:false,messages:conversations.get(id),total:conversations.get(id).length});
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   if(!receipts.has(body.clientMessageId)){dispatches++;receipts.set(body.clientMessageId,{ok:true});conversations.get(id).push({role:'user',text:body.text});}
   if(failNext){req.socket.destroy();return;}
@@ -83,6 +92,13 @@ try{
   for(let i=0;i<8;i++){await p.keyboard.press('Tab');assert.equal(await p.evaluate(()=>document.querySelector('[role="dialog"]').contains(document.activeElement)),true);}
   await p.keyboard.press('Escape');assert.equal(await p.$eval('#c-model',e=>e===document.activeElement),true);
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'chat overflow '+width);
+  assert.equal(await p.$$eval('.report-table table',e=>e.length),1);assert.equal(await p.$$eval('blockquote',e=>e.length),1);assert.equal(await p.$$eval('ol li ul',e=>e.length)>0,true);
+  await p.click('#results-open');await p.waitForSelector('.result-row');
+  assert.equal(await p.$$eval('.result-row',e=>e.length),2);
+  if(width===390)await p.screenshot({path:path.join(out,'results-mobile.png')});
+  await p.type('#result-query','CSV');assert.equal(await p.$$eval('.result-row',e=>e.length),1);
+  assert.match(await p.$eval('.result-row a',e=>e.getAttribute('href')),/artifact\?path=/);
+  await p.keyboard.press('Escape');
   await p.screenshot({path:path.join(out,`chat-${width}.png`)});
   if([390,1440].includes(width))await scan('chat-'+width);
   await p.evaluate(()=>{clearDraft(chatId);document.querySelector('#box').value='';});
@@ -113,7 +129,7 @@ try{
  await p.keyboard.press('Escape');
  // New-session creation must recover the same server-issued session ID too.
  stale=false;await p.goto(base+'/#/new',{waitUntil:'domcontentloaded'});await p.waitForSelector('[data-p]');
- await p.click('[data-p]');await p.type('#first','Prepare the weekly inventory.');failNext=true;await p.click('#start');
+ await p.click('#choose-workspace');await p.click('[data-p]');await p.type('#first','Prepare the weekly inventory.');failNext=true;await p.click('#start');
  await p.waitForFunction(()=>document.querySelector('#start')?.textContent==='Retry start');
  assert.equal(dispatches,2);await p.reload({waitUntil:'domcontentloaded'});
  await p.waitForFunction(()=>document.querySelector('#start')?.textContent==='Retry start');
@@ -121,7 +137,32 @@ try{
  failNext=false;await p.click('#start');await p.waitForSelector('#box');
  assert.equal(dispatches,2);assert.match(p.url(),/66666666-6666-4666-8666-666666666666/);
  assert.equal(await p.evaluate(()=>localStorage.getItem('pc-outbox-new')),null);
+ // Reading position survives reopening a long conversation.
+ conversations.get(idle.id).push({role:'assistant',blocks:[{t:'text',text:Array.from({length:60},(_,i)=>'Paragraph '+i+' in a long report.').join('\n\n')}]});
+ await p.goto(base+'/#/chat/'+idle.id);await p.waitForSelector('#box');
+ await p.evaluate(()=>{const m=document.querySelector('#msgs').closest('main.scroll');m.scrollTop=180;rememberReading();});
+ await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
+ assert.ok(Math.abs(await p.$eval('#msgs',e=>e.closest('main.scroll').scrollTop)-180)<4);
+ // Agent-produced Markdown must not execute code or create active form controls.
+ const security=await p.evaluate(()=>{
+  const div=document.createElement('div');div.innerHTML=md('<img src=x onerror="window.__pwned=1"><script>window.__pwned=1</script>\n\n[bad](javascript:alert(1))\n\n![bad](data:image/svg+xml;base64,AAAA)\n\n<input autofocus onfocus="window.__pwned=1">');
+  return {danger:div.querySelectorAll('script,iframe,form,[onerror],[onfocus],a[href^="javascript:"],img[src^="data:"]').length,pwned:Boolean(window.__pwned)};
+ });assert.deepEqual(security,{danger:0,pwned:false});
+ await p.goto(base+'/#/chat/'+rows[0].id);await p.waitForSelector('[data-mode="queue"]');
+ await p.click('[data-mode="queue"]');assert.equal(await p.$eval('[data-mode="queue"]',e=>e.getAttribute('aria-pressed')),'true');
+ await p.click('#queue-open');await p.waitForSelector('[data-edit]');await p.click('[data-edit]');
+ await p.$eval('.queue-editor',e=>e.value='Only order current models.');await p.click('[data-save]');
+ await p.waitForFunction(()=>document.querySelector('.queue-item p')?.textContent==='Only order current models.');
+ await p.screenshot({path:path.join(out,'queue-mobile.png')});await p.click('[data-remove]');await p.waitForFunction(()=>document.querySelector('#queue-items')?.textContent.includes('No queued instructions'));await p.keyboard.press('Escape');
+ for(const width of [390,1440]){
+  await p.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});await p.goto(base+'/#/new');await p.waitForSelector('[data-p]');
+  await p.click('#choose-skill');await p.waitForSelector('.skill-choice');await p.type('.skill-search','inventory');assert.equal(await p.$$eval('.skill-choice',e=>e.length),1);
+  if(width===390)await p.screenshot({path:path.join(out,'skills-mobile.png')});await p.click('.skill-choice');
+  assert.match(await p.$eval('#first',e=>e.value),/inventory-report/);
+  assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await p.screenshot({path:path.join(out,'new-'+width+'.png')});
+ }
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
- console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,screenshots:out}));
+ console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));
 }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
