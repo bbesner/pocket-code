@@ -18,7 +18,7 @@ clay ember that breathes while Claude works.
 | `--line` | `#2E2A27` | hairlines |
 | `--text` | `#EDE7E0` | primary text (13.9:1 on bg) |
 | `--dim` | `#A99E93` | secondary (6.9:1 on bg) |
-| `--faint` | `#7A7169` | timestamps, ledger (4.6:1 on bg) |
+| `--faint` | `#AA9C91` | readable timestamps and ledger |
 | `--clay` | `#D97757` | accent: send, ember, active dot, links |
 | `--clay-deep` | `#3A241C` | user message surface |
 | `--ok` | `#7FB069` | success flashes only |
@@ -37,8 +37,10 @@ ledger lines enter with a single 180ms ease-out rise (6px). Nothing else moves.
 
 ## Surfaces
 
-- **Sessions:** hairline-separated rows (no cards): 2-line title, meta line `project · time`.
-  Active session shows the ember left of the title. FAB bottom-right (drawn + icon) → New.
+- **Sessions:** grouped, hairline-separated rows with a two-line title, workspace/provider,
+  explicit state and last activity. Search and filters share behavior across the home
+  view, desktop rail and mobile switcher. Only confirmed runs show a running ember.
+  Visible More buttons expose pin/rename; the bottom-right FAB starts a session.
 - **Chat:** slim header (back chevron, 1-line title, project tag). User messages: right-aligned
   clay-deep chips, max-width 85%. Assistant: full-width document text. Tool calls: ledger lines
   `⌁ Bash  pm2 list` in mono/faint with drawn 14px stroke icons. Input bar pinned bottom,
@@ -49,3 +51,10 @@ ledger lines enter with a single 180ms ease-out rise (6px). Nothing else moves.
 
 Icons: authored inline SVG, 1.8px stroke, round caps — chevron-left, plus, arrow-up, folder,
 terminal, doc, globe, cog. No emoji as UI.
+
+## Session workspace refinement (1.1)
+
+Keep the warm charcoal/clay identity. Variance 4, motion 2, density 5. Status text
+carries meaning without relying on color or animation. Dialogs contain keyboard
+focus, close with Escape and restore focus. New toolbar targets are at least 44px.
+Delivery errors preserve the message and show recovery actions beside the composer.

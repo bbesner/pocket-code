@@ -4,6 +4,20 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
+## [1.1.0] — Unreleased · build 20
+
+- Group sessions by confirmed runs, external activity, failures, waiting and recent
+  history. Filter active work and unread results; search titles and workspaces.
+- Keep Pocket-owned runs visible before their transcript is written. Distinguish
+  external transcript activity from confirmed running status and label stale data.
+- Add a mobile session switcher, shared desktop rail, visible session menus, dialog
+  keyboard/focus behavior, more legible secondary text and larger toolbar targets.
+- Preserve outgoing text and attachment references through connection failures and
+  reloads. Durable request receipts prevent duplicate dispatch on retry; ambiguous
+  interrupted requests require conversation review before sending again.
+- Add isolated server-state configuration and fixture-based API/browser tests.
+- Settings show the semantic version alongside the browser asset build number.
+
 ## [1.0.1] — 2026-09-28 · build 19
 
 - **The session list loads in well under a second again.** The Codex half of the list asked
