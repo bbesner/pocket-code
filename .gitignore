@@ -10,3 +10,6 @@ pocket-settings.json
 
 # local project notes (not part of the public repo)
 STATE.md
+
+# Durable delivery acknowledgments (local runtime state)
+delivery-receipts.json*

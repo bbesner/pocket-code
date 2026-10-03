@@ -28,6 +28,7 @@ const IC = {
   down1: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg>',
   diff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10.5 10.5h4M12.5 8.5v4M10.5 16h4"/></svg>',
   pin: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3.5h7M10 3.5l-.6 6L6 12.5V14h12v-1.5L14.6 9.5l-.6-6M12 14v6.5"/></svg>',
+  more: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
   pen: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l.9-3.9L16 5a2.1 2.1 0 013 3L7.9 19.1 4 20zM13.8 7.2l3 3"/></svg>',
 };
 
@@ -88,6 +89,36 @@ function getPrefs(key) {
 }
 function setPrefs(key, p) { localStorage.setItem('pc-prefs-' + key, JSON.stringify(p)); }
 
+let closeCurrentSheet = null;
+function mountSheet(scrim, sh, trigger = document.activeElement) {
+  closeCurrentSheet?.();
+  const heading = sh.querySelector('h2');
+  if (heading) { heading.id = 'sheet-title'; sh.setAttribute('aria-labelledby', heading.id); }
+  sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); sh.tabIndex = -1;
+  const closeButton = document.createElement('button'); closeButton.className = 'sheet-close icon';
+  closeButton.setAttribute('aria-label', 'Close dialog'); closeButton.innerHTML = IC.x;
+  sh.prepend(closeButton);
+  const close = () => {
+    sh.removeEventListener('keydown', keydown); scrim.remove(); sh.remove(); app.inert = false;
+    if (closeCurrentSheet === close) closeCurrentSheet = null;
+    if (trigger?.isConnected) trigger.focus();
+  };
+  const focusables = () => [...sh.querySelectorAll('button,input,textarea,a[href],[tabindex="0"]')].filter(el => !el.disabled && el.getClientRects().length);
+  const keydown = e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    if (e.key === 'Tab') {
+      const items = focusables(), first = items[0], last = items.at(-1);
+      if (!first) { e.preventDefault(); sh.focus(); }
+      else if (e.shiftKey && (document.activeElement === first || document.activeElement === sh)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  };
+  scrim.onclick = close; closeButton.onclick = close; sh.addEventListener('keydown', keydown);
+  app.inert = true; document.body.append(scrim, sh); closeCurrentSheet = close;
+  (sh.querySelector('input') || closeButton).focus();
+  return close;
+}
+
 function sheet(title, options, current, onPick) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet';
@@ -95,10 +126,10 @@ function sheet(title, options, current, onPick) {
     <button class="opt ${val === current ? 'sel' : ''}" data-v="${esc(val)}">
       <span class="dot"></span><span>${esc(label)}<span class="sub">${esc(sub)}</span></span>
     </button>`).join('');
-  const close = () => { scrim.remove(); sh.remove(); };
+  const close = () => closeCurrentSheet?.();
   scrim.onclick = close;
-  sh.querySelectorAll('.opt').forEach(b => b.onclick = () => { onPick(b.dataset.v); close(); });
-  document.body.append(scrim, sh);
+  sh.querySelectorAll('.opt').forEach(b => b.onclick = () => { close(); onPick(b.dataset.v); });
+  mountSheet(scrim, sh);
 }
 
 /* Toolbar state shared by chat + new views */
@@ -117,7 +148,7 @@ function renderToolbar() {
       <span class="afile">${isImg(a.path)
         ? `<img class="athumb" src="/api/file?path=${encodeURIComponent(a.path)}" alt="">` : IC.clip}<span class="n">${esc(a.name)}</span>
         <button data-i="${i}" aria-label="Remove ${esc(a.name)}">${IC.x}</button></span>`).join('');
-    ar.querySelectorAll('button').forEach(b => b.onclick = () => { tb.attachments.splice(Number(b.dataset.i), 1); renderToolbar(); });
+    ar.querySelectorAll('button').forEach(b => b.onclick = () => { tb.attachments.splice(Number(b.dataset.i), 1); stashAttachments(); renderToolbar(); });
   }
   const att = $('#c-att');
   if (att) att.onclick = () => $('#fpick').click();
@@ -125,6 +156,10 @@ function renderToolbar() {
     v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   $('#c-eff').onclick = () => sheet('Reasoning effort', EFFORTS, tb.prefs.effort,
     v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
+  if (loadOutbox(tb.key)) {
+    bar.querySelectorAll('button:not(#c-mute)').forEach(b => { b.disabled = true; });
+    ar?.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  }
   const mu = $('#c-mute');
   if (mu) mu.onclick = () => toggleMute();
 }
@@ -137,7 +172,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
     <h2>${esc(s.title)}</h2>
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
     <button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device — clear it to go back to the automatic one</span></span></button>`;
-  const close = () => { scrim.remove(); sh.remove(); };
+  const close = () => closeCurrentSheet?.();
   scrim.onclick = close;
   sh.querySelector('#so-pin').onclick = async () => {
     close();
@@ -148,7 +183,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
     } catch (e) { toast('Pin failed: ' + e.message); }
   };
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
-  document.body.append(scrim, sh);
+  mountSheet(scrim, sh);
 }
 function renameSheet(s, refresh) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
@@ -157,7 +192,7 @@ function renameSheet(s, refresh) {
     <h2>Rename session</h2>
     <input type="text" class="rename" id="rn" maxlength="120" placeholder="Session title" enterkeyhint="done" autocomplete="off">
     <button class="primary" id="rn-save">Save</button>`;
-  const close = () => { scrim.remove(); sh.remove(); };
+  const close = () => closeCurrentSheet?.();
   scrim.onclick = close;
   const box = sh.querySelector('#rn');
   box.value = s.title === '(untitled session)' ? '' : s.title;
@@ -171,7 +206,7 @@ function renameSheet(s, refresh) {
   };
   sh.querySelector('#rn-save').onclick = save;
   box.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
-  document.body.append(scrim, sh);
+  mountSheet(scrim, sh);
   box.focus(); box.select();
 }
 // long-press (touch) or right-click (desktop) opens the options sheet for a row
@@ -210,7 +245,7 @@ async function uploadFiles(fileList) {
       const r = await fetch('/api/upload', { method: 'POST', headers: { 'x-filename': f.name, 'content-type': 'application/octet-stream' }, body: f });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || r.statusText);
-      tb.attachments.push({ path: j.path, name: j.name });
+      tb.attachments.push({ path: j.path, name: j.name }); stashAttachments();
     } catch (e) { toast('Upload failed: ' + e.message); }
   }
   renderToolbar();
@@ -296,7 +331,7 @@ async function api(path, opts) {
   const r = await fetch('/api' + path, { headers: { 'content-type': 'application/json' }, ...opts });
   if (r.status === 401) { renderLogin(); throw new Error('login'); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { status: r.status });
+  if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { status: r.status, code: j.code });
   return j;
 }
 
@@ -379,7 +414,7 @@ async function settingsSheet() {
   sh.innerHTML = `
     <h2>Pocket Code</h2>
     <div class="about">
-      <div class="arow"><span>App</span><b>v${APP_V ?? '?'}</b></div>
+      <div class="arow"><span>App</span><b>${esc(a.version || 'Pocket Code')} · build ${APP_V ?? '?'}</b></div>
       <div class="arow"><span>Server</span><b>v${a.assetV ?? '?'} · ${esc(a.commit || '?')}${a.commitAt ? ' · ' + new Date(a.commitAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</b></div>
       <div class="arow"><span>Claude CLI</span><b>${esc(a.cli || '?')}</b></div>
       <div class="arow"><span>Box</span><b>${esc(a.host || '?')} · up ${up}</b></div>
@@ -390,7 +425,7 @@ async function settingsSheet() {
     <button class="opt" id="s-chime"><span class="dot ${chimeOff ? '' : 'on'}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
     <button class="opt" id="s-push"><span class="dot ${pushed ? 'on' : ''}"></span><span>Turn notifications<span class="sub">Push to this device when a turn finishes</span></span></button>
     <button class="opt" id="s-sync"><span class="dot ${srv.titleSync ? 'on' : ''}"></span><span>Sync names with code-server<span class="sub">Session names follow Claude Code's titles, and renames here show there too</span></span></button>`;
-  const close = () => { scrim.remove(); sh.remove(); };
+  const close = () => closeCurrentSheet?.();
   scrim.onclick = close;
   const r = sh.querySelector('#s-refresh'); if (r) r.onclick = hardRefresh;
   sh.querySelector('#s-chime').onclick = e => {
@@ -410,59 +445,141 @@ async function settingsSheet() {
       toast(srv.titleSync ? 'Session names now sync with code-server' : 'Name sync off — Pocket names stay local');
     } catch (err) { toast('Could not save: ' + err.message); }
   };
-  document.body.append(scrim, sh);
+  mountSheet(scrim, sh);
 }
 
 /* ---------- sessions list ---------- */
-let allSessions = [];
-function paintList(q) {
-  const m = app.querySelector('main'); if (!m) return;
-  const needle = (q || '').trim().toLowerCase();
-  const list = needle
-    ? allSessions.filter(s => (s.title + ' ' + (s.cwd || '')).toLowerCase().includes(needle))
-    : allSessions;
-  if (!list.length) { m.innerHTML = `<div class="empty">${needle ? 'No sessions match.' : 'No sessions yet. Tap + to start one.'}</div>`; return; }
-  m.innerHTML = list.map(s => `
-    <button class="row" data-id="${s.id}">
-      ${s.active ? '<span class="ember" title="working"></span>' : ''}
-      <span class="body">
-        <span class="title">${esc(s.title)}</span>
-        <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${s.provider === 'codex' ? '<span class="prov">codex</span>' : ''}<span class="proj">${esc(projName(s.cwd))}</span> · ${rel(s.mtimeMs)}${s.dupes ? ` · +${s.dupes} older` : ''}</span>
-      </span>
-    </button>`).join('');
-  m.querySelectorAll('.row').forEach(r => {
-    r.onclick = () => { location.hash = '#/chat/' + r.dataset.id; };
-    const s = list.find(x => x.id === r.dataset.id);
-    if (s) wireRowMenu(r, () => ({ id: s.id, title: s.title, pinned: Boolean(s.pinned) }), refreshSessions);
+let allSessions = [], sessionFilter = 'all', sessionQuery = '', sessionCheckedAt = 0, sessionWarnings = [], sessionsStale = false;
+let sessionFetch = null;
+const seenAt = id => { try { return Number(localStorage.getItem('pc-seen-' + id)) || 0; } catch { return 0; } };
+const needsAttention = s => s.state?.kind === 'failed' && (s.state.at || 0) > seenAt(s.id);
+const isUnread = s => s.state?.kind === 'finished' && (s.state.at || 0) > seenAt(s.id);
+function markRead(id, state) { if (document.visibilityState === 'visible' && state?.at) { try { localStorage.setItem('pc-seen-' + id, String(state.at)); } catch { } } }
+function rowState(s) { return s.state || { kind: s.active ? 'observed' : 'idle', label: s.active ? 'Activity elsewhere' : 'Recent' }; }
+function sessionCounts() {
+  return { running: allSessions.filter(s => rowState(s).kind === 'running').length,
+    observed: allSessions.filter(s => rowState(s).kind === 'observed').length,
+    attention: allSessions.filter(needsAttention).length,
+    fresh: allSessions.filter(isUnread).length };
+}
+function sessionSummary() {
+  if (sessionsStale) return 'Status unavailable. Showing the last saved list.';
+  if (!sessionCheckedAt) return 'Checking your sessions…';
+  const c = sessionCounts();
+  return [c.running ? `${c.running} running` : 'No confirmed runs', c.observed ? `${c.observed} with activity elsewhere` : '', c.attention ? `${c.attention} failed` : ''].filter(Boolean).join(' · ');
+}
+function filterButtons() {
+  const c = sessionCounts();
+  return [['all','All',null],['active','Active',c.running+c.observed],['attention','Attention',c.attention],['new','New',c.fresh]].map(([key,label,count]) =>
+    `<button type="button" data-filter="${key}" aria-pressed="${sessionFilter === key}">${label}${count ? `<span>${count}</span>` : ''}</button>`).join('');
+}
+function filteredSessions() {
+  const needle = sessionQuery.trim().toLowerCase();
+  return allSessions.filter(s => (!needle || (s.title + ' ' + (s.cwd || '')).toLowerCase().includes(needle)) &&
+    (sessionFilter === 'all' || sessionFilter === 'active' && ['running','observed'].includes(rowState(s).kind) ||
+     sessionFilter === 'attention' && needsAttention(s) || sessionFilter === 'new' && isUnread(s)));
+}
+function sessionRowHTML(s) {
+  const state = rowState(s), running = state.kind === 'running';
+  const detail = running && state.startedAt ? `Started ${rel(state.startedAt)}`
+    : state.kind === 'observed' ? 'Recent transcript activity; run status unconfirmed'
+    : state.kind === 'waiting' && state.retryAt ? `Retry at ${new Date(state.retryAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}` : `Updated ${rel(s.mtimeMs)}`;
+  return `<div class="session-item ${s.id === chatId ? 'cur' : ''}">
+    <button class="row" data-id="${esc(s.id)}">
+      <span class="body"><span class="title">${esc(s.title)}</span>
+      <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${esc(projName(s.cwd))} · ${s.provider === 'codex' ? 'Codex' : 'Claude'}</span>
+      <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
+      <span class="activity-detail">${esc(detail)}</span></span>
+    </button><button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
+  </div>`;
+}
+function bindSessionRows(container) {
+  container.querySelectorAll('[data-id]').forEach(row => {
+    row.onclick = () => { closeCurrentSheet?.(); location.hash = '#/chat/' + row.dataset.id; };
+    const session = allSessions.find(s => s.id === row.dataset.id);
+    wireRowMenu(row, () => session, refreshSessions);
+  });
+  container.querySelectorAll('[data-more]').forEach(b => b.onclick = () => {
+    const session = allSessions.find(s => s.id === b.dataset.more);
+    if (session) { closeCurrentSheet?.(); sessionSheet(session, refreshSessions); }
   });
 }
+function groupedSessionsHTML(list) {
+  const groups = [['running','Running'],['observed','Activity elsewhere'],['failed','Needs attention'],['waiting','Waiting'],['recent','Recent']];
+  if (!list.length) return `<div class="empty">${sessionsStale ? 'Could not load sessions. Use Refresh to try again.' : sessionQuery ? 'No matching sessions in recent history.' : sessionFilter === 'active' ? 'No runs or recent external activity.' : sessionFilter === 'attention' ? 'No recorded failed turns.' : sessionFilter === 'new' ? 'No new recorded responses.' : 'No sessions yet. Start a conversation to begin.'}</div>`;
+  return groups.map(([key,label]) => {
+    const rows = list.filter(s => key === 'recent' ? !['running','observed','waiting'].includes(rowState(s).kind) && !needsAttention(s) : key === 'failed' ? needsAttention(s) : rowState(s).kind === key);
+    return rows.length ? `<section class="session-group"><h2>${label}<span>${rows.length}</span></h2>${rows.map(sessionRowHTML).join('')}</section>` : '';
+  }).join('');
+}
+function paintSessionPanels() {
+  document.querySelectorAll('[data-session-summary]').forEach(el => { el.textContent = sessionSummary(); });
+  document.querySelectorAll('[data-session-filters]').forEach(el => {
+    const focused = el.contains(document.activeElement) ? document.activeElement.dataset.filter : null;
+    el.innerHTML = filterButtons();
+    el.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => { sessionFilter = b.dataset.filter; paintSessionPanels(); el.querySelector(`[data-filter="${sessionFilter}"]`)?.focus(); });
+    if (focused) el.querySelector(`[data-filter="${focused}"]`)?.focus({preventScroll:true});
+  });
+  document.querySelectorAll('[data-session-results]').forEach(el => {
+    const focus = el.contains(document.activeElement) ? document.activeElement?.dataset : null;
+    const id = focus?.id, more = focus?.more;
+    el.innerHTML = groupedSessionsHTML(filteredSessions()); bindSessionRows(el);
+    if (id || more) el.querySelector(`[${more ? 'data-more' : 'data-id'}="${CSS.escape(more || id)}"]`)?.focus({preventScroll:true});
+  });
+  document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
+  const current = allSessions.find(s => s.id === chatId);
+  if (current && $('#chat-state')) { $('#chat-state').textContent = sessionsStale ? 'Unconfirmed' : rowState(current).label; if (!sessionsStale) markRead(chatId, current.state); }
+  const quick = $('#session-switch');
+  if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Sessions · status unavailable' : `Sessions · ${c.running} running${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
+}
 async function refreshSessions() {
-  try { allSessions = (await api('/sessions?limit=120')).sessions; } catch { return; }
-  paintList($('#q')?.value);
+  if (sessionFetch) return sessionFetch;
+  sessionFetch = (async () => {
+    try { const d = await api('/sessions?limit=200'); allSessions = d.sessions; sessionWarnings = d.warnings || []; sessionCheckedAt = d.checkedAt || Date.now(); sessionsStale = false; const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
+    catch { sessionsStale = true; }
+    finally { sessionFetch = null; paintSessionPanels(); }
+  })();
+  return sessionFetch;
+}
+function sessionPanelHTML(rail = false) {
+  return `<div class="session-panel ${rail ? 'compact' : ''}">
+    <p class="session-summary" data-session-summary role="status">${esc(sessionSummary())}</p>
+    <div class="session-search">${IC.search}<input type="search" data-session-search aria-label="Search recent sessions" placeholder="Search recent sessions" value="${esc(sessionQuery)}" autocomplete="off"></div>
+    <nav class="session-filters" data-session-filters aria-label="Filter sessions">${filterButtons()}</nav>
+    <p class="session-warning" data-session-warning hidden></p>
+    <div class="session-results" data-session-results></div>
+    <p class="session-footnote">Recent history and all runs owned by Pocket Code. External activity is an estimate.</p>
+  </div>`;
+}
+function bindSessionPanel(container) {
+  container.querySelectorAll('[data-session-search]').forEach(input => input.oninput = e => { sessionQuery = e.target.value; paintSessionPanels(); });
+  paintSessionPanels();
 }
 async function renderList() {
-  app.innerHTML = `
-    <header class="bar">
-      <h1>Pocket Code</h1>
-      <button class="icon bell" id="bell" aria-label="Toggle turn-finished notifications">${IC.bellOff}</button>
-      <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button>
-    </header>
-    <div class="searchrow">${IC.search}<input type="search" id="q" placeholder="Search sessions" autocomplete="off"></div>
-    <main class="scroll"><div class="empty">Loading sessions…</div></main>
-    <button class="fab" id="new" aria-label="New session">${IC.plus}</button>`;
+  app.innerHTML = `<header class="bar"><h1>Pocket Code</h1>
+    <button class="icon bell" id="bell" aria-label="Toggle turn-finished notifications">${IC.bellOff}</button>
+    <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
+    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><button class="chip" id="refresh-sessions">Refresh</button></div>
+    ${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New session">${IC.plus}</button>`;
   $('#new').onclick = () => { location.hash = '#/new'; };
-  $('#settings').onclick = () => settingsSheet();
-  const bell = $('#bell');
-  pushState().then(sub => { if (sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
-  bell.onclick = () => togglePush(bell);
-  $('#q').oninput = e => paintList(e.target.value);
-  let data;
-  try { data = await api('/sessions?limit=120'); } catch { return; }
-  allSessions = data.sessions;
-  paintList($('#q')?.value);
+  $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
+  pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
+  $('#bell').onclick = () => togglePush($('#bell'));
+  bindSessionPanel(app); await refreshSessions();
 }
+function openSessionSwitcher() {
+  const scrim = document.createElement('div'); scrim.className = 'scrim';
+  const sh = document.createElement('div'); sh.className = 'sheet session-switcher';
+  sh.innerHTML = `<h2>Switch session</h2>${sessionPanelHTML(true)}`;
+  mountSheet(scrim, sh); bindSessionPanel(sh); refreshSessions();
+}
+// Refresh state without rebuilding the conversation or discarding its draft.
+setInterval(() => { if (document.visibilityState === 'visible' && !document.querySelector('.login')) refreshSessions(); }, 10000);
+window.addEventListener('offline', () => { sessionsStale = true; paintSessionPanels(); setConnection('Offline. Your draft is kept on this device.'); });
+window.addEventListener('online', () => { refreshSessions(); if (chatId) openES(); });
 
 /* ---------- chat ---------- */
+let chatRenderVersion = 0;
 let es = null, chatId = null, lastMeta = null, chatTitle = '', chatPinned = false;
 function closeES() { if (es) { es.close(); es = null; } }
 
@@ -709,11 +826,11 @@ function withShell(colHtml) { // desktop: session rail + resize grip beside the 
   if (!isWide()) return colHtml;
   if (!railOpen()) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`;
   return `<div class="split">
-    <aside class="rail" style="width:${railW()}px">
+    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#conversation">Skip to conversation</a>
       <div class="railhead"><span>Sessions</span><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div>
       <div id="rail"></div>
     </aside>
-    <div class="railgrip" id="grip" role="separator" aria-label="Resize session list"></div>
+    <div class="railgrip" id="grip" role="separator" tabindex="0" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="${railW()}" aria-label="Resize session list"></div>
     <div class="chatcol">${colHtml}</div>
   </div>`;
 }
@@ -722,12 +839,14 @@ function wireShell() {
   paintRail();
   $('#railnew').onclick = () => { location.hash = '#/new'; };
   const grip = $('#grip'), rail = document.querySelector('aside.rail');
+  grip.onkeydown = e => { if (!['ArrowLeft','ArrowRight'].includes(e.key)) return; e.preventDefault(); const w = Math.min(480, Math.max(220, railW() + (e.key === 'ArrowRight' ? 20 : -20))); rail.style.width = w + 'px'; localStorage.setItem('pc-railw', String(w)); grip.setAttribute('aria-valuenow', String(w)); };
+  document.querySelector('.skip-chat').onclick = e => { e.preventDefault(); $('#box')?.focus(); };
   grip.onpointerdown = e => {
     grip.setPointerCapture(e.pointerId);
     grip.onpointermove = ev => {
       const w = Math.min(480, Math.max(220, ev.clientX));
       rail.style.width = w + 'px';
-      localStorage.setItem('pc-railw', String(w));
+      localStorage.setItem('pc-railw', String(w)); grip.setAttribute('aria-valuenow', String(w));
     };
     grip.onpointerup = () => { grip.onpointermove = null; grip.onpointerup = null; };
   };
@@ -735,21 +854,8 @@ function wireShell() {
 let railCache = { at: 0, sessions: [] };
 async function paintRail() {
   const el = $('#rail'); if (!el) return;
-  if (Date.now() - railCache.at > 20000) {
-    try { railCache = { at: Date.now(), sessions: (await api('/sessions?limit=60')).sessions }; } catch { }
-  }
-  el.innerHTML = railCache.sessions.map(s => `
-    <button class="row ${s.id === chatId ? 'cur' : ''}" data-id="${s.id}">
-      ${s.active ? '<span class="ember"></span>' : ''}
-      <span class="body"><span class="title">${esc(s.title)}</span>
-      <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${s.provider === 'codex' ? '<span class="prov">codex</span>' : ''}<span class="proj">${esc(projName(s.cwd))}</span> · ${rel(s.mtimeMs)}${s.dupes ? ` · +${s.dupes} older` : ''}</span></span>
-    </button>`).join('');
-  el.querySelectorAll('.row').forEach(r => {
-    r.onclick = () => { location.hash = '#/chat/' + r.dataset.id; };
-    const s = railCache.sessions.find(x => x.id === r.dataset.id);
-    if (s) wireRowMenu(r, () => ({ id: s.id, title: s.title, pinned: Boolean(s.pinned) }),
-      () => { railCache.at = 0; paintRail(); });
-  });
+  if (!el.querySelector('.session-panel')) { el.innerHTML = sessionPanelHTML(true); bindSessionPanel(el); }
+  await refreshSessions();
 }
 
 let chatOffset = 0, extT = null;
@@ -761,6 +867,8 @@ function extPulse() { // ember while another surface (code-server) drives this s
 }
 
 async function renderChat(id) {
+  const renderVersion = ++chatRenderVersion;
+  stashAttachments();
   chatId = id; closeES();
   fmarks = []; fidx = -1; // marks from the previous render are gone with the DOM
   const chatCol = `
@@ -771,8 +879,10 @@ async function renderChat(id) {
       <span id="hember"></span>
       <button class="icon" id="chgb" aria-label="Changed files">${IC.diff}</button>
       <button class="icon" id="findb" aria-label="Find in conversation">${IC.search}</button>
-      <button class="icon" id="newchat" aria-label="Start a new session">${IC.plus}</button>
+      <button class="icon" id="chatmore" aria-label="Session options">${IC.more}</button>
     </header>
+    <div class="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span></div>
+    <p id="connection-state" class="connection-state" role="status" hidden></p>
     <div class="findbar" id="findbar" hidden>
       <input type="search" id="fq" placeholder="Find in conversation" autocomplete="off" enterkeyhint="search">
       <span class="fcount" id="fcount"></span>
@@ -782,11 +892,11 @@ async function renderChat(id) {
     </div>
     <div class="fmore" id="fmore" hidden></div>
     <main class="scroll"><div class="msgs" id="msgs"></div></main>
-    <div class="composerwrap"><div class="slash" id="slash" hidden></div><div class="composer" id="comp"></div></div>`;
+    <div class="composerwrap"><div class="delivery-status" id="delivery-status" role="status" hidden></div><div class="slash" id="slash" hidden></div><div class="composer" id="comp"></div></div>`;
   app.innerHTML = withShell(chatCol) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   $('#back').onclick = () => { location.hash = '#/'; };
-  $('#newchat').onclick = () => { location.hash = '#/new'; };
+  $('#session-switch').onclick = openSessionSwitcher;
   $('#chgb').onclick = () => openChanges();
   $('#findb').onclick = () => findOpen(!findIsOpen());
   $('#fq').oninput = e => { findRun(e.target.value); findDeep(e.target.value.trim()); };
@@ -798,13 +908,17 @@ async function renderChat(id) {
   if (tog) tog.onclick = () => { localStorage.setItem('pc-rail', railOpen() ? 'closed' : 'open'); renderChat(chatId); };
   let s;
   try { s = await api('/session/' + id); }
-  catch (e) { toast(e.status === 404 ? 'Session not found' : 'Could not open session: ' + (e.message || 'error')); location.hash = '#/'; return; }
+  catch (e) { if (renderVersion !== chatRenderVersion) return; toast(e.status === 404 ? 'Session not found' : 'Could not open session: ' + (e.message || 'error')); location.hash = '#/'; return; }
+  if (renderVersion !== chatRenderVersion || chatId !== id) return;
+  markRead(id, s.state);
   $('#ctitle').textContent = s.title;
+  $('#ctitle').title = s.title;
+  $('#chat-state').textContent = s.state?.label || (s.active ? 'Running' : s.ext ? 'Activity elsewhere' : 'Recent');
   $('#cproj').textContent = projName(s.cwd);
   chatTitle = s.title; chatPinned = Boolean(s.pinned);
   const h1 = $('#ctitle').closest('h1');
   h1.classList.add('tappable');
-  h1.onclick = () => sessionSheet({ id: chatId, title: chatTitle, pinned: chatPinned }, r => {
+  $('#chatmore').onclick = h1.onclick = () => sessionSheet({ id: chatId, title: chatTitle, pinned: chatPinned }, r => {
     if (typeof r.pinned === 'boolean') chatPinned = r.pinned;
     else if (r.name) { chatTitle = r.name; const t = $('#ctitle'); if (t) t.textContent = r.name; }
     else { renderChat(chatId); return; } // name cleared → resync the derived title
@@ -813,7 +927,7 @@ async function renderChat(id) {
   chatOffset = s.size || 0;
   chatTotal = s.total || s.messages.length; chatRendered = s.messages.length;
   const isCx = id.startsWith('cx:');
-  tb = { key: id, prefs: getPrefs(id), attachments: [], allowAttach: true, allowMute: true, provider: isCx ? 'codex' : 'claude' };
+  tb = { key: id, prefs: getPrefs(id), attachments: loadAttachments(id), allowAttach: true, allowMute: true, provider: isCx ? 'codex' : 'claude' };
   (isCx ? loadCodexModels() : loadClaudeModels()).then(renderToolbar);
   chatMuted = Boolean(s.muted);
   chatCmds = null;
@@ -826,6 +940,7 @@ async function renderChat(id) {
   scrollBottom(true);
   setComposer(s.active);
   if (s.ext && !s.active) extPulse();
+  paintDelivery(id); refreshSessions();
   openES(); // always: daemon turns stream events, idle sessions mirror the transcript live
 }
 
@@ -877,7 +992,7 @@ function setComposer(working) {
   }
   const box = $('#box');
   const grow = () => { box.style.height = 'auto'; box.style.height = Math.min(box.scrollHeight, innerHeight * .4) + 'px'; };
-  const draft = loadDraft(chatId);
+  const draft = loadOutbox(chatId)?.text || loadDraft(chatId);
   if (draft) { box.value = draft; grow(); }
   box.oninput = () => {
     grow();
@@ -888,40 +1003,91 @@ function setComposer(working) {
     if (e.key === 'Enter' && !e.shiftKey && isWide()) { e.preventDefault(); sendMsg(box.value); }
   };
   $('#send').onclick = () => sendMsg(box.value);
+  paintDelivery(chatId);
 }
 
+const sendsInFlight = new Set(), deliveryNotices = new Map();
+function loadAttachments(id) { try { return JSON.parse(localStorage.getItem('pc-attachments-' + id) || '[]'); } catch { return []; } }
+function stashAttachments() { if (tb?.key) { try { localStorage.setItem('pc-attachments-' + tb.key, JSON.stringify(tb.attachments)); } catch { } } }
+function loadOutbox(id) { try { return JSON.parse(localStorage.getItem('pc-outbox-' + id) || 'null'); } catch { return null; } }
+function saveOutbox(id, value) {
+  if (value) localStorage.setItem('pc-outbox-' + id, JSON.stringify(value));
+  else localStorage.removeItem('pc-outbox-' + id);
+}
+function setConnection(message = '') {
+  const el = $('#connection-state'); if (!el) return;
+  el.textContent = message; el.hidden = !message;
+}
+function paintDelivery(id = chatId) {
+  if (id !== chatId) return;
+  const el = $('#delivery-status'); if (!el) return;
+  const pending = loadOutbox(id), sending = sendsInFlight.has(id), notice = deliveryNotices.get(id);
+  el.hidden = !pending && !notice;
+  el.classList.toggle('delivery-problem', Boolean(pending && !sending));
+  if (pending) {
+    const label = sending ? 'Sending…' : pending.error || 'Delivery was not confirmed. Retry checks the same message.';
+    el.innerHTML = `<p>${esc(label)}</p>${!sending ? `<div class="delivery-actions"><button class="chip" id="retry-message">Retry same message</button>${pending.rejected ? '<button class="chip" id="edit-message">Edit message</button>' : '<button class="chip" id="review-message">Review conversation</button>'}<button class="chip" id="discard-message">Discard retry</button></div>` : ''}`;
+    const retry = $('#retry-message'); if (retry) retry.onclick = () => submitPending(id);
+    const edit = $('#edit-message'); if (edit) edit.onclick = () => { saveOutbox(id, null); deliveryNotices.delete(id); paintDelivery(id); $('#box')?.focus(); };
+    const review = $('#review-message'); if (review) review.onclick = () => renderChat(id);
+    const discard = $('#discard-message'); if (discard) discard.onclick = () => { saveOutbox(id, null); clearDraft(id); deliveryNotices.delete(id); const box = $('#box'); if (box) box.value = ''; paintDelivery(id); };
+  } else el.textContent = notice || '';
+  const box = $('#box'), send = $('#send');
+  if (box) box.readOnly = Boolean(pending);
+  document.querySelectorAll('#c-att,#c-model,#c-eff,#attrow button').forEach(b => { b.disabled = Boolean(pending); });
+  if (send) { send.disabled = Boolean(pending); send.setAttribute('aria-label', pending ? 'Resolve pending delivery first' : 'Send'); }
+}
 async function sendMsg(text) {
-  text = text.trim(); if (!text || !chatId) return;
-  clearDraft(chatId); // before setComposer, or the rebuilt box restores what we just sent
-  const wasWorking = composerWorking;
-  const opts = wasWorking ? {} : turnOpts();
-  const files = wasWorking ? [] : (tb?.attachments || []).map(a => ({ n: a.name, p: a.path }));
-  const msgs = $('#msgs');
-  msgs.insertAdjacentHTML('beforeend', msgHTML({ role: 'user', text, files }));
-  recentSends = [...recentSends.slice(-4), { text, at: Date.now() }];
-  scrollBottom(true);
-  if (!wasWorking && tb) tb.attachments = [];
-  if (!wasWorking) setComposer(true); else { const b = $('#box'); if (b) { b.value = ''; b.style.height = 'auto'; } }
+  text = text.trim(); const id = chatId;
+  if (!text || !id || sendsInFlight.has(id) || loadOutbox(id)) return;
+  const opts = composerWorking ? {} : turnOpts();
+  const pending = { text, opts, clientMessageId: crypto.randomUUID(),
+    files: composerWorking ? [] : [...(tb?.attachments || [])], createdAt: Date.now() };
+  try { saveDraft(id, text); saveOutbox(id, pending); }
+  catch { toast('Could not save this message on the device. Copy it before trying again.'); return; }
+  await submitPending(id);
+}
+async function submitPending(id) {
+  if (sendsInFlight.has(id)) return;
+  const pending = loadOutbox(id); if (!pending) return;
+  sendsInFlight.add(id); deliveryNotices.delete(id); paintDelivery(id);
+  recentSends = [...recentSends.slice(-4), { text: pending.text, at: Date.now() }];
   try {
-    const r = await api(`/session/${chatId}/message`, { method: 'POST', body: JSON.stringify({ text, ...opts }) });
-    if (r.queued) toast('Queued — runs when the current turn finishes');
-    if (!wasWorking) openES();
+    const result = await api(`/session/${id}/message`, { method: 'POST', body: JSON.stringify({ text: pending.text, ...pending.opts, clientMessageId: pending.clientMessageId }) });
+    saveOutbox(id, null); clearDraft(id);
+    if (pending.files.length) localStorage.removeItem('pc-attachments-' + id);
+    deliveryNotices.set(id, result.queued ? 'Queued after the current turn.' : result.steered ? 'Sent to the running turn.' : 'Sent. Work continues on the server.');
+    if (chatId === id) {
+      if (tb?.key === id && pending.files.length) tb.attachments = [];
+      const box = $('#box'); if (box) box.value = '';
+      // Render the canonical transcript after acknowledgment; no unsent ghost
+      // bubble remains on failure, and a replayed receipt adds no duplicate.
+      await renderChat(id);
+    }
+    refreshSessions();
   } catch (e) {
-    toast('Send failed: ' + e.message);
-    if (!wasWorking) setComposer(false);
-  }
+    const rejected = e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain';
+    pending.rejected = rejected;
+    pending.error = e.code === 'delivery_uncertain' ? e.message
+      : rejected ? `Not sent: ${e.message}` : 'Delivery not confirmed. Your message is saved. Retry checks the same request.';
+    try { saveOutbox(id, pending); } catch { }
+    if (chatId === id && $('#box')) $('#box').value = pending.text;
+  } finally { sendsInFlight.delete(id); paintDelivery(id); }
 }
 
 let recentSends = []; // for deduping our own messages when they echo back via the mirror
 function openES() {
   closeES();
   if (!chatId) return;
+  const streamId = chatId;
   es = new EventSource(`/api/session/${chatId}/events?offset=${chatOffset}`);
+  es.onopen = () => { if (chatId === streamId) setConnection(); };
   const msgs = $('#msgs');
   let live = null; // word-by-word streaming buffer, replaced by the formatted message
   let watching = false; // mirror mode: session is idle here, may be driven elsewhere
   const dropLive = () => { if (live) { live.remove(); live = null; } };
   es.onmessage = ev => {
+    if (chatId !== streamId) return;
     let d; try { d = JSON.parse(ev.data); } catch { return; }
     // watch = the daemon has no turn for this session; if we still show "Working",
     // we missed the turn-end events (SSE drop + reconnect after finalize) — clear it
@@ -965,7 +1131,7 @@ function openES() {
     else if (d.type === 'done') { dropLive(); closeES(); if (chatId) renderChat(chatId); } // resync from canonical transcript
     else if (d.type === 'idle') { dropLive(); closeES(); setComposer(false); }
   };
-  es.onerror = () => { /* transient drop: resync on next visibility/focus */ };
+  es.onerror = () => { if (chatId === streamId) setConnection('Connection interrupted. Reconnecting; your draft is kept.'); };
 }
 
 /* resync when the phone comes back — the turn kept running server-side */
@@ -977,11 +1143,13 @@ document.addEventListener('visibilitychange', () => {
 
 /* ---------- new session ---------- */
 async function renderNew() {
+  const pendingNew = loadOutbox('new');
   const col = `
     <header class="bar">
       <button class="icon" id="back" aria-label="Back">${IC.back}</button>
       <h1>New session</h1>
     </header>
+    <div id="new-delivery" class="delivery-status" role="status" hidden></div>
     <main class="scroll"><div class="pane">
       <div><span class="h" id="agenth">Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth">
         <button class="row" role="radio" aria-checked="false" data-a="claude"><span class="dot"></span>${IC.term}<span class="p">Claude Code</span></button>
@@ -997,10 +1165,10 @@ async function renderNew() {
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   $('#back').onclick = () => { location.hash = '#/'; };
-  tb = { key: 'new', prefs: getPrefs('new'), attachments: [], allowAttach: true, provider: 'claude' };
+  tb = { key: 'new', prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs('new'), attachments: loadAttachments('new'), allowAttach: true, provider: 'claude' };
   renderToolbar();
   // which agent runs this session — remembered, since most days you stay on one
-  let provider = localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude';
+  let provider = pendingNew?.payload.provider || (localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude');
   const ap = $('#apick');
   const pickAgent = a => {
     provider = a;
@@ -1019,7 +1187,7 @@ async function renderNew() {
   pickAgent(provider);
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const first = $('#first');
-  first.value = loadDraft('new');
+  first.value = pendingNew?.payload.text || loadDraft('new');
   first.oninput = () => saveDraft('new', first.value);
   let sel = null;
   try {
@@ -1040,23 +1208,46 @@ async function renderNew() {
     const lastRow = last && pl.querySelector(`.row[data-p="${CSS.escape(last)}"]`);
     if (lastRow) pick(lastRow);
   } catch { }
+  if (pendingNew) $('#cpath').value = pendingNew.payload.cwd;
+  const paintNewDelivery = () => {
+    const pending = loadOutbox('new'), note = $('#new-delivery');
+    if (!note) return;
+    note.hidden = !pending;
+    note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><button class="chip" id="discard-new">Discard retry</button>' : '';
+    const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox('new', null); clearDraft('new'); renderNew(); };
+    app.querySelectorAll('.pane input,.pane textarea,.pane button:not(#start)').forEach(el => { el.disabled = Boolean(pending); });
+    $('#start').textContent = pending ? 'Retry start' : 'Start session';
+  };
+  paintNewDelivery();
+  let newPending = null;
   $('#start').onclick = async () => {
-    const cwd = $('#cpath').value.trim() || sel;
-    const text = $('#first').value.trim();
+    const savedStart = loadOutbox('new');
+    const cwd = savedStart?.payload.cwd || $('#cpath').value.trim() || sel;
+    const text = savedStart?.payload.text || $('#first').value.trim();
     if (!cwd) return toast('Pick a project or enter a path');
     if (!text) return toast('Write the first message');
     $('#start').disabled = true; $('#start').textContent = 'Starting…';
     try {
-      const { id } = await api('/new', { method: 'POST', body: JSON.stringify({ cwd, text, provider, ...turnOpts() }) });
-      clearDraft('new');
+      const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts() };
+      const saved = loadOutbox('new');
+      if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) return toast('Retry the saved new-session request before changing it.');
+      newPending = saved || { payload, clientMessageId: crypto.randomUUID() };
+      saveOutbox('new', newPending);
+      const { id } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId }) });
+      saveOutbox('new', null);
+      clearDraft('new'); localStorage.removeItem('pc-attachments-new'); if (tb?.key === 'new') tb.attachments = [];
       try { localStorage.setItem('pc-lastproj', cwd); } catch { }
       location.hash = '#/chat/' + id;
-    } catch (e) { toast(e.message); $('#start').disabled = false; $('#start').textContent = 'Start session'; }
+    } catch (e) {
+      if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox('new', null);
+      toast(e.message || 'Delivery not confirmed. Retry the same request.');
+    } finally { const start = $('#start'); if (start) { start.disabled = false; paintNewDelivery(); } }
   };
 }
 
 /* ---------- router ---------- */
 async function route() {
+  stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
   try { await api('/me'); } catch { return; } // renders login on 401
   const h = location.hash;
@@ -1069,6 +1260,7 @@ document.addEventListener('keydown', e => {
   const inChat = location.hash.startsWith('#/chat/');
   if (inChat && (e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); findOpen(true); return; }
   if (e.key !== 'Escape') return;
+  if (closeCurrentSheet) { e.preventDefault(); closeCurrentSheet(); return; }
   const ov = document.querySelector('.overlay');
   if (ov) return ov.remove();
   if (findIsOpen()) return findOpen(false);
@@ -1076,7 +1268,7 @@ document.addEventListener('keydown', e => {
 });
 window.addEventListener('hashchange', route);
 route();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { /* The online app remains usable without installation support. */ });
 
 /* ---------- update announcement ---------- */
 // First load after an asset bump: tell an existing install once that it updated and

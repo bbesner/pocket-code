@@ -57,8 +57,10 @@ progress for work started in the terminal or code-server.
 ![Pocket Code on a desktop browser: the session list in a side rail next to a finished conversation](docs/images/desktop.png)
 
 **Sessions**
-- Recent sessions across all projects, with a live "working" dot on any session that is
-  running anywhere (phone, terminal or code-server).
+- Grouped sessions and filters for running work, recorded failures and new responses.
+  Pocket-owned runs are confirmed; recent activity from terminal/editor sessions is
+  labeled separately because transcript writes cannot prove a process is still running.
+- A mobile session switcher and searchable desktop rail, with visible session menus.
 - Search by title, or across full transcripts.
 - Pin and rename sessions, with optional two-way name sync with Claude Code and
   code-server.
@@ -71,7 +73,8 @@ progress for work started in the terminal or code-server.
   while a turn is running are queued.
 - A stop button, a changed-files view, find-in-conversation, copy buttons and drafts
   that survive a reload.
-- File and photo attachments with thumbnails.
+- File and photo attachments with thumbnails. Outgoing messages and attachment
+  references survive reloads and failed sends; retry uses the same request identifier.
 - Slash commands with autocomplete, picked up from your skills and commands.
 
 **Models**
@@ -104,7 +107,7 @@ progress for work started in the terminal or code-server.
 ```bash
 git clone https://github.com/bbesner/pocket-code.git ~/pocket-code
 cd ~/pocket-code
-npm install
+npm install --omit=dev
 
 # 1. Configure: password, cookie secret and push keys
 PW=$(openssl rand -base64 18)
@@ -207,3 +210,41 @@ Pocket Code is an independent project and is not affiliated with Anthropic or Op
 Claude and Claude Code are trademarks of Anthropic; Codex is a trademark of OpenAI.
 
 Screenshots in this README show demo projects and sessions.
+
+## Development and releases
+
+See [the session workspace preview](docs/session-workspace.md) and
+[the implementation plan](IMPLEMENTATION-PLAN.md) for the staged mobile/desktop
+workspace improvements. Version 1.1.0 is the first session-workspace release. Each
+release updates `package.json`, `package-lock.json`, the changelog and in-app notes.
+Frontend releases also increment the asset number in `public/index.html` and
+`public/sw.js`. Create the matching Git tag and GitHub release after validation and
+merge; do not tag an unfinished branch.
+
+Development browser tests require Node.js 22.12 or newer and Chrome/Chromium.
+
+```bash
+npm ci
+npm test
+PUPPETEER_EXECUTABLE_PATH=/path/to/chrome npm run test:browser
+```
+
+Tests use temporary session stores, a fake CLI and synthetic browser fixtures. They
+do not call a model or require production credentials. Browser checks cover 360,
+390, 768 and 1440px widths, session filters, keyboard dialogs, saved drafts and
+attachments, response-loss retries and stale status. They do not replace physical
+phone keyboard, screen-reader or live-provider testing.
+
+`POCKET_DATA_DIR` optionally relocates Pocket-owned settings, turn logs and delivery
+receipts. It defaults to the application directory. Stop the daemon and copy its
+existing state files before changing this path on an existing installation. Keep one
+daemon per data directory. `POCKET_SESSION_ROOT` overrides the Claude transcript
+root for isolated test installations; it does not move Codex's store.
+
+Delivery receipts contain request hashes and response metadata, not message text.
+Keep `delivery-receipts.json` with the instance's persistent data, including across
+upgrades and rollbacks. Receipts are retained indefinitely to protect old pending
+requests. A process interruption between dispatch and saving acknowledgment is
+reported as uncertain and is never automatically dispatched again. These receipts
+prevent duplicate dispatch; they do not guarantee that a queued turn or tool action
+completes. The existing single-user trust model remains unchanged.

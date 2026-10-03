@@ -13,15 +13,20 @@ import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
 import * as codex from './codex.mjs';
+import { DeliveryReceipts, withDeliveryReceipt } from './delivery.mjs';
+import { sessionState, prioritizeSessions } from './session-state.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
-const PROJECTS_ROOT = path.join(HOME, '.claude', 'projects');
 const ENV_FILE = path.join(import.meta.dirname, '.env');
 for (const line of (fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8').split('\n') : [])) {
   const m = line.match(/^([A-Z_]+)=(.*)$/);
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
 }
+const PROJECTS_ROOT = process.env.POCKET_SESSION_ROOT || path.join(HOME, '.claude', 'projects');
+const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const deliveryReceipts = new DeliveryReceipts(path.join(DATA_DIR, 'delivery-receipts.json'));
 const PORT = Number(process.env.PORT || 3610);
 const PASSWORD = process.env.POCKET_PASSWORD;
 const SECRET = process.env.POCKET_SECRET;
@@ -67,7 +72,7 @@ const EFFORTS = new Set(['max', 'xhigh', 'high', 'medium', 'low']);
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 // ---------- web push (turn-completion notifications) ----------
-const SUBS_FILE = path.join(import.meta.dirname, 'push-subs.json');
+const SUBS_FILE = path.join(DATA_DIR, 'push-subs.json');
 const pushReady = Boolean(process.env.VAPID_PUBLIC && process.env.VAPID_PRIVATE);
 // VAPID subject: the operator contact push services may use — an email (mailto: added) or an https URL.
 const vapidSubject = (c => !c ? 'https://github.com/bbesner/pocket-code' : /^(mailto:|https:)/.test(c) ? c : `mailto:${c}`)(process.env.VAPID_CONTACT);
@@ -76,13 +81,13 @@ else log('push disabled: VAPID keys not set');
 const loadSubs = () => { try { return JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8')); } catch { return []; } };
 const saveSubs = s => fs.writeFileSync(SUBS_FILE, JSON.stringify(s, null, 1));
 // per-session mute: a chatty background session shouldn't buzz the phone every turn
-const MUTES_FILE = path.join(import.meta.dirname, 'mutes.json');
+const MUTES_FILE = path.join(DATA_DIR, 'mutes.json');
 const loadMutes = () => { try { return new Set(JSON.parse(fs.readFileSync(MUTES_FILE, 'utf8'))); } catch { return new Set(); } };
 let mutes = loadMutes();
 const saveMutes = () => fs.writeFileSync(MUTES_FILE, JSON.stringify([...mutes]));
 // per-session pin + custom name: the CLI's session store has no field for either, so they
 // live in an overlay here (same pattern as mutes) — transcripts stay untouched
-const SMETA_FILE = path.join(import.meta.dirname, 'session-meta.json');
+const SMETA_FILE = path.join(DATA_DIR, 'session-meta.json');
 const loadSmeta = () => { try { return JSON.parse(fs.readFileSync(SMETA_FILE, 'utf8')); } catch { return {}; } };
 let smeta = loadSmeta();
 const saveSmeta = () => fs.writeFileSync(SMETA_FILE, JSON.stringify(smeta, null, 1));
@@ -90,7 +95,7 @@ const isPinned = id => Boolean(smeta[id]?.pin);
 // server-wide options (one tenant per install). titleSync: share session names with
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
-const SETTINGS_FILE = path.join(import.meta.dirname, 'pocket-settings.json');
+const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
 const loadSettings = () => { try { return { titleSync: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false }; } };
 let settings = loadSettings();
 const saveSettings = () => fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 1));
@@ -265,7 +270,7 @@ async function listSessions(limit = 60) {
   // overshoot the limit: hygiene below drops noise rows and collapses duplicates
   const sorted = stats.filter(Boolean).sort((a, b) => b.mtimeMs - a.mtimeMs);
   const recent = sorted.slice(0, Math.min(limit * 2, 400));
-  for (const x of sorted.slice(recent.length)) if (isPinned(x.id)) recent.push(x); // pins never age out
+  for (const x of sorted.slice(recent.length)) if (isPinned(x.id) || turns.has(x.id) || extActive(x.id)) recent.push(x); // pins never age out
   // read metadata 8 files at a time — a cold cache (every restart) meant up to 400 serial
   // head/tail reads; the dedupe walk below is order-dependent, the reads aren't
   const metas = new Array(recent.length);
@@ -290,7 +295,8 @@ async function listSessions(limit = 60) {
   // pins float; the limit applies to the unpinned remainder so a deep pin can't push
   // recent sessions out (dupes-collapsing needed the full walk anyway)
   const pins = out.filter(e => e.pinned);
-  return [...pins, ...out.filter(e => !e.pinned).slice(0, Math.max(0, limit - pins.length))];
+  const active = out.filter(e => !e.pinned && e.active);
+  return [...pins, ...active, ...out.filter(e => !e.pinned && !e.active).slice(0, Math.max(0, limit - pins.length - active.length))];
 }
 
 async function findSessionFile(id) {
@@ -563,7 +569,7 @@ async function pumpTail(id, file) {
 // kills in-flight turns: the claude process survives, and the next server instance
 // adopts it from its .turn.json marker and resumes streaming from the log file.
 const turns = new Map(); // sessionId -> {pid, events[], subs:Set<res>, cwd, startedAt, queue[]}
-const TURNLOG_DIR = path.join(import.meta.dirname, 'turnlogs');
+const TURNLOG_DIR = path.join(DATA_DIR, 'turnlogs');
 fs.mkdirSync(TURNLOG_DIR, { recursive: true });
 const turnFiles = id => ({
   out: path.join(TURNLOG_DIR, id + '.out.ndjson'),
@@ -763,6 +769,7 @@ function finalizeTurn(sessionId, turn, code) {
       if (rl) { retryAt = rl.resetAt; broadcast(turn, { type: 'retry', at: retryAt }); }
     }
   }
+  recordOutcome(sessionId, turn, [...turn.events].reverse().find(e => e.type === 'result'), retryAt);
   const watching = turn.subs.size > 0;
   broadcast(turn, { type: 'done' });
   for (const res of turn.subs) { try { res.end(); } catch { } }
@@ -870,7 +877,9 @@ adoptOrphans();
 // ---------- app ----------
 const app = express();
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index.html', maxAge: '5m' }));
+app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index.html', maxAge: '5m',
+  setHeaders(res, file) { if (['index.html', 'sw.js'].includes(path.basename(file))) res.setHeader('Cache-Control', 'no-cache'); },
+}));
 
 app.post('/api/login', (req, res) => {
   const ip = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '?';
@@ -890,29 +899,50 @@ app.get('/api/me', requireAuth, (_req, res) => res.json({ ok: true }));
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
 // list (the phone should degrade to half the sessions, not to an error screen).
+function stateFor(s) {
+  const cx = codex.isCodexId(s.id);
+  const turn = cx ? codex.codexTurns.get(codex.bareId(s.id)) : turns.get(s.id);
+  let retryAt = null;
+  if (!cx && retryTimers.has(s.id)) {
+    try { retryAt = JSON.parse(fs.readFileSync(turnFiles(s.id).retry, 'utf8')).at; } catch { }
+  }
+  return sessionState({ turn, external: cx ? codex.codexExtActive(codex.bareId(s.id)) : extActive(s.id),
+    retryAt, outcome: smeta[s.id]?.outcome, mtimeMs: s.mtimeMs });
+}
+function recordOutcome(id, turn, result, retryAt = null) {
+  const kind = retryAt ? 'waiting' : turn.stopped ? 'stopped' : result?.ok ? 'finished' : result ? 'failed' : 'ended';
+  const labels = { waiting: 'Waiting for usage reset', stopped: 'Stopped', finished: 'Response ready', failed: 'Turn failed', ended: 'Turn ended' };
+  try { setSmeta(id, { outcome: { kind, label: labels[kind], at: Date.now(), ...(retryAt ? { retryAt } : {}) } }); }
+  catch (e) { log(`outcome not saved session=${id}: ${e.message}`); }
+}
 async function listAllSessions(limit) {
-  const claude = (await listSessions(limit)).map(s => ({ ...s, provider: s.provider || 'claude' }));
-  if (!CODEX_ON) return claude;
-  let cx = [];
-  try { cx = await codex.listCodexSessions(limit); }
-  catch (e) { log(`codex list failed: ${e.message}`); return claude; }
-  const cxRows = cx.map(s => {
-    const tid = codex.bareId(s.id);
-    return {
-      ...s,
-      title: smeta[s.id]?.name || s.title,
-      active: codex.codexTurnActive(tid) || codex.codexExtActive(tid),
-      pinned: isPinned(s.id) || undefined,
-    };
-  });
-  const all = [...claude, ...cxRows];
-  const pins = all.filter(e => e.pinned);
-  const rest = all.filter(e => !e.pinned).sort((a, b) => b.mtimeMs - a.mtimeMs);
-  return [...pins, ...rest.slice(0, Math.max(0, limit - pins.length))];
+  let rows = (await listSessions(limit)).map(s => ({ ...s, provider: 'claude' }));
+  const warnings = [];
+  if (CODEX_ON) {
+    try {
+      rows.push(...(await codex.listCodexSessions(limit)).map(s => ({ ...s,
+        title: smeta[s.id]?.name || s.title, pinned: isPinned(s.id) || undefined,
+        active: codex.codexTurnActive(codex.bareId(s.id)) || codex.codexExtActive(codex.bareId(s.id)),
+      })));
+    } catch (e) { log(`codex list failed: ${e.message}`); warnings.push('Codex sessions are temporarily unavailable.'); }
+  }
+  // Owned runs must stay visible even before the CLI writes a transcript, or
+  // after their last transcript update falls outside the recent-history window.
+  const known = new Set(rows.map(s => s.id));
+  const owned = [...turns.entries(), ...[...codex.codexTurns].map(([id, t]) => [codex.CX + id, t])];
+  for (const [id, t] of owned) if (!known.has(id)) rows.push({ id, title: smeta[id]?.name || t.userText?.slice(0,120) || 'New session',
+    cwd: t.cwd, provider: codex.isCodexId(id) ? 'codex' : 'claude', active: true, mtimeMs: t.startedAt, pinned: isPinned(id) });
+  rows = rows.map(s => ({ ...s, state: stateFor(s) })).sort((a,b) => b.mtimeMs-a.mtimeMs);
+  const result = prioritizeSessions(rows, limit);
+  result.warnings = warnings;
+  return result;
 }
 
 app.get('/api/sessions', requireAuth, async (req, res) => {
-  res.json({ sessions: await listAllSessions(Math.min(Number(req.query.limit) || 60, 200)) });
+  try {
+    const sessions = await listAllSessions(Math.min(Number(req.query.limit) || 60, 200));
+    res.json({ sessions, warnings: sessions.warnings, checkedAt: Date.now() });
+  } catch { res.status(503).json({ error: 'Session status is unavailable. Please retry.' }); }
 });
 
 app.get('/api/projects', requireAuth, async (_req, res) => {
@@ -942,6 +972,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       id: req.params.id, provider: 'codex',
       title: smeta[req.params.id]?.name || meta?.title || turn?.userText?.slice(0, 120) || 'New session',
       cwd: meta?.cwd || turn?.cwd || null, model: meta?.model, source: meta?.source,
+      state: stateFor({ id: req.params.id, mtimeMs: meta?.mtimeMs || 0 }),
       active: Boolean(turn), ext: codex.codexExtActive(tid),
       locked: !turn && codex.threadLocked(tid),
       muted: mutes.has(req.params.id), pinned: isPinned(req.params.id),
@@ -954,14 +985,14 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
     if (turn) { // brand-new session: transcript file not written yet
       return res.json({
         id: req.params.id, title: turn.userText?.slice(0, 120) || 'New session', cwd: turn.cwd,
-        active: true, messages: turn.userText ? [{ role: 'user', text: turn.userText }] : [],
+        state: stateFor({ id: req.params.id }), active: true, messages: turn.userText ? [{ role: 'user', text: turn.userText }] : [],
       });
     }
     return res.status(404).json({ error: 'not found' });
   }
   const meta = await sessionMeta(file, req.params.id);
   const { msgs: messages, total } = await readTranscript(file);
-  res.json({ ...meta, active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), messages, total });
+  res.json({ ...meta, state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), messages, total });
 });
 
 // read-only "what did it do to my code": every Edit/Write with real before/after
@@ -1005,6 +1036,7 @@ function turnOpts(body) {
 // A Codex turn ends inside codex.mjs; the daemon-level follow-ups (notify the phone,
 // run whatever was queued while it worked) mirror the Claude side's finalizeTurn.
 async function codexTurnFinished(id, turn, ev) {
+  recordOutcome(id, turn, ev);
   const next = turn.queue.shift();
   if (!mutes.has(id) && !next) {
     const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
@@ -1035,7 +1067,7 @@ async function startCodexFromApi({ id, threadId, cwd, text, body }) {
   });
 }
 
-app.post('/api/session/:id/message', requireAuth, async (req, res) => {
+app.post('/api/session/:id/message', requireAuth, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const id = req.params.id;
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
@@ -1084,9 +1116,9 @@ app.post('/api/session/:id/message', requireAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e.message) });
   }
-});
+}));
 
-app.post('/api/new', requireAuth, async (req, res) => {
+app.post('/api/new', requireAuth, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const cwd = String(req.body?.cwd || '').trim();
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
@@ -1107,7 +1139,7 @@ app.post('/api/new', requireAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e.message) });
   }
-});
+}));
 
 app.post('/api/session/:id/pin', requireAuth, (req, res) => {
   const id = req.params.id;
@@ -1315,8 +1347,9 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  'Pocket Code 1.0 — now published as an open-source project, with a full README, changelog and MIT license.',
-  'Project paths shorten to ~ under any home directory, not only /home/ubuntu.',
+  'Session groups and filters separate confirmed runs, external activity, failed turns and new responses.',
+  'Switch sessions from your phone or desktop, with visible session actions and saved drafts.',
+  'Messages and attachments survive connection failures; retrying the same request does not dispatch a duplicate turn.',
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
@@ -1327,6 +1360,7 @@ const ABOUT = (() => {
   try { assetV = Number((fs.readFileSync(path.join(import.meta.dirname, 'public', 'index.html'), 'utf8').match(/app\.js\?v=(\d+)/) || [])[1]) || null; } catch { }
   return {
     assetV,
+    version: JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'package.json'), 'utf8')).version,
     notes: RELEASE_NOTES,
     commit: sh('git log -1 --format=%h'),
     commitAt: sh('git log -1 --format=%cI'),
