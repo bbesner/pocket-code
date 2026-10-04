@@ -13,6 +13,7 @@ const TIPS = {
  'git-open':'Git: read-only view of changed files in this repository',
  'pane-main':'Make this the main conversation. The two swap places.',
  'pane-close':'Close this pane. The session keeps running.',
+ 'close-main':'Close this session. It stays in your session list; asks first if a turn is running.',
  'c-att':'Attach files or paste a screenshot',
  'c-model':'Model for the next turn',
  'c-eff':'Reasoning effort for the next turn. Higher thinks longer.',

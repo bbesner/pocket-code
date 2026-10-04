@@ -3,7 +3,7 @@
 :root {
   --bg: #131110; --surface: #1D1A18; --raised: #272322; --line: #2E2A27;
   --text: #EDE7E0; --dim: #A99E93; --faint: #7A7169;
-  --clay: #D97757; --clay-deep: #3A241C; --ok: #7FB069; --err: #E2685C;
+  --clay: #D97757; --clay-deep: #3A241C; --ok: #7FB069; --err: #E2685C; --warn: #D9A94E;
   --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
 }
 html { height: 100%; overflow: hidden; }
@@ -676,3 +676,26 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .composer-actions .icon:hover { background: var(--raised); }
 #composer-toggle[aria-expanded=true] { color: var(--clay); }
 .compact-composer #tbar { display: none; }
+
+/* ---------- 1.7: usage visibility (context meter + plan-usage panel) ---------- */
+.ctx-meter { font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; font-size: 12.5px;
+  color: var(--faint); white-space: nowrap; flex: none; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
+.ctx-meter[data-level="amber"] { color: var(--warn); }
+.ctx-meter[data-level="red"] { color: var(--err); }
+.usage-sheet .usage-body { padding: 0 14px 14px; }
+.usage-block { padding: 10px 0 14px; border-bottom: 1px solid var(--line); }
+.usage-block:last-child { border-bottom: 0; padding-bottom: 2px; }
+.usage-block h3 { font-size: 13.5px; font-weight: 600; color: var(--dim); margin-bottom: 8px; }
+.usage-row { margin-bottom: 12px; }
+.usage-row-head { display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 14px; color: var(--dim); margin-bottom: 6px; }
+.usage-pct { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--text); }
+.usage-pct[data-level="amber"] { color: var(--warn); }
+.usage-pct[data-level="red"] { color: var(--err); }
+.meter { height: 8px; border-radius: 4px; background: var(--raised); overflow: hidden; }
+.meter-fill { height: 100%; border-radius: 4px; background: var(--clay); }
+.meter-fill[data-level="amber"] { background: var(--warn); }
+.meter-fill[data-level="red"] { background: var(--err); }
+.usage-reset { font-size: 12.5px; color: var(--faint); margin-top: 5px; }
+.usage-asof { font-size: 12.5px; color: var(--faint); margin-top: 2px; }
+.usage-empty { color: var(--faint); font-size: 14px; padding: 4px 0; }

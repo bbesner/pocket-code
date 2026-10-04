@@ -40,7 +40,17 @@ lines.on('line',line=>{
       if(!text.includes('__BG_LONG__'))setTimeout(()=>{console.log(JSON.stringify({type:'system',subtype:'background_tasks_changed',tasks:[]}));reply('The background job finished.');},Number(process.env.POCKET_TEST_BG_MS||600));
       return;
     }
-    reply('Test response.');
+    // __USAGE__: emit the rate-limit and context figures the real CLI reports
+    const usage=text.includes('__USAGE__');
+    const model='claude-opus-5-5[1m]';
+    console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));
+    if(usage)console.log(JSON.stringify({type:'rate_limit_event',rate_limit_info:{status:'allowed',resetsAt:1791141000,rateLimitType:'five_hour',overageStatus:'rejected',overageDisabledReason:'out_of_credits',isUsingOverage:false,unifiedWindows:{five_hour:{utilization:0.07,resetsAt:1791141000},seven_day:{utilization:0.02,resetsAt:1791295200}}},session_id:id}));
+    const assistantMsg={type:'assistant',message:{role:'assistant',content:[{type:'text',text:'Test response.'}],...(usage?{model,usage:{input_tokens:1200,cache_read_input_tokens:800,cache_creation_input_tokens:0}}:{})}};
+    append(assistantMsg);
+    console.log(JSON.stringify(assistantMsg));
+    const result={type:'result',subtype:text.includes('__FAIL__')?'error':'success',result:'Test result',duration_ms:300};
+    if(usage)result.modelUsage={[model]:{inputTokens:1200,cacheReadInputTokens:800,cacheCreationInputTokens:0,contextWindow:1000000},'claude-haiku-4-5-20251001':{inputTokens:50,cacheReadInputTokens:0,cacheCreationInputTokens:0,contextWindow:200000}};
+    console.log(JSON.stringify(result));
     working=false;
   },text.includes('__SLOW__')?1800:300);
 });

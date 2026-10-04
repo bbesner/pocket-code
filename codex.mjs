@@ -21,10 +21,26 @@ import path from 'node:path';
 import os from 'node:os';
 import {QuestionInbox} from './questions.mjs';
 import {ApprovalInbox,codexApproval,codexPermissionSettings} from './approvals.mjs';
+import {estimateWindow} from './usage.mjs';
 
 const HOME = os.homedir();
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex');
 const LOCK_DIR = path.join(CODEX_HOME, 'thread-writer-locks');
+// Codex's own usage visibility store — kept in a file separate from the Claude side's
+// usage-state.json so the two providers never race to overwrite one shared file.
+const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
+const USAGE_FILE = path.join(DATA_DIR, 'codex-usage-state.json');
+function loadCodexUsage() { try { return JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')); } catch { return { context: {}, rateLimits: null }; } }
+const codexUsage = loadCodexUsage();
+codexUsage.context ??= {};
+function saveCodexUsage() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const tmp = USAGE_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(codexUsage), { mode: 0o600 });
+    fs.renameSync(tmp, USAGE_FILE);
+  } catch { /* best effort — usage is a convenience view */ }
+}
 // Resolve the binary once: explicit env, the usual install spots, then PATH. A box with no
 // Codex at all resolves to null — and the provider stays off. (2026-09-09: on a box with
 // no codex, the old fallback to the bare name 'codex' reported "available", the boot-time
@@ -534,8 +550,25 @@ function onTurnNotify(turn, method, params) {
       if (msg) turn.emit({ type: 'assistant', msg });
       break;
     }
-    case 'thread/tokenUsage/updated':
+    case 'thread/tokenUsage/updated': {
       turn.usage = params?.usage || params;
+      const tu = params?.tokenUsage;
+      if (tu) {
+        // "last" is this call's breakdown — the context fed into the model, same idea
+        // as Claude's input + cache_read + cache_creation on the latest assistant line.
+        const last = tu.last || tu.total || {};
+        const used = (last.inputTokens || 0) + (last.cachedInputTokens || 0);
+        const window = tu.modelContextWindow || null;
+        codexUsage.context[turn.threadId] = {
+          used, window: window || estimateWindow(turn.effectiveModel, used),
+          estimated: !window, model: turn.effectiveModel || null, lastAt: Date.now(),
+        };
+        saveCodexUsage();
+      }
+      break;
+    }
+    case 'account/rateLimits/updated':
+      mergeCodexRateLimits(params?.rateLimits);
       break;
     case 'turn/completed': {
       const u = params?.usage || turn.usage || {};
@@ -684,6 +717,46 @@ export async function listCodexSkills(cwd) {
   return [...unique.values()].map(s=>({name:s.name,label:s.interface?.displayName||s.name,
     desc:s.interface?.shortDescription||s.shortDescription||s.description||'',path:s.path,
     invocation:`Use the $${s.name} skill at ${s.path}.`}));
+}
+
+// ---------- usage visibility (Feature G) ----------
+// Sparse update: the backend sends only the fields that changed, so this merges onto
+// whatever we last saw rather than replacing it (per AccountRateLimitsUpdatedNotification's
+// own contract — nullable fields absent from an update don't clear a previously observed
+// value). Shallow merge is good enough for the primary/secondary window objects we show.
+function mergeCodexRateLimits(snap) {
+  if (!snap) return;
+  const prev = codexUsage.rateLimits || {};
+  codexUsage.rateLimits = {
+    ...prev, ...snap,
+    primary: snap.primary ? { ...prev.primary, ...snap.primary } : prev.primary,
+    secondary: snap.secondary ? { ...prev.secondary, ...snap.secondary } : prev.secondary,
+    observedAt: Date.now(),
+  };
+  saveCodexUsage();
+}
+
+// Per-session context meter for the UI: same {used,window,pct,estimated,model} shape the
+// Claude side exposes. Only populated for threads this daemon has actually run a turn on
+// and received a tokenUsage/updated notification for — Codex gives us no transcript-based
+// fallback the way Claude's assistant-line usage does.
+export function getCodexContext(threadId) {
+  const c = codexUsage.context[threadId];
+  if (!c) return null;
+  return { used: c.used, window: c.window, pct: c.window ? Math.min(1, c.used / c.window) : 0, estimated: Boolean(c.estimated), model: c.model || null, lastAt: c.lastAt || null };
+}
+
+// Best-effort account rate limits: try a live read on the shared reader connection (this
+// is the one account/rateLimits/read call Pocket makes, so the plan-usage panel doesn't
+// need an active turn to show something), falling back to whatever a running turn last
+// pushed via the account/rateLimits/updated notification. Returns null — not an error —
+// when this Codex CLI build doesn't expose the method at all.
+export async function codexRateLimits() {
+  try {
+    const r = await rpc('account/rateLimits/read', {}, 15_000);
+    if (r?.rateLimits) mergeCodexRateLimits(r.rateLimits);
+  } catch (e) { log(`account/rateLimits/read unavailable: ${e.message}`); }
+  return codexUsage.rateLimits || null;
 }
 
 export async function accountSummary(){
