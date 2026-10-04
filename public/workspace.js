@@ -208,3 +208,26 @@ matchMedia('(min-width: 1280px)').addEventListener('change',()=>{
   const scrim=document.createElement('div');scrim.className='scrim';mountSheet(scrim,sh);
  }
 });
+
+
+// Keep the same conversation DOM, draft and selection while the viewport changes.
+function sizeComposerBox(){
+ const box=document.getElementById('box');if(!box)return;
+ const limit=Math.min(innerHeight<500?90:180,innerHeight*.25);
+ box.style.height='auto';box.style.height=Math.max(46,Math.min(box.scrollHeight+2,limit))+'px';
+}
+let viewportFrame;
+function syncViewport(){
+ cancelAnimationFrame(viewportFrame);
+ viewportFrame=requestAnimationFrame(()=>{
+  const viewport=window.visualViewport;
+  if(window===window.top&&viewport&&viewport.scale===1)document.documentElement.style.setProperty('--app-height',Math.min(innerHeight,viewport.height)+'px');
+  else document.documentElement.style.removeProperty('--app-height');
+  sizeComposerBox();
+ });
+}
+window.addEventListener('resize',syncViewport);
+window.addEventListener('orientationchange',syncViewport);
+window.addEventListener('pageshow',syncViewport);
+window.visualViewport?.addEventListener('resize',syncViewport);
+syncViewport();

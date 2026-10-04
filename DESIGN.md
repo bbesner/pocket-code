@@ -125,3 +125,30 @@ and stop; closing a card never implies consent. Keep 44px targets and visible fo
 Rendered phone/desktop scans retain the existing title ellipsis, table containment,
 native font, compact navigation and slash-menu shadow exceptions. Approval help copy
 has a bounded measure and 16px outer padding.
+
+## Responsive conversation workspace (1.5)
+
+Pinned warm ink workbench; variance 3, motion 1, density 6. The conversation is one
+continuous workspace across phone, Fold and desktop widths. Keep its flex columns
+shrinkable and its composer outside the scrolling transcript, so viewport and keyboard
+changes resize the existing DOM without losing the draft, selection or reading place.
+At wider widths, the conversation and composer may span 1280px instead of the former
+720px; narrower panes retain their own readable measure.
+
+On phones, the 44px header controls remain reachable while optional status chrome
+collapses. The composer stays in view, its text field has a bounded height, and its
+single-row toolbar scrolls horizontally when actions do not fit. Attach opens a
+choice between files and Paste screenshot; pasting an image directly into the
+message field also attaches it. Plain text paste remains native.
+
+Browser screenshots at closed Fold, open Fold and wide desktop widths preserve the
+draft and visible composer. Compact layout increased the measured reading area by
+93px (529px to 622px) in the test. These checks used emulated browser widths and a
+synthetic visualViewport reduction; they do not certify behavior on a physical Fold.
+
+The run-confirmation strip remains visible beneath the conversation header, including
+in compact mode. It is28px tall with12px text, using existing status colors and a
+non-animated check-age label. Only a fresh authenticated server response can confirm
+a running turn; display age updates locally without renewing that confirmation.
+Server checks occur every5seconds, become unconfirmed after failure or15seconds
+without fresh proof, and distinguish waiting, finished and external activity.

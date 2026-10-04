@@ -80,3 +80,13 @@ error and incremented revision. Older code otherwise ignores the policy and runs
 full access. Back up and remove pending `.retry.json` auto-resume markers for review
 turns before an older daemon starts. Preserve current transcripts, receipts, metadata
 and audit records; do not overwrite them with an old state snapshot.
+
+Run confirmation (build25): the always-visible status strip polls authenticated
+server ownership/state every5seconds. Only a new server checkedAt confirms a run;
+local age ticks, transcript activity and SSE keepalives cannot renew it. Failed
+checks or15seconds without proof remove running lamps/counts and mark status
+unconfirmed. Input requests and external/unconfirmed activity stay distinct.
+The delivery receipt says Message delivered and clears on a confirmed outcome;
+it does not claim work is still running. Phone/browser suspension may pause UI
+polling; returning to the app fetches current state. Server turns continue
+independently of that browser lifecycle.

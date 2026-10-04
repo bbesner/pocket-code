@@ -11,13 +11,14 @@ const out=process.env.POCKET_SCREENSHOTS || fs.mkdtempSync(path.join(os.tmpdir()
 fs.mkdirSync(out,{recursive:true});
 const now=Date.now();
 const rows=[
- {id:'11111111-1111-4111-8111-111111111111',title:'Warehouse stock report',cwd:'/workspaces/warehouse',provider:'claude',mtimeMs:now,state:{kind:'running',label:'Running',startedAt:now-240000,queued:1}},
+ {id:'11111111-1111-4111-8111-111111111111',title:'Warehouse stock report',cwd:'/workspaces/warehouse',provider:'claude',mtimeMs:now,state:{kind:'running',label:'Running',confirmed:true,startedAt:now-240000,queued:1}},
  {id:'cx:22222222-2222-4222-8222-222222222222',title:'Product photos and listing updates',cwd:'/workspaces/products',provider:'codex',mtimeMs:now-30000,state:{kind:'observed',label:'Activity elsewhere'}},
  {id:'33333333-3333-4333-8333-333333333333',title:'Supplier inventory import',cwd:'/workspaces/inventory',provider:'claude',mtimeMs:now-100000,state:{kind:'failed',label:'Turn failed',at:now-100000}},
  {id:'44444444-4444-4444-8444-444444444444',title:'Monthly warehouse summary',cwd:'/workspaces/warehouse',provider:'claude',mtimeMs:now-200000,state:{kind:'finished',label:'Response ready',at:now-200000}},
  {id:'55555555-5555-4555-8555-555555555555',title:'Camera ordering review with a deliberately long title that remains readable on a narrow phone',cwd:'/workspaces/purchasing',provider:'claude',mtimeMs:now-300000,state:{kind:'idle',label:'Recent'}},
 ];
 const idle=rows.at(-1);let dispatches=0,failNext=false,stale=false;const receipts=new Map();const received=[];
+const uploads=[];let uploadDelay=0;
 let questionRequests=[];let questionAnswers=null;
 let approvalRequests=[],approvalDecisions=[],approvalFail=false;
 const queueRows=[{id:'q1',revision:1,text:'Check incoming quantities before placing an order.',status:'pending'}];
@@ -26,6 +27,19 @@ const conversations=new Map(rows.map(r=>[r.id,[{role:'user',text:'Review the sto
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost');
  const json=(body,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(body));};
+ if(url.pathname.startsWith('/mission-control/')&&process.env.MISSION_CONTROL_REPO){
+  const rel=url.pathname.slice('/mission-control/'.length),file=path.join(process.env.MISSION_CONTROL_REPO,'web',rel);
+  if(!file.startsWith(path.join(process.env.MISSION_CONTROL_REPO,'web')+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}
+  let body=fs.readFileSync(file);
+  if(rel.endsWith('.html'))body=Buffer.from(body.toString().replaceAll('https://claude.bbesner.com','http://localhost:'+server.address().port).replaceAll('href="/','href="/mission-control/').replaceAll('src="/','src="/mission-control/'));
+  res.writeHead(200,{'content-type':rel.endsWith('.js')?'text/javascript':rel.endsWith('.css')?'text/css':'text/html'});res.end(body);return;
+ }
+ if(url.pathname==='/api/upload'){
+  const chunks=[];for await(const c of req)chunks.push(c);
+  const upload={name:req.headers['x-filename'],size:Buffer.concat(chunks).length};uploads.push(upload);
+  if(uploadDelay)await new Promise(r=>setTimeout(r,uploadDelay));
+  return json({name:upload.name,path:'/fixture/uploads/'+uploads.length+'-'+upload.name});
+ }
  if(url.pathname==='/api/me')return json({ok:true});
  if(url.pathname==='/api/approval-policy')return json({defaultMode:'review',allowFullAccess:true});
  if(url.pathname.endsWith('/approvals'))return json({requests:approvalRequests,interrupted:false,activeMode:'review',defaultMode:'review',allowFullAccess:true});
@@ -250,10 +264,11 @@ try{
   }
   if(width===1440){await p.screenshot({path:path.join(out,'compact-workspace-desktop.png')});await scan('compact-workspace-desktop');}
  }
- // Desktop preferences must not remove the phone subtitle or session controls.
+ // Collapse is now available on phones and carries the same saved preference.
  await p.setViewport({width:390,height:844,isMobile:true,hasTouch:true});
- assert.ok(await p.$eval('#cproj',e=>e.getClientRects().length)>0);
- assert.equal(await p.$eval('#header-toggle',e=>e.getClientRects().length),0);
+ assert.equal(await p.$eval('#cproj',e=>e.getClientRects().length),0);
+ assert.ok(await p.$eval('#header-toggle',e=>e.getClientRects().length)>0);
+ assert.equal(await p.$eval('.chat-statebar',e=>e.getClientRects().length),0);
  await p.screenshot({path:path.join(out,'compact-preference-mobile.png')});await scan('compact-preference-mobile');
  await p.setViewport({width:1440,height:760,isMobile:false,hasTouch:false});
  await p.click('#header-toggle');await p.click('#rail-filter-toggle');
@@ -334,6 +349,94 @@ try{
  await p.click(`[data-more="${rows[0].id}"]`);await p.click('#so-permissions');await p.waitForSelector('[data-v="full"]');await p.click('[data-v="full"]');
  assert.equal(await p.evaluate(id=>getPrefs(id).approvalMode,rows[0].id),'full','home-list permissions target the selected session');
  assert.equal(await p.evaluate(id=>getPrefs(id).approvalMode,idle.id),'review','another session keeps its own policy');
+ // A server-owned run needs fresh server proof, including while headers collapse.
+ await p.goto(base+'/#/chat/'+rows[0].id,{waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
+ await p.evaluate(()=>refreshSessions());
+ assert.equal(await p.$eval('#run-confirmed-state',e=>e.textContent),'Running on server');
+ const proof=await p.evaluate(()=>sessionProofReceivedAt);
+ await p.waitForFunction(previous=>sessionProofReceivedAt>previous,{timeout:8000},proof);
+ assert.match(await p.$eval('#run-confirmed-at',e=>e.textContent),/Checked [0-9]+s ago/);
+ await p.evaluate(()=>{headerCollapsed=true;paintWorkspaceDensity();sessionProofReceivedAt=performance.now()-16000;paintRunConfirmation();});
+ assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/unconfirmed/);
+ assert.ok(await p.$eval('#run-confirmation',e=>e.getBoundingClientRect().height)>=28);
+ stale=true;await p.evaluate(()=>refreshSessions());
+ assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/unconfirmed/);
+ assert.equal(await p.evaluate(()=>sessionCounts().running),0);
+ assert.equal(await p.$eval('#hember',e=>e.hidden),true);
+ assert.ok((await p.$$eval('.session-group h2',es=>es.map(e=>e.textContent))).every(t=>!t.startsWith('Running')));
+ stale=false;await p.evaluate(()=>refreshSessions());
+ assert.equal(await p.$eval('#run-confirmed-state',e=>e.textContent),'Running on server');
+ const savedRunning=rows[0].state;rows[0].state={kind:'input',label:'Needs approval',confirmed:true};await p.evaluate(()=>refreshSessions());
+ assert.equal(await p.$eval('#run-confirmed-state',e=>e.textContent),'Needs approval');
+ await p.evaluate(()=>deliveryNotices.set(chatId,'Message delivered.'));
+ rows[0].state={kind:'finished',label:'Response ready',confirmed:true};await p.evaluate(()=>refreshSessions());
+ assert.equal(await p.$eval('#delivery-status',e=>e.hidden),true);
+ assert.equal(await p.$eval('#run-confirmed-state',e=>e.textContent),'Response ready');rows[0].state=savedRunning;
+ rows[1].state={kind:'observed',label:'Activity elsewhere',confirmed:false};
+ await p.goto(base+'/#/chat/'+rows[1].id,{waitUntil:'domcontentloaded'});await p.waitForSelector('#box');await p.evaluate(()=>refreshSessions());
+ assert.equal(await p.$eval('#run-confirmed-state',e=>e.textContent),'Activity seen. Run unconfirmed');
+ // Real clipboard image/text, and attachment ownership across a delayed upload.
+ await p.setViewport({width:390,height:844,isMobile:true,hasTouch:true});
+ await p.goto(base+'/#/chat/'+idle.id,{waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
+ await p.bringToFront();await browser.defaultBrowserContext().overridePermissions(base,['clipboard-read','clipboard-write','clipboard-sanitized-write']);
+ const png=await p.evaluate(()=>{const c=document.createElement('canvas');c.width=16;c.height=16;c.getContext('2d').fillRect(0,0,16,16);return c.toDataURL('image/png').split(',')[1];});
+ await p.evaluate(async png=>{const bytes=Uint8Array.from(atob(png),c=>c.charCodeAt(0));await navigator.clipboard.write([new ClipboardItem({'image/png':new Blob([bytes],{type:'image/png'})})]);},png);
+ const beforePaste=uploads.length;
+ await p.focus('#box');await p.keyboard.down('Control');await p.keyboard.press('v');await p.keyboard.up('Control');
+ await p.waitForFunction(()=>document.querySelector('#attrow')?.textContent.includes('screenshot-'));
+ assert.equal(uploads.length,beforePaste+1);assert.ok(uploads.at(-1).size>0);
+ await p.evaluate(async()=>{document.querySelector('#box').value='';await navigator.clipboard.writeText('Plain text still pastes normally.');});
+ await p.focus('#box');await p.keyboard.down('Control');await p.keyboard.press('v');await p.keyboard.up('Control');
+ assert.equal(await p.$eval('#box',e=>e.value),'Plain text still pastes normally.');
+ await p.evaluate(async png=>{const bytes=Uint8Array.from(atob(png),c=>c.charCodeAt(0));await navigator.clipboard.write([new ClipboardItem({'image/png':new Blob([bytes],{type:'image/png'})})]);},png);
+ await p.click('#c-att');await p.waitForSelector('[data-v="paste"]');await p.click('[data-v="paste"]');
+ await p.waitForFunction(()=>!uploadsInFlight.size);
+ assert.equal(uploads.length,beforePaste+2,'explicit clipboard action uploads the image');
+ uploadDelay=700;const destination=rows[3].id;
+ await p.evaluate(()=>{uploadFiles([new File(['slow fixture'],'delayed.png',{type:'image/png'})]);location.hash='#/chat/44444444-4444-4444-8444-444444444444';});
+ await p.waitForSelector('#box');await p.waitForFunction(()=>!uploadsInFlight.size);
+ assert.equal(await p.evaluate(()=>tb.attachments.some(a=>a.name==='delayed.png')),false,'upload must not attach to the destination session');
+ assert.equal(await p.evaluate(id=>loadAttachments(id).some(a=>a.name==='delayed.png'),idle.id),true);
+ uploadDelay=0;
+ await p.goto(base+'/#/new');await p.waitForSelector('#first');
+ await p.focus('#first');await p.keyboard.down('Control');await p.keyboard.press('v');await p.keyboard.up('Control');
+ await p.waitForFunction(()=>loadAttachments('new').some(a=>a.name.startsWith('screenshot-')));
+ // Keep the old conversation and composer alive through Fold and keyboard-sized changes.
+ conversations.set(idle.id,[{role:'assistant',blocks:[{t:'text',text:Array.from({length:70},(_,i)=>'Paragraph '+i+': Read the existing conversation without losing your draft.').join('\n\n')}]}]);
+ const parent=process.env.MISSION_CONTROL_REPO?base+'/mission-control/pocket.html':null;
+ if(parent){
+  await p.goto(parent,{waitUntil:'domcontentloaded'});
+  const f=await p.waitForFrame(f=>f.url().startsWith('http://localhost:'));
+  await f.evaluate(id=>location.hash='#/chat/'+id,idle.id);await f.waitForSelector('#box');
+  await f.evaluate(()=>{document.querySelector('#box').value='Fold regression draft';saveDraft(chatId,'Fold regression draft');window.originalComposer=document.querySelector('#box');});
+  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('clipboard-read')),true);
+  for(const [width,height] of [[390,844],[691,650],[840,650],[1000,700],[390,844]]){
+   await p.setViewport({width,height,isMobile:true,hasTouch:true});await new Promise(r=>setTimeout(r,120));
+   assert.equal(await f.evaluate(()=>document.querySelector('#box')===window.originalComposer),true,'fold must not remount composer');
+   assert.equal(await f.$eval('#box',e=>e.value),'Fold regression draft');
+   const outer=await p.$eval('iframe',e=>({top:e.getBoundingClientRect().top,bottom:e.getBoundingClientRect().bottom}));
+   const input=await f.$eval('#box',e=>({top:e.getBoundingClientRect().top,bottom:e.getBoundingClientRect().bottom}));
+   assert.ok(outer.top+input.bottom<=height+1,'embedded composer visible '+width);
+   assert.ok(outer.bottom<=height+1,'frame visible '+width);
+  }
+  const before=await f.$eval('main.scroll',e=>e.clientHeight);
+  await p.click('#workspace-toggle');
+  await f.evaluate(()=>{headerCollapsed=false;paintWorkspaceDensity();});await f.click('#header-toggle');
+  await new Promise(r=>setTimeout(r,100));
+  const after=await f.$eval('main.scroll',e=>e.clientHeight);assert.ok(after-before>80,'collapsing both headers returns reading space');
+  await p.screenshot({path:path.join(out,'fold-closed-compact.png')});
+  await p.evaluate(()=>{window.visibleTestHeight=430;Object.defineProperty(window.visualViewport,'height',{configurable:true,get:()=>window.visibleTestHeight});window.visualViewport.dispatchEvent(new Event('resize'));});
+  await new Promise(r=>setTimeout(r,100));
+  const top=await p.$eval('iframe',e=>e.getBoundingClientRect().top),bottom=await f.$eval('#box',e=>e.getBoundingClientRect().bottom);
+  assert.ok(top+bottom<=431,'composer stays in visual viewport when layout viewport does not shrink');
+  await p.evaluate(()=>{delete window.visualViewport.height;window.dispatchEvent(new Event('resize'));});
+  await p.setViewport({width:691,height:650,isMobile:true,hasTouch:true});await new Promise(r=>setTimeout(r,150));
+  await p.screenshot({path:path.join(out,'fold-open-compact.png')});
+  await p.setViewport({width:2048,height:1050,isMobile:true,hasTouch:true});await new Promise(r=>setTimeout(r,150));
+  const measure=await f.$eval('#msgs',e=>e.getBoundingClientRect().width);assert.ok(measure>=1200&&measure<=1280);
+  await p.screenshot({path:path.join(out,'desktop-wide.png')});
+  fs.writeFileSync(path.join(out,'responsive-metrics.json'),JSON.stringify({before,after,readingGain:after-before,desktopConversationWidth:measure,foldDraftPreserved:true,clipboardUploads:uploads.length},null,2));
+ }
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));
