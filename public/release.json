@@ -1,10 +1,9 @@
 {
-  "version": "1.4.1",
-  "assetV": 25,
+  "version": "1.5.0",
+  "assetV": 26,
   "notes": [
-    "Always-visible run confirmation, refreshed from the server every 5 seconds, with the age of the last check and explicit unconfirmed status after a lost connection.",
-    "Keep the message box visible when resizing a Fold, rotating or opening the keyboard. Existing conversations and drafts stay in place.",
-    "Paste screenshots directly into the message, or choose Attach \u2192 Paste screenshot. Plain text paste is unchanged.",
-    "Collapse conversation headers on phones. Use a single-row toolbar and a wider desktop conversation."
+    "Set Pocket-only default models and reasoning effort for Claude and Codex. The Model and Effort chips show what Default will run.",
+    "Optionally preselect one workspace (such as your home directory) for every new session.",
+    "When the instance default is Full access, sessions that recorded the old Review default follow it."
   ]
 }

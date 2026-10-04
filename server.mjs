@@ -70,6 +70,7 @@ const MODELS = new Set(CLAUDE_MODELS.map(m => m.id));
 // Human label for whatever the global settings pin ('opus[1m]', 'claude-fable-5-1', …).
 // Read per request so a settings change shows without a restart.
 function claudeDefaultLabel() {
+  if (POCKET_DEFAULTS.claude.model) return CLAUDE_MODELS.find(m => m.id === POCKET_DEFAULTS.claude.model).label;
   let raw;
   try { raw = JSON.parse(fs.readFileSync(path.join(HOME, '.claude', 'settings.json'), 'utf8')).model; } catch { }
   if (!raw) return 'CLI default';
@@ -78,6 +79,20 @@ function claudeDefaultLabel() {
   return hit ? hit.label + big : raw;
 }
 const EFFORTS = new Set(['max', 'xhigh', 'high', 'medium', 'low']);
+const CODEX_EFFORTS = new Set([...EFFORTS, 'ultra']);
+// Pocket-only defaults for turns that leave Model/Effort on Default. Unset = the CLI's
+// own config (~/.claude/settings.json, ~/.codex/config.toml); terminal sessions never
+// see these.
+const envPick = (name, ok) => { const v = (process.env[name] || '').trim(); return v && ok(v) ? v : undefined; };
+const POCKET_DEFAULTS = {
+  claude: { model: envPick('POCKET_CLAUDE_MODEL', v => MODELS.has(v)), effort: envPick('POCKET_CLAUDE_EFFORT', v => EFFORTS.has(v)) },
+  codex: { model: envPick('POCKET_CODEX_MODEL', v => /^[\w.-]{1,64}$/.test(v)), effort: envPick('POCKET_CODEX_EFFORT', v => CODEX_EFFORTS.has(v)) },
+};
+for (const [name, ok] of [['POCKET_CLAUDE_MODEL', POCKET_DEFAULTS.claude.model], ['POCKET_CLAUDE_EFFORT', POCKET_DEFAULTS.claude.effort], ['POCKET_CODEX_MODEL', POCKET_DEFAULTS.codex.model], ['POCKET_CODEX_EFFORT', POCKET_DEFAULTS.codex.effort]])
+  if (process.env[name] && !ok) console.warn(`${name}=${process.env[name]} is not a supported value; using the CLI default`);
+const withDefaults = (provider, opts) => ({ ...opts, model: opts.model || POCKET_DEFAULTS[provider].model, effort: opts.effort || POCKET_DEFAULTS[provider].effort });
+// Workspace the New session screen preselects; unset = wherever you last started one.
+const DEFAULT_CWD = envPick('POCKET_DEFAULT_CWD', v => path.isAbsolute(v) && fs.existsSync(v) && fs.statSync(v).isDirectory());
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -871,6 +886,7 @@ function steerTurn(turn, text) {
 function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, retryAttempt,approvalMode:requestedMode }) {
   if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   cancelRetry(sessionId); // a manually-started turn supersedes any pending auto-resume
+  ({ model, effort } = withDefaults('claude', { model, effort }));
   const mode=approvalMode(requestedMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS),policy=claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode,'--permission-prompt-tool','stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
@@ -1018,7 +1034,8 @@ app.get('/api/projects', requireAuth, async (_req, res) => {
   }
   const projects = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([cwd]) => cwd);
   if (!projects.includes(HOME)) projects.push(HOME);
-  res.json({ projects });
+  if (DEFAULT_CWD) projects.splice(0, projects.length, DEFAULT_CWD, ...projects.filter(p => p !== DEFAULT_CWD));
+  res.json({ projects, defaultCwd: DEFAULT_CWD || null });
 });
 
 app.get('/api/session/:id', requireAuth, async (req, res) => {
@@ -1232,7 +1249,7 @@ app.post('/api/session/:id/queue/start',requireAuth,async(req,res)=>{
 });
 
 async function startCodexFromApi({ id, threadId, cwd, text, body }) {
-  const opts = turnOpts(body);
+  const opts = withDefaults('codex', turnOpts(body));
   // onFinish takes the turn as an argument: a turn that fails during resume finishes
   // before this function has returned, so the closure can't reach a local binding yet.
   return codex.startCodexTurn({
@@ -1534,25 +1551,22 @@ app.get('/api/health', (_req, res) => res.json({
 app.get('/api/claude/models', requireAuth, (_req, res) => res.json({
   models: CLAUDE_MODELS.map(({ id, label, sub }) => ({ id, label, sub })),
   defaultLabel: claudeDefaultLabel(),
+  defaultEffort: POCKET_DEFAULTS.claude.effort || null,
+  pocketDefault: Boolean(POCKET_DEFAULTS.claude.model || POCKET_DEFAULTS.claude.effort),
 }));
 app.get('/api/codex/models', requireAuth, async (_req, res) => {
-  if (!CODEX_ON) return res.json({ models: [] });
-  res.json({ models: await codex.codexModels().catch(() => []) });
+  const { model, effort } = POCKET_DEFAULTS.codex;
+  const defaults = { defaultModel: model || null, defaultEffort: effort || null, pocketDefault: Boolean(model || effort) };
+  if (!CODEX_ON) return res.json({ models: [], ...defaults });
+  res.json({ models: await codex.codexModels().catch(() => []), ...defaults });
 });
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  'Review native commands, file changes and tool actions before allowing them. New turns default to Review actions; Full access is an explicit choice.',
-  'Approval decisions stay bound to one pending request, with audit records and safe recovery after lost connections.',
-  'Adjust chat text from 14 to 24 pixels in Session options or App Settings, with a live preview and Reset. Your choice is remembered on this browser.',
-  'More desktop workspace: collapse the conversation header and session filters independently. Both choices are remembered on this browser.',
-  'Tighter desktop tabs, headers and session rows. Search, active-filter summaries and conversation tools stay accessible when collapsed.',
-  'Desktop open-session tabs and a persistent Results, Queue or Git panel keep your work in view. Phone layouts stay focused.',
-  'Filter by workspace, agent or pinned sessions. Hide old sessions on this device; fresh activity brings them back.',
-  'Answer native Claude questions and Codex Plan-first questions without leaving the conversation.',
-  'Inspect current Git status and staged/working diffs. Accounts & instance shows which CLI identities the server uses.',
-  'Editing a queued instruction now pauses it until saved or canceled, including across restarts.',
+  'Set Pocket-only default models and reasoning effort for Claude and Codex. The Model and Effort chips show what Default will run.',
+  'Optionally preselect one workspace (such as your home directory) for every new session.',
+  'When the instance default is Full access, sessions that recorded the old Review default follow it.',
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

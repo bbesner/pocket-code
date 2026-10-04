@@ -4,6 +4,22 @@ const permissionLabel=mode=>mode==='full'?'Full access':'Review actions';
 async function loadApprovalPolicy(){
  try{const p=await api('/approval-policy');if(['review','full'].includes(p.defaultMode))approvalPolicy=p;}
  catch{approvalPolicy={defaultMode:'review',allowFullAccess:false};}
+ adoptFullAccessDefault();
+}
+// Sessions recorded the old Review default when they were created. When the instance
+// default becomes Full access, drop those recorded Reviews once so every session follows it;
+// a Review picked after this point is kept.
+function adoptFullAccessDefault(){
+ if(approvalPolicy.defaultMode!=='full'||!approvalPolicy.allowFullAccess)return;
+ try{
+  if(localStorage.getItem('pc-full-default-adopted'))return;
+  for(let i=0;i<localStorage.length;i++){
+   const key=localStorage.key(i);if(!key?.startsWith('pc-prefs-'))continue;
+   const p=JSON.parse(localStorage.getItem(key)||'null');
+   if(p?.approvalMode==='review'){delete p.approvalMode;localStorage.setItem(key,JSON.stringify(p));}
+  }
+  localStorage.setItem('pc-full-default-adopted','1');
+ }catch{}
 }
 function nextApprovalMode(prefs=tb?.prefs){
  const mode=prefs?.approvalMode||approvalPolicy.defaultMode;
