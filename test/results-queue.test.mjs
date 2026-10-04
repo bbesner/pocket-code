@@ -16,3 +16,14 @@ test('uncertain starts block the queue after restart; storage failure never disp
  const {q,file}=make(t);q.add('s',{text:'next'});await assert.rejects(q.dispatch('s',()=>{throw Error('interrupted')}));const restored=new FollowupQueue(file);assert.equal(restored.list('s')[0].status,'uncertain');assert.equal(await restored.dispatch('s',()=>assert.fail('ambiguous replay')),null);
  const row=restored.list('s')[0];restored.remove('s',row.id,row.revision);restored.add('s',{text:'new'});restored.save=()=>{throw Error('disk full')};await assert.rejects(restored.dispatch('s',()=>assert.fail('no storage, no dispatch')));
 });
+
+test('editing a queued instruction pauses dispatch and survives restart until saved',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-edit-'));const file=path.join(dir,'queue.json');
+ try{
+  let queue=new FollowupQueue(file);const row=queue.add('session',{text:'Original'});const editing=queue.beginEdit('session',row.id,1);
+  let ran=0;assert.equal(await queue.dispatch('session',()=>{ran++;}),null);assert.equal(ran,0);
+  queue=new FollowupQueue(file);assert.equal(queue.list('session')[0].status,'editing');
+  assert.throws(()=>queue.edit('session',row.id,1,'Stale'),{status:409});
+  queue.edit('session',row.id,editing.revision,'Saved');await queue.dispatch('session',r=>{assert.equal(r.text,'Saved');ran++;});assert.equal(ran,1);
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});

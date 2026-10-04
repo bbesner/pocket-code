@@ -24,6 +24,7 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true});});
  const call=async(p,body,method)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:method||(body?'POST':'GET'),headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()}};
  const calls=()=>fs.existsSync(path.join(dir,'calls'))?fs.readFileSync(path.join(dir,'calls'),'utf8').trim().split('\n').filter(Boolean).map(JSON.parse):[];
+ fs.mkdirSync(path.join(dir,'sessions','test-workspace'),{recursive:true});
  await start();
  for (const asset of ['/', '/sw.js']) {
   const response=await fetch(`http://127.0.0.1:${port}${asset}`);
@@ -39,6 +40,9 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  assert.equal(calls().length,1);
  const finished=await call('/sessions');
  assert.equal(finished.body.sessions.find(s=>s.id===id).state.kind,'finished');
+ assert.equal((await call(`/session/${id}`)).body.ext,false,'owned transcript writes are not external activity');
+ fs.appendFileSync(path.join(dir,'sessions','test-workspace',id+'.jsonl'),JSON.stringify({type:'user',message:{role:'user',content:'External surface update'},timestamp:new Date().toISOString()})+'\n');
+ await sleep(100);assert.equal((await call(`/session/${id}`)).body.ext,true,'new external writes remain visible');
  const msg={text:'Follow-up with attachment metadata',clientMessageId:randomUUID()};
  const m=await call(`/session/${id}/message`,msg);assert.equal(m.status,202);
  await sleep(800);
@@ -69,6 +73,26 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  await sleep(800);assert.equal((await call(`/session/${sid}/queue`)).body.items.length,0);
  assert.equal(calls().filter(x=>x.text==='Edited follow-up').length,1);
  assert.equal((await call(`/session/${sid}/queue/start`,{itemId:qid})).status,409);
+ // Native Claude questions remain answerable after browser reconnect and fail
+ // explicitly after a daemon restart severs the provider input connection.
+ const question=await call('/new',{cwd:repo,text:'__QUESTION__',clientMessageId:randomUUID()});
+ const qsid=question.body.id;let inbox;
+ for(let i=0;i<40;i++){inbox=(await call(`/session/${qsid}/questions`)).body;if(inbox.requests.length)break;await sleep(50);}
+ assert.equal(inbox.requests.length,1);assert.equal((await call(`/session/${qsid}`)).body.state.kind,'input');
+ const requestId=inbox.requests[0].id;
+ assert.equal((await call(`/session/${qsid}/questions/${requestId}/answer`,{answers:{}})).status,400);
+ const answers={'question-0':['Blue']};assert.equal((await call(`/session/${qsid}/questions/${requestId}/answer`,{answers})).status,200);
+ assert.equal((await call(`/session/${qsid}/questions/${requestId}/answer`,{answers})).body.duplicate,true);
+ await sleep(600);assert.equal((await call(`/session/${qsid}`)).body.state.kind,'finished');
+ const interrupted=await call('/new',{cwd:repo,text:'__QUESTION__ restart',clientMessageId:randomUUID()});
+ const iid=interrupted.body.id;
+ for(let i=0;i<40;i++){if((await call(`/session/${iid}/questions`)).body.requests.length)break;await sleep(50);}
+ await stop();await start();assert.equal((await call(`/session/${iid}/questions`)).body.interrupted,true);
+ assert.equal((await call(`/session/${iid}`)).body.state.kind,'input');
+ assert.equal((await call(`/session/${iid}/questions/stale/answer`,{answers})).status,409);
+ await call(`/session/${iid}/stop`,{});await sleep(1300);assert.equal((await call(`/session/${iid}`)).body.active,false);
+ assert.equal((await fetch(`http://127.0.0.1:${port}/api/environment`)).status,401);
+ assert.equal((await fetch(`http://127.0.0.1:${port}/api/session/${sid}/workspace`)).status,401);
  // Linked report downloads are authenticated, session-bound and non-executable.
  const artifacts=fs.mkdtempSync(path.join(os.homedir(),'pocket-artifact-test-'));
  t.after(()=>fs.rmSync(artifacts,{recursive:true,force:true}));

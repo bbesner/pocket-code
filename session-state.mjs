@@ -12,7 +12,7 @@ export function sessionState({ turn, external = false, retryAt = null, outcome =
 }
 
 export function prioritizeSessions(rows, limit) {
-  const important = rows.filter(s => s.pinned || ['running', 'observed', 'waiting', 'failed'].includes(s.state.kind));
+  const important = rows.filter(s => s.pinned || ['running', 'observed', 'waiting', 'failed', 'input'].includes(s.state.kind));
   const importantIds = new Set(important.map(s => s.id));
   return [...important, ...rows.filter(s => !importantIds.has(s.id)).slice(0, Math.max(0, limit - important.length))];
 }

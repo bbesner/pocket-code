@@ -283,3 +283,13 @@ Keep `followup-queue.json` as well: it contains pending instructions. The existi
 Browser libraries are pinned in package-lock.json and vendored with their licenses.
 After updating either package deliberately, run `npm run vendor`, review the diff,
 then run the Markdown security and browser tests before releasing.
+
+### Daily desktop workspace (1.3)
+
+Open-session tabs, workspace/agent/pinned filters, keyboard navigation and an
+optional Results / Queue / Git panel make Pocket Code usable at the desk. The
+phone keeps its focused conversation and sheets. Native Claude questions and
+Codex Plan-first questions can be answered directly; Accounts & instance shows
+the provider identities used by this server. Editing a queued instruction pauses
+it until saved or canceled. See [daily workspace details](docs/daily-workspace.md)
+for behavior, keyboard shortcuts, Git limits and restart recovery.

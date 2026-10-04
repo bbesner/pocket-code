@@ -67,3 +67,24 @@ page. Results and Queue are visible next to the session switcher; phone sheets
 use the available height, desktop sheets keep a bounded measure. New Session starts
 with the task; skill discovery inserts editable instructions, with workspace and
 agent setup below the start action. Existing color/type identity stays pinned.
+
+## Daily workspace (1.3)
+
+Desktop retains a readable center conversation between the existing session rail
+and an optional 350px Results/Queue/Git panel at 1280px+. Open-session tabs persist
+locally; closing a tab never stops a turn. Phones use full-width sheets, and a
+narrowed desktop panel moves into a dialog without discarding its fields. Workspace
+and agent filters use native selects; all actions keep visible keyboard focus.
+Question forms render only provider requests, have no preselected answers and
+support free text. Git text is escaped and scroll-contained. Accounts display
+identity metadata, never secrets. Existing warm charcoal/clay identity stays pinned.
+
+Rendered phone/desktop scans and screenshots reviewed. Remaining flags are the
+incumbent native font, intentional header/tab title ellipses, compact tool ledger,
+existing slash-menu shadow and padded quote/message boxes. No low-contrast finding
+on the new question form or workspace controls. Physical-device assistive-technology
+certification is not claimed.
+
+Source detector exceptions: the existing ember only pulses for confirmed owned
+runs; it is functional state, not decorative liveness. The existing radial radio
+selection fill is a control indicator. Both are retained from the pinned design.

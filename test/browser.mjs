@@ -18,6 +18,7 @@ const rows=[
  {id:'55555555-5555-4555-8555-555555555555',title:'Camera ordering review with a deliberately long title that remains readable on a narrow phone',cwd:'/workspaces/purchasing',provider:'claude',mtimeMs:now-300000,state:{kind:'idle',label:'Recent'}},
 ];
 const idle=rows.at(-1);let dispatches=0,failNext=false,stale=false;const receipts=new Map();const received=[];
+let questionRequests=[];let questionAnswers=null;
 const queueRows=[{id:'q1',revision:1,text:'Check incoming quantities before placing an order.',status:'pending'}];
 const report='## Inventory review\n\n| Product | On hand | Incoming | Supplier reference |\n|---|---:|---:|---|\n| Outdoor camera | 24 | 12 | WAREHOUSE-LONG-REFERENCE-001 |\n| Recorder | 8 | 4 | PURCHASE-ORDER-2026-10-03 |\n\n> Incoming stock is separate from the on-hand count.\n\n1. Review stock\n   - Exclude discontinued products\n   - Check expected delivery dates\n2. Confirm the order\n\n[Open the report](https://example.com/inventory)';
 const conversations=new Map(rows.map(r=>[r.id,[{role:'user',text:'Review the stock report.'},{role:'assistant',blocks:[{t:'text',text:report}]}]]));
@@ -33,6 +34,11 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/push/key')return json({});
  if(url.pathname==='/api/settings')return json({});
  if(url.pathname==='/api/about')return json({assetV:21,notes:[],cli:'test',host:'preview'});
+ if(url.pathname==='/api/environment')return json({host:'test-instance',checkedAt:Date.now(),providers:[{provider:'claude',email:'owner@example.test',plan:'max',method:'claude.ai',signedIn:true},{provider:'codex',email:'coder@example.test',plan:'pro',method:'chatgpt',signedIn:true}],accountManagement:'Sign-ins follow this instance.',permissions:'Unattended server permissions'});
+ if(url.pathname.endsWith('/questions'))return json({supported:url.pathname.includes('cx:'),requests:questionRequests});
+ if(url.pathname.endsWith('/questions/request-1/answer')){let raw='';for await(const c of req)raw+=c;questionAnswers=JSON.parse(raw).answers;questionRequests=[];return json({ok:true});}
+ if(url.pathname.endsWith('/workspace'))return json({branch:'feature/inventory',total:2,checkedAt:Date.now(),files:[{path:'report.csv',status:' M',inspectable:true},{path:'.env',status:'??',inspectable:false}]});
+ if(url.pathname.endsWith('/workspace/diff'))return json({text:url.searchParams.get('scope')==='staged'?'No staged diff for this file.':'-old quantity\n+new quantity\n+<script>unsafe-looking content is literal</script>'});
  if(url.pathname.endsWith('/events')){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache'});res.write(url.pathname.includes(rows[0].id)?': running\n\n':'data: {"type":"watch"}\n\n');const t=setInterval(()=>res.write(': keepalive\n\n'),1000);req.on('close',()=>clearInterval(t));return;}
  if(url.pathname==='/api/new'){
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
@@ -46,7 +52,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname.includes('/queue')){
   if(req.method==='GET')return json({items:queueRows,active:true,external:false});
   let raw='';for await(const chunk of req)raw+=chunk;const b=JSON.parse(raw);const id=url.pathname.split('/').at(-1),idx=queueRows.findIndex(x=>x.id===id);
-  if(req.method==='PATCH'){queueRows[idx]={...queueRows[idx],text:b.text,revision:queueRows[idx].revision+1};return json({ok:true});}
+  if(req.method==='PATCH'){queueRows[idx]={...queueRows[idx],...(b.editing?{status:'editing'}:{text:b.text,status:'pending'}),revision:queueRows[idx].revision+1};return json({item:queueRows[idx]});}
   if(req.method==='DELETE'){queueRows.splice(idx,1);return json({ok:true});}
  }
  const match=url.pathname.match(/^\/api\/session\/([^/]+)(\/message)?$/);
@@ -124,7 +130,7 @@ try{
  // A failed list refresh retains the last list but removes any implied live status.
  stale=true;await p.evaluate(()=>refreshSessions());
  assert.match(await p.$eval('#session-switch',e=>e.textContent),/unavailable/);
- assert.equal(await p.$$eval('.state-unknown',els=>els.length)>0,false,'mobile chat has no rendered list until switcher opens');
+ assert.equal(await p.$$eval('.state-unknown',els=>els.filter(e=>e.getClientRects().length).length)>0,false,'mobile chat has no rendered list until switcher opens');
  await p.click('#session-switch');await p.waitForSelector('.state-unknown');
  await p.keyboard.press('Escape');
  // New-session creation must recover the same server-issued session ID too.
@@ -150,7 +156,7 @@ try{
  });assert.deepEqual(security,{danger:0,pwned:false});
  await p.goto(base+'/#/chat/'+rows[0].id);await p.waitForSelector('[data-mode="queue"]');
  await p.click('[data-mode="queue"]');assert.equal(await p.$eval('[data-mode="queue"]',e=>e.getAttribute('aria-pressed')),'true');
- await p.click('#queue-open');await p.waitForSelector('[data-edit]');await p.click('[data-edit]');
+ await p.click('#queue-open');await p.waitForSelector('[data-edit]');await p.click('[data-edit]');await p.waitForSelector('.queue-editor');
  await p.$eval('.queue-editor',e=>e.value='Only order current models.');await p.click('[data-save]');
  await p.waitForFunction(()=>document.querySelector('.queue-item p')?.textContent==='Only order current models.');
  await p.screenshot({path:path.join(out,'queue-mobile.png')});await p.click('[data-remove]');await p.waitForFunction(()=>document.querySelector('#queue-items')?.textContent.includes('No queued instructions'));await p.keyboard.press('Escape');
@@ -162,7 +168,35 @@ try{
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await p.screenshot({path:path.join(out,'new-'+width+'.png')});
  }
+ // Daily workspace: filters, tabs, docking, read-only Git and native questions.
+ await p.setViewport({width:1440,height:900});await p.goto(base);await p.waitForSelector('[data-workspace-filter]');
+ await p.select('[data-workspace-filter]','/workspaces/warehouse');
+ assert.equal(await p.$$eval('[data-id]',e=>e.length),2);
+ await p.select('[data-provider-filter]','codex');assert.equal(await p.$$eval('[data-id]',e=>e.length),0);
+ await p.select('[data-workspace-filter]','');await p.select('[data-provider-filter]','');
+ await p.click(`[data-more="${idle.id}"]`);await p.click('#so-hide');assert.equal(await p.$(`[data-id="${idle.id}"]`),null);
+ await p.click('[data-filter="hidden"]');await p.click(`[data-more="${idle.id}"]`);await p.click('#so-hide');await p.click('[data-filter="all"]');
+ await p.click(`[data-id="${idle.id}"]`);await p.waitForSelector('#box');await p.click('#results-open');await p.waitForSelector('.workspace-dock .result-row');
+ assert.equal(await p.$eval('#app',e=>e.inert),false);await p.type('#box','Desktop draft remains editable.');
+ await p.click(`[data-id="${rows[0].id}"]`);await p.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},rows[0].id);
+ await p.waitForSelector('.workspace-dock .result-row');assert.ok(await p.$$eval('#open-sessions a',e=>e.length)>=2);
+ await p.click('#git-open');await p.waitForSelector('[data-git-file]');await p.click('[data-git-file="0"]');await p.waitForFunction(()=>document.querySelector('[data-git-diff] pre')?.textContent.includes('new quantity'));
+ assert.equal(await p.$$eval('[data-git-diff] script',e=>e.length),0);await p.click('[data-scope="staged"]');await p.waitForFunction(()=>document.querySelector('[data-git-diff] pre')?.textContent.includes('No staged'));
+ await p.screenshot({path:path.join(out,'workspace-desktop.png')});await scan('workspace-desktop');
+ // Resizing preserves the open panel as a phone dialog rather than dropping its contents.
+ await p.setViewport({width:390,height:844});await p.waitForSelector('.git-sheet[role="dialog"]');await p.keyboard.press('Escape');
+ questionRequests=[{id:'request-1',blocking:true,questions:[{id:'format',header:'Format',question:'Which format should the report use?',options:[{label:'CSV',description:'For spreadsheets'},{label:'PDF',description:'For reading'}]}]}];
+ rows[1].state={kind:'input',label:'Needs your answer',questions:1};
+ await p.goto(base+'/#/chat/'+rows[1].id);await p.waitForSelector('#questions-open:not([hidden])');
+ await p.click('#questions-open');await p.waitForSelector('.question-form');
+ await p.screenshot({path:path.join(out,'native-question-mobile.png')});await scan('native-question-mobile');
+ await p.click('.question-form [type=submit]');assert.match(await p.$eval('.question-error',e=>e.textContent),/Answer each/);
+ await p.click('.question-option input');await p.click('.question-form [type=submit]');await p.waitForFunction(()=>document.querySelector('.question-form')?.textContent.includes('Answers sent'));
+ assert.deepEqual(questionAnswers,{format:['CSV']});await p.keyboard.press('Escape');
+ await p.click('#c-mode');await p.waitForSelector('[data-v="plan"]');await p.click('[data-v="plan"]');assert.match(await p.$eval('#c-mode',e=>e.textContent),/Plan first/);
+ await p.evaluate(()=>openEnvironment());await p.waitForSelector('.provider-account');assert.match(await p.$eval('.provider-account',e=>e.textContent),/owner@example.test/);await p.keyboard.press('Escape');
+ await p.keyboard.down('Control');await p.keyboard.press('k');await p.keyboard.up('Control');await p.waitForSelector('.session-switcher');await p.keyboard.press('Escape');
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));
-}finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+}catch(e){console.error('Page errors:',errors);console.error('Page URL:',p.url());throw e;}finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
