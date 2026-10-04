@@ -67,6 +67,16 @@ export function binStamp(bin) {
 
 const log = (...a) => console.log(new Date().toISOString(), '[codex]', ...a);
 
+// The fail-closed answer to a server→client request Pocket cannot or will not relay.
+function declineFor(method) {
+  if(method==='item/tool/requestUserInput')return {answers:{}};
+  if(['item/commandExecution/requestApproval','item/fileChange/requestApproval'].includes(method))return {decision:'decline'};
+  if(method==='item/permissions/requestApproval')return {permissions:{},scope:'turn'};
+  if(method==='mcpServer/elicitation/request')return {action:'cancel',content:null};
+  if (/[Aa]pproval/.test(method)) return { decision: 'denied' };
+  return {};
+}
+
 // ---------- JSON-RPC over stdio ----------
 // Newline-delimited JSON both ways. Requests carry an id; anything with a `method` and
 // no `id` is a notification (the streaming channel).
@@ -133,14 +143,7 @@ class AppServer {
   }
 
   // Unknown or malformed requests must never be auto-approved.
-  _declineFor(method) {
-    if(method==='item/tool/requestUserInput')return {answers:{}};
-    if(['item/commandExecution/requestApproval','item/fileChange/requestApproval'].includes(method))return {decision:'decline'};
-    if(method==='item/permissions/requestApproval')return {permissions:{},scope:'turn'};
-    if(method==='mcpServer/elicitation/request')return {action:'cancel',content:null};
-    if (/[Aa]pproval/.test(method)) return { decision: 'denied' };
-    return {};
-  }
+  _declineFor(method) { return declineFor(method); }
 
   _exited(code) {
     this.closed = true;
@@ -457,6 +460,7 @@ const cxFiles = key => ({
 const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore = 0 }) {
+  const stale = new Map(); // requests logged before a restart, minus those the log shows resolved
   const t = {
     pid, keeperPid, key, files, writer, offset, rem: '', onData: null, onExit: null, exited: false,
     write: (line, cb) => writer.write(line, cb),
@@ -475,9 +479,18 @@ function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore 
         t.rem = lines.pop() ?? '';
         for (const l of lines) {
           const lineAt = at; at += Buffer.byteLength(l) + 1;
-          // requests the app-server sent the previous server can't be answered from here
-          if (lineAt < skipBefore) { let o; try { o = JSON.parse(l); } catch { } if (o?.method && o.id != null) continue; }
+          // requests the app-server sent the previous server can't be relayed from here;
+          // the ones it never saw resolved are declined below so the turn carries on
+          if (lineAt < skipBefore) {
+            let o; try { o = JSON.parse(l); } catch { }
+            if (o?.method && o.id != null) { stale.set(o.id, o.method); continue; }
+            if (o?.method === 'serverRequest/resolved' && o.params?.requestId != null) stale.delete(o.params.requestId);
+          }
           if (l.trim()) t.onData?.(l + '\n');
+        }
+        if (skipBefore && t.offset >= skipBefore && stale.size && !t.exited) {
+          for (const [id, method] of stale) { try { t.write(JSON.stringify({ jsonrpc: '2.0', id, result: declineFor(method) }) + '\n'); log(`declined a pre-restart ${method} request`); } catch { } }
+          stale.clear();
         }
       } finally { fs.closeSync(fh); }
     },
@@ -907,7 +920,7 @@ export async function pollCodexActivity() {
 // Watch mode: mirror a thread being driven somewhere else (code-server, a terminal).
 // Polls the newest items and emits the ones we haven't shown. Descending + small limit
 // keeps this cheap on threads with thousands of items.
-export function watchCodexThread(threadId, onMsg, { intervalMs = 2500 } = {}) {
+export function watchCodexThread(threadId, onMsg, { intervalMs = 2500, after = null } = {}) {
   const seen = new Set();
   let stopped = false, priming = true, complained = false;
   const tick = async () => {
@@ -925,13 +938,15 @@ export function watchCodexThread(threadId, onMsg, { intervalMs = 2500 } = {}) {
           rows = (await readLegacyItems(threadId)).slice(-20);
         }
       }
-      for (const it of rows) {
+      // A reconnect names the last item it saw: everything after it is news, not baseline.
+      let resumeAt = priming && after ? rows.findIndex(it => it.id === after) : -1;
+      for (const [i, it] of rows.entries()) {
         const key = it.id || JSON.stringify(it).slice(0, 120);
         if (seen.has(key)) continue;
         seen.add(key);
-        if (priming) continue; // first pass establishes the baseline, it isn't news
+        if (priming && (resumeAt < 0 || i <= resumeAt)) continue; // baseline, it isn't news
         const msg = normalizeItem(it, new Date().toISOString());
-        if (msg) onMsg({ type: msg.role === 'user' ? 'user' : 'assistant', msg });
+        if (msg) onMsg({ type: msg.role === 'user' ? 'user' : 'assistant', msg, itemId: it.id || undefined });
       }
       priming = false;
     } catch (e) {

@@ -81,6 +81,8 @@ async function closeMainPane(){
   if(splitPanes.length){
    const p=splitPanes[0];
    splitPanes=splitPanes.filter(x=>x.key!==p.key);saveSplit();
+   // a New-session pane becoming main brings its draft, attachments, choices and retry state
+   if(!p.id)for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-'])try{const v=localStorage.getItem(k+'new-pane-'+p.key);if(v!=null)localStorage.setItem(k+'new',v);localStorage.removeItem(k+'new-pane-'+p.key);}catch{}
    location.hash=p.id?'#/chat/'+p.id:'#/new';
    paintSplit();
   }else location.hash='#/new';

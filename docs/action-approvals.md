@@ -60,9 +60,13 @@ remain in the live inbox, private Claude turn logs and provider transcript, not
 browser storage or notifications. Approval HTTP responses use `Cache-Control: no-store`.
 
 Pending approvals do not survive a daemon restart as actionable requests. The
-restarted daemon reattaches to the running Claude or Codex process but cannot answer
-a request that was sent before the restart; the turn is marked with an interrupted
-approval (or question) connection, for both providers and across further restarts. Stop an interrupted turn, review completed work, then
+restarted daemon reattaches to the running Claude or Codex process and answers every
+request that was sent before the restart with a deny (Codex: the fail-closed decline
+for that request kind, skipping requests the log shows were already resolved), so the
+turn carries on and the agent can ask again. A second answer to a request the old
+daemon had already answered is ignored by the CLI (verified on Claude Code 2.1.281).
+Only a process whose input pipe cannot be reopened is marked with an interrupted
+approval (or question) connection. Stop an interrupted turn, review completed work, then
 send a new instruction. Never reconnect an old approval to a new process. Deploy
 while owned turns are idle, especially when questions or approvals are pending.
 

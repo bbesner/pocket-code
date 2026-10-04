@@ -22,7 +22,8 @@ async function fixture(t,port,env={}){
  const start=async()=>{
   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),...env},stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
-  for(let i=0;i<100;i++){try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+  for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+  if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();} // the port was taken: move, never talk to a foreign server
   throw Error('Test server failed: '+logs);
  };
  const stop=async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}};
@@ -33,7 +34,7 @@ async function fixture(t,port,env={}){
  const until=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){if(await fn())return true;await sleep(50)}return false;};
  const killAll=()=>{for(const pid of new Set(calls().map(c=>c.pid))){try{process.kill(-pid,'SIGKILL')}catch{try{process.kill(pid,'SIGKILL')}catch{}}}};
  // read a session's event stream for `ms`, return the data lines seen
- const streamFor=async(id,query,ms)=>{const ac=new AbortController();const r=await fetch(`http://127.0.0.1:${port}/api/session/${id}/events${query}`,{headers,signal:ac.signal});
+ const streamFor=async(id,query,ms,extra={})=>{const ac=new AbortController();const r=await fetch(`http://127.0.0.1:${port}/api/session/${id}/events${query}`,{headers:{...headers,...extra},signal:ac.signal});
   let seen='';const reader=r.body.getReader();const read=(async()=>{try{for(;;){const {value,done}=await reader.read();if(done)break;seen+=new TextDecoder().decode(value);}}catch{}})();
   await sleep(ms);ac.abort();await read;return seen.split('\n').filter(l=>l.startsWith('data: ')).map(l=>l.slice(6));};
  t.after(async()=>{await stop();killAll();fs.rmSync(dir,{recursive:true,force:true});});
@@ -74,12 +75,12 @@ test('a fresh stream connection starts after the events the transcript already c
  // no cut (an old client): the event is replayed; with the cut: nothing to replay
  const replayed=await f.streamFor(id,'?offset=0',500);
  assert.ok(replayed.some(d=>d.includes('"questions"')),'legacy connection replays');
- const cut=await f.streamFor(id,`?offset=0&from=${s.turnEvents}`,500);
+ const cut=(await f.streamFor(id,`?offset=0&from=${s.turnEvents}`,500)).filter(d=>!d.includes('"attach"'));
  assert.deepEqual(cut,[],'connection with the transcript cut gets no replay');
  // a browser reconnect still resumes from Last-Event-ID
  const resumed=await f.streamFor(id,'?offset=0',500);
  assert.ok(resumed.length>=1);
- const none=await f.streamFor(id,'?offset=0',500).then(()=>f.streamFor(id,'?offset=0&from=99',300));
+ const none=(await f.streamFor(id,'?offset=0',500).then(()=>f.streamFor(id,'?offset=0&from=99',300))).filter(d=>!d.includes('"attach"'));
  assert.deepEqual(none,[],'from beyond the end is clamped');
 });
 
@@ -122,4 +123,42 @@ test('context meter: the result\'s cumulative modelUsage never replaces the last
  assert.equal(c.used,401000);assert.equal(c.window,1000000);assert.equal(c.model,'claude-opus-5-5[1m]');assert.equal(c.estimated,false);
  assert.equal(pickMainModel({'claude-haiku-4-5-20251001':{},'claude-sonnet-5':{},'claude-opus-5-5[1m]':{}},'claude-opus-5-5'),'claude-opus-5-5[1m]','matches across the [1m] suffix');
  fs.rmSync(dir,{recursive:true,force:true});
+});
+
+test('a tool request pending at a restart is denied on adoption so the turn carries on',async t=>{
+ const f=await fixture(t,18416);
+ const id=(await f.call('/new',{cwd:repo,...msg('__APPROVAL__ risky step')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='input'),'approval pending');
+ await f.stop();await f.start();
+ assert.ok(await f.until(async()=>await f.state(id)==='finished',6000),'turn finished after the restart');
+ assert.match(f.logs(),/denied a pre-restart Bash request/);
+ assert.ok(!fs.existsSync(path.join(f.dir,'calls.approved')),'nothing was approved');
+});
+
+test('the process cap closes the longest-idle process before a new one starts',async t=>{
+ const f=await fixture(t,18417,{POCKET_MAX_PROCESSES:'1'});
+ const a=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(a)==='finished'));
+ assert.equal((await f.health()).processes,1);
+ const b=(await f.call('/new',{cwd:repo,...msg('second')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(b)==='finished'));
+ assert.ok(await f.until(async()=>(await f.health()).processes===1,4000),'back to one process');
+ assert.match(f.logs(),new RegExp(`closing session=${a}.*reason=process limit`));
+ assert.equal(await f.state(a),'finished','the closed session is untouched');
+});
+
+test('watch mode numbers events by transcript offset so a reconnect resumes, and owned streams carry an attach key',async t=>{
+ const f=await fixture(t,18418);
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ const all=await f.streamFor(id,'?offset=0',600);
+ const msgs=all.map(d=>JSON.parse(d)).filter(d=>d.offset);
+ assert.ok(msgs.length>=2,'user and assistant lines replayed from offset 0');
+ const last=msgs.at(-1).offset;
+ const resumed=(await f.streamFor(id,'?offset=0',500,{'last-event-id':String(last)})).map(d=>JSON.parse(d)).filter(d=>d.offset);
+ assert.deepEqual(resumed,[],'nothing before Last-Event-ID is replayed');
+ const slow=(await f.call('/new',{cwd:repo,...msg('__SLOW__ running')})).body.id;
+ const live=await f.streamFor(slow,'?offset=0',300);
+ assert.match(live[0]||'',/"type":"attach"/);
+ assert.match(live[0],/"key":"[0-9a-z]+:\d+"/);
 });

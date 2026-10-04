@@ -175,6 +175,7 @@ All settings live in `.env` (see [`.env.example`](.env.example)).
 | `POCKET_DEFAULT_CWD` | no | Workspace the New session screen preselects, e.g. your home directory. Default: wherever you last started a session. |
 | `POCKET_IDLE_CLOSE_MS` | no | How long a session's process (Claude Code or Codex) stays up with no turn and no background job, in milliseconds. Default `3600000` (1 hour); `0` keeps processes until Pocket closes them for another reason. |
 | `POCKET_STALL_MS` | no | A turn with no output, no background job, nothing waiting on you and no CPU use by programs it started for this long is stopped. Milliseconds; default `1800000` (30 minutes); `0` disables the watchdog. A value that is not a number is logged and ignored. |
+| `POCKET_MAX_PROCESSES` | no | Live CLI processes (Claude Code and Codex together) kept at once. Starting one past the cap closes the longest-idle process that has no turn and no background job. Default `8`; `0` means no cap. Each Claude Code process is roughly 100–300 MB plus its MCP servers. |
 | `POCKET_FRAME_ANCESTORS` | no | Origins allowed to embed Pocket Code in a frame (for example Mission Control), space-separated. Default: only Pocket's own origin. |
 | `POCKET_ENV_FILE` | no | Read settings from this file instead of `.env` next to the server; empty means read none (the test suite sets it). |
 
@@ -220,8 +221,9 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 - **Start and restart from `ecosystem.config.cjs`.** It sets PM2's `treekill: false`, so
   session processes survive a restart of the service. A restarted server reattaches to
   every running Claude Code and Codex process, including a turn in the middle of its
-  work. A question or approval that was waiting at the moment of the restart cannot be
-  answered afterwards: the session says so, and you stop that turn and send again.
+  work. A question or approval that was waiting at the moment of the restart is answered
+  with a deny so the turn carries on (the agent asks again if it still needs it); only a
+  process whose input pipe cannot be reopened is left marked as interrupted.
 - **One live writer per session.** Watching a session from several places is always
   fine. Don't send to the same session from two places at the same moment. Hand off
   instead: finish on one, continue on the other. Codex enforces this. If a thread is

@@ -11,7 +11,7 @@ const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID)_/.test(k)));
 
 test('HTTP delivery, running state, completion and receipt recovery',async t=>{
- const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-api-')),port=18361;
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-api-'));let port=18361;
  const secret=randomUUID(),exp=Date.now()+3600000;
  const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
  const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
@@ -19,7 +19,8 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  const start=async()=>{
   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_ALLOW_FULL_ACCESS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
-  for(let i=0;i<100;i++){try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+  for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+  if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();} // the port was taken: move, never talk to a foreign server
   throw Error('Test server failed: '+logs);
  };
  const stop=async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}};
@@ -89,10 +90,14 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  const interrupted=await call('/new',{cwd:repo,text:'__QUESTION__ restart',clientMessageId:randomUUID()});
  const iid=interrupted.body.id;
  for(let i=0;i<40;i++){if((await call(`/session/${iid}/questions`)).body.requests.length)break;await sleep(50);}
- await stop();await start();assert.equal((await call(`/session/${iid}/questions`)).body.interrupted,true);
- assert.equal((await call(`/session/${iid}`)).body.state.kind,'input');
+ await stop();await start();
+ // 1.7: a question pending at the restart is denied on adoption so the turn carries on (the
+ // test CLI answers any control response), instead of waiting on an answer that can't come
+ assert.equal((await call(`/session/${iid}/questions`)).body.interrupted,false);
  assert.equal((await call(`/session/${iid}/questions/stale/answer`,{answers})).status,409);
- await call(`/session/${iid}/stop`,{});await sleep(1300);assert.equal((await call(`/session/${iid}`)).body.active,false);
+ for(let i=0;i<40;i++){if((await call(`/session/${iid}`)).body.active===false)break;await sleep(100);}
+ assert.equal((await call(`/session/${iid}`)).body.active,false);
+ assert.match(logs,/denied a pre-restart AskUserQuestion request/);
  assert.equal((await fetch(`http://127.0.0.1:${port}/api/environment`)).status,401);
  assert.equal((await fetch(`http://127.0.0.1:${port}/api/session/${sid}/workspace`)).status,401);
  // Pending actions wait for explicit, session-bound decisions and are never replayed.
@@ -109,8 +114,12 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  assert.equal((await call(`/session/${denied.body.id}/approvals/${deniedAction.id}/decision`,{decision:'deny'})).status,200);
  await sleep(600);assert.equal(fs.readFileSync(path.join(dir,'calls.approved'),'utf8').trim(),aid);
  const interruptedApproval=await call('/new',{cwd:repo,text:'__APPROVAL__ restart',clientMessageId:randomUUID()});const rid=interruptedApproval.body.id,staleAction=await awaitApproval(rid);
- await stop();await start();assert.equal((await call(`/session/${rid}/approvals`)).body.interrupted,true);
+ await stop();await start();
+ // 1.7: the pre-restart request is denied on adoption (never approved), the old id is dead
+ assert.equal((await call(`/session/${rid}/approvals`)).body.interrupted,false);
  assert.equal((await call(`/session/${rid}/approvals/${staleAction.id}/decision`,{decision:'allow'})).status,409);
+ for(let i=0;i<40;i++){if((await call(`/session/${rid}`)).body.active===false)break;await sleep(100);}
+ assert.equal(fs.readFileSync(path.join(dir,'calls.approved'),'utf8').trim(),aid,'nothing approved across the restart');
  await call(`/session/${rid}/stop`,{});await sleep(1300);
  assert.equal(fs.readFileSync(path.join(dir,'calls.approved'),'utf8').trim(),aid);
  const audit=fs.readFileSync(path.join(dir,'data','approval-decisions.jsonl'),'utf8');assert.equal(audit.includes('fixture-only-secret'),false);assert.match(audit,/"decision":"deny"/);

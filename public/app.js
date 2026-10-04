@@ -379,6 +379,12 @@ async function api(path, opts) {
   return j;
 }
 
+function renderUnreachable(e) {
+  app.innerHTML = `<div class="login" data-offline><h1>Pocket Code</h1><p class="sub">${navigator.onLine === false ? 'You’re offline.' : 'The server didn’t answer' + (e?.status ? ' (' + esc(String(e.status)) + ')' : '') + '.'} Your drafts are kept.</p><button class="chip" id="retry-route">Try again</button></div>`;
+  $('#retry-route').onclick = () => route();
+  clearTimeout(renderUnreachable.timer);
+  renderUnreachable.timer = setTimeout(() => { if (document.querySelector('[data-offline]')) route(); }, 10000);
+}
 /* ---------- login ---------- */
 function renderLogin() {
   app.innerHTML = `
@@ -587,7 +593,7 @@ function paintSessionPanels() {
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
   const current = allSessions.find(s => s.id === chatId);
   const qb=$('#questions-open');if(qb)qb.hidden=!current?.state?.questions;
-  const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals)ab.textContent='Action needs approval · Review';}
+  const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals)ab.textContent=(current.state.label||'Action needs approval')+' · Review';}
   if (current && $('#chat-state')) { $('#chat-state').textContent = sessionsStale ? 'Unconfirmed' : rowState(current).label; if (!sessionsStale) markRead(chatId, current.state); }
   const queueButton=$('#queue-open');if(queueButton)queueButton.textContent='Queue'+(current?.state?.queued?' ('+current.state.queued+')':'');
   if(current?.state?.confirmed&&['finished','failed','stopped','ended'].includes(current.state.kind)&&!sessionsStale&&!loadOutbox(chatId)){deliveryNotices.delete(chatId);paintDelivery(chatId);}
@@ -679,7 +685,7 @@ setInterval(()=>{
  else paintRunConfirmation();
 },1000);
 window.addEventListener('offline', () => { sessionsStale = true; paintSessionPanels(); setConnection('Offline. Your draft is kept on this device.'); });
-window.addEventListener('online', () => { refreshSessions(); if (chatId) openES(); });
+window.addEventListener('online', () => { if (document.querySelector('[data-offline]')) return route(); refreshSessions(); if (chatId) openES(); });
 
 /* ---------- saved follow-ups ---------- */
 async function openQueue(id) {
@@ -1034,7 +1040,7 @@ async function paintRail() {
   await refreshSessions();
 }
 
-let chatOffset = 0, chatTurnEvents = null, extT = null;
+let chatOffset = 0, chatTurnEvents = null, chatAttachKey = null, chatLastItem = null, extT = null;
 function extPulse() { // ember while another surface (code-server) drives this session
   const h = $('#hember'); if (!h) return;
   if (!composerWorking) h.innerHTML = '<span class="ember"></span>';
@@ -1113,7 +1119,7 @@ async function renderChat(id) {
     else { renderChat(chatId); return; } // name cleared → resync the derived title
     railCache.at = 0; if (isWide()) paintRail();
   });
-  chatOffset = s.size || 0; chatTurnEvents = Number.isInteger(s.turnEvents) ? s.turnEvents : null;
+  chatOffset = s.size || 0; chatTurnEvents = Number.isInteger(s.turnEvents) ? s.turnEvents : null; chatAttachKey = null; chatLastItem = null;
   chatTotal = s.total || s.messages.length; chatRendered = s.messages.length;
   const isCx = id.startsWith('cx:');
   tb = { key: id, prefs: getPrefs(id), attachments: loadAttachments(id), allowAttach: true, allowMute: true, provider: isCx ? 'codex' : 'claude' };
@@ -1159,7 +1165,7 @@ async function paintContextMeter(id) {
   const full = `${fmtTokens(ctx.used)} / ${fmtTokens(ctx.window)} · ${pct}%${ctx.estimated ? ' est.' : ''}`;
   // phones show only the percentage (the counts would squeeze the Sessions control)
   el.innerHTML = `<span class="ctx-detail">${esc(fmtTokens(ctx.used))} / ${esc(fmtTokens(ctx.window))} · </span>${esc(pct)}%${ctx.estimated ? ' est.' : ''}`;
-  el.title = (ctx.estimated ? 'Estimated from the transcript — this daemon did not run the last turn. ' : 'Context used in this session: ') + full;
+  el.title = (ctx.estimated ? 'Estimated from the transcript — this daemon did not run the last turn. ' : 'Context used in this session: ') + full + (ctx.lastAt ? ' · as of ' + fmtAsOfET(ctx.lastAt) : '');
   el.setAttribute('aria-label', 'Context used: ' + full);
 }
 function fmtResetET(ms) {
@@ -1170,16 +1176,21 @@ function fmtResetET(ms) {
 }
 function fmtAsOfET(ms) {
   if (!ms) return 'not yet observed';
-  return new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET';
+  const d = new Date(ms), opts = { timeZone: 'America/New_York' };
+  const today = d.toLocaleDateString('en-US', opts) === new Date().toLocaleDateString('en-US', opts);
+  return (today ? '' : d.toLocaleDateString('en-US', { ...opts, month: 'short', day: 'numeric' }) + ', ')
+    + d.toLocaleTimeString('en-US', { ...opts, hour: 'numeric', minute: '2-digit' }) + ' ET';
 }
 function usageWindowRow(label, pct, resetsAt) {
   const safePct = Math.max(0, Math.min(1, pct || 0));
   const level = safePct >= 0.9 ? 'red' : safePct >= 0.7 ? 'amber' : '';
-  const reset = fmtResetET(resetsAt);
+  const reset = fmtResetET(resetsAt), passed = resetsAt && resetsAt < Date.now();
+  // a window that reset since the last observation is not at this percentage any more
+  const resetText = !reset ? '' : passed ? `Reset ${reset} — the figure is from before that` : `Resets ${reset}`;
   return `<div class="usage-row">
-    <div class="usage-row-head"><span>${esc(label)}</span><span class="usage-pct" data-level="${level}">${Math.round(safePct * 100)}%</span></div>
-    <div class="meter" role="img" aria-label="${esc(label)}: ${Math.round(safePct * 100)}% used${reset ? ', resets ' + reset : ''}"><div class="meter-fill" data-level="${level}" style="width:${Math.round(safePct * 100)}%"></div></div>
-    ${reset ? `<p class="usage-reset">Resets ${esc(reset)}</p>` : ''}
+    <div class="usage-row-head"><span>${esc(label)}</span><span class="usage-pct" data-level="${passed ? '' : level}">${passed ? 'was ' : ''}${Math.round(safePct * 100)}%</span></div>
+    <div class="meter" role="img" aria-label="${esc(label)}: ${Math.round(safePct * 100)}% used${resetText ? ', ' + resetText : ''}"><div class="meter-fill" data-level="${passed ? '' : level}" style="width:${Math.round(safePct * 100)}%"></div></div>
+    ${resetText ? `<p class="usage-reset">${esc(resetText)}</p>` : ''}
   </div>`;
 }
 function claudeUsageBlockHTML(d) {
@@ -1374,7 +1385,7 @@ function openES() {
   const streamId = chatId;
   // A fresh connection has no Last-Event-ID; without ?from the server would replay the
   // whole running turn on top of the transcript just rendered (every message twice).
-  es = new EventSource(`/api/session/${chatId}/events?offset=${chatOffset}${chatTurnEvents != null ? `&from=${chatTurnEvents}` : ''}`);
+  es = new EventSource(`/api/session/${chatId}/events?offset=${chatOffset}${chatTurnEvents != null ? `&from=${chatTurnEvents}` : ''}${chatLastItem ? `&after=${encodeURIComponent(chatLastItem)}` : ''}`);
   es.onopen = () => { if (chatId === streamId) setConnection(); };
   const msgs = $('#msgs');
   let live = null; // word-by-word streaming buffer, replaced by the formatted message
@@ -1385,6 +1396,11 @@ function openES() {
     let d; try { d = JSON.parse(ev.data); } catch { return; }
     // watch = the daemon has no turn for this session; if we still show "Working",
     // we missed the turn-end events (SSE drop + reconnect after finalize) — clear it
+    // attach names the turn + daemon boot: a different key after a reconnect means the
+    // turn was rebuilt (daemon restart) and event numbers no longer line up — resync
+    if (d.type === 'attach') { if (chatAttachKey && chatAttachKey !== d.key) { chatAttachKey = null; closeES(); renderChat(streamId); } else chatAttachKey = d.key; return; }
+    if (d.offset) chatOffset = d.offset; // watch mode: where a reopen should continue from
+    if (d.itemId) chatLastItem = d.itemId;
     if(d.type==='questions'){refreshQuestions(streamId);refreshSessions();return;}
     if(d.type==='approvals'){refreshApprovals(streamId);refreshSessions();return;}
     if(d.type==='usage'){paintContextMeter(streamId);return;}
@@ -1579,7 +1595,11 @@ async function renderNew() {
 async function route() {
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { await api('/me'); } catch { reportWorkspaceChrome();return; } // renders login on 401
+  try { await api('/me'); }
+  catch (e) { // 401 rendered the login; anything else (offline, deploy restart) gets a retry view
+    if (e.message !== 'login') renderUnreachable(e);
+    reportWorkspaceChrome(); return;
+  }
   await loadApprovalPolicy();
   dockSurface?.remove();dockSurface=null;
   const h = location.hash;

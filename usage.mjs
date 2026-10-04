@@ -172,10 +172,13 @@ export async function contextFromTranscriptTail(file, fsp, { maxBytes = 512 * 10
 // fall back to a transcript read, and label the fallback estimated either way.
 export async function getSessionContext(store, sessionId, { transcriptFile, fsp } = {}) {
   const have = store.sessionSummary(sessionId);
-  if (have) return have;
-  if (!transcriptFile || !fsp) return null;
+  if (have && !have.estimated) return have;
+  if (!transcriptFile || !fsp) return have;
+  // An estimated record came from the transcript (or a turn run elsewhere): recompute
+  // when the transcript has moved on since, so the meter follows terminal turns too.
+  if (have) { try { if ((await fsp.stat(transcriptFile)).mtimeMs <= (have.lastAt || 0)) return have; } catch { return have; } }
   const fallback = await contextFromTranscriptTail(transcriptFile, fsp).catch(() => null);
-  if (!fallback) return null;
+  if (!fallback) return have;
   store.recordContext(sessionId, fallback);
   return store.sessionSummary(sessionId);
 }

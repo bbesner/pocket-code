@@ -61,6 +61,12 @@ function msSetting(name, dflt) {
   return n;
 }
 const IDLE_CLOSE_MS = msSetting('POCKET_IDLE_CLOSE_MS', 60 * 60_000);
+// Live CLI processes (Claude runners + Codex app-servers) kept at once. Spawning past the
+// cap closes the longest-idle one that has no turn and no background job. 0 = no cap.
+const MAX_PROCESSES = Math.floor(msSetting('POCKET_MAX_PROCESSES', 8));
+// Changes on every daemon start: streams carry it so a client can tell a rebuilt turn
+// (same session, same startedAt, different event numbering) from the one it was following.
+const BOOT = Date.now().toString(36);
 // A turn is stopped only after this long with no output, no background job, nothing
 // waiting on the user and no CPU use by programs it started (replaces the 2h hard kill).
 const STALL_MS = msSetting('POCKET_STALL_MS', 30 * 60_000);
@@ -613,14 +619,17 @@ async function pumpTail(id, file) {
       try {
         const buf = Buffer.alloc(size - t.offset);
         await fh.read(buf, 0, buf.length, t.offset);
+        let at = t.offset - Buffer.byteLength(t.rem);
         t.offset = size;
         const lines = (t.rem + buf.toString('utf8')).split('\n');
         t.rem = lines.pop() ?? '';
         for (const line of lines) {
+          at += Buffer.byteLength(line) + 1; // byte offset just past this line
           if (!line.trim()) continue;
           let o; try { o = JSON.parse(line); } catch { continue; }
           const m = normalizeLine(o);
-          if (m) { try { t.res.write(`data: ${JSON.stringify({ type: m.role === 'user' ? 'user' : 'assistant', msg: m })}\n\n`); } catch { } }
+          // id = transcript offset: a browser reconnect sends it back as Last-Event-ID
+          if (m) { try { t.res.write(`id: ${at}\ndata: ${JSON.stringify({ type: m.role === 'user' ? 'user' : 'assistant', msg: m, offset: at })}\n\n`); } catch { } }
         }
       } finally { await fh.close(); }
     }
@@ -858,7 +867,20 @@ function writeRunnerMeta(r) {
   try { fs.writeFileSync(r.files.meta, JSON.stringify(meta), { mode: 0o600 }); } catch { }
 }
 
+// Keep the number of live CLI processes under MAX_PROCESSES by closing the longest-idle
+// one (no turn, no background job). Never refuses the new process.
+function reclaimProcess() {
+  if (!(MAX_PROCESSES > 0)) return;
+  const live = runners.size + (CODEX_ON ? codex.codexSessions.size : 0);
+  if (live < MAX_PROCESSES) return;
+  const idle = [
+    ...[...runners.values()].filter(x => !x.turn && !x.bgTasks.length && !x.closing && !x.exited).map(x => ({ at: x.lastLineAt, close: () => closeRunner(x, 'process limit') })),
+    ...(CODEX_ON ? [...codex.codexSessions.values()].filter(s => !s.turn && !s.closing && !s.exited).map(s => ({ at: s.lastActivityAt, close: () => codex.closeCodexSession(s, 'process limit') })) : []),
+  ].sort((a, b) => a.at - b.at);
+  if (idle[0]) idle[0].close();
+}
 function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
+  reclaimProcess();
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
@@ -917,7 +939,15 @@ function handleRunnerLine(r, line, lineOffset) {
     writeRunnerMeta(r); // a restart must know a job is still running (no idle close, release asks first)
     if (!r.turn) scheduleIdle(r);
   }
-  if (r.skipControlBefore && lineOffset < r.skipControlBefore && (o.type === 'control_request' || o.type === 'control_cancel_request')) return;
+  if (r.skipControlBefore && lineOffset < r.skipControlBefore && (o.type === 'control_request' || o.type === 'control_cancel_request')) {
+    // A request from before the restart: the old daemon may or may not have answered it.
+    // Deny it so the CLI carries on (a second response to an answered request is ignored
+    // and a denied tool is simply re-requested — both verified on CLI 2.1.281).
+    if (o.type === 'control_request' && o.request_id && r.writer && !r.writer.destroyed) {
+      try { r.writer.write(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: o.request_id, response: { behavior: 'deny', message: 'Pocket Code restarted while this request was waiting. Request it again if it is still needed.' } } }) + '\n'); log(`denied a pre-restart ${o.request?.tool_name || 'control'} request session=${r.sessionId}`); } catch { }
+    }
+    return;
+  }
   let turn = r.turn;
   if (!turn) {
     // The CLI started a turn by itself, e.g. to report a finished background job.
@@ -1197,7 +1227,9 @@ function adoptOrphans() {
         if (m.turn) {
           const turn = beginTurn(r, { userText: m.turn.userText, autonomous: m.turn.autonomous, offset: r.tailOffset });
           turn.startedAt = m.turn.startedAt || turn.startedAt;
-          Object.assign(turn, { adopted: true, inputUnavailable: Boolean(m.waitingForInput) && !m.waitingForApproval, approvalUnavailable: Boolean(m.waitingForApproval) });
+          // With the pipe back, pending requests are denied and the turn carries on; only a
+          // process we can no longer write to is left waiting on an answer that can't come.
+          Object.assign(turn, { adopted: true, inputUnavailable: !writer && Boolean(m.waitingForInput) && !m.waitingForApproval, approvalUnavailable: !writer && Boolean(m.waitingForApproval) });
           writeRunnerMeta(r); // beginTurn wrote the marker before the flags existed; a second restart must still see them
         }
         if (!writer) { // can't send to it any more: drop the keeper so the CLI reads EOF after this turn
@@ -1611,6 +1643,7 @@ function codexHooks(id) {
   };
 }
 async function startCodexFromApi({ id, threadId, cwd, text, body }) {
+  if (!threadId || !codex.codexSessions.has(threadId)) reclaimProcess();
   const opts = withDefaults('codex', turnOpts(body));
   return codex.startCodexTurn({ threadId, cwd, text, ...opts, ...codexHooks(id) });
 }
@@ -1872,6 +1905,7 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
     const tid = codex.bareId(id);
     const cxTurn = codex.codexTurns.get(tid);
     if (cxTurn) { // our own turn: replay what the client missed, then stream live
+      res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${cxTurn.startedAt}` })}\n\n`);
       const from = replayFrom(req, cxTurn);
       for (let i = from; i < cxTurn.events.length; i++) {
         res.write(`id: ${i}\ndata: ${JSON.stringify(cxTurn.events[i])}\n\n`);
@@ -1881,11 +1915,14 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
       return;
     }
     res.write(`data: {"type":"watch"}\n\n`);
-    const stop = codex.watchCodexThread(tid, ev => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`); } catch { } });
+    // id = item id: a reconnect (Last-Event-ID) or a reopen (?after) resumes after it
+    const after = String(req.headers['last-event-id'] || req.query.after || '') || null;
+    const stop = codex.watchCodexThread(tid, ev => { try { res.write(`${ev.itemId ? `id: ${ev.itemId}\n` : ''}data: ${JSON.stringify(ev)}\n\n`); } catch { } }, { after });
     req.on('close', () => { clearInterval(ka); stop(); });
     return;
   }
   if (turn) { // a turn our daemon is running: replay + live events
+    res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${turn.startedAt}` })}\n\n`);
     const from = replayFrom(req, turn);
     for (let i = from; i < turn.events.length; i++) {
       res.write(`id: ${i}\ndata: ${JSON.stringify(turn.events[i])}\n\n`);
@@ -1897,8 +1934,9 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   // watch mode: mirror the transcript live (turns driven by code-server / terminal)
   const file = await findSessionFile(id);
   if (!file) { clearInterval(ka); res.write(`data: {"type":"idle"}\n\n`); return res.end(); }
-  let offset = Number(req.query.offset);
   const size = (await fsp.stat(file)).size;
+  const last = Number(req.headers['last-event-id']);
+  let offset = Number.isFinite(last) ? last : Number(req.query.offset);
   if (!Number.isFinite(offset) || offset < 0 || offset > size) offset = size;
   res.write(`data: {"type":"watch"}\n\n`);
   const t = { res, offset, rem: '' };
@@ -2008,4 +2046,4 @@ app.use((err, req, res, _next) => {
   if (res.headersSent) { try { res.end(); } catch { } return; }
   res.status(err?.status || 503).json({ error: err?.status ? err.message : 'Request failed. Please retry.' });
 });
-app.listen(PORT, '127.0.0.1', () => log(`pocket-claude listening on 127.0.0.1:${PORT}`));
+const server = app.listen(PORT, '127.0.0.1', () => log(`pocket-claude listening on 127.0.0.1:${server.address().port}`));

@@ -16,7 +16,7 @@ function adoptFullAccessDefault(){
   for(let i=0;i<localStorage.length;i++){
    const key=localStorage.key(i);if(!key?.startsWith('pc-prefs-'))continue;
    const p=JSON.parse(localStorage.getItem(key)||'null');
-   if(p?.approvalMode==='review'){delete p.approvalMode;localStorage.setItem(key,JSON.stringify(p));}
+   if(p?.approvalMode==='review'&&p.approvalModeSource!=='user'){delete p.approvalMode;localStorage.setItem(key,JSON.stringify(p));}
   }
   localStorage.setItem('pc-full-default-adopted','1');
  }catch{}
@@ -30,7 +30,7 @@ function chooseApprovalMode(key=tb?.key){
  const prefs=getPrefs(key),provider=key.startsWith('cx:')?'codex':key===NEW_KEY?tb?.provider:'claude';
  const choices=[['review','Review actions',provider==='codex'?'Use a read-only sandbox and review native permission requests. Safe reads and previously allowed tools can run without asking.':'Ask before commands, file edits, delegated tasks and external tools. Ordinary file reads can run without asking.']];
  if(approvalPolicy.allowFullAccess)choices.push(['full','Full access','Run tools without routine permission prompts, using this server’s account access.']);
- sheet('Permissions for the next turn',choices,nextApprovalMode(prefs),mode=>{prefs.approvalMode=mode;setPrefs(key,prefs);if(tb?.key===key){tb.prefs=prefs;renderToolbar();}});
+ sheet('Permissions for the next turn',choices,nextApprovalMode(prefs),mode=>{prefs.approvalMode=mode;prefs.approvalModeSource='user';setPrefs(key,prefs);if(tb?.key===key){tb.prefs=prefs;renderToolbar();}});
 }
 async function refreshApprovals(id){
  try{
