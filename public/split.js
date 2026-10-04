@@ -3,12 +3,13 @@
    its own stream, composer, draft and sheets. Panes never move in the DOM once created:
    moving a frame reloads it. */
 const SPLIT_MIN=380,SPLIT_MAX_PANES=3;
-const validPane=p=>p&&typeof p.key==='string'&&typeof p.id==='string'&&/^(cx:)?[0-9a-f-]{36}$/.test(p.id);
+// id null = the pane is on its New session screen until that session starts
+const validPane=p=>p&&typeof p.key==='string'&&/^[0-9a-f-]{36}$/.test(p.key)&&(p.id===null||typeof p.id==='string'&&/^(cx:)?[0-9a-f-]{36}$/.test(p.id));
 let splitPanes=PANE?[]:readLocal('pc-split-panes',[]);
 splitPanes=Array.isArray(splitPanes)?splitPanes.filter(validPane).slice(0,SPLIT_MAX_PANES).map(p=>({key:p.key,id:p.id,w:Number.isFinite(p.w)?p.w:null})):[];
 const saveSplit=()=>writeLocal('pc-split-panes',splitPanes);
-const paneSrc=id=>'/?pane=1#/chat/'+encodeURIComponent(id).replaceAll('%3A',':');
-const sessionTitle=id=>allSessions.find(s=>s.id===id)?.title||openSessions.find(s=>s.id===id)?.title||'Session';
+const paneSrc=(key,id)=>'/?pane='+key+(id?'#/chat/'+encodeURIComponent(id).replaceAll('%3A',':'):'#/new');
+const sessionTitle=id=>!id?'New session':allSessions.find(s=>s.id===id)?.title||openSessions.find(s=>s.id===id)?.title||'Session';
 const railSpace=()=>{const rail=document.querySelector('aside.rail');if(!rail)return 0;const grip=document.getElementById('grip');return Math.round(rail.getBoundingClientRect().width+(grip?.getBoundingClientRect().width||0));};
 function splitHasRoom(){return (innerWidth-railSpace())/(splitPanes.length+2)>=SPLIT_MIN;}
 function paintSplit(){
@@ -21,7 +22,7 @@ function paintSplit(){
    grip.className='pane-grip';grip.setAttribute('role','separator');grip.setAttribute('aria-orientation','vertical');grip.tabIndex=0;
    grip.setAttribute('aria-label','Resize pane');grip.dataset.tip='Drag to resize. Double-click to share space equally.';
    section=document.createElement('section');section.className='split-pane';section.dataset.key=p.key;
-   const frame=document.createElement('iframe');frame.src=paneSrc(p.id);
+   const frame=document.createElement('iframe');frame.src=paneSrc(p.key,p.id);
    section.append(frame);host.append(grip,section);bindPaneGrip(grip,section);
   }
   section.querySelector('iframe').title='Session beside: '+sessionTitle(p.id);
@@ -56,16 +57,20 @@ function bindPaneGrip(grip,section){
  };
 }
 function openBeside(id){
- if(PANE||!id)return;
- if(id===chatId)return toast('That session is already the main conversation.');
- if(splitPanes.some(p=>p.id===id))return toast('That session is already open beside.');
+ if(PANE)return;
+ if(id&&id===chatId)return toast('That session is already the main conversation.');
+ if(splitPanes.some(p=>p.id===id))return toast(id?'That session is already open beside.':'A new session is already waiting beside. Start it or close it first.');
  if(splitPanes.length>=SPLIT_MAX_PANES)return toast('Split view holds up to four sessions. Close a pane first.');
  if(!splitHasRoom())return toast('Not enough room for another pane. Hide the session list, close a pane or widen the window.');
  // a new group shares the width equally, like an editor split
  for(const p of splitPanes)p.w=null;
  splitPanes.push({key:crypto.randomUUID(),id,w:null});saveSplit();paintSplit();
 }
-function closePane(key){splitPanes=splitPanes.filter(p=>p.key!==key);saveSplit();paintSplit();}
+function closePane(key){
+ splitPanes=splitPanes.filter(p=>p.key!==key);saveSplit();paintSplit();
+ // the pane's own New-session draft, attachments, choices and retry state go with it
+ for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-'])try{localStorage.removeItem(k+'new-pane-'+key);}catch{}
+}
 function chooseBeside(){
  const taken=new Set([chatId,...splitPanes.map(p=>p.id)]);
  const seen=new Set(),rows=[];
@@ -75,8 +80,8 @@ function chooseBeside(){
   rows.push([s.id,full.title||s.title,[projName(full.cwd),full.provider==='codex'?'Codex':full.provider==='claude'?'Claude':'',full.state?.label].filter(Boolean).join(' · ')]);
   if(rows.length>=12)break;
  }
- if(!rows.length)return toast('No other sessions to open beside this one.');
- sheet('Open beside this conversation',rows,null,openBeside);
+ rows.unshift(['new','New session','Start a conversation in the new pane']);
+ sheet('Open beside this conversation',rows,null,v=>openBeside(v==='new'?null:v));
 }
 if(PANE){
  document.documentElement.classList.add('in-pane');
@@ -90,7 +95,7 @@ if(PANE){
   const {pocketPane:type,id,title}=e.data;
   if(type==='route'&&typeof id==='string'&&validPane({key:p.key,id})){p.id=id;saveSplit();frame.title='Session beside: '+(typeof title==='string'?title:sessionTitle(id));}
   if(type==='close')closePane(p.key);
-  if(type==='main'){
+  if(type==='main'&&p.id){
    const mainId=chatId;location.hash='#/chat/'+p.id;
    if(mainId&&mainId!==p.id){p.id=mainId;saveSplit();frame.contentWindow.location.hash='#/chat/'+mainId;}else closePane(p.key);
   }

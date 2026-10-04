@@ -1564,9 +1564,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Split view on desktop: open another session beside the current one with the Split view button or Open beside in session options. Each pane keeps its own conversation, composer and tools.",
-  "Swap a pane into the main position, close it, or drag the divider to resize. Panes stay open while you switch the main session.",
-  "Hover over (or tab to) any icon or abbreviated control for a short explanation of what it does.",
+  "Split view: choose New session to start a conversation in the new pane. It opens in the default workspace with its own draft.",
+  "Messages you send while the agent is working now appear right away, instead of after the agent's next step.",
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

@@ -4,6 +4,16 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
+## [1.6.1] — 2026-10-04 · build 28
+
+- Split view offers New session first. The pane opens the New session screen with
+  its own draft, attachments, choices and retry state (`new-pane-<key>`, removed when
+  the pane closes), and becomes that session once started. One waiting New pane at a time.
+- Show a message steered into a running turn as soon as the server confirms it. The CLI
+  records it in the transcript only at its next step, so the canonical re-render hid it
+  until then; the local copy drops once the transcript has it.
+- Test CLI defers steered transcript lines like the real CLI.
+
 ## [1.6.0] — 2026-10-04 · build 27
 
 - Desktop split view: up to four sessions side by side. Open one from the Split view

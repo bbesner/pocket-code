@@ -169,3 +169,6 @@ Tooltips explain icon-only and abbreviated controls on mouse hover (350ms) or ke
 focus, never on touch. Raised surface, hairline border, 10px radius, 13px text, no
 animation or shadow. Escape and pointer-down dismiss them. The control's accessible name
 is unchanged; the tooltip is attached through aria-describedby while visible.
+Split view lists New session first; a new pane shows the standard New session screen
+with Close in place of Back and its own draft. Messages steered into a running turn
+render immediately as ordinary user messages; no extra pending chrome.

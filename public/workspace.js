@@ -1,6 +1,10 @@
 /* Daily workspace: local navigation preferences, shared session data. */
 // ?pane=1: this window is a split-view pane inside another Pocket window (split.js)
 const PANE=new URLSearchParams(location.search).has('pane');
+// A pane's New session screen keeps its own draft, attachments and retry state, so it
+// never collides with the main window's New screen or another pane's.
+const PANE_KEY=(k=>/^[0-9a-f-]{36}$/.test(k||'')?k:'')(new URLSearchParams(location.search).get('pane'));
+const NEW_KEY=PANE&&PANE_KEY?'new-pane-'+PANE_KEY:'new';
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function writeLocal(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
 const CHAT_TEXT_DEFAULT=17,CHAT_TEXT_MIN=14,CHAT_TEXT_MAX=24;
