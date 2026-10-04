@@ -24,8 +24,10 @@ because it is the same store.
 - Type is large and high-contrast, and comfortable to read outdoors or with tired eyes.
 - Dark theme, because evening and on-the-go use is the main scenario.
 
-**Out of scope:** file browsing and editing, a terminal, relaying permission prompts
-(turns run unattended), multi-user accounts.
+**Out of scope:** general file browsing/editing, a terminal, tool-approval policy
+management and multi-user accounts. Native questions are supported; current
+server permissions still govern tools. Read-only Git inspection belongs to the
+session workspace. Codex Plan mode guides the task but is not a security sandbox.
 
 **Platform:** Mobile web / installable PWA, served by `server.mjs` (default port 3610)
 behind an HTTPS tunnel or reverse proxy.

@@ -17,6 +17,9 @@ import { DeliveryReceipts, withDeliveryReceipt } from './delivery.mjs';
 import { sessionState, prioritizeSessions } from './session-state.mjs';
 import { collectResults } from './results.mjs';
 import { FollowupQueue } from './queue.mjs';
+import {workspaceStatus,workspaceDiff} from './workspace.mjs';
+import {readClaudeIdentity} from './environment.mjs';
+import {QuestionInbox} from './questions.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -502,6 +505,7 @@ function searchMsgs(msgs, q, maxMatches = 50) {
 // code-server / terminal sessions write the same transcript files; watching them lets
 // the app stream those turns live and light the ember for work started anywhere.
 const EXT_ACTIVE_MS = 45_000;
+const ownedTranscriptMtime = new Map();
 const extActivity = new Map(); // sessionId -> last transcript write (ms)
 const tailers = new Map();     // sessionId -> Set<{res, offset, rem}>
 const dirWatchers = new Map();
@@ -516,7 +520,7 @@ function watchDirs() {
         if (!fname || !fname.endsWith('.jsonl')) return;
         const id = fname.slice(0, -6);
         if (!UUID_RE.test(id)) return;
-        extActivity.set(id, Date.now());
+        if(!turns.has(id)){let mtime;try{mtime=fs.statSync(path.join(dir,fname)).mtimeMs;}catch{}if(mtime===undefined||ownedTranscriptMtime.get(id)!==mtime)extActivity.set(id,Date.now());}
         if (tailers.get(id)?.size) pumpTail(id, path.join(dir, fname));
       });
       w.on('error', () => { try { w.close(); } catch { } dirWatchers.delete(dir); });
@@ -676,8 +680,35 @@ function signalTurn(turn, sig = 'SIGTERM') {
   catch { try { process.kill(turn.pid, sig); } catch { } }
 }
 
+function attachClaudeQuestions(turn,sessionId){
+  const inputs=new Map();turn.questionInputs=inputs;
+  turn.questions=new QuestionInbox({threadId:()=>sessionId,write:reply=>{
+    if(!turn.stdin||turn.stdin.destroyed||turn.stdin.writableEnded)throw new Error('Question connection closed');
+    const input=inputs.get(reply.id);if(!input)throw new Error('Question expired');
+    const answers=Object.fromEntries(input.questions.map((q,i)=>[q.question,reply.result.answers['question-'+i].answers.join(', ')]));
+    turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:reply.id,response:{behavior:'allow',updatedInput:{...input,answers}}}})+'\n');
+    inputs.delete(reply.id);
+  },onChange:()=>{
+    const pending=turn.questions.list().length;
+    try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForInput=Boolean(pending);fs.writeFileSync(turn.files.meta,JSON.stringify(meta),{mode:0o600});}catch{}
+    broadcast(turn,{type:'questions'});
+    const questionId=turn.questions.list().at(-1)?.id;
+    if(pending&&turn.questionNotified!==questionId&&!mutes.has(sessionId)){turn.questionNotified=questionId;pushNotify(sessionId,'Claude needs your answer','Open Pocket Code to answer the agent’s question.').catch(()=>{});}
+  }});
+}
 function handleTurnLine(turn, line) {
   let o; try { o = JSON.parse(line); } catch { return; }
+  if(o.type==='control_request'){
+    if(o.request?.subtype==='can_use_tool'&&o.request.tool_name==='AskUserQuestion'&&turn.questions){
+      const input=o.request.input;const questions=Array.isArray(input?.questions)?input.questions.map((q,i)=>({id:'question-'+i,header:q.header,question:q.question,options:q.options,multiple:q.multiSelect})):[];
+      turn.questionInputs.set(o.request_id,input);
+      if(turn.questions.receive({id:o.request_id,method:'item/tool/requestUserInput',params:{threadId:turn.sessionId,turnId:String(turn.startedAt),isBlocking:true,questions}},String(turn.startedAt)))return;
+      turn.questionInputs.delete(o.request_id);
+    }
+    if(turn.stdin&&!turn.stdin.destroyed)turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:o.request_id,response:{behavior:'deny',message:'This interactive request is not supported in Pocket Code.'}}})+'\n');
+    return;
+  }
+  if(o.type==='control_cancel_request'){turn.questions?.resolve(o.request_id);return;}
   if (o.type === 'stream_event') {
     const ev = o.event;
     if (!o.parent_tool_use_id && ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) {
@@ -746,10 +777,13 @@ async function restampFile(file) {
   return true;
 }
 
-function finalizeTurn(sessionId, turn, code) {
+async function finalizeTurn(sessionId, turn, code) {
   if (turn.finalized) return;
   turn.finalized = true;
-  restampEntrypoint(sessionId);
+  turn.questions?.clear();
+  await restampEntrypoint(sessionId);
+  try{const file=await findSessionFile(sessionId);if(file)ownedTranscriptMtime.set(sessionId,(await fsp.stat(file)).mtimeMs);}catch{}
+  extActivity.delete(sessionId);
   clearInterval(turn.tailTimer); clearInterval(turn.pollTimer); clearTimeout(turn.killTimer);
   drainTurnLog(turn);
   let stderrTail = '';
@@ -818,9 +852,9 @@ function steerTurn(turn, text) {
 function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, retryAttempt }) {
   if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   cancelRetry(sessionId); // a manually-started turn supersedes any pending auto-resume
-  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'bypassPermissions'];
+  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'bypassPermissions','--permission-prompt-tool','stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
-  if (effort && EFFORTS.has(effort)) args.push('--settings', JSON.stringify({ effortLevel: effort }));
+  args.push('--settings',JSON.stringify({permissions:{ask:['AskUserQuestion']},...(effort&&EFFORTS.has(effort)?{effortLevel:effort}:{})}));
   if (resume) args.push('--resume', sessionId); else args.push('--session-id', sessionId);
   const files = turnFiles(sessionId);
   fs.writeFileSync(files.out, ''); fs.writeFileSync(files.err, '');
@@ -830,8 +864,9 @@ function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, r
   proc.unref();
   proc.stdin.on('error', () => { }); // EPIPE if the CLI dies first — finalize handles it
   try { proc.stdin.write(userJSON(promptText(text, attachments))); } catch { }
-  const turn = { pid: proc.pid, stdin: proc.stdin, events: [], subs: new Set(), cwd, startedAt: Date.now(), userText: text, model, effort, retryAttempt, queue: [], files };
+  const turn = { sessionId,pid: proc.pid, stdin: proc.stdin, events: [], subs: new Set(), cwd, startedAt: Date.now(), userText: text, model, effort, retryAttempt, queue: [], files };
   fs.writeFileSync(files.meta, JSON.stringify({ sessionId, pid: proc.pid, cwd, startedAt: turn.startedAt, userText: text }));
+  attachClaudeQuestions(turn,sessionId);
   trackTurn(sessionId, turn);
   log(`turn start session=${sessionId} resume=${!!resume} pid=${proc.pid} cwd=${cwd}`);
   proc.on('exit', code => finalizeTurn(sessionId, turn, code));
@@ -848,7 +883,7 @@ function adoptOrphans() {
       let m; try { m = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { try { fs.unlinkSync(full); } catch { } continue; }
       if (m.sessionId && m.pid && pidAlive(m.pid) && isTurnProc(m.pid, m.sessionId)) {
         const turn = {
-          pid: m.pid, adopted: true, events: [], subs: new Set(), cwd: m.cwd,
+          sessionId:m.sessionId,inputUnavailable:Boolean(m.waitingForInput),pid: m.pid, adopted: true, events: [], subs: new Set(), cwd: m.cwd,
           startedAt: m.startedAt || Date.now(), userText: m.userText, queue: [], files: turnFiles(m.sessionId),
         };
         trackTurn(m.sessionId, turn);
@@ -902,6 +937,9 @@ function stateFor(s) {
     try { retryAt = JSON.parse(fs.readFileSync(turnFiles(s.id).retry, 'utf8')).at; } catch { }
   }
   const queue=followups.list(s.id);
+  if(turn?.inputUnavailable)return {kind:'input',label:'Question interrupted · review needed',confirmed:true,questions:1,queued:queue.length};
+  const questions=turn?.questions?.list()||[];
+  if(questions.length)return {kind:'input',label:questions.some(q=>q.blocking)?'Needs your answer':'Working · answer requested',confirmed:true,startedAt:turn.startedAt,queued:queue.length,questions:questions.length};
   const state=sessionState({ turn: turn ? {...turn,queue} : null, external: cx ? codex.codexExtActive(codex.bareId(s.id)) : extActive(s.id),
     retryAt, outcome: smeta[s.id]?.outcome, mtimeMs:s.mtimeMs });
   if(queue.length&&!turn && state.kind!=='failed')return {kind:'waiting',label:queue[0].status==='uncertain'?'Queue needs review':'Queue paused',queued:queue.length,confirmed:true};
@@ -977,7 +1015,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       title: smeta[req.params.id]?.name || meta?.title || turn?.userText?.slice(0, 120) || 'New session',
       cwd: meta?.cwd || turn?.cwd || null, model: meta?.model, source: meta?.source,
       state: stateFor({ id: req.params.id, mtimeMs: meta?.mtimeMs || 0 }),
-      active: Boolean(turn), ext: codex.codexExtActive(tid),
+      executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid),
       locked: !turn && codex.threadLocked(tid),
       muted: mutes.has(req.params.id), pinned: isPinned(req.params.id),
       messages, total,
@@ -1018,6 +1056,34 @@ async function sessionResults(id) {
   if(resultCache.size > 40) resultCache.delete(resultCache.keys().next().value);
   return value;
 }
+async function workspaceCwd(id) {
+  if(!anyId(id))throw Object.assign(new Error('Invalid session'),{status:400});
+  if(isCx(id))return codex.codexTurns.get(codex.bareId(id))?.cwd || (await codex.codexThreadMeta(codex.bareId(id)))?.cwd;
+  const file=await findSessionFile(id);
+  return turns.get(id)?.cwd || (file ? (await sessionMeta(file,id))?.cwd : null);
+}
+app.get('/api/session/:id/questions',requireAuth,(req,res)=>{
+  res.setHeader('Cache-Control','private, no-store');
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
+  const turn=isCx(req.params.id)?codex.codexTurns.get(codex.bareId(req.params.id)):turns.get(req.params.id);
+  res.json({supported:true,interrupted:Boolean(turn?.inputUnavailable),requests:turn?.questions?.list()||[]});
+});
+app.post('/api/session/:id/questions/:request/answer',requireAuth,(req,res)=>{
+  const turn=isCx(req.params.id)?codex.codexTurns.get(codex.bareId(req.params.id)):turns.get(req.params.id);
+  if(!turn?.questions||turn.done)return res.status(409).json({error:'This question is no longer active. Refresh the session.'});
+  try{res.json(turn.questions.answer(req.params.request,req.body.answers));}
+  catch(e){res.status(e.status||503).json({error:e.status?e.message:'Answer could not be confirmed. Refresh before trying again.'});}
+});
+app.get('/api/session/:id/workspace',requireAuth,async(req,res)=>{
+  res.setHeader('Cache-Control','private, no-store');
+  try {res.json(await workspaceStatus(await workspaceCwd(req.params.id),HOME));}
+  catch(e){res.status(e.status||503).json({error:e.status?e.message:'Workspace could not be inspected. Try again.'});}
+});
+app.get('/api/session/:id/workspace/diff',requireAuth,async(req,res)=>{
+  res.setHeader('Cache-Control','private, no-store');
+  try {res.json(await workspaceDiff(await workspaceCwd(req.params.id),HOME,String(req.query.path||''),String(req.query.scope||'working')));}
+  catch(e){res.status(e.status||503).json({error:e.status?e.message:'Diff could not be inspected. Try again.'});}
+});
 app.get('/api/session/:id/results', requireAuth, async (req,res) => {
   if(!anyId(req.params.id)) return res.status(400).json({error:'Invalid session'});
   try { res.json(await sessionResults(req.params.id)); }
@@ -1070,6 +1136,7 @@ app.get('/api/session/:id/search', requireAuth, async (req, res) => {
 
 function turnOpts(body) {
   return {
+    executionMode:body?.executionMode==='plan'?'plan':'work',
     model: typeof body?.model === 'string' ? body.model : undefined,
     effort: typeof body?.effort === 'string' ? body.effort : undefined,
     attachments: Array.isArray(body?.attachments)
@@ -1110,6 +1177,7 @@ app.get('/api/session/:id/queue',requireAuth,(req,res)=>{
   res.json({items:followups.list(id),active:Boolean(ownedTurn(id)),external:isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)});
 });
 app.patch('/api/session/:id/queue/:item',requireAuth,(req,res)=>{
+  if(req.body.editing===true){try{return res.json({item:followups.beginEdit(req.params.id,req.params.item,req.body.revision)});}catch(e){return queueError(res,e);}}
   const text=String(req.body.text||'').trim();if(!text||text.length>100000)return res.status(400).json({error:'Enter a message under 100,000 characters.'});
   try {res.json({item:followups.edit(req.params.id,req.params.item,req.body.revision,text)});}catch(e){queueError(res,e);}
 });
@@ -1129,6 +1197,7 @@ async function startCodexFromApi({ id, threadId, cwd, text, body }) {
   // before this function has returned, so the closure can't reach a local binding yet.
   return codex.startCodexTurn({
     threadId, cwd, text, ...opts,
+    onQuestion:turn=>{const sid=id||(codex.CX+turn.threadId);const qid=turn.questions.list().at(-1)?.id;if(!mutes.has(sid)&&turn.questionNotified!==qid){turn.questionNotified=qid;pushNotify(sid,'Codex needs your answer','Open Pocket Code to answer the agent’s question.').catch(()=>{});}},
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
   });
 }
@@ -1429,10 +1498,11 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  'Reports now support tables, nested lists, quotes and readable headings, with safe Markdown rendering.',
-  'Open Results to find shared reports, links and downloadable files in each session.',
-  'Choose Steer now or After this turn. Saved follow-ups can be edited, removed and recovered after restart.',
-  'Start with your task, choose an installed skill, and keep your reading position when returning to a conversation.',
+  'Desktop open-session tabs and a persistent Results, Queue or Git panel keep your work in view. Phone layouts stay focused.',
+  'Filter by workspace, agent or pinned sessions. Hide old sessions on this device; fresh activity brings them back.',
+  'Answer native Claude questions and Codex Plan-first questions without leaving the conversation.',
+  'Inspect current Git status and staged/working diffs. Accounts & instance shows which CLI identities the server uses.',
+  'Editing a queued instruction now pauses it until saved or canceled, including across restarts.',
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
@@ -1464,6 +1534,11 @@ function binVersion(bin) {
   verCache.set(bin, { stamp, v });
   return v;
 }
+app.get('/api/environment',requireAuth,async(_req,res)=>{
+  res.setHeader('Cache-Control','private, no-store');
+  const [claude,cx]=await Promise.all([readClaudeIdentity(CLAUDE_BIN,spawnEnv()),CODEX_ON?codex.accountSummary().catch(()=>({provider:'codex',signedIn:null,method:'Status unavailable'})):Promise.resolve({provider:'codex',signedIn:false,method:'Not installed'})]);
+  res.json({host:os.hostname(),checkedAt:Date.now(),providers:[claude,cx],permissions:'Unattended server permissions',accountManagement:'Provider sign-ins are managed by the installed CLIs on this instance. Existing runs may keep the account they started with.',capabilities:{claudeQuestions:true,codexQuestions:CODEX_ON,approvalControls:false}});
+});
 app.get('/api/about', requireAuth, (_req, res) => res.json({
   ...ABOUT, uptime: process.uptime(),
   cli: binVersion(CLAUDE_BIN), codex: CODEX_ON ? binVersion(codex.CODEX_BIN) : null,

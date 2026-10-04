@@ -29,7 +29,7 @@ fake Claude CLI and synthetic Claude/Codex session rows. Real Claude and Codex s
 duplicate-request recovery. Physical-device and assistive-technology checks remain
 operator validation; rollout is controlled separately from the public release.
 
-## 2. Conversation quality and interactive controls — mostly delivered in 1.2.0
+## 2. Conversation quality and interactive controls — delivered through 1.3.0
 
 - Safe Markdown tables, quotes, nested lists and heading structure; contained
   scrolling for wide content and readable result links.
@@ -37,19 +37,22 @@ operator validation; rollout is controlled separately from the public release.
   touch targets throughout, including settings, model/effort and copy controls.
 - Delivered: explicit steer/queue choices, a persistent editable queue, and runtime
   acknowledgments for Codex starts/steering.
-- Remaining: structured agent questions and required approvals. These need real
-  request/response handling in each provider; the unattended permission model is
-  unchanged. Do not infer a waiting question from prose or simulate an approval.
+- Delivered in 1.3: native Claude questions and Codex Plan-mode questions,
+  per-request replies, explicit needs-answer state and interrupted-question recovery.
+- Remaining: configurable tool-approval policy and approval cards. Current
+  unattended permissions remain unchanged; Plan mode is not an isolation boundary.
 - Session result index linking to existing document destinations.
 
 Acceptance: representative inventory/product reports; sanitized hostile Markdown;
 keyboard-only navigation; structured questions tested against each provider;
 real phone software-keyboard and screen-reader checks before release claims.
 
-## 3. Mobile and desktop composition — task-first launch and skills delivered in 1.2.0
+## 3. Mobile and desktop composition — core daily workspace delivered in 1.3.0
 
 - Task-first New Session, friendly workspace labels, advanced options collapsed.
-- Persistent desktop shell, searchable session rail, optional result panel.
+- Delivered: desktop open-session tabs, workspace/provider/pinned filters,
+  local hide/restore, keyboard controls, optional Results/Queue/Git panel,
+  read-only Git inspection and Accounts & instance metadata.
 - Mobile full-screen conversation/results, preserved draft and reading position.
 - Consistent type, spacing, interaction states and motion; optional light/system theme.
 - Skill discovery with friendly task starters, rather than a separate hard-coded
@@ -90,12 +93,15 @@ identity. Later stages may be reordered based on daily-use evidence.
 
 ## Current stopping point
 
-1.2.0 implements report rendering, Results, saved follow-ups with edit/remove/start,
-provider-aware skill discovery, task-first launch and reading-position restoration.
-Regression coverage includes unsafe Markdown, authenticated report downloads,
-queue edits/conflicts/restarts, message retries and mobile/desktop layouts. Real
-Claude and Codex runs verified steering, edited follow-ups and removed work not run.
+1.3.0 adds the daily desktop workspace and native questions for both providers.
+Queue edits pause dispatch, and real staged/working Git views supplement the older
+transcript-based Session edits view. Both providers passed real native question,
+answer and continuation checks; read-only account summaries show CLI identities.
+The Mission Control app and standalone Pocket Code remain separate installs.
 
-Next: native interactive questions and approvals with explicit capability handling,
-then a persistent desktop result panel and the employee-instance pilot. Do not
-change the unattended permission model merely to make an approval UI appear.
+Next: desktop/phone daily-use feedback; choose an employee pilot and its allowed
+workspaces, credentials, skills and approval policy before provisioning. Employee
+hosting/container decisions and other people's deployments remain deferred by the
+operator. Full tool-approval management is a separate permissions design, not implied
+by the native question interface. Optional themes, full editor/terminal functions
+and new business workflows are not required for this release.

@@ -18,6 +18,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import {QuestionInbox} from './questions.mjs';
 
 const HOME = os.homedir();
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex');
@@ -50,9 +51,10 @@ const log = (...a) => console.log(new Date().toISOString(), '[codex]', ...a);
 // Newline-delimited JSON both ways. Requests carry an id; anything with a `method` and
 // no `id` is a notification (the streaming channel).
 class AppServer {
-  constructor({ name = 'pocket', detached = false, onNotify } = {}) {
+  constructor({ name = 'pocket', detached = false, onNotify, onRequest } = {}) {
     this.name = name;
     this.onNotify = onNotify;
+    this.onRequest = onRequest;
     this.pending = new Map(); // id -> {resolve, reject, timer}
     this.nextId = 1;
     this.rem = '';
@@ -99,8 +101,8 @@ class AppServer {
       } else if (m.method && m.id == null) {
         try { this.onNotify?.(m.method, m.params || {}); } catch { }
       } else if (m.method && m.id != null) {
-        // server→client request (approvals, elicitation). Nothing on the phone can
-        // answer one yet, so decline rather than hang the turn.
+        // Owned turns can relay native questions; other request kinds fail closed.
+        if(this.onRequest?.(m))continue;
         this._write({ jsonrpc: '2.0', id: m.id, result: this._declineFor(m.method) });
       }
     }
@@ -109,6 +111,10 @@ class AppServer {
   // Approval requests want a decision object; "denied" is the safe default until the
   // UI can ask. Turns run with approvalPolicy:never anyway, so this is a backstop.
   _declineFor(method) {
+    if(method==='item/tool/requestUserInput')return {answers:{}};
+    if(['item/commandExecution/requestApproval','item/fileChange/requestApproval'].includes(method))return {decision:'decline'};
+    if(method==='item/permissions/requestApproval')return {permissions:{},scope:'turn'};
+    if(method==='mcpServer/elicitation/request')return {action:'cancel',content:null};
     if (/[Aa]pproval/.test(method)) return { decision: 'denied' };
     return {};
   }
@@ -393,6 +399,10 @@ export function codexTurnActive(threadId) { return codexTurns.has(threadId); }
 function finish(turn, ev) {
   if (turn.done) return;
   turn.done = true;
+  ownedFinishedAt.set(turn.threadId,Date.now());
+  if(ownedFinishedAt.size>1000)ownedFinishedAt.delete(ownedFinishedAt.keys().next().value);
+  const priorActivity=extSeen.get(turn.threadId);if(priorActivity)priorActivity.at=0;
+  turn.questions?.clear();
   turn.emit(ev);
   turn.emit({ type: 'done' });
   codexTurns.delete(turn.threadId);
@@ -401,13 +411,13 @@ function finish(turn, ev) {
   try { turn.onFinish?.(ev, turn); } catch (e) { log(`onFinish threw thread=${turn.threadId}: ${e.message}`); }
 }
 
-export async function startCodexTurn({ threadId, cwd, text, model, effort, attachments, emit, onFinish }) {
+export async function startCodexTurn({ threadId, cwd, text, model, effort, executionMode = 'work', attachments, emit, onFinish, onQuestion }) {
   const existing = threadId && codexTurns.get(threadId);
   if (existing) throw Object.assign(new Error('busy'), { code: 409 });
 
   const turn = {
     threadId, cwd, startedAt: Date.now(), userText: text, model, effort,
-    events: [], subs: new Set(), queue: [], turnId: null, done: false, onFinish,
+    events: [], subs: new Set(), queue: [], turnId: null, done: false, onFinish, executionMode,
   };
   // events fan out to SSE subscribers exactly like the Claude side
   turn.emit = ev => {
@@ -420,8 +430,10 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, attac
   const conn = new AppServer({
     name: `turn ${threadId || 'new'}`, detached: true,
     onNotify: (method, params) => onTurnNotify(turn, method, params),
+    onRequest: request => turn.questions?.receive(request,turn.turnId) || false,
   });
   turn.conn = conn;
+  turn.questions=new QuestionInbox({threadId:()=>turn.threadId,write:reply=>conn._write(reply),onChange:()=>{turn.emit({type:'questions'});if(turn.questions?.list().length)onQuestion?.(turn);}});
   conn.onExit = () => finish(turn, { type: 'result', ok: false, error: 'codex exited' });
 
   try {
@@ -429,14 +441,19 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, attac
     if (threadId) {
       // sandbox/approval ride on the resume, not the turn: turn/start's sandboxPolicy is
       // a tagged union, and setting it here keeps one code path for both entry points.
-      await conn.request('thread/resume', {
+      const resumed = await conn.request('thread/resume', {
         threadId, sandbox: 'danger-full-access', approvalPolicy: 'never', ...(cwd ? { cwd } : {}),
       }, 60_000);
+      turn.effectiveModel=model||resumed.model;
+      turn.effectiveEffort=effort||resumed.reasoningEffort||null;
+      turn.cwd=resumed.cwd||cwd;
     } else {
       const r = await conn.request('thread/start', {
         cwd, sandbox: 'danger-full-access', approvalPolicy: 'never',
         ...(model ? { model } : {}),
       }, 60_000);
+      turn.effectiveModel=model||r.model;
+      turn.effectiveEffort=effort||r.reasoningEffort||null;
       turn.threadId = r?.thread?.id || r?.threadId;
       if (!turn.threadId) throw new Error('thread/start returned no id');
     }
@@ -460,6 +477,7 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, attac
   try {
     const r=await conn.request('turn/start', {
       threadId:turn.threadId,input,
+      collaborationMode:{mode:executionMode==='plan'?'plan':'default',settings:{model:turn.effectiveModel,reasoning_effort:turn.effectiveEffort,developer_instructions:null}},
       ...(model?{model}:{}),...(effort?{effort}:{}),
     },120_000);
     turn.turnId=r?.turn?.id || turn.turnId;
@@ -482,6 +500,9 @@ function promptWithAttachments(text, attachments) {
 // items become finished bubbles; `turn/completed` closes the turn out with usage.
 function onTurnNotify(turn, method, params) {
   switch (method) {
+    case 'serverRequest/resolved':
+      turn.questions?.resolve(params.requestId);
+      break;
     case 'turn/started':
       turn.turnId = params?.turnId || params?.turn?.id || turn.turnId;
       break;
@@ -504,7 +525,8 @@ function onTurnNotify(turn, method, params) {
     case 'turn/completed': {
       const u = params?.usage || turn.usage || {};
       finish(turn, {
-        type: 'result', ok: true,
+        type: 'result', ok: !turn.stopped && !['failed','interrupted'].includes(params?.turn?.status),
+        error:turn.stopped?'Stopped by you':params?.turn?.error?.message,
         duration_ms: Date.now() - turn.startedAt,
         tokens: u.totalTokens ?? u.total_tokens ?? undefined,
       });
@@ -549,6 +571,7 @@ export function stopCodexTurn(threadId) {
 // The Claude side watches transcript files. Codex's equivalent signal is the thread's
 // updatedAt moving in the shared store, so a light poll gives the same live mirror.
 const EXT_ACTIVE_MS = 45_000;
+const ownedFinishedAt = new Map();
 const extSeen = new Map(); // threadId -> {updatedAt, at}
 export function codexExtActive(threadId) {
   const rec = extSeen.get(threadId);
@@ -562,7 +585,9 @@ export async function pollCodexActivity() {
       const prev = extSeen.get(t.id);
       const u = t.updatedAt || 0;
       if (!prev) { extSeen.set(t.id, { updatedAt: u, at: 0 }); continue; }
-      if (u > prev.updatedAt) extSeen.set(t.id, { updatedAt: u, at: now });
+      const updatedMs=u<1e12?u*1000:u;
+      if(codexTurns.has(t.id)||updatedMs<=(ownedFinishedAt.get(t.id)||0))extSeen.set(t.id,{updatedAt:u,at:0});
+      else if (u > prev.updatedAt) extSeen.set(t.id, { updatedAt: u, at: now });
     }
   } catch { /* transient */ }
 }
@@ -644,4 +669,9 @@ export async function listCodexSkills(cwd) {
   return [...unique.values()].map(s=>({name:s.name,label:s.interface?.displayName||s.name,
     desc:s.interface?.shortDescription||s.shortDescription||s.description||'',path:s.path,
     invocation:`Use the $${s.name} skill at ${s.path}.`}));
+}
+
+export async function accountSummary(){
+ const r=await rpc('account/read',{refreshToken:false},15000);const a=r.account;
+ return {provider:'codex',signedIn:Boolean(a),method:a?.type||'Not signed in',email:typeof a?.email==='string'?a.email:null,plan:typeof a?.planType==='string'?a.planType:null};
 }

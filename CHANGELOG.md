@@ -4,6 +4,31 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
+## [1.3.0] — 2026-10-04 · build 22
+
+- Add persistent desktop session tabs, keyboard switching, resume-last navigation,
+  and a docked Results / Queue / Git panel. Phone views remain focused sheets;
+  narrowing a desktop window preserves the open panel as a dialog.
+- Filter sessions by workspace, provider and pinned state. Hide/restore older
+  sessions on this device; active work stays visible and new activity resurfaces it.
+- Relay real Claude AskUserQuestion and Codex native question requests with
+  choices, free text, multi-select where supported, explicit needs-answer state,
+  notifications and duplicate-answer protection. Codex adds Plan first / Work
+  normally for subsequent turns, including saved follow-ups.
+- Inspect read-only repository status and staged/working diffs, scoped to the
+  session workspace. Disable Git external diff/textconv/fsmonitor execution and
+  refuse hidden/sensitive paths, symlink escapes and oversized previews.
+- Show provider identity/plan metadata in Accounts & instance without exposing
+  credentials or changing logins, permissions or memory configuration.
+- Pause queued instructions while editing; retain edits on the device and the
+  paused state on the server. Saving or canceling releases the edit reservation.
+- Show explicit recovery if a daemon restart interrupts a Claude question.
+  Browser reconnects keep the original question; stale replies never target a
+  different turn. Codex prompts expire with their owning connection.
+- Keep completed Pocket-owned transcript updates from being misreported as external
+  activity or unnecessarily blocking a paused queue.
+- Update compatible dependency patches; npm audit reports no known vulnerabilities.
+
 ## [1.2.0] — 2026-10-03 · build 21
 
 - Render safe GitHub-flavored Markdown: tables, nested lists, checklists, quotes and
