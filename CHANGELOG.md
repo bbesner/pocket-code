@@ -4,7 +4,7 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
-## [1.3.0] — Unreleased · build 22
+## [1.3.0] — 2026-10-04 · build 22
 
 - Add persistent desktop session tabs, keyboard switching, resume-last navigation,
   and a docked Results / Queue / Git panel. Phone views remain focused sheets;
