@@ -73,6 +73,8 @@ session when another app has added turns since, so its process never carries a s
   Pocket-owned runs are confirmed; recent activity from terminal/editor sessions is
   labeled separately because transcript writes cannot prove a process is still running.
 - A mobile session switcher and searchable desktop rail, with visible session menus.
+- Desktop split view preserves hidden panes and drafts when the window narrows.
+  Close session process is in Session options; closing a tab or side pane only closes its view.
 - Search by title, or across full transcripts.
 - Pin and rename sessions, with optional two-way name sync with Claude Code and
   code-server.

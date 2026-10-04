@@ -6,6 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
+import {runUIRegressions} from './ui-regressions.mjs';
 const repo=path.resolve(import.meta.dirname,'..');
 const out=process.env.POCKET_SCREENSHOTS || fs.mkdtempSync(path.join(os.tmpdir(),'pocket-browser-'));
 fs.mkdirSync(out,{recursive:true});
@@ -19,6 +20,8 @@ const rows=[
 ];
 const idle=rows.at(-1);let dispatches=0,failNext=false,stale=false;const receipts=new Map();const received=[];
 const uploads=[];let uploadDelay=0;
+const uiModes={aboutFailed:false,workerFailed:false};
+let fixtureSettings={titleSync:false};
 let questionRequests=[];let questionAnswers=null;
 let approvalRequests=[],approvalDecisions=[],approvalFail=false;
 const queueRows=[{id:'q1',revision:1,text:'Check incoming quantities before placing an order.',status:'pending'}];
@@ -40,6 +43,9 @@ const server=http.createServer(async(req,res)=>{
   if(uploadDelay)await new Promise(r=>setTimeout(r,uploadDelay));
   return json({name:upload.name,path:'/fixture/uploads/'+uploads.length+'-'+upload.name});
  }
+ if(url.pathname==='/sw.js'&&uiModes.workerFailed){res.writeHead(503);res.end('Worker unavailable');return;}
+ if(url.pathname==='/api/usage')return json({claude:{}});
+ if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
  if(url.pathname==='/api/me')return json({ok:true});
  if(url.pathname==='/api/approval-policy')return json({defaultMode:'review',allowFullAccess:true});
  if(url.pathname.endsWith('/approvals'))return json({requests:approvalRequests,interrupted:false,activeMode:'review',defaultMode:'review',allowFullAccess:true});
@@ -54,8 +60,8 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/claude/models')return json({models:[{id:'test',label:'Test agent'}],defaultLabel:'Test agent'});
  if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'}]});
  if(url.pathname==='/api/push/key')return json({});
- if(url.pathname==='/api/settings')return json({});
- if(url.pathname==='/api/about')return json({assetV:21,notes:[],cli:'test',host:'preview'});
+ if(url.pathname==='/api/settings'){if(req.method==='POST'){let raw='';for await(const c of req)raw+=c;Object.assign(fixtureSettings,JSON.parse(raw));}return json(fixtureSettings);}
+ if(url.pathname==='/api/about')return uiModes.aboutFailed?json({error:'Version unavailable'},503):json({...JSON.parse(fs.readFileSync(path.join(repo,'public/release.json'),'utf8')),cli:'test',host:'preview'});
  if(url.pathname==='/api/environment')return json({host:'test-instance',checkedAt:Date.now(),providers:[{provider:'claude',email:'owner@example.test',plan:'max',method:'claude.ai',signedIn:true},{provider:'codex',email:'coder@example.test',plan:'pro',method:'chatgpt',signedIn:true}],accountManagement:'Sign-ins follow this instance.',permissions:'Unattended server permissions'});
  if(url.pathname.endsWith('/questions'))return json({supported:url.pathname.includes('cx:'),requests:questionRequests});
  if(url.pathname.endsWith('/questions/request-1/answer')){let raw='';for await(const c of req)raw+=c;questionAnswers=JSON.parse(raw).answers;questionRequests=[];return json({ok:true});}
@@ -191,7 +197,7 @@ try{
   await p.screenshot({path:path.join(out,'new-'+width+'.png')});
  }
  // Daily workspace: filters, tabs, docking, read-only Git and native questions.
- await p.setViewport({width:1440,height:900});await p.goto(base);await p.waitForSelector('[data-workspace-filter]');
+ await p.setViewport({width:1440,height:900});await p.goto(base);await p.waitForSelector('[data-workspace-filter]');await p.click('[data-more-filters] > summary');
  await p.select('[data-workspace-filter]','/workspaces/warehouse');
  assert.equal(await p.$$eval('[data-id]',e=>e.length),2);
  await p.select('[data-provider-filter]','codex');assert.equal(await p.$$eval('[data-id]',e=>e.length),0);
@@ -500,6 +506,7 @@ try{
 
   fs.writeFileSync(path.join(out,'responsive-metrics.json'),JSON.stringify({before,after,focused,readingGain:focused-before,desktopConversationWidth:measure,foldDraftPreserved:true,clipboardUploads:uploads.length},null,2));
  }
+ await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch)});
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));

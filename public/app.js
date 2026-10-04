@@ -102,9 +102,12 @@ function getPrefs(key) {
 }
 function setPrefs(key, p) { localStorage.setItem('pc-prefs-' + key, JSON.stringify(p)); }
 
-let closeCurrentSheet = null;
+let closeCurrentSheet = null, sheetReturnFocus = null;
 function mountSheet(scrim, sh, trigger = document.activeElement) {
+  // A replacement sheet inherits the original, still-connected opener.
+  if (trigger?.closest?.('[role="dialog"]')) trigger = sheetReturnFocus;
   closeCurrentSheet?.();
+  sheetReturnFocus = trigger;
   const heading = sh.querySelector('h2');
   if (heading) { heading.id = 'sheet-title'; sh.setAttribute('aria-labelledby', heading.id); }
   sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); sh.tabIndex = -1;
@@ -113,10 +116,12 @@ function mountSheet(scrim, sh, trigger = document.activeElement) {
   sh.prepend(closeButton);
   const close = () => {
     sh.removeEventListener('keydown', keydown); scrim.remove(); sh.remove(); app.inert = false;
-    if (closeCurrentSheet === close) closeCurrentSheet = null;
-    if (trigger?.isConnected) trigger.focus();
+    if (closeCurrentSheet === close) { closeCurrentSheet = null; sheetReturnFocus = null; }
+    const target = [trigger, $('#chatmore'), $('#railsettings'), $('#settings'), $('#box'), $('#first')]
+      .find(el => el?.isConnected && el.getClientRects().length && !el.disabled);
+    target?.focus({preventScroll:true});
   };
-  const focusables = () => [...sh.querySelectorAll('button,input,textarea,a[href],[tabindex="0"]')].filter(el => !el.disabled && el.getClientRects().length);
+  const focusables = () => [...sh.querySelectorAll('button,input,textarea,select,summary,a[href],[tabindex="0"]')].filter(el => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
   const keydown = e => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
     if (e.key === 'Tab') {
@@ -185,6 +190,7 @@ function renderToolbar() {
   paintUploadStatus();
   const mu = $('#c-mute');
   if (mu) mu.onclick = () => toggleMute();
+  bindToolbarScroll(bar);
 }
 /* ---------- session options: pin + rename (overlay metadata, server-side) ---------- */
 function sessionSheet(s, refresh) { // s: {id, title, pinned}
@@ -196,7 +202,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
     ${chatTextControlsHTML()}
     ${s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':''}
     ${!PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : ''}
-    ${!PANE && s.id === chatId && !isWide() ? '<button class="opt" id="so-close">'+IC.x+'<span>Close session<span class="sub">Leaves it in your session list; ends its running turn if you choose</span></span></button>' : ''}
+    ${!PANE && s.id === chatId ? '<button class="opt" id="so-close">'+IC.x+'<span>Close session process<span class="sub">Release its server process. If work is running, choose whether to keep it running or stop it</span></span></button>' : ''}
     ${s.id===chatId?'<button class="opt" id="so-usage">'+IC.gauge+'<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>':''}
     <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
@@ -412,16 +418,24 @@ const urlB64 = s => {
   const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
   return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
 };
-async function pushState() {
+// A failed registration must never hold the rest of the interface hostage.
+async function pushRegistration() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  let timer;
   try {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
-    const reg = await navigator.serviceWorker.ready;
-    return await reg.pushManager.getSubscription();
+    return await Promise.race([navigator.serviceWorker.ready, new Promise(resolve => { timer = setTimeout(() => resolve(null), 1500); })]);
   } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+async function pushState() {
+  try { const reg = await pushRegistration(); return reg ? await reg.pushManager.getSubscription() : null; }
+  catch { return null; }
 }
 async function togglePush(btn) {
+  if (btn) btn.disabled = true;
   try {
-    const reg = await navigator.serviceWorker.ready;
+    const reg = await pushRegistration();
+    if (!reg) { toast('Notifications unavailable. Reload the app and try again.'); return; }
     let sub = await reg.pushManager.getSubscription();
     if (sub) {
       await api('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) });
@@ -429,7 +443,7 @@ async function togglePush(btn) {
       toast('Turn-finished notifications off');
     } else {
       const perm = await Notification.requestPermission();
-      if (perm !== 'granted') return toast('Notifications blocked — allow them for this site in Android settings');
+      if (perm !== 'granted') return toast('Notifications blocked. Allow notifications in this site’s browser settings.');
       const { key } = await api('/push/key');
       if (!key) return toast('Push not configured on server');
       sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(key) });
@@ -437,8 +451,9 @@ async function togglePush(btn) {
       toast('You’ll get a notification when a turn finishes');
     }
     const now = await pushState();
-    if (btn) { btn.innerHTML = now ? IC.bell : IC.bellOff; btn.classList.toggle('on', Boolean(now)); }
+    if (btn?.id === 'bell') { btn.innerHTML = now ? IC.bell : IC.bellOff; btn.classList.toggle('on', Boolean(now)); }
   } catch (e) { toast('Notification setup failed: ' + e.message); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 /* ---------- settings sheet (version, update check, chime, notifications) ---------- */
@@ -452,58 +467,100 @@ async function hardRefresh() {
   location.reload();
 }
 async function settingsSheet() {
-  let a = {}, srv = {};
-  try { a = await api('/about'); } catch { }
-  try { srv = await api('/settings'); } catch { }
-  let clientRelease=null;
-  try {const response=await fetch('/release.json?v='+APP_V);if(response.ok){const release=await response.json();if(release.assetV===APP_V)clientRelease=release;}}catch{}
-  const clientNotes=clientRelease?.notes||a.notes;
-  const stale = a.assetV && APP_V && a.assetV > APP_V;
-  const up = a.uptime ? (a.uptime > 90 * 60 ? Math.round(a.uptime / 3600) + 'h' : Math.round(a.uptime / 60) + 'm') : '?';
   const scrim = document.createElement('div'); scrim.className = 'scrim';
-  const sh = document.createElement('div'); sh.className = 'sheet';
-  const chimeOff = localStorage.getItem('pc-chime') === 'off';
-  const pushed = await pushState();
+  const sh = document.createElement('div'); sh.className = 'sheet settings-sheet';
+  const chimeOn = localStorage.getItem('pc-chime') !== 'off';
+  let srv = null;
   sh.innerHTML = `
-    <h2>Pocket Code</h2>
+    <h2>Settings</h2>
     ${chatTextControlsHTML()}
-    <div class="about">
-      <div class="arow"><span>App</span><b>${esc(clientRelease?.version || a.version || 'Pocket Code')} · build ${APP_V ?? '?'}</b></div>
-      <div class="arow"><span>Server</span><b>v${a.assetV ?? '?'} · ${esc(a.commit || '?')}${a.commitAt ? ' · ' + new Date(a.commitAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</b></div>
-      <div class="arow"><span>Claude CLI</span><b>${esc(a.cli || '?')}</b></div>
-      <div class="arow"><span>Box</span><b>${esc(a.host || '?')} · up ${up}</b></div>
-      ${stale ? `<button class="primary" id="s-refresh">Update available — refresh to v${a.assetV}</button>`
-        : `<div class="arow ok"><span>Status</span><b>Up to date</b></div>`}
-    </div>
-    ${Array.isArray(clientNotes) && clientNotes.length ? `<div class="about whatsnew"><div class="arow"><span>What's new in v${APP_V ?? a.assetV ?? '?'}</span></div><ul>${clientNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
-    <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button><button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button><button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button><button class="opt" id="s-chime"><span class="dot ${chimeOff ? '' : 'on'}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
-    <button class="opt" id="s-push"><span class="dot ${pushed ? 'on' : ''}"></span><span>Turn notifications<span class="sub">Push to this device when a turn finishes</span></span></button>
-    <button class="opt" id="s-sync"><span class="dot ${srv.titleSync ? 'on' : ''}"></span><span>Sync names with code-server<span class="sub">Session names follow Claude Code's titles, and renames here show there too</span></span></button>`;
-  const close = () => closeCurrentSheet?.();
-  scrim.onclick = close;
-  const r = sh.querySelector('#s-refresh'); if (r) r.onclick = hardRefresh;
-  sh.querySelector('#s-environment').onclick=openEnvironment;
-  sh.querySelector('#s-usage').onclick=openUsagePanel;
+    <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button>
+    <button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>
+    <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button>
+    <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
+    <button class="opt" id="s-push" aria-pressed="false"><span class="dot"></span><span>Turn notifications<span class="sub" id="s-push-state">Checking notification support…</span></span></button>
+    <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
+    <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
+    <details class="settings-details" id="s-about"><summary>About & updates</summary>
+      <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
+      <button class="chip" id="s-check">Check again</button><button class="primary" id="s-refresh" hidden></button>
+    </details>
+    <details class="settings-details" id="s-notes"><summary>What's new</summary><div class="whatsnew" id="s-notes-body">Loading release notes…</div></details>`;
+  mountSheet(scrim, sh);
   bindChatTextControls(sh);
-  sh.querySelector('#s-keys').onclick=keyboardHelp;
+  sh.querySelector('#s-environment').onclick = openEnvironment;
+  sh.querySelector('#s-usage').onclick = openUsagePanel;
+  sh.querySelector('#s-keys').onclick = keyboardHelp;
   sh.querySelector('#s-chime').onclick = e => {
-    const on = localStorage.getItem('pc-chime') === 'off'; // toggling to…
+    const on = localStorage.getItem('pc-chime') === 'off';
     localStorage.setItem('pc-chime', on ? 'on' : 'off');
+    e.currentTarget.setAttribute('aria-pressed', String(on));
     e.currentTarget.querySelector('.dot').classList.toggle('on', on);
   };
-  sh.querySelector('#s-push').onclick = async e => {
-    await togglePush($('#bell'));
-    e.currentTarget.querySelector('.dot').classList.toggle('on', Boolean(await pushState()));
+  const refreshPush = async () => {
+    const reg = await pushRegistration();
+    let sub = null;
+    try { if (reg) sub = await reg.pushManager.getSubscription(); } catch { }
+    if (!sh.isConnected) return;
+    const btn = sh.querySelector('#s-push');
+    btn.setAttribute('aria-pressed', String(Boolean(sub)));
+    btn.querySelector('.dot').classList.toggle('on', Boolean(sub));
+    sh.querySelector('#s-push-state').textContent = reg ? 'Push to this device when a turn finishes' : 'Unavailable. Reload the app or tap to retry.';
   };
-  sh.querySelector('#s-sync').onclick = async e => {
-    const dot = e.currentTarget.querySelector('.dot');
+  sh.querySelector('#s-push').onclick = async e => { await togglePush(e.currentTarget); await refreshPush(); };
+  const loadSettings = async () => {
+    const btn = sh.querySelector('#s-sync'), retry = sh.querySelector('#s-sync-retry');
+    btn.disabled = true; retry.hidden = true;
     try {
-      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ titleSync: !srv.titleSync }) });
-      dot.classList.toggle('on', Boolean(srv.titleSync));
-      toast(srv.titleSync ? 'Session names now sync with code-server' : 'Name sync off — Pocket names stay local');
-    } catch (err) { toast('Could not save: ' + err.message); }
+      srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
+      if (!sh.isConnected) return;
+      btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
+      btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
+      sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
+    } catch {
+      if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; retry.hidden = false; }
+    }
   };
-  mountSheet(scrim, sh);
+  sh.querySelector('#s-sync-retry').onclick = loadSettings;
+  sh.querySelector('#s-sync').onclick = async e => {
+    const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ titleSync: !srv.titleSync }), signal:AbortSignal.timeout(8000) });
+      if (!sh.isConnected) return;
+      btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync)); btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
+      toast(srv.titleSync ? 'Session names now sync with code-server' : 'Name sync off. Pocket names stay local');
+    } catch (err) { toast('Could not save: ' + err.message); }
+    finally { btn.disabled = false; }
+  };
+  const checkVersion = async () => {
+    const check = sh.querySelector('#s-check'), status = sh.querySelector('#s-version-state'), refresh = sh.querySelector('#s-refresh');
+    check.disabled = true; status.textContent = 'Checking for updates…'; refresh.hidden = true;
+    const [about, release] = await Promise.allSettled([
+      api('/about', {signal:AbortSignal.timeout(8000)}),
+      fetch('/release.json?v=' + APP_V, {signal:AbortSignal.timeout(8000),cache:'no-store'}).then(r => {if (!r.ok) throw Error('release unavailable');return r.json();}),
+    ]);
+    if (!sh.isConnected) return;
+    const a = about.status === 'fulfilled' && about.value && typeof about.value === 'object' ? about.value : {};
+    const client = release.status === 'fulfilled' && release.value?.assetV === APP_V ? release.value : null;
+    const notes = client?.notes || a.notes;
+    const up = a.uptime ? (a.uptime > 5400 ? Math.round(a.uptime / 3600) + 'h' : Math.round(a.uptime / 60) + 'm') : '?';
+    sh.querySelector('#s-version-info').innerHTML = `
+      <div class="arow"><span>App</span><b>${esc(client?.version || 'Pocket Code')} · build ${APP_V ?? '?'}</b></div>
+      <div class="arow"><span>Server</span><b>build ${a.assetV ?? '?'} · ${esc(a.commit || '?')}</b></div>
+      <div class="arow"><span>Claude CLI</span><b>${esc(a.cli || '?')}</b></div>
+      <div class="arow"><span>Codex CLI</span><b>${esc(a.codex || '?')}</b></div>
+      <div class="arow"><span>Box</span><b>${esc(a.host || '?')} · up ${up}</b></div>`;
+    const checked = about.status === 'fulfilled' && Number.isFinite(a.assetV) && a.assetV > 0;
+    const newer = Math.max(checked ? a.assetV : 0, release.status === 'fulfilled' ? Number(release.value?.assetV) || 0 : 0);
+    status.textContent = !checked ? 'Could not check for updates. Try again.' : newer > APP_V ? 'An update is available.' : a.assetV < APP_V ? 'This browser is newer than the server. Server update pending.' : 'Up to date';
+    if (newer > APP_V) { refresh.hidden = false; refresh.textContent = 'Update available: refresh to build ' + newer; }
+    sh.querySelector('#s-notes-body').innerHTML = Array.isArray(notes) && notes.length ? '<ul>' + notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '<p>Release notes are unavailable. Check again to retry.</p>';
+    check.disabled = false;
+  };
+  sh.querySelector('#s-check').onclick = checkVersion;
+  sh.querySelector('#s-refresh').onclick = hardRefresh;
+  // The sheet is already usable; these independent services update only their own rows.
+  refreshPush(); loadSettings(); checkVersion();
 }
 
 /* ---------- sessions list ---------- */
@@ -529,9 +586,9 @@ function sessionSummary() {
   const c = sessionCounts();
   return [c.running ? `${c.running} running` : 'No confirmed runs', c.observed ? `${c.observed} with activity elsewhere` : '', c.attention ? `${c.attention} need attention` : ''].filter(Boolean).join(' · ');
 }
-function filterButtons() {
+function filterButtons(keys) {
   const c = sessionCounts();
-  return [['all','All',null],['active','Active',c.running+c.observed+c.input],['attention','Attention',c.attention],['new','New',c.fresh],['pinned','Pinned',null],['hidden','Hidden',null]].map(([key,label,count]) =>
+  return [['all','All',null],['active','Active',c.running+c.observed+c.input],['attention','Attention',c.attention],['new','New',c.fresh],['pinned','Pinned',null],['hidden','Hidden',null]].filter(([key]) => !keys || keys.includes(key)).map(([key,label,count]) =>
     `<button type="button" data-filter="${key}" aria-pressed="${sessionFilter === key}">${label}${count ? `<span>${count}</span>` : ''}</button>`).join('');
 }
 function filteredSessions() {
@@ -580,7 +637,7 @@ function paintSessionPanels() {
   document.querySelectorAll('[data-session-summary]').forEach(el => { el.textContent = sessionSummary(); });
   document.querySelectorAll('[data-session-filters]').forEach(el => {
     const focused = el.contains(document.activeElement) ? document.activeElement.dataset.filter : null;
-    el.innerHTML = filterButtons();
+    el.innerHTML = filterButtons(el.dataset.filterKeys?.split(' '));
     el.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => { sessionFilter = b.dataset.filter; paintSessionPanels(); el.querySelector(`[data-filter="${sessionFilter}"]`)?.focus(); });
     if (focused) el.querySelector(`[data-filter="${focused}"]`)?.focus({preventScroll:true});
   });
@@ -597,6 +654,7 @@ function paintSessionPanels() {
   if (current && $('#chat-state')) { $('#chat-state').textContent = sessionsStale ? 'Unconfirmed' : rowState(current).label; if (!sessionsStale) markRead(chatId, current.state); }
   const queueButton=$('#queue-open');if(queueButton)queueButton.textContent='Queue'+(current?.state?.queued?' ('+current.state.queued+')':'');
   if(current?.state?.confirmed&&['finished','failed','stopped','ended'].includes(current.state.kind)&&!sessionsStale&&!loadOutbox(chatId)){deliveryNotices.delete(chatId);paintDelivery(chatId);}
+  paintSessionFilterSummaries();
   paintRunConfirmation();
   const quick = $('#session-switch');
   if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Sessions · status unavailable' : `Sessions · ${c.running} running${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
@@ -649,7 +707,7 @@ function sessionPanelHTML(rail = false) {
   return `<div class="session-panel ${rail ? 'compact' : ''}">
     ${rail ? '' : summary}
     <div class="session-search">${IC.search}<input type="search" data-session-search aria-label="Search recent sessions" placeholder="Search recent sessions" value="${esc(sessionQuery)}" autocomplete="off"></div>
-    ${rail ? `<div id="rail-filter-summary" class="rail-filter-summary" hidden><span></span><button id="clear-rail-filters">Clear filters</button></div><div id="rail-filter-controls">${summary}${filters}</div>` : filters}
+    ${rail ? `<div id="rail-filter-summary" class="rail-filter-summary" hidden><span></span><button id="clear-rail-filters">Clear filters</button></div><div id="rail-filter-controls">${summary}${filters}</div>` : `<nav class="session-filters" data-session-filters data-filter-keys="all active attention" aria-label="Session shortcuts">${filterButtons(['all','active','attention'])}</nav><details class="session-more-filters" data-more-filters ${readLocal('pc-session-filters-open',false)?'open':''}><summary>Filters<span data-filter-summary></span></summary>${`<div data-workspace-filters></div><nav class="session-filters" data-session-filters data-filter-keys="new pinned hidden" aria-label="More session filters">${filterButtons(['new','pinned','hidden'])}</nav>`}</details><button class="chip clear-more-filters" data-clear-more-filters hidden>Clear filters</button>`}
     <p class="session-warning" data-session-warning hidden></p>
     <div class="session-results" data-session-results></div>
     <p class="session-footnote">Recent history and all runs owned by Pocket Code. External activity is an estimate.</p>
@@ -657,6 +715,10 @@ function sessionPanelHTML(rail = false) {
 }
 function bindSessionPanel(container) {
   container.querySelectorAll('[data-session-search]').forEach(input => input.oninput = e => { sessionQuery = e.target.value; paintSessionPanels(); });
+  container.querySelectorAll('[data-more-filters]').forEach(el => {
+    el.querySelector('summary').onclick = e => {e.preventDefault();el.open=!el.open;writeLocal('pc-session-filters-open',el.open);};
+  });
+  container.querySelectorAll('[data-clear-more-filters]').forEach(el => {el.onclick = () => {workspaceFilter='';providerFilter='';sessionFilter='all';writeLocal('pc-workspace-filter','');writeLocal('pc-provider-filter','');container.querySelector('[data-more-filters] summary')?.focus();paintSessionPanels();};});
   paintSessionPanels();
 }
 async function renderList() {
@@ -1000,14 +1062,15 @@ const isWide = () => matchMedia('(min-width: 900px)').matches;
 const railOpen = () => localStorage.getItem('pc-rail') !== 'closed';
 const railW = () => Math.min(480, Math.max(220, Number(localStorage.getItem('pc-railw')) || 320));
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
+  const inputId = colHtml.includes('id="first"') ? 'first' : 'box';
   if (PANE) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div></div>`;
   return `<div class="split">
-    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#conversation">Skip to conversation</a>
+    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':'Skip to message'}</a>
       <div class="railhead"><span>Sessions</span><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse session filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div>
       <div id="rail"></div>
     </aside>
-    <div class="railgrip" id="grip" role="separator" tabindex="0" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="${railW()}" aria-label="Resize session list"></div>
+    <div class="rail-resize-region" role="region" aria-label="Session list layout"><div class="railgrip" id="grip" role="separator" tabindex="0" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="${railW()}" aria-label="Resize session list"></div></div>
     <div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div>
   </div>`;
 }
@@ -1021,7 +1084,7 @@ function wireShell() {
   $('#railnew').onclick = () => { location.hash = '#/new'; };
   const grip = $('#grip'), rail = document.querySelector('aside.rail');
   grip.onkeydown = e => { if (!['ArrowLeft','ArrowRight'].includes(e.key)) return; e.preventDefault(); const w = Math.min(480, Math.max(220, railW() + (e.key === 'ArrowRight' ? 20 : -20))); rail.style.width = w + 'px'; localStorage.setItem('pc-railw', String(w)); grip.setAttribute('aria-valuenow', String(w)); };
-  document.querySelector('.skip-chat').onclick = e => { e.preventDefault(); $('#box')?.focus(); };
+  document.querySelector('.skip-chat').onclick = e => { e.preventDefault(); document.getElementById(e.currentTarget.hash.slice(1))?.focus(); };
   grip.onpointerdown = e => {
     grip.setPointerCapture(e.pointerId);
     grip.onpointermove = ev => {
@@ -1064,9 +1127,9 @@ async function renderChat(id) {
       <button class="icon" id="chatmore" aria-label="Session options">${IC.more}</button>
       ${PANE ? '' : `<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
       <button class="icon" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj chat-statebar run-confirmation">${IC.up1}</button>
-      ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : `<button class="icon desk" id="close-main" aria-label="Close this session">${IC.x}</button>`}
+      ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
     </header>
-    <div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
+    <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
     <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><span class="ctx-meter" id="ctx-meter" hidden></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
     <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>
     <button class="question-banner" id="approvals-open" hidden>Action needs approval · Review</button>
@@ -1078,13 +1141,13 @@ async function renderChat(id) {
       <button class="icon" id="fnext" aria-label="Next match">${IC.down1}</button>
       <button class="icon" id="fclose" aria-label="Close find">${IC.x}</button>
     </div>
-    <div class="fmore" id="fmore" hidden></div>
+    <div class="fmore" id="fmore" hidden></div></section>
     <main class="scroll"><div class="msgs" id="msgs"></div></main>
-    <div class="composerwrap"><div class="delivery-status" id="delivery-status" role="status" hidden></div><div class="slash" id="slash" hidden></div><div class="composer" id="comp"></div></div>`;
+    <section class="composerwrap" aria-label="Message composer"><div class="delivery-status" id="delivery-status" role="status" hidden></div><div class="slash" id="slash" hidden></div><div class="composer" id="comp"></div></section>`;
   app.innerHTML = withShell(chatCol) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   if (PANE) { $('#pane-main').onclick = () => paneSay('main'); $('#pane-close').onclick = () => paneSay('close'); }
-  else { $('#back').onclick = () => { location.hash = '#/'; }; $('#splitb').onclick = chooseBeside; $('#close-main').onclick = () => closeMainPane(); }
+  else { $('#back').onclick = () => { location.hash = '#/'; }; $('#splitb').onclick = chooseBeside; }
   $('#session-switch').onclick = openSessionSwitcher;
   $('#results-open').onclick = () => openResults(chatId);
   $('#queue-open').onclick = () => openQueue(chatId);
@@ -1518,7 +1581,7 @@ async function renderNew() {
     localStorage.setItem('pc-provider', a);
     ap.querySelectorAll('.row').forEach(x => {
       const on = x.dataset.a === a;
-      x.classList.toggle('sel', on); x.setAttribute('aria-checked', String(on));
+      x.classList.toggle('sel', on); x.setAttribute('aria-checked', String(on)); x.tabIndex = on ? 0 : -1;
     });
     tb.provider = a;
     const fm = $('#first');
@@ -1528,6 +1591,7 @@ async function renderNew() {
   };
   ap.querySelectorAll('.row').forEach(r => r.onclick = () => pickAgent(r.dataset.a));
   pickAgent(provider);
+  bindRadioGroup(ap);
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const first = $('#first');
   first.value = pendingNew?.payload.text || loadDraft(NEW_KEY);
@@ -1541,8 +1605,8 @@ async function renderNew() {
         <span class="dot"></span>${IC.folder}<span class="p">${esc(projName(p))}<span class="workspace-path">${esc(projShort(p))}</span></span>
       </button>`).join('');
     const pick = r => {
-      pl.querySelectorAll('.row').forEach(x => { x.classList.remove('sel'); x.setAttribute('aria-checked', 'false'); });
-      r.classList.add('sel'); r.setAttribute('aria-checked', 'true');
+      pl.querySelectorAll('.row').forEach(x => { x.classList.remove('sel'); x.setAttribute('aria-checked', 'false'); x.tabIndex = -1; });
+      r.classList.add('sel'); r.setAttribute('aria-checked', 'true'); r.tabIndex = 0;
       sel = r.dataset.p; $('#cpath').value = '';context();
     };
     pl.querySelectorAll('.row').forEach(r => r.onclick = () => pick(r));
@@ -1550,6 +1614,7 @@ async function renderNew() {
     const last = defaultCwd || localStorage.getItem('pc-lastproj');
     const lastRow = last && pl.querySelector(`.row[data-p="${CSS.escape(last)}"]`);
     if (lastRow) pick(lastRow);
+    bindRadioGroup(pl);
   } catch { }
   if(viewVersion!==chatRenderVersion)return;
   if (pendingNew) $('#cpath').value = pendingNew.payload.cwd;context();

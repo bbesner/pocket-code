@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.7.1] — Unreleased · build 32
+
+- Split panes that no longer fit are hidden in place and return when the window widens, keeping their drafts and sessions.
+- Settings opens even if notification support is unavailable. Failed update checks offer a retry instead of saying Up to date.
+- Accounts, usage and notification settings come first; version details and release notes are in expandable sections.
+- Keyboard fixes cover agent and workspace choices, skip links, dialog focus and accessible split resizing.
+- The session list keeps common filters visible and remembers the expanded filter panel. Active filters stay visible when collapsed.
+- Message settings have scroll buttons when they do not fit. Closing a session process is a labelled action in Session options; tab and pane X controls only close views.
+- Browser regressions cover the UI audit failures, with axe checks for the repaired views.
+
 ## [1.7.0] — 2026-10-04 · build 31
 
 - Collapse the session header on any screen size, including its Mission Control wrapper. The slim header retains session navigation, title and live server status.

@@ -700,3 +700,30 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .usage-reset { font-size: 12.5px; color: var(--faint); margin-top: 5px; }
 .usage-asof { font-size: 12.5px; color: var(--faint); margin-top: 2px; }
 .usage-empty { color: var(--faint); font-size: 14px; padding: 4px 0; }
+
+/* UI/UX repair pass (1.7.1): preserve the workbench, make hidden state explicit. */
+.settings-details { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 4px; }
+.settings-details > summary { min-height: 44px; padding: 10px 0; cursor: pointer; color: var(--dim); }
+.settings-details .about { margin: 8px 0; }
+.settings-details .chip { margin-top: 8px; }
+.settings-details [hidden],.settings-sheet > [hidden] { display: none; }
+#s-version-state,#s-notes-body { font-size: 14px; color: var(--dim); }
+#s-notes-body ul { padding-left: 22px; }
+.session-more-filters { margin: 0 18px 8px; }
+.session-more-filters > summary { min-height: 44px; padding: 8px 0; cursor: pointer; color: var(--dim); font-size: 14px; overflow-wrap: anywhere; }
+.session-more-filters .workspace-filters,.session-more-filters .session-filters { padding-inline: 0; }
+.clear-more-filters { margin: 0 18px 8px; }
+.clear-more-filters[hidden] { display: none; }
+.toolbar-scroll { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; grid-column: 1 / -1; }
+.toolbar-scroll .toolbar { flex: 1; min-width: 0; }
+.toolbar-scroll > .icon { flex: 0 0 44px; color: var(--dim); }
+.toolbar-scroll > .icon[hidden] { display: none; }
+.toolbar-scroll > .icon:disabled { opacity: .45; cursor: default; }
+.toolbar-next svg { transform: rotate(180deg); }
+.compact-composer .toolbar-scroll { display: none; }
+.split-pane { min-width: 380px; }
+.split-pane[hidden],.pane-grip[hidden],.split-notice[hidden] { display: none; }
+.split-notice { font-size: 12px; line-height: 1.5; color: var(--dim); background: var(--surface); padding: 4px 12px; flex: none; }
+.conversation-controls { display: flex; flex-direction: column; flex: none; min-width: 0; }
+.rail-resize-region { display: flex; flex: none; }
+@media(max-width:899px) { .rail-resize-region { display: none; } }
