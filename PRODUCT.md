@@ -2,18 +2,21 @@
 
 Design context for contributors. For setup and usage, see the README.
 
-**What it is:** A self-hosted, mobile-first web app (PWA) for working with Claude Code and
-Codex sessions away from the desk. It's a thin window onto sessions that live and run on
+**What it is:** A self-hosted desktop and mobile web workspace (PWA) for Claude Code
+and Codex sessions. Desktop tabs, split conversations and workspace panels support
+long work sessions; phone and tablet views support the same workflows on the move. It's a thin window onto sessions that live and run on
 the server. The server owns every turn, so work continues when the phone screen goes dark.
 
 **Who it's for:** Developers who already run Claude Code or Codex on a server, and use a
-terminal, VS Code or code-server at the desk. The phone has to feel like the same sessions,
-because it is the same store.
+terminal, VS Code or code-server alongside Pocket. Every screen uses the same
+conversation stores; a process holding a Codex thread must release it before another
+surface can write to it.
 
 **Jobs:**
 1. See recent sessions across all projects and open one.
 2. Continue a session: send a message, watch progress, walk away, come back.
 3. Start a new session in a chosen project directory.
+4. Work across desktop conversations and inspect Results, Queue and Git without losing context.
 
 **Principles:**
 - Bare essentials: sessions, chat, new session. A clean screen, simple navigation, and as
@@ -29,5 +32,5 @@ supported; review/full-access choices govern subsequent Pocket-owned turns, whil
 server credentials and provider rules remain the authority. Read-only Git inspection belongs to the
 session workspace. Codex Plan mode guides the task but is not a security sandbox.
 
-**Platform:** Mobile web / installable PWA, served by `server.mjs` (default port 3610)
+**Platform:** Desktop/mobile web / installable PWA, served by `server.mjs` (default port 3610)
 behind an HTTPS tunnel or reverse proxy.

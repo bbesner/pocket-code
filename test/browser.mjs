@@ -7,6 +7,7 @@ import os from 'node:os';
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
 import {runUIRegressions} from './ui-regressions.mjs';
+import {captureDocs} from './docs-screenshots.mjs';
 const repo=path.resolve(import.meta.dirname,'..');
 const out=process.env.POCKET_SCREENSHOTS || fs.mkdtempSync(path.join(os.tmpdir(),'pocket-browser-'));
 fs.mkdirSync(out,{recursive:true});
@@ -107,6 +108,7 @@ const scan=async label=>{
  scans.push({label,result:await p.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false}))});
 };
 try{
+ if(process.env.POCKET_DOCS_SCREENSHOTS)await captureDocs({browser,base,rows,dir:process.env.POCKET_DOCS_SCREENSHOTS});
  for(const width of [360,390,768,1440]){
   await p.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});
   await p.goto(base,{waitUntil:'domcontentloaded'});await p.waitForSelector('[data-id]');

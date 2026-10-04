@@ -9,6 +9,7 @@
 - The session list keeps common filters visible and remembers the expanded filter panel. Active filters stay visible when collapsed.
 - Message settings have scroll buttons when they do not fit. Closing a session process is a labelled action in Session options; tab and pane X controls only close views.
 - Browser regressions cover the UI audit failures, with axe checks for the repaired views.
+- Refresh the desktop/mobile README and screenshots, consolidate workspace and persistent-session operations guides, and add CI plus release-metadata/document-link checks.
 
 ## [1.7.0] — 2026-10-04 · build 31
 

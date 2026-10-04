@@ -1,127 +1,111 @@
 # Pocket Code
 
-**Your Claude Code and Codex sessions, from your phone.**
+**Your Claude Code and Codex sessions on desktop, tablet and phone.**
 
-![Three Pocket Code screens on a phone: the session list, a turn in progress that has just checked MemStem for a past decision, and the finished result with passing tests](docs/images/hero.png)
+Pocket Code is a self-hosted workspace for running and following coding-agent sessions.
+Use tabs and split conversations at your desk, then continue from your phone. The
+server owns the work: closing the browser or locking the screen does not stop a turn.
 
-Pocket Code is a small, self-hosted web app for coding with AI agents while you're away
-from your desk. Open it on your phone, pick up any session you started in the terminal
-or in VS Code / code-server, send the next instruction, and put the phone away. The work
-runs on your server, not in your browser, so it keeps going when the screen goes dark.
-When the turn finishes, you get a notification.
+This checkout documents **1.7.1 / build 32**. See the [changelog](CHANGELOG.md) for
+release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
+for published versions. An unreleased changelog entry is a candidate, not a release.
 
-There's no new agent to learn, no sync service and no separate history. Pocket Code
-drives the real `claude` and `codex` CLIs on your machine and reads the same session
-files they write. A session you start on the phone is waiting in your terminal when you
-sit back down, and the reverse.
+![Pocket Code desktop split view: searchable session rail and two conversations with their own composers](docs/images/desktop-split.png)
 
-- **One server, any screen.** Installable PWA for phone and tablet, with a two-pane
-  layout on desktop.
-- **Walk-away turns.** A daemon on the server runs every turn headlessly. Close the tab,
-  lose signal, lock the phone: the turn still finishes.
-- **The same sessions everywhere.** Claude Code transcripts in `~/.claude/projects` and
-  Codex threads in `~/.codex` are the only source of truth.
-- **Tiny footprint.** One Node process, no application build step, and no database.
-  Marked and DOMPurify provide the Markdown parser and browser sanitizer.
+Screenshots use synthetic demo sessions, not private conversations.
 
-## Works great with MemStem
+## What you can do
 
-Pocket Code turns go through your own CLI install, so they use everything that install
-is set up with: your `CLAUDE.md` files, skills, hooks, slash commands and **MCP servers**.
-That makes it a natural companion to [MemStem](https://github.com/Memstem/memstem), a
-self-hosted memory system for AI agents:
+- **Work across sessions.** Search and filter the session list, pin or rename work,
+  keep open-session tabs, and resume the last conversation on this browser.
+- **Use a desktop workspace.** Open up to four conversations side by side when space
+  permits, start a new session in a pane, swap it with the main conversation, and resize
+  dividers. Results, Queue and read-only Git inspection can stay in a side panel.
+- **Keep working away from the desk.** Install the PWA on a phone or tablet. Collapse
+  header and message settings independently; drafts and attachments survive reloads.
+- **Guide a running agent.** Steer the active turn or save a separate follow-up with
+  After this turn. Edit, cancel or run paused instructions from Queue.
+- **Review the output.** Read streamed reports, tables, code, images and task checklists;
+  find text across a conversation; copy messages or code; open linked results.
+- **Answer and approve.** Native agent questions and action approval cards appear in
+  the session. Choose Review actions or Full access for subsequent turns.
+- **Choose how to run.** Set the model and reasoning effort per turn, use Codex's
+  Plan first mode, or start from an installed skill and a project directory.
+- **See status and limits.** Distinguish confirmed server work from activity elsewhere,
+  check context use and provider plan limits, and inspect this instance's accounts.
+- **Get completion alerts.** Enable optional push notifications, an on-screen chime,
+  or per-session muting. Push requires HTTPS, server keys and browser permission.
 
-- With MemStem connected as an MCP server, the agent answering you on the phone
-  searches and updates **the same central memory** as your desktop sessions. Decisions,
-  project state and past work follow you, and nothing is siloed on a mobile app.
-- Phone turns are written to the normal Claude Code session store, so MemStem's
-  session ingestion indexes them like any other session. What you worked out on the
-  train is findable from your desk the next morning.
+[Workspace guide](docs/workspace-guide.md) · [Operations and upgrades](docs/operations.md)
+· [Action approvals](docs/action-approvals.md) · [Contributing and releases](CONTRIBUTING.md)
 
-![Phone, terminal and VS Code all run the same Claude Code and Codex setup, which recalls from and saves to one MemStem memory and has every session indexed](docs/images/memstem.png)
+## Desktop and mobile
 
-You don't need MemStem to use Pocket Code, but the two work well together: one memory,
-every surface.
+On desktop, the session rail, tabs, split panes and workspace panel provide separate
+places for finding work, reading conversations and inspecting results. Panes that
+no longer fit hide in place and return when the window widens. Their drafts and
+server processes remain intact.
 
-## How it works
+On phones, the same tools open as sheets. Common session filters remain visible;
+additional filters collapse with an applied-filter summary. Scroll buttons expose
+message settings that do not fit. The paperclip and Send remain beside the draft.
 
-![Your phone connects over HTTPS to Pocket Code on your server, which runs claude and codex against the same session files your terminal and VS Code use, and sends a push notification when a turn finishes](docs/images/how-it-works.png)
+![Pocket Code on a phone with a persistent composer and visible toolbar scroll controls](docs/images/mobile-workspace.png)
 
-Each Claude Code session runs as one detached CLI process on the server, started by your
-first message and kept between turns, so its working directory, MCP connections and
-background jobs carry over. Output streams to every open client over server-sent events
-and lands in the normal transcript. When a background job finishes after a turn, the
-agent's follow-up streams the same way. The process closes after an hour idle (never
-while a background job runs), and the next message resumes the session from its
-transcript. There is no time limit on a turn; one that stays completely silent for 30
-minutes is stopped. Codex threads work the same way with one app-server per thread.
-While Pocket has a Codex thread open it holds Codex's writer lock, so close the session
-in Pocket (or let it idle out) before continuing that thread in code-server. Both kinds
-of session process survive a Pocket restart, including a turn in the middle of its work.
+| Action | What happens to the server session? |
+|---|---|
+| Close a browser, tab, or existing-session side pane | Work keeps running. |
+| A pane hides because the window is too narrow | Its frame, draft and session are retained. |
+| Session options → Close session process | Releases an idle process. If work is active, choose Keep running or Stop. |
+| Stop in the composer | Interrupts the active turn; pending follow-ups pause. |
 
-A file watcher also mirrors sessions you're driving from somewhere else, so the phone
-shows live progress for work started in the terminal or code-server. Pocket won't send
-into a session another app is in the middle of, and it restarts its own process for a
-session when another app has added turns since, so its process never carries a stale copy of the conversation.
+Closing an unstarted **New session** side pane removes that pane's unsent draft,
+attachments and saved start state. Closing any view does not delete conversation history.
 
-## Features
+## How sessions work
 
-![Pocket Code on a desktop browser: the session list in a side rail next to a finished conversation](docs/images/desktop.png)
+Pocket drives the installed `claude` and `codex` CLIs. Claude transcripts and Codex's
+native session store remain the conversation record; Pocket does not maintain a
+separate chat database. Pocket does keep its own settings, delivery receipts, queues,
+usage snapshots and runner metadata.
 
-**Sessions**
-- Grouped sessions and filters for running work, recorded failures and new responses.
-  Pocket-owned runs are confirmed; recent activity from terminal/editor sessions is
-  labeled separately because transcript writes cannot prove a process is still running.
-- A mobile session switcher and searchable desktop rail, with visible session menus.
-- Desktop split view preserves hidden panes and drafts when the window narrows.
-  Close session process is in Session options; closing a tab or side pane only closes its view.
-- Search by title, or across full transcripts.
-- Pin and rename sessions, with optional two-way name sync with Claude Code and
-  code-server.
-- Start a new Claude Code or Codex session in any project directory.
+Since 1.7, each Claude session keeps a CLI process between turns, and each Codex
+thread keeps an app-server process. Working context, MCP connections and reported
+background work can continue between messages. Replies stream to open browsers.
+Claude background-job completion can start an agent follow-up without another message.
 
-**Chat**
-- Word-by-word streaming, with compact lines showing what each tool is doing.
-- Per-turn cost and duration, inline images, and a checklist view of the agent's plan.
-- **Steer mid-turn:** send a correction while the agent is still working. Messages sent
-  while a turn is running are queued.
-- A stop button, a changed-files view, find-in-conversation, copy buttons and drafts
-  that survive a reload.
-- File and photo attachments with thumbnails. Outgoing messages and attachment
-  references survive reloads and failed sends; retry uses the same request identifier.
-- Slash commands with autocomplete, picked up from your skills and commands.
+Idle processes normally close after 60 minutes; the next message resumes the saved
+conversation. There is no fixed two-hour turn limit. A separate 30-minute stall
+watchdog checks output, pending input and activity from programs started by the turn.
+Reported Claude background jobs also prevent idle closure and stall termination.
+Operators can change these timings. See [lifecycle and recovery](docs/operations.md).
 
-**Models**
-- Per-turn model and reasoning-effort pickers for Claude Code (Fable, Opus, Sonnet,
-  Haiku). The Codex model list comes live from your installed CLI.
-- When a Claude Code turn hits a usage limit, it continues on its own after the limit
-  resets.
+**Codex's writer lock stays held while Pocket keeps a thread open.** Release its
+session process in Pocket before continuing that thread in code-server. Avoid sending
+to one conversation from two applications at the same time. Pocket also mirrors
+external transcript activity, but recent writes alone cannot prove that work is still running.
 
-**Notifications**
-- Push notification when a turn finishes and you're not watching (tested on Android and
-  desktop Chrome). Optional chime, and mute per session.
-
-**Housekeeping**
-- A settings sheet showing app, CLI and Codex versions, "What's new" after each update,
-  and a one-tap update check.
+Both providers can survive a Pocket daemon restart when started with the supplied
+PM2 configuration. This is daemon restart recovery, not host-reboot survival. Pending
+native questions and approvals are denied on adoption so the agent can ask again;
+an input connection that cannot be recovered is shown as interrupted.
 
 ## Requirements
 
-- A Linux server where the **Claude Code CLI** is installed and logged in. The
-  **Codex CLI** is optional: Codex sessions appear automatically when `codex` is
-  installed.
-- **Node.js 20.11 or newer** (tested on Node 22).
-- **PM2** or systemd to keep the service running.
-- **HTTPS** to reach it. A Cloudflare Tunnel is the easiest option; any reverse proxy
-  with TLS works. The PWA install, secure login cookie and push notifications all need
-  HTTPS.
+- Linux with Claude Code installed and signed in; Codex is optional.
+- Node.js 20.11 or newer for the server; Node.js 22.12+ and Chrome/Chromium for tests.
+- PM2 using the supplied `ecosystem.config.cjs`, or a supervisor configured to preserve
+  child session processes during a daemon restart.
+- HTTPS through a tunnel or reverse proxy for secure login, installation and push.
+- The daemon plus capacity for CLI and MCP processes. One Pocket process does not mean
+  the whole installation uses only one OS process.
 
 ## Quick start
 
 ```bash
 git clone https://github.com/bbesner/pocket-code.git ~/pocket-code
 cd ~/pocket-code
-npm install --omit=dev
+npm ci --omit=dev
 
 # 1. Configure: password, cookie secret and push keys
 PW=$(openssl rand -base64 18)
@@ -159,7 +143,7 @@ the bell icon to turn on notifications.
 
 ## Configuration
 
-All settings live in `.env` (see [`.env.example`](.env.example)).
+Server configuration comes from the process environment or `.env` (see [`.env.example`](.env.example)). Existing environment values take precedence over that file. Browser preferences such as drafts, tabs, filters and text size stay on each device.
 
 | Variable | Required | What it does |
 |---|---|---|
@@ -177,7 +161,11 @@ All settings live in `.env` (see [`.env.example`](.env.example)).
 | `POCKET_DEFAULT_CWD` | no | Workspace the New session screen preselects, e.g. your home directory. Default: wherever you last started a session. |
 | `POCKET_IDLE_CLOSE_MS` | no | How long a session's process (Claude Code or Codex) stays up with no turn and no background job, in milliseconds. Default `3600000` (1 hour); `0` keeps processes until Pocket closes them for another reason. |
 | `POCKET_STALL_MS` | no | A turn with no output, no background job, nothing waiting on you and no CPU use by programs it started for this long is stopped. Milliseconds; default `1800000` (30 minutes); `0` disables the watchdog. A value that is not a number is logged and ignored. |
-| `POCKET_MAX_PROCESSES` | no | Live CLI processes (Claude Code and Codex together) kept at once. Starting one past the cap closes the longest-idle process that has no turn and no background job. Default `8`; `0` means no cap. Each Claude Code process is roughly 100–300 MB plus its MCP servers. |
+| `POCKET_MAX_PROCESSES` | no | Soft target for live CLI processes (Claude Code and Codex together) kept at once. Starting one past the cap closes the longest-idle process that has no turn and no background job. Default `8`; `0` means no cap. Active work is never evicted to meet this target, so the count can exceed it. CLI and MCP processes add memory beyond the Pocket daemon. |
+| `POCKET_APPROVAL_MODE` | no | Default permissions for new turns: `review` (default) or `full`. |
+| `POCKET_ALLOW_FULL_ACCESS` | no | Set to `0` to reject Full access in both API and UI. |
+| `POCKET_DATA_DIR` | no | Pocket state and runner files; defaults to the checkout. Move only after all session processes are closed. |
+| `POCKET_SESSION_ROOT` | no | Override Claude transcript storage for isolated tests; does not relocate Codex. |
 | `POCKET_FRAME_ANCESTORS` | no | Origins allowed to embed Pocket Code in a frame (for example Mission Control), space-separated. Default: only Pocket's own origin. |
 | `POCKET_ENV_FILE` | no | Read settings from this file instead of `.env` next to the server; empty means read none (the test suite sets it). |
 
@@ -186,162 +174,61 @@ the default model, effort and hooks, unless you override them per turn in the co
 The `POCKET_*_MODEL`/`_EFFORT` variables change the default for Pocket turns only; your
 terminal and editor sessions keep the CLI settings. Hooks and instructions still apply.
 
-## Security
+## Security and approvals
 
-> **Pocket Code gives whoever has the password the same power as a shell on your server.**
+Pocket Code runs as your server's OS user. **Anyone who can sign in can authorize
+commands with that user's access.** Review actions is the default, while an operator
+can enable or disallow Full access. These modes are execution controls, not employee
+accounts or an isolation boundary. Changing the mode affects subsequent turns;
+steering does not change permissions on an already-running turn.
 
-New turns default to **Review actions**. Claude asks before commands, edits, delegated
-tasks and external tools. Codex starts with a read-only sandbox and untrusted-command
-approval policy; safe reads and existing provider tool allow-rules can still run
-without prompting. Native pending actions appear in an authenticated approval sheet.
-**Full access** retains unattended execution and skips routine tool permission prompts.
-The owner can change the next-turn mode in the composer or Session options.
+The app binds to loopback, uses a signed secure cookie and login rate limiting, and
+sends a same-origin Content Security Policy. Allow embedding origins explicitly with
+`POCKET_FRAME_ANCESTORS`. Keep `.env`, private state and transcripts out of version control.
+Use an additional identity layer in front when appropriate for your installation.
+Read the [security model](SECURITY.md) and [approval/recovery behavior](docs/action-approvals.md).
 
-Set `POCKET_APPROVAL_MODE=review|full` for the instance default and
-`POCKET_ALLOW_FULL_ACCESS=0` to reject Full access through its API and UI. These controls
-are operator conveniences, not an employee security boundary: the agent still runs as
-the server's OS user, with its credentials and installed tools. An approved shell command
-or delegated task can have multiple effects. Employee identity/resource isolation and
-fine-grained Google action policies require a separate restricted connection service.
-See [approval behavior and recovery](docs/action-approvals.md).
+## Operating and upgrading
 
-The built-in protections:
+Use the ecosystem file when starting or restarting PM2. Its `treekill: false` setting
+preserves detached session processes so the new daemon can reattach. The PM2 process
+is still called `pocket-claude` for compatibility with existing installations.
 
-- The API listens on `127.0.0.1` only and is reached only through your HTTPS front end.
-- Constant-time password check, and a limit of 20 login attempts per hour per IP.
-- HMAC-signed, `HttpOnly`, `Secure` session cookie (90 days).
-- A Content-Security-Policy that keeps scripts, styles, connections and images
-  same-origin and allows framing only from `POCKET_FRAME_ANCESTORS`.
+Upgrade to a reviewed release, preserve configuration and runtime state, install the
+lockfile's dependencies, restart from the ecosystem file, then verify the server and
+browser build. Do not restore an old state snapshot over newer queues or receipts.
+Before moving data, uninstalling, or downgrading below 1.7, close **all session processes**,
+including idle Codex app-servers. The [operations guide](docs/operations.md) gives the
+state inventory, health checks, upgrade steps and rollback requirements.
 
-Recommended on top: a long random password, a hostname you don't publish, and an
-identity layer such as [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
-in front for a second factor. Run it on a machine where that trade-off is acceptable.
-See [SECURITY.md](SECURITY.md) to report a vulnerability.
+## Optional MemStem integration
 
-## Operating notes
+Agent turns use the CLI's configured instructions, skills, hooks and MCP servers.
+If you already use [MemStem](https://github.com/Memstem/memstem), its shared memory is
+available through those agents just as it is from the terminal or editor. Pocket Code
+does not require MemStem and does not configure it for you.
 
-- **Start and restart from `ecosystem.config.cjs`.** It sets PM2's `treekill: false`, so
-  session processes survive a restart of the service. A restarted server reattaches to
-  every running Claude Code and Codex process, including a turn in the middle of its
-  work. A question or approval that was waiting at the moment of the restart is answered
-  with a deny so the turn carries on (the agent asks again if it still needs it); only a
-  process whose input pipe cannot be reopened is left marked as interrupted.
-- **One live writer per session.** Watching a session from several places is always
-  fine. Don't send to the same session from two places at the same moment. Hand off
-  instead: finish on one, continue on the other. Codex enforces this. If a thread is
-  open for writing in code-server, Pocket Code tells you to close it there first.
-- **Data:** transcripts stay where the CLIs keep them. Uploads go to `~/pocket-uploads/`.
-  Pocket's own state lives in `POCKET_DATA_DIR` (default: next to the server, ignored by
-  git): push subscriptions, pins and mutes, settings, delivery receipts, the follow-up
-  queue, the approval audit, usage snapshots (`usage-state.json`,
-  `codex-usage-state.json`), the fork-guard marker (`owned-transcripts.json`) and the
-  per-process logs and pipes under `turnlogs/` and `turnlogs-codex/`. Keep all of it
-  across upgrades. If you move the directory, do it while no process is running
-  (`/api/health` shows `processes` and `codexProcesses`), since the running processes
-  write to the old location.
-- **Updating:** `git pull && pm2 restart ecosystem.config.cjs`. Browsers pick up the new
-  version automatically, and the settings sheet shows what changed.
-- **Uninstalling:** close every session first (Close session in the app, or
-  `POST /api/session/<id>/release` for each one `/api/health` counts), then
-  `pm2 delete pocket-claude` and remove the tunnel or proxy route. Processes left running
-  would otherwise keep going (and a Codex app-server keeps its thread's writer lock)
-  because the idle timers live in the daemon. Your sessions are untouched.
-- **Rolling back below 1.7:** close every session the same way before switching the
-  code, so no runner is orphaned; an older server does not know the `*.runner.json`
-  markers or `turnlogs-codex/`. The newer state files are harmless to older code.
-
-The PM2 process is named `pocket-claude`, from before the project was renamed. The name
-was kept so existing installs upgrade in place.
-
-## Changelog and license
-
-Release history is in [CHANGELOG.md](CHANGELOG.md). Pocket Code is MIT licensed. See
-[LICENSE](LICENSE).
-
-Pocket Code is an independent project and is not affiliated with Anthropic or OpenAI.
-Claude and Claude Code are trademarks of Anthropic; Codex is a trademark of OpenAI.
-
-Screenshots in this README show demo projects and sessions.
-
-## Development and releases
-
-See [the session workspace preview](docs/session-workspace.md) and
-[the implementation plan](IMPLEMENTATION-PLAN.md) for the staged mobile/desktop
-workspace improvements. Version 1.2.0 adds reports, session results, saved follow-ups and skill discovery. Each
-release updates `package.json`, `package-lock.json`, the changelog and in-app notes.
-Frontend releases also increment the asset number in `public/index.html` and
-`public/sw.js`. Create the matching Git tag and GitHub release after validation and
-merge; do not tag an unfinished branch.
-
-Development browser tests require Node.js 22.12 or newer and Chrome/Chromium.
+## Development
 
 ```bash
 npm ci
+npm run check:release
 npm test
 PUPPETEER_EXECUTABLE_PATH=/path/to/chrome npm run test:browser
 ```
 
-Tests use temporary session stores, a fake CLI and synthetic browser fixtures. They
-do not call a model or require production credentials. Browser checks cover 360,
-390, 768 and 1440px widths, session filters, keyboard dialogs, saved drafts and
-attachments, response-loss retries and stale status. They do not replace physical
-phone keyboard, screen-reader or live-provider testing.
+Tests use temporary stores, fake provider CLIs and synthetic browser sessions. They
+require no model credentials. The browser suite covers responsive layouts, delivery
+recovery, questions/approvals, split panes, keyboard behavior and axe accessibility
+checks. Physical-device input, real screen readers and OS push delivery still need
+manual validation.
 
-`POCKET_DATA_DIR` optionally relocates Pocket-owned settings, turn logs and delivery
-receipts. It defaults to the application directory. Stop the daemon and copy its
-existing state files before changing this path on an existing installation. Keep one
-daemon per data directory. `POCKET_SESSION_ROOT` overrides the Claude transcript
-root for isolated test installations; it does not move Codex's store.
+[CONTRIBUTING.md](CONTRIBUTING.md) explains local development, CI, screenshot capture,
+version consistency and release gates. Historical implementation plans are references;
+the workspace and operations guides describe current behavior.
 
-Delivery receipts contain request hashes and response metadata, not message text.
-Keep `delivery-receipts.json` with the instance's persistent data, including across
-upgrades and rollbacks. Receipts are kept for seven days (at most 2,000), long enough
-for any retry of the same message. A process interruption between dispatch and saving acknowledgment is
-reported as uncertain and is never automatically dispatched again. These receipts
-prevent duplicate dispatch; they do not guarantee that a tool action completes.
-Keep `followup-queue.json` as well: it contains pending instructions. The existing single-user trust model remains unchanged.
+## License
 
-## Reports, Results and follow-ups (1.2)
-
-- Reports render tables, quotes, nested lists, checklists and headings. Tables scroll
-  horizontally inside the message on a phone. Agent-supplied HTML is escaped and
-  parsed Markdown is sanitized with [DOMPurify](https://github.com/cure53/DOMPurify),
-  following [Marked's security guidance](https://marked.js.org/using_advanced).
-- **Results** collects assistant-shared links and report paths from up to the latest
-  4,000 normalized messages, keeping the latest 200 unique references. Some Codex
-  threads have runtime paging limits. A result is a reference, not a guarantee that
-  a remote document exists or that a local file was successfully generated.
-- Supported local reports must be referenced by that session and resolve inside
-  the operator's home directory, outside hidden folders. Downloads require login
-  and use attachment disposition, a sandbox policy and no-store headers. Existing
-  external document links retain their own sharing and authentication rules.
-- **Steer now** sends to the active turn. **After this turn** saves a separate
-  follow-up. Open **Queue** to edit/remove pending text or run a paused queue.
-  Stopping or failing a turn pauses automatic drain. A later successful turn can
-  resume the backlog; after a server restart, unowned queues wait for an explicit
-  new turn or **Run next instruction**. An uncertain dispatch blocks later entries
-  until you review the conversation and remove the uncertain entry.
-- The queue stores text and options in `followup-queue.json` (private runtime data).
-  Keep it across upgrades and rollbacks, with one daemon per data directory.
-  Edits use revisions to reject stale writes; dispatched items cannot be edited.
-- **Choose a skill** searches skills installed for the selected agent/workspace.
-  Claude scans its skill/command folders; Codex uses its installed runtime's
-  `skills/list`. Choosing a skill inserts an editable instruction; it does not run
-  anything until you press Start. Discovery is not an employee permissions system.
-- Drafts and reading position stay on the current browser/device. This release
-  supports native agent questions and, from 1.4, action approval cards. Employee roles
-  and identity isolation remain future work.
-
-Browser libraries are pinned in package-lock.json and vendored with their licenses.
-After updating either package deliberately, run `npm run vendor`, review the diff,
-then run the Markdown security and browser tests before releasing.
-
-### Daily desktop workspace (1.3)
-
-Open-session tabs, workspace/agent/pinned filters, keyboard navigation and an
-optional Results / Queue / Git panel make Pocket Code usable at the desk. The
-phone keeps its focused conversation and sheets. Native Claude questions and
-Codex Plan-first questions can be answered directly; Accounts & instance shows
-the provider identities used by this server. Editing a queued instruction pauses
-it until saved or canceled. See [daily workspace details](docs/daily-workspace.md)
-for behavior, keyboard shortcuts, Git limits and restart recovery.
+Pocket Code is MIT licensed. See [LICENSE](LICENSE). It is an independent project,
+unaffiliated with Anthropic or OpenAI. Claude and Claude Code are trademarks of
+Anthropic; Codex is a trademark of OpenAI.
