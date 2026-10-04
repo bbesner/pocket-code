@@ -20,6 +20,7 @@ import { FollowupQueue } from './queue.mjs';
 import {workspaceStatus,workspaceDiff} from './workspace.mjs';
 import {readClaudeIdentity,agentEnv} from './environment.mjs';
 import {QuestionInbox} from './questions.mjs';
+import {descendantCpu} from './proctree.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 import {UsageStore,getSessionContext} from './usage.mjs';
 
@@ -963,27 +964,6 @@ function onRunnerExit(r, code) {
   if (r.turn) finalizeTurn(r.sessionId, r.turn, code);
 }
 
-// CPU used by programs a turn started (MCP servers already running at turn start are
-// excluded), as a last sign of life for a turn that has gone quiet.
-function descendantCpu(rootPid) {
-  const kids = new Map(), cpu = new Map();
-  let entries = []; try { entries = fs.readdirSync('/proc'); } catch { }
-  for (const e of entries) {
-    if (!/^\d+$/.test(e)) continue;
-    try {
-      const s = fs.readFileSync(`/proc/${e}/stat`, 'utf8');
-      const f = s.slice(s.lastIndexOf(')') + 2).split(' ');
-      const ppid = Number(f[1]);
-      if (!kids.has(ppid)) kids.set(ppid, []);
-      kids.get(ppid).push(Number(e));
-      cpu.set(Number(e), Number(f[11]) + Number(f[12]));
-    } catch { }
-  }
-  const pids = new Set(), stack = [...(kids.get(rootPid) || [])];
-  while (stack.length) { const p = stack.pop(); if (pids.has(p)) continue; pids.add(p); stack.push(...(kids.get(p) || [])); }
-  return { pids, cpu };
-}
-
 function stallCheck() {
   for (const r of runners.values()) {
     const t = r.turn;
@@ -1353,7 +1333,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       cwd: meta?.cwd || turn?.cwd || null, model: meta?.model, source: meta?.source,
       state: stateFor({ id: req.params.id, mtimeMs: meta?.mtimeMs || 0 }),
       executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid),
-      locked: !turn && codex.threadLocked(tid),
+      locked: !turn && !codex.codexSessions.has(tid) && codex.threadLocked(tid), // Pocket's own open session holds the lock too
       muted: mutes.has(req.params.id), pinned: isPinned(req.params.id),
       messages, total,
     });
@@ -1729,10 +1709,15 @@ app.post('/api/session/:id/release', requireAuth, (req, res) => {
   const id = req.params.id, stop = req.body?.stop === true;
   if (!anyId(id)) return res.status(400).json({ error: 'Invalid session' });
   if (isCx(id)) {
-    if (!codex.codexTurns.get(codex.bareId(id))) return res.json({ released: false });
-    if (!stop) return res.status(409).json({ running: true });
-    codex.stopCodexTurn(codex.bareId(id));
-    return res.json({ released: true });
+    const tid = codex.bareId(id), cs = codex.codexSessions.get(tid);
+    if (codex.codexTurns.get(tid)) {
+      if (!stop) return res.status(409).json({ running: true });
+      codex.stopCodexTurn(tid);
+      if (cs) codex.closeCodexSession(cs, 'closed by you');
+      return res.json({ released: true });
+    }
+    if (cs && !cs.closing && !cs.exited) { codex.closeCodexSession(cs, 'closed by you'); return res.json({ released: true }); }
+    return res.json({ released: false });
   }
   const turn = turns.get(id), r = runners.get(id);
   if ((turn || r?.bgTasks.length) && !stop) return res.status(409).json({ running: true, background: !turn });
@@ -1882,7 +1867,7 @@ app.get('/api/file', requireAuth, (req, res) => {
 });
 
 app.get('/api/health', (_req, res) => res.json({
-  ok: true, active: turns.size + codex.codexTurns.size, codexActive: codex.codexTurns.size, processes: runners.size, uptime: process.uptime(),
+  ok: true, active: turns.size + codex.codexTurns.size, codexActive: codex.codexTurns.size, processes: runners.size, codexProcesses: codex.codexSessions.size, uptime: process.uptime(),
 }));
 
 // model picker options — Claude's from CLAUDE_MODELS, Codex's straight from its app-server
@@ -1904,7 +1889,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 const RELEASE_NOTES = [
   "Collapse the whole session header, including Mission Control navigation, on phone, tablet and desktop. Live status stays visible.",
   "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser.",
-  "Each Claude Code session keeps one process between turns: faster turns, and background jobs, MCP connections and the working directory carry over.",
+  "Each Claude Code and Codex session keeps one process between turns: faster turns, and background jobs, MCP connections and the working directory carry over.",
   "No more 2-hour turn limit. Long work keeps running; only a turn that has been completely silent for 30 minutes is stopped.",
   "When a background job finishes after a turn, the agent's follow-up appears live and notifies you.",
   "Context meter on each session, and a Plan usage panel with your 5-hour and weekly limits (reset times in Eastern).",

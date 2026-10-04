@@ -22,6 +22,7 @@ import os from 'node:os';
 import {QuestionInbox} from './questions.mjs';
 import {ApprovalInbox,codexApproval,codexPermissionSettings} from './approvals.mjs';
 import {estimateWindow} from './usage.mjs';
+import {descendantCpu} from './proctree.mjs';
 
 const HOME = os.homedir();
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex');
@@ -404,12 +405,17 @@ export async function codexThreadMeta(threadId) {
   return threadToSession(t);
 }
 
-// ---------- turns ----------
-// One dedicated connection per running turn: it resumes the thread (taking the writer
-// lock), runs, then closes so code-server can have the thread back. Spawned detached so
-// a `pm2 restart pocket-claude` mid-turn doesn't kill the work — the same rule the
-// Claude side learned the hard way on 2026-08-14.
-export const codexTurns = new Map(); // threadId -> turn
+// ---------- sessions and turns ----------
+// 1.7: one app-server per thread, kept between turns, so MCP connections, tools and
+// question handling stay up the way they do in code-server. While it is open it holds
+// Codex's per-thread writer lock: code-server can't write to that thread until Pocket
+// closes it (after IDLE_CLOSE_MS idle, the Close session control, or a settings change).
+// Spawned detached so a `pm2 restart pocket-claude` mid-turn doesn't kill the work — the
+// same rule the Claude side learned the hard way on 2026-08-14.
+const IDLE_CLOSE_MS = Number(process.env.POCKET_IDLE_CLOSE_MS ?? 60 * 60_000);
+const STALL_MS = Number(process.env.POCKET_STALL_MS ?? 30 * 60_000);
+export const codexTurns = new Map(); // threadId -> active turn
+export const codexSessions = new Map(); // threadId -> {conn, approvalMode, cwd, model, effort, turn, hooks}
 
 export function codexTurnActive(threadId) { return codexTurns.has(threadId); }
 
@@ -423,19 +429,44 @@ function finish(turn, ev) {
   turn.approvals?.clear();
   turn.emit(ev);
   turn.emit({ type: 'done' });
-  codexTurns.delete(turn.threadId);
-  setTimeout(() => { try { turn.conn.close(); } catch { } }, 500); // let the last frames drain
+  if (codexTurns.get(turn.threadId) === turn) codexTurns.delete(turn.threadId);
+  const s = turn.session;
+  if (s && s.turn === turn) { s.turn = null; scheduleIdle(s); }
+  else if (!s) setTimeout(() => { try { turn.conn.close(); } catch { } }, 500); // never opened a session
   // the daemon's own follow-ups (push, queue drain) must never be able to kill it
   try { turn.onFinish?.(ev, turn); } catch (e) { log(`onFinish threw thread=${turn.threadId}: ${e.message}`); }
 }
 
-export async function startCodexTurn({ threadId, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, emit, onFinish, onQuestion, onApproval, auditApproval }) {
-  const existing = threadId && codexTurns.get(threadId);
-  if (existing) throw Object.assign(new Error('busy'), { code: 409 });
+function scheduleIdle(s) {
+  clearTimeout(s.idleTimer);
+  if (s.turn || s.closing || s.exited || !(IDLE_CLOSE_MS > 0)) return;
+  s.idleTimer = setTimeout(() => { if (!s.turn) closeCodexSession(s, 'idle'); }, IDLE_CLOSE_MS);
+}
 
+// Resolves once the app-server has exited, i.e. the writer lock is free again.
+export function closeCodexSession(s, why) {
+  if (!s) return Promise.resolve();
+  if (s.exited) return Promise.resolve();
+  if (!s.closing) {
+    s.closing = true;
+    clearTimeout(s.idleTimer);
+    log(`codex session closing thread=${s.threadId} pid=${s.conn.pid} reason=${why}`);
+    s.closed = new Promise(resolve => { s.exitResolve = resolve; setTimeout(resolve, 5000); });
+    try { process.kill(-s.conn.pid, 'SIGTERM'); } catch { } // its MCP servers go with it
+    s.conn.close();
+  }
+  return s.closed;
+}
+
+// A turn object wired to the session's connection. `autonomous` turns are ones Codex
+// started without a message from us.
+function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, autonomous = false }) {
+  const { emit, onFinish, onQuestion, onApproval, auditApproval } = hooks;
   const turn = {
-    threadId, cwd, startedAt: Date.now(), userText: text, model, effort,
-    events: [], subs: new Set(), queue: [], turnId: null, done: false, onFinish, executionMode,approvalMode,approvalItems:new Map(),
+    threadId: s.threadId, cwd: s.cwd, startedAt: Date.now(), userText: text, model, effort,
+    events: [], subs: new Set(), queue: [], turnId: null, done: false, onFinish, executionMode, approvalMode: s.approvalMode, approvalItems: new Map(),
+    conn: s.conn, session: s, autonomous, effectiveModel: model || s.model, effectiveEffort: effort || s.effort || null,
+    baseline: descendantCpu(s.conn.pid).pids,
   };
   // events fan out to SSE subscribers exactly like the Claude side
   turn.emit = ev => {
@@ -444,24 +475,42 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
     for (const res of turn.subs) { try { res.write(data); } catch { } }
     emit?.(ev);
   };
-
-  const conn = new AppServer({
-    name: `turn ${threadId || 'new'}`, detached: true,
-    onNotify: (method, params) => onTurnNotify(turn, method, params),
-    onRequest: request => {
-      if(turn.questions?.receive(request,turn.turnId))return true;
-      const approval=codexApproval(request,turn);
-      return approval ? turn.approvals?.receive(approval) || false : false;
-    },
-  });
-  turn.conn = conn;
+  const conn = s.conn;
   turn.questions=new QuestionInbox({threadId:()=>turn.threadId,write:reply=>conn._write(reply),onChange:()=>{turn.emit({type:'questions'});if(turn.questions?.list().length)onQuestion?.(turn);}});
   turn.approvals=new ApprovalInbox({sessionId:()=>CX+turn.threadId,turnId:()=>turn.turnId,audit:auditApproval,write:(id,result)=>new Promise((resolve,reject)=>{
     if(conn.closed||conn.proc.stdin.destroyed||conn.proc.stdin.writableEnded)return reject(new Error('Approval connection closed'));
     conn.proc.stdin.write(JSON.stringify({jsonrpc:'2.0',id,result})+'\n',e=>e?reject(e):resolve());
   }),onChange:()=>{turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);}});
-  conn.onExit = () => finish(turn, { type: 'result', ok: false, error: 'codex exited' });
+  clearTimeout(s.idleTimer);
+  s.turn = turn;
+  s.lastActivityAt = Date.now();
+  codexTurns.set(turn.threadId, turn);
+  return turn;
+}
 
+async function openCodexSession({ threadId, cwd, model, approvalMode, hooks }) {
+  const s = { threadId, approvalMode, cwd, turn: null, hooks, lastActivityAt: Date.now() };
+  const conn = new AppServer({
+    name: `codex ${threadId || 'new'}`, detached: true,
+    onNotify: (method, params) => {
+      s.lastActivityAt = Date.now();
+      if (!s.turn && method === 'turn/started' && s.threadId) { // Codex started a turn by itself
+        makeTurn(s, { text: '', hooks: s.hooks, autonomous: true });
+        log(`codex turn start (started by the agent) thread=${s.threadId}`);
+      }
+      if (s.turn) onTurnNotify(s.turn, method, params);
+      else if (method === 'account/rateLimits/updated') mergeCodexRateLimits(params?.rateLimits);
+    },
+    onRequest: request => {
+      s.lastActivityAt = Date.now();
+      const turn = s.turn;
+      if (!turn) return false;
+      if(turn.questions?.receive(request,turn.turnId))return true;
+      const approval=codexApproval(request,turn);
+      return approval ? turn.approvals?.receive(approval) || false : false;
+    },
+  });
+  s.conn = conn;
   try {
     await conn.init();
     if (threadId) {
@@ -470,23 +519,17 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
       const resumed = await conn.request('thread/resume', {
         threadId, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}),
       }, 60_000);
-      turn.effectiveModel=model||resumed.model;
-      turn.effectiveEffort=effort||resumed.reasoningEffort||null;
-      turn.cwd=resumed.cwd||cwd;
+      s.model = resumed.model; s.effort = resumed.reasoningEffort || null; s.cwd = resumed.cwd || cwd;
     } else {
       const r = await conn.request('thread/start', {
         cwd, ...codexPermissionSettings(approvalMode),
         ...(model ? { model } : {}),
       }, 60_000);
-      turn.effectiveModel=model||r.model;
-      turn.effectiveEffort=effort||r.reasoningEffort||null;
-      turn.threadId = r?.thread?.id || r?.threadId;
-      if (!turn.threadId) throw new Error('thread/start returned no id');
+      s.model = r.model; s.effort = r.reasoningEffort || null;
+      s.threadId = r?.thread?.id || r?.threadId;
+      if (!s.threadId) throw new Error('thread/start returned no id');
     }
   } catch (e) {
-    // the turn never started, so its exit isn't a turn ending — drop the handler first
-    // or finish() fires into a caller that hasn't finished constructing yet
-    conn.onExit = null;
     conn.close();
     // "already has an active writer" is the one failure worth naming precisely: the
     // thread is open somewhere else and the fix is a human action, not a retry.
@@ -495,13 +538,40 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
     }
     throw e;
   }
+  conn.onExit = () => {
+    s.exited = true;
+    clearTimeout(s.idleTimer);
+    if (codexSessions.get(s.threadId) === s) codexSessions.delete(s.threadId);
+    log(`codex session exit thread=${s.threadId} pid=${conn.pid}`);
+    if (s.turn) finish(s.turn, { type: 'result', ok: false, error: s.turn.stalled ? `Stopped: no activity for ${Math.round(STALL_MS / 60_000)} minutes` : s.turn.stopped ? 'Stopped by you' : 'codex exited' });
+    s.exitResolve?.();
+  };
+  codexSessions.set(s.threadId, s);
+  log(`codex session start thread=${s.threadId} pid=${conn.pid} resume=${Boolean(threadId)}`);
+  return s;
+}
 
-  codexTurns.set(turn.threadId, turn);
+export async function startCodexTurn({ threadId, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, emit, onFinish, onQuestion, onApproval, auditApproval }) {
+  const existing = threadId && codexTurns.get(threadId);
+  if (existing) throw Object.assign(new Error('busy'), { code: 409 });
+  const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval };
+  let s = threadId && codexSessions.get(threadId);
+  // Permissions ride on thread/resume, so a change needs a fresh process (after the old
+  // one has let go of the writer lock).
+  if (s && (s.closing || s.exited || s.approvalMode !== approvalMode || (cwd && s.cwd && cwd !== s.cwd))) {
+    await closeCodexSession(s, s.closing || s.exited ? 'closing' : 'settings changed');
+    s = null;
+  }
+  const reused = Boolean(s);
+  if (!s) s = await openCodexSession({ threadId, cwd, model, approvalMode, hooks });
+  s.hooks = hooks;
+  if (codexTurns.get(s.threadId)) throw Object.assign(new Error('busy'), { code: 409 });
+  const turn = makeTurn(s, { text, model, effort, executionMode, hooks });
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
 
   const input = [{ type: 'text', text: promptWithAttachments(text, attachments) }];
   try {
-    const r=await conn.request('turn/start', {
+    const r=await s.conn.request('turn/start', {
       threadId:turn.threadId,input,
       collaborationMode:{mode:executionMode==='plan'?'plan':'default',settings:{model:turn.effectiveModel,reasoning_effort:turn.effectiveEffort,developer_instructions:null}},
       ...(model?{model}:{}),...(effort?{effort}:{}),
@@ -512,9 +582,32 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
     throw e;
   }
 
-  log(`turn start thread=${turn.threadId} pid=${conn.pid} cwd=${cwd || '(thread cwd)'}`);
+  log(`turn start thread=${turn.threadId} process=${reused ? 'reused' : 'new'} pid=${s.conn.pid} cwd=${s.cwd || '(thread cwd)'}`);
   return turn;
 }
+
+// Stall watchdog, same rule as the Claude side: stop a turn only after STALL_MS with no
+// notification from the app-server, nothing waiting on the user and no CPU use by
+// programs the turn started. Interrupt first; close the process if that goes unanswered.
+function codexStallCheck() {
+  for (const s of codexSessions.values()) {
+    const t = s.turn;
+    if (!t || s.exited || t.stalled || t.done) continue;
+    const { pids, cpu } = descendantCpu(s.conn.pid);
+    let ticks = 0;
+    for (const p of pids) if (!t.baseline.has(p)) ticks += cpu.get(p) || 0;
+    if (t.cpuTicks === undefined || ticks > t.cpuTicks + 100) t.cpuBusyAt = Date.now();
+    t.cpuTicks = ticks;
+    const quietFor = Date.now() - Math.max(s.lastActivityAt, t.cpuBusyAt || 0);
+    if (quietFor < STALL_MS) continue;
+    if (t.questions?.list().length || t.approvals?.list().length) continue;
+    t.stalled = true;
+    log(`codex turn STALLED thread=${s.threadId} quiet=${Math.round(quietFor / 60_000)}min — stopping`);
+    if (t.turnId) s.conn.request('turn/interrupt', { threadId: s.threadId, turnId: t.turnId }, 20_000).catch(() => { });
+    setTimeout(() => { if (s.turn === t) closeCodexSession(s, 'stalled'); }, 30_000);
+  }
+}
+setInterval(codexStallCheck, Math.min(60_000, Math.max(250, STALL_MS / 4))).unref();
 
 function promptWithAttachments(text, attachments) {
   if (!attachments?.length) return text;
@@ -573,8 +666,8 @@ function onTurnNotify(turn, method, params) {
     case 'turn/completed': {
       const u = params?.usage || turn.usage || {};
       finish(turn, {
-        type: 'result', ok: !turn.stopped && !['failed','interrupted'].includes(params?.turn?.status),
-        error:turn.stopped?'Stopped by you':params?.turn?.error?.message,
+        type: 'result', ok: !turn.stopped && !turn.stalled && !['failed','interrupted'].includes(params?.turn?.status),
+        error:turn.stalled?`Stopped: no activity for ${Math.round(STALL_MS / 60_000)} minutes`:turn.stopped?'Stopped by you':params?.turn?.error?.message,
         duration_ms: Date.now() - turn.startedAt,
         tokens: u.totalTokens ?? u.total_tokens ?? undefined,
       });
@@ -608,10 +701,9 @@ export function stopCodexTurn(threadId) {
   turn.stopped = true;
   if (turn.turnId) {
     turn.conn.request('turn/interrupt', { threadId, turnId: turn.turnId }, 20_000)
-      .catch(e => log(`interrupt failed thread=${threadId}: ${e.message}`));
-  } else {
-    turn.conn.close();
-  }
+      .catch(e => { log(`interrupt failed thread=${threadId}: ${e.message}`); closeCodexSession(turn.session, 'interrupt failed'); });
+  } else if (turn.session) closeCodexSession(turn.session, 'stopped before the turn began');
+  else turn.conn.close();
   return true;
 }
 

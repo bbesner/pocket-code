@@ -54,8 +54,9 @@ and lands in the normal transcript. When a background job finishes after a turn,
 agent's follow-up streams the same way. The process closes after an hour idle (never
 while a background job runs), and the next message resumes the session from its
 transcript. There is no time limit on a turn; one that stays completely silent for 30
-minutes is stopped. Codex sessions start a fresh app-server for each turn, because a
-long-lived one would hold Codex's thread lock against code-server.
+minutes is stopped. Codex threads work the same way with one app-server per thread.
+While Pocket has a Codex thread open it holds Codex's writer lock, so close the session
+in Pocket (or let it idle out) before continuing that thread in code-server.
 
 A file watcher also mirrors sessions you're driving from somewhere else, so the phone
 shows live progress for work started in the terminal or code-server. Pocket won't send

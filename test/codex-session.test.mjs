@@ -1,0 +1,86 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import readline from 'node:readline';
+import {spawn} from 'node:child_process';
+import {createHmac,randomUUID} from 'node:crypto';
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const repo=path.resolve(import.meta.dirname,'..');
+const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
+
+async function fixture(t,port,env={}){
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-codex-'));
+ const secret=randomUUID(),exp=Date.now()+3600000;
+ const headers={'content-type':'application/json',cookie:'pc_auth='+exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex')};
+ let child,logs='';
+ const start=async()=>{
+  child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),CODEX_BIN:path.join(repo,'test/fake-codex.mjs'),...env},stdio:['ignore','pipe','pipe']});
+  child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+  for(let i=0;i<100;i++){try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+  throw Error('Test server failed: '+logs);
+ };
+ const stop=async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}};
+ const call=async(p,body)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>null)}};
+ const calls=()=>{try{return fs.readFileSync(path.join(dir,'calls.codex'),'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)}catch{return []}};
+ const until=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){if(await fn())return true;await sleep(50)}return false;};
+ const procs=async()=>(await call('/health')).body.codexProcesses;
+ const idle=async id=>!(await call(`/session/${id}`)).body?.active;
+ t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true});});
+ fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});
+ await start();
+ return {dir,call,calls,until,procs,idle,logs:()=>logs};
+}
+const msg=(text,extra={})=>({text,clientMessageId:randomUUID(),...extra});
+
+test('a Codex thread keeps one app-server across turns',async t=>{
+ const f=await fixture(t,18401);
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
+ assert.ok(id?.startsWith('cx:'));
+ assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
+ assert.equal(await f.procs(),1,'process stays up after the turn');
+ assert.equal((await f.call(`/session/${id}/message`,msg('second'))).status,202);
+ assert.ok(await f.until(async()=>f.calls().length===2&&await f.idle(id)));
+ assert.equal(new Set(f.calls().map(c=>c.pid)).size,1,'second turn reused the app-server');
+ assert.match(f.logs(),/process=reused/);
+});
+
+test('Pocket holds the thread until it closes the session; then another app can open it',async t=>{
+ const f=await fixture(t,18402);
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
+ // another surface (code-server) tries to open the same thread
+ const other=async()=>{const p=spawn(process.execPath,[path.join(repo,'test/fake-codex.mjs')],{env:{...process.env,POCKET_SESSION_ROOT:path.join(f.dir,'sessions'),POCKET_TEST_CALLS:path.join(f.dir,'other')},stdio:['pipe','pipe','ignore']});
+  const rl=readline.createInterface({input:p.stdout});const res=new Promise(r=>rl.once('line',l=>r(JSON.parse(l))));
+  p.stdin.write(JSON.stringify({jsonrpc:'2.0',id:1,method:'thread/resume',params:{threadId:id.slice(3)}})+'\n');const out=await res;p.kill();return out;};
+ assert.match((await other()).error?.message||'',/active writer/,'locked while Pocket has it open');
+ const rel=await f.call(`/session/${id}/release`,{});
+ assert.equal(rel.body.released,true);
+ assert.ok(await f.until(async()=>await f.procs()===0));
+ assert.ok((await other()).result,'free after Pocket closed it');
+});
+
+test('idle Codex sessions close; the next message reopens the thread',async t=>{
+ const f=await fixture(t,18403,{POCKET_IDLE_CLOSE_MS:'1000'});
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
+ assert.ok(await f.until(async()=>await f.procs()===0,4000),'closed after the idle time');
+ assert.match(f.logs(),/codex session closing .*reason=idle/);
+ assert.equal((await f.call(`/session/${id}/message`,msg('again'))).status,202);
+ assert.ok(await f.until(async()=>f.calls().length===2&&await f.idle(id)));
+ assert.equal(new Set(f.calls().map(c=>c.pid)).size,2);
+});
+
+test('a permissions change reopens the app-server; a silent Codex turn is stopped by the stall watchdog',async t=>{
+ const f=await fixture(t,18404,{POCKET_STALL_MS:'1200'});
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',approvalMode:'review',...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
+ assert.equal((await f.call(`/session/${id}/message`,msg('full access now',{approvalMode:'full'}))).status,202);
+ assert.ok(await f.until(async()=>f.calls().length===2&&await f.idle(id)));
+ assert.equal(new Set(f.calls().map(c=>c.pid)).size,2,'new process for new permissions');
+ assert.equal(await f.procs(),1,'old process closed');
+ assert.equal((await f.call(`/session/${id}/message`,msg('__HANG__'))).status,202);
+ assert.ok(await f.until(()=>/codex turn STALLED/.test(f.logs()),6000));
+ assert.ok(await f.until(async()=>await f.idle(id),6000),'stalled turn ended');
+});
