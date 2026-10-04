@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7.0 — Unreleased
+## [1.7.0] — 2026-10-04 · build 31
 
 - Collapse the session header on any screen size, including its Mission Control wrapper. The slim header retains session navigation, title and live server status.
 - Hide the message settings toolbar independently with the gear beside the input. Attachment access, attached files, Send, delivery problems and running-turn controls remain available.
