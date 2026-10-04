@@ -193,3 +193,42 @@ intentional title ellipsis, contained tables and slash-menu shadow exceptions.
 Detector occlusion reports concern content outside the conversation scroll viewport;
 that content remains reachable by scrolling. The clipped-container advisory is the
 existing app shell. Compact controls retain 44px targets and readable contrast.
+
+## Usage meters and main-pane close (1.7)
+
+Pinned brief (design-studio to impeccable handoff): Operate, variance 3, motion 1,
+density 8 - the same dials as 1.6/1.7's other refinements. Read: a utility meter/panel
+addition to an existing tool, not a new surface; refine in place, don't redesign.
+
+**Context meter.** A compact mono line next to the session state ("70k / 1M . 7%"),
+reusing the ledger's ui-monospace treatment for numeric data. New `--warn` token
+(#D9A94E, warm amber) added for the 70%+ state; `--err` marks 90%+. An "est." suffix
+marks a value computed from a transcript tail rather than the CLI's own reported
+window. Updates on session load and on each `usage` SSE event; native `title`
+attribute carries the longer explanation rather than a registered tooltip, matching
+the existing `#ctitle` pattern for plain (non-button) text.
+
+**Plan-usage panel.** A sheet (the existing sheet/.opt component, not a new
+primitive) reachable from the session's options menu (current session only) and from
+App Settings, both natural per the surfaces listed in README.md's Housekeeping
+section. Bars are a real labeled meter (percentage + reset time + "as of" text
+alongside the fill), not a decorative sparkline - satisfies craft-floor's
+content-stand-in ban because the data is genuine and fully labeled. One accent
+(--clay) for normal usage, --warn/--err thresholds matching the context meter. Reset
+times convert to America/New_York per the brief; values only refresh when a turn
+runs, so the panel says so explicitly ("Only updates when a turn runs, not live.").
+
+**Main-pane close.** Desktop (900px+, matching the existing .desk breakpoint) gets
+an X in the main pane's header, visually identical to a split pane's existing Close.
+Phone has no header room (chevron, title, search, options, collapse already fill it),
+so Close lives in the session options menu instead, as the brief allows. Closing
+reuses the existing session-options sheet() component for the "still running" choice
+(Keep running / Stop) rather than inventing a new confirm dialog.
+
+Detector run: `npx impeccable detect` against a rendered, authenticated snapshot of
+both the chat view (context meter + close button) and the open plan-usage panel.
+Zero findings on the chat view. One advisory on the usage panel - flat-type-hierarchy
+(body/h1/h2/h3 all ~16px) - inherited from the app-wide .sheet h2 convention (13.5px
+uppercase label, shared by every existing sheet: Settings, session options, rename,
+skills); not introduced by this work and out of scope to change here without
+redesigning every sheet's heading system.

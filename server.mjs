@@ -21,6 +21,7 @@ import {workspaceStatus,workspaceDiff} from './workspace.mjs';
 import {readClaudeIdentity,agentEnv} from './environment.mjs';
 import {QuestionInbox} from './questions.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
+import {UsageStore,getSessionContext} from './usage.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -34,6 +35,7 @@ const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const deliveryReceipts = new DeliveryReceipts(path.join(DATA_DIR, 'delivery-receipts.json'));
 const followups = new FollowupQueue(path.join(DATA_DIR, 'followup-queue.json'));
+const usage = new UsageStore(path.join(DATA_DIR, 'usage-state.json'));
 const ALLOW_FULL_ACCESS=process.env.POCKET_ALLOW_FULL_ACCESS!=='0';
 const DEFAULT_APPROVAL_MODE=approvalMode(process.env.POCKET_APPROVAL_MODE,'review',ALLOW_FULL_ACCESS);
 const auditApproval=approvalAudit(path.join(DATA_DIR,'approval-decisions.jsonl'));
@@ -727,6 +729,8 @@ function attachClaudeQuestions(turn,sessionId){
 }
 function handleTurnLine(turn, line) {
   let o; try { o = JSON.parse(line); } catch { return; }
+  const usageEvent = usage.observe(turn.sessionId, o);
+  if (usageEvent) broadcast(turn, { type: 'usage', kind: usageEvent.kind });
   if(o.type==='control_request'){
     if(o.request?.subtype==='can_use_tool'&&o.request.tool_name==='AskUserQuestion'&&turn.questions){
       const input=o.request.input;const questions=Array.isArray(input?.questions)?input.questions.map((q,i)=>({id:'question-'+i,header:q.header,question:q.question,options:q.options,multiple:q.multiSelect})):[];
@@ -1162,6 +1166,28 @@ app.get('/api/session/:id/artifact', requireAuth, async (req,res) => {
   }catch(e){res.status(e.code==='ENOENT'||e.status===404?404:503).json({error:'This result is not available. It may have moved or been removed.'});}
 });
 
+// ---------- usage visibility (Feature G) ----------
+// Account-level plan usage (5-hour / weekly windows, extra-usage status). Values only
+// change when a turn runs — the client labels them "as of <observedAt>", never live.
+app.get('/api/usage', requireAuth, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const claude = usage.accountSummary();
+  const codexUsage = CODEX_ON ? await codex.codexRateLimits().catch(() => null) : null;
+  res.json({ claude, codex: codexUsage });
+});
+// Per-session context meter ("70k / 1M · 7%"). Falls back to the transcript's last
+// assistant usage line for sessions this daemon never ran a turn for.
+app.get('/api/session/:id/context', requireAuth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid session' });
+  try {
+    if (isCx(req.params.id)) return res.json({ context: codex.getCodexContext(codex.bareId(req.params.id)) });
+    const file = await findSessionFile(req.params.id);
+    const context = await getSessionContext(usage, req.params.id, { transcriptFile: file, fsp });
+    res.json({ context });
+  } catch (e) { res.status(503).json({ error: 'Context could not be loaded. Try again.' }); }
+});
+
 // read-only "what did it do to my code": every Edit/Write with real before/after
 app.get('/api/session/:id/changes', requireAuth, async (req, res) => {
   // Codex records edits as unified diff hunks, not before/after pairs — the view can't
@@ -1415,6 +1441,27 @@ app.post('/api/session/:id/stop', requireAuth, (req, res) => {
   signalTurn(turn);
   log(`stop requested session=${req.params.id}`);
   res.json({ ok: true });
+});
+
+// Main-pane close (Feature H). Closing a session view must not delete or hide the
+// session — this only asks the server to end its live process, if any.
+// TODO(persistent-sessions): close runner — once a session keeps one long-lived process
+// instead of a per-turn spawn, this should signal that process directly. For now it
+// reuses the existing per-turn stop path, which is all there is to "end" today.
+app.post('/api/session/:id/release', requireAuth, (req, res) => {
+  if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid session' });
+  const stop = Boolean(req.body?.stop);
+  if (isCx(req.params.id)) {
+    const id = codex.bareId(req.params.id);
+    const running = codex.codexTurnActive(id);
+    if (running && !stop) return res.status(409).json({ running: true });
+    if (running && stop) { codex.stopCodexTurn(id); log(`release+stop session=${req.params.id}`); return res.json({ released: true }); }
+    return res.json({ released: false });
+  }
+  const turn = turns.get(req.params.id);
+  if (turn && !stop) return res.status(409).json({ running: true });
+  if (turn && stop) { turn.stopped = true; signalTurn(turn); log(`release+stop session=${req.params.id}`); return res.json({ released: true }); }
+  res.json({ released: false });
 });
 
 // Attachments: raw body upload, filename via header. Files land in ~/pocket-uploads
