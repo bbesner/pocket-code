@@ -20,6 +20,7 @@ import { FollowupQueue } from './queue.mjs';
 import {workspaceStatus,workspaceDiff} from './workspace.mjs';
 import {readClaudeIdentity} from './environment.mjs';
 import {QuestionInbox} from './questions.mjs';
+import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -33,6 +34,9 @@ const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const deliveryReceipts = new DeliveryReceipts(path.join(DATA_DIR, 'delivery-receipts.json'));
 const followups = new FollowupQueue(path.join(DATA_DIR, 'followup-queue.json'));
+const ALLOW_FULL_ACCESS=process.env.POCKET_ALLOW_FULL_ACCESS!=='0';
+const DEFAULT_APPROVAL_MODE=approvalMode(process.env.POCKET_APPROVAL_MODE,'review',ALLOW_FULL_ACCESS);
+const auditApproval=approvalAudit(path.join(DATA_DIR,'approval-decisions.jsonl'));
 const PORT = Number(process.env.PORT || 3610);
 const PASSWORD = process.env.POCKET_PASSWORD;
 const SECRET = process.env.POCKET_SECRET;
@@ -632,7 +636,7 @@ function armRetry(m) {
 function scheduleRetry(sessionId, turn, resetAt) {
   const m = {
     sessionId, cwd: turn.cwd, at: resetAt, createdAt: Date.now(), userText: turn.userText,
-    model: turn.model, effort: turn.effort, attempt: (turn.retryAttempt || 0) + 1,
+    model: turn.model, effort: turn.effort, approvalMode:turn.approvalMode, attempt: (turn.retryAttempt || 0) + 1,
   };
   try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m)); } catch { }
   armRetry(m);
@@ -648,7 +652,7 @@ async function fireRetry(m) {
       return log(`retry skipped (session continued elsewhere) session=${m.sessionId}`);
     }
   } catch { }
-  const opts = { sessionId: m.sessionId, cwd: m.cwd, model: m.model, effort: m.effort, retryAttempt: m.attempt };
+  const opts = { sessionId: m.sessionId, cwd: m.cwd, model: m.model, effort: m.effort, approvalMode:approvalMode(m.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS), retryAttempt: m.attempt };
   try {
     if (file) startTurn({ ...opts, resume: true, text: RETRY_PROMPT });
     else startTurn({ ...opts, resume: false, text: m.userText }); // limit hit before the transcript existed
@@ -690,10 +694,20 @@ function attachClaudeQuestions(turn,sessionId){
     inputs.delete(reply.id);
   },onChange:()=>{
     const pending=turn.questions.list().length;
-    try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForInput=Boolean(pending);fs.writeFileSync(turn.files.meta,JSON.stringify(meta),{mode:0o600});}catch{}
+    try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForInput=Boolean(pending||turn.approvals?.list().length);fs.writeFileSync(turn.files.meta,JSON.stringify(meta),{mode:0o600});}catch{}
     broadcast(turn,{type:'questions'});
     const questionId=turn.questions.list().at(-1)?.id;
     if(pending&&turn.questionNotified!==questionId&&!mutes.has(sessionId)){turn.questionNotified=questionId;pushNotify(sessionId,'Claude needs your answer','Open Pocket Code to answer the agent’s question.').catch(()=>{});}
+  }});
+  turn.approvals=new ApprovalInbox({sessionId:()=>sessionId,turnId:()=>String(turn.startedAt),audit:auditApproval,write:(id,response)=>new Promise((resolve,reject)=>{
+    if(!turn.stdin||turn.stdin.destroyed||turn.stdin.writableEnded)return reject(new Error('Approval connection closed'));
+    turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:id,response}})+'\n',e=>e?reject(e):resolve());
+  }),onChange:()=>{
+    const requests=turn.approvals?.list()||[];
+    try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForApproval=Boolean(requests.length);meta.waitingForInput=Boolean(requests.length||turn.questions.list().length);fs.writeFileSync(turn.files.meta,JSON.stringify(meta),{mode:0o600});}catch{}
+    broadcast(turn,{type:'approvals'});
+    const id=requests.at(-1)?.id;
+    if(id&&turn.approvalNotified!==id&&!mutes.has(sessionId)){turn.approvalNotified=id;pushNotify(sessionId,'Action needs approval','Open Pocket Code to review the pending action.').catch(()=>{});}
   }});
 }
 function handleTurnLine(turn, line) {
@@ -705,10 +719,14 @@ function handleTurnLine(turn, line) {
       if(turn.questions.receive({id:o.request_id,method:'item/tool/requestUserInput',params:{threadId:turn.sessionId,turnId:String(turn.startedAt),isBlocking:true,questions}},String(turn.startedAt)))return;
       turn.questionInputs.delete(o.request_id);
     }
+    if(o.request?.subtype==='can_use_tool'&&o.request.tool_name!=='AskUserQuestion'&&typeof o.request.tool_name==='string'&&o.request.input&&typeof o.request.input==='object'&&turn.approvals){
+      const tool=o.request.tool_name;
+      if(turn.approvals.receive({nativeId:o.request_id,turnId:String(turn.startedAt),kind:'tool',title:'Allow '+tool+'?',details:{tool,cwd:turn.cwd,input:o.request.input},allow:{behavior:'allow',updatedInput:o.request.input},deny:{behavior:'deny',message:'The user denied this action. Do not run it through another tool.'}}))return;
+    }
     if(turn.stdin&&!turn.stdin.destroyed)turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:o.request_id,response:{behavior:'deny',message:'This interactive request is not supported in Pocket Code.'}}})+'\n');
     return;
   }
-  if(o.type==='control_cancel_request'){turn.questions?.resolve(o.request_id);return;}
+  if(o.type==='control_cancel_request'){turn.questions?.resolve(o.request_id);turn.approvals?.resolve(o.request_id);return;}
   if (o.type === 'stream_event') {
     const ev = o.event;
     if (!o.parent_tool_use_id && ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) {
@@ -781,6 +799,7 @@ async function finalizeTurn(sessionId, turn, code) {
   if (turn.finalized) return;
   turn.finalized = true;
   turn.questions?.clear();
+  turn.approvals?.clear();
   await restampEntrypoint(sessionId);
   try{const file=await findSessionFile(sessionId);if(file)ownedTranscriptMtime.set(sessionId,(await fsp.stat(file)).mtimeMs);}catch{}
   extActivity.delete(sessionId);
@@ -849,23 +868,24 @@ function steerTurn(turn, text) {
   return true;
 }
 
-function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, retryAttempt }) {
+function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, retryAttempt,approvalMode:requestedMode }) {
   if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   cancelRetry(sessionId); // a manually-started turn supersedes any pending auto-resume
-  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'bypassPermissions','--permission-prompt-tool','stdio'];
+  const mode=approvalMode(requestedMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS),policy=claudePermissionSettings(mode);
+  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode,'--permission-prompt-tool','stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
-  args.push('--settings',JSON.stringify({permissions:{ask:['AskUserQuestion']},...(effort&&EFFORTS.has(effort)?{effortLevel:effort}:{})}));
+  args.push('--settings',JSON.stringify({permissions:policy.permissions,...(effort&&EFFORTS.has(effort)?{effortLevel:effort}:{})}));
   if (resume) args.push('--resume', sessionId); else args.push('--session-id', sessionId);
   const files = turnFiles(sessionId);
-  fs.writeFileSync(files.out, ''); fs.writeFileSync(files.err, '');
+  for(const file of [files.out,files.err]){fs.writeFileSync(file,'',{mode:0o600});fs.chmodSync(file,0o600);}
   const outFd = fs.openSync(files.out, 'a'), errFd = fs.openSync(files.err, 'a');
   const proc = spawn(CLAUDE_BIN, args, { cwd, env: spawnEnv(), detached: true, stdio: ['pipe', outFd, errFd] });
   fs.closeSync(outFd); fs.closeSync(errFd);
   proc.unref();
   proc.stdin.on('error', () => { }); // EPIPE if the CLI dies first — finalize handles it
   try { proc.stdin.write(userJSON(promptText(text, attachments))); } catch { }
-  const turn = { sessionId,pid: proc.pid, stdin: proc.stdin, events: [], subs: new Set(), cwd, startedAt: Date.now(), userText: text, model, effort, retryAttempt, queue: [], files };
-  fs.writeFileSync(files.meta, JSON.stringify({ sessionId, pid: proc.pid, cwd, startedAt: turn.startedAt, userText: text }));
+  const turn = { sessionId,pid: proc.pid, stdin: proc.stdin, events: [], subs: new Set(), cwd, startedAt: Date.now(), userText: text, model, effort, retryAttempt,approvalMode:mode, queue: [], files };
+  fs.writeFileSync(files.meta, JSON.stringify({ sessionId, pid: proc.pid, cwd, startedAt: turn.startedAt, userText: text,approvalMode:mode }),{mode:0o600});
   attachClaudeQuestions(turn,sessionId);
   trackTurn(sessionId, turn);
   log(`turn start session=${sessionId} resume=${!!resume} pid=${proc.pid} cwd=${cwd}`);
@@ -883,7 +903,7 @@ function adoptOrphans() {
       let m; try { m = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { try { fs.unlinkSync(full); } catch { } continue; }
       if (m.sessionId && m.pid && pidAlive(m.pid) && isTurnProc(m.pid, m.sessionId)) {
         const turn = {
-          sessionId:m.sessionId,inputUnavailable:Boolean(m.waitingForInput),pid: m.pid, adopted: true, events: [], subs: new Set(), cwd: m.cwd,
+          sessionId:m.sessionId,inputUnavailable:Boolean(m.waitingForInput)&&!m.waitingForApproval,approvalUnavailable:Boolean(m.waitingForApproval)||m.approvalMode==='review',approvalMode:m.approvalMode||'full',pid: m.pid, adopted: true, events: [], subs: new Set(), cwd: m.cwd,
           startedAt: m.startedAt || Date.now(), userText: m.userText, queue: [], files: turnFiles(m.sessionId),
         };
         trackTurn(m.sessionId, turn);
@@ -937,6 +957,9 @@ function stateFor(s) {
     try { retryAt = JSON.parse(fs.readFileSync(turnFiles(s.id).retry, 'utf8')).at; } catch { }
   }
   const queue=followups.list(s.id);
+  if(turn?.approvalUnavailable)return {kind:'input',label:'Approval connection interrupted',confirmed:true,approvals:1,queued:queue.length};
+  const approvals=turn?.approvals?.list()||[];
+  if(approvals.length)return {kind:'input',label:approvals.some(a=>a.status==='uncertain')?'Approval delivery uncertain':'Needs approval',confirmed:true,approvals:approvals.length,questions:turn.questions?.list().length||0,startedAt:turn.startedAt,queued:queue.length};
   if(turn?.inputUnavailable)return {kind:'input',label:'Question interrupted · review needed',confirmed:true,questions:1,queued:queue.length};
   const questions=turn?.questions?.list()||[];
   if(questions.length)return {kind:'input',label:questions.some(q=>q.blocking)?'Needs your answer':'Working · answer requested',confirmed:true,startedAt:turn.startedAt,queued:queue.length,questions:questions.length};
@@ -1062,6 +1085,22 @@ async function workspaceCwd(id) {
   const file=await findSessionFile(id);
   return turns.get(id)?.cwd || (file ? (await sessionMeta(file,id))?.cwd : null);
 }
+app.get('/api/approval-policy',requireAuth,(_req,res)=>res.json({defaultMode:DEFAULT_APPROVAL_MODE,allowFullAccess:ALLOW_FULL_ACCESS}));
+app.get('/api/session/:id/approvals',requireAuth,(req,res)=>{
+  res.set('Cache-Control','no-store');
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
+  const turn=ownedTurn(req.params.id);
+  res.json({requests:turn?.approvals?.list()||[],interrupted:Boolean(turn?.approvalUnavailable),activeMode:turn?.approvalMode||null,defaultMode:DEFAULT_APPROVAL_MODE,allowFullAccess:ALLOW_FULL_ACCESS});
+});
+app.post('/api/session/:id/approvals/:request/decision',requireAuth,async(req,res)=>{
+  res.set('Cache-Control','no-store');
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
+  const turn=ownedTurn(req.params.id);
+  if(!turn?.approvals||turn.done||turn.finalized||turn.stopped)return res.status(409).json({error:'This action is no longer waiting. Refresh the conversation.'});
+  try{res.json(await turn.approvals.decide(req.params.request,req.body.decision));}
+  catch(e){res.status(e.status||503).json({error:e.status?e.message:'The approval connection is unavailable. Stop this turn before trying again.'});}
+});
+
 app.get('/api/session/:id/questions',requireAuth,(req,res)=>{
   res.setHeader('Cache-Control','private, no-store');
   if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
@@ -1136,6 +1175,7 @@ app.get('/api/session/:id/search', requireAuth, async (req, res) => {
 
 function turnOpts(body) {
   return {
+    approvalMode:approvalMode(body?.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS),
     executionMode:body?.executionMode==='plan'?'plan':'work',
     model: typeof body?.model === 'string' ? body.model : undefined,
     effort: typeof body?.effort === 'string' ? body.effort : undefined,
@@ -1197,12 +1237,17 @@ async function startCodexFromApi({ id, threadId, cwd, text, body }) {
   // before this function has returned, so the closure can't reach a local binding yet.
   return codex.startCodexTurn({
     threadId, cwd, text, ...opts,
+    auditApproval,onApproval:turn=>{const sid=id||(codex.CX+turn.threadId);const aid=turn.approvals.list().at(-1)?.id;if(aid&&turn.approvalNotified!==aid&&!mutes.has(sid)){turn.approvalNotified=aid;pushNotify(sid,'Action needs approval','Open Pocket Code to review the pending action.').catch(()=>{});}},
     onQuestion:turn=>{const sid=id||(codex.CX+turn.threadId);const qid=turn.questions.list().at(-1)?.id;if(!mutes.has(sid)&&turn.questionNotified!==qid){turn.questionNotified=qid;pushNotify(sid,'Codex needs your answer','Open Pocket Code to answer the agent’s question.').catch(()=>{});}},
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
   });
 }
 
-app.post('/api/session/:id/message', requireAuth, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
+function validateApprovalMode(req,res,next){
+  try{approvalMode(req.body?.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);next();}
+  catch(e){res.status(e.status||400).json({error:e.message});}
+}
+app.post('/api/session/:id/message', requireAuth, validateApprovalMode, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const id = req.params.id;
   if(!anyId(id))return res.status(400).json({error:'Invalid session'});
   const text = String(req.body?.text || '').trim();
@@ -1263,7 +1308,7 @@ app.post('/api/session/:id/message', requireAuth, withDeliveryReceipt(deliveryRe
   }
 }));
 
-app.post('/api/new', requireAuth, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
+app.post('/api/new', requireAuth, validateApprovalMode, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const cwd = String(req.body?.cwd || '').trim();
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
@@ -1498,6 +1543,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
+  'Review native commands, file changes and tool actions before allowing them. New turns default to Review actions; Full access is an explicit choice.',
+  'Approval decisions stay bound to one pending request, with audit records and safe recovery after lost connections.',
   'Adjust chat text from 14 to 24 pixels in Session options or App Settings, with a live preview and Reset. Your choice is remembered on this browser.',
   'More desktop workspace: collapse the conversation header and session filters independently. Both choices are remembered on this browser.',
   'Tighter desktop tabs, headers and session rows. Search, active-filter summaries and conversation tools stay accessible when collapsed.',
@@ -1540,7 +1587,7 @@ function binVersion(bin) {
 app.get('/api/environment',requireAuth,async(_req,res)=>{
   res.setHeader('Cache-Control','private, no-store');
   const [claude,cx]=await Promise.all([readClaudeIdentity(CLAUDE_BIN,spawnEnv()),CODEX_ON?codex.accountSummary().catch(()=>({provider:'codex',signedIn:null,method:'Status unavailable'})):Promise.resolve({provider:'codex',signedIn:false,method:'Not installed'})]);
-  res.json({host:os.hostname(),checkedAt:Date.now(),providers:[claude,cx],permissions:'Unattended server permissions',accountManagement:'Provider sign-ins are managed by the installed CLIs on this instance. Existing runs may keep the account they started with.',capabilities:{claudeQuestions:true,codexQuestions:CODEX_ON,approvalControls:false}});
+  res.json({host:os.hostname(),checkedAt:Date.now(),providers:[claude,cx],permissions:'Selectable native tool approvals; not employee isolation',accountManagement:'Provider sign-ins are managed by the installed CLIs on this instance. Existing runs may keep the account they started with.',capabilities:{claudeQuestions:true,codexQuestions:CODEX_ON,approvalControls:true}});
 });
 app.get('/api/about', requireAuth, (_req, res) => res.json({
   ...ABOUT, uptime: process.uptime(),

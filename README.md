@@ -166,10 +166,22 @@ the default model, effort and hooks, unless you override them per turn in the co
 
 > **Pocket Code gives whoever has the password the same power as a shell on your server.**
 
-Turns run unattended, with no one there to approve prompts: Claude Code runs with
-`--permission-mode bypassPermissions`, and Codex runs with full access and no approval
-prompts. That is what makes walk-away turns possible, and it means the password is the
-only thing standing between the internet and your machine. The built-in protections:
+New turns default to **Review actions**. Claude asks before commands, edits, delegated
+tasks and external tools. Codex starts with a read-only sandbox and untrusted-command
+approval policy; safe reads and existing provider tool allow-rules can still run
+without prompting. Native pending actions appear in an authenticated approval sheet.
+**Full access** retains unattended execution and skips routine tool permission prompts.
+The owner can change the next-turn mode in the composer or Session options.
+
+Set `POCKET_APPROVAL_MODE=review|full` for the instance default and
+`POCKET_ALLOW_FULL_ACCESS=0` to reject Full access through its API and UI. These controls
+are operator conveniences, not an employee security boundary: the agent still runs as
+the server's OS user, with its credentials and installed tools. An approved shell command
+or delegated task can have multiple effects. Employee identity/resource isolation and
+fine-grained Google action policies require a separate restricted connection service.
+See [approval behavior and recovery](docs/action-approvals.md).
+
+The built-in protections:
 
 - The API listens on `127.0.0.1` only and is reached only through your HTTPS front end.
 - Constant-time password check, and a limit of 20 login attempts per hour per IP.
@@ -277,8 +289,8 @@ Keep `followup-queue.json` as well: it contains pending instructions. The existi
   `skills/list`. Choosing a skill inserts an editable instruction; it does not run
   anything until you press Start. Discovery is not an employee permissions system.
 - Drafts and reading position stay on the current browser/device. This release
-  retains the existing unattended permission model. Interactive agent questions,
-  approval cards and employee roles remain future work.
+  supports native agent questions and, from 1.4, action approval cards. Employee roles
+  and identity isolation remain future work.
 
 Browser libraries are pinned in package-lock.json and vendored with their licenses.
 After updating either package deliberately, run `npm run vendor`, review the diff,

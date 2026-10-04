@@ -16,3 +16,4 @@ delivery-receipts.json*
 
 # Pending follow-ups contain private user messages
 followup-queue.json*
+approval-decisions.jsonl

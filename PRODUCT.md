@@ -24,9 +24,9 @@ because it is the same store.
 - Type is large and high-contrast, and comfortable to read outdoors or with tired eyes.
 - Dark theme, because evening and on-the-go use is the main scenario.
 
-**Out of scope:** general file browsing/editing, a terminal, tool-approval policy
-management and multi-user accounts. Native questions are supported; current
-server permissions still govern tools. Read-only Git inspection belongs to the
+**Out of scope:** general file browsing/editing, a terminal and multi-user accounts. Native questions and action approvals are
+supported; review/full-access choices govern subsequent Pocket-owned turns, while
+server credentials and provider rules remain the authority. Read-only Git inspection belongs to the
 session workspace. Codex Plan mode guides the task but is not a security sandbox.
 
 **Platform:** Mobile web / installable PWA, served by `server.mjs` (default port 3610)

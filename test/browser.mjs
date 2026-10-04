@@ -19,6 +19,7 @@ const rows=[
 ];
 const idle=rows.at(-1);let dispatches=0,failNext=false,stale=false;const receipts=new Map();const received=[];
 let questionRequests=[];let questionAnswers=null;
+let approvalRequests=[],approvalDecisions=[],approvalFail=false;
 const queueRows=[{id:'q1',revision:1,text:'Check incoming quantities before placing an order.',status:'pending'}];
 const report='## Inventory review\n\n| Product | On hand | Incoming | Supplier reference |\n|---|---:|---:|---|\n| Outdoor camera | 24 | 12 | WAREHOUSE-LONG-REFERENCE-001 |\n| Recorder | 8 | 4 | PURCHASE-ORDER-2026-10-03 |\n\n> Incoming stock is separate from the on-hand count.\n\n1. Review stock\n   - Exclude discontinued products\n   - Check expected delivery dates\n2. Confirm the order\n\n[Open the report](https://example.com/inventory)';
 const conversations=new Map(rows.map(r=>[r.id,[{role:'user',text:'Review the stock report.'},{role:'assistant',blocks:[{t:'text',text:report}]}]]));
@@ -26,6 +27,13 @@ const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost');
  const json=(body,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(body));};
  if(url.pathname==='/api/me')return json({ok:true});
+ if(url.pathname==='/api/approval-policy')return json({defaultMode:'review',allowFullAccess:true});
+ if(url.pathname.endsWith('/approvals'))return json({requests:approvalRequests,interrupted:false,activeMode:'review',defaultMode:'review',allowFullAccess:true});
+ if(/\/approvals\/[^/]+\/decision$/.test(url.pathname)){
+  let raw='';for await(const c of req)raw+=c;const body=JSON.parse(raw);
+  if(approvalFail)return json({error:'Decision delivery is uncertain. Review the conversation.'},503);
+  approvalDecisions.push(body.decision);approvalRequests=[];return json({ok:true});
+ }
  if(url.pathname==='/api/sessions')return stale?json({error:'Fixture offline'},503):json({sessions:rows,warnings:[],checkedAt:Date.now()});
  if(url.pathname==='/api/projects')return json({projects:['/workspaces/warehouse','/workspaces/products']});
  if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}]});
@@ -298,6 +306,30 @@ try{
  await p.evaluate(()=>{localStorage.setItem('pc-chat-text-size','999');});await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
  assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'17px','invalid saved sizes fall back to the default');
  await p.evaluate(()=>setChatTextSize(17));
+ // Approvals show the exact escaped request; no decision is selected or sent on open.
+ await p.goto(base+'/#/chat/'+idle.id);await p.waitForSelector('#c-approval');
+ await p.click('#c-approval');await p.waitForSelector('[data-v="full"]');await p.click('[data-v="full"]');
+ assert.match(await p.$eval('#c-approval',e=>e.textContent),/Full access/);
+ await p.click('#c-approval');await p.click('[data-v="review"]');assert.equal(await p.evaluate(()=>turnOpts().approvalMode),'review');
+ for(const width of [390,1440]){
+  approvalRequests=[{id:'approval-1',title:'Run this command?',kind:'command',details:JSON.stringify({command:'printf "<script>window.__approvalXSS=1</script>" > report.txt',cwd:'/workspaces/reports'},null,2),canAllow:true,status:'pending'}];
+  await p.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});await p.evaluate(()=>refreshApprovals(chatId));await p.waitForSelector('#approvals-open:not([hidden])');
+  await p.click('#approvals-open');await p.waitForSelector('.approval-card');
+  assert.equal(await p.evaluate(()=>Boolean(window.__approvalXSS)),false);assert.equal(await p.$$eval('.approval-card script',e=>e.length),0);
+  assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  const before=approvalDecisions.length;await p.screenshot({path:path.join(out,'approval-'+width+'.png')});await scan('approval-'+width);
+  assert.equal(approvalDecisions.length,before);await p.focus('[data-decision="deny"]');await p.keyboard.press('Enter');
+  await p.waitForFunction(()=>document.querySelector('.approval-outcome')?.textContent.startsWith('Denied'));
+  assert.equal(approvalDecisions.at(-1),'deny');await p.keyboard.press('Escape');
+ }
+ approvalRequests=[{id:'approval-2',title:'Apply file changes?',kind:'fileChange',details:'+new line',canAllow:true,status:'pending'}];
+ await p.evaluate(()=>openApprovals(chatId));await p.waitForSelector('[data-decision="allow"]');approvalFail=true;
+ await p.click('[data-decision="allow"]');await p.waitForFunction(()=>document.querySelector('.approval-outcome')?.textContent.includes('uncertain'));
+ assert.equal(await p.$eval('[data-decision="allow"]',e=>e.disabled),true);
+ approvalFail=false;approvalRequests=[{...approvalRequests[0],status:'uncertain'}];await p.click('[data-refresh-approvals]');
+ await p.waitForFunction(()=>document.querySelector('.approval-outcome')?.textContent.includes('Decision sent or uncertain'));
+ assert.equal(await p.$eval('[data-decision="allow"]',e=>e.disabled),true);await p.keyboard.press('Escape');
+ approvalRequests=[];
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));

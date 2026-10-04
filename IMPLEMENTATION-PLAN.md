@@ -39,8 +39,9 @@ operator validation; rollout is controlled separately from the public release.
   acknowledgments for Codex starts/steering.
 - Delivered in 1.3: native Claude questions and Codex Plan-mode questions,
   per-request replies, explicit needs-answer state and interrupted-question recovery.
-- Remaining: configurable tool-approval policy and approval cards. Current
-  unattended permissions remain unchanged; Plan mode is not an isolation boundary.
+- Candidate 1.4: native action-approval cards, Review actions / Full access policy,
+  request-bound decisions and interrupted-connection recovery. Plan mode and approval
+  UI are not employee identity/resource isolation. See docs/action-approvals.md.
 - Session result index linking to existing document destinations.
 
 Acceptance: representative inventory/product reports; sanitized hostile Markdown;
@@ -93,7 +94,8 @@ identity. Later stages may be reordered based on daily-use evidence.
 
 ## Current stopping point
 
-1.3.0 adds the daily desktop workspace and native questions for both providers.
+1.3.1 is live with compact desktop controls and adjustable chat text. Candidate 1.4
+adds native action approvals for both providers and is pending release approval.
 Queue edits pause dispatch, and real staged/working Git views supplement the older
 transcript-based Session edits view. Both providers passed real native question,
 answer and continuation checks; read-only account summaries show CLI identities.
@@ -102,6 +104,6 @@ The Mission Control app and standalone Pocket Code remain separate installs.
 Next: desktop/phone daily-use feedback; choose an employee pilot and its allowed
 workspaces, credentials, skills and approval policy before provisioning. Employee
 hosting/container decisions and other people's deployments remain deferred by the
-operator. Full tool-approval management is a separate permissions design, not implied
-by the native question interface. Optional themes, full editor/terminal functions
+operator. Native action approvals are implemented in candidate 1.4; employee identity, restricted
+Google connections and mandatory per-resource policies remain separate work. Optional themes, full editor/terminal functions
 and new business workflows are not required for this release.

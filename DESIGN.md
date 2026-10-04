@@ -113,3 +113,15 @@ Code, tool ledgers and application controls keep their existing typography. The
 available. Both settings surfaces share one control with announced values, native
 disabled bounds, a live sample and reset. Rendered phone/desktop scans at 24px have
 only the existing ellipsis/table/shadow/native-font exceptions described above.
+
+## Action approvals (1.4)
+
+Pinned Operate brief: variance 3, motion 1, density 7. Keep the warm ink palette,
+native text and existing sheet behavior. Pending-action banners are separate from
+agent questions. Cards show complete escaped, scroll-contained details with explicit
+Deny/Allow buttons, no preselected answer and no blanket permission shortcut. Native
+turn-wide grants state their scope. Disabled uncertain replies direct users to review
+and stop; closing a card never implies consent. Keep 44px targets and visible focus.
+Rendered phone/desktop scans retain the existing title ellipsis, table containment,
+native font, compact navigation and slash-menu shadow exceptions. Approval help copy
+has a bounded measure and 16px outer padding.

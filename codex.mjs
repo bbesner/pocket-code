@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {QuestionInbox} from './questions.mjs';
+import {ApprovalInbox,codexApproval,codexPermissionSettings} from './approvals.mjs';
 
 const HOME = os.homedir();
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex');
@@ -108,8 +109,7 @@ class AppServer {
     }
   }
 
-  // Approval requests want a decision object; "denied" is the safe default until the
-  // UI can ask. Turns run with approvalPolicy:never anyway, so this is a backstop.
+  // Unknown or malformed requests must never be auto-approved.
   _declineFor(method) {
     if(method==='item/tool/requestUserInput')return {answers:{}};
     if(['item/commandExecution/requestApproval','item/fileChange/requestApproval'].includes(method))return {decision:'decline'};
@@ -403,6 +403,7 @@ function finish(turn, ev) {
   if(ownedFinishedAt.size>1000)ownedFinishedAt.delete(ownedFinishedAt.keys().next().value);
   const priorActivity=extSeen.get(turn.threadId);if(priorActivity)priorActivity.at=0;
   turn.questions?.clear();
+  turn.approvals?.clear();
   turn.emit(ev);
   turn.emit({ type: 'done' });
   codexTurns.delete(turn.threadId);
@@ -411,13 +412,13 @@ function finish(turn, ev) {
   try { turn.onFinish?.(ev, turn); } catch (e) { log(`onFinish threw thread=${turn.threadId}: ${e.message}`); }
 }
 
-export async function startCodexTurn({ threadId, cwd, text, model, effort, executionMode = 'work', attachments, emit, onFinish, onQuestion }) {
+export async function startCodexTurn({ threadId, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, emit, onFinish, onQuestion, onApproval, auditApproval }) {
   const existing = threadId && codexTurns.get(threadId);
   if (existing) throw Object.assign(new Error('busy'), { code: 409 });
 
   const turn = {
     threadId, cwd, startedAt: Date.now(), userText: text, model, effort,
-    events: [], subs: new Set(), queue: [], turnId: null, done: false, onFinish, executionMode,
+    events: [], subs: new Set(), queue: [], turnId: null, done: false, onFinish, executionMode,approvalMode,approvalItems:new Map(),
   };
   // events fan out to SSE subscribers exactly like the Claude side
   turn.emit = ev => {
@@ -430,10 +431,18 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
   const conn = new AppServer({
     name: `turn ${threadId || 'new'}`, detached: true,
     onNotify: (method, params) => onTurnNotify(turn, method, params),
-    onRequest: request => turn.questions?.receive(request,turn.turnId) || false,
+    onRequest: request => {
+      if(turn.questions?.receive(request,turn.turnId))return true;
+      const approval=codexApproval(request,turn);
+      return approval ? turn.approvals?.receive(approval) || false : false;
+    },
   });
   turn.conn = conn;
   turn.questions=new QuestionInbox({threadId:()=>turn.threadId,write:reply=>conn._write(reply),onChange:()=>{turn.emit({type:'questions'});if(turn.questions?.list().length)onQuestion?.(turn);}});
+  turn.approvals=new ApprovalInbox({sessionId:()=>CX+turn.threadId,turnId:()=>turn.turnId,audit:auditApproval,write:(id,result)=>new Promise((resolve,reject)=>{
+    if(conn.closed||conn.proc.stdin.destroyed||conn.proc.stdin.writableEnded)return reject(new Error('Approval connection closed'));
+    conn.proc.stdin.write(JSON.stringify({jsonrpc:'2.0',id,result})+'\n',e=>e?reject(e):resolve());
+  }),onChange:()=>{turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);}});
   conn.onExit = () => finish(turn, { type: 'result', ok: false, error: 'codex exited' });
 
   try {
@@ -442,14 +451,14 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
       // sandbox/approval ride on the resume, not the turn: turn/start's sandboxPolicy is
       // a tagged union, and setting it here keeps one code path for both entry points.
       const resumed = await conn.request('thread/resume', {
-        threadId, sandbox: 'danger-full-access', approvalPolicy: 'never', ...(cwd ? { cwd } : {}),
+        threadId, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}),
       }, 60_000);
       turn.effectiveModel=model||resumed.model;
       turn.effectiveEffort=effort||resumed.reasoningEffort||null;
       turn.cwd=resumed.cwd||cwd;
     } else {
       const r = await conn.request('thread/start', {
-        cwd, sandbox: 'danger-full-access', approvalPolicy: 'never',
+        cwd, ...codexPermissionSettings(approvalMode),
         ...(model ? { model } : {}),
       }, 60_000);
       turn.effectiveModel=model||r.model;
@@ -502,6 +511,7 @@ function onTurnNotify(turn, method, params) {
   switch (method) {
     case 'serverRequest/resolved':
       turn.questions?.resolve(params.requestId);
+      turn.approvals?.resolve(params.requestId);
       break;
     case 'turn/started':
       turn.turnId = params?.turnId || params?.turn?.id || turn.turnId;
@@ -511,8 +521,12 @@ function onTurnNotify(turn, method, params) {
       if (d) turn.emit({ type: 'delta', text: d });
       break;
     }
+    case 'item/started':
+      if(params.item?.type==='fileChange')turn.approvalItems.set(params.item.id,params.item);
+      break;
     case 'item/completed': {
       const it = params?.item || params;
+      if(it?.id)turn.approvalItems.delete(it.id);
       // our own prompt comes back as a userMessage item ~2s later; we already echoed it
       if (it?.type === 'userMessage') break;
       const msg = normalizeItem(it, new Date().toISOString());
