@@ -902,6 +902,8 @@ function handleRunnerLine(r, line, lineOffset) {
     if (!wakes || r.exited) return;
     turn = beginTurn(r, { autonomous: true, offset: lineOffset });
     log(`turn start (started by the agent) session=${r.sessionId} pid=${r.pid}`);
+    // Viewers in transcript-mirror mode resync on `done` and attach to this live turn.
+    for (const t of tailers.get(r.sessionId) || []) { try { t.res.write('data: {"type":"done"}\n\n'); t.res.end(); } catch { } }
   }
   handleTurnLine(turn, line);
 }

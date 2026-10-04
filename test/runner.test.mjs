@@ -34,7 +34,7 @@ async function fixture(t,port,env={}){
  t.after(async()=>{await stop();killAll();fs.rmSync(dir,{recursive:true,force:true});});
  fs.mkdirSync(path.join(dir,'sessions','test-workspace'),{recursive:true});
  await start();
- return {dir,start,stop,call,calls,health,state,until,pids,transcript,logs:()=>logs};
+ return {dir,start,stop,call,calls,health,state,until,pids,transcript,headers,logs:()=>logs};
 }
 const msg=text=>({text,clientMessageId:randomUUID()});
 
@@ -53,8 +53,15 @@ test('one process carries a session across turns; a model change starts a new on
 });
 
 test('a turn the agent starts by itself (finished background job) is streamed and recorded',async t=>{
- const f=await fixture(t,18392,{POCKET_TEST_BG_MS:'700'});
+ const f=await fixture(t,18392,{POCKET_TEST_BG_MS:'1500'});
  const id=(await f.call('/new',{cwd:repo,...msg('__BG__ start a job')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ // A viewer mirroring the idle session is told to reattach when the agent starts a turn.
+ const viewer=await fetch(`http://127.0.0.1:18392/api/session/${id}/events`,{headers:f.headers});
+ const reader=viewer.body.getReader();let seen='';
+ const read=(async()=>{for(;;){const {value,done}=await reader.read();if(done)break;seen+=new TextDecoder().decode(value);}})();
+ assert.ok(await f.until(()=>seen.includes('"type":"done"')),'mirror viewer told to resync');
+ await read;
  assert.ok(await f.until(()=>f.transcript(id).includes('The background job finished.')));
  assert.ok(await f.until(()=>/turn start \(started by the agent\)/.test(f.logs())),'server picked up the self-started turn');
  assert.ok(await f.until(()=>(f.logs().match(/turn done session=/g)||[]).length===2),'and finished it');
