@@ -172,3 +172,24 @@ is unchanged; the tooltip is attached through aria-describedby while visible.
 Split view lists New session first; a new pane shows the standard New session screen
 with Close in place of Back and its own draft. Messages steered into a running turn
 render immediately as ordinary user messages; no extra pending chrome.
+
+## Session focus controls (1.7)
+
+Pinned refinement: Operate, variance 3, motion 1, density 8. Preserve the warm ink
+palette, chat typography and 44px controls. The header chevron hides secondary
+navigation at every width; the same live status element moves below the title.
+Its check timestamp returns when expanded. The composer gear independently hides
+model, effort, permission, mode and alert settings. Attachment access stays beside
+the input, and attached files, upload/delivery problems and active-turn controls
+remain visible. Preferences persist per browser without rebuilding the conversation.
+
+Mission Control hides its masthead only after its verified Pocket iframe reports
+an active session with a restore control. Expanding the session restores the parent
+navigation. Old clients and non-chat views retain the parent's own restore button.
+Messages contain only visibility state; both sides check origin and source window.
+
+Rendered phone and desktop scans preserve the existing native-font, compact type,
+intentional title ellipsis, contained tables and slash-menu shadow exceptions.
+Detector occlusion reports concern content outside the conversation scroll viewport;
+that content remains reachable by scrolling. The clipped-container advisory is the
+existing app shell. Compact controls retain 44px targets and readable contrast.

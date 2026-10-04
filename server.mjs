@@ -1564,8 +1564,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Split view: choose New session to start a conversation in the new pane. It opens in the default workspace with its own draft.",
-  "Messages you send while the agent is working now appear right away, instead of after the agent's next step.",
+  "Collapse the whole session header, including Mission Control navigation, on phone, tablet and desktop. Live status stays visible.",
+  "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

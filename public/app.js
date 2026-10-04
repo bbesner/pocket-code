@@ -150,6 +150,7 @@ let tb = null; // {key, prefs, attachments:[{path,name}], allowAttach}
 function tbLabel(list, v) { const o = list.find(o => o[0] === v) || list[0]; return o[3] || o[1]; }
 function renderToolbar() {
   const bar = $('#tbar'); if (!bar || !tb) return;
+  $('#composer-actions #c-att')?.remove();
   bar.innerHTML = `
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
@@ -166,6 +167,8 @@ function renderToolbar() {
     ar.querySelectorAll('button').forEach(b => b.onclick = () => { tb.attachments.splice(Number(b.dataset.i), 1); stashAttachments(); renderToolbar(); });
   }
   const att = $('#c-att');
+  const actions=$('#composer-actions');
+  if(att&&actions){att.className='icon composer-attach';att.innerHTML=IC.clip;actions.prepend(att);}
   if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard']],null,v=>{if(v==='file')$('#fpick')?.click();else pasteClipboardImage();});
   $('#c-model').onclick = () => sheet('Model for this turn', modelList(), tb.prefs.model,
     v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
@@ -173,10 +176,12 @@ function renderToolbar() {
     v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   if (loadOutbox(tb.key)) {
     bar.querySelectorAll('button:not(#c-mute)').forEach(b => { b.disabled = true; });
+    if(att)att.disabled=true;
     ar?.querySelectorAll('button').forEach(b => { b.disabled = true; });
   }
   const mode=$('#c-mode');if(mode)mode.onclick=()=>sheet('Codex mode for the next turn',[['work','Work normally','Carry out your request'],['plan','Plan first','Explore an approach and answer native questions before implementation']],tb.prefs.executionMode||'work',v=>{tb.prefs.executionMode=v;setPrefs(tb.key,tb.prefs);renderToolbar();});
   $('#c-approval').onclick=()=>chooseApprovalMode();
+  paintComposerDensity();
   paintUploadStatus();
   const mu = $('#c-mute');
   if (mu) mu.onclick = () => toggleMute();
@@ -1047,7 +1052,7 @@ async function renderChat(id) {
       <button class="icon" id="findb" aria-label="Find in conversation">${IC.search}</button>
       <button class="icon" id="chatmore" aria-label="Session options">${IC.more}</button>
       ${PANE ? '' : `<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
-      <button class="icon" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj chat-statebar">${IC.up1}</button>
+      <button class="icon" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj chat-statebar run-confirmation">${IC.up1}</button>
       ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
     </header>
     <div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
@@ -1168,6 +1173,7 @@ function setComposer(working) {
         <button class="chip stopchip" id="stopb" aria-label="Stop this turn">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
     ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer">Steer now</button><button data-mode="queue">After this turn</button></div>' : ''}
+    ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.cog}</button></div>` : ''}
     <textarea id="box" rows="1" placeholder="${working ? 'Steer this turn…' : 'Message this session…'}" enterkeyhint="send"></textarea>
     <button class="send" id="send" aria-label="Send">${IC.up}</button>`;
   if (working) {
@@ -1487,7 +1493,7 @@ async function renderNew() {
 async function route() {
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { await api('/me'); } catch { return; } // renders login on 401
+  try { await api('/me'); } catch { reportWorkspaceChrome();return; } // renders login on 401
   await loadApprovalPolicy();
   dockSurface?.remove();dockSurface=null;
   const h = location.hash;

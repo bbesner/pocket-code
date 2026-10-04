@@ -251,15 +251,15 @@ try{
  await p.type('#rail [data-session-search]','warehouse');await p.click('#rail-filter-toggle');await p.click('#rail-filter-toggle');
  assert.equal(await p.$eval('#rail [data-session-search]',e=>e.value),'warehouse');
  await p.$eval('#rail [data-session-search]',e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));});
- await p.click('#results-open');await p.waitForSelector('.workspace-dock');
+ await p.click('#header-toggle');await p.click('#results-open');await p.waitForSelector('.workspace-dock');
  await p.evaluate(()=>{window.densityDock=document.querySelector('.workspace-dock');});
  await p.click('#header-toggle');await p.click('#header-toggle');
  assert.equal(await p.$eval('.workspace-dock',e=>e===window.densityDock),true);
- await p.click('[data-close-dock]');
+ await p.click('[data-close-dock]');await p.click('#header-toggle');
  for(const width of [900,1279,1280,1440,1536]){
   await p.setViewport({width,height:760});
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'compact desktop overflow '+width);
-  for(const selector of ['#ctitle','#results-open','#queue-open','#git-open','#header-toggle','#rail-filter-toggle','#send']){
+  for(const selector of ['#ctitle','#run-confirmed-state','#header-toggle','#rail-filter-toggle','#send']){
    assert.ok(await p.$eval(selector,e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.top>=0&&r.bottom<=innerHeight&&r.left>=0&&r.right<=innerWidth;}),selector+' stays reachable at '+width);
   }
   if(width===1440){await p.screenshot({path:path.join(out,'compact-workspace-desktop.png')});await scan('compact-workspace-desktop');}
@@ -276,6 +276,33 @@ try{
  assert.equal(await p.$eval('#rail-filter-controls',e=>e.hidden),false);
  await p.screenshot({path:path.join(out,'expanded-workspace-desktop.png')});await scan('expanded-workspace-desktop');
  fs.writeFileSync(path.join(out,'density-metrics.json'),JSON.stringify({expanded,collapsed,conversationGain:collapsed.chat-expanded.chat,sessionListGain:expanded.rows-collapsed.rows},null,2));
+ // Bottom settings collapse independently, preserve the actual input and attachments,
+ // and survive resizing, model changes and a reload without changing turn preferences.
+ await p.evaluate(()=>{window.focusInput=document.querySelector('#box');window.focusPrefs=JSON.stringify(tb.prefs);tb.attachments=[{path:'/tmp/fixture.txt',name:'fixture.txt'}];renderToolbar();stashAttachments();});
+ const fullHeight=await p.$eval('main.scroll',e=>e.clientHeight);
+ await p.focus('#composer-toggle');await p.keyboard.press('Enter');
+ assert.equal(await p.$eval('#composer-toggle',e=>e.getAttribute('aria-expanded')),'false');
+ assert.equal(await p.$eval('#header-toggle',e=>e.getAttribute('aria-expanded')),'true');
+ assert.equal(await p.$eval('#tbar',e=>e.getClientRects().length),0);
+ assert.equal(await p.$eval('#box',e=>e===window.focusInput),true);
+ assert.ok(await p.$eval('main.scroll',e=>e.clientHeight)>fullHeight+40);
+ await p.evaluate(()=>renderToolbar());
+ assert.equal(await p.$$eval('#c-att',es=>es.length),1,'toolbar repaint does not duplicate attachment access');
+ assert.equal(await p.evaluate(()=>JSON.stringify(tb.prefs)===window.focusPrefs),true);
+ for(const width of [360,691,840,1440]){
+  await p.setViewport({width,height:800});
+  for(const selector of ['#c-att','#composer-toggle','#send','#box','#attrow'])assert.ok(await p.$eval(selector,e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight;}),'compact composer control '+selector+' at '+width);
+  assert.equal(await p.$eval('#box',e=>e===window.focusInput),true);
+  assert.equal(await p.$eval('#tbar',e=>e.getClientRects().length),0);
+  if([360,1440].includes(width)){await p.screenshot({path:path.join(out,'focus-composer-'+width+'.png')});await scan('focus-composer-'+width);}
+ }
+ await p.click('#c-att');await p.waitForSelector('[data-v="file"]');await p.keyboard.press('Escape');
+ await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
+ assert.equal(await p.$eval('#composer-toggle',e=>e.getAttribute('aria-expanded')),'false');
+ assert.match(await p.$eval('#attrow',e=>e.textContent),/fixture.txt/);
+ await p.click('#composer-toggle');await p.click('#c-model');await p.waitForSelector('[data-v="test"]');await p.click('[data-v="test"]');
+ assert.equal(await p.$$eval('#c-att',es=>es.length),1);
+ await p.evaluate(()=>{tb.attachments=[];renderToolbar();stashAttachments();});
  // Chat text scales independently of application chrome and keeps its value on reload.
  const chromeSize=await p.$eval('#results-open',e=>getComputedStyle(e).fontSize);
  await p.click('#chatmore');await p.waitForSelector('[data-text-larger]');
@@ -358,7 +385,7 @@ try{
  assert.match(await p.$eval('#run-confirmed-at',e=>e.textContent),/Checked [0-9]+s ago/);
  await p.evaluate(()=>{headerCollapsed=true;paintWorkspaceDensity();sessionProofReceivedAt=performance.now()-16000;paintRunConfirmation();});
  assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/unconfirmed/);
- assert.ok(await p.$eval('#run-confirmation',e=>e.getBoundingClientRect().height)>=28);
+ assert.ok(await p.$eval('#run-confirmation',e=>e.getBoundingClientRect().height)>=18);
  stale=true;await p.evaluate(()=>refreshSessions());
  assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/unconfirmed/);
  assert.equal(await p.evaluate(()=>sessionCounts().running),0);
@@ -419,11 +446,20 @@ try{
    assert.ok(outer.top+input.bottom<=height+1,'embedded composer visible '+width);
    assert.ok(outer.bottom<=height+1,'frame visible '+width);
   }
+  await f.evaluate(()=>setHeaderCollapsed(false));
+  await p.waitForFunction(()=>!document.querySelector('.masthead').hidden);
+  await new Promise(r=>setTimeout(r,100));
   const before=await f.$eval('main.scroll',e=>e.clientHeight);
   await p.click('#workspace-toggle');
-  await f.evaluate(()=>{headerCollapsed=false;paintWorkspaceDensity();});await f.click('#header-toggle');
+  await p.waitForFunction(()=>document.querySelector('.masthead').hidden);
   await new Promise(r=>setTimeout(r,100));
   const after=await f.$eval('main.scroll',e=>e.clientHeight);assert.ok(after-before>80,'collapsing both headers returns reading space');
+  assert.equal(await p.$eval('.masthead',e=>e.hidden),true,'whole Mission Control header yields to the session control');
+  assert.ok(await f.$eval('header #run-confirmation',e=>e.getClientRects().length)>0,'status remains in the header');
+  await f.click('#composer-toggle');
+  const focused=await f.$eval('main.scroll',e=>e.clientHeight);
+  assert.ok(focused-after>=44,'bottom settings return another row');
+  assert.equal(await f.$eval('#box',e=>e===window.originalComposer),true);
   await p.screenshot({path:path.join(out,'fold-closed-compact.png')});
   await p.evaluate(()=>{window.visibleTestHeight=430;Object.defineProperty(window.visualViewport,'height',{configurable:true,get:()=>window.visibleTestHeight});window.visualViewport.dispatchEvent(new Event('resize'));});
   await new Promise(r=>setTimeout(r,100));
@@ -435,7 +471,34 @@ try{
   await p.setViewport({width:2048,height:1050,isMobile:true,hasTouch:true});await new Promise(r=>setTimeout(r,150));
   const measure=await f.$eval('#msgs',e=>e.getBoundingClientRect().width);assert.ok(measure>=1200&&measure<=1280);
   await p.screenshot({path:path.join(out,'desktop-wide.png')});
-  fs.writeFileSync(path.join(out,'responsive-metrics.json'),JSON.stringify({before,after,readingGain:after-before,desktopConversationWidth:measure,foldDraftPreserved:true,clipboardUploads:uploads.length},null,2));
+  // Parent integration accepts only its child origin + window, never arbitrary messages.
+  await p.evaluate(()=>dispatchEvent(new MessageEvent('message',{origin:location.origin,source:window,data:{pocketWorkspace:'state',active:false,collapsed:false}})));
+  assert.equal(await p.$eval('.masthead',e=>e.hidden),true);
+  await f.evaluate(()=>dispatchEvent(new MessageEvent('message',{origin:location.origin,source:window,data:{pocketWorkspace:'set',collapsed:false}})));
+  assert.equal(await f.$eval('#header-toggle',e=>e.getAttribute('aria-expanded')),'false');
+  await f.click('#header-toggle');await p.waitForFunction(()=>!document.querySelector('.masthead').hidden);
+  assert.equal(await p.$eval('#workspace-nav',e=>e.hidden),false);
+  assert.equal(await f.$eval('#composer-toggle',e=>e.getAttribute('aria-expanded')),'false','header expand does not expand bottom');
+  await p.click('#workspace-toggle');await p.waitForFunction(()=>document.querySelector('.masthead').hidden);
+  assert.equal(await f.$eval('#header-toggle',e=>e.getAttribute('aria-expanded')),'false');
+  assert.equal(await f.$eval('#box',e=>e===window.originalComposer),true,'parent control keeps the actual input');
+  await p.reload({waitUntil:'domcontentloaded'});
+  const restored=await p.waitForFrame(frame=>frame.url().startsWith('http://localhost:'));
+  await restored.evaluate(id=>location.hash='#/chat/'+id,idle.id);await restored.waitForSelector('#box');
+  await p.waitForFunction(()=>document.querySelector('.masthead').hidden);
+  assert.equal(await restored.$eval('#composer-toggle',e=>e.getAttribute('aria-expanded')),'false');
+  assert.equal(await restored.$eval('#box',e=>e.value),'Fold regression draft');
+  await p.setViewport({width:390,height:844,isMobile:true,hasTouch:true});
+  await restored.waitForSelector('#back',{visible:true});await restored.click('#back');await restored.waitForSelector('[data-id]');
+  await p.waitForFunction(()=>!document.querySelector('.masthead').hidden);
+  // Critical run controls and requests remain available with both preferences saved.
+  await restored.evaluate(id=>location.hash='#/chat/'+id,rows[0].id);await restored.waitForSelector('#stopb');
+  assert.ok(await restored.$eval('#stopb',e=>e.getClientRects().length)>0);
+  assert.ok(await restored.$eval('.send-mode',e=>e.getClientRects().length)>0);
+  await restored.evaluate(()=>setConnection('Connection lost. Reconnecting…'));
+  assert.ok(await restored.$eval('#connection-state',e=>e.getClientRects().length)>0);
+
+  fs.writeFileSync(path.join(out,'responsive-metrics.json'),JSON.stringify({before,after,focused,readingGain:focused-before,desktopConversationWidth:measure,foldDraftPreserved:true,clipboardUploads:uploads.length},null,2));
  }
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));

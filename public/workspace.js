@@ -49,6 +49,7 @@ function bindChatTextControls(container){
  container.querySelectorAll('[data-text-reset]').forEach(el=>el.onclick=()=>setChatTextSize(CHAT_TEXT_DEFAULT));
 }
 let headerCollapsed=readLocal('pc-header-collapsed',false)===true;
+let composerCollapsed=readLocal('pc-composer-collapsed',false)===true;
 let railFiltersCollapsed=readLocal('pc-rail-filters-collapsed',false)===true;
 function paintWorkspaceDensity(){
  const split=document.querySelector('.split');
@@ -59,6 +60,15 @@ function paintWorkspaceDensity(){
   header.setAttribute('aria-expanded',String(!headerCollapsed));header.setAttribute('aria-label',label);header.title=label;
   header.innerHTML=headerCollapsed?IC.down1:IC.up1;
  }
+ const confirmation=document.getElementById('run-confirmation');
+ const bar=header?.closest('header');
+ if(confirmation&&bar){
+  const target=headerCollapsed?bar.querySelector('h1'):bar.parentElement;
+  if(confirmation.parentElement!==target){
+   if(headerCollapsed)target.append(confirmation);else bar.after(confirmation);
+  }
+ }
+ reportWorkspaceChrome();
  const toggle=document.getElementById('rail-filter-toggle'),controls=document.getElementById('rail-filter-controls');
  if(toggle){
   const label=(railFiltersCollapsed?'Expand':'Collapse')+' session filters';
@@ -77,14 +87,38 @@ function paintWorkspaceDensity(){
   };
  }
 }
+// Change visibility in place: drafts, attachments, streams and open docks survive.
+function preserveConversationView(change){
+ const scroller=document.querySelector('#msgs')?.closest('main.scroll');
+ const top=scroller?.scrollTop||0,bottom=scroller&&scroller.scrollHeight-top-scroller.clientHeight<24;
+ change();
+ if(scroller)scroller.scrollTop=bottom?scroller.scrollHeight:top;
+}
+function setHeaderCollapsed(value){
+ preserveConversationView(()=>{headerCollapsed=value;writeLocal('pc-header-collapsed',value);paintWorkspaceDensity();});
+}
+function paintComposerDensity(){
+ const comp=document.getElementById('comp'),button=document.getElementById('composer-toggle');
+ comp?.classList.toggle('compact-composer',composerCollapsed);
+ if(button){
+  const label=(composerCollapsed?'Show':'Hide')+' message settings';
+  button.setAttribute('aria-expanded',String(!composerCollapsed));button.setAttribute('aria-label',label);button.title=label;
+  button.onclick=()=>preserveConversationView(()=>{composerCollapsed=!composerCollapsed;writeLocal('pc-composer-collapsed',composerCollapsed);paintComposerDensity();});
+ }
+}
+// The embedder may coordinate chrome only; never share session data or credentials.
+const workspaceParentOrigin=(()=>{try{return !PANE&&parent!==window?new URL(document.referrer).origin:null;}catch{return null;}})();
+function reportWorkspaceChrome(){
+ if(workspaceParentOrigin)parent.postMessage({pocketWorkspace:'state',active:Boolean(document.getElementById('header-toggle')),collapsed:headerCollapsed},workspaceParentOrigin);
+}
+addEventListener('message',event=>{
+ if(!workspaceParentOrigin||event.source!==parent||event.origin!==workspaceParentOrigin)return;
+ if(event.data?.pocketWorkspace==='ready')reportWorkspaceChrome();
+ if(event.data?.pocketWorkspace==='set'&&typeof event.data.collapsed==='boolean'&&document.getElementById('header-toggle'))setHeaderCollapsed(event.data.collapsed);
+});
 function bindWorkspaceDensity(){
  const header=document.getElementById('header-toggle');
- if(header)header.onclick=()=>{
-  const scroller=document.querySelector('#msgs')?.closest('main.scroll');
-  const top=scroller?.scrollTop||0,bottom=scroller&&scroller.scrollHeight-top-scroller.clientHeight<24;
-  headerCollapsed=!headerCollapsed;writeLocal('pc-header-collapsed',headerCollapsed);paintWorkspaceDensity();
-  if(scroller)scroller.scrollTop=bottom?scroller.scrollHeight:top;
- };
+ if(header)header.onclick=()=>setHeaderCollapsed(!headerCollapsed);
  const filters=document.getElementById('rail-filter-toggle');
  if(filters)filters.onclick=()=>{railFiltersCollapsed=!railFiltersCollapsed;writeLocal('pc-rail-filters-collapsed',railFiltersCollapsed);paintWorkspaceDensity();};
  paintWorkspaceDensity();
