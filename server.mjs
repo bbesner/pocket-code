@@ -1,12 +1,13 @@
 // Pocket Code — mobile web UI for the Claude Code and Codex sessions on this box.
-// The daemon owns every turn: a message POSTed here spawns `claude -p --resume`
-// server-side, so the phone can disconnect/sleep and the turn still completes.
+// The daemon owns every turn: a message POSTed here is written to the session's own
+// long-lived `claude -p` process (spawned on first use, kept between turns), so the
+// phone can disconnect/sleep and the turn still completes.
 // Transcripts stay in ~/.claude/projects — the same store code-server reads.
 
 import express from 'express';
 import webpush from 'web-push';
-import { spawn, execSync } from 'node:child_process';
-import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
+import { spawn, execSync, execFileSync } from 'node:child_process';
+import { createHmac, createHash, timingSafeEqual, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -20,11 +21,13 @@ import { FollowupQueue } from './queue.mjs';
 import {workspaceStatus,workspaceDiff} from './workspace.mjs';
 import {readClaudeIdentity,agentEnv} from './environment.mjs';
 import {QuestionInbox} from './questions.mjs';
+import {descendantCpu} from './proctree.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
+import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
-const ENV_FILE = path.join(import.meta.dirname, '.env');
+const ENV_FILE = process.env.POCKET_ENV_FILE ?? path.join(import.meta.dirname, '.env');
 for (const line of (fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8').split('\n') : [])) {
   const m = line.match(/^([A-Z_]+)=(.*)$/);
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
@@ -34,8 +37,9 @@ const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const deliveryReceipts = new DeliveryReceipts(path.join(DATA_DIR, 'delivery-receipts.json'));
 const followups = new FollowupQueue(path.join(DATA_DIR, 'followup-queue.json'));
+const usage = new UsageStore(path.join(DATA_DIR, 'usage-state.json'));
 const ALLOW_FULL_ACCESS=process.env.POCKET_ALLOW_FULL_ACCESS!=='0';
-const DEFAULT_APPROVAL_MODE=approvalMode(process.env.POCKET_APPROVAL_MODE,'review',ALLOW_FULL_ACCESS);
+const DEFAULT_APPROVAL_MODE=approvalMode((process.env.POCKET_APPROVAL_MODE||'').trim()||undefined,'review',ALLOW_FULL_ACCESS);
 const auditApproval=approvalAudit(path.join(DATA_DIR,'approval-decisions.jsonl'));
 const PORT = Number(process.env.PORT || 3610);
 const PASSWORD = process.env.POCKET_PASSWORD;
@@ -47,7 +51,25 @@ if (!PASSWORD || !SECRET) {
 const CLAUDE_BIN = process.env.CLAUDE_BIN
   || [path.join(HOME, '.npm-global', 'bin', 'claude'), '/usr/local/bin/claude', '/usr/bin/claude']
     .find(p => fs.existsSync(p)) || 'claude';
-const TURN_KILL_MS = 2 * 60 * 60 * 1000; // safety net for runaway turns
+// A session's CLI process closes after this long with no turn and no background job.
+// Timer settings are milliseconds; anything else logs and keeps the default. 0 disables.
+function msSetting(name, dflt) {
+  const raw = (process.env[name] ?? '').trim();
+  if (!raw) return dflt;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) { console.warn(`${name}=${raw} is not a number of milliseconds; using ${dflt}`); return dflt; }
+  return n;
+}
+const IDLE_CLOSE_MS = msSetting('POCKET_IDLE_CLOSE_MS', 60 * 60_000);
+// Live CLI processes (Claude runners + Codex app-servers) kept at once. Spawning past the
+// cap closes the longest-idle one that has no turn and no background job. 0 = no cap.
+const MAX_PROCESSES = Math.floor(msSetting('POCKET_MAX_PROCESSES', 8));
+// Changes on every daemon start: streams carry it so a client can tell a rebuilt turn
+// (same session, same startedAt, different event numbering) from the one it was following.
+const BOOT = Date.now().toString(36);
+// A turn is stopped only after this long with no output, no background job, nothing
+// waiting on the user and no CPU use by programs it started (replaces the 2h hard kill).
+const STALL_MS = msSetting('POCKET_STALL_MS', 30 * 60_000);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Codex threads live behind a `cx:` prefix (see codex.mjs) — their ids are UUID-shaped
 // too, so every id check below has to ask the prefix, not the regex.
@@ -95,6 +117,12 @@ const withDefaults = (provider, opts) => ({ ...opts, model: opts.model || POCKET
 const DEFAULT_CWD = envPick('POCKET_DEFAULT_CWD', v => path.isAbsolute(v) && fs.existsSync(v) && fs.statSync(v).isDirectory());
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
+// A rejected promise nobody awaited (a transcript deleted mid-read, a timer callback that
+// threw) must cost that request, never the daemon: a crash drops every open stream and
+// the in-memory approval/question inboxes of every live turn.
+process.on('unhandledRejection', e => log(`unhandled rejection: ${e?.stack || e}`));
+// Origins allowed to embed the app (Mission Control). Space-separated; default = same origin.
+const FRAME_ANCESTORS = (process.env.POCKET_FRAME_ANCESTORS || '').split(/\s+/).filter(Boolean);
 
 // ---------- web push (turn-completion notifications) ----------
 const SUBS_FILE = path.join(DATA_DIR, 'push-subs.json');
@@ -104,18 +132,18 @@ const vapidSubject = (c => !c ? 'https://github.com/bbesner/pocket-code' : /^(ma
 if (pushReady) webpush.setVapidDetails(vapidSubject, process.env.VAPID_PUBLIC, process.env.VAPID_PRIVATE);
 else log('push disabled: VAPID keys not set');
 const loadSubs = () => { try { return JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8')); } catch { return []; } };
-const saveSubs = s => fs.writeFileSync(SUBS_FILE, JSON.stringify(s, null, 1));
+const saveSubs = s => atomicWrite(SUBS_FILE, s);
 // per-session mute: a chatty background session shouldn't buzz the phone every turn
 const MUTES_FILE = path.join(DATA_DIR, 'mutes.json');
 const loadMutes = () => { try { return new Set(JSON.parse(fs.readFileSync(MUTES_FILE, 'utf8'))); } catch { return new Set(); } };
 let mutes = loadMutes();
-const saveMutes = () => fs.writeFileSync(MUTES_FILE, JSON.stringify([...mutes]));
+const saveMutes = () => atomicWrite(MUTES_FILE, [...mutes]);
 // per-session pin + custom name: the CLI's session store has no field for either, so they
 // live in an overlay here (same pattern as mutes) — transcripts stay untouched
 const SMETA_FILE = path.join(DATA_DIR, 'session-meta.json');
 const loadSmeta = () => { try { return JSON.parse(fs.readFileSync(SMETA_FILE, 'utf8')); } catch { return {}; } };
 let smeta = loadSmeta();
-const saveSmeta = () => fs.writeFileSync(SMETA_FILE, JSON.stringify(smeta, null, 1));
+const saveSmeta = () => atomicWrite(SMETA_FILE, smeta);
 const isPinned = id => Boolean(smeta[id]?.pin);
 // server-wide options (one tenant per install). titleSync: share session names with
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
@@ -123,7 +151,7 @@ const isPinned = id => Boolean(smeta[id]?.pin);
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
 const loadSettings = () => { try { return { titleSync: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false }; } };
 let settings = loadSettings();
-const saveSettings = () => fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 1));
+const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
 const setSmeta = (id, patch) => {
   const m = { ...smeta[id], ...patch };
   for (const k of Object.keys(m)) if (m[k] == null) delete m[k];
@@ -164,6 +192,7 @@ const loginAttempts = new Map(); // ip -> {n, resetAt}
 function rateLimited(ip) {
   const now = Date.now();
   const rec = loginAttempts.get(ip);
+  if (loginAttempts.size > 5000) for (const [k, v] of loginAttempts) if (v.resetAt < now) loginAttempts.delete(k);
   if (!rec || rec.resetAt < now) { loginAttempts.set(ip, { n: 1, resetAt: now + 3600_000 }); return false; }
   rec.n++;
   return rec.n > 20;
@@ -327,6 +356,15 @@ async function listSessions(limit = 60) {
 async function findSessionFile(id) {
   if (!UUID_RE.test(id)) return null;
   let dirs; try { dirs = await fsp.readdir(PROJECTS_ROOT); } catch { return null; }
+  for (const d of dirs) {
+    const f = path.join(PROJECTS_ROOT, d, id + '.jsonl');
+    if (fs.existsSync(f)) return f;
+  }
+  return null;
+}
+function sessionFileSync(id) {
+  if (!UUID_RE.test(id)) return null;
+  let dirs; try { dirs = fs.readdirSync(PROJECTS_ROOT); } catch { return null; }
   for (const d of dirs) {
     const f = path.join(PROJECTS_ROOT, d, id + '.jsonl');
     if (fs.existsSync(f)) return f;
@@ -525,6 +563,15 @@ function searchMsgs(msgs, q, maxMatches = 50) {
 // the app stream those turns live and light the ember for work started anywhere.
 const EXT_ACTIVE_MS = 45_000;
 const ownedTranscriptMtime = new Map();
+// Transcript size after our last turn (fork guard), kept across restarts so our own
+// earlier turns are never mistaken for another app's.
+const OWNED_FILE = path.join(DATA_DIR, 'owned-transcripts.json');
+const ownedTranscriptSize = new Map((() => { try { return Object.entries(JSON.parse(fs.readFileSync(OWNED_FILE, 'utf8'))); } catch { return []; } })());
+function rememberOwnedSize(id, size) {
+  ownedTranscriptSize.delete(id); ownedTranscriptSize.set(id, size);
+  while (ownedTranscriptSize.size > 500) ownedTranscriptSize.delete(ownedTranscriptSize.keys().next().value);
+  try { fs.writeFileSync(OWNED_FILE, JSON.stringify(Object.fromEntries(ownedTranscriptSize)), { mode: 0o600 }); } catch { }
+}
 const extActivity = new Map(); // sessionId -> last transcript write (ms)
 const tailers = new Map();     // sessionId -> Set<{res, offset, rem}>
 const dirWatchers = new Map();
@@ -572,14 +619,17 @@ async function pumpTail(id, file) {
       try {
         const buf = Buffer.alloc(size - t.offset);
         await fh.read(buf, 0, buf.length, t.offset);
+        let at = t.offset - Buffer.byteLength(t.rem);
         t.offset = size;
         const lines = (t.rem + buf.toString('utf8')).split('\n');
         t.rem = lines.pop() ?? '';
         for (const line of lines) {
+          at += Buffer.byteLength(line) + 1; // byte offset just past this line
           if (!line.trim()) continue;
           let o; try { o = JSON.parse(line); } catch { continue; }
           const m = normalizeLine(o);
-          if (m) { try { t.res.write(`data: ${JSON.stringify({ type: m.role === 'user' ? 'user' : 'assistant', msg: m })}\n\n`); } catch { } }
+          // id = transcript offset: a browser reconnect sends it back as Last-Event-ID
+          if (m) { try { t.res.write(`id: ${at}\ndata: ${JSON.stringify({ type: m.role === 'user' ? 'user' : 'assistant', msg: m, offset: at })}\n\n`); } catch { } }
         }
       } finally { await fh.close(); }
     }
@@ -588,20 +638,35 @@ async function pumpTail(id, file) {
   }
 }
 
-// ---------- turn runner ----------
-// Turns run DETACHED (own process group, stdio to files under turnlogs/) and PM2 runs
-// this server with --no-treekill. Together those mean restarting pocket-claude — even
-// from inside one of its own turns (the 2026-08-14 self-kill incident) — no longer
-// kills in-flight turns: the claude process survives, and the next server instance
-// adopts it from its .turn.json marker and resumes streaming from the log file.
-const turns = new Map(); // sessionId -> {pid, events[], subs:Set<res>, cwd, startedAt, queue[]}
+// ---------- session runners and turns ----------
+// Each session gets ONE long-lived CLI process (a "runner", 1.7). Messages are written to
+// its stdin, a `result` line ends a turn, and the process then waits for the next
+// message, keeping its working directory, MCP connections and background jobs. The CLI
+// also starts turns by itself (e.g. when a background job finishes), so a turn can begin
+// without a message. Runners close after IDLE_CLOSE_MS idle; the next message resumes
+// the session from its transcript in a fresh process.
+// Runners run DETACHED (own process group, stdout/stderr to files under turnlogs/) and
+// PM2 runs this server with --no-treekill, so restarting pocket-claude — even from inside
+// one of its own turns (the 2026-08-14 self-kill incident) — doesn't kill them. stdin is
+// a named pipe that a tiny keeper process holds open, so a restarted server reattaches
+// from the .runner.json marker. Closing a runner = kill the keeper and close our end;
+// the CLI then reads EOF and exits 0.
+const turns = new Map(); // sessionId -> active turn {pid, events[], subs:Set<res>, cwd, startedAt, runner}
+const runners = new Map(); // sessionId -> live CLI process for that session
 const TURNLOG_DIR = path.join(DATA_DIR, 'turnlogs');
 fs.mkdirSync(TURNLOG_DIR, { recursive: true });
 const turnFiles = id => ({
   out: path.join(TURNLOG_DIR, id + '.out.ndjson'),
   err: path.join(TURNLOG_DIR, id + '.err.log'),
-  meta: path.join(TURNLOG_DIR, id + '.turn.json'),
+  meta: path.join(TURNLOG_DIR, id + '.turn.json'), // pre-1.7 one-process-per-turn marker
   retry: path.join(TURNLOG_DIR, id + '.retry.json'),
+});
+// Per-runner files carry a key so a closing process never shares files with its successor.
+const runnerFiles = (id, key) => ({
+  out: path.join(TURNLOG_DIR, `${id}.${key}.out.ndjson`),
+  err: path.join(TURNLOG_DIR, `${id}.${key}.err.log`),
+  fifo: path.join(TURNLOG_DIR, `${id}.${key}.in.fifo`),
+  meta: path.join(TURNLOG_DIR, `${id}.${key}.runner.json`),
 });
 
 // ---------- rate-limit auto-continue ----------
@@ -667,8 +732,8 @@ async function fireRetry(m) {
       return log(`retry skipped (session continued elsewhere) session=${m.sessionId}`);
     }
   } catch { }
-  const opts = { sessionId: m.sessionId, cwd: m.cwd, model: m.model, effort: m.effort, approvalMode:approvalMode(m.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS), retryAttempt: m.attempt };
   try {
+    const opts = { sessionId: m.sessionId, cwd: m.cwd, model: m.model, effort: m.effort, approvalMode:approvalMode(m.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS), retryAttempt: m.attempt };
     if (file) startTurn({ ...opts, resume: true, text: RETRY_PROMPT });
     else startTurn({ ...opts, resume: false, text: m.userText }); // limit hit before the transcript existed
     log(`auto-resume after rate limit session=${m.sessionId} attempt=${m.attempt}`);
@@ -727,6 +792,8 @@ function attachClaudeQuestions(turn,sessionId){
 }
 function handleTurnLine(turn, line) {
   let o; try { o = JSON.parse(line); } catch { return; }
+  const usageEvent = usage.observe(turn.sessionId, o);
+  if (usageEvent) broadcast(turn, { type: 'usage', kind: usageEvent.kind });
   if(o.type==='control_request'){
     if(o.request?.subtype==='can_use_tool'&&o.request.tool_name==='AskUserQuestion'&&turn.questions){
       const input=o.request.input;const questions=Array.isArray(input?.questions)?input.questions.map((q,i)=>({id:'question-'+i,header:q.header,question:q.question,options:q.options,multiple:q.multiSelect})):[];
@@ -756,8 +823,10 @@ function handleTurnLine(turn, line) {
       error: o.subtype !== 'success' ? (o.result || o.subtype) : null,
       cost: o.total_cost_usd, duration_ms: o.duration_ms,
     });
-    // signal no-more-input; the CLI drains any steer already written, then exits
-    try { turn.stdin?.end(); } catch { }
+    // The turn is over but the process stays up for the next message. Legacy pre-1.7
+    // turns (no runner) still close stdin so their process exits as before.
+    if (turn.runner) finalizeTurn(turn.sessionId, turn, 0);
+    else try { turn.stdin?.end(); } catch { }
   }
 }
 
@@ -777,12 +846,215 @@ function drainTurnLog(turn) {
   } catch { /* log file briefly absent — next tick */ }
 }
 
+// Pre-1.7 turns (one process per turn) still running when this version starts: stream
+// them to the end, as before.
 function trackTurn(sessionId, turn) {
   turns.set(sessionId, turn);
   turn.tailOffset = 0; turn.tailRem = '';
   turn.tailTimer = setInterval(() => drainTurnLog(turn), 300);
-  const remaining = Math.max(60_000, TURN_KILL_MS - (Date.now() - turn.startedAt));
-  turn.killTimer = setTimeout(() => { log(`turn TIMEOUT session=${sessionId}`); signalTurn(turn); }, remaining);
+}
+
+function writeRunnerMeta(r) {
+  const t = r.turn;
+  const meta = {
+    sessionId: r.sessionId, pid: r.pid, keeperPid: r.keeperPid, key: r.key, cwd: r.cwd, startedAt: r.startedAt,
+    model: r.model, effort: r.effort, approvalMode: r.approvalMode,
+    turn: t ? { startedAt: t.startedAt, userText: t.userText, offset: t.offset, autonomous: Boolean(t.autonomous) } : null,
+    bgTasks: r.bgTasks,
+    waitingForInput: Boolean(t && (t.questions?.list().length || t.approvals?.list().length || t.inputUnavailable || t.approvalUnavailable)),
+    waitingForApproval: Boolean(t?.approvals?.list().length || t?.approvalUnavailable),
+  };
+  try { fs.writeFileSync(r.files.meta, JSON.stringify(meta), { mode: 0o600 }); } catch { }
+}
+
+// Keep the number of live CLI processes under MAX_PROCESSES by closing the longest-idle
+// one (no turn, no background job). Never refuses the new process.
+function reclaimProcess() {
+  if (!(MAX_PROCESSES > 0)) return;
+  const live = runners.size + (CODEX_ON ? codex.codexSessions.size : 0);
+  if (live < MAX_PROCESSES) return;
+  const idle = [
+    ...[...runners.values()].filter(x => !x.turn && !x.bgTasks.length && !x.closing && !x.exited).map(x => ({ at: x.lastLineAt, close: () => closeRunner(x, 'process limit') })),
+    ...(CODEX_ON ? [...codex.codexSessions.values()].filter(s => !s.turn && !s.closing && !s.exited).map(s => ({ at: s.lastActivityAt, close: () => codex.closeCodexSession(s, 'process limit') })) : []),
+  ].sort((a, b) => a.at - b.at);
+  if (idle[0]) idle[0].close();
+}
+function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
+  reclaimProcess();
+  const policy = claudePermissionSettings(mode);
+  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
+  if (model && MODELS.has(model)) args.push('--model', model);
+  args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
+  args.push(resume ? '--resume' : '--session-id', sessionId);
+  const key = Date.now().toString(36);
+  const files = runnerFiles(sessionId, key);
+  for (const file of [files.out, files.err]) { fs.writeFileSync(file, '', { mode: 0o600 }); fs.chmodSync(file, 0o600); }
+  execFileSync('mkfifo', ['-m', '600', files.fifo]);
+  // O_RDWR never blocks on a FIFO, and while it is open the read end opens without blocking too.
+  const hold = fs.openSync(files.fifo, fs.constants.O_RDWR);
+  const inFd = fs.openSync(files.fifo, 'r');
+  const outFd = fs.openSync(files.out, 'a'), errFd = fs.openSync(files.err, 'a');
+  const proc = spawn(CLAUDE_BIN, args, { cwd, env: spawnEnv(), detached: true, stdio: [inFd, outFd, errFd] });
+  fs.closeSync(inFd); fs.closeSync(outFd); fs.closeSync(errFd);
+  proc.unref();
+  // The keeper holds a write end across server restarts and exits when the CLI does.
+  const keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'] });
+  keeper.unref();
+  const writer = fs.createWriteStream(null, { fd: hold });
+  writer.on('error', () => { });
+  const r = {
+    sessionId, key, pid: proc.pid, keeperPid: keeper.pid, writer, cwd, model, effort, approvalMode: mode, files,
+    startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: '',
+  };
+  runners.set(sessionId, r);
+  r.tailTimer = setInterval(() => drainRunnerLog(r), 300);
+  proc.on('exit', code => onRunnerExit(r, code));
+  proc.on('error', () => onRunnerExit(r, -1));
+  writeRunnerMeta(r);
+  log(`session process start session=${sessionId} resume=${!!resume} pid=${proc.pid} cwd=${cwd}`);
+  return r;
+}
+
+function beginTurn(r, { userText = '', retryAttempt, autonomous = false, offset }) {
+  let size = r.tailOffset; try { size = fs.statSync(r.files.out).size; } catch { }
+  const turn = {
+    sessionId: r.sessionId, runner: r, pid: r.pid, stdin: r.writer, events: [], subs: new Set(), cwd: r.cwd,
+    startedAt: Date.now(), userText, model: r.model, effort: r.effort, retryAttempt, approvalMode: r.approvalMode,
+    queue: [], files: r.files, offset: offset ?? size, autonomous, baseline: descendantCpu(r.pid).pids,
+  };
+  attachClaudeQuestions(turn, r.sessionId);
+  clearTimeout(r.idleTimer);
+  r.turn = turn;
+  turns.set(r.sessionId, turn);
+  r.lastLineAt = Date.now();
+  writeRunnerMeta(r);
+  return turn;
+}
+
+function handleRunnerLine(r, line, lineOffset) {
+  r.lastLineAt = Date.now();
+  let o; try { o = JSON.parse(line); } catch { return; }
+  if (o.type === 'system' && o.subtype === 'background_tasks_changed') {
+    r.bgTasks = Array.isArray(o.tasks) ? o.tasks : [];
+    writeRunnerMeta(r); // a restart must know a job is still running (no idle close, release asks first)
+    if (!r.turn) scheduleIdle(r);
+  }
+  if (r.skipControlBefore && lineOffset < r.skipControlBefore && (o.type === 'control_request' || o.type === 'control_cancel_request')) {
+    // A request from before the restart: the old daemon may or may not have answered it.
+    // Deny it so the CLI carries on (a second response to an answered request is ignored
+    // and a denied tool is simply re-requested — both verified on CLI 2.1.281).
+    if (o.type === 'control_request' && o.request_id && r.writer && !r.writer.destroyed) {
+      try { r.writer.write(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: o.request_id, response: { behavior: 'deny', message: 'Pocket Code restarted while this request was waiting. Request it again if it is still needed.' } } }) + '\n'); log(`denied a pre-restart ${o.request?.tool_name || 'control'} request session=${r.sessionId}`); } catch { }
+    }
+    return;
+  }
+  let turn = r.turn;
+  if (!turn) {
+    // The CLI started a turn by itself, e.g. to report a finished background job.
+    const wakes = o.type === 'assistant' || o.type === 'stream_event' || (o.type === 'system' && o.subtype === 'init');
+    if (!wakes || r.exited) return;
+    turn = beginTurn(r, { autonomous: true, offset: lineOffset });
+    log(`turn start (started by the agent) session=${r.sessionId} pid=${r.pid}`);
+    // Viewers in transcript-mirror mode resync on `done` and attach to this live turn.
+    for (const t of tailers.get(r.sessionId) || []) { try { t.res.write('data: {"type":"done"}\n\n'); t.res.end(); } catch { } }
+  }
+  handleTurnLine(turn, line);
+}
+
+function drainRunnerLog(r) {
+  try {
+    const size = fs.statSync(r.files.out).size;
+    if (size <= r.tailOffset) return;
+    const fh = fs.openSync(r.files.out, 'r');
+    try {
+      const buf = Buffer.alloc(size - r.tailOffset);
+      fs.readSync(fh, buf, 0, buf.length, r.tailOffset);
+      const text = r.tailRem + buf.toString('utf8');
+      let at = r.tailOffset - Buffer.byteLength(r.tailRem);
+      r.tailOffset = size;
+      const lines = text.split('\n');
+      r.tailRem = lines.pop() ?? '';
+      for (const l of lines) {
+        const lineOffset = at; at += Buffer.byteLength(l) + 1;
+        if (l.trim()) handleRunnerLine(r, l, lineOffset);
+      }
+    } finally { fs.closeSync(fh); }
+  } catch { /* log file briefly absent — next tick */ }
+}
+
+function scheduleIdle(r) {
+  clearTimeout(r.idleTimer);
+  if (r.turn || r.closing || r.exited || !(IDLE_CLOSE_MS > 0)) return;
+  if (r.bgTasks.length) return; // re-armed when the CLI reports its background jobs are done
+  r.idleTimer = setTimeout(() => { if (!r.turn && !r.bgTasks.length) closeRunner(r, 'idle'); }, IDLE_CLOSE_MS);
+}
+
+function closeRunner(r, why) {
+  if (r.closing || r.exited) return;
+  r.closing = true;
+  clearTimeout(r.idleTimer);
+  log(`session process closing session=${r.sessionId} pid=${r.pid} reason=${why}`);
+  try { process.kill(-r.keeperPid, 'SIGTERM'); } catch { try { process.kill(r.keeperPid, 'SIGTERM'); } catch { } }
+  try { r.writer?.end(); } catch { } // last write end closed → the CLI reads EOF and exits 0
+  r.forceTimer = setTimeout(() => { if (!r.exited) signalTurn(r); }, 30_000);
+}
+
+function onRunnerExit(r, code) {
+  if (r.exited) return;
+  r.exited = true;
+  clearInterval(r.tailTimer); clearInterval(r.pollTimer); clearTimeout(r.idleTimer); clearTimeout(r.forceTimer);
+  drainRunnerLog(r);
+  if (runners.get(r.sessionId) === r) runners.delete(r.sessionId);
+  try { r.writer?.destroy(); } catch { }
+  try { process.kill(-r.keeperPid, 'SIGTERM'); } catch { }
+  for (const f of [r.files.fifo, r.files.meta]) { try { fs.unlinkSync(f); } catch { } }
+  log(`session process exit session=${r.sessionId} pid=${r.pid} code=${code}`);
+  if (r.turn) finalizeTurn(r.sessionId, r.turn, code);
+}
+
+function stallCheck() {
+  if (!(STALL_MS > 0)) return; // 0 = never stop a turn for being quiet
+  for (const r of runners.values()) {
+    const t = r.turn;
+    if (!t || r.exited || t.stopped || t.stalled) continue;
+    const { pids, cpu } = descendantCpu(r.pid);
+    let ticks = 0;
+    for (const p of pids) if (!t.baseline.has(p)) ticks += cpu.get(p) || 0;
+    if (t.cpuTicks === undefined || ticks > t.cpuTicks + 100) t.cpuBusyAt = Date.now(); // >1s of CPU since last check
+    t.cpuTicks = ticks;
+    const quietFor = Date.now() - Math.max(r.lastLineAt, t.cpuBusyAt || 0);
+    if (quietFor < STALL_MS || r.bgTasks.length) continue;
+    if (t.questions?.list().length || t.approvals?.list().length) continue;
+    t.stalled = true;
+    log(`turn STALLED session=${r.sessionId} quiet=${Math.round(quietFor / 60_000)}min — stopping`);
+    signalTurn(r);
+  }
+}
+setInterval(stallCheck, Math.min(60_000, Math.max(250, STALL_MS / 4))).unref();
+
+// Turns another app (code-server, a terminal) added to the transcript after `from`.
+// Title and summary records don't count — only user/assistant messages.
+function foreignTurns(sessionId, from) {
+  const file = sessionFileSync(sessionId);
+  if (!file) return { since: false, recentAt: 0 };
+  let size; try { size = fs.statSync(file).size; } catch { return { since: false, recentAt: 0 }; }
+  const start = from === undefined ? Math.max(0, size - 65536) : Math.min(from, size);
+  let since = from !== undefined && size < from, recentAt = 0;
+  if (size > start) {
+    const fh = fs.openSync(file, 'r');
+    try {
+      const buf = Buffer.alloc(Math.min(size - start, 4 << 20));
+      fs.readSync(fh, buf, 0, buf.length, size - buf.length);
+      for (const l of buf.toString('utf8').split('\n')) {
+        let o; try { o = JSON.parse(l); } catch { continue; }
+        if (o.type !== 'user' && o.type !== 'assistant') continue;
+        if (from !== undefined) since = true;
+        const at = Date.parse(o.timestamp || '') || 0;
+        if (at > recentAt) recentAt = at;
+      }
+    } finally { fs.closeSync(fh); }
+  }
+  return { since, recentAt };
 }
 
 // The CLI stamps headless (-p) turns entrypoint:"sdk-cli", and the vscode extension
@@ -793,36 +1065,49 @@ function trackTurn(sessionId, turn) {
 // offset is never disturbed.
 const SDK_STAMP = Buffer.from('"entrypoint":"sdk-cli"');
 const CLI_STAMP = Buffer.from('"entrypoint":"cli"    ');
-async function restampEntrypoint(sessionId) {
+async function restampEntrypoint(sessionId, from = 0) {
   try {
     const file = await findSessionFile(sessionId);
-    if (file) await restampFile(file);
+    if (file) await restampFile(file, from);
   } catch (e) { log(`entrypoint restamp failed session=${sessionId}: ${e.message}`); }
 }
-async function restampFile(file) {
-  const buf = await fsp.readFile(file);
-  const offs = [];
-  for (let i = buf.indexOf(SDK_STAMP); i >= 0; i = buf.indexOf(SDK_STAMP, i + 1)) offs.push(i);
-  if (!offs.length) return false;
+// Lines before `from` were stamped after an earlier turn (or never came from us), so only
+// the bytes appended since then are read — transcripts run to tens of MB.
+async function restampFile(file, from = 0) {
+  const size = (await fsp.stat(file)).size;
+  const start = Math.max(0, Math.min(Number(from) || 0, size) - SDK_STAMP.length);
+  if (size <= start) return false;
   const fh = await fsp.open(file, 'r+');
-  try { for (const at of offs) await fh.write(CLI_STAMP, 0, CLI_STAMP.length, at); }
-  finally { await fh.close(); }
-  return true;
+  try {
+    const buf = Buffer.alloc(size - start);
+    const { bytesRead } = await fh.read(buf, 0, buf.length, start);
+    const offs = [];
+    for (let i = buf.indexOf(SDK_STAMP); i >= 0 && i < bytesRead; i = buf.indexOf(SDK_STAMP, i + 1)) offs.push(start + i);
+    for (const at of offs) await fh.write(CLI_STAMP, 0, CLI_STAMP.length, at);
+    return offs.length > 0;
+  } finally { await fh.close(); }
 }
 
 async function finalizeTurn(sessionId, turn, code) {
   if (turn.finalized) return;
   turn.finalized = true;
+  const r = turn.runner;
+  if (r && r.turn === turn) r.turn = null; // later lines from the process belong to the next turn
   turn.questions?.clear();
   turn.approvals?.clear();
-  await restampEntrypoint(sessionId);
-  try{const file=await findSessionFile(sessionId);if(file)ownedTranscriptMtime.set(sessionId,(await fsp.stat(file)).mtimeMs);}catch{}
+  turn.finalizeDone = new Promise(resolve => { turn.finalizeResolve = resolve; });
+  try {
+  await restampEntrypoint(sessionId, ownedTranscriptSize.get(sessionId) ?? 0);
+  try{const file=await findSessionFile(sessionId);if(file){const st=await fsp.stat(file);ownedTranscriptMtime.set(sessionId,st.mtimeMs);rememberOwnedSize(sessionId,st.size);}}catch{}
   extActivity.delete(sessionId);
-  clearInterval(turn.tailTimer); clearInterval(turn.pollTimer); clearTimeout(turn.killTimer);
-  drainTurnLog(turn);
+  clearInterval(turn.tailTimer); clearInterval(turn.pollTimer);
+  if (!r) drainTurnLog(turn);
   let stderrTail = '';
   try { stderrTail = fs.readFileSync(turn.files.err, 'utf8').slice(-500); } catch { }
-  if (turn.stopped && !turn.events.some(e => e.type === 'result')) {
+  if (turn.stalled && !turn.events.some(e => e.type === 'result')) {
+    broadcast(turn, { type: 'result', ok: false, error: `Stopped: no activity for ${Math.round(STALL_MS / 60_000)} minutes` });
+    log(`turn STALL-STOPPED session=${sessionId}`);
+  } else if (turn.stopped && !turn.events.some(e => e.type === 'result')) {
     broadcast(turn, { type: 'result', ok: false, error: 'Stopped by you' });
     log(`turn STOPPED session=${sessionId}`);
   } else if (code !== 0 && !turn.events.some(e => e.type === 'result')) {
@@ -844,8 +1129,9 @@ async function finalizeTurn(sessionId, turn, code) {
   const watching = turn.subs.size > 0;
   broadcast(turn, { type: 'done' });
   for (const res of turn.subs) { try { res.end(); } catch { } }
-  turns.delete(sessionId);
-  try { fs.unlinkSync(turn.files.meta); } catch { }
+  if (turns.get(sessionId) === turn) turns.delete(sessionId);
+  if (!r) { try { fs.unlinkSync(turn.files.meta); } catch { } }
+  else if (!r.exited) { writeRunnerMeta(r); scheduleIdle(r); }
   if (retryAt) scheduleRetry(sessionId, turn, retryAt); // after turns.delete — cancelRetry in startTurn
   // Drain one saved follow-up at a time; each entry gets its own turn.
   if (!turn.stopped && [...turn.events].reverse().find(e=>e.type==='result')?.ok && followups.list(sessionId)[0]?.status === 'pending') {
@@ -863,6 +1149,7 @@ async function finalizeTurn(sessionId, turn, code) {
       .then(m => pushNotify(sessionId, m?.title || 'Claude session', body))
       .catch(() => { });
   }
+  } finally { turn.finalizeResolve?.(); }
 }
 
 function promptText(text, attachments) {
@@ -874,10 +1161,12 @@ function promptText(text, attachments) {
   return prompt;
 }
 const userJSON = text => JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n';
-// mid-turn steering: while stdin is open, another user message can be written into the
-// running turn — the CLI delivers it at the next model boundary (verified 2026-08-16).
-// stdin closes when a result arrives; the CLI drains anything already written, then exits.
+// mid-turn steering: another user message written to the process's stdin during a turn
+// is delivered at the next model boundary (verified 2026-08-16). Since 1.7 stdin stays
+// open between turns, so a message must not be written once the turn is finishing — the
+// idle CLI would run it as a new, unlabeled turn.
 function steerTurn(turn, text) {
+  if (turn.finalized || turn.stopped || turn.stalled) return false;
   if (!turn.stdin || turn.stdin.destroyed || turn.stdin.writableEnded) return false;
   try { turn.stdin.write(userJSON(text)); } catch { return false; }
   return true;
@@ -887,35 +1176,78 @@ function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, r
   if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   cancelRetry(sessionId); // a manually-started turn supersedes any pending auto-resume
   ({ model, effort } = withDefaults('claude', { model, effort }));
-  const mode=approvalMode(requestedMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS),policy=claudePermissionSettings(mode);
-  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode,'--permission-prompt-tool','stdio'];
-  if (model && MODELS.has(model)) args.push('--model', model);
-  args.push('--settings',JSON.stringify({permissions:policy.permissions,...(effort&&EFFORTS.has(effort)?{effortLevel:effort}:{})}));
-  if (resume) args.push('--resume', sessionId); else args.push('--session-id', sessionId);
-  const files = turnFiles(sessionId);
-  for(const file of [files.out,files.err]){fs.writeFileSync(file,'',{mode:0o600});fs.chmodSync(file,0o600);}
-  const outFd = fs.openSync(files.out, 'a'), errFd = fs.openSync(files.err, 'a');
-  const proc = spawn(CLAUDE_BIN, args, { cwd, env: spawnEnv(), detached: true, stdio: ['pipe', outFd, errFd] });
-  fs.closeSync(outFd); fs.closeSync(errFd);
-  proc.unref();
-  proc.stdin.on('error', () => { }); // EPIPE if the CLI dies first — finalize handles it
-  try { proc.stdin.write(userJSON(promptText(text, attachments))); } catch { }
-  const turn = { sessionId,pid: proc.pid, stdin: proc.stdin, events: [], subs: new Set(), cwd, startedAt: Date.now(), userText: text, model, effort, retryAttempt,approvalMode:mode, queue: [], files };
-  fs.writeFileSync(files.meta, JSON.stringify({ sessionId, pid: proc.pid, cwd, startedAt: turn.startedAt, userText: text,approvalMode:mode }),{mode:0o600});
-  attachClaudeQuestions(turn,sessionId);
-  trackTurn(sessionId, turn);
-  log(`turn start session=${sessionId} resume=${!!resume} pid=${proc.pid} cwd=${cwd}`);
-  proc.on('exit', code => finalizeTurn(sessionId, turn, code));
-  proc.on('error', () => finalizeTurn(sessionId, turn, -1));
+  const mode=approvalMode(requestedMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);
+  let r = runners.get(sessionId);
+  if (r) {
+    // A process can only carry on if nothing it was started with has changed, and if no
+    // other app added turns since ours (its in-memory history would fork the transcript).
+    const why = r.closing || r.exited ? 'closing'
+      : r.cwd !== cwd ? 'workspace changed' : r.model !== model ? 'model changed'
+        : r.effort !== effort ? 'effort changed' : r.approvalMode !== mode ? 'permissions changed'
+          : foreignTurns(sessionId, ownedTranscriptSize.get(sessionId)).since ? 'continued in another app' : null;
+    if (why) { if (why !== 'closing') closeRunner(r, why); r = null; }
+  }
+  const reused = Boolean(r);
+  if (!r) r = spawnRunner({ sessionId, cwd, resume, model, effort, mode });
+  const turn = beginTurn(r, { userText: text, retryAttempt });
+  try { r.writer.write(userJSON(promptText(text, attachments))); } catch { }
+  log(`turn start session=${sessionId} process=${reused ? 'reused' : 'new'} pid=${r.pid} cwd=${cwd}`);
   return turn;
 }
 
-// Reattach turns that survived a server restart; sweep stale turn logs.
+// Another app (code-server, a terminal) wrote a turn to this session moments ago and may
+// still be working: refuse rather than run two agents on one transcript.
+const FOREIGN_BUSY_MS = 45_000;
+function busyElsewhere(sessionId) {
+  if (turns.has(sessionId)) return false;
+  const { recentAt } = foreignTurns(sessionId, ownedTranscriptSize.get(sessionId));
+  return Date.now() - recentAt < FOREIGN_BUSY_MS;
+}
+
+// Reattach session processes (and pre-1.7 turns) that survived a server restart; sweep
+// stale logs.
 function adoptOrphans() {
   let entries = []; try { entries = fs.readdirSync(TURNLOG_DIR); } catch { return; }
   for (const f of entries) {
     const full = path.join(TURNLOG_DIR, f);
-    if (f.endsWith('.turn.json')) {
+    if (f.endsWith('.runner.json')) {
+      let m; try { m = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { try { fs.unlinkSync(full); } catch { } continue; }
+      const files = runnerFiles(m.sessionId, m.key);
+      if (m.sessionId && m.pid && m.key && pidAlive(m.pid) && isTurnProc(m.pid, m.sessionId)) {
+        let writer = null;
+        try { writer = fs.createWriteStream(null, { fd: fs.openSync(files.fifo, fs.constants.O_RDWR) }); writer.on('error', () => { }); } catch { }
+        let size = 0; try { size = fs.statSync(files.out).size; } catch { }
+        const r = {
+          sessionId: m.sessionId, key: m.key, pid: m.pid, keeperPid: m.keeperPid, writer, cwd: m.cwd, model: m.model, effort: m.effort,
+          approvalMode: m.approvalMode || 'full', files, startedAt: m.startedAt || Date.now(), turn: null, bgTasks: Array.isArray(m.bgTasks) ? m.bgTasks : [],
+          lastLineAt: Date.now(), tailOffset: m.turn ? Math.min(m.turn.offset || 0, size) : size, tailRem: '', adopted: true,
+          skipControlBefore: size, // requests answered (or lost) before the restart can't be answered now
+        };
+        runners.set(m.sessionId, r);
+        if (m.turn) {
+          const turn = beginTurn(r, { userText: m.turn.userText, autonomous: m.turn.autonomous, offset: r.tailOffset });
+          turn.startedAt = m.turn.startedAt || turn.startedAt;
+          // With the pipe back, pending requests are denied and the turn carries on; only a
+          // process we can no longer write to is left waiting on an answer that can't come.
+          Object.assign(turn, { adopted: true, inputUnavailable: !writer && Boolean(m.waitingForInput) && !m.waitingForApproval, approvalUnavailable: !writer && Boolean(m.waitingForApproval) });
+          writeRunnerMeta(r); // beginTurn wrote the marker before the flags existed; a second restart must still see them
+        }
+        if (!writer) { // can't send to it any more: drop the keeper so the CLI reads EOF after this turn
+          log(`adopted session process without input pipe session=${m.sessionId} — it closes after this turn`);
+          r.closing = true;
+          try { process.kill(-m.keeperPid, 'SIGTERM'); } catch { }
+          r.forceTimer = setTimeout(() => { if (!r.exited && !r.turn) signalTurn(r); }, 30_000);
+        }
+        r.tailTimer = setInterval(() => drainRunnerLog(r), 300);
+        r.pollTimer = setInterval(() => { if (!pidAlive(r.pid)) onRunnerExit(r, null); }, 1000);
+        if (!r.turn) scheduleIdle(r);
+        log(`adopted session process session=${m.sessionId} pid=${m.pid} turn=${Boolean(m.turn)}`);
+      } else {
+        try { process.kill(-m.keeperPid, 'SIGTERM'); } catch { }
+        for (const x of [full, files.fifo]) { try { fs.unlinkSync(x); } catch { } }
+        if (m.sessionId) log(`session process ended while server was down session=${m.sessionId}`);
+      }
+    } else if (f.endsWith('.turn.json')) {
       let m; try { m = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { try { fs.unlinkSync(full); } catch { } continue; }
       if (m.sessionId && m.pid && pidAlive(m.pid) && isTurnProc(m.pid, m.sessionId)) {
         const turn = {
@@ -933,7 +1265,15 @@ function adoptOrphans() {
       let m; try { m = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { try { fs.unlinkSync(full); } catch { } continue; }
       if (m.sessionId && m.at) { armRetry(m); log(`re-armed auto-resume session=${m.sessionId} at ${fmtET(m.at)}`); }
       else { try { fs.unlinkSync(full); } catch { } }
-    } else if (/\.(out\.ndjson|err\.log)$/.test(f)) {
+    }
+  }
+  // Sweep logs and pipes no live process is using.
+  const live = new Set([...runners.values()].map(r => `${r.sessionId}.${r.key}.`));
+  for (const f of fs.readdirSync(TURNLOG_DIR)) {
+    const full = path.join(TURNLOG_DIR, f);
+    if ([...live].some(p => f.startsWith(p))) continue;
+    if (f.endsWith('.in.fifo')) { try { fs.unlinkSync(full); } catch { } continue; }
+    if (/\.(out\.ndjson|err\.log)$/.test(f)) {
       try { if (Date.now() - fs.statSync(full).mtimeMs > 48 * 3600_000) fs.unlinkSync(full); } catch { }
     }
   }
@@ -942,6 +1282,26 @@ adoptOrphans();
 
 // ---------- app ----------
 const app = express();
+// Express 4 does not catch a rejected promise from an async handler; without this every
+// such rejection is an unhandled rejection. Route it to the error handler below instead.
+for (const verb of ['get', 'post', 'patch', 'delete']) {
+  const orig = app[verb].bind(app);
+  app[verb] = (p, ...hs) => hs.length ? orig(p, ...hs.map(h => typeof h !== 'function' || h.length >= 4 ? h
+    : (req, res, next) => { try { const r = h(req, res, next); if (r && typeof r.catch === 'function') r.catch(next); } catch (e) { next(e); } })) : orig(p);
+}
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  // No inline scripts, no third-party hosts: everything the app needs is same-origin.
+  // img-src 'self' also stops agent-written Markdown from loading a remote image (a
+  // prompt-injected turn could otherwise exfiltrate text through an image URL).
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data:",
+    "connect-src 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
+    `frame-ancestors 'self'${FRAME_ANCESTORS.length ? ' ' + FRAME_ANCESTORS.join(' ') : ''}`,
+  ].join('; '));
+  next();
+});
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index.html', maxAge: '5m',
   setHeaders(res, file) { if (['index.html', 'sw.js'].includes(path.basename(file))) res.setHeader('Cache-Control', 'no-cache'); },
@@ -951,8 +1311,8 @@ app.post('/api/login', (req, res) => {
   const ip = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '?';
   if (rateLimited(ip)) return res.status(429).json({ error: 'too many attempts' });
   const given = String(req.body?.password || '');
-  const want = Buffer.from(PASSWORD), got = Buffer.from(given.padEnd(PASSWORD.length).slice(0, PASSWORD.length));
-  if (given.length === PASSWORD.length && timingSafeEqual(want, got)) {
+  const digest = s => createHash('sha256').update(s, 'utf8').digest();
+  if (timingSafeEqual(digest(PASSWORD), digest(given))) {
     res.setHeader('Set-Cookie', `pc_auth=${makeCookie()}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${90 * 24 * 3600}`);
     return res.json({ ok: true });
   }
@@ -1055,8 +1415,8 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       title: smeta[req.params.id]?.name || meta?.title || turn?.userText?.slice(0, 120) || 'New session',
       cwd: meta?.cwd || turn?.cwd || null, model: meta?.model, source: meta?.source,
       state: stateFor({ id: req.params.id, mtimeMs: meta?.mtimeMs || 0 }),
-      executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid),
-      locked: !turn && codex.threadLocked(tid),
+      executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid), turnEvents: turn?.events.length ?? null,
+      locked: !turn && !codex.codexSessions.has(tid) && codex.threadLocked(tid), // Pocket's own open session holds the lock too
       muted: mutes.has(req.params.id), pinned: isPinned(req.params.id),
       messages, total,
     });
@@ -1074,7 +1434,9 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
   }
   const meta = await sessionMeta(file, req.params.id);
   const { msgs: messages, total } = await readTranscript(file);
-  res.json({ ...meta, state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), messages, total });
+  // turnEvents: what the live stream has already broadcast for the running turn. The
+  // transcript above covers it, so a fresh stream connection asks to start after it.
+  res.json({ ...meta, state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null });
 });
 
 // Extract references from assistant messages on demand; no second document store.
@@ -1160,6 +1522,28 @@ app.get('/api/session/:id/artifact', requireAuth, async (req,res) => {
     // HTML and other active documents must never execute under the app origin.
     res.download(real,path.basename(requested),err=>{if(err&&!res.headersSent)res.status(404).end();});
   }catch(e){res.status(e.code==='ENOENT'||e.status===404?404:503).json({error:'This result is not available. It may have moved or been removed.'});}
+});
+
+// ---------- usage visibility (Feature G) ----------
+// Account-level plan usage (5-hour / weekly windows, extra-usage status). Values only
+// change when a turn runs — the client labels them "as of <observedAt>", never live.
+app.get('/api/usage', requireAuth, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const claude = usage.accountSummary();
+  const codexUsage = CODEX_ON ? await codex.codexRateLimits().catch(() => null) : null;
+  res.json({ claude, codex: codexUsage });
+});
+// Per-session context meter ("70k / 1M · 7%"). Falls back to the transcript's last
+// assistant usage line for sessions this daemon never ran a turn for.
+app.get('/api/session/:id/context', requireAuth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid session' });
+  try {
+    if (isCx(req.params.id)) return res.json({ context: codex.getCodexContext(codex.bareId(req.params.id)) });
+    const file = await findSessionFile(req.params.id);
+    const context = await getSessionContext(usage, req.params.id, { transcriptFile: file, fsp });
+    res.json({ context });
+  } catch (e) { res.status(503).json({ error: 'Context could not be loaded. Try again.' }); }
 });
 
 // read-only "what did it do to my code": every Edit/Write with real before/after
@@ -1248,17 +1632,22 @@ app.post('/api/session/:id/queue/start',requireAuth,async(req,res)=>{
   try {const started=await runNextFollowup(id);res.json({ok:true,started:Boolean(started)});}catch(e){queueError(res,e);}
 });
 
-async function startCodexFromApi({ id, threadId, cwd, text, body }) {
-  const opts = withDefaults('codex', turnOpts(body));
-  // onFinish takes the turn as an argument: a turn that fails during resume finishes
-  // before this function has returned, so the closure can't reach a local binding yet.
-  return codex.startCodexTurn({
-    threadId, cwd, text, ...opts,
+// Per-thread callbacks for Codex turns; also handed to sessions reattached after a restart.
+// They take the turn as an argument: a turn that fails during resume finishes before
+// startCodexTurn has returned, so a closure can't reach a local binding yet.
+function codexHooks(id) {
+  return {
     auditApproval,onApproval:turn=>{const sid=id||(codex.CX+turn.threadId);const aid=turn.approvals.list().at(-1)?.id;if(aid&&turn.approvalNotified!==aid&&!mutes.has(sid)){turn.approvalNotified=aid;pushNotify(sid,'Action needs approval','Open Pocket Code to review the pending action.').catch(()=>{});}},
     onQuestion:turn=>{const sid=id||(codex.CX+turn.threadId);const qid=turn.questions.list().at(-1)?.id;if(!mutes.has(sid)&&turn.questionNotified!==qid){turn.questionNotified=qid;pushNotify(sid,'Codex needs your answer','Open Pocket Code to answer the agent’s question.').catch(()=>{});}},
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
-  });
+  };
 }
+async function startCodexFromApi({ id, threadId, cwd, text, body }) {
+  if (!threadId || !codex.codexSessions.has(threadId)) reclaimProcess();
+  const opts = withDefaults('codex', turnOpts(body));
+  return codex.startCodexTurn({ threadId, cwd, text, ...opts, ...codexHooks(id) });
+}
+if (CODEX_ON) codex.adoptCodexSessions(threadId => codexHooks(codex.CX + threadId));
 
 function validateApprovalMode(req,res,next){
   try{approvalMode(req.body?.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);next();}
@@ -1302,11 +1691,13 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, withDeli
   if (!file) return res.status(404).json({ error: 'not found' });
   const meta = await sessionMeta(file, id);
   const cwd = meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME;
-  const running = turns.get(id);
+  let running = turns.get(id);
+  if (running?.finalized) { await running.finalizeDone; running = turns.get(id); } // a turn that is just ending: send as the next turn, not a steer
+  if (!running && busyElsewhere(id)) return res.status(409).json({ error: 'This session is being used in another app right now (code-server or a terminal). Send again once that turn has finished.' });
   if (running) {
     const opts = turnOpts(req.body);
     // steer first: inject into the running turn (model sees it at the next boundary);
-    // fall back to the queue for adopted turns (no stdin) or a just-closed pipe
+    // fall back to the queue when the pipe is gone (adopted without its pipe) or closing
     if (mode !== 'queue' && steerTurn(running, promptText(text, opts.attachments))) {
       broadcast(running, { type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
       log(`steered message into running turn session=${id}`);
@@ -1403,6 +1794,29 @@ app.post('/api/session/:id/mute', requireAuth, (req, res) => {
   res.json({ ok: true, muted: mutes.has(id) });
 });
 
+// Closing a session view ends its CLI process now rather than at the idle timeout.
+// 409 while a turn (or a background job) is running unless the caller chose to stop it.
+app.post('/api/session/:id/release', requireAuth, (req, res) => {
+  const id = req.params.id, stop = req.body?.stop === true;
+  if (!anyId(id)) return res.status(400).json({ error: 'Invalid session' });
+  if (isCx(id)) {
+    const tid = codex.bareId(id), cs = codex.codexSessions.get(tid);
+    if (codex.codexTurns.get(tid)) {
+      if (!stop) return res.status(409).json({ running: true });
+      codex.stopCodexTurn(tid);
+      if (cs) codex.closeCodexSession(cs, 'closed by you');
+      return res.json({ released: true });
+    }
+    if (cs && !cs.closing && !cs.exited) { codex.closeCodexSession(cs, 'closed by you'); return res.json({ released: true }); }
+    return res.json({ released: false });
+  }
+  const turn = turns.get(id), r = runners.get(id);
+  if ((turn || r?.bgTasks.length) && !stop) return res.status(409).json({ running: true, background: !turn });
+  if (turn) { turn.stopped = true; signalTurn(turn); log(`stop requested (closed) session=${id}`); return res.json({ released: true }); }
+  if (r && !r.closing && !r.exited) { if (r.bgTasks.length) signalTurn(r); else closeRunner(r, 'closed by you'); return res.json({ released: true }); }
+  res.json({ released: false });
+});
+
 app.post('/api/session/:id/stop', requireAuth, (req, res) => {
   if (isCx(req.params.id)) {
     if (!codex.stopCodexTurn(codex.bareId(req.params.id))) return res.status(404).json({ error: 'no running turn' });
@@ -1470,6 +1884,15 @@ app.get('/api/commands', requireAuth, async (req, res) => {
   res.json({ commands: [...out.entries()].map(([name, desc]) => ({ name, desc, label:name.replace(/[-_]/g,' '), invocation:`Use the /${name} skill or command.` })).sort((a, b) => a.name.localeCompare(b.name)) });
 });
 
+// Where a stream connection's replay starts: after the last event the browser saw
+// (Last-Event-ID on an automatic reconnect), else after the events the client already
+// has from the transcript (?from, sent on a fresh connection), else from the start.
+function replayFrom(req, turn) {
+  const last = Number(req.headers['last-event-id']);
+  if (Number.isFinite(last)) return last + 1;
+  const from = Number(req.query.from);
+  return Number.isFinite(from) && from >= 0 ? Math.min(from, turn.events.length) : 0;
+}
 app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   const id = req.params.id;
   const turn = turns.get(id);
@@ -1482,7 +1905,8 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
     const tid = codex.bareId(id);
     const cxTurn = codex.codexTurns.get(tid);
     if (cxTurn) { // our own turn: replay what the client missed, then stream live
-      const from = Number(req.headers['last-event-id'] ?? -1) + 1;
+      res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${cxTurn.startedAt}` })}\n\n`);
+      const from = replayFrom(req, cxTurn);
       for (let i = from; i < cxTurn.events.length; i++) {
         res.write(`id: ${i}\ndata: ${JSON.stringify(cxTurn.events[i])}\n\n`);
       }
@@ -1491,12 +1915,15 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
       return;
     }
     res.write(`data: {"type":"watch"}\n\n`);
-    const stop = codex.watchCodexThread(tid, ev => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`); } catch { } });
+    // id = item id: a reconnect (Last-Event-ID) or a reopen (?after) resumes after it
+    const after = String(req.headers['last-event-id'] || req.query.after || '') || null;
+    const stop = codex.watchCodexThread(tid, ev => { try { res.write(`${ev.itemId ? `id: ${ev.itemId}\n` : ''}data: ${JSON.stringify(ev)}\n\n`); } catch { } }, { after });
     req.on('close', () => { clearInterval(ka); stop(); });
     return;
   }
   if (turn) { // a turn our daemon is running: replay + live events
-    const from = Number(req.headers['last-event-id'] ?? -1) + 1;
+    res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${turn.startedAt}` })}\n\n`);
+    const from = replayFrom(req, turn);
     for (let i = from; i < turn.events.length; i++) {
       res.write(`id: ${i}\ndata: ${JSON.stringify(turn.events[i])}\n\n`);
     }
@@ -1507,8 +1934,9 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   // watch mode: mirror the transcript live (turns driven by code-server / terminal)
   const file = await findSessionFile(id);
   if (!file) { clearInterval(ka); res.write(`data: {"type":"idle"}\n\n`); return res.end(); }
-  let offset = Number(req.query.offset);
   const size = (await fsp.stat(file)).size;
+  const last = Number(req.headers['last-event-id']);
+  let offset = Number.isFinite(last) ? last : Number(req.query.offset);
   if (!Number.isFinite(offset) || offset < 0 || offset > size) offset = size;
   res.write(`data: {"type":"watch"}\n\n`);
   const t = { res, offset, rem: '' };
@@ -1544,7 +1972,7 @@ app.get('/api/file', requireAuth, (req, res) => {
 });
 
 app.get('/api/health', (_req, res) => res.json({
-  ok: true, active: turns.size + codex.codexTurns.size, codexActive: codex.codexTurns.size, uptime: process.uptime(),
+  ok: true, active: turns.size + codex.codexTurns.size, codexActive: codex.codexTurns.size, processes: runners.size, codexProcesses: codex.codexSessions.size, uptime: process.uptime(),
 }));
 
 // model picker options — Claude's from CLAUDE_MODELS, Codex's straight from its app-server
@@ -1565,7 +1993,12 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
   "Collapse the whole session header, including Mission Control navigation, on phone, tablet and desktop. Live status stays visible.",
-  "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser."
+  "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser.",
+  "Each Claude Code and Codex session keeps one process between turns: faster turns, and background jobs, MCP connections and the working directory carry over.",
+  "No more 2-hour turn limit. Long work keeps running; only a turn that has been completely silent for 30 minutes is stopped.",
+  "When a background job finishes after a turn, the agent's follow-up appears live and notifies you.",
+  "Context meter on each session, and a Plan usage panel with your 5-hour and weekly limits (reset times in Eastern).",
+  "Close the main session from its header (session options on phones); it asks first if work is still running."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
@@ -1607,4 +2040,10 @@ app.get('/api/about', requireAuth, (_req, res) => res.json({
   cli: binVersion(CLAUDE_BIN), codex: CODEX_ON ? binVersion(codex.CODEX_BIN) : null,
 }));
 
-app.listen(PORT, '127.0.0.1', () => log(`pocket-claude listening on 127.0.0.1:${PORT}`));
+// Last: whatever a route threw or rejected with ends here, as a 503 for this request only.
+app.use((err, req, res, _next) => {
+  log(`request failed ${req.method} ${req.path}: ${err?.stack || err}`);
+  if (res.headersSent) { try { res.end(); } catch { } return; }
+  res.status(err?.status || 503).json({ error: err?.status ? err.message : 'Request failed. Please retry.' });
+});
+const server = app.listen(PORT, '127.0.0.1', () => log(`pocket-claude listening on 127.0.0.1:${server.address().port}`));

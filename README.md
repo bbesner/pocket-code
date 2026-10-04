@@ -47,10 +47,22 @@ every surface.
 
 ![Your phone connects over HTTPS to Pocket Code on your server, which runs claude and codex against the same session files your terminal and VS Code use, and sends a push notification when a turn finishes](docs/images/how-it-works.png)
 
-Each message you send starts a detached CLI turn on the server. Output streams to every
-open client over server-sent events and lands in the normal transcript. A file watcher
-also mirrors sessions you're driving from somewhere else, so the phone shows live
-progress for work started in the terminal or code-server.
+Each Claude Code session runs as one detached CLI process on the server, started by your
+first message and kept between turns, so its working directory, MCP connections and
+background jobs carry over. Output streams to every open client over server-sent events
+and lands in the normal transcript. When a background job finishes after a turn, the
+agent's follow-up streams the same way. The process closes after an hour idle (never
+while a background job runs), and the next message resumes the session from its
+transcript. There is no time limit on a turn; one that stays completely silent for 30
+minutes is stopped. Codex threads work the same way with one app-server per thread.
+While Pocket has a Codex thread open it holds Codex's writer lock, so close the session
+in Pocket (or let it idle out) before continuing that thread in code-server. Both kinds
+of session process survive a Pocket restart, including a turn in the middle of its work.
+
+A file watcher also mirrors sessions you're driving from somewhere else, so the phone
+shows live progress for work started in the terminal or code-server. Pocket won't send
+into a session another app is in the middle of, and it restarts its own process for a
+session when another app has added turns since, so its process never carries a stale copy of the conversation.
 
 ## Features
 
@@ -161,6 +173,11 @@ All settings live in `.env` (see [`.env.example`](.env.example)).
 | `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | no | Pocket-only Claude default for turns left on Default, e.g. `claude-opus-5-5[1m]` and `high`. Model must be one of the picker ids. |
 | `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | no | Pocket-only Codex default, e.g. `gpt-6-sol` and `medium`. |
 | `POCKET_DEFAULT_CWD` | no | Workspace the New session screen preselects, e.g. your home directory. Default: wherever you last started a session. |
+| `POCKET_IDLE_CLOSE_MS` | no | How long a session's process (Claude Code or Codex) stays up with no turn and no background job, in milliseconds. Default `3600000` (1 hour); `0` keeps processes until Pocket closes them for another reason. |
+| `POCKET_STALL_MS` | no | A turn with no output, no background job, nothing waiting on you and no CPU use by programs it started for this long is stopped. Milliseconds; default `1800000` (30 minutes); `0` disables the watchdog. A value that is not a number is logged and ignored. |
+| `POCKET_MAX_PROCESSES` | no | Live CLI processes (Claude Code and Codex together) kept at once. Starting one past the cap closes the longest-idle process that has no turn and no background job. Default `8`; `0` means no cap. Each Claude Code process is roughly 100–300 MB plus its MCP servers. |
+| `POCKET_FRAME_ANCESTORS` | no | Origins allowed to embed Pocket Code in a frame (for example Mission Control), space-separated. Default: only Pocket's own origin. |
+| `POCKET_ENV_FILE` | no | Read settings from this file instead of `.env` next to the server; empty means read none (the test suite sets it). |
 
 Turns use your global CLI settings (`~/.claude/settings.json`, Codex config), such as
 the default model, effort and hooks, unless you override them per turn in the composer.
@@ -191,6 +208,8 @@ The built-in protections:
 - The API listens on `127.0.0.1` only and is reached only through your HTTPS front end.
 - Constant-time password check, and a limit of 20 login attempts per hour per IP.
 - HMAC-signed, `HttpOnly`, `Secure` session cookie (90 days).
+- A Content-Security-Policy that keeps scripts, styles, connections and images
+  same-origin and allows framing only from `POCKET_FRAME_ANCESTORS`.
 
 Recommended on top: a long random password, a hostname you don't publish, and an
 identity layer such as [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
@@ -200,20 +219,34 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 ## Operating notes
 
 - **Start and restart from `ecosystem.config.cjs`.** It sets PM2's `treekill: false`, so
-  turns in progress survive a restart of the service. A restarted server reconnects to
-  running Claude Code turns. A Codex turn keeps running too, and its result appears
-  when you reopen the session.
+  session processes survive a restart of the service. A restarted server reattaches to
+  every running Claude Code and Codex process, including a turn in the middle of its
+  work. A question or approval that was waiting at the moment of the restart is answered
+  with a deny so the turn carries on (the agent asks again if it still needs it); only a
+  process whose input pipe cannot be reopened is left marked as interrupted.
 - **One live writer per session.** Watching a session from several places is always
   fine. Don't send to the same session from two places at the same moment. Hand off
   instead: finish on one, continue on the other. Codex enforces this. If a thread is
   open for writing in code-server, Pocket Code tells you to close it there first.
 - **Data:** transcripts stay where the CLIs keep them. Uploads go to `~/pocket-uploads/`.
-  Push subscriptions, pins and mutes are small JSON files next to the server and are
-  not tracked by git.
+  Pocket's own state lives in `POCKET_DATA_DIR` (default: next to the server, ignored by
+  git): push subscriptions, pins and mutes, settings, delivery receipts, the follow-up
+  queue, the approval audit, usage snapshots (`usage-state.json`,
+  `codex-usage-state.json`), the fork-guard marker (`owned-transcripts.json`) and the
+  per-process logs and pipes under `turnlogs/` and `turnlogs-codex/`. Keep all of it
+  across upgrades. If you move the directory, do it while no process is running
+  (`/api/health` shows `processes` and `codexProcesses`), since the running processes
+  write to the old location.
 - **Updating:** `git pull && pm2 restart ecosystem.config.cjs`. Browsers pick up the new
   version automatically, and the settings sheet shows what changed.
-- **Uninstalling:** `pm2 delete pocket-claude`, then remove the tunnel or proxy route.
-  Your sessions are untouched.
+- **Uninstalling:** close every session first (Close session in the app, or
+  `POST /api/session/<id>/release` for each one `/api/health` counts), then
+  `pm2 delete pocket-claude` and remove the tunnel or proxy route. Processes left running
+  would otherwise keep going (and a Codex app-server keeps its thread's writer lock)
+  because the idle timers live in the daemon. Your sessions are untouched.
+- **Rolling back below 1.7:** close every session the same way before switching the
+  code, so no runner is orphaned; an older server does not know the `*.runner.json`
+  markers or `turnlogs-codex/`. The newer state files are harmless to older code.
 
 The PM2 process is named `pocket-claude`, from before the project was renamed. The name
 was kept so existing installs upgrade in place.
@@ -260,8 +293,8 @@ root for isolated test installations; it does not move Codex's store.
 
 Delivery receipts contain request hashes and response metadata, not message text.
 Keep `delivery-receipts.json` with the instance's persistent data, including across
-upgrades and rollbacks. Receipts are retained indefinitely to protect old pending
-requests. A process interruption between dispatch and saving acknowledgment is
+upgrades and rollbacks. Receipts are kept for seven days (at most 2,000), long enough
+for any retry of the same message. A process interruption between dispatch and saving acknowledgment is
 reported as uncertain and is never automatically dispatched again. These receipts
 prevent duplicate dispatch; they do not guarantee that a tool action completes.
 Keep `followup-queue.json` as well: it contains pending instructions. The existing single-user trust model remains unchanged.

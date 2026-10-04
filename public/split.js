@@ -71,6 +71,39 @@ function closePane(key){
  // the pane's own New-session draft, attachments, choices and retry state go with it
  for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-'])try{localStorage.removeItem(k+'new-pane-'+key);}catch{}
 }
+// Close the MAIN conversation (never available inside a pane — panes use pane-close).
+// Closing never deletes or hides the session; it only asks the server to end its live
+// process, then either promotes the first beside pane into main or goes to New session.
+async function closeMainPane(){
+ if(PANE||!chatId)return;
+ const id=chatId;
+ const afterRelease=()=>{
+  if(splitPanes.length){
+   const p=splitPanes[0];
+   splitPanes=splitPanes.filter(x=>x.key!==p.key);saveSplit();
+   // a New-session pane becoming main brings its draft, attachments, choices and retry state
+   if(!p.id)for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-'])try{const v=localStorage.getItem(k+'new-pane-'+p.key);if(v!=null)localStorage.setItem(k+'new',v);localStorage.removeItem(k+'new-pane-'+p.key);}catch{}
+   location.hash=p.id?'#/chat/'+p.id:'#/new';
+   paintSplit();
+  }else location.hash='#/new';
+ };
+ try{
+  await api(`/session/${id}/release`,{method:'POST',body:JSON.stringify({stop:false})});
+  afterRelease();
+ }catch(e){
+  if(e.status!==409)return toast('Could not close: '+(e.message||'error'));
+  sheet('A turn is still running',[
+   ['keep','Keep it running in the background','Closes this view only; the turn keeps going on the server'],
+   ['stop','Stop the turn','Ends it now, then closes this view'],
+  ],null,async v=>{
+   if(v==='stop'){
+    try{await api(`/session/${id}/release`,{method:'POST',body:JSON.stringify({stop:true})});}
+    catch(err){toast('Could not stop: '+(err.message||'error'));return;}
+   }
+   afterRelease();
+  });
+ }
+}
 function chooseBeside(){
  const taken=new Set([chatId,...splitPanes.map(p=>p.id)]);
  const seen=new Set(),rows=[];

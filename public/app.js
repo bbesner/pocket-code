@@ -196,6 +196,8 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
     ${chatTextControlsHTML()}
     ${s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':''}
     ${!PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : ''}
+    ${!PANE && s.id === chatId && !isWide() ? '<button class="opt" id="so-close">'+IC.x+'<span>Close session<span class="sub">Leaves it in your session list; ends its running turn if you choose</span></span></button>' : ''}
+    ${s.id===chatId?'<button class="opt" id="so-usage">'+IC.gauge+'<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>':''}
     <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
     <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
@@ -216,7 +218,9 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.querySelector('#so-find')?.addEventListener('click',()=>{close();findOpen(true);});
   sh.querySelector('#so-changes')?.addEventListener('click',()=>{close();openChanges();});
   sh.querySelector('#so-beside')?.addEventListener('click',()=>{close();openBeside(s.id);});
+  sh.querySelector('#so-close')?.addEventListener('click',()=>{close();closeMainPane();});
   sh.querySelector('#so-permissions').onclick=()=>{close();chooseApprovalMode(s.id);};
+  sh.querySelector('#so-usage')?.addEventListener('click',openUsagePanel);
   mountSheet(scrim, sh);
 }
 function renameSheet(s, refresh) {
@@ -343,7 +347,7 @@ function toolIcon(name) {
 }
 
 /* ---------- tiny helpers ---------- */
-const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // code block with its own copy affordance — selecting text on a touchscreen is miserable
 const codeHTML = t => `<div class="codewrap"><button class="copybtn" data-copy aria-label="Copy code">${IC.copy}</button><pre><code>${esc(t)}</code></pre></div>`;
 function md(src) { return PocketFormat.render(src, chatId); }
@@ -375,6 +379,12 @@ async function api(path, opts) {
   return j;
 }
 
+function renderUnreachable(e) {
+  app.innerHTML = `<div class="login" data-offline><h1>Pocket Code</h1><p class="sub">${navigator.onLine === false ? 'You’re offline.' : 'The server didn’t answer' + (e?.status ? ' (' + esc(String(e.status)) + ')' : '') + '.'} Your drafts are kept.</p><button class="chip" id="retry-route">Try again</button></div>`;
+  $('#retry-route').onclick = () => route();
+  clearTimeout(renderUnreachable.timer);
+  renderUnreachable.timer = setTimeout(() => { if (document.querySelector('[data-offline]')) route(); }, 10000);
+}
 /* ---------- login ---------- */
 function renderLogin() {
   app.innerHTML = `
@@ -466,13 +476,14 @@ async function settingsSheet() {
         : `<div class="arow ok"><span>Status</span><b>Up to date</b></div>`}
     </div>
     ${Array.isArray(clientNotes) && clientNotes.length ? `<div class="about whatsnew"><div class="arow"><span>What's new in v${APP_V ?? a.assetV ?? '?'}</span></div><ul>${clientNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
-    <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button><button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button><button class="opt" id="s-chime"><span class="dot ${chimeOff ? '' : 'on'}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
+    <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button><button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button><button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button><button class="opt" id="s-chime"><span class="dot ${chimeOff ? '' : 'on'}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
     <button class="opt" id="s-push"><span class="dot ${pushed ? 'on' : ''}"></span><span>Turn notifications<span class="sub">Push to this device when a turn finishes</span></span></button>
     <button class="opt" id="s-sync"><span class="dot ${srv.titleSync ? 'on' : ''}"></span><span>Sync names with code-server<span class="sub">Session names follow Claude Code's titles, and renames here show there too</span></span></button>`;
   const close = () => closeCurrentSheet?.();
   scrim.onclick = close;
   const r = sh.querySelector('#s-refresh'); if (r) r.onclick = hardRefresh;
   sh.querySelector('#s-environment').onclick=openEnvironment;
+  sh.querySelector('#s-usage').onclick=openUsagePanel;
   bindChatTextControls(sh);
   sh.querySelector('#s-keys').onclick=keyboardHelp;
   sh.querySelector('#s-chime').onclick = e => {
@@ -582,7 +593,7 @@ function paintSessionPanels() {
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
   const current = allSessions.find(s => s.id === chatId);
   const qb=$('#questions-open');if(qb)qb.hidden=!current?.state?.questions;
-  const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals)ab.textContent='Action needs approval · Review';}
+  const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals)ab.textContent=(current.state.label||'Action needs approval')+' · Review';}
   if (current && $('#chat-state')) { $('#chat-state').textContent = sessionsStale ? 'Unconfirmed' : rowState(current).label; if (!sessionsStale) markRead(chatId, current.state); }
   const queueButton=$('#queue-open');if(queueButton)queueButton.textContent='Queue'+(current?.state?.queued?' ('+current.state.queued+')':'');
   if(current?.state?.confirmed&&['finished','failed','stopped','ended'].includes(current.state.kind)&&!sessionsStale&&!loadOutbox(chatId)){deliveryNotices.delete(chatId);paintDelivery(chatId);}
@@ -674,7 +685,7 @@ setInterval(()=>{
  else paintRunConfirmation();
 },1000);
 window.addEventListener('offline', () => { sessionsStale = true; paintSessionPanels(); setConnection('Offline. Your draft is kept on this device.'); });
-window.addEventListener('online', () => { refreshSessions(); if (chatId) openES(); });
+window.addEventListener('online', () => { if (document.querySelector('[data-offline]')) return route(); refreshSessions(); if (chatId) openES(); });
 
 /* ---------- saved follow-ups ---------- */
 async function openQueue(id) {
@@ -1029,7 +1040,7 @@ async function paintRail() {
   await refreshSessions();
 }
 
-let chatOffset = 0, extT = null;
+let chatOffset = 0, chatTurnEvents = null, chatAttachKey = null, chatLastItem = null, extT = null;
 function extPulse() { // ember while another surface (code-server) drives this session
   const h = $('#hember'); if (!h) return;
   if (!composerWorking) h.innerHTML = '<span class="ember"></span>';
@@ -1053,10 +1064,10 @@ async function renderChat(id) {
       <button class="icon" id="chatmore" aria-label="Session options">${IC.more}</button>
       ${PANE ? '' : `<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
       <button class="icon" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj chat-statebar run-confirmation">${IC.up1}</button>
-      ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
+      ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : `<button class="icon desk" id="close-main" aria-label="Close this session">${IC.x}</button>`}
     </header>
     <div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
-    <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
+    <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><span class="ctx-meter" id="ctx-meter" hidden></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
     <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>
     <button class="question-banner" id="approvals-open" hidden>Action needs approval · Review</button>
     <p id="connection-state" class="connection-state" role="status" hidden></p>
@@ -1073,7 +1084,7 @@ async function renderChat(id) {
   app.innerHTML = withShell(chatCol) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   if (PANE) { $('#pane-main').onclick = () => paneSay('main'); $('#pane-close').onclick = () => paneSay('close'); }
-  else { $('#back').onclick = () => { location.hash = '#/'; }; $('#splitb').onclick = chooseBeside; }
+  else { $('#back').onclick = () => { location.hash = '#/'; }; $('#splitb').onclick = chooseBeside; $('#close-main').onclick = () => closeMainPane(); }
   $('#session-switch').onclick = openSessionSwitcher;
   $('#results-open').onclick = () => openResults(chatId);
   $('#queue-open').onclick = () => openQueue(chatId);
@@ -1108,7 +1119,7 @@ async function renderChat(id) {
     else { renderChat(chatId); return; } // name cleared → resync the derived title
     railCache.at = 0; if (isWide()) paintRail();
   });
-  chatOffset = s.size || 0;
+  chatOffset = s.size || 0; chatTurnEvents = Number.isInteger(s.turnEvents) ? s.turnEvents : null; chatAttachKey = null; chatLastItem = null;
   chatTotal = s.total || s.messages.length; chatRendered = s.messages.length;
   const isCx = id.startsWith('cx:');
   tb = { key: id, prefs: getPrefs(id), attachments: loadAttachments(id), allowAttach: true, allowMute: true, provider: isCx ? 'codex' : 'claude' };
@@ -1131,7 +1142,90 @@ async function renderChat(id) {
   refreshQuestions(id);
   refreshApprovals(id);
   restoreDock();
+  paintContextMeter(id);
   openES(); // always: daemon turns stream events, idle sessions mirror the transcript live
+}
+
+/* ---------- usage visibility (1.7): context meter + plan-usage panel ---------- */
+function fmtTokens(n) {
+  if (!Number.isFinite(n)) return '0';
+  if (n >= 1_000_000) { const m = n / 1_000_000; return (Math.round(m * 10) / 10).toString().replace(/\.0$/, '') + 'M'; }
+  if (n >= 1000) return Math.round(n / 1000) + 'k';
+  return String(n);
+}
+async function paintContextMeter(id) {
+  const el = $('#ctx-meter'); if (!el) return;
+  let ctx;
+  try { ({ context: ctx } = await api('/session/' + id + '/context')); } catch { return; }
+  if (chatId !== id || !$('#ctx-meter')) return; // the view moved on while this was in flight
+  if (!ctx || !ctx.window) { el.hidden = true; return; }
+  const pct = ctx.used > 0 && ctx.pct < 0.005 ? '<1' : String(Math.round(ctx.pct * 100));
+  el.dataset.level = ctx.pct >= 0.9 ? 'red' : ctx.pct >= 0.7 ? 'amber' : '';
+  el.hidden = false;
+  const full = `${fmtTokens(ctx.used)} / ${fmtTokens(ctx.window)} · ${pct}%${ctx.estimated ? ' est.' : ''}`;
+  // phones show only the percentage (the counts would squeeze the Sessions control)
+  el.innerHTML = `<span class="ctx-detail">${esc(fmtTokens(ctx.used))} / ${esc(fmtTokens(ctx.window))} · </span>${esc(pct)}%${ctx.estimated ? ' est.' : ''}`;
+  el.title = (ctx.estimated ? 'Estimated from the transcript — this daemon did not run the last turn. ' : 'Context used in this session: ') + full + (ctx.lastAt ? ' · as of ' + fmtAsOfET(ctx.lastAt) : '');
+  el.setAttribute('aria-label', 'Context used: ' + full);
+}
+function fmtResetET(ms) {
+  if (!ms) return null;
+  const d = new Date(ms);
+  return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' }) + ' '
+    + d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET';
+}
+function fmtAsOfET(ms) {
+  if (!ms) return 'not yet observed';
+  const d = new Date(ms), opts = { timeZone: 'America/New_York' };
+  const today = d.toLocaleDateString('en-US', opts) === new Date().toLocaleDateString('en-US', opts);
+  return (today ? '' : d.toLocaleDateString('en-US', { ...opts, month: 'short', day: 'numeric' }) + ', ')
+    + d.toLocaleTimeString('en-US', { ...opts, hour: 'numeric', minute: '2-digit' }) + ' ET';
+}
+function usageWindowRow(label, pct, resetsAt) {
+  const safePct = Math.max(0, Math.min(1, pct || 0));
+  const level = safePct >= 0.9 ? 'red' : safePct >= 0.7 ? 'amber' : '';
+  const reset = fmtResetET(resetsAt), passed = resetsAt && resetsAt < Date.now();
+  // a window that reset since the last observation is not at this percentage any more
+  const resetText = !reset ? '' : passed ? `Reset ${reset} — the figure is from before that` : `Resets ${reset}`;
+  return `<div class="usage-row">
+    <div class="usage-row-head"><span>${esc(label)}</span><span class="usage-pct" data-level="${passed ? '' : level}">${passed ? 'was ' : ''}${Math.round(safePct * 100)}%</span></div>
+    <div class="meter" role="img" aria-label="${esc(label)}: ${Math.round(safePct * 100)}% used${resetText ? ', ' + resetText : ''}"><div class="meter-fill" data-level="${passed ? '' : level}" style="width:${Math.round(safePct * 100)}%"></div></div>
+    ${resetText ? `<p class="usage-reset">${esc(resetText)}</p>` : ''}
+  </div>`;
+}
+function claudeUsageBlockHTML(d) {
+  const w = d.windows || {};
+  const rows = [
+    w.five_hour && usageWindowRow('5-hour', w.five_hour.utilization, w.five_hour.resetsAt),
+    w.seven_day && usageWindowRow('Weekly', w.seven_day.utilization, w.seven_day.resetsAt),
+    w.seven_day_overage_included && usageWindowRow('Weekly + extra usage', w.seven_day_overage_included.utilization, w.seven_day_overage_included.resetsAt),
+  ].filter(Boolean);
+  if (!rows.length) return '<div class="usage-block"><h3>Claude Code</h3><p class="usage-empty">No usage observed yet — it reports usage on the next turn.</p></div>';
+  const overage = d.overage ? `<div class="usage-row-head"><span>Extra usage</span><span>${d.overage.using ? 'On' : 'Off'}${d.overage.reason ? ' · ' + esc(String(d.overage.reason).replace(/_/g, ' ')) : ''}</span></div>` : '';
+  return `<div class="usage-block"><h3>Claude Code</h3>${rows.join('')}${overage}<p class="usage-asof">As of ${esc(fmtAsOfET(d.observedAt))}</p></div>`;
+}
+function codexUsageBlockHTML(d) {
+  const label = w => w?.windowDurationMins ? Math.round(w.windowDurationMins / 60) + 'h window' : 'Window';
+  const rows = [
+    d.primary && usageWindowRow(label(d.primary), (d.primary.usedPercent || 0) / 100, d.primary.resetsAt ? d.primary.resetsAt * 1000 : null),
+    d.secondary && usageWindowRow(label(d.secondary), (d.secondary.usedPercent || 0) / 100, d.secondary.resetsAt ? d.secondary.resetsAt * 1000 : null),
+  ].filter(Boolean);
+  if (!rows.length) return '<div class="usage-block"><h3>Codex</h3><p class="usage-empty">Rate limits aren’t available from this Codex build.</p></div>';
+  return `<div class="usage-block"><h3>Codex</h3>${rows.join('')}<p class="usage-asof">As of ${esc(fmtAsOfET(d.observedAt))}</p></div>`;
+}
+async function paintUsageBody(sh) {
+  const body = sh.querySelector('#usage-body'); if (!body) return;
+  let d;
+  try { d = await api('/usage'); } catch (e) { body.innerHTML = `<p class="usage-empty">Usage could not be loaded: ${esc(e.message)}</p>`; return; }
+  if (!sh.isConnected) return;
+  body.innerHTML = [claudeUsageBlockHTML(d.claude || {}), d.codex ? codexUsageBlockHTML(d.codex) : null].filter(Boolean).join('');
+}
+async function openUsagePanel() {
+  const scrim = document.createElement('div'); scrim.className = 'scrim';
+  const sh = document.createElement('div'); sh.className = 'sheet usage-sheet';
+  sh.innerHTML = '<h2>Plan usage</h2><p class="sheet-help">Only updates when a turn runs, not live.</p><div class="usage-body" id="usage-body">Loading…</div>';
+  mountSheet(scrim, sh);
+  await paintUsageBody(sh);
 }
 
 function scrollBottom(force) {
@@ -1289,7 +1383,9 @@ function openES() {
   closeES();
   if (!chatId) return;
   const streamId = chatId;
-  es = new EventSource(`/api/session/${chatId}/events?offset=${chatOffset}`);
+  // A fresh connection has no Last-Event-ID; without ?from the server would replay the
+  // whole running turn on top of the transcript just rendered (every message twice).
+  es = new EventSource(`/api/session/${chatId}/events?offset=${chatOffset}${chatTurnEvents != null ? `&from=${chatTurnEvents}` : ''}${chatLastItem ? `&after=${encodeURIComponent(chatLastItem)}` : ''}`);
   es.onopen = () => { if (chatId === streamId) setConnection(); };
   const msgs = $('#msgs');
   let live = null; // word-by-word streaming buffer, replaced by the formatted message
@@ -1300,8 +1396,14 @@ function openES() {
     let d; try { d = JSON.parse(ev.data); } catch { return; }
     // watch = the daemon has no turn for this session; if we still show "Working",
     // we missed the turn-end events (SSE drop + reconnect after finalize) — clear it
+    // attach names the turn + daemon boot: a different key after a reconnect means the
+    // turn was rebuilt (daemon restart) and event numbers no longer line up — resync
+    if (d.type === 'attach') { if (chatAttachKey && chatAttachKey !== d.key) { chatAttachKey = null; closeES(); renderChat(streamId); } else chatAttachKey = d.key; return; }
+    if (d.offset) chatOffset = d.offset; // watch mode: where a reopen should continue from
+    if (d.itemId) chatLastItem = d.itemId;
     if(d.type==='questions'){refreshQuestions(streamId);refreshSessions();return;}
     if(d.type==='approvals'){refreshApprovals(streamId);refreshSessions();return;}
+    if(d.type==='usage'){paintContextMeter(streamId);return;}
     if (d.type === 'watch') { watching = true; if (composerWorking) setComposer(false); }
     else if (d.type === 'user') { // mirror: a message sent from another surface
       if (recentSends.some(x => x.text === d.msg.text && Date.now() - x.at < 120000)) return;
@@ -1493,7 +1595,11 @@ async function renderNew() {
 async function route() {
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { await api('/me'); } catch { reportWorkspaceChrome();return; } // renders login on 401
+  try { await api('/me'); }
+  catch (e) { // 401 rendered the login; anything else (offline, deploy restart) gets a retry view
+    if (e.message !== 'login') renderUnreachable(e);
+    reportWorkspaceChrome(); return;
+  }
   await loadApprovalPolicy();
   dockSurface?.remove();dockSurface=null;
   const h = location.hash;

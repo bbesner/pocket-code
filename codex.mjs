@@ -11,20 +11,38 @@
 //      transcript are always available, whatever else is running.
 //   2. WRITES take a per-thread writer lock (~/.codex/thread-writer-locks/<id>.lock,
 //      flock). While code-server has a thread open it owns that lock and `thread/resume`
-//      fails with "already has an active writer". So a turn connection resumes, runs,
-//      and CLOSES — the lock goes back the moment the turn ends.
+//      fails with "already has an active writer". Since 1.7 Pocket keeps one app-server
+//      per thread between turns, so it holds that lock until the session closes (idle,
+//      Close session, a settings change) — code-server can't write to the thread meanwhile.
 
 import {agentEnv} from './environment.mjs';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {QuestionInbox} from './questions.mjs';
 import {ApprovalInbox,codexApproval,codexPermissionSettings} from './approvals.mjs';
+import {estimateWindow} from './usage.mjs';
+import {descendantCpu} from './proctree.mjs';
 
 const HOME = os.homedir();
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex');
 const LOCK_DIR = path.join(CODEX_HOME, 'thread-writer-locks');
+// Codex's own usage visibility store — kept in a file separate from the Claude side's
+// usage-state.json so the two providers never race to overwrite one shared file.
+const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
+const USAGE_FILE = path.join(DATA_DIR, 'codex-usage-state.json');
+function loadCodexUsage() { try { return JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')); } catch { return { context: {}, rateLimits: null }; } }
+const codexUsage = loadCodexUsage();
+codexUsage.context ??= {};
+function saveCodexUsage() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const tmp = USAGE_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(codexUsage), { mode: 0o600 });
+    fs.renameSync(tmp, USAGE_FILE);
+  } catch { /* best effort — usage is a convenience view */ }
+}
 // Resolve the binary once: explicit env, the usual install spots, then PATH. A box with no
 // Codex at all resolves to null — and the provider stays off. (2026-09-09: on a box with
 // no codex, the old fallback to the bare name 'codex' reported "available", the boot-time
@@ -49,18 +67,37 @@ export function binStamp(bin) {
 
 const log = (...a) => console.log(new Date().toISOString(), '[codex]', ...a);
 
+// The fail-closed answer to a server→client request Pocket cannot or will not relay.
+function declineFor(method) {
+  if(method==='item/tool/requestUserInput')return {answers:{}};
+  if(['item/commandExecution/requestApproval','item/fileChange/requestApproval'].includes(method))return {decision:'decline'};
+  if(method==='item/permissions/requestApproval')return {permissions:{},scope:'turn'};
+  if(method==='mcpServer/elicitation/request')return {action:'cancel',content:null};
+  if (/[Aa]pproval/.test(method)) return { decision: 'denied' };
+  return {};
+}
+
 // ---------- JSON-RPC over stdio ----------
 // Newline-delimited JSON both ways. Requests carry an id; anything with a `method` and
 // no `id` is a notification (the streaming channel).
 class AppServer {
-  constructor({ name = 'pocket', detached = false, onNotify, onRequest } = {}) {
+  constructor({ name = 'pocket', detached = false, onNotify, onRequest, transport } = {}) {
     this.name = name;
     this.onNotify = onNotify;
     this.onRequest = onRequest;
     this.pending = new Map(); // id -> {resolve, reject, timer}
-    this.nextId = 1;
+    // Ids stay unique across server restarts: a reattached app-server may still answer
+    // the previous server's requests, and those replies must not match ours.
+    this.nextId = Date.now();
     this.rem = '';
     this.closed = false;
+    if (transport) { // session process: stdin is a named pipe, stdout a log file (see spawnTransport)
+      this.transport = transport;
+      this.pid = transport.pid;
+      transport.onData = c => this._feed(c);
+      transport.onExit = code => this._exited(code);
+      return;
+    }
     this.proc = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], {
       stdio: ['pipe', 'pipe', 'pipe'], detached, env: agentEnv(process.env),
     });
@@ -78,12 +115,7 @@ class AppServer {
       this.pending.clear();
       this.onExit?.(-1);
     });
-    this.proc.on('exit', code => {
-      this.closed = true;
-      for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(new Error('app-server exited')); }
-      this.pending.clear();
-      this.onExit?.(code);
-    });
+    this.proc.on('exit', code => this._exited(code));
     this.proc.stdin.on('error', () => { }); // EPIPE if it dies mid-write
   }
 
@@ -111,18 +143,24 @@ class AppServer {
   }
 
   // Unknown or malformed requests must never be auto-approved.
-  _declineFor(method) {
-    if(method==='item/tool/requestUserInput')return {answers:{}};
-    if(['item/commandExecution/requestApproval','item/fileChange/requestApproval'].includes(method))return {decision:'decline'};
-    if(method==='item/permissions/requestApproval')return {permissions:{},scope:'turn'};
-    if(method==='mcpServer/elicitation/request')return {action:'cancel',content:null};
-    if (/[Aa]pproval/.test(method)) return { decision: 'denied' };
-    return {};
+  _declineFor(method) { return declineFor(method); }
+
+  _exited(code) {
+    this.closed = true;
+    for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(new Error('app-server exited')); }
+    this.pending.clear();
+    this.onExit?.(code);
   }
 
-  _write(obj) {
+  writable() {
+    if (this.closed) return false;
+    return this.transport ? this.transport.writable() : !(this.proc.stdin.destroyed || this.proc.stdin.writableEnded);
+  }
+
+  _write(obj, cb) {
     if (this.closed) throw new Error('app-server closed');
-    this.proc.stdin.write(JSON.stringify(obj) + '\n');
+    const line = JSON.stringify(obj) + '\n';
+    if (this.transport) this.transport.write(line, cb); else this.proc.stdin.write(line, cb);
   }
 
   notify(method, params = {}) {
@@ -154,6 +192,7 @@ class AppServer {
 
   close() {
     this.closed = true;
+    if (this.transport) { this.transport.close(); return; }
     try { this.proc.stdin.end(); } catch { }
     try { this.proc.kill(); } catch { }
   }
@@ -165,7 +204,7 @@ class AppServer {
 // It is long-lived, so an in-place `npm i -g @openai/codex` upgrade would leave it running
 // the old build forever (2026-09-25: model/list still served the pre-upgrade catalog 4 days
 // after the upgrade). Each read checks the install's fingerprint and respawns on change.
-// Turns are unaffected — each spawns its own app-server.
+// Session processes are unaffected — each thread gets its own app-server.
 let reader = null, readerReady = null, readerStamp = null;
 async function readConn() {
   if (reader && !reader.closed && binStamp(CODEX_BIN) !== readerStamp) {
@@ -388,14 +427,165 @@ export async function codexThreadMeta(threadId) {
   return threadToSession(t);
 }
 
-// ---------- turns ----------
-// One dedicated connection per running turn: it resumes the thread (taking the writer
-// lock), runs, then closes so code-server can have the thread back. Spawned detached so
-// a `pm2 restart pocket-claude` mid-turn doesn't kill the work — the same rule the
-// Claude side learned the hard way on 2026-08-14.
-export const codexTurns = new Map(); // threadId -> turn
+// ---------- sessions and turns ----------
+// 1.7: one app-server per thread, kept between turns, so MCP connections, tools and
+// question handling stay up the way they do in code-server. While it is open it holds
+// Codex's per-thread writer lock: code-server can't write to that thread until Pocket
+// closes it (after IDLE_CLOSE_MS idle, the Close session control, or a settings change).
+// Spawned detached so a `pm2 restart pocket-claude` mid-turn doesn't kill the work — the
+// same rule the Claude side learned the hard way on 2026-08-14.
+function msSetting(name, dflt) { // same rule as server.mjs: milliseconds, 0 disables, junk → default
+  const raw = (process.env[name] ?? '').trim();
+  if (!raw) return dflt;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : dflt;
+}
+const IDLE_CLOSE_MS = msSetting('POCKET_IDLE_CLOSE_MS', 60 * 60_000);
+const STALL_MS = msSetting('POCKET_STALL_MS', 30 * 60_000);
+export const codexTurns = new Map(); // threadId -> active turn
+export const codexSessions = new Map(); // threadId -> {conn, approvalMode, cwd, model, effort, turn, hooks}
 
 export function codexTurnActive(threadId) { return codexTurns.has(threadId); }
+
+// Session processes read a named pipe and write to a log file instead of pipes to this
+// server, so a Pocket restart doesn't end them (with plain pipes the app-server exits
+// within a second of losing its parent — verified 2026-10-04). A keeper process holds
+// the pipe's write end open across restarts; closing = kill keeper + end our end → EOF.
+// Own directory: the Claude side's startup sweep removes pipes it doesn't own.
+const CX_LOG_DIR = path.join(DATA_DIR, 'turnlogs-codex');
+const cxFiles = key => ({
+  out: path.join(CX_LOG_DIR, key + '.out.ndjson'), err: path.join(CX_LOG_DIR, key + '.err.log'),
+  fifo: path.join(CX_LOG_DIR, key + '.in.fifo'), meta: path.join(CX_LOG_DIR, key + '.session.json'),
+});
+const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore = 0 }) {
+  const stale = new Map(); // requests logged before a restart, minus those the log shows resolved
+  const t = {
+    pid, keeperPid, key, files, writer, offset, rem: '', onData: null, onExit: null, exited: false,
+    write: (line, cb) => writer.write(line, cb),
+    writable: () => !writer.destroyed && !writer.writableEnded,
+    close() { try { process.kill(-keeperPid, 'SIGTERM'); } catch { } try { writer.end(); } catch { } },
+    drain() {
+      let size; try { size = fs.statSync(files.out).size; } catch { return; }
+      if (size <= t.offset) return;
+      const fh = fs.openSync(files.out, 'r');
+      try {
+        const buf = Buffer.alloc(size - t.offset);
+        fs.readSync(fh, buf, 0, buf.length, t.offset);
+        let at = t.offset - Buffer.byteLength(t.rem);
+        t.offset = size;
+        const lines = (t.rem + buf.toString('utf8')).split('\n');
+        t.rem = lines.pop() ?? '';
+        for (const l of lines) {
+          const lineAt = at; at += Buffer.byteLength(l) + 1;
+          // requests the app-server sent the previous server can't be relayed from here;
+          // the ones it never saw resolved are declined below so the turn carries on
+          if (lineAt < skipBefore) {
+            let o; try { o = JSON.parse(l); } catch { }
+            if (o?.method && o.id != null) { stale.set(o.id, o.method); continue; }
+            if (o?.method === 'serverRequest/resolved' && o.params?.requestId != null) stale.delete(o.params.requestId);
+          }
+          if (l.trim()) t.onData?.(l + '\n');
+        }
+        if (skipBefore && t.offset >= skipBefore && stale.size && !t.exited) {
+          for (const [id, method] of stale) { try { t.write(JSON.stringify({ jsonrpc: '2.0', id, result: declineFor(method) }) + '\n'); log(`declined a pre-restart ${method} request`); } catch { } }
+          stale.clear();
+        }
+      } finally { fs.closeSync(fh); }
+    },
+    exit(code) {
+      if (t.exited) return;
+      t.exited = true;
+      clearInterval(t.timer); clearInterval(t.poll);
+      t.drain();
+      try { writer.destroy(); } catch { }
+      try { process.kill(-keeperPid, 'SIGTERM'); } catch { }
+      for (const f of [files.fifo, files.meta]) { try { fs.unlinkSync(f); } catch { } }
+      t.onExit?.(code);
+    },
+  };
+  t.timer = setInterval(() => t.drain(), 150);
+  return t;
+}
+
+function spawnTransport() {
+  fs.mkdirSync(CX_LOG_DIR, { recursive: true, mode: 0o700 });
+  const key = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const files = cxFiles(key);
+  for (const f of [files.out, files.err]) fs.writeFileSync(f, '', { mode: 0o600 });
+  execFileSync('mkfifo', ['-m', '600', files.fifo]);
+  const hold = fs.openSync(files.fifo, fs.constants.O_RDWR); // never blocks; lets the read end open
+  const inFd = fs.openSync(files.fifo, 'r');
+  const outFd = fs.openSync(files.out, 'a'), errFd = fs.openSync(files.err, 'a');
+  const proc = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], { stdio: [inFd, outFd, errFd], detached: true, env: agentEnv(process.env) });
+  fs.closeSync(inFd); fs.closeSync(outFd); fs.closeSync(errFd);
+  proc.unref();
+  const keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'] });
+  keeper.unref();
+  const writer = fs.createWriteStream(null, { fd: hold });
+  writer.on('error', () => { });
+  const t = makeTransport({ pid: proc.pid, keeperPid: keeper.pid, key, files, writer, offset: 0 });
+  proc.on('exit', code => t.exit(code));
+  proc.on('error', () => t.exit(-1));
+  return t;
+}
+
+function writeSessionMeta(s) {
+  const t = s.conn?.transport, turn = s.turn;
+  if (!t || !s.threadId || s.exited) return;
+  const meta = {
+    threadId: s.threadId, pid: t.pid, keeperPid: t.keeperPid, key: t.key, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort,
+    turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode } : null,
+    waitingForInput: Boolean(turn && (turn.questions?.list().length || turn.approvals?.list().length || turn.inputUnavailable || turn.approvalUnavailable)),
+    waitingForApproval: Boolean(turn?.approvals?.list().length || turn?.approvalUnavailable),
+  };
+  try { fs.writeFileSync(t.files.meta, JSON.stringify(meta), { mode: 0o600 }); } catch { }
+}
+
+// After a Pocket restart: reattach to session processes that are still running and sweep
+// files nothing uses. `hooksFor(threadId)` supplies the server's per-thread callbacks.
+export function adoptCodexSessions(hooksFor) {
+  let entries = []; try { entries = fs.readdirSync(CX_LOG_DIR); } catch { return; }
+  const live = new Set();
+  for (const f of entries.filter(n => n.endsWith('.session.json'))) {
+    let m; try { m = JSON.parse(fs.readFileSync(path.join(CX_LOG_DIR, f), 'utf8')); } catch { continue; }
+    const files = cxFiles(m.key);
+    let cmd = ''; try { cmd = fs.readFileSync(`/proc/${m.pid}/cmdline`, 'utf8'); } catch { }
+    if (!m.threadId || !m.pid || !pidAlive(m.pid) || !cmd.includes('app-server')) {
+      try { process.kill(-m.keeperPid, 'SIGTERM'); } catch { }
+      for (const x of [files.meta, files.fifo]) { try { fs.unlinkSync(x); } catch { } }
+      log(`codex session ended while the server was down thread=${m.threadId}`);
+      continue;
+    }
+    let writer;
+    try { writer = fs.createWriteStream(null, { fd: fs.openSync(files.fifo, fs.constants.O_RDWR) }); writer.on('error', () => { }); }
+    catch { try { process.kill(-m.pid, 'SIGTERM'); } catch { } continue; } // unreachable: let it go
+    let size = 0; try { size = fs.statSync(files.out).size; } catch { }
+    const offset = m.turn ? Math.min(m.turn.offset || 0, size) : size;
+    const t = makeTransport({ pid: m.pid, keeperPid: m.keeperPid, key: m.key, files, writer, offset, skipBefore: size });
+    t.poll = setInterval(() => { if (!pidAlive(m.pid)) t.exit(null); }, 1000);
+    const s = { threadId: m.threadId, approvalMode: m.approvalMode, cwd: m.cwd, model: m.model, effort: m.effort, turn: null, hooks: hooksFor(m.threadId), lastActivityAt: Date.now() };
+    wireSession(s, new AppServer({ name: `codex ${m.threadId}`, transport: t, onNotify: (method, params) => onSessionNotify(s, method, params), onRequest: request => onSessionRequest(s, request) }));
+    codexSessions.set(s.threadId, s);
+    live.add(m.key);
+    if (m.turn) {
+      const turn = makeTurn(s, { text: m.turn.userText, executionMode: m.turn.executionMode, hooks: s.hooks, offset });
+      // A request the app-server sent before the restart was skipped above; the turn is
+      // blocked on it until the user stops it. Say so instead of showing "Running".
+      Object.assign(turn, { turnId: m.turn.turnId, startedAt: m.turn.startedAt || turn.startedAt, adopted: true,
+        inputUnavailable: Boolean(m.waitingForInput) && !m.waitingForApproval, approvalUnavailable: Boolean(m.waitingForApproval) });
+      writeSessionMeta(s);
+    } else scheduleIdle(s);
+    log(`adopted codex session thread=${m.threadId} pid=${m.pid} turn=${Boolean(m.turn)}`);
+  }
+  for (const f of fs.readdirSync(CX_LOG_DIR)) {
+    if (live.has(f.split('.')[0])) continue;
+    const full = path.join(CX_LOG_DIR, f);
+    if (f.endsWith('.in.fifo')) { try { fs.unlinkSync(full); } catch { } continue; }
+    if (/\.(out\.ndjson|err\.log)$/.test(f)) { try { if (Date.now() - fs.statSync(full).mtimeMs > 48 * 3600_000) fs.unlinkSync(full); } catch { } }
+  }
+}
 
 function finish(turn, ev) {
   if (turn.done) return;
@@ -407,19 +597,45 @@ function finish(turn, ev) {
   turn.approvals?.clear();
   turn.emit(ev);
   turn.emit({ type: 'done' });
-  codexTurns.delete(turn.threadId);
-  setTimeout(() => { try { turn.conn.close(); } catch { } }, 500); // let the last frames drain
+  if (codexTurns.get(turn.threadId) === turn) codexTurns.delete(turn.threadId);
+  const s = turn.session;
+  if (s && s.turn === turn) { s.turn = null; writeSessionMeta(s); scheduleIdle(s); }
+  else if (!s) setTimeout(() => { try { turn.conn.close(); } catch { } }, 500); // never opened a session
   // the daemon's own follow-ups (push, queue drain) must never be able to kill it
   try { turn.onFinish?.(ev, turn); } catch (e) { log(`onFinish threw thread=${turn.threadId}: ${e.message}`); }
 }
 
-export async function startCodexTurn({ threadId, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, emit, onFinish, onQuestion, onApproval, auditApproval }) {
-  const existing = threadId && codexTurns.get(threadId);
-  if (existing) throw Object.assign(new Error('busy'), { code: 409 });
+function scheduleIdle(s) {
+  clearTimeout(s.idleTimer);
+  if (s.turn || s.closing || s.exited || !(IDLE_CLOSE_MS > 0)) return;
+  s.idleTimer = setTimeout(() => { if (!s.turn) closeCodexSession(s, 'idle'); }, IDLE_CLOSE_MS);
+}
 
+// Resolves once the app-server has exited, i.e. the writer lock is free again.
+export function closeCodexSession(s, why) {
+  if (!s) return Promise.resolve();
+  if (s.exited) return Promise.resolve();
+  if (!s.closing) {
+    s.closing = true;
+    clearTimeout(s.idleTimer);
+    log(`codex session closing thread=${s.threadId} pid=${s.conn.pid} reason=${why}`);
+    s.closed = new Promise(resolve => { s.exitResolve = resolve; setTimeout(resolve, 5000); });
+    try { process.kill(-s.conn.pid, 'SIGTERM'); } catch { } // its MCP servers go with it
+    s.conn.close();
+  }
+  return s.closed;
+}
+
+// A turn object wired to the session's connection. `autonomous` turns are ones Codex
+// started without a message from us.
+function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, autonomous = false, offset }) {
+  const { emit, onFinish, onQuestion, onApproval, auditApproval } = hooks;
   const turn = {
-    threadId, cwd, startedAt: Date.now(), userText: text, model, effort,
-    events: [], subs: new Set(), queue: [], turnId: null, done: false, onFinish, executionMode,approvalMode,approvalItems:new Map(),
+    threadId: s.threadId, cwd: s.cwd, startedAt: Date.now(), userText: text, model, effort,
+    events: [], subs: new Set(), queue: [], turnId: null, done: false, onFinish, executionMode, approvalMode: s.approvalMode, approvalItems: new Map(),
+    conn: s.conn, session: s, autonomous, effectiveModel: model || s.model, effectiveEffort: effort || s.effort || null,
+    baseline: descendantCpu(s.conn.pid).pids,
+    offset: offset ?? (() => { try { return fs.statSync(s.conn.transport.files.out).size; } catch { return 0; } })(),
   };
   // events fan out to SSE subscribers exactly like the Claude side
   turn.emit = ev => {
@@ -428,24 +644,60 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
     for (const res of turn.subs) { try { res.write(data); } catch { } }
     emit?.(ev);
   };
-
-  const conn = new AppServer({
-    name: `turn ${threadId || 'new'}`, detached: true,
-    onNotify: (method, params) => onTurnNotify(turn, method, params),
-    onRequest: request => {
-      if(turn.questions?.receive(request,turn.turnId))return true;
-      const approval=codexApproval(request,turn);
-      return approval ? turn.approvals?.receive(approval) || false : false;
-    },
-  });
-  turn.conn = conn;
-  turn.questions=new QuestionInbox({threadId:()=>turn.threadId,write:reply=>conn._write(reply),onChange:()=>{turn.emit({type:'questions'});if(turn.questions?.list().length)onQuestion?.(turn);}});
+  const conn = s.conn;
+  turn.questions=new QuestionInbox({threadId:()=>turn.threadId,write:reply=>conn._write(reply),onChange:()=>{writeSessionMeta(s);turn.emit({type:'questions'});if(turn.questions?.list().length)onQuestion?.(turn);}});
   turn.approvals=new ApprovalInbox({sessionId:()=>CX+turn.threadId,turnId:()=>turn.turnId,audit:auditApproval,write:(id,result)=>new Promise((resolve,reject)=>{
-    if(conn.closed||conn.proc.stdin.destroyed||conn.proc.stdin.writableEnded)return reject(new Error('Approval connection closed'));
-    conn.proc.stdin.write(JSON.stringify({jsonrpc:'2.0',id,result})+'\n',e=>e?reject(e):resolve());
-  }),onChange:()=>{turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);}});
-  conn.onExit = () => finish(turn, { type: 'result', ok: false, error: 'codex exited' });
+    if(!conn.writable())return reject(new Error('Approval connection closed'));
+    try{conn._write({jsonrpc:'2.0',id,result},e=>e?reject(e):resolve());}catch(e){reject(e);}
+  }),onChange:()=>{writeSessionMeta(s);turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);}});
+  clearTimeout(s.idleTimer);
+  s.turn = turn;
+  s.lastActivityAt = Date.now();
+  codexTurns.set(turn.threadId, turn);
+  writeSessionMeta(s);
+  return turn;
+}
 
+function onSessionNotify(s, method, params) {
+  s.lastActivityAt = Date.now();
+  if (!s.turn && method === 'turn/started' && s.threadId) { // Codex started a turn by itself
+    makeTurn(s, { text: '', hooks: s.hooks, autonomous: true });
+    log(`codex turn start (started by the agent) thread=${s.threadId}`);
+  }
+  if (s.turn) {
+    onTurnNotify(s.turn, method, params);
+    if (method === 'turn/started') writeSessionMeta(s);
+  } else if (method === 'account/rateLimits/updated') mergeCodexRateLimits(params?.rateLimits);
+}
+function onSessionRequest(s, request) {
+  s.lastActivityAt = Date.now();
+  const turn = s.turn;
+  if (!turn) return false;
+  if(turn.questions?.receive(request,turn.turnId))return true;
+  const approval=codexApproval(request,turn);
+  return approval ? turn.approvals?.receive(approval) || false : false;
+}
+function wireSession(s, conn) {
+  s.conn = conn;
+  conn.onExit = () => {
+    s.exited = true;
+    clearTimeout(s.idleTimer);
+    if (codexSessions.get(s.threadId) === s) codexSessions.delete(s.threadId);
+    log(`codex session exit thread=${s.threadId} pid=${conn.pid}`);
+    if (s.turn) finish(s.turn, { type: 'result', ok: false, error: s.turn.stalled ? `Stopped: no activity for ${Math.round(STALL_MS / 60_000)} minutes` : s.turn.stopped ? 'Stopped by you' : 'codex exited' });
+    s.exitResolve?.();
+  };
+}
+
+async function openCodexSession({ threadId, cwd, model, approvalMode, hooks }) {
+  const s = { threadId, approvalMode, cwd, turn: null, hooks, lastActivityAt: Date.now() };
+  const conn = new AppServer({
+    name: `codex ${threadId || 'new'}`, transport: spawnTransport(),
+    onNotify: (method, params) => onSessionNotify(s, method, params),
+    onRequest: request => onSessionRequest(s, request),
+  });
+  s.conn = conn;
+  conn.onExit = () => s.exitResolve?.(); // until the session is set up
   try {
     await conn.init();
     if (threadId) {
@@ -454,23 +706,18 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
       const resumed = await conn.request('thread/resume', {
         threadId, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}),
       }, 60_000);
-      turn.effectiveModel=model||resumed.model;
-      turn.effectiveEffort=effort||resumed.reasoningEffort||null;
-      turn.cwd=resumed.cwd||cwd;
+      s.model = resumed.model; s.effort = resumed.reasoningEffort || null; s.cwd = resumed.cwd || cwd;
     } else {
       const r = await conn.request('thread/start', {
         cwd, ...codexPermissionSettings(approvalMode),
         ...(model ? { model } : {}),
       }, 60_000);
-      turn.effectiveModel=model||r.model;
-      turn.effectiveEffort=effort||r.reasoningEffort||null;
-      turn.threadId = r?.thread?.id || r?.threadId;
-      if (!turn.threadId) throw new Error('thread/start returned no id');
+      s.model = r.model; s.effort = r.reasoningEffort || null;
+      s.threadId = r?.thread?.id || r?.threadId;
+      if (!s.threadId) throw new Error('thread/start returned no id');
     }
   } catch (e) {
-    // the turn never started, so its exit isn't a turn ending — drop the handler first
-    // or finish() fires into a caller that hasn't finished constructing yet
-    conn.onExit = null;
+    try { process.kill(-conn.pid, 'SIGTERM'); } catch { }
     conn.close();
     // "already has an active writer" is the one failure worth naming precisely: the
     // thread is open somewhere else and the fix is a human action, not a retry.
@@ -479,26 +726,73 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
     }
     throw e;
   }
+  wireSession(s, conn);
+  codexSessions.set(s.threadId, s);
+  writeSessionMeta(s);
+  log(`codex session start thread=${s.threadId} pid=${conn.pid} resume=${Boolean(threadId)}`);
+  return s;
+}
 
-  codexTurns.set(turn.threadId, turn);
+export async function startCodexTurn({ threadId, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, emit, onFinish, onQuestion, onApproval, auditApproval }) {
+  const existing = threadId && codexTurns.get(threadId);
+  if (existing) throw Object.assign(new Error('busy'), { code: 409 });
+  const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval };
+  let s = threadId && codexSessions.get(threadId);
+  // Permissions ride on thread/resume, so a change needs a fresh process (after the old
+  // one has let go of the writer lock).
+  if (s && (s.closing || s.exited || s.approvalMode !== approvalMode || (cwd && s.cwd && cwd !== s.cwd))) {
+    await closeCodexSession(s, s.closing || s.exited ? 'closing' : 'settings changed');
+    s = null;
+  }
+  const reused = Boolean(s);
+  if (!s) s = await openCodexSession({ threadId, cwd, model, approvalMode, hooks });
+  s.hooks = hooks;
+  if (codexTurns.get(s.threadId)) throw Object.assign(new Error('busy'), { code: 409 });
+  const turn = makeTurn(s, { text, model, effort, executionMode, hooks });
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
 
   const input = [{ type: 'text', text: promptWithAttachments(text, attachments) }];
   try {
-    const r=await conn.request('turn/start', {
+    const r=await s.conn.request('turn/start', {
       threadId:turn.threadId,input,
       collaborationMode:{mode:executionMode==='plan'?'plan':'default',settings:{model:turn.effectiveModel,reasoning_effort:turn.effectiveEffort,developer_instructions:null}},
       ...(model?{model}:{}),...(effort?{effort}:{}),
     },120_000);
     turn.turnId=r?.turn?.id || turn.turnId;
+    writeSessionMeta(s);
   }catch(e){
     finish(turn,{type:'result',ok:false,error:e.message});
+    closeCodexSession(s, 'turn/start failed'); // don't hold the thread's writer lock on a failed start
     throw e;
   }
 
-  log(`turn start thread=${turn.threadId} pid=${conn.pid} cwd=${cwd || '(thread cwd)'}`);
+  log(`turn start thread=${turn.threadId} process=${reused ? 'reused' : 'new'} pid=${s.conn.pid} cwd=${s.cwd || '(thread cwd)'}`);
   return turn;
 }
+
+// Stall watchdog, same rule as the Claude side: stop a turn only after STALL_MS with no
+// notification from the app-server, nothing waiting on the user and no CPU use by
+// programs the turn started. Interrupt first; close the process if that goes unanswered.
+function codexStallCheck() {
+  if (!(STALL_MS > 0)) return;
+  for (const s of codexSessions.values()) {
+    const t = s.turn;
+    if (!t || s.exited || t.stalled || t.done) continue;
+    const { pids, cpu } = descendantCpu(s.conn.pid);
+    let ticks = 0;
+    for (const p of pids) if (!t.baseline.has(p)) ticks += cpu.get(p) || 0;
+    if (t.cpuTicks === undefined || ticks > t.cpuTicks + 100) t.cpuBusyAt = Date.now();
+    t.cpuTicks = ticks;
+    const quietFor = Date.now() - Math.max(s.lastActivityAt, t.cpuBusyAt || 0);
+    if (quietFor < STALL_MS) continue;
+    if (t.questions?.list().length || t.approvals?.list().length) continue;
+    t.stalled = true;
+    log(`codex turn STALLED thread=${s.threadId} quiet=${Math.round(quietFor / 60_000)}min — stopping`);
+    if (t.turnId) s.conn.request('turn/interrupt', { threadId: s.threadId, turnId: t.turnId }, 20_000).catch(() => { });
+    setTimeout(() => { if (s.turn === t) closeCodexSession(s, 'stalled'); }, 30_000);
+  }
+}
+setInterval(codexStallCheck, Math.min(60_000, Math.max(250, STALL_MS / 4))).unref();
 
 function promptWithAttachments(text, attachments) {
   if (!attachments?.length) return text;
@@ -534,14 +828,31 @@ function onTurnNotify(turn, method, params) {
       if (msg) turn.emit({ type: 'assistant', msg });
       break;
     }
-    case 'thread/tokenUsage/updated':
+    case 'thread/tokenUsage/updated': {
       turn.usage = params?.usage || params;
+      const tu = params?.tokenUsage;
+      if (tu) {
+        // "last" is this call's breakdown — the context fed into the model, same idea
+        // as Claude's input + cache_read + cache_creation on the latest assistant line.
+        const last = tu.last || tu.total || {};
+        const used = (last.inputTokens || 0) + (last.cachedInputTokens || 0);
+        const window = tu.modelContextWindow || null;
+        codexUsage.context[turn.threadId] = {
+          used, window: window || estimateWindow(turn.effectiveModel, used),
+          estimated: !window, model: turn.effectiveModel || null, lastAt: Date.now(),
+        };
+        saveCodexUsage();
+      }
+      break;
+    }
+    case 'account/rateLimits/updated':
+      mergeCodexRateLimits(params?.rateLimits);
       break;
     case 'turn/completed': {
       const u = params?.usage || turn.usage || {};
       finish(turn, {
-        type: 'result', ok: !turn.stopped && !['failed','interrupted'].includes(params?.turn?.status),
-        error:turn.stopped?'Stopped by you':params?.turn?.error?.message,
+        type: 'result', ok: !turn.stopped && !turn.stalled && !['failed','interrupted'].includes(params?.turn?.status),
+        error:turn.stalled?`Stopped: no activity for ${Math.round(STALL_MS / 60_000)} minutes`:turn.stopped?'Stopped by you':params?.turn?.error?.message,
         duration_ms: Date.now() - turn.startedAt,
         tokens: u.totalTokens ?? u.total_tokens ?? undefined,
       });
@@ -575,10 +886,9 @@ export function stopCodexTurn(threadId) {
   turn.stopped = true;
   if (turn.turnId) {
     turn.conn.request('turn/interrupt', { threadId, turnId: turn.turnId }, 20_000)
-      .catch(e => log(`interrupt failed thread=${threadId}: ${e.message}`));
-  } else {
-    turn.conn.close();
-  }
+      .catch(e => { log(`interrupt failed thread=${threadId}: ${e.message}`); closeCodexSession(turn.session, 'interrupt failed'); });
+  } else if (turn.session) closeCodexSession(turn.session, 'stopped before the turn began');
+  else turn.conn.close();
   return true;
 }
 
@@ -610,7 +920,7 @@ export async function pollCodexActivity() {
 // Watch mode: mirror a thread being driven somewhere else (code-server, a terminal).
 // Polls the newest items and emits the ones we haven't shown. Descending + small limit
 // keeps this cheap on threads with thousands of items.
-export function watchCodexThread(threadId, onMsg, { intervalMs = 2500 } = {}) {
+export function watchCodexThread(threadId, onMsg, { intervalMs = 2500, after = null } = {}) {
   const seen = new Set();
   let stopped = false, priming = true, complained = false;
   const tick = async () => {
@@ -628,13 +938,15 @@ export function watchCodexThread(threadId, onMsg, { intervalMs = 2500 } = {}) {
           rows = (await readLegacyItems(threadId)).slice(-20);
         }
       }
-      for (const it of rows) {
+      // A reconnect names the last item it saw: everything after it is news, not baseline.
+      let resumeAt = priming && after ? rows.findIndex(it => it.id === after) : -1;
+      for (const [i, it] of rows.entries()) {
         const key = it.id || JSON.stringify(it).slice(0, 120);
         if (seen.has(key)) continue;
         seen.add(key);
-        if (priming) continue; // first pass establishes the baseline, it isn't news
+        if (priming && (resumeAt < 0 || i <= resumeAt)) continue; // baseline, it isn't news
         const msg = normalizeItem(it, new Date().toISOString());
-        if (msg) onMsg({ type: msg.role === 'user' ? 'user' : 'assistant', msg });
+        if (msg) onMsg({ type: msg.role === 'user' ? 'user' : 'assistant', msg, itemId: it.id || undefined });
       }
       priming = false;
     } catch (e) {
@@ -684,6 +996,46 @@ export async function listCodexSkills(cwd) {
   return [...unique.values()].map(s=>({name:s.name,label:s.interface?.displayName||s.name,
     desc:s.interface?.shortDescription||s.shortDescription||s.description||'',path:s.path,
     invocation:`Use the $${s.name} skill at ${s.path}.`}));
+}
+
+// ---------- usage visibility (Feature G) ----------
+// Sparse update: the backend sends only the fields that changed, so this merges onto
+// whatever we last saw rather than replacing it (per AccountRateLimitsUpdatedNotification's
+// own contract — nullable fields absent from an update don't clear a previously observed
+// value). Shallow merge is good enough for the primary/secondary window objects we show.
+function mergeCodexRateLimits(snap) {
+  if (!snap) return;
+  const prev = codexUsage.rateLimits || {};
+  codexUsage.rateLimits = {
+    ...prev, ...snap,
+    primary: snap.primary ? { ...prev.primary, ...snap.primary } : prev.primary,
+    secondary: snap.secondary ? { ...prev.secondary, ...snap.secondary } : prev.secondary,
+    observedAt: Date.now(),
+  };
+  saveCodexUsage();
+}
+
+// Per-session context meter for the UI: same {used,window,pct,estimated,model} shape the
+// Claude side exposes. Only populated for threads this daemon has actually run a turn on
+// and received a tokenUsage/updated notification for — Codex gives us no transcript-based
+// fallback the way Claude's assistant-line usage does.
+export function getCodexContext(threadId) {
+  const c = codexUsage.context[threadId];
+  if (!c) return null;
+  return { used: c.used, window: c.window, pct: c.window ? Math.min(1, c.used / c.window) : 0, estimated: Boolean(c.estimated), model: c.model || null, lastAt: c.lastAt || null };
+}
+
+// Best-effort account rate limits: try a live read on the shared reader connection (this
+// is the one account/rateLimits/read call Pocket makes, so the plan-usage panel doesn't
+// need an active turn to show something), falling back to whatever a running turn last
+// pushed via the account/rateLimits/updated notification. Returns null — not an error —
+// when this Codex CLI build doesn't expose the method at all.
+export async function codexRateLimits() {
+  try {
+    const r = await rpc('account/rateLimits/read', {}, 15_000);
+    if (r?.rateLimits) mergeCodexRateLimits(r.rateLimits);
+  } catch (e) { log(`account/rateLimits/read unavailable: ${e.message}`); }
+  return codexUsage.rateLimits || null;
 }
 
 export async function accountSummary(){

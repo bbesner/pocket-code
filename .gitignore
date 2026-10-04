@@ -17,3 +17,11 @@ delivery-receipts.json*
 # Pending follow-ups contain private user messages
 followup-queue.json*
 approval-decisions.jsonl
+
+# Fork-guard marker: transcript sizes after Pocket-owned turns
+owned-transcripts.json
+
+# 1.7 runtime state (default POCKET_DATA_DIR is this checkout)
+usage-state.json*
+codex-usage-state.json*
+turnlogs-codex/

@@ -1,8 +1,13 @@
 {
   "version": "1.7.0",
-  "assetV": 29,
+  "assetV": 31,
   "notes": [
     "Collapse the whole session header, including Mission Control navigation, on phone, tablet and desktop. Live status stays visible.",
-    "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser."
+    "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser.",
+    "Each Claude Code and Codex session keeps one process between turns: faster turns, and background jobs, MCP connections and the working directory carry over.",
+    "No more 2-hour turn limit. Long work keeps running; only a turn that has been completely silent for 30 minutes is stopped.",
+    "When a background job finishes after a turn, the agent's follow-up appears live and notifies you.",
+    "Context meter on each session, and a Plan usage panel with your 5-hour and weekly limits (reset times in Eastern).",
+    "Close the main session from its header (session options on phones); it asks first if work is still running."
   ]
 }
