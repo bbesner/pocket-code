@@ -141,6 +141,7 @@ function renderToolbar() {
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
     <button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(EFFORTS, tb.prefs.effort))}</button>
+    <button class="chip" id="c-approval" title="Permissions for the next turn">${permissionLabel(nextApprovalMode())}</button>
     ${tb.provider==='codex'?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
     ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}`;
   const ar = $('#attrow');
@@ -162,6 +163,7 @@ function renderToolbar() {
     ar?.querySelectorAll('button').forEach(b => { b.disabled = true; });
   }
   const mode=$('#c-mode');if(mode)mode.onclick=()=>sheet('Codex mode for the next turn',[['work','Work normally','Carry out your request'],['plan','Plan first','Explore an approach and answer native questions before implementation']],tb.prefs.executionMode||'work',v=>{tb.prefs.executionMode=v;setPrefs(tb.key,tb.prefs);renderToolbar();});
+  $('#c-approval').onclick=()=>chooseApprovalMode();
   const mu = $('#c-mute');
   if (mu) mu.onclick = () => toggleMute();
 }
@@ -173,6 +175,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.innerHTML = `
     <h2>${esc(s.title)}</h2>
     ${chatTextControlsHTML()}
+    <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
     <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
     <button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device — clear it to go back to the automatic one</span></span></button>`;
@@ -189,6 +192,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting sessions stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
   bindChatTextControls(sh);
+  sh.querySelector('#so-permissions').onclick=()=>{close();chooseApprovalMode(s.id);};
   mountSheet(scrim, sh);
 }
 function renameSheet(s, refresh) {
@@ -259,6 +263,7 @@ async function uploadFiles(fileList) {
 function turnOpts() {
   if (!tb) return {};
   return {
+    approvalMode:nextApprovalMode(),
     executionMode:tb.provider==='codex'&&tb.prefs.executionMode==='plan'?'plan':'work',
     model: tb.prefs.model !== 'default' ? tb.prefs.model : undefined,
     effort: tb.prefs.effort !== 'default' ? tb.prefs.effort : undefined,
@@ -506,6 +511,7 @@ function paintSessionPanels() {
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
   const current = allSessions.find(s => s.id === chatId);
   const qb=$('#questions-open');if(qb)qb.hidden=!current?.state?.questions;
+  const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals)ab.textContent='Action needs approval · Review';}
   if (current && $('#chat-state')) { $('#chat-state').textContent = sessionsStale ? 'Unconfirmed' : rowState(current).label; if (!sessionsStale) markRead(chatId, current.state); }
   const queueButton=$('#queue-open');if(queueButton)queueButton.textContent='Queue'+(current?.state?.queued?' ('+current.state.queued+')':'');
   const quick = $('#session-switch');
@@ -570,7 +576,7 @@ async function openQueue(id) {
     try{
       const d=await api('/session/'+encodeURIComponent(id)+'/queue');if(!sh.isConnected)return;
       const target=sh.querySelector('#queue-items');
-      target.innerHTML=d.items.length?d.items.map((r,i)=>`<article class="queue-item"><div class="result-detail">${i+1} · ${r.status==='pending'?(d.active?'After the current turn':'Paused'):r.status==='editing'?'Editing · paused':r.status==='dispatching'?'Starting…':'Needs review'}</div><p>${esc(r.text)}</p>${r.error?`<p class="sheet-help">${esc(r.error)}</p>`:''}<div class="queue-actions">${['pending','editing'].includes(r.status)?`<button class="chip" data-edit="${r.id}">${r.status==='editing'?'Continue editing':'Edit'}</button>`:''}${r.status!=='dispatching'?`<button class="chip" data-remove="${r.id}">Remove</button>`:''}</div></article>`).join(''):'<p class="empty">No queued instructions. While the agent works, choose After this turn before sending.</p>';
+      target.innerHTML=d.items.length?d.items.map((r,i)=>`<article class="queue-item"><div class="result-detail">${i+1} · ${r.status==='pending'?(d.active?'After the current turn':'Paused'):r.status==='editing'?'Editing · paused':r.status==='dispatching'?'Starting…':'Needs review'}</div><p>${esc(r.text)}</p><div class="result-detail">${permissionLabel(r.approvalMode||approvalPolicy.defaultMode)}</div>${r.error?`<p class="sheet-help">${esc(r.error)}</p>`:''}<div class="queue-actions">${['pending','editing'].includes(r.status)?`<button class="chip" data-edit="${r.id}">${r.status==='editing'?'Continue editing':'Edit'}</button>`:''}${r.status!=='dispatching'?`<button class="chip" data-remove="${r.id}">Remove</button>`:''}</div></article>`).join(''):'<p class="empty">No queued instructions. While the agent works, choose After this turn before sending.</p>';
       if(d.items[0]?.status==='pending'&&!d.active)target.insertAdjacentHTML('beforeend',`<button class="primary" id="queue-start" ${d.external?'disabled':''}>Run next instruction</button>${d.external?'<p class="sheet-help">Recent activity was seen elsewhere. Refresh after that turn finishes.</p>':''}`);
       target.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{const r=d.items.find(x=>x.id===b.dataset.remove);b.disabled=true;
         try{await api('/session/'+id+'/queue/'+r.id,{method:'DELETE',body:JSON.stringify({revision:r.revision})});await load();refreshSessions();}catch(e){toast(e.message);b.disabled=false;}
@@ -936,6 +942,7 @@ async function renderChat(id) {
     </header>
     <div class="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
     <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>
+    <button class="question-banner" id="approvals-open" hidden>Action needs approval · Review</button>
     <p id="connection-state" class="connection-state" role="status" hidden></p>
     <div class="findbar" id="findbar" hidden>
       <input type="search" id="fq" placeholder="Find in conversation" autocomplete="off" enterkeyhint="search">
@@ -955,6 +962,7 @@ async function renderChat(id) {
   $('#queue-open').onclick = () => openQueue(chatId);
   $('#git-open').onclick = () => openGit(chatId);
   $('#questions-open').onclick=()=>openQuestions(chatId);
+  $('#approvals-open').onclick=()=>openApprovals(chatId);
   $('#chgb').onclick = () => openChanges();
   $('#findb').onclick = () => findOpen(!findIsOpen());
   $('#fq').oninput = e => { findRun(e.target.value); findDeep(e.target.value.trim()); };
@@ -1004,6 +1012,7 @@ async function renderChat(id) {
   if (s.ext && !s.active) extPulse();
   paintDelivery(id); refreshSessions();
   refreshQuestions(id);
+  refreshApprovals(id);
   restoreDock();
   openES(); // always: daemon turns stream events, idle sessions mirror the transcript live
 }
@@ -1042,7 +1051,7 @@ function setComposer(working) {
   const p = $('#slash'); if (p) p.hidden = true;
   c.innerHTML = `
     ${working ? `
-      <div class="workrow"><span class="ember"></span><span>Working</span>
+      <div class="workrow"><span class="ember"></span><span id="work-label">Working</span>
         <button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>
         <button class="chip stopchip" id="stopb" aria-label="Stop this turn">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
@@ -1111,7 +1120,7 @@ function paintDelivery(id = chatId) {
 async function sendMsg(text) {
   text = text.trim(); const id = chatId;
   if (!text || !id || sendsInFlight.has(id) || loadOutbox(id)) return;
-  const opts = composerWorking ? {mode:sendModes.get(id)||'steer'} : turnOpts();
+  const opts = composerWorking ? {mode:sendModes.get(id)||'steer',approvalMode:nextApprovalMode()} : turnOpts();
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
     files: composerWorking ? [] : [...(tb?.attachments || [])], createdAt: Date.now() };
   try { saveDraft(id, text); saveOutbox(id, pending); }
@@ -1163,6 +1172,7 @@ function openES() {
     // watch = the daemon has no turn for this session; if we still show "Working",
     // we missed the turn-end events (SSE drop + reconnect after finalize) — clear it
     if(d.type==='questions'){refreshQuestions(streamId);refreshSessions();return;}
+    if(d.type==='approvals'){refreshApprovals(streamId);refreshSessions();return;}
     if (d.type === 'watch') { watching = true; if (composerWorking) setComposer(false); }
     else if (d.type === 'user') { // mirror: a message sent from another surface
       if (recentSends.some(x => x.text === d.msg.text && Date.now() - x.at < 120000)) return;
@@ -1337,7 +1347,7 @@ async function renderNew() {
       newPending = saved || { payload, clientMessageId: crypto.randomUUID() };
       saveOutbox('new', newPending);
       const { id } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId }) });
-      setPrefs(id,{model:payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work'});
+      setPrefs(id,{model:payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work',approvalMode:payload.approvalMode||approvalPolicy.defaultMode});
       saveOutbox('new', null);
       clearDraft('new'); localStorage.removeItem('pc-attachments-new'); if (tb?.key === 'new') tb.attachments = [];
       try { localStorage.setItem('pc-lastproj', cwd); } catch { }
@@ -1354,6 +1364,7 @@ async function route() {
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
   try { await api('/me'); } catch { return; } // renders login on 401
+  await loadApprovalPolicy();
   dockSurface?.remove();dockSurface=null;
   const h = location.hash;
   if (h.startsWith('#/chat/')) return renderChat(h.slice(7));

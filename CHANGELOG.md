@@ -4,6 +4,18 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
+## [1.4.0] — 2026-10-04 · build 24
+
+- Add native action approvals for Claude and Codex, with complete escaped command,
+  file-change and tool previews, explicit decisions and Needs approval state.
+- Default new turns to Review actions; allow an explicit Full access choice. Instance
+  operators can set the default or disable Full access. Queues and retries retain
+  their selected policy; steering does not change a running turn's permissions.
+- Bind decisions to a pending native request, audit hashes/decisions before sending,
+  reject stale/conflicting replies and prevent replay after uncertain delivery.
+- Keep pending requests across browser reconnects and show explicit recovery when
+  a server restart loses an approval connection. No employee isolation is implied.
+
 ## [1.3.1] — 2026-10-04 · build 23
 
 - Adjust conversation text from 14 to 24px (17px default) in Session options and

@@ -15,7 +15,7 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
  let child,logs='';
  const start=async()=>{
-  child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...process.env,PORT:String(port),POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
+  child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...process.env,PORT:String(port),POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_ALLOW_FULL_ACCESS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
   for(let i=0;i<100;i++){try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
   throw Error('Test server failed: '+logs);
@@ -68,10 +68,10 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  q=(await call(`/session/${sid}/queue`)).body.items;assert.equal(q.length,2);
  await call(`/session/${sid}/queue/${q[1].id}`,{revision:q[1].revision},'DELETE');
  await call(`/session/${sid}/stop`,{});await sleep(300);await stop();await start();
- q=(await call(`/session/${sid}/queue`)).body.items;assert.equal(q.length,1);assert.equal(q[0].text,'Edited follow-up');
+ q=(await call(`/session/${sid}/queue`)).body.items;assert.equal(q.length,1);assert.equal(q[0].text,'Edited follow-up');assert.equal(q[0].approvalMode,'review');
  const started=await call(`/session/${sid}/queue/start`,{itemId:qid});assert.equal(started.status,200);assert.equal(started.body.started,true);
  await sleep(800);assert.equal((await call(`/session/${sid}/queue`)).body.items.length,0);
- assert.equal(calls().filter(x=>x.text==='Edited follow-up').length,1);
+ assert.equal(calls().filter(x=>x.text==='Edited follow-up').length,1);assert.equal(calls().find(x=>x.text==='Edited follow-up').permissionMode,'default');
  assert.equal((await call(`/session/${sid}/queue/start`,{itemId:qid})).status,409);
  // Native Claude questions remain answerable after browser reconnect and fail
  // explicitly after a daemon restart severs the provider input connection.
@@ -93,6 +93,29 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  await call(`/session/${iid}/stop`,{});await sleep(1300);assert.equal((await call(`/session/${iid}`)).body.active,false);
  assert.equal((await fetch(`http://127.0.0.1:${port}/api/environment`)).status,401);
  assert.equal((await fetch(`http://127.0.0.1:${port}/api/session/${sid}/workspace`)).status,401);
+ // Pending actions wait for explicit, session-bound decisions and are never replayed.
+ const awaitApproval=async id=>{for(let i=0;i<60;i++){const d=(await call(`/session/${id}/approvals`)).body;if(d.requests.length)return d.requests[0];await sleep(50);}throw Error('Missing approval');};
+ const held=await call('/new',{cwd:repo,text:'__APPROVAL__ allow',approvalMode:'review',clientMessageId:randomUUID()});const aid=held.body.id;
+ const action=await awaitApproval(aid);assert.equal(fs.existsSync(path.join(dir,'calls.approved')),false);
+ assert.equal(calls().find(r=>r.id===aid).permissionMode,'default');
+ assert.equal((await call(`/session/${aid}`)).body.state.label,'Needs approval');
+ assert.equal((await call(`/session/${sid}/approvals/${action.id}/decision`,{decision:'allow'})).status,409);
+ assert.equal((await call(`/session/${aid}/approvals/${action.id}/decision`,{decision:'allow'})).status,200);
+ assert.equal((await call(`/session/${aid}/approvals/${action.id}/decision`,{decision:'allow'})).body.duplicate,true);
+ await sleep(600);assert.equal(fs.readFileSync(path.join(dir,'calls.approved'),'utf8').trim(),aid);
+ const denied=await call('/new',{cwd:repo,text:'__APPROVAL__ deny',clientMessageId:randomUUID()});const deniedAction=await awaitApproval(denied.body.id);
+ assert.equal((await call(`/session/${denied.body.id}/approvals/${deniedAction.id}/decision`,{decision:'deny'})).status,200);
+ await sleep(600);assert.equal(fs.readFileSync(path.join(dir,'calls.approved'),'utf8').trim(),aid);
+ const interruptedApproval=await call('/new',{cwd:repo,text:'__APPROVAL__ restart',clientMessageId:randomUUID()});const rid=interruptedApproval.body.id,staleAction=await awaitApproval(rid);
+ await stop();await start();assert.equal((await call(`/session/${rid}/approvals`)).body.interrupted,true);
+ assert.equal((await call(`/session/${rid}/approvals/${staleAction.id}/decision`,{decision:'allow'})).status,409);
+ await call(`/session/${rid}/stop`,{});await sleep(1300);
+ assert.equal(fs.readFileSync(path.join(dir,'calls.approved'),'utf8').trim(),aid);
+ const audit=fs.readFileSync(path.join(dir,'data','approval-decisions.jsonl'),'utf8');assert.equal(audit.includes('fixture-only-secret'),false);assert.match(audit,/"decision":"deny"/);
+ assert.equal((await fetch(`http://127.0.0.1:${port}/api/session/${aid}/approvals`)).status,401);
+ assert.equal((await call('/new',{cwd:repo,text:'bad policy',approvalMode:'anything'})).status,400);
+ assert.equal((await call('/new',{cwd:repo,text:'forbidden full access',approvalMode:'full'})).status,403);
+ assert.equal((await call('/approval-policy')).body.allowFullAccess,false);
  // Linked report downloads are authenticated, session-bound and non-executable.
  const artifacts=fs.mkdtempSync(path.join(os.homedir(),'pocket-artifact-test-'));
  t.after(()=>fs.rmSync(artifacts,{recursive:true,force:true}));
