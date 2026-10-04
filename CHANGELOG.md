@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0 — Unreleased
+
+- Collapse the session header on any screen size, including its Mission Control wrapper. The slim header retains session navigation, title and live server status.
+- Hide the message settings toolbar independently with the gear beside the input. Attachment access, attached files, Send, delivery problems and running-turn controls remain available.
+- Remember both preferences per browser through reloads, folding and resizing. Collapse changes preserve the input, draft, reading position and open panels.
+
+
 Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. The app's
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
