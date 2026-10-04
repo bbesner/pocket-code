@@ -88,3 +88,28 @@ certification is not claimed.
 Source detector exceptions: the existing ember only pulses for confirmed owned
 runs; it is functional state, not decorative liveness. The existing radial radio
 selection fill is a control indicator. Both are retained from the pinned design.
+
+## Compact desktop workspace (1.3.1)
+
+Pinned refinement: variance 3, motion 1, density 8. Preserve the warm ink identity
+and conversation typography. Reduce desktop chrome spacing on a 4px rhythm;
+retain 44px targets. Independent disclosures hide tabs/subtitle or session filters,
+keeping essential actions and warnings available. Active filters remain explained
+and clearable. Change layout in place; preserve drafts, reading position and docks.
+Desktop preferences do not hide phone controls.
+
+Rendered desktop and mobile scans reviewed: native font, intentionally truncated
+titles/tabs, existing table containment and compact header hierarchy are retained.
+The existing slash-menu shadow is unchanged. Text-occlusion findings are report
+paragraphs outside the conversation's scroll viewport, inspected with its composer
+visible; they remain reachable by scrolling. No new contrast or touch-target
+exceptions are introduced by the disclosures.
+
+Conversation text has a per-browser 14–24px preference (17px default), exposed in
+existing Session options and App Settings sheets to avoid extra permanent chrome.
+Prose, report headings and tables scale together; table text has a 13px floor.
+Code, tool ledgers and application controls keep their existing typography. The
+14px prose minimum is an explicit user density preference; browser zoom remains
+available. Both settings surfaces share one control with announced values, native
+disabled bounds, a live sample and reset. Rendered phone/desktop scans at 24px have
+only the existing ellipsis/table/shadow/native-font exceptions described above.

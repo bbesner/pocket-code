@@ -4,6 +4,19 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
+## [1.3.1] — 2026-10-04 · build 23
+
+- Adjust conversation text from 14 to 24px (17px default) in Session options and
+  App Settings. Preview changes, reset the size, and remember it per browser.
+  Scale report headings and tables with prose; keep toolbars and code at their
+  existing sizes. Preserve the current reading anchor when changing size.
+- Tighten desktop header, tab and session-list spacing while retaining readable
+  conversation text and 44px control targets.
+- Add independent conversation-header and session-filter collapse controls, saved
+  per browser. Keep search, active-filter summaries, warnings and conversation tools
+  accessible. Collapsing does not reload the conversation, draft or open tool panel.
+- Preserve the existing phone layout when desktop collapse preferences are saved.
+
 ## [1.3.0] — 2026-10-04 · build 22
 
 - Add persistent desktop session tabs, keyboard switching, resume-last navigation,

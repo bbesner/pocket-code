@@ -172,6 +172,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   const sh = document.createElement('div'); sh.className = 'sheet';
   sh.innerHTML = `
     <h2>${esc(s.title)}</h2>
+    ${chatTextControlsHTML()}
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
     <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
     <button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device — clear it to go back to the automatic one</span></span></button>`;
@@ -187,6 +188,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   };
   sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting sessions stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
+  bindChatTextControls(sh);
   mountSheet(scrim, sh);
 }
 function renameSheet(s, refresh) {
@@ -381,6 +383,7 @@ async function settingsSheet() {
   const pushed = await pushState();
   sh.innerHTML = `
     <h2>Pocket Code</h2>
+    ${chatTextControlsHTML()}
     <div class="about">
       <div class="arow"><span>App</span><b>${esc(a.version || 'Pocket Code')} · build ${APP_V ?? '?'}</b></div>
       <div class="arow"><span>Server</span><b>v${a.assetV ?? '?'} · ${esc(a.commit || '?')}${a.commitAt ? ' · ' + new Date(a.commitAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</b></div>
@@ -397,6 +400,7 @@ async function settingsSheet() {
   scrim.onclick = close;
   const r = sh.querySelector('#s-refresh'); if (r) r.onclick = hardRefresh;
   sh.querySelector('#s-environment').onclick=openEnvironment;
+  bindChatTextControls(sh);
   sh.querySelector('#s-keys').onclick=keyboardHelp;
   sh.querySelector('#s-chime').onclick = e => {
     const on = localStorage.getItem('pc-chime') === 'off'; // toggling to…
@@ -485,6 +489,7 @@ function groupedSessionsHTML(list) {
 }
 function paintSessionPanels() {
   paintWorkspaceFilters();
+  paintWorkspaceDensity();
   document.querySelectorAll('[data-session-summary]').forEach(el => { el.textContent = sessionSummary(); });
   document.querySelectorAll('[data-session-filters]').forEach(el => {
     const focused = el.contains(document.activeElement) ? document.activeElement.dataset.filter : null;
@@ -516,10 +521,12 @@ async function refreshSessions() {
   return sessionFetch;
 }
 function sessionPanelHTML(rail = false) {
+  const summary = `<p class="session-summary" data-session-summary role="status">${esc(sessionSummary())}</p>`;
+  const filters = `<div data-workspace-filters></div><nav class="session-filters" data-session-filters aria-label="Filter sessions">${filterButtons()}</nav>`;
   return `<div class="session-panel ${rail ? 'compact' : ''}">
-    <p class="session-summary" data-session-summary role="status">${esc(sessionSummary())}</p>
+    ${rail ? '' : summary}
     <div class="session-search">${IC.search}<input type="search" data-session-search aria-label="Search recent sessions" placeholder="Search recent sessions" value="${esc(sessionQuery)}" autocomplete="off"></div>
-    <div data-workspace-filters></div><nav class="session-filters" data-session-filters aria-label="Filter sessions">${filterButtons()}</nav>
+    ${rail ? `<div id="rail-filter-summary" class="rail-filter-summary" hidden><span></span><button id="clear-rail-filters">Clear filters</button></div><div id="rail-filter-controls">${summary}${filters}</div>` : filters}
     <p class="session-warning" data-session-warning hidden></p>
     <div class="session-results" data-session-results></div>
     <p class="session-footnote">Recent history and all runs owned by Pocket Code. External activity is an estimate.</p>
@@ -869,7 +876,7 @@ function withShell(colHtml) { // desktop: session rail + resize grip beside the 
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div></div>`;
   return `<div class="split">
     <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#conversation">Skip to conversation</a>
-      <div class="railhead"><span>Sessions</span><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div>
+      <div class="railhead"><span>Sessions</span><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse session filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div>
       <div id="rail"></div>
     </aside>
     <div class="railgrip" id="grip" role="separator" tabindex="0" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="${railW()}" aria-label="Resize session list"></div>
@@ -878,6 +885,7 @@ function withShell(colHtml) { // desktop: session rail + resize grip beside the 
 }
 function wireShell() {
   paintOpenSessions();
+  bindWorkspaceDensity();
   if (!railOpen()) return;
   paintRail();
   $('#railsettings').onclick=settingsSheet;
@@ -924,6 +932,7 @@ async function renderChat(id) {
       <button class="icon" id="chgb" aria-label="Changed files">${IC.diff}</button>
       <button class="icon" id="findb" aria-label="Find in conversation">${IC.search}</button>
       <button class="icon" id="chatmore" aria-label="Session options">${IC.more}</button>
+      <button class="icon desk" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj">${IC.up1}</button>
     </header>
     <div class="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
     <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>

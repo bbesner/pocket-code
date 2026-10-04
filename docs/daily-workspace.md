@@ -6,6 +6,39 @@
 
 Screenshots contain synthetic fixture data only.
 
+## Compact desktop controls (1.3.1)
+
+Open the conversation's three-dot **Session options** menu, or **App Settings**, to
+adjust **Chat text size**. Smaller and Larger change it one pixel at a time from
+14 to 24px; Reset restores the 17px default. A live sample shows the chosen size.
+The setting applies to all conversations on this browser, including phones, and
+survives reloads. User messages, assistant prose, report headings and tables scale;
+code, tool logs, the composer and application controls keep their existing sizes.
+The currently visible paragraph stays in place as text reflows; a view at the
+bottom stays at the bottom. Table text has a 13px minimum.
+
+Use the chevron at the far right of the conversation header to hide or restore the
+open-session tabs and workspace subtitle. The title, session switcher, status and
+Results / Queue / Git actions stay available. Use **Filters** above the session list
+to hide or restore its summary and filtering controls. Search stays visible; active
+workspace, agent and status filters have a summary and Clear filters action.
+
+These preferences are independent and saved on this browser. Neither control
+reloads the conversation or discards a draft, reading position or open tool panel.
+Phone layouts retain their existing header and session switcher. The panel icon
+beside the conversation title still hides the entire desktop session list, and its
+divider still resizes it.
+
+Synthetic checks cover keyboard activation, remembered settings, filtering, drafts,
+reading position and dock preservation, with visible controls at 900, 1279, 1280,
+1440 and 1536px widths. At 1440px, collapsing recovers 54px for the conversation
+and 188px for the session list in the filtered fixture, beyond tighter default spacing.
+Font-size checks cover both settings surfaces, keyboard input, 14/17/24px limits,
+reset, persistence, invalid stored values, reading anchors, proportional headings
+and tables, fixed toolbar sizes, and overflow at 360/390/768/1440px.
+
+## Daily use
+
 On desktop, open sessions stay in a tab strip. Results, Queue and Git can remain
 beside the conversation at wide window sizes. The same controls open focused
 sheets on phones. Filters, hidden sessions, tabs, drafts and panel preference are
