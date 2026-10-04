@@ -523,6 +523,38 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .open-session.current a { color:var(--text); }
 .open-session button { display:grid;place-items:center;min-height:44px;min-width:44px;color:var(--dim);background:none;border:0;cursor:pointer; }
 .open-session button .i { width:16px;height:16px; }
+/* Desktop chrome yields space to the conversation and the session list. */
+.density-toggle { display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:44px;min-width:44px;padding:4px 8px;font-size:13px;color:var(--dim);border-radius:6px; }
+.density-toggle .i { width:16px;height:16px; }
+.rail-filter-summary { display:flex;align-items:center;gap:8px;padding:0 12px 4px;font-size:12px;color:var(--dim); }
+.rail-filter-summary[hidden] { display:none; }
+.rail-filter-summary span { flex:1;min-width:0;overflow-wrap:anywhere; }
+.rail-filter-summary button { flex:none;min-height:44px;padding:4px;color:var(--clay); }
+@media (min-width:900px) {
+  .chatcol { min-height:0; }
+  .chatcol > main.scroll { min-height:0; }
+  .chatcol > .composerwrap { flex:none; }
+  .chatcol > header.bar { padding-block:4px;min-height:52px; }
+  .chatcol .chat-statebar { padding-inline:8px;gap:4px; }
+  .chatcol #git-open { flex:none;padding-inline:7px; }
+  .open-sessions { padding:2px 8px; }
+  .open-session a { display:flex;align-items:center;padding-block:4px; }
+  .compact-header #open-sessions,.compact-header #cproj { display:none; }
+  .railhead { gap:4px;padding:4px 8px 4px 12px; }
+  .railhead > span { flex:1; }
+  .railhead button.icon { margin:0;padding:8px; }
+  .rail .session-search { margin:0 12px 4px;min-height:44px; }
+  .rail .session-search input { padding-block:8px; }
+  .rail .session-summary { padding:4px 12px;font-size:12px; }
+  .rail .workspace-filters { padding:0 12px 4px;grid-template-columns:minmax(0,1fr) 104px; }
+  .rail .workspace-filters select { margin-top:2px;padding:4px; }
+  .rail .session-filters { padding:0 8px 4px; }
+  .rail .session-filters button { padding:4px 8px; }
+  .rail .session-group h2 { padding:8px 12px 4px; }
+  .rail .session-item .row { padding:8px 8px 8px 12px; }
+  .rail .session-status { margin-top:4px; }
+  .rail .activity-detail { margin-top:0; }
+}
 .workspace-dock { flex:0 0 350px;min-width:0;overflow:auto;background:var(--surface);border-left:1px solid var(--line);padding:16px; }
 .workspace-dock h2,.git-sheet h2 { font-size:17px;font-weight:650;line-height:1.4;margin:8px 0 12px; }
 .dock-tabs { display:flex;gap:6px;align-items:center;margin-bottom:20px; }

@@ -1498,6 +1498,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
+  'More desktop workspace: collapse the conversation header and session filters independently. Both choices are remembered on this browser.',
+  'Tighter desktop tabs, headers and session rows. Search, active-filter summaries and conversation tools stay accessible when collapsed.',
   'Desktop open-session tabs and a persistent Results, Queue or Git panel keep your work in view. Phone layouts stay focused.',
   'Filter by workspace, agent or pinned sessions. Hide old sessions on this device; fresh activity brings them back.',
   'Answer native Claude questions and Codex Plan-first questions without leaving the conversation.',

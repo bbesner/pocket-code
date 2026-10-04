@@ -6,6 +6,27 @@
 
 Screenshots contain synthetic fixture data only.
 
+## Compact desktop controls (1.3.1)
+
+Use the chevron at the far right of the conversation header to hide or restore the
+open-session tabs and workspace subtitle. The title, session switcher, status and
+Results / Queue / Git actions stay available. Use **Filters** above the session list
+to hide or restore its summary and filtering controls. Search stays visible; active
+workspace, agent and status filters have a summary and Clear filters action.
+
+These preferences are independent and saved on this browser. Neither control
+reloads the conversation or discards a draft, reading position or open tool panel.
+Phone layouts retain their existing header and session switcher. The panel icon
+beside the conversation title still hides the entire desktop session list, and its
+divider still resizes it.
+
+Synthetic checks cover keyboard activation, remembered settings, filtering, drafts,
+reading position and dock preservation, with visible controls at 900, 1279, 1280,
+1440 and 1536px widths. At 1440px, collapsing recovers 54px for the conversation
+and 188px for the session list in the filtered fixture, beyond tighter default spacing.
+
+## Daily use
+
 On desktop, open sessions stay in a tab strip. Results, Queue and Git can remain
 beside the conversation at wide window sizes. The same controls open focused
 sheets on phones. Filters, hidden sessions, tabs, drafts and panel preference are

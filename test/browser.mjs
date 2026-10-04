@@ -196,6 +196,63 @@ try{
  await p.click('#c-mode');await p.waitForSelector('[data-v="plan"]');await p.click('[data-v="plan"]');assert.match(await p.$eval('#c-mode',e=>e.textContent),/Plan first/);
  await p.evaluate(()=>openEnvironment());await p.waitForSelector('.provider-account');assert.match(await p.$eval('.provider-account',e=>e.textContent),/owner@example.test/);await p.keyboard.press('Escape');
  await p.keyboard.down('Control');await p.keyboard.press('k');await p.keyboard.up('Control');await p.waitForSelector('.session-switcher');await p.keyboard.press('Escape');
+ // Desktop density controls act independently and do not remount the conversation.
+ await p.setViewport({width:1440,height:800,isMobile:false,hasTouch:false});
+ await p.goto(base+'/#/chat/'+idle.id);await p.waitForSelector('#box');
+ await p.waitForSelector('#rail [data-workspace-filter]');
+ await p.select('#rail [data-workspace-filter]','/workspaces/warehouse');
+ await p.select('#rail [data-provider-filter]','claude');
+ await p.type('#rail [data-session-search]','warehouse');
+ await p.$eval('#box',e=>{e.value='Keep my draft while making room.';e.dispatchEvent(new Event('input',{bubbles:true}));});
+ const expanded=await p.evaluate(()=>({chat:document.querySelector('#msgs').closest('main').clientHeight,rows:document.querySelector('#rail [data-session-results]').getBoundingClientRect().top}));
+ await p.evaluate(()=>{window.densityComposer=document.querySelector('#box');document.querySelector('#msgs').closest('main').scrollTop=180;});
+ await p.focus('#header-toggle');await p.keyboard.press('Enter');
+ assert.equal(await p.$eval('#header-toggle',e=>e.getAttribute('aria-expanded')),'false');
+ assert.equal(await p.$eval('#rail-filter-toggle',e=>e.getAttribute('aria-expanded')),'true');
+ assert.equal(await p.$eval('#open-sessions',e=>e.getClientRects().length),0);
+ assert.equal(await p.$eval('#cproj',e=>e.getClientRects().length),0);
+ assert.ok(await p.$eval('#msgs',e=>Math.abs(e.closest('main').scrollTop-180)<4));
+ await p.focus('#rail-filter-toggle');await p.keyboard.press('Enter');
+ assert.equal(await p.$eval('#rail-filter-controls',e=>e.hidden),true);
+ assert.match(await p.$eval('#rail-filter-summary',e=>e.textContent),/warehouse · Claude/);
+ assert.equal(await p.$$eval('#rail [data-id]',e=>e.length),2);
+ assert.equal(await p.$eval('#box',e=>e===window.densityComposer),true);
+ assert.equal(await p.$eval('#box',e=>e.value),'Keep my draft while making room.');
+ const collapsed=await p.evaluate(()=>({chat:document.querySelector('#msgs').closest('main').clientHeight,rows:document.querySelector('#rail [data-session-results]').getBoundingClientRect().top}));
+ assert.ok(collapsed.chat-expanded.chat>=50,'header recovers at least 50px');
+ assert.ok(expanded.rows-collapsed.rows>=120,'collapsed filters recover at least 120px');
+ await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');await p.waitForSelector('#rail [data-id]');
+ assert.equal(await p.$eval('#header-toggle',e=>e.getAttribute('aria-expanded')),'false');
+ assert.equal(await p.$eval('#rail-filter-toggle',e=>e.getAttribute('aria-expanded')),'false');
+ assert.equal(await p.$eval('#box',e=>e.value),'Keep my draft while making room.');
+ await p.click('#clear-rail-filters');assert.equal(await p.$eval('#rail-filter-summary',e=>e.hidden),true);
+ await p.type('#rail [data-session-search]','warehouse');await p.click('#rail-filter-toggle');await p.click('#rail-filter-toggle');
+ assert.equal(await p.$eval('#rail [data-session-search]',e=>e.value),'warehouse');
+ await p.$eval('#rail [data-session-search]',e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));});
+ await p.click('#results-open');await p.waitForSelector('.workspace-dock');
+ await p.evaluate(()=>{window.densityDock=document.querySelector('.workspace-dock');});
+ await p.click('#header-toggle');await p.click('#header-toggle');
+ assert.equal(await p.$eval('.workspace-dock',e=>e===window.densityDock),true);
+ await p.click('[data-close-dock]');
+ for(const width of [900,1279,1280,1440,1536]){
+  await p.setViewport({width,height:760});
+  assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'compact desktop overflow '+width);
+  for(const selector of ['#ctitle','#results-open','#queue-open','#git-open','#header-toggle','#rail-filter-toggle','#send']){
+   assert.ok(await p.$eval(selector,e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.top>=0&&r.bottom<=innerHeight&&r.left>=0&&r.right<=innerWidth;}),selector+' stays reachable at '+width);
+  }
+  if(width===1440){await p.screenshot({path:path.join(out,'compact-workspace-desktop.png')});await scan('compact-workspace-desktop');}
+ }
+ // Desktop preferences must not remove the phone subtitle or session controls.
+ await p.setViewport({width:390,height:844,isMobile:true,hasTouch:true});
+ assert.ok(await p.$eval('#cproj',e=>e.getClientRects().length)>0);
+ assert.equal(await p.$eval('#header-toggle',e=>e.getClientRects().length),0);
+ await p.screenshot({path:path.join(out,'compact-preference-mobile.png')});await scan('compact-preference-mobile');
+ await p.setViewport({width:1440,height:760,isMobile:false,hasTouch:false});
+ await p.click('#header-toggle');await p.click('#rail-filter-toggle');
+ assert.ok(await p.$eval('#open-sessions',e=>e.getClientRects().length)>0);
+ assert.equal(await p.$eval('#rail-filter-controls',e=>e.hidden),false);
+ await p.screenshot({path:path.join(out,'expanded-workspace-desktop.png')});await scan('expanded-workspace-desktop');
+ fs.writeFileSync(path.join(out,'density-metrics.json'),JSON.stringify({expanded,collapsed,conversationGain:collapsed.chat-expanded.chat,sessionListGain:expanded.rows-collapsed.rows},null,2));
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));
