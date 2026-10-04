@@ -1183,7 +1183,12 @@ function adoptOrphans() {
           turn.startedAt = m.turn.startedAt || turn.startedAt;
           Object.assign(turn, { adopted: true, inputUnavailable: Boolean(m.waitingForInput) && !m.waitingForApproval, approvalUnavailable: Boolean(m.waitingForApproval) });
         }
-        if (!writer) { log(`adopted session process without input pipe session=${m.sessionId} — it closes after this turn`); r.closing = true; }
+        if (!writer) { // can't send to it any more: drop the keeper so the CLI reads EOF after this turn
+          log(`adopted session process without input pipe session=${m.sessionId} — it closes after this turn`);
+          r.closing = true;
+          try { process.kill(-m.keeperPid, 'SIGTERM'); } catch { }
+          r.forceTimer = setTimeout(() => { if (!r.exited && !r.turn) signalTurn(r); }, 30_000);
+        }
         r.tailTimer = setInterval(() => drainRunnerLog(r), 300);
         r.pollTimer = setInterval(() => { if (!pidAlive(r.pid)) onRunnerExit(r, null); }, 1000);
         if (!r.turn) scheduleIdle(r);
