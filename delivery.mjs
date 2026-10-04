@@ -10,9 +10,20 @@ export class DeliveryReceipts {
     this.pending = new Map();
     try { this.records = JSON.parse(fs.readFileSync(file, 'utf8')); }
     catch (e) { if (e.code !== 'ENOENT') throw e; this.records = {}; }
+    this.prune();
+  }
+
+  // Receipts only matter for a retry of the same message; keep a week, cap the count.
+  prune(maxAgeMs = 7 * 24 * 3600_000, maxCount = 2000) {
+    const cutoff = Date.now() - maxAgeMs;
+    const keys = Object.keys(this.records).filter(k => !this.pending.has(k));
+    for (const k of keys) if ((this.records[k].at || 0) < cutoff) delete this.records[k];
+    const left = Object.keys(this.records).filter(k => !this.pending.has(k)).sort((a, b) => (this.records[a].at || 0) - (this.records[b].at || 0));
+    for (const k of left.slice(0, Math.max(0, left.length - maxCount))) delete this.records[k];
   }
 
   save() {
+    if (Object.keys(this.records).length > 2200) this.prune();
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = this.file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(this.records), { mode: 0o600 });

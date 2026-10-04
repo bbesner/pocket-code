@@ -124,7 +124,7 @@ test('API: /api/usage and /api/session/:id/context reflect a turn that reported 
   const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(POCKET|VAPID)_/.test(k)));
   let child;
   const start = async () => {
-    child = spawn(process.execPath, ['server.mjs'], { cwd: repo, env: { ...cleanEnv(), PORT: String(port), POCKET_PASSWORD: 'test-only', POCKET_SECRET: secret, POCKET_CODEX: '0', POCKET_ALLOW_FULL_ACCESS: '0', POCKET_SESSION_ROOT: path.join(dir, 'sessions'), POCKET_DATA_DIR: path.join(dir, 'data'), POCKET_TEST_CALLS: path.join(dir, 'calls'), CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs') }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(process.execPath, ['server.mjs'], { cwd: repo, env: { ...cleanEnv(), PORT: String(port), POCKET_ENV_FILE: '', POCKET_PASSWORD: 'test-only', POCKET_SECRET: secret, POCKET_CODEX: '0', POCKET_ALLOW_FULL_ACCESS: '0', POCKET_SESSION_ROOT: path.join(dir, 'sessions'), POCKET_DATA_DIR: path.join(dir, 'data'), POCKET_TEST_CALLS: path.join(dir, 'calls'), CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs') }, stdio: ['ignore', 'pipe', 'pipe'] });
     for (let i = 0; i < 100; i++) { try { const r = await fetch(`http://127.0.0.1:${port}/api/health`); if (r.ok) return; } catch { } await sleep(30); }
     throw Error('Test server failed to start');
   };

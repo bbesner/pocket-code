@@ -11,8 +11,9 @@
 //      transcript are always available, whatever else is running.
 //   2. WRITES take a per-thread writer lock (~/.codex/thread-writer-locks/<id>.lock,
 //      flock). While code-server has a thread open it owns that lock and `thread/resume`
-//      fails with "already has an active writer". So a turn connection resumes, runs,
-//      and CLOSES — the lock goes back the moment the turn ends.
+//      fails with "already has an active writer". Since 1.7 Pocket keeps one app-server
+//      per thread between turns, so it holds that lock until the session closes (idle,
+//      Close session, a settings change) — code-server can't write to the thread meanwhile.
 
 import {agentEnv} from './environment.mjs';
 import { spawn, execFileSync } from 'node:child_process';
@@ -200,7 +201,7 @@ class AppServer {
 // It is long-lived, so an in-place `npm i -g @openai/codex` upgrade would leave it running
 // the old build forever (2026-09-25: model/list still served the pre-upgrade catalog 4 days
 // after the upgrade). Each read checks the install's fingerprint and respawns on change.
-// Turns are unaffected — each spawns its own app-server.
+// Session processes are unaffected — each thread gets its own app-server.
 let reader = null, readerReady = null, readerStamp = null;
 async function readConn() {
   if (reader && !reader.closed && binStamp(CODEX_BIN) !== readerStamp) {
@@ -430,8 +431,14 @@ export async function codexThreadMeta(threadId) {
 // closes it (after IDLE_CLOSE_MS idle, the Close session control, or a settings change).
 // Spawned detached so a `pm2 restart pocket-claude` mid-turn doesn't kill the work — the
 // same rule the Claude side learned the hard way on 2026-08-14.
-const IDLE_CLOSE_MS = Number(process.env.POCKET_IDLE_CLOSE_MS ?? 60 * 60_000);
-const STALL_MS = Number(process.env.POCKET_STALL_MS ?? 30 * 60_000);
+function msSetting(name, dflt) { // same rule as server.mjs: milliseconds, 0 disables, junk → default
+  const raw = (process.env[name] ?? '').trim();
+  if (!raw) return dflt;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : dflt;
+}
+const IDLE_CLOSE_MS = msSetting('POCKET_IDLE_CLOSE_MS', 60 * 60_000);
+const STALL_MS = msSetting('POCKET_STALL_MS', 30 * 60_000);
 export const codexTurns = new Map(); // threadId -> active turn
 export const codexSessions = new Map(); // threadId -> {conn, approvalMode, cwd, model, effort, turn, hooks}
 
@@ -517,6 +524,8 @@ function writeSessionMeta(s) {
   const meta = {
     threadId: s.threadId, pid: t.pid, keeperPid: t.keeperPid, key: t.key, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort,
     turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode } : null,
+    waitingForInput: Boolean(turn && (turn.questions?.list().length || turn.approvals?.list().length || turn.inputUnavailable || turn.approvalUnavailable)),
+    waitingForApproval: Boolean(turn?.approvals?.list().length || turn?.approvalUnavailable),
   };
   try { fs.writeFileSync(t.files.meta, JSON.stringify(meta), { mode: 0o600 }); } catch { }
 }
@@ -549,7 +558,11 @@ export function adoptCodexSessions(hooksFor) {
     live.add(m.key);
     if (m.turn) {
       const turn = makeTurn(s, { text: m.turn.userText, executionMode: m.turn.executionMode, hooks: s.hooks, offset });
-      Object.assign(turn, { turnId: m.turn.turnId, startedAt: m.turn.startedAt || turn.startedAt, adopted: true });
+      // A request the app-server sent before the restart was skipped above; the turn is
+      // blocked on it until the user stops it. Say so instead of showing "Running".
+      Object.assign(turn, { turnId: m.turn.turnId, startedAt: m.turn.startedAt || turn.startedAt, adopted: true,
+        inputUnavailable: Boolean(m.waitingForInput) && !m.waitingForApproval, approvalUnavailable: Boolean(m.waitingForApproval) });
+      writeSessionMeta(s);
     } else scheduleIdle(s);
     log(`adopted codex session thread=${m.threadId} pid=${m.pid} turn=${Boolean(m.turn)}`);
   }
@@ -619,11 +632,11 @@ function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, auton
     emit?.(ev);
   };
   const conn = s.conn;
-  turn.questions=new QuestionInbox({threadId:()=>turn.threadId,write:reply=>conn._write(reply),onChange:()=>{turn.emit({type:'questions'});if(turn.questions?.list().length)onQuestion?.(turn);}});
+  turn.questions=new QuestionInbox({threadId:()=>turn.threadId,write:reply=>conn._write(reply),onChange:()=>{writeSessionMeta(s);turn.emit({type:'questions'});if(turn.questions?.list().length)onQuestion?.(turn);}});
   turn.approvals=new ApprovalInbox({sessionId:()=>CX+turn.threadId,turnId:()=>turn.turnId,audit:auditApproval,write:(id,result)=>new Promise((resolve,reject)=>{
     if(!conn.writable())return reject(new Error('Approval connection closed'));
     try{conn._write({jsonrpc:'2.0',id,result},e=>e?reject(e):resolve());}catch(e){reject(e);}
-  }),onChange:()=>{turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);}});
+  }),onChange:()=>{writeSessionMeta(s);turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);}});
   clearTimeout(s.idleTimer);
   s.turn = turn;
   s.lastActivityAt = Date.now();
@@ -736,6 +749,7 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
     writeSessionMeta(s);
   }catch(e){
     finish(turn,{type:'result',ok:false,error:e.message});
+    closeCodexSession(s, 'turn/start failed'); // don't hold the thread's writer lock on a failed start
     throw e;
   }
 
@@ -747,6 +761,7 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
 // notification from the app-server, nothing waiting on the user and no CPU use by
 // programs the turn started. Interrupt first; close the process if that goes unanswered.
 function codexStallCheck() {
+  if (!(STALL_MS > 0)) return;
   for (const s of codexSessions.values()) {
     const t = s.turn;
     if (!t || s.exited || t.stalled || t.done) continue;

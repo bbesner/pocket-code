@@ -16,7 +16,7 @@ import path from 'node:path';
 
 const WINDOW_KEYS = ['five_hour', 'seven_day', 'seven_day_overage_included'];
 
-function atomicWrite(file, data) {
+export function atomicWrite(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = file + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(data), { mode: 0o600 });
@@ -43,6 +43,9 @@ export function pickMainModel(modelUsage, preferredModel) {
   const keys = Object.keys(modelUsage);
   if (!keys.length) return null;
   if (preferredModel && modelUsage[preferredModel]) return preferredModel;
+  const bare = s => String(s).replace(/\[1m\]$/i, '');
+  const sameModel = preferredModel && keys.find(k => bare(k) === bare(preferredModel));
+  if (sameModel) return sameModel;
   const nonHaiku = keys.filter(k => !/haiku/i.test(k));
   return nonHaiku[0] || keys[0];
 }
@@ -92,13 +95,17 @@ export class UsageStore {
       return { kind: 'session-partial' };
     }
     if (o.type === 'result' && o.modelUsage && sessionId) {
+      // modelUsage sums every API call of the turn (verified on CLI 2.1.281: a 19-call turn
+      // reported 30M input tokens against a 506k context), so it is NOT the context size.
+      // The context is the last assistant line's input (+cache) recorded above; the
+      // result only contributes the model's real contextWindow and its name.
       const prev = this.state.sessions[sessionId];
       const mainModel = pickMainModel(o.modelUsage, prev?.model);
       const mu = mainModel && o.modelUsage[mainModel];
       if (!mu) return null;
-      const total = contextTotal(mu);
+      const total = Number.isFinite(prev?.total) ? prev.total : contextTotal(mu);
       const window = mu.contextWindow || estimateWindow(mainModel, total);
-      this.state.sessions[sessionId] = { total, window, model: mainModel, estimated: !mu.contextWindow, lastAt: Date.now() };
+      this.state.sessions[sessionId] = { total, window, model: mainModel, estimated: !mu.contextWindow || !Number.isFinite(prev?.total), lastAt: Date.now() };
       this.save();
       return { kind: 'session' };
     }

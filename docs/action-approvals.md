@@ -59,9 +59,10 @@ file contents and credentials. Keep it with instance backups. Full request detai
 remain in the live inbox, private Claude turn logs and provider transcript, not
 browser storage or notifications. Approval HTTP responses use `Cache-Control: no-store`.
 
-Pending approvals do not survive a daemon restart as actionable requests. Codex
-connections expire; Claude detached turns are marked with an interrupted approval
-connection when appropriate. Stop an interrupted turn, review completed work, then
+Pending approvals do not survive a daemon restart as actionable requests. The
+restarted daemon reattaches to the running Claude or Codex process but cannot answer
+a request that was sent before the restart; the turn is marked with an interrupted
+approval (or question) connection, for both providers and across further restarts. Stop an interrupted turn, review completed work, then
 send a new instruction. Never reconnect an old approval to a new process. Deploy
 while owned turns are idle, especially when questions or approvals are pending.
 

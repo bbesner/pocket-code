@@ -347,7 +347,7 @@ function toolIcon(name) {
 }
 
 /* ---------- tiny helpers ---------- */
-const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // code block with its own copy affordance — selecting text on a touchscreen is miserable
 const codeHTML = t => `<div class="codewrap"><button class="copybtn" data-copy aria-label="Copy code">${IC.copy}</button><pre><code>${esc(t)}</code></pre></div>`;
 function md(src) { return PocketFormat.render(src, chatId); }
@@ -1034,7 +1034,7 @@ async function paintRail() {
   await refreshSessions();
 }
 
-let chatOffset = 0, extT = null;
+let chatOffset = 0, chatTurnEvents = null, extT = null;
 function extPulse() { // ember while another surface (code-server) drives this session
   const h = $('#hember'); if (!h) return;
   if (!composerWorking) h.innerHTML = '<span class="ember"></span>';
@@ -1113,7 +1113,7 @@ async function renderChat(id) {
     else { renderChat(chatId); return; } // name cleared → resync the derived title
     railCache.at = 0; if (isWide()) paintRail();
   });
-  chatOffset = s.size || 0;
+  chatOffset = s.size || 0; chatTurnEvents = Number.isInteger(s.turnEvents) ? s.turnEvents : null;
   chatTotal = s.total || s.messages.length; chatRendered = s.messages.length;
   const isCx = id.startsWith('cx:');
   tb = { key: id, prefs: getPrefs(id), attachments: loadAttachments(id), allowAttach: true, allowMute: true, provider: isCx ? 'codex' : 'claude' };
@@ -1372,7 +1372,9 @@ function openES() {
   closeES();
   if (!chatId) return;
   const streamId = chatId;
-  es = new EventSource(`/api/session/${chatId}/events?offset=${chatOffset}`);
+  // A fresh connection has no Last-Event-ID; without ?from the server would replay the
+  // whole running turn on top of the transcript just rendered (every message twice).
+  es = new EventSource(`/api/session/${chatId}/events?offset=${chatOffset}${chatTurnEvents != null ? `&from=${chatTurnEvents}` : ''}`);
   es.onopen = () => { if (chatId === streamId) setConnection(); };
   const msgs = $('#msgs');
   let live = null; // word-by-word streaming buffer, replaced by the formatted message

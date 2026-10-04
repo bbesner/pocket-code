@@ -1,6 +1,6 @@
 {
   "version": "1.7.0",
-  "assetV": 30,
+  "assetV": 31,
   "notes": [
     "Collapse the whole session header, including Mission Control navigation, on phone, tablet and desktop. Live status stays visible.",
     "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser.",
