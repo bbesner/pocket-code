@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.7.1] — Unreleased · build 32
+## [1.7.1] — 2026-10-04 · build 32
 
 - Split panes that no longer fit are hidden in place and return when the window widens, keeping their drafts and sessions.
 - Settings opens even if notification support is unavailable. Failed update checks offer a retry instead of saying Up to date.
