@@ -5,14 +5,16 @@ async function loadApprovalPolicy(){
  try{const p=await api('/approval-policy');if(['review','full'].includes(p.defaultMode))approvalPolicy=p;}
  catch{approvalPolicy={defaultMode:'review',allowFullAccess:false};}
 }
-function nextApprovalMode(){
- const mode=tb?.prefs?.approvalMode||approvalPolicy.defaultMode;
+function nextApprovalMode(prefs=tb?.prefs){
+ const mode=prefs?.approvalMode||approvalPolicy.defaultMode;
  return mode==='full'&&approvalPolicy.allowFullAccess?'full':'review';
 }
-function chooseApprovalMode(){
- const choices=[['review','Review actions',tb?.provider==='codex'?'Use a read-only sandbox and review native permission requests. Safe reads and previously allowed tools can run without asking.':'Ask before commands, file edits, delegated tasks and external tools. Ordinary file reads can run without asking.']];
+function chooseApprovalMode(key=tb?.key){
+ if(typeof key!=='string')return;
+ const prefs=getPrefs(key),provider=key.startsWith('cx:')?'codex':key==='new'?tb?.provider:'claude';
+ const choices=[['review','Review actions',provider==='codex'?'Use a read-only sandbox and review native permission requests. Safe reads and previously allowed tools can run without asking.':'Ask before commands, file edits, delegated tasks and external tools. Ordinary file reads can run without asking.']];
  if(approvalPolicy.allowFullAccess)choices.push(['full','Full access','Run tools without routine permission prompts, using this server’s account access.']);
- sheet('Permissions for the next turn',choices,nextApprovalMode(),mode=>{tb.prefs.approvalMode=mode;setPrefs(tb.key,tb.prefs);renderToolbar();});
+ sheet('Permissions for the next turn',choices,nextApprovalMode(prefs),mode=>{prefs.approvalMode=mode;setPrefs(key,prefs);if(tb?.key===key){tb.prefs=prefs;renderToolbar();}});
 }
 async function refreshApprovals(id){
  try{

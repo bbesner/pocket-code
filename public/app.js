@@ -163,7 +163,7 @@ function renderToolbar() {
     ar?.querySelectorAll('button').forEach(b => { b.disabled = true; });
   }
   const mode=$('#c-mode');if(mode)mode.onclick=()=>sheet('Codex mode for the next turn',[['work','Work normally','Carry out your request'],['plan','Plan first','Explore an approach and answer native questions before implementation']],tb.prefs.executionMode||'work',v=>{tb.prefs.executionMode=v;setPrefs(tb.key,tb.prefs);renderToolbar();});
-  $('#c-approval').onclick=chooseApprovalMode;
+  $('#c-approval').onclick=()=>chooseApprovalMode();
   const mu = $('#c-mute');
   if (mu) mu.onclick = () => toggleMute();
 }
@@ -175,7 +175,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.innerHTML = `
     <h2>${esc(s.title)}</h2>
     ${chatTextControlsHTML()}
-    <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode())}. Running work keeps its current permissions.</span></span></button>
+    <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
     <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
     <button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device — clear it to go back to the automatic one</span></span></button>`;
@@ -192,7 +192,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting sessions stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
   bindChatTextControls(sh);
-  sh.querySelector('#so-permissions').onclick=()=>{close();chooseApprovalMode();};
+  sh.querySelector('#so-permissions').onclick=()=>{close();chooseApprovalMode(s.id);};
   mountSheet(scrim, sh);
 }
 function renameSheet(s, refresh) {
