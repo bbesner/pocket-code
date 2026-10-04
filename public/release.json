@@ -1,9 +1,8 @@
 {
-  "version": "1.6.0",
-  "assetV": 27,
+  "version": "1.6.1",
+  "assetV": 28,
   "notes": [
-    "Split view on desktop: open another session beside the current one with the Split view button or Open beside in session options. Each pane keeps its own conversation, composer and tools.",
-    "Swap a pane into the main position, close it, or drag the divider to resize. Panes stay open while you switch the main session.",
-    "Hover over (or tab to) any icon or abbreviated control for a short explanation of what it does."
+    "Split view: choose New session to start a conversation in the new pane. It opens in the default workspace with its own draft.",
+    "Messages you send while the agent is working now appear right away, instead of after the agent's next step."
   ]
 }

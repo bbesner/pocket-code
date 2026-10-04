@@ -270,7 +270,7 @@ async function toggleMute() {
 const uploadsInFlight = new Map();
 function attachmentTarget() {
   if (!tb?.allowAttach || loadOutbox(tb.key)) { toast('Finish or discard the pending message before attaching files.'); return null; }
-  if (tb.key !== 'new' && composerWorking) { toast('Attach files after this turn finishes.'); return null; }
+  if (tb.key !== NEW_KEY && composerWorking) { toast('Attach files after this turn finishes.'); return null; }
   return tb.key;
 }
 function paintUploadStatus() {
@@ -1114,7 +1114,7 @@ async function renderChat(id) {
   api('/commands?provider=' + (isCx?'codex':'claude') + '&cwd=' + encodeURIComponent(s.cwd || '')).then(r => { chatCmds = r.commands; }).catch(() => { });
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const msgs = $('#msgs');
-  msgs.innerHTML = s.messages.map(msgHTML).join('');
+  msgs.innerHTML = s.messages.map(msgHTML).join('') + steeredHTML(id, s.messages);
   openLastTodo();
   if (lastMeta && lastMeta.id === id) { msgs.insertAdjacentHTML('beforeend', lastMeta.html); lastMeta = null; }
   setComposer(s.active);
@@ -1249,6 +1249,7 @@ async function submitPending(id) {
     const result = await api(`/session/${id}/message`, { method: 'POST', body: JSON.stringify({ text: pending.text, ...pending.opts, clientMessageId: pending.clientMessageId }) });
     saveOutbox(id, null); clearDraft(id);
     if (pending.files.length) localStorage.removeItem('pc-attachments-' + id);
+    if (result.steered) steeredEchoes.set(id, [...(steeredEchoes.get(id) || []), { text: pending.text.trim(), at: Date.now() }]);
     deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current turn.' : result.steered ? 'Sent to the running turn.' : 'Message delivered.');
     if (chatId === id) {
       if (tb?.key === id && pending.files.length) tb.attachments = [];
@@ -1269,6 +1270,15 @@ async function submitPending(id) {
 }
 
 let recentSends = []; // for deduping our own messages when they echo back via the mirror
+// A steered message reaches the agent at once but only enters the transcript at the
+// agent's next step; until then the canonical re-render would hide it. Keep showing it.
+const steeredEchoes = new Map(); // sessionId -> [{text, at}]
+function steeredHTML(id, messages) {
+  const recentUser = messages.slice(-40).filter(m => m.role === 'user').map(m => (m.text || '').trim());
+  const left = (steeredEchoes.get(id) || []).filter(x => Date.now() - x.at < 30 * 60000 && !recentUser.some(t => t === x.text || t.endsWith(x.text)));
+  if (left.length) steeredEchoes.set(id, left); else steeredEchoes.delete(id);
+  return left.map(x => msgHTML({ role: 'user', text: x.text })).join('');
+}
 function openES() {
   closeES();
   if (!chatId) return;
@@ -1360,10 +1370,10 @@ async function openSkills(provider,cwd,box) {
 /* ---------- new session ---------- */
 async function renderNew() {
   const viewVersion=++chatRenderVersion;
-  const pendingNew = loadOutbox('new');
+  const pendingNew = loadOutbox(NEW_KEY);
   const col = `
     <header class="bar">
-      <button class="icon" id="back" aria-label="Back">${IC.back}</button>
+      ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : `<button class="icon" id="back" aria-label="Back">${IC.back}</button>`}
       <h1>New session</h1>
     </header>
     <div id="new-delivery" class="delivery-status" role="status" hidden></div>
@@ -1384,8 +1394,8 @@ async function renderNew() {
     </div></main>`;
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
-  $('#back').onclick = () => { location.hash = '#/'; };
-  tb = { key: 'new', prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs('new'), attachments: loadAttachments('new'), allowAttach: true, provider: 'claude' };
+  if (PANE) $('#pane-close').onclick = () => paneSay('close'); else $('#back').onclick = () => { location.hash = '#/'; };
+  tb = { key: NEW_KEY, prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs(NEW_KEY), attachments: loadAttachments(NEW_KEY), allowAttach: true, provider: 'claude' };
   renderToolbar();
   // which agent runs this session — remembered, since most days you stay on one
   let provider = pendingNew?.payload.provider || (localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude');
@@ -1412,8 +1422,8 @@ async function renderNew() {
   pickAgent(provider);
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const first = $('#first');
-  first.value = pendingNew?.payload.text || loadDraft('new');
-  first.oninput = () => saveDraft('new', first.value);
+  first.value = pendingNew?.payload.text || loadDraft(NEW_KEY);
+  first.oninput = () => saveDraft(NEW_KEY, first.value);
   try {
     const { projects, defaultCwd } = await api('/projects');
     if(viewVersion!==chatRenderVersion)return;
@@ -1436,19 +1446,19 @@ async function renderNew() {
   if(viewVersion!==chatRenderVersion)return;
   if (pendingNew) $('#cpath').value = pendingNew.payload.cwd;context();
   const paintNewDelivery = () => {
-    const pending = loadOutbox('new'), note = $('#new-delivery');
+    const pending = loadOutbox(NEW_KEY), note = $('#new-delivery');
     if (!note) return;
     note.hidden = !pending;
     note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><button class="chip" id="discard-new">Discard retry</button>' : '';
-    const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox('new', null); clearDraft('new'); renderNew(); };
+    const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NEW_KEY, null); clearDraft(NEW_KEY); renderNew(); };
     app.querySelectorAll('.pane input,.pane textarea,.pane button:not(#start)').forEach(el => { el.disabled = Boolean(pending); });
     $('#start').textContent = pending ? 'Retry start' : 'Start session';
   };
   paintNewDelivery();
   let newPending = null;
   $('#start').onclick = async () => {
-    if(uploadsInFlight.get('new'))return toast('Wait for the attachment upload to finish.');
-    const savedStart = loadOutbox('new');
+    if(uploadsInFlight.get(NEW_KEY))return toast('Wait for the attachment upload to finish.');
+    const savedStart = loadOutbox(NEW_KEY);
     const cwd = savedStart?.payload.cwd || $('#cpath').value.trim() || sel;
     const text = savedStart?.payload.text || $('#first').value.trim();
     if (!cwd) {$('#new-setup').open=true;$('#new-setup').scrollIntoView({block:'start'});return toast('Choose a workspace or enter its path');}
@@ -1456,18 +1466,18 @@ async function renderNew() {
     $('#start').disabled = true; $('#start').textContent = 'Starting…';
     try {
       const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts() };
-      const saved = loadOutbox('new');
+      const saved = loadOutbox(NEW_KEY);
       if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) return toast('Retry the saved new-session request before changing it.');
       newPending = saved || { payload, clientMessageId: crypto.randomUUID() };
-      saveOutbox('new', newPending);
+      saveOutbox(NEW_KEY, newPending);
       const { id } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId }) });
       setPrefs(id,{model:payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work',approvalMode:payload.approvalMode||approvalPolicy.defaultMode});
-      saveOutbox('new', null);
-      clearDraft('new'); localStorage.removeItem('pc-attachments-new'); if (tb?.key === 'new') tb.attachments = [];
+      saveOutbox(NEW_KEY, null);
+      clearDraft(NEW_KEY); localStorage.removeItem('pc-attachments-'+NEW_KEY); if (tb?.key === NEW_KEY) tb.attachments = [];
       try { localStorage.setItem('pc-lastproj', cwd); } catch { }
       location.hash = '#/chat/' + id;
     } catch (e) {
-      if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox('new', null);
+      if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NEW_KEY, null);
       toast(e.message || 'Delivery not confirmed. Retry the same request.');
     } finally { const start = $('#start'); if (start) { start.disabled = false; paintNewDelivery(); } }
   };
