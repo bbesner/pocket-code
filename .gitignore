@@ -17,3 +17,6 @@ delivery-receipts.json*
 # Pending follow-ups contain private user messages
 followup-queue.json*
 approval-decisions.jsonl
+
+# Fork-guard marker: transcript sizes after Pocket-owned turns
+owned-transcripts.json

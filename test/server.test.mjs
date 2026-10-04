@@ -43,7 +43,7 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  const finished=await call('/sessions');
  assert.equal(finished.body.sessions.find(s=>s.id===id).state.kind,'finished');
  assert.equal((await call(`/session/${id}`)).body.ext,false,'owned transcript writes are not external activity');
- fs.appendFileSync(path.join(dir,'sessions','test-workspace',id+'.jsonl'),JSON.stringify({type:'user',message:{role:'user',content:'External surface update'},timestamp:new Date().toISOString()})+'\n');
+ fs.appendFileSync(path.join(dir,'sessions','test-workspace',id+'.jsonl'),JSON.stringify({type:'user',message:{role:'user',content:'External surface update'},timestamp:new Date(Date.now()-120000).toISOString()})+'\n');
  await sleep(100);assert.equal((await call(`/session/${id}`)).body.ext,true,'new external writes remain visible');
  const msg={text:'Follow-up with attachment metadata',clientMessageId:randomUUID()};
  const m=await call(`/session/${id}/message`,msg);assert.equal(m.status,202);
