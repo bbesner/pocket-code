@@ -1,4 +1,4 @@
-# Action approvals (1.4)
+# Action approvals
 
 Select **Review actions** or **Full access** in the composer or under Session options
 → Permissions for the next turn. A choice applies to the next new/resumed turn and

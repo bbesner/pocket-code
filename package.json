@@ -1,9 +1,9 @@
 {
   "name": "pocket-code",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "private": true,
   "type": "module",
-  "description": "Your Claude Code and Codex sessions, from your phone — a mobile PWA plus a server-side turn runner, so work keeps going when the screen goes dark.",
+  "description": "Self-hosted Claude Code and Codex workspace for desktop, tablet and phone, with persistent sessions, split conversations and server-side execution.",
   "keywords": [
     "claude-code",
     "codex",
@@ -12,7 +12,9 @@
     "ai-coding",
     "coding-agent",
     "remote",
-    "memstem"
+    "memstem",
+    "desktop-workspace",
+    "split-view"
   ],
   "homepage": "https://github.com/bbesner/pocket-code#readme",
   "repository": {
@@ -32,7 +34,8 @@
     "start": "node server.mjs",
     "test": "node --test test/*.test.mjs",
     "test:browser": "node test/browser.mjs",
-    "vendor": "node scripts/vendor.mjs"
+    "vendor": "node scripts/vendor.mjs",
+    "check:release": "node scripts/check-release.mjs"
   },
   "dependencies": {
     "dompurify": "3.4.16",
@@ -41,6 +44,7 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "axe-core": "4.13.0",
     "puppeteer-core": "25.10.0"
   }
 }

@@ -7,6 +7,50 @@ const PANE_KEY=(k=>/^[0-9a-f-]{36}$/.test(k||'')?k:'')(new URLSearchParams(locat
 const NEW_KEY=PANE&&PANE_KEY?'new-pane-'+PANE_KEY:'new';
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function writeLocal(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
+// Native radio keyboard conventions for our button-based choices.
+function bindRadioGroup(group) {
+ const radios=()=>[...group.querySelectorAll('[role="radio"]')].filter(el=>!el.disabled);
+ const items=radios(),selected=items.find(el=>el.getAttribute('aria-checked')==='true')||items[0];
+ items.forEach(el=>{el.tabIndex=el===selected?0:-1;});
+ group.onkeydown=e=>{
+  if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(e.key))return;
+  const list=radios(),index=list.indexOf(e.target.closest('[role="radio"]'));if(index<0)return;
+  e.preventDefault();
+  const next=e.key==='Home'?0:e.key==='End'?list.length-1:(index+(['ArrowLeft','ArrowUp'].includes(e.key)?-1:1)+list.length)%list.length;
+  list[next].click();list[next].focus();
+ };
+}
+function paintSessionFilterSummaries(){
+ const parts=[workspaceFilter?projShort(workspaceFilter):'',providerFilter==='codex'?'Codex':providerFilter==='claude'?'Claude':'', ['new','pinned','hidden'].includes(sessionFilter)?({new:'New',pinned:'Pinned',hidden:'Hidden'}[sessionFilter]):''].filter(Boolean);
+ document.querySelectorAll('[data-filter-summary]').forEach(el=>{el.textContent=parts.length?' · '+parts.join(' · '):'';});
+ document.querySelectorAll('[data-clear-more-filters]').forEach(el=>{el.hidden=!parts.length;});
+}
+let toolbarScrollObserver=null;
+function bindToolbarScroll(bar){
+ let wrap=bar.closest('.toolbar-scroll');
+ if(!wrap){
+  wrap=document.createElement('div');wrap.className='toolbar-scroll';bar.before(wrap);wrap.append(bar);
+  const previous=document.createElement('button'),next=document.createElement('button');
+  previous.className='icon toolbar-previous';next.className='icon toolbar-next';
+  previous.setAttribute('aria-label','Previous message settings');next.setAttribute('aria-label','More message settings');
+  previous.setAttribute('aria-controls','tbar');next.setAttribute('aria-controls','tbar');
+  previous.innerHTML=next.innerHTML=IC.back;previous.hidden=next.hidden=true;
+  wrap.prepend(previous);wrap.append(next);
+  const paint=()=>{
+   if(!bar.isConnected)return;
+   const overflow=bar.scrollWidth>wrap.clientWidth+1;
+   if(!overflow&&(document.activeElement===previous||document.activeElement===next))bar.querySelector('button:not(:disabled)')?.focus({preventScroll:true});
+   previous.hidden=next.hidden=!overflow;
+   previous.disabled=bar.scrollLeft<=1;next.disabled=bar.scrollLeft+bar.clientWidth>=bar.scrollWidth-1;
+  };
+  previous.onclick=()=>{bar.scrollLeft-=Math.max(120,bar.clientWidth*.8);paint();};
+  next.onclick=()=>{bar.scrollLeft+=Math.max(120,bar.clientWidth*.8);paint();};
+  bar.addEventListener('scroll',paint,{passive:true});
+  toolbarScrollObserver?.disconnect();toolbarScrollObserver=new ResizeObserver(paint);toolbarScrollObserver.observe(wrap);toolbarScrollObserver.observe(bar);
+  wrap.paintOverflow=paint;
+ }
+ wrap.paintOverflow();
+}
 const CHAT_TEXT_DEFAULT=17,CHAT_TEXT_MIN=14,CHAT_TEXT_MAX=24;
 const savedChatText=readLocal('pc-chat-text-size',CHAT_TEXT_DEFAULT);
 let chatTextSize=Number.isInteger(savedChatText)&&savedChatText>=CHAT_TEXT_MIN&&savedChatText<=CHAT_TEXT_MAX?savedChatText:CHAT_TEXT_DEFAULT;
@@ -63,9 +107,9 @@ function paintWorkspaceDensity(){
  const confirmation=document.getElementById('run-confirmation');
  const bar=header?.closest('header');
  if(confirmation&&bar){
-  const target=headerCollapsed?bar.querySelector('h1'):bar.parentElement;
+  const target=headerCollapsed?bar.querySelector('h1'):document.getElementById('conversation-controls');
   if(confirmation.parentElement!==target){
-   if(headerCollapsed)target.append(confirmation);else bar.after(confirmation);
+   if(headerCollapsed)target.append(confirmation);else target.prepend(confirmation);
   }
  }
  reportWorkspaceChrome();
@@ -166,13 +210,14 @@ function workspaceMount(scrim,sh,kind){
  dockSurface?.remove();dockSurface=null;
  if(!hasDockRoom()||!document.querySelector('.split'))return mountSheet(scrim,sh);
  closeCurrentSheet?.();dockKind=kind;writeLocal('pc-dock-kind',kind);
- sh.classList.remove('sheet');sh.classList.add('workspace-dock');sh.setAttribute('aria-label',kind==='git'?'Git workspace':kind==='queue'?'Queued instructions':'Session results');
+ sh.classList.remove('sheet');sh.classList.add('workspace-dock');sh.setAttribute('role','complementary');sh.setAttribute('aria-label',kind==='git'?'Git workspace':kind==='queue'?'Queued instructions':'Session results');
  const actions=document.createElement('nav');actions.className='dock-tabs';actions.setAttribute('aria-label','Workspace panel');
  actions.innerHTML=[['results','Results'],['queue','Queue'],['git','Git']].map(([key,label])=>`<button class="chip" data-dock="${key}" aria-pressed="${kind===key}">${label}</button>`).join('')+`<button class="icon" data-close-dock aria-label="Close workspace panel">${IC.x}</button>`;
  sh.prepend(actions);document.querySelector('.split').append(sh);dockSurface=sh;
+ if(typeof sizeMainForSplit==='function')sizeMainForSplit();
  actions.querySelectorAll('[data-dock]').forEach(b=>b.onclick=()=>openDock(b.dataset.dock,chatId));
- actions.querySelector('[data-close-dock]').onclick=()=>{sh.remove();dockSurface=null;dockKind='';writeLocal('pc-dock-kind','');$('#box')?.focus();};
- return ()=>{sh.remove();if(dockSurface===sh)dockSurface=null;};
+ actions.querySelector('[data-close-dock]').onclick=()=>{sh.remove();dockSurface=null;dockKind='';writeLocal('pc-dock-kind','');if(typeof sizeMainForSplit==='function')sizeMainForSplit();$('#box')?.focus();};
+ return ()=>{sh.remove();if(dockSurface===sh)dockSurface=null;if(typeof sizeMainForSplit==='function')sizeMainForSplit();};
 }
 function openDock(kind,id){if(kind==='results')return openResults(id);if(kind==='queue')return openQueue(id);if(kind==='git')return openGit(id);}
 function restoreDock(){if(hasDockRoom()&&['results','queue','git'].includes(dockKind))openDock(dockKind,chatId);}

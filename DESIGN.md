@@ -238,3 +238,44 @@ Sessions control to "Sessi…". Phones (≤600px) now show only the percentage, 
 figure in the title and accessible name; values under 1% read `<1%` rather than `0%`; and
 `#session-switch` takes twice the share of the status bar (all four controls had equal
 `flex: 1`). Rendered detector scan of the 390/1440 conversation pages: 0 findings.
+
+
+## UI/UX repair pass (1.7.1)
+
+Pinned Operate refinement: variance 3, motion 2, density 8. The warm ink palette,
+native typography, draft storage and persistent-session behavior are unchanged.
+
+Split width budgeting includes the session rail, any workspace dock, 380px for
+each conversation, and 5px for each visible divider. Excess panes hide in place
+and return when space is available; their frames are never rebuilt or moved. A
+desktop notice explains hidden panes. Divider values report actual rendered widths.
+
+Settings opens before network or notification lookups. Each service owns its own
+loading, error and retry state. Notification readiness has a bounded wait; version
+failures cannot imply an up-to-date server. Settings destinations precede About
+and What's new disclosures, which remain keyboard reachable inside the focus trap.
+Replacement dialogs return focus to their original connected opener.
+
+The session list exposes All, Active and Attention; a remembered Filters disclosure
+contains Workspace, Agent, New, Pinned and Hidden. Applied secondary filters remain
+visible in its summary with a Clear filters action. The desktop rail keeps its
+existing independent disclosure.
+
+Message toolbars show 44px previous/next scroll buttons only when contents exceed
+the available width. Collapsing message settings hides the whole scroll wrapper;
+attachments, draft and Send stay in place. Tab/pane X buttons close views only;
+Close session process is a labelled Session options action on every screen size,
+with the existing keep-running/stop choice when work is active.
+
+Agent and workspace choices follow radio-group keyboard conventions. The rail
+resize control, conversation controls, composer and workspace dock have named
+landmarks, without nesting the main or banner landmarks. Skip links point to the
+current view's real task/message field.
+
+Verification: repository tests and the full Chromium browser suite pass, including
+15 audit regressions, five axe scans without violations, and split transitions from
+390px to 2560px. Rendered detector review retains the native-font, compact-hierarchy,
+title-ellipsis, table/toolbar scroll containment and slash-menu-shadow exceptions.
+Off-screen transcript paragraphs remain scroll-reachable; they are not inaccessible
+content behind the composer. These checks do not certify physical-device IME,
+OS push delivery, or assistive-technology behavior outside Chromium.

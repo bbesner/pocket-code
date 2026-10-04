@@ -1,13 +1,12 @@
 {
-  "version": "1.7.0",
-  "assetV": 31,
+  "version": "1.7.1",
+  "assetV": 32,
   "notes": [
-    "Collapse the whole session header, including Mission Control navigation, on phone, tablet and desktop. Live status stays visible.",
-    "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser.",
-    "Each Claude Code and Codex session keeps one process between turns: faster turns, and background jobs, MCP connections and the working directory carry over.",
-    "No more 2-hour turn limit. Long work keeps running; only a turn that has been completely silent for 30 minutes is stopped.",
-    "When a background job finishes after a turn, the agent's follow-up appears live and notifies you.",
-    "Context meter on each session, and a Plan usage panel with your 5-hour and weekly limits (reset times in Eastern).",
-    "Close the main session from its header (session options on phones); it asks first if work is still running."
+    "Split panes that no longer fit are hidden in place and return when the window widens, keeping their drafts and sessions.",
+    "Settings opens even if notification support is unavailable. Failed update checks offer a retry instead of saying Up to date.",
+    "Accounts, usage and notification settings come first; version details and release notes are in expandable sections.",
+    "Keyboard fixes cover agent and workspace choices, skip links, dialog focus and accessible split resizing.",
+    "The session list keeps common filters visible and remembers the expanded filter panel. Active filters stay visible when collapsed.",
+    "Message settings have scroll buttons when they do not fit. Closing a session process is a labelled action in Session options; tab and pane X controls only close views."
   ]
 }

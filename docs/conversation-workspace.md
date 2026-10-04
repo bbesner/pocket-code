@@ -1,5 +1,8 @@
 # Conversation workspace: 1.2
 
+> Historical design and verification record. For current behavior, use the
+> [workspace guide](workspace-guide.md). Do not use this record as an upgrade runbook.
+
 ![Report tables and a readable desktop conversation](images/conversation-report-desktop.png)
 
 ![Task-first session creation on a phone](images/task-launcher-mobile.png)

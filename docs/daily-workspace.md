@@ -1,5 +1,8 @@
 # Daily workspace: 1.3
 
+> Historical design and verification record. For current behavior, use the
+> [workspace guide](workspace-guide.md). Do not use this record as an upgrade runbook.
+
 ![Desktop conversation with sessions and live Git inspection](images/daily-workspace-desktop.png)
 
 ![Native agent question on a phone](images/native-question-mobile.png)
