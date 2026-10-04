@@ -152,3 +152,20 @@ non-animated check-age label. Only a fresh authenticated server response can con
 a running turn; display age updates locally without renewing that confirmation.
 Server checks occur every5seconds, become unconfirmed after failure or15seconds
 without fresh proof, and distinguish waiting, finished and external activity.
+
+## Split view and tooltips (1.6)
+
+Pinned Operate brief: variance 3, motion 2, density 8; warm ink identity unchanged.
+Desktop (900px+) shows up to four conversations side by side, like editor groups.
+The main column keeps the rail, tabs and dock; each extra pane is a full Pocket window
+in a frame, so streams, drafts, sheets, questions and approvals stay independent.
+Panes share width equally (the main conversation gets the same share as a pane, after
+the rail), with 5px hairline dividers matching the rail grip. Keyboard arrows resize;
+double-click resets. Pane headers replace Back with Swap and add Close; nothing else
+changes inside a pane. A new pane needs at least 380px per conversation. Phones never
+show panes.
+
+Tooltips explain icon-only and abbreviated controls on mouse hover (350ms) or keyboard
+focus, never on touch. Raised surface, hairline border, 10px radius, 13px text, no
+animation or shadow. Escape and pointer-down dismiss them. The control's accessible name
+is unchanged; the tooltip is attached through aria-describedby while visible.

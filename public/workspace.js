@@ -1,4 +1,6 @@
 /* Daily workspace: local navigation preferences, shared session data. */
+// ?pane=1: this window is a split-view pane inside another Pocket window (split.js)
+const PANE=new URLSearchParams(location.search).has('pane');
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function writeLocal(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
 const CHAT_TEXT_DEFAULT=17,CHAT_TEXT_MIN=14,CHAT_TEXT_MAX=24;

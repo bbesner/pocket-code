@@ -4,6 +4,21 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
+## [1.6.0] — 2026-10-04 · build 27
+
+- Desktop split view: up to four sessions side by side. Open one from the Split view
+  header button or Open beside in session options. Each pane is a full Pocket window
+  (`/?pane=1`) with its own stream, composer, draft, questions and approvals.
+- Pane header buttons swap a pane with the main conversation or close it (the session
+  keeps running). Dividers resize by drag or arrow keys; double-click resets. Panes
+  persist per browser and stay hidden below 900px.
+- Tooltips on hover and keyboard focus explain icon-only and abbreviated controls
+  (Results, Queue, Git, Find, Changed files, toolbar chips, rail actions). Touch is unchanged.
+- Notification clicks open in the top-level window, never inside a split pane.
+- Security: agent turns (Claude and Codex) no longer inherit `POCKET_PASSWORD`,
+  `POCKET_SECRET` or `VAPID_PRIVATE` from the daemon environment. Test servers ignore
+  a live instance's `POCKET_*`/`VAPID_*` settings.
+
 ## [1.5.0] — 2026-10-04 · build 26
 
 - Add `POCKET_CLAUDE_MODEL`/`POCKET_CLAUDE_EFFORT` and `POCKET_CODEX_MODEL`/`POCKET_CODEX_EFFORT`:

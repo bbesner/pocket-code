@@ -29,6 +29,8 @@ const IC = {
   diff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10.5 10.5h4M12.5 8.5v4M10.5 16h4"/></svg>',
   pin: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3.5h7M10 3.5l-.6 6L6 12.5V14h12v-1.5L14.6 9.5l-.6-6M12 14v6.5"/></svg>',
   more: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
+  columns: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 4.5v15"/></svg>',
+  swap: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h13l-3.5-3.5M19 16H6l3.5 3.5"/></svg>',
   pen: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l.9-3.9L16 5a2.1 2.1 0 013 3L7.9 19.1 4 20zM13.8 7.2l3 3"/></svg>',
 };
 
@@ -188,6 +190,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
     <h2>${esc(s.title)}</h2>
     ${chatTextControlsHTML()}
     ${s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':''}
+    ${!PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : ''}
     <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
     <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
@@ -207,6 +210,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   bindChatTextControls(sh);
   sh.querySelector('#so-find')?.addEventListener('click',()=>{close();findOpen(true);});
   sh.querySelector('#so-changes')?.addEventListener('click',()=>{close();openChanges();});
+  sh.querySelector('#so-beside')?.addEventListener('click',()=>{close();openBeside(s.id);});
   sh.querySelector('#so-permissions').onclick=()=>{close();chooseApprovalMode(s.id);};
   mountSheet(scrim, sh);
 }
@@ -980,6 +984,7 @@ const isWide = () => matchMedia('(min-width: 900px)').matches;
 const railOpen = () => localStorage.getItem('pc-rail') !== 'closed';
 const railW = () => Math.min(480, Math.max(220, Number(localStorage.getItem('pc-railw')) || 320));
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
+  if (PANE) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div></div>`;
   return `<div class="split">
     <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#conversation">Skip to conversation</a>
@@ -992,8 +997,9 @@ function withShell(colHtml) { // desktop: session rail + resize grip beside the 
 }
 function wireShell() {
   paintOpenSessions();
+  if (typeof sizeMainForSplit === 'function') sizeMainForSplit();
   bindWorkspaceDensity();
-  if (!railOpen()) return;
+  if (PANE || !railOpen()) return;
   paintRail();
   $('#railsettings').onclick=settingsSheet;
   $('#railnew').onclick = () => { location.hash = '#/new'; };
@@ -1006,6 +1012,7 @@ function wireShell() {
       const w = Math.min(480, Math.max(220, ev.clientX));
       rail.style.width = w + 'px';
       localStorage.setItem('pc-railw', String(w)); grip.setAttribute('aria-valuenow', String(w));
+      if (typeof sizeMainForSplit === 'function') sizeMainForSplit();
     };
     grip.onpointerup = () => { grip.onpointermove = null; grip.onpointerup = null; };
   };
@@ -1032,14 +1039,16 @@ async function renderChat(id) {
   fmarks = []; fidx = -1; // marks from the previous render are gone with the DOM
   const chatCol = `
     <header class="bar">
-      <button class="icon" id="back" aria-label="Back">${IC.back}</button>
-      <button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>
+      ${PANE ? `<button class="icon" id="pane-main" aria-label="Make this the main conversation">${IC.swap}</button>` : `<button class="icon" id="back" aria-label="Back">${IC.back}</button>
+      <button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
       <h1><span class="one" id="ctitle">Session</span><span class="tag" id="cproj"></span></h1>
       <span id="hember"></span>
       <button class="icon" id="chgb" aria-label="Changed files">${IC.diff}</button>
       <button class="icon" id="findb" aria-label="Find in conversation">${IC.search}</button>
       <button class="icon" id="chatmore" aria-label="Session options">${IC.more}</button>
+      ${PANE ? '' : `<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
       <button class="icon" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj chat-statebar">${IC.up1}</button>
+      ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
     </header>
     <div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
     <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
@@ -1058,7 +1067,8 @@ async function renderChat(id) {
     <div class="composerwrap"><div class="delivery-status" id="delivery-status" role="status" hidden></div><div class="slash" id="slash" hidden></div><div class="composer" id="comp"></div></div>`;
   app.innerHTML = withShell(chatCol) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
-  $('#back').onclick = () => { location.hash = '#/'; };
+  if (PANE) { $('#pane-main').onclick = () => paneSay('main'); $('#pane-close').onclick = () => paneSay('close'); }
+  else { $('#back').onclick = () => { location.hash = '#/'; }; $('#splitb').onclick = chooseBeside; }
   $('#session-switch').onclick = openSessionSwitcher;
   $('#results-open').onclick = () => openResults(chatId);
   $('#queue-open').onclick = () => openQueue(chatId);
@@ -1083,7 +1093,7 @@ async function renderChat(id) {
   $('#ctitle').title = s.title;
   $('#chat-state').textContent = s.state?.label || (s.active ? 'Running' : s.ext ? 'Activity elsewhere' : 'Recent');
   $('#cproj').textContent = projName(s.cwd);
-  rememberOpenSession({...s,id});
+  if (PANE) paneSay('route', { id, title: s.title }); else rememberOpenSession({...s,id});
   chatTitle = s.title; chatPinned = Boolean(s.pinned);
   const h1 = $('#ctitle').closest('h1');
   h1.classList.add('tappable');
@@ -1485,17 +1495,17 @@ document.addEventListener('keydown', e => {
   if (ov) return ov.remove();
   if (findIsOpen()) return findOpen(false);
   if(dockSurface?.contains(document.activeElement)){e.preventDefault();return dockSurface.querySelector('[data-close-dock]').click();}
-  if (inChat && !document.querySelector('.scrim')) location.hash = '#/';
+  if (inChat && !PANE && !document.querySelector('.scrim')) location.hash = '#/';
 });
 window.addEventListener('hashchange', route);
 route();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { /* The online app remains usable without installation support. */ });
+if (!PANE && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { /* The online app remains usable without installation support. */ });
 
 /* ---------- update announcement ---------- */
 // First load after an asset bump: tell an existing install once that it updated and
 // where the notes are. Fresh installs (no pc-* keys yet) get no toast.
 (() => {
-  if (!APP_V) return;
+  if (!APP_V || PANE) return;
   const prev = localStorage.getItem('pc-seenv');
   if (prev === String(APP_V)) return;
   localStorage.setItem('pc-seenv', String(APP_V));

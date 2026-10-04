@@ -1,9 +1,9 @@
 {
-  "version": "1.5.0",
-  "assetV": 26,
+  "version": "1.6.0",
+  "assetV": 27,
   "notes": [
-    "Set Pocket-only default models and reasoning effort for Claude and Codex. The Model and Effort chips show what Default will run.",
-    "Optionally preselect one workspace (such as your home directory) for every new session.",
-    "When the instance default is Full access, sessions that recorded the old Review default follow it."
+    "Split view on desktop: open another session beside the current one with the Split view button or Open beside in session options. Each pane keeps its own conversation, composer and tools.",
+    "Swap a pane into the main position, close it, or drag the divider to resize. Panes stay open while you switch the main session.",
+    "Hover over (or tab to) any icon or abbreviated control for a short explanation of what it does."
   ]
 }

@@ -1,0 +1,102 @@
+/* Split view (desktop): more sessions beside the main conversation, like editor groups.
+   Each pane is a full Pocket Code instance in a same-origin frame (?pane=1), so it keeps
+   its own stream, composer, draft and sheets. Panes never move in the DOM once created:
+   moving a frame reloads it. */
+const SPLIT_MIN=380,SPLIT_MAX_PANES=3;
+const validPane=p=>p&&typeof p.key==='string'&&typeof p.id==='string'&&/^(cx:)?[0-9a-f-]{36}$/.test(p.id);
+let splitPanes=PANE?[]:readLocal('pc-split-panes',[]);
+splitPanes=Array.isArray(splitPanes)?splitPanes.filter(validPane).slice(0,SPLIT_MAX_PANES).map(p=>({key:p.key,id:p.id,w:Number.isFinite(p.w)?p.w:null})):[];
+const saveSplit=()=>writeLocal('pc-split-panes',splitPanes);
+const paneSrc=id=>'/?pane=1#/chat/'+encodeURIComponent(id).replaceAll('%3A',':');
+const sessionTitle=id=>allSessions.find(s=>s.id===id)?.title||openSessions.find(s=>s.id===id)?.title||'Session';
+const railSpace=()=>{const rail=document.querySelector('aside.rail');if(!rail)return 0;const grip=document.getElementById('grip');return Math.round(rail.getBoundingClientRect().width+(grip?.getBoundingClientRect().width||0));};
+function splitHasRoom(){return (innerWidth-railSpace())/(splitPanes.length+2)>=SPLIT_MIN;}
+function paintSplit(){
+ const host=document.getElementById('panes');if(!host)return;
+ for(const section of [...host.querySelectorAll('.split-pane')])if(!splitPanes.some(p=>p.key===section.dataset.key)){section.previousElementSibling?.remove();section.remove();}
+ for(const p of splitPanes){
+  let section=host.querySelector(`.split-pane[data-key="${CSS.escape(p.key)}"]`);
+  if(!section){
+   const grip=document.createElement('div');
+   grip.className='pane-grip';grip.setAttribute('role','separator');grip.setAttribute('aria-orientation','vertical');grip.tabIndex=0;
+   grip.setAttribute('aria-label','Resize pane');grip.dataset.tip='Drag to resize. Double-click to share space equally.';
+   section=document.createElement('section');section.className='split-pane';section.dataset.key=p.key;
+   const frame=document.createElement('iframe');frame.src=paneSrc(p.id);
+   section.append(frame);host.append(grip,section);bindPaneGrip(grip,section);
+  }
+  section.querySelector('iframe').title='Session beside: '+sessionTitle(p.id);
+  section.style.flex=p.w?`0 1 ${p.w}px`:'';
+ }
+ host.hidden=!splitPanes.length;
+ document.body.classList.toggle('has-panes',splitPanes.length>0);
+ sizeMainForSplit();
+}
+// The main column holds the rail too; give its conversation the same share as a pane.
+function sizeMainForSplit(){
+ const app=document.getElementById('app');if(!app)return;
+ const rail=railSpace();
+ app.style.flexBasis=splitPanes.length?rail+'px':'';
+ app.style.minWidth=splitPanes.length?rail+SPLIT_MIN+'px':'';
+}
+function bindPaneGrip(grip,section){
+ const setWidth=w=>{
+  const p=splitPanes.find(x=>x.key===section.dataset.key);if(!p)return;
+  const others=[...document.querySelectorAll('#panes .split-pane')].filter(s=>s!==section).length;
+  const max=innerWidth-railSpace()-SPLIT_MIN-others*SPLIT_MIN;
+  p.w=Math.round(Math.max(SPLIT_MIN,Math.min(max,w)));section.style.flex=`0 1 ${p.w}px`;
+  grip.setAttribute('aria-valuenow',String(p.w));saveSplit();
+ };
+ grip.onkeydown=e=>{if(!['ArrowLeft','ArrowRight'].includes(e.key))return;e.preventDefault();setWidth(section.getBoundingClientRect().width+(e.key==='ArrowLeft'?40:-40));};
+ grip.ondblclick=()=>{const p=splitPanes.find(x=>x.key===section.dataset.key);if(p){p.w=null;saveSplit();paintSplit();}};
+ grip.onpointerdown=e=>{
+  grip.setPointerCapture(e.pointerId);document.body.classList.add('pane-resizing');
+  const right=section.getBoundingClientRect().right;
+  grip.onpointermove=ev=>setWidth(right-ev.clientX);
+  grip.onpointerup=grip.onpointercancel=()=>{grip.onpointermove=grip.onpointerup=grip.onpointercancel=null;document.body.classList.remove('pane-resizing');};
+ };
+}
+function openBeside(id){
+ if(PANE||!id)return;
+ if(id===chatId)return toast('That session is already the main conversation.');
+ if(splitPanes.some(p=>p.id===id))return toast('That session is already open beside.');
+ if(splitPanes.length>=SPLIT_MAX_PANES)return toast('Split view holds up to four sessions. Close a pane first.');
+ if(!splitHasRoom())return toast('Not enough room for another pane. Hide the session list, close a pane or widen the window.');
+ // a new group shares the width equally, like an editor split
+ for(const p of splitPanes)p.w=null;
+ splitPanes.push({key:crypto.randomUUID(),id,w:null});saveSplit();paintSplit();
+}
+function closePane(key){splitPanes=splitPanes.filter(p=>p.key!==key);saveSplit();paintSplit();}
+function chooseBeside(){
+ const taken=new Set([chatId,...splitPanes.map(p=>p.id)]);
+ const seen=new Set(),rows=[];
+ for(const s of [...openSessions.slice().reverse(),...allSessions.filter(s=>!isHiddenSession(s))]){
+  if(taken.has(s.id)||seen.has(s.id))continue;seen.add(s.id);
+  const full=allSessions.find(r=>r.id===s.id)||s;
+  rows.push([s.id,full.title||s.title,[projName(full.cwd),full.provider==='codex'?'Codex':full.provider==='claude'?'Claude':'',full.state?.label].filter(Boolean).join(' · ')]);
+  if(rows.length>=12)break;
+ }
+ if(!rows.length)return toast('No other sessions to open beside this one.');
+ sheet('Open beside this conversation',rows,null,openBeside);
+}
+if(PANE){
+ document.documentElement.classList.add('in-pane');
+ // Let the window around this pane track which session it shows.
+ window.paneSay=(type,extra={})=>{if(parent!==window)parent.postMessage({pocketPane:type,...extra},location.origin);};
+}else{
+ addEventListener('message',e=>{
+  if(e.origin!==location.origin||!e.data?.pocketPane)return;
+  const frame=[...document.querySelectorAll('#panes iframe')].find(f=>f.contentWindow===e.source);
+  const section=frame?.closest('.split-pane'),p=section&&splitPanes.find(x=>x.key===section.dataset.key);if(!p)return;
+  const {pocketPane:type,id,title}=e.data;
+  if(type==='route'&&typeof id==='string'&&validPane({key:p.key,id})){p.id=id;saveSplit();frame.title='Session beside: '+(typeof title==='string'?title:sessionTitle(id));}
+  if(type==='close')closePane(p.key);
+  if(type==='main'){
+   const mainId=chatId;location.hash='#/chat/'+p.id;
+   if(mainId&&mainId!==p.id){p.id=mainId;saveSplit();frame.contentWindow.location.hash='#/chat/'+mainId;}else closePane(p.key);
+  }
+ });
+ addEventListener('resize',()=>{clearTimeout(window.splitResizeT);window.splitResizeT=setTimeout(sizeMainForSplit,100);});
+ // Tabs opened in another window or pane show up here without a reload.
+ addEventListener('storage',e=>{if(e.key==='pc-open-sessions'){openSessions=readLocal('pc-open-sessions',[]).filter(s=>s&&typeof s.id==='string');paintOpenSessions();}});
+ paintSplit();
+}
