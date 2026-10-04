@@ -511,7 +511,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 
 /* Keep the mobile session controls on one readable row. */
 .chat-statebar { flex-wrap: nowrap; }
-#session-switch { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#session-switch { flex-grow: 2; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #results-open,#queue-open { flex: none; padding: 0 7px; }
 @media (max-width: 600px) { #chat-state { display: none; } }
 @media (prefers-reduced-motion: reduce) { .sheet,.scrim { animation: none !important; } }
@@ -682,6 +682,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
   color: var(--faint); white-space: nowrap; flex: none; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
 .ctx-meter[data-level="amber"] { color: var(--warn); }
 .ctx-meter[data-level="red"] { color: var(--err); }
+@media (max-width: 600px) { .ctx-meter .ctx-detail { display: none; } }
 .usage-sheet .usage-body { padding: 0 14px 14px; }
 .usage-block { padding: 10px 0 14px; border-bottom: 1px solid var(--line); }
 .usage-block:last-child { border-bottom: 0; padding-bottom: 2px; }

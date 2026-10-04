@@ -1906,7 +1906,9 @@ const RELEASE_NOTES = [
   "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser.",
   "Each Claude Code session keeps one process between turns: faster turns, and background jobs, MCP connections and the working directory carry over.",
   "No more 2-hour turn limit. Long work keeps running; only a turn that has been completely silent for 30 minutes is stopped.",
-  "When a background job finishes after a turn, the agent's follow-up appears live and notifies you."
+  "When a background job finishes after a turn, the agent's follow-up appears live and notifies you.",
+  "Context meter on each session, and a Plan usage panel with your 5-hour and weekly limits (reset times in Eastern).",
+  "Close the main session from its header (session options on phones); it asks first if work is still running."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

@@ -232,3 +232,9 @@ Zero findings on the chat view. One advisory on the usage panel - flat-type-hier
 uppercase label, shared by every existing sheet: Settings, session options, rename,
 skills); not introduced by this work and out of scope to change here without
 redesigning every sheet's heading system.
+
+Lead review after merge (2026-10-04): at 390px the counts in the context meter squeezed the
+Sessions control to "Sessi…". Phones (≤600px) now show only the percentage, with the full
+figure in the title and accessible name; values under 1% read `<1%` rather than `0%`; and
+`#session-switch` takes twice the share of the status bar (all four controls had equal
+`flex: 1`). Rendered detector scan of the 390/1440 conversation pages: 0 findings.

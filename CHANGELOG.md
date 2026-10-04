@@ -12,6 +12,9 @@
 - Pocket replaces a session's process when the model, effort, workspace or permissions change, or when another app (code-server, a terminal) added turns since Pocket's last one, so the conversation never forks. Sending is refused while another app is in the middle of a turn on that session.
 - Running processes survive a Pocket restart: input goes through a named pipe that the restarted server reattaches to.
 - Codex sessions keep one app-server per turn: a long-lived connection would hold Codex's per-thread writer lock and block code-server.
+- Context meter on every session: tokens used out of the model's window (for example `70k / 1M · 7%`), amber from 70% and red from 90%, marked `est.` when worked out from the transcript of a session Pocket didn't run. Phones show only the percentage.
+- Plan usage panel (session options and Settings): 5-hour and weekly limits with reset times in Eastern, extra-usage status, and when the figures were last reported. They refresh whenever a turn runs. Codex sessions show Codex's own limits when its app-server reports them.
+- Close the main session from its header on desktop (session options on phones). A pane beside it moves into its place, otherwise New session opens. Closing ends the session's process; if a turn or background job is still running it asks whether to keep it running or stop it. The session stays in your list.
 
 
 Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. The app's

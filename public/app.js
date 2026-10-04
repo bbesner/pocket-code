@@ -1153,11 +1153,14 @@ async function paintContextMeter(id) {
   try { ({ context: ctx } = await api('/session/' + id + '/context')); } catch { return; }
   if (chatId !== id || !$('#ctx-meter')) return; // the view moved on while this was in flight
   if (!ctx || !ctx.window) { el.hidden = true; return; }
-  const pct = Math.round(ctx.pct * 100);
+  const pct = ctx.used > 0 && ctx.pct < 0.005 ? '<1' : String(Math.round(ctx.pct * 100));
   el.dataset.level = ctx.pct >= 0.9 ? 'red' : ctx.pct >= 0.7 ? 'amber' : '';
   el.hidden = false;
-  el.textContent = `${fmtTokens(ctx.used)} / ${fmtTokens(ctx.window)} · ${pct}%${ctx.estimated ? ' est.' : ''}`;
-  el.title = ctx.estimated ? 'Estimated from the transcript — this daemon did not run the last turn.' : 'Context used in this session';
+  const full = `${fmtTokens(ctx.used)} / ${fmtTokens(ctx.window)} · ${pct}%${ctx.estimated ? ' est.' : ''}`;
+  // phones show only the percentage (the counts would squeeze the Sessions control)
+  el.innerHTML = `<span class="ctx-detail">${esc(fmtTokens(ctx.used))} / ${esc(fmtTokens(ctx.window))} · </span>${esc(pct)}%${ctx.estimated ? ' est.' : ''}`;
+  el.title = (ctx.estimated ? 'Estimated from the transcript — this daemon did not run the last turn. ' : 'Context used in this session: ') + full;
+  el.setAttribute('aria-label', 'Context used: ' + full);
 }
 function fmtResetET(ms) {
   if (!ms) return null;
