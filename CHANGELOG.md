@@ -5,6 +5,13 @@
 - Collapse the session header on any screen size, including its Mission Control wrapper. The slim header retains session navigation, title and live server status.
 - Hide the message settings toolbar independently with the gear beside the input. Attachment access, attached files, Send, delivery problems and running-turn controls remain available.
 - Remember both preferences per browser through reloads, folding and resizing. Collapse changes preserve the input, draft, reading position and open panels.
+- Each Claude Code session now keeps one process running between turns instead of starting a new one per message. Its working directory, MCP connections and background jobs carry over, and turns start without the few seconds of startup.
+- Turns the agent starts by itself, such as reporting a background job that finished after the turn ended, are streamed live and notify like any other turn.
+- A session's process closes after 60 idle minutes (`POCKET_IDLE_CLOSE_MS`). It never closes while a background job is running; the next message resumes the session from its transcript.
+- The 2-hour limit on a turn is gone. A stall watchdog stops a turn only after 30 minutes (`POCKET_STALL_MS`) with no output, no background job, no question or approval waiting on you and no CPU use by programs the turn started.
+- Pocket replaces a session's process when the model, effort, workspace or permissions change, or when another app (code-server, a terminal) added turns since Pocket's last one, so the conversation never forks. Sending is refused while another app is in the middle of a turn on that session.
+- Running processes survive a Pocket restart: input goes through a named pipe that the restarted server reattaches to.
+- Codex sessions keep one app-server per turn: a long-lived connection would hold Codex's per-thread writer lock and block code-server.
 
 
 Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. The app's

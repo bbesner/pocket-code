@@ -47,10 +47,20 @@ every surface.
 
 ![Your phone connects over HTTPS to Pocket Code on your server, which runs claude and codex against the same session files your terminal and VS Code use, and sends a push notification when a turn finishes](docs/images/how-it-works.png)
 
-Each message you send starts a detached CLI turn on the server. Output streams to every
-open client over server-sent events and lands in the normal transcript. A file watcher
-also mirrors sessions you're driving from somewhere else, so the phone shows live
-progress for work started in the terminal or code-server.
+Each Claude Code session runs as one detached CLI process on the server, started by your
+first message and kept between turns, so its working directory, MCP connections and
+background jobs carry over. Output streams to every open client over server-sent events
+and lands in the normal transcript. When a background job finishes after a turn, the
+agent's follow-up streams the same way. The process closes after an hour idle (never
+while a background job runs), and the next message resumes the session from its
+transcript. There is no time limit on a turn; one that stays completely silent for 30
+minutes is stopped. Codex sessions start a fresh app-server for each turn, because a
+long-lived one would hold Codex's thread lock against code-server.
+
+A file watcher also mirrors sessions you're driving from somewhere else, so the phone
+shows live progress for work started in the terminal or code-server. Pocket won't send
+into a session another app is in the middle of, and it restarts its own process for a
+session when another app has added turns since, so the conversation never forks.
 
 ## Features
 
@@ -161,6 +171,8 @@ All settings live in `.env` (see [`.env.example`](.env.example)).
 | `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | no | Pocket-only Claude default for turns left on Default, e.g. `claude-opus-5-5[1m]` and `high`. Model must be one of the picker ids. |
 | `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | no | Pocket-only Codex default, e.g. `gpt-6-sol` and `medium`. |
 | `POCKET_DEFAULT_CWD` | no | Workspace the New session screen preselects, e.g. your home directory. Default: wherever you last started a session. |
+| `POCKET_IDLE_CLOSE_MS` | no | How long a Claude Code session's process stays up with no turn and no background job. Default `3600000` (1 hour); `0` keeps processes until Pocket closes them for another reason. |
+| `POCKET_STALL_MS` | no | A turn with no output, no background job, nothing waiting on you and no CPU use by programs it started for this long is stopped. Default `1800000` (30 minutes). |
 
 Turns use your global CLI settings (`~/.claude/settings.json`, Codex config), such as
 the default model, effort and hooks, unless you override them per turn in the composer.

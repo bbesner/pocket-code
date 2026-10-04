@@ -1869,7 +1869,10 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
   "Collapse the whole session header, including Mission Control navigation, on phone, tablet and desktop. Live status stays visible.",
-  "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser."
+  "Hide message settings independently with the gear beside the composer. Attachments and Send remain available; both choices are remembered in this browser.",
+  "Each Claude Code session keeps one process between turns: faster turns, and background jobs, MCP connections and the working directory carry over.",
+  "No more 2-hour turn limit. Long work keeps running; only a turn that has been completely silent for 30 minutes is stopped.",
+  "When a background job finishes after a turn, the agent's follow-up appears live and notifies you."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
