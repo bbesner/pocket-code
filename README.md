@@ -158,9 +158,14 @@ All settings live in `.env` (see [`.env.example`](.env.example)).
 | `POCKET_CODEX` | no | Set to `0` to hide Codex sessions even when `codex` is installed. |
 | `CODEX_BIN`, `CODEX_HOME` | no | Path to `codex` and its home directory, if not the defaults. |
 | `POCKET_RETRY_BUFFER_MS` | no | Wait after a usage-limit reset before auto-continuing. Default 5 minutes. |
+| `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | no | Pocket-only Claude default for turns left on Default, e.g. `claude-opus-5-5[1m]` and `high`. Model must be one of the picker ids. |
+| `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | no | Pocket-only Codex default, e.g. `gpt-6-sol` and `medium`. |
+| `POCKET_DEFAULT_CWD` | no | Workspace the New session screen preselects, e.g. your home directory. Default: wherever you last started a session. |
 
 Turns use your global CLI settings (`~/.claude/settings.json`, Codex config), such as
 the default model, effort and hooks, unless you override them per turn in the composer.
+The `POCKET_*_MODEL`/`_EFFORT` variables change the default for Pocket turns only; your
+terminal and editor sessions keep the CLI settings. Hooks and instructions still apply.
 
 ## Security
 

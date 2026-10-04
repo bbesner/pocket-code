@@ -46,10 +46,12 @@ let claudeModelsLoaded = false;
 async function loadClaudeModels() {
   if (claudeModelsLoaded) return MODELS;
   try {
-    const { models, defaultLabel } = await api('/claude/models');
+    const { models, defaultLabel, defaultEffort, pocketDefault } = await api('/claude/models');
     if (models?.length) {
-      MODELS = [['default', 'Default', `${defaultLabel || 'Global'} · your global setting`],
+      // 4th field = chip text, so Default shows the model it actually runs
+      MODELS = [['default', 'Default', `${defaultLabel || 'Global'} · ${pocketDefault ? 'Pocket default' : 'your global setting'}`, defaultLabel || 'Default'],
         ...models.map(m => [m.id, m.label || m.id, m.sub || ''])];
+      providerDefaults.claude = { effort: defaultEffort, pocket: pocketDefault };
       claudeModelsLoaded = true;
     }
   } catch { }
@@ -63,22 +65,31 @@ let CODEX_MODELS = [['default', 'Default', 'Your Codex config']];
 async function loadCodexModels() {
   if (CODEX_MODELS.length > 1) return CODEX_MODELS;
   try {
-    const { models } = await api('/codex/models');
+    const { models, defaultModel, defaultEffort, pocketDefault } = await api('/codex/models');
     if (models?.length) {
-      CODEX_MODELS = [['default', 'Default', 'Your Codex config'],
+      const label = defaultModel && (models.find(m => m.id === defaultModel)?.label || defaultModel);
+      CODEX_MODELS = [['default', 'Default', label ? `${label} · Pocket default` : 'Your Codex config', label || 'Default'],
         ...models.slice(0, 8).map(m => [m.id, m.label || m.id, ''])];
+      providerDefaults.codex = { effort: defaultEffort, pocket: pocketDefault };
     }
   } catch { }
   return CODEX_MODELS;
 }
 const modelList = () => (tb?.provider === 'codex' ? CODEX_MODELS : MODELS);
+// Default effort row names the level Pocket will send; without one it's the CLI's own setting.
+const effortList = () => {
+  const d = providerDefaults[tb?.provider === 'codex' ? 'codex' : 'claude'], name = d.effort && EFFORT_NAMES[d.effort];
+  return [['default', 'Default', name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'], ...EFFORTS];
+};
+const providerDefaults = { claude: {}, codex: {} };
 const EFFORTS = [
-  ['default', 'Max', 'Your global default'],
+  ['max', 'Max', 'Deepest reasoning'],
   ['xhigh', 'X-High', 'Slightly leaner than max'],
   ['high', 'High', 'Balanced'],
   ['medium', 'Medium', 'Quicker, cheaper'],
   ['low', 'Low', 'Snappy, simple tasks'],
 ];
+const EFFORT_NAMES = Object.fromEntries([...EFFORTS.map(([v, l]) => [v, l]), ['ultra', 'Ultra']]);
 function getPrefs(key) {
   try {
     const p = { model: 'default', effort: 'default', ...JSON.parse(localStorage.getItem('pc-prefs-' + key) || '{}') };
@@ -134,13 +145,13 @@ function sheet(title, options, current, onPick) {
 
 /* Toolbar state shared by chat + new views */
 let tb = null; // {key, prefs, attachments:[{path,name}], allowAttach}
-function tbLabel(list, v) { return (list.find(o => o[0] === v) || list[0])[1]; }
+function tbLabel(list, v) { const o = list.find(o => o[0] === v) || list[0]; return o[3] || o[1]; }
 function renderToolbar() {
   const bar = $('#tbar'); if (!bar || !tb) return;
   bar.innerHTML = `
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
-    <button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(EFFORTS, tb.prefs.effort))}</button>
+    <button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>
     <button class="chip" id="c-approval" title="Permissions for the next turn">${permissionLabel(nextApprovalMode())}</button>
     ${tb.provider==='codex'?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
     ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}`;
@@ -156,7 +167,7 @@ function renderToolbar() {
   if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard']],null,v=>{if(v==='file')$('#fpick')?.click();else pasteClipboardImage();});
   $('#c-model').onclick = () => sheet('Model for this turn', modelList(), tb.prefs.model,
     v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
-  $('#c-eff').onclick = () => sheet('Reasoning effort', EFFORTS, tb.prefs.effort,
+  $('#c-eff').onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
     v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   if (loadOutbox(tb.key)) {
     bar.querySelectorAll('button:not(#c-mute)').forEach(b => { b.disabled = true; });
@@ -1394,7 +1405,7 @@ async function renderNew() {
   first.value = pendingNew?.payload.text || loadDraft('new');
   first.oninput = () => saveDraft('new', first.value);
   try {
-    const { projects } = await api('/projects');
+    const { projects, defaultCwd } = await api('/projects');
     if(viewVersion!==chatRenderVersion)return;
     const pl = $('#plist');
     pl.innerHTML = projects.slice(0, 10).map((p, i) => `
@@ -1407,8 +1418,8 @@ async function renderNew() {
       sel = r.dataset.p; $('#cpath').value = '';context();
     };
     pl.querySelectorAll('.row').forEach(r => r.onclick = () => pick(r));
-    // preselect where you last started a session — most people work out of one root
-    const last = localStorage.getItem('pc-lastproj');
+    // preselect the instance's default workspace, else where you last started a session
+    const last = defaultCwd || localStorage.getItem('pc-lastproj');
     const lastRow = last && pl.querySelector(`.row[data-p="${CSS.escape(last)}"]`);
     if (lastRow) pick(lastRow);
   } catch { }

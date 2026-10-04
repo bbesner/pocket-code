@@ -4,6 +4,17 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
+## [1.5.0] — 2026-10-04 · build 26
+
+- Add `POCKET_CLAUDE_MODEL`/`POCKET_CLAUDE_EFFORT` and `POCKET_CODEX_MODEL`/`POCKET_CODEX_EFFORT`:
+  Pocket-only defaults for turns left on Default, including queued and retried turns.
+  Terminal and editor sessions keep the CLI config. Invalid values are logged and ignored.
+- Model and Effort chips show what Default will run. Max is now an explicit effort choice
+  instead of the Default label.
+- Add `POCKET_DEFAULT_CWD` to preselect one workspace on the New session screen.
+- When the instance default is Full access, drop the Review choice each session recorded
+  at creation (once per browser), so existing sessions follow the new default.
+
 ## [1.4.1] — 2026-10-04 · build 25
 
 - Keep a run-confirmation strip visible even with headers collapsed. Poll authenticated
