@@ -6,6 +6,10 @@ front-end release so browsers load fresh assets.
 
 ## [1.3.1] — Unreleased · build 23
 
+- Adjust conversation text from 14 to 24px (17px default) in Session options and
+  App Settings. Preview changes, reset the size, and remember it per browser.
+  Scale report headings and tables with prose; keep toolbars and code at their
+  existing sizes. Preserve the current reading anchor when changing size.
 - Tighten desktop header, tab and session-list spacing while retaining readable
   conversation text and 44px control targets.
 - Add independent conversation-header and session-filter collapse controls, saved

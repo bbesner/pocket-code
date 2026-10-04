@@ -172,6 +172,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   const sh = document.createElement('div'); sh.className = 'sheet';
   sh.innerHTML = `
     <h2>${esc(s.title)}</h2>
+    ${chatTextControlsHTML()}
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
     <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
     <button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device — clear it to go back to the automatic one</span></span></button>`;
@@ -187,6 +188,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   };
   sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting sessions stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
+  bindChatTextControls(sh);
   mountSheet(scrim, sh);
 }
 function renameSheet(s, refresh) {
@@ -381,6 +383,7 @@ async function settingsSheet() {
   const pushed = await pushState();
   sh.innerHTML = `
     <h2>Pocket Code</h2>
+    ${chatTextControlsHTML()}
     <div class="about">
       <div class="arow"><span>App</span><b>${esc(a.version || 'Pocket Code')} · build ${APP_V ?? '?'}</b></div>
       <div class="arow"><span>Server</span><b>v${a.assetV ?? '?'} · ${esc(a.commit || '?')}${a.commitAt ? ' · ' + new Date(a.commitAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</b></div>
@@ -397,6 +400,7 @@ async function settingsSheet() {
   scrim.onclick = close;
   const r = sh.querySelector('#s-refresh'); if (r) r.onclick = hardRefresh;
   sh.querySelector('#s-environment').onclick=openEnvironment;
+  bindChatTextControls(sh);
   sh.querySelector('#s-keys').onclick=keyboardHelp;
   sh.querySelector('#s-chime').onclick = e => {
     const on = localStorage.getItem('pc-chime') === 'off'; // toggling to…

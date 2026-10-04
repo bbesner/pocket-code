@@ -253,6 +253,51 @@ try{
  assert.equal(await p.$eval('#rail-filter-controls',e=>e.hidden),false);
  await p.screenshot({path:path.join(out,'expanded-workspace-desktop.png')});await scan('expanded-workspace-desktop');
  fs.writeFileSync(path.join(out,'density-metrics.json'),JSON.stringify({expanded,collapsed,conversationGain:collapsed.chat-expanded.chat,sessionListGain:expanded.rows-collapsed.rows},null,2));
+ // Chat text scales independently of application chrome and keeps its value on reload.
+ const chromeSize=await p.$eval('#results-open',e=>getComputedStyle(e).fontSize);
+ await p.click('#chatmore');await p.waitForSelector('[data-text-larger]');
+ assert.equal(await p.$eval('[data-text-size]',e=>e.textContent),'17px');
+ await p.focus('[data-text-larger]');await p.keyboard.press('Enter');
+ assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'18px');
+ assert.equal(await p.$eval('.m-user',e=>getComputedStyle(e).fontSize),'18px');
+ assert.equal(await p.$eval('#results-open',e=>getComputedStyle(e).fontSize),chromeSize);
+ assert.equal(await p.$eval('#box',e=>e.value),'Keep my draft while making room.');
+ for(let i=0;i<6;i++)await p.click('[data-text-larger]');
+ assert.equal(await p.$eval('[data-text-larger]',e=>e.disabled),true);
+ assert.equal(await p.$eval('.chat-text-preview',e=>getComputedStyle(e).fontSize),'24px');
+ assert.ok(await p.$eval('.m-asst h2',e=>Math.abs(parseFloat(getComputedStyle(e).fontSize)-24*22/17)<.01));
+ assert.ok(await p.$eval('.report-table table',e=>Math.abs(parseFloat(getComputedStyle(e).fontSize)-24*15/17)<.01));
+ await p.screenshot({path:path.join(out,'chat-text-size-desktop.png')});await scan('chat-text-size-desktop');
+ await p.keyboard.press('Escape');assert.equal(await p.$eval('#chatmore',e=>e===document.activeElement),true);
+ await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
+ assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'24px');
+ await p.click('#chatmore');await p.waitForSelector('[data-text-smaller]');
+ for(let i=0;i<10;i++)await p.click('[data-text-smaller]');
+ assert.equal(await p.$eval('[data-text-smaller]',e=>e.disabled),true);
+ assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'14px');
+ await p.click('[data-text-reset]');assert.equal(await p.$eval('[data-text-size]',e=>e.textContent),'17px');
+ await p.keyboard.press('Escape');
+ // Settings exposes the same preference and message anchors remain steady as text reflows.
+ await p.click('#railsettings');await p.waitForSelector('[data-text-larger]');
+ await p.click('[data-text-larger]');assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'18px');
+ await p.keyboard.press('Escape');
+ const anchorShift=await p.evaluate(()=>{
+  const m=document.querySelector('#msgs').closest('main'),anchor=[...m.querySelectorAll('.m-asst p')].find(e=>e.textContent==='Paragraph 12 in a long report.');
+  m.scrollTop+=anchor.getBoundingClientRect().top-m.getBoundingClientRect().top;
+  const top=anchor.getBoundingClientRect().top;setChatTextSize(24);return Math.abs(anchor.getBoundingClientRect().top-top);
+ });assert.ok(anchorShift<4,'font changes retain the visible paragraph');
+ for(const width of [360,390,768,1440]){
+  await p.setViewport({width,height:844,isMobile:width<700,hasTouch:width<700});
+  assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'large chat text overflow '+width);
+  await p.click('#chatmore');await p.waitForSelector('[data-text-reset]');
+  assert.equal(await p.$eval('[data-text-size]',e=>e.textContent),'24px');
+  assert.ok(await p.$eval('[data-text-reset]',e=>{const r=e.getBoundingClientRect();return r.width>=44&&r.height>=44&&r.right<=innerWidth;}));
+  if(width===390){await p.screenshot({path:path.join(out,'chat-text-size-mobile.png')});await scan('chat-text-size-mobile');}
+  await p.keyboard.press('Escape');
+ }
+ await p.evaluate(()=>{localStorage.setItem('pc-chat-text-size','999');});await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
+ assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'17px','invalid saved sizes fall back to the default');
+ await p.evaluate(()=>setChatTextSize(17));
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));

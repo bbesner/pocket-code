@@ -104,3 +104,12 @@ The existing slash-menu shadow is unchanged. Text-occlusion findings are report
 paragraphs outside the conversation's scroll viewport, inspected with its composer
 visible; they remain reachable by scrolling. No new contrast or touch-target
 exceptions are introduced by the disclosures.
+
+Conversation text has a per-browser 14–24px preference (17px default), exposed in
+existing Session options and App Settings sheets to avoid extra permanent chrome.
+Prose, report headings and tables scale together; table text has a 13px floor.
+Code, tool ledgers and application controls keep their existing typography. The
+14px prose minimum is an explicit user density preference; browser zoom remains
+available. Both settings surfaces share one control with announced values, native
+disabled bounds, a live sample and reset. Rendered phone/desktop scans at 24px have
+only the existing ellipsis/table/shadow/native-font exceptions described above.

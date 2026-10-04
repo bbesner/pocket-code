@@ -67,6 +67,7 @@ main.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
 /* ---------- chat ---------- */
 .msgs { padding: 18px 16px calc(16px + var(--sab)); display: flex; flex-direction: column; gap: 18px; }
+.m-user,.m-asst { font-size:var(--chat-text-size,17px); }
 .m-user {
   align-self: flex-end; max-width: 85%;
   background: var(--clay-deep); color: #F3E5DD;
@@ -447,17 +448,17 @@ header.bar { gap: 2px; padding-inline: 8px; }
 }
 
 /* Reports read like documents, with wide data contained inside the message. */
-.m-asst h1 { font-size: 26px; line-height: 1.25; margin: 22px 0 12px; }
-.m-asst h2 { font-size: 22px; line-height: 1.3; margin: 20px 0 10px; }
-.m-asst h3 { font-size: 19px; line-height: 1.35; margin: 18px 0 8px; }
-.m-asst h4,.m-asst h5,.m-asst h6 { font-size: 17px; margin: 16px 0 8px; }
+.m-asst h1 { font-size: 1.529412em; line-height: 1.25; margin: 22px 0 12px; }
+.m-asst h2 { font-size: 1.294118em; line-height: 1.3; margin: 20px 0 10px; }
+.m-asst h3 { font-size: 1.117647em; line-height: 1.35; margin: 18px 0 8px; }
+.m-asst h4,.m-asst h5,.m-asst h6 { font-size: 1em; margin: 16px 0 8px; }
 .m-asst blockquote { margin: 14px 0; padding: 12px 16px; background: var(--surface); color: var(--dim); border-radius: 8px; }
 .m-asst hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
 .m-asst li > ul,.m-asst li > ol { margin: 6px 0; }
 .m-asst input[type=checkbox] { accent-color: var(--clay); margin-right: 8px; }
 .report-table { overflow-x: auto; max-width: 100%; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; overscroll-behavior-x: contain; }
 .report-table:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
-.report-table table { border-collapse: collapse; min-width: 100%; font-size: 15px; line-height: 1.5; }
+.report-table table { border-collapse: collapse; min-width: 100%; font-size: max(13px,.882353em); line-height: 1.5; }
 .report-table th,.report-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); min-width: 110px; max-width: 360px; overflow-wrap: anywhere; }
 .report-table th { background: var(--surface); font-weight: 650; vertical-align: bottom; }
 .report-table tr:last-child td { border-bottom: 0; }
@@ -526,6 +527,14 @@ header.bar { gap: 2px; padding-inline: 8px; }
 /* Desktop chrome yields space to the conversation and the session list. */
 .density-toggle { display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:44px;min-width:44px;padding:4px 8px;font-size:13px;color:var(--dim);border-radius:6px; }
 .density-toggle .i { width:16px;height:16px; }
+.chat-text-settings { padding:12px 14px;border-bottom:1px solid var(--line); }
+.chat-text-label { font-size:15px;font-weight:600; }
+.chat-text-controls { display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-block:8px; }
+.chat-text-controls button { min-height:44px;min-width:44px;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:14px; }
+.chat-text-controls button:hover:not(:disabled) { background:var(--raised); }
+.chat-text-controls output { min-width:44px;text-align:center;font-size:14px;font-variant-numeric:tabular-nums;color:var(--dim); }
+.chat-text-preview { font-size:var(--chat-text-size,17px);line-height:1.6;margin-block:12px; }
+.chat-text-help { color:var(--dim);font-size:13px;line-height:1.5; }
 .rail-filter-summary { display:flex;align-items:center;gap:8px;padding:0 12px 4px;font-size:12px;color:var(--dim); }
 .rail-filter-summary[hidden] { display:none; }
 .rail-filter-summary span { flex:1;min-width:0;overflow-wrap:anywhere; }

@@ -1,6 +1,47 @@
 /* Daily workspace: local navigation preferences, shared session data. */
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function writeLocal(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
+const CHAT_TEXT_DEFAULT=17,CHAT_TEXT_MIN=14,CHAT_TEXT_MAX=24;
+const savedChatText=readLocal('pc-chat-text-size',CHAT_TEXT_DEFAULT);
+let chatTextSize=Number.isInteger(savedChatText)&&savedChatText>=CHAT_TEXT_MIN&&savedChatText<=CHAT_TEXT_MAX?savedChatText:CHAT_TEXT_DEFAULT;
+document.documentElement.style.setProperty('--chat-text-size',chatTextSize+'px');
+function chatTextControlsHTML(){
+ return `<section class="chat-text-settings" aria-label="Chat text size">
+  <p class="chat-text-label">Chat text size</p>
+  <div class="chat-text-controls" role="group" aria-label="Adjust chat text size">
+   <button data-text-smaller aria-label="Smaller chat text">Smaller</button>
+   <output data-text-size aria-live="polite" aria-atomic="true">${chatTextSize}px</output>
+   <button data-text-larger aria-label="Larger chat text">Larger</button>
+   <button data-text-reset aria-label="Reset chat text to 17 pixels">Reset</button>
+  </div>
+  <p class="chat-text-preview">Your conversation, at a size that works for you.</p>
+  <p class="chat-text-help">Saved for all conversations on this browser.</p>
+ </section>`;
+}
+function setChatTextSize(size){
+ if(!Number.isInteger(size))return;
+ const scroller=document.querySelector('#msgs')?.closest('main.scroll');
+ const bottom=scroller&&scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<24;
+ const edge=scroller?.getBoundingClientRect().top||0;
+ const anchor=scroller&&[...scroller.querySelectorAll('.m-user,.m-asst > p,.m-asst > h1,.m-asst > h2,.m-asst > h3,.m-asst > ul,.m-asst > ol,.m-asst > blockquote,.report-table')].find(el=>el.getBoundingClientRect().bottom>edge);
+ const anchorTop=anchor?.getBoundingClientRect().top;
+ chatTextSize=Math.min(CHAT_TEXT_MAX,Math.max(CHAT_TEXT_MIN,size));
+ writeLocal('pc-chat-text-size',chatTextSize);
+ document.documentElement.style.setProperty('--chat-text-size',chatTextSize+'px');
+ if(scroller){
+  if(bottom)scroller.scrollTop=scroller.scrollHeight;
+  else if(anchor)scroller.scrollTop+=anchor.getBoundingClientRect().top-anchorTop;
+  rememberReading();
+ }
+ document.querySelectorAll('[data-text-size]').forEach(el=>el.textContent=chatTextSize+'px');
+ document.querySelectorAll('[data-text-smaller]').forEach(el=>el.disabled=chatTextSize===CHAT_TEXT_MIN);
+ document.querySelectorAll('[data-text-larger]').forEach(el=>el.disabled=chatTextSize===CHAT_TEXT_MAX);
+}
+function bindChatTextControls(container){
+ container.querySelectorAll('[data-text-smaller]').forEach(el=>{el.disabled=chatTextSize===CHAT_TEXT_MIN;el.onclick=()=>setChatTextSize(chatTextSize-1);});
+ container.querySelectorAll('[data-text-larger]').forEach(el=>{el.disabled=chatTextSize===CHAT_TEXT_MAX;el.onclick=()=>setChatTextSize(chatTextSize+1);});
+ container.querySelectorAll('[data-text-reset]').forEach(el=>el.onclick=()=>setChatTextSize(CHAT_TEXT_DEFAULT));
+}
 let headerCollapsed=readLocal('pc-header-collapsed',false)===true;
 let railFiltersCollapsed=readLocal('pc-rail-filters-collapsed',false)===true;
 function paintWorkspaceDensity(){
