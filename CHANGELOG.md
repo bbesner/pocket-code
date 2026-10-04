@@ -4,6 +4,21 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
+## [1.4.1] — 2026-10-04 · build 25
+
+- Keep a run-confirmation strip visible even with headers collapsed. Poll authenticated
+  server turn state every5seconds, show check age, distinguish pending input/completion
+  from external estimates, and mark status unconfirmed after failed or stale checks.
+
+- Keep existing chat composers within the visible viewport through Fold resizing,
+  rotation and keyboard changes, without remounting conversations or losing drafts.
+- Paste screenshots into chat/new-session text areas, or use Attach → Paste screenshot.
+  Bind uploads to the initiating session and wait for uploads before sending.
+- Make conversation-header collapse available on phones, keep turn controls on one
+  scrollable row, and widen desktop conversations from720px to1280px.
+- Publish frontend release metadata with the static bundle, so a UI-only upgrade
+  can report its version accurately without restarting active server-side turns.
+
 ## [1.4.0] — 2026-10-04 · build 24
 
 - Add native action approvals for Claude and Codex, with complete escaped command,

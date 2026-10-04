@@ -153,7 +153,7 @@ function renderToolbar() {
     ar.querySelectorAll('button').forEach(b => b.onclick = () => { tb.attachments.splice(Number(b.dataset.i), 1); stashAttachments(); renderToolbar(); });
   }
   const att = $('#c-att');
-  if (att) att.onclick = () => $('#fpick').click();
+  if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard']],null,v=>{if(v==='file')$('#fpick')?.click();else pasteClipboardImage();});
   $('#c-model').onclick = () => sheet('Model for this turn', modelList(), tb.prefs.model,
     v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   $('#c-eff').onclick = () => sheet('Reasoning effort', EFFORTS, tb.prefs.effort,
@@ -164,6 +164,7 @@ function renderToolbar() {
   }
   const mode=$('#c-mode');if(mode)mode.onclick=()=>sheet('Codex mode for the next turn',[['work','Work normally','Carry out your request'],['plan','Plan first','Explore an approach and answer native questions before implementation']],tb.prefs.executionMode||'work',v=>{tb.prefs.executionMode=v;setPrefs(tb.key,tb.prefs);renderToolbar();});
   $('#c-approval').onclick=()=>chooseApprovalMode();
+  paintUploadStatus();
   const mu = $('#c-mute');
   if (mu) mu.onclick = () => toggleMute();
 }
@@ -175,6 +176,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.innerHTML = `
     <h2>${esc(s.title)}</h2>
     ${chatTextControlsHTML()}
+    ${s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':''}
     <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
     <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
@@ -192,6 +194,8 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting sessions stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
   bindChatTextControls(sh);
+  sh.querySelector('#so-find')?.addEventListener('click',()=>{close();findOpen(true);});
+  sh.querySelector('#so-changes')?.addEventListener('click',()=>{close();openChanges();});
   sh.querySelector('#so-permissions').onclick=()=>{close();chooseApprovalMode(s.id);};
   mountSheet(scrim, sh);
 }
@@ -248,18 +252,59 @@ async function toggleMute() {
     const wb = $('#muteb'); if (wb) { wb.innerHTML = chatMuted ? IC.bellOff : IC.bell; wb.classList.toggle('on', chatMuted); }
   } catch (e) { toast('Mute failed: ' + e.message); }
 }
-async function uploadFiles(fileList) {
+const uploadsInFlight = new Map();
+function attachmentTarget() {
+  if (!tb?.allowAttach || loadOutbox(tb.key)) { toast('Finish or discard the pending message before attaching files.'); return null; }
+  if (tb.key !== 'new' && composerWorking) { toast('Attach files after this turn finishes.'); return null; }
+  return tb.key;
+}
+function paintUploadStatus() {
+  const row = $('#attrow'); if (!row || !tb) return;
+  row.querySelector('.upload-status')?.remove();
+  const n = uploadsInFlight.get(tb.key) || 0;
+  if (n) { const note=document.createElement('span');note.className='upload-status';note.role='status';note.textContent='Uploading '+n+' file'+(n===1?'':'s')+'…';row.append(note); }
+}
+async function uploadFiles(fileList, target = attachmentTarget()) {
+  if (!target || !fileList.length) return;
+  uploadsInFlight.set(target,(uploadsInFlight.get(target)||0)+fileList.length);paintUploadStatus();
   for (const f of fileList) {
-    if (f.size > 30 * 1024 * 1024) { toast(`${f.name} is over 30 MB`); continue; }
     try {
+      if (f.size > 30 * 1024 * 1024) throw new Error(`${f.name} is over 30 MB`);
       const r = await fetch('/api/upload', { method: 'POST', headers: { 'x-filename': f.name, 'content-type': 'application/octet-stream' }, body: f });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || r.statusText);
-      tb.attachments.push({ path: j.path, name: j.name }); stashAttachments();
+      // Uploads belong to the initiating session, even if navigation happens meanwhile.
+      const files=loadAttachments(target);files.push({path:j.path,name:j.name});
+      localStorage.setItem('pc-attachments-'+target,JSON.stringify(files));
+      if(tb?.key===target)tb.attachments=files;
     } catch (e) { toast('Upload failed: ' + e.message); }
+    finally { const n=(uploadsInFlight.get(target)||1)-1;if(n)uploadsInFlight.set(target,n);else uploadsInFlight.delete(target); }
   }
-  renderToolbar();
+  if(tb?.key===target){renderToolbar();paintUploadStatus();}
 }
+function clipboardFile(blob, index=0) {
+  const ext=({'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'})[blob.type]||'png';
+  return new File([blob],`screenshot-${Date.now()}-${index}.${ext}`,{type:blob.type});
+}
+async function pasteClipboardImage() {
+  const target=attachmentTarget();if(!target)return;
+  if(!navigator.clipboard?.read){toast('This browser cannot read clipboard images. Try pasting into the message box or choose a file.');return;}
+  uploadsInFlight.set(target,(uploadsInFlight.get(target)||0)+1);paintUploadStatus();
+  try {
+    const items=await navigator.clipboard.read(),files=[];
+    for(const item of items){const type=item.types.find(t=>t.startsWith('image/'));if(type)files.push(clipboardFile(await item.getType(type),files.length));}
+    if(!files.length){toast('No image on the clipboard. Copy a screenshot first.');return;}
+    await uploadFiles(files,target);
+  } catch {toast('Clipboard access was not available. Try pasting into the message box or choose a file.');}
+  finally{const n=(uploadsInFlight.get(target)||1)-1;if(n)uploadsInFlight.set(target,n);else uploadsInFlight.delete(target);paintUploadStatus();}
+}
+document.addEventListener('paste',event=>{
+  if(!event.target.matches?.('#box,#first'))return;
+  const files=[...(event.clipboardData?.items||[])].filter(i=>i.kind==='file'&&i.type.startsWith('image/')).map(i=>i.getAsFile()).filter(Boolean);
+  if(!files.length)return; // Ordinary text keeps the browser's normal paste behavior.
+  event.preventDefault();const target=attachmentTarget();if(target)uploadFiles(files.map(clipboardFile),target);
+});
+
 function turnOpts() {
   if (!tb) return {};
   return {
@@ -380,7 +425,10 @@ async function settingsSheet() {
   let a = {}, srv = {};
   try { a = await api('/about'); } catch { }
   try { srv = await api('/settings'); } catch { }
-  const stale = a.assetV && APP_V && a.assetV !== APP_V;
+  let clientRelease=null;
+  try {const response=await fetch('/release.json?v='+APP_V);if(response.ok){const release=await response.json();if(release.assetV===APP_V)clientRelease=release;}}catch{}
+  const clientNotes=clientRelease?.notes||a.notes;
+  const stale = a.assetV && APP_V && a.assetV > APP_V;
   const up = a.uptime ? (a.uptime > 90 * 60 ? Math.round(a.uptime / 3600) + 'h' : Math.round(a.uptime / 60) + 'm') : '?';
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet';
@@ -390,14 +438,14 @@ async function settingsSheet() {
     <h2>Pocket Code</h2>
     ${chatTextControlsHTML()}
     <div class="about">
-      <div class="arow"><span>App</span><b>${esc(a.version || 'Pocket Code')} · build ${APP_V ?? '?'}</b></div>
+      <div class="arow"><span>App</span><b>${esc(clientRelease?.version || a.version || 'Pocket Code')} · build ${APP_V ?? '?'}</b></div>
       <div class="arow"><span>Server</span><b>v${a.assetV ?? '?'} · ${esc(a.commit || '?')}${a.commitAt ? ' · ' + new Date(a.commitAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</b></div>
       <div class="arow"><span>Claude CLI</span><b>${esc(a.cli || '?')}</b></div>
       <div class="arow"><span>Box</span><b>${esc(a.host || '?')} · up ${up}</b></div>
       ${stale ? `<button class="primary" id="s-refresh">Update available — refresh to v${a.assetV}</button>`
         : `<div class="arow ok"><span>Status</span><b>Up to date</b></div>`}
     </div>
-    ${Array.isArray(a.notes) && a.notes.length ? `<div class="about whatsnew"><div class="arow"><span>What's new in v${a.assetV ?? APP_V ?? '?'}</span></div><ul>${a.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
+    ${Array.isArray(clientNotes) && clientNotes.length ? `<div class="about whatsnew"><div class="arow"><span>What's new in v${APP_V ?? a.assetV ?? '?'}</span></div><ul>${clientNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
     <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button><button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button><button class="opt" id="s-chime"><span class="dot ${chimeOff ? '' : 'on'}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
     <button class="opt" id="s-push"><span class="dot ${pushed ? 'on' : ''}"></span><span>Turn notifications<span class="sub">Push to this device when a turn finishes</span></span></button>
     <button class="opt" id="s-sync"><span class="dot ${srv.titleSync ? 'on' : ''}"></span><span>Sync names with code-server<span class="sub">Session names follow Claude Code's titles, and renames here show there too</span></span></button>`;
@@ -430,12 +478,14 @@ async function settingsSheet() {
 /* ---------- sessions list ---------- */
 let allSessions = [], sessionFilter = 'all', sessionQuery = '', sessionCheckedAt = 0, sessionWarnings = [], sessionsStale = false;
 let sessionFetch = null;
+let sessionProofReceivedAt=0,sessionProofReceivedWallAt=0;
 const seenAt = id => { try { return Number(localStorage.getItem('pc-seen-' + id)) || 0; } catch { return 0; } };
 const needsAttention = s => s.state?.kind === 'input' || s.state?.kind === 'failed' && (s.state.at || 0) > seenAt(s.id);
 const isUnread = s => s.state?.kind === 'finished' && (s.state.at || 0) > seenAt(s.id);
 function markRead(id, state) { if (document.visibilityState === 'visible' && state?.at) { try { localStorage.setItem('pc-seen-' + id, String(state.at)); } catch { } } }
 function rowState(s) { return s.state || { kind: s.active ? 'observed' : 'idle', label: s.active ? 'Activity elsewhere' : 'Recent' }; }
 function sessionCounts() {
+  if(sessionsStale)return {running:0,input:0,observed:0,attention:allSessions.filter(needsAttention).length,fresh:allSessions.filter(isUnread).length};
   return { running: allSessions.filter(s => rowState(s).kind === 'running').length,
     input:allSessions.filter(s=>rowState(s).kind==='input').length,
     observed: allSessions.filter(s => rowState(s).kind === 'observed').length,
@@ -469,7 +519,7 @@ function sessionRowHTML(s) {
       <span class="body"><span class="title">${esc(s.title)}</span>
       <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${esc(projName(s.cwd))} · ${s.provider === 'codex' ? 'Codex' : 'Claude'}</span>
       <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
-      <span class="activity-detail">${esc(detail)}</span></span>
+      <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
     </button><button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
   </div>`;
 }
@@ -487,6 +537,7 @@ function bindSessionRows(container) {
 function groupedSessionsHTML(list) {
   const groups = [['running','Running'],['observed','Activity elsewhere'],['failed','Needs attention'],['waiting','Waiting'],['recent','Recent']];
   if (!list.length) return `<div class="empty">${sessionsStale ? 'Could not load sessions. Use Refresh to try again.' : sessionQuery || workspaceFilter || providerFilter || ['pinned','hidden'].includes(sessionFilter) ? 'No sessions match these filters.' : sessionFilter === 'active' ? 'No runs or recent external activity.' : sessionFilter === 'attention' ? 'No recorded failed turns.' : sessionFilter === 'new' ? 'No new recorded responses.' : 'No sessions yet. Start a conversation to begin.'}</div>`;
+  if(sessionsStale)return `<section class="session-group"><h2>Status unconfirmed<span>${list.length}</span></h2>${list.map(sessionRowHTML).join('')}</section>`;
   return groups.map(([key,label]) => {
     const rows = list.filter(s => key === 'recent' ? !['running','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s) : key === 'failed' ? needsAttention(s) : rowState(s).kind === key);
     return rows.length ? `<section class="session-group"><h2>${label}<span>${rows.length}</span></h2>${rows.map(sessionRowHTML).join('')}</section>` : '';
@@ -514,17 +565,52 @@ function paintSessionPanels() {
   const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals)ab.textContent='Action needs approval · Review';}
   if (current && $('#chat-state')) { $('#chat-state').textContent = sessionsStale ? 'Unconfirmed' : rowState(current).label; if (!sessionsStale) markRead(chatId, current.state); }
   const queueButton=$('#queue-open');if(queueButton)queueButton.textContent='Queue'+(current?.state?.queued?' ('+current.state.queued+')':'');
+  if(current?.state?.confirmed&&['finished','failed','stopped','ended'].includes(current.state.kind)&&!sessionsStale&&!loadOutbox(chatId)){deliveryNotices.delete(chatId);paintDelivery(chatId);}
+  paintRunConfirmation();
   const quick = $('#session-switch');
   if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Sessions · status unavailable' : `Sessions · ${c.running} running${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
 }
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
   sessionFetch = (async () => {
-    try { const d = await api('/sessions?limit=200'); allSessions = d.sessions; sessionWarnings = d.warnings || []; sessionCheckedAt = d.checkedAt || Date.now(); sessionsStale = false; const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
+    try { const d = await api('/sessions?limit=200&statusCheck='+Date.now(),{cache:'no-store',signal:AbortSignal.timeout(8000)}); allSessions = d.sessions; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
     finally { sessionFetch = null; paintSessionPanels(); }
   })();
   return sessionFetch;
+}
+// This timestamp advances ONLY on a fresh authenticated server status response.
+// Local animation, SSE keepalives and transcript activity never prove an owned run.
+function paintRunConfirmation(){
+ const elapsed=sessionProofReceivedAt?Math.max(0,Math.floor(Math.max(performance.now()-sessionProofReceivedAt,Date.now()-sessionProofReceivedWallAt)/1000)):null;
+ const fresh=!sessionsStale&&elapsed!==null&&elapsed<=15;
+ const current=allSessions.find(s=>s.id===chatId),state=current?.state;
+ const box=document.getElementById('run-confirmation');
+ const name=document.getElementById('run-confirmed-state'),stamp=document.getElementById('run-confirmed-at');
+ if(box&&name&&stamp){
+  let label='Checking server…',kind='unknown';
+  if(!fresh&&sessionProofReceivedAt)label='Status unconfirmed. Reconnecting…';
+  else if(!fresh&&sessionsStale)label='Status unavailable';
+  else if(fresh){
+   if(state?.kind==='running'&&state.confirmed===true){label='Running on server';kind='running';}
+   else if(state?.kind==='running'||state?.kind==='observed'){label='Activity seen. Run unconfirmed';}
+   else if(state?.confirmed===true){label=state.label;kind=state.kind;}
+   else {label='No active run here';kind='idle';}
+  }
+  if(name.textContent!==label)name.textContent=label;
+  box.dataset.state=kind;
+  stamp.textContent=elapsed===null?'':(fresh?'Checked ':'Last check ')+elapsed+'s ago';
+  box.title=sessionCheckedAt?'Server confirmation: '+new Date(sessionCheckedAt).toLocaleTimeString()+'. '+(state?.startedAt?'Turn started: '+new Date(state.startedAt).toLocaleTimeString()+'. ':'')+'Checks every 5 seconds. Running means the server owns an active turn; it does not guarantee continuous output.':'';
+ }
+ const headerLamp=document.getElementById('hember');
+ if(headerLamp)headerLamp.hidden=!(fresh&&state?.kind==='running'&&state.confirmed===true);
+ const workingLabel=document.getElementById('work-label');
+ if(workingLabel){
+  const label=!fresh?'Run status unconfirmed':state?.kind==='running'&&state.confirmed===true?'Working on server':state?.label||'No active run confirmed';
+  if(workingLabel.textContent!==label)workingLabel.textContent=label;
+  const lamp=workingLabel.parentElement.querySelector('.ember');if(lamp)lamp.hidden=!(fresh&&state?.kind==='running'&&state.confirmed===true);
+ }
+ document.querySelectorAll('[data-run-age]').forEach(el=>el.textContent=fresh?'confirmed '+elapsed+'s ago':'not currently confirmed');
 }
 function sessionPanelHTML(rail = false) {
   const summary = `<p class="session-summary" data-session-summary role="status">${esc(sessionSummary())}</p>`;
@@ -562,7 +648,11 @@ function openSessionSwitcher() {
   mountSheet(scrim, sh); bindSessionPanel(sh); refreshSessions();
 }
 // Refresh state without rebuilding the conversation or discarding its draft.
-setInterval(() => { if (document.visibilityState === 'visible' && !document.querySelector('.login')) refreshSessions(); }, 10000);
+setInterval(() => { if (document.visibilityState === 'visible' && !document.querySelector('.login')) refreshSessions(); }, 5000);
+setInterval(()=>{
+ if(sessionProofReceivedAt&&Math.max(performance.now()-sessionProofReceivedAt,Date.now()-sessionProofReceivedWallAt)>15000&&!sessionsStale){sessionsStale=true;paintSessionPanels();}
+ else paintRunConfirmation();
+},1000);
 window.addEventListener('offline', () => { sessionsStale = true; paintSessionPanels(); setConnection('Offline. Your draft is kept on this device.'); });
 window.addEventListener('online', () => { refreshSessions(); if (chatId) openES(); });
 
@@ -938,9 +1028,10 @@ async function renderChat(id) {
       <button class="icon" id="chgb" aria-label="Changed files">${IC.diff}</button>
       <button class="icon" id="findb" aria-label="Find in conversation">${IC.search}</button>
       <button class="icon" id="chatmore" aria-label="Session options">${IC.more}</button>
-      <button class="icon desk" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj">${IC.up1}</button>
+      <button class="icon" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj chat-statebar">${IC.up1}</button>
     </header>
-    <div class="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
+    <div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
+    <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
     <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>
     <button class="question-banner" id="approvals-open" hidden>Action needs approval · Review</button>
     <p id="connection-state" class="connection-state" role="status" hidden></p>
@@ -1071,7 +1162,7 @@ function setComposer(working) {
   const paintMode=()=>modeButtons.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===(sendModes.get(chatId)||'steer'))));
   modeButtons.forEach(b=>b.onclick=()=>{sendModes.set(chatId,b.dataset.mode);paintMode();$('#box').placeholder=b.dataset.mode==='queue'?'Run this after the current turn…':'Steer this turn…';});paintMode();
   const box = $('#box');
-  const grow = () => { box.style.height = 'auto'; box.style.height = Math.min(box.scrollHeight, innerHeight * .4) + 'px'; };
+  const grow = () => sizeComposerBox();
   const draft = loadOutbox(chatId)?.text || loadDraft(chatId);
   if (draft) { box.value = draft; grow(); }
   box.oninput = () => {
@@ -1119,6 +1210,7 @@ function paintDelivery(id = chatId) {
 }
 async function sendMsg(text) {
   text = text.trim(); const id = chatId;
+  if(uploadsInFlight.get(id)){toast('Wait for the attachment upload to finish.');return;}
   if (!text || !id || sendsInFlight.has(id) || loadOutbox(id)) return;
   const opts = composerWorking ? {mode:sendModes.get(id)||'steer',approvalMode:nextApprovalMode()} : turnOpts();
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
@@ -1136,7 +1228,7 @@ async function submitPending(id) {
     const result = await api(`/session/${id}/message`, { method: 'POST', body: JSON.stringify({ text: pending.text, ...pending.opts, clientMessageId: pending.clientMessageId }) });
     saveOutbox(id, null); clearDraft(id);
     if (pending.files.length) localStorage.removeItem('pc-attachments-' + id);
-    deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current turn.' : result.steered ? 'Sent to the running turn.' : 'Sent. Work continues on the server.');
+    deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current turn.' : result.steered ? 'Sent to the running turn.' : 'Message delivered.');
     if (chatId === id) {
       if (tb?.key === id && pending.files.length) tb.attachments = [];
       const box = $('#box'); if (box) box.value = '';
@@ -1334,6 +1426,7 @@ async function renderNew() {
   paintNewDelivery();
   let newPending = null;
   $('#start').onclick = async () => {
+    if(uploadsInFlight.get('new'))return toast('Wait for the attachment upload to finish.');
     const savedStart = loadOutbox('new');
     const cwd = savedStart?.payload.cwd || $('#cpath').value.trim() || sel;
     const text = savedStart?.payload.text || $('#first').value.trim();
