@@ -4,7 +4,7 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
-## [1.3.1] — Unreleased · build 23
+## [1.3.1] — 2026-10-04 · build 23
 
 - Adjust conversation text from 14 to 24px (17px default) in Session options and
   App Settings. Preview changes, reset the size, and remember it per browser.
