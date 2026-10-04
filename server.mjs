@@ -18,7 +18,7 @@ import { sessionState, prioritizeSessions } from './session-state.mjs';
 import { collectResults } from './results.mjs';
 import { FollowupQueue } from './queue.mjs';
 import {workspaceStatus,workspaceDiff} from './workspace.mjs';
-import {readClaudeIdentity} from './environment.mjs';
+import {readClaudeIdentity,agentEnv} from './environment.mjs';
 import {QuestionInbox} from './questions.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 
@@ -684,7 +684,7 @@ function broadcast(turn, ev) {
 }
 
 function spawnEnv() {
-  const env = { ...process.env };
+  const env = agentEnv(process.env);
   for (const k of Object.keys(env)) {
     if (k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_')) delete env[k];
   }
@@ -1564,9 +1564,9 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  'Set Pocket-only default models and reasoning effort for Claude and Codex. The Model and Effort chips show what Default will run.',
-  'Optionally preselect one workspace (such as your home directory) for every new session.',
-  'When the instance default is Full access, sessions that recorded the old Review default follow it.',
+  "Split view on desktop: open another session beside the current one with the Split view button or Open beside in session options. Each pane keeps its own conversation, composer and tools.",
+  "Swap a pane into the main position, close it, or drag the divider to resize. Panes stay open while you switch the main session.",
+  "Hover over (or tab to) any icon or abbreviated control for a short explanation of what it does.",
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v26';
-const SHELL = ['/', '/release.json?v=26', '/app.css?v=26', '/app.js?v=26', '/workspace.js?v=26', '/approvals.js?v=26', '/format.js?v=26', '/vendor/marked.js?v=26', '/vendor/purify.js?v=26', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v27';
+const SHELL = ['/', '/release.json?v=27', '/app.css?v=27', '/app.js?v=27', '/workspace.js?v=27', '/approvals.js?v=27', '/split.js?v=27', '/tips.js?v=27', '/format.js?v=27', '/vendor/marked.js?v=27', '/vendor/purify.js?v=27', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -17,7 +17,7 @@ self.addEventListener('fetch', e => {
         caches.open(V).then(c => c.put(e.request, copy));
       }
       return r;
-    }).catch(() => caches.match(e.request))
+    }).catch(() => caches.match(e.request, { ignoreSearch: e.request.mode === 'navigate' })) // split-view panes load /?pane=1
   );
 });
 
@@ -35,7 +35,8 @@ self.addEventListener('notificationclick', e => {
   e.notification.close();
   const url = e.notification.data?.url || '/';
   e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-    for (const c of list) if ('focus' in c) { c.navigate(url); return c.focus(); }
+    // split-view panes are window clients too; open the notification in the top-level window
+    for (const c of list) if (c.frameType !== 'nested' && 'focus' in c) { c.navigate(url); return c.focus(); }
     return clients.openWindow(url);
   }));
 });

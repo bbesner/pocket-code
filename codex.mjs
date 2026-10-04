@@ -14,6 +14,7 @@
 //      fails with "already has an active writer". So a turn connection resumes, runs,
 //      and CLOSES — the lock goes back the moment the turn ends.
 
+import {agentEnv} from './environment.mjs';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -61,7 +62,7 @@ class AppServer {
     this.rem = '';
     this.closed = false;
     this.proc = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], {
-      stdio: ['pipe', 'pipe', 'pipe'], detached, env: process.env,
+      stdio: ['pipe', 'pipe', 'pipe'], detached, env: agentEnv(process.env),
     });
     if (detached) this.proc.unref();
     this.pid = this.proc.pid;
