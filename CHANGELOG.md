@@ -4,7 +4,7 @@ Pocket Code uses [semantic versioning](https://semver.org/) from 1.0.0 onward. T
 settings sheet also shows a **build number** (`v19`, …), which goes up with every
 front-end release so browsers load fresh assets.
 
-## [1.4.0] — Unreleased · build 24
+## [1.4.0] — 2026-10-04 · build 24
 
 - Add native action approvals for Claude and Codex, with complete escaped command,
   file-change and tool previews, explicit decisions and Needs approval state.
