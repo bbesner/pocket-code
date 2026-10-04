@@ -30,7 +30,7 @@ async function fixture(t,port,env={}){
  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true});});
  fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});
  await start();
- return {dir,call,calls,until,procs,idle,logs:()=>logs};
+ return {dir,call,calls,until,procs,idle,start,stop,logs:()=>logs};
 }
 const msg=(text,extra={})=>({text,clientMessageId:randomUUID(),...extra});
 
@@ -83,4 +83,23 @@ test('a permissions change reopens the app-server; a silent Codex turn is stoppe
  assert.equal((await f.call(`/session/${id}/message`,msg('__HANG__'))).status,202);
  assert.ok(await f.until(()=>/codex turn STALLED/.test(f.logs()),6000));
  assert.ok(await f.until(async()=>await f.idle(id),6000),'stalled turn ended');
+});
+
+test('a Pocket restart reattaches to the Codex process, mid-turn and between turns',async t=>{
+ const f=await fixture(t,18405);
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('__SLOW__ survive a restart')})).body.id;
+ assert.ok(await f.until(()=>f.calls().length===1));
+ await f.stop();await f.start();
+ assert.match(f.logs(),/adopted codex session thread=.* turn=true/);
+ assert.equal(await f.procs(),1,'process adopted');
+ assert.ok(await f.until(async()=>await f.idle(id),6000),'in-flight turn finished after the restart');
+ assert.equal((await f.call(`/session/${id}/message`,msg('after restart'))).status,202);
+ assert.ok(await f.until(async()=>f.calls().length===2&&await f.idle(id)));
+ assert.equal(new Set(f.calls().map(c=>c.pid)).size,1,'the restarted server wrote into the same app-server');
+ // and once more while idle
+ await f.stop();await f.start();
+ assert.match(f.logs(),/adopted codex session thread=.* turn=false/);
+ assert.equal((await f.call(`/session/${id}/message`,msg('after idle restart'))).status,202);
+ assert.ok(await f.until(async()=>f.calls().length===3&&await f.idle(id)));
+ assert.equal(new Set(f.calls().map(c=>c.pid)).size,1);
 });

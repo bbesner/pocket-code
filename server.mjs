@@ -1547,17 +1547,21 @@ app.post('/api/session/:id/queue/start',requireAuth,async(req,res)=>{
   try {const started=await runNextFollowup(id);res.json({ok:true,started:Boolean(started)});}catch(e){queueError(res,e);}
 });
 
-async function startCodexFromApi({ id, threadId, cwd, text, body }) {
-  const opts = withDefaults('codex', turnOpts(body));
-  // onFinish takes the turn as an argument: a turn that fails during resume finishes
-  // before this function has returned, so the closure can't reach a local binding yet.
-  return codex.startCodexTurn({
-    threadId, cwd, text, ...opts,
+// Per-thread callbacks for Codex turns; also handed to sessions reattached after a restart.
+// They take the turn as an argument: a turn that fails during resume finishes before
+// startCodexTurn has returned, so a closure can't reach a local binding yet.
+function codexHooks(id) {
+  return {
     auditApproval,onApproval:turn=>{const sid=id||(codex.CX+turn.threadId);const aid=turn.approvals.list().at(-1)?.id;if(aid&&turn.approvalNotified!==aid&&!mutes.has(sid)){turn.approvalNotified=aid;pushNotify(sid,'Action needs approval','Open Pocket Code to review the pending action.').catch(()=>{});}},
     onQuestion:turn=>{const sid=id||(codex.CX+turn.threadId);const qid=turn.questions.list().at(-1)?.id;if(!mutes.has(sid)&&turn.questionNotified!==qid){turn.questionNotified=qid;pushNotify(sid,'Codex needs your answer','Open Pocket Code to answer the agent’s question.').catch(()=>{});}},
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
-  });
+  };
 }
+async function startCodexFromApi({ id, threadId, cwd, text, body }) {
+  const opts = withDefaults('codex', turnOpts(body));
+  return codex.startCodexTurn({ threadId, cwd, text, ...opts, ...codexHooks(id) });
+}
+if (CODEX_ON) codex.adoptCodexSessions(threadId => codexHooks(codex.CX + threadId));
 
 function validateApprovalMode(req,res,next){
   try{approvalMode(req.body?.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);next();}
