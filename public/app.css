@@ -79,7 +79,7 @@ main.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   white-space: pre-wrap; overflow-wrap: break-word;
 }
 .m-asst { max-width: 100%; overflow-wrap: break-word; }
-.m-user.pending { opacity: .72; }
+.m-user.pending, .m-files.pending { opacity: .72; }
 .stale-banner { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + var(--sab)); z-index: 60; max-width: min(92vw, 560px); padding: 10px 14px; border-radius: 12px; background: var(--clay); color: #1A0F09; font-size: 14.5px; font-weight: 500; box-shadow: 0 6px 18px rgba(0,0,0,.45); text-align: left; }
 .m-asst p { margin: 0 0 10px; } .m-asst p:last-child { margin-bottom: 0; }
 .m-asst h2, .m-asst h3 { font-size: 17px; font-weight: 650; margin: 14px 0 6px; }
@@ -153,7 +153,7 @@ details.todo li.t-in_progress .tbox { border-color: var(--clay); background: var
 .findbar .fcount { flex: none; min-width: 46px; text-align: right; font-size: 12.5px; color: var(--faint);
   font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; }
 .findbar button.icon { padding: 6px; color: var(--dim); }
-mark.fmark { background: rgba(217, 119, 87, .28); color: inherit; border-radius: 3px; }
+mark.fmark { background: color-mix(in srgb, var(--clay) 28%, transparent); color: inherit; border-radius: 3px; }
 mark.fmark.cur { background: var(--clay); color: #1A0F09; }
 
 /* ---------- composer ---------- */
