@@ -635,7 +635,7 @@ function sessionRowHTML(s) {
   const detail = running && state.startedAt ? `Started ${rel(state.startedAt)}`
     : state.kind === 'observed' ? 'Recent transcript activity; run status unconfirmed'
     : state.kind === 'waiting' && state.retryAt ? `Retry at ${new Date(state.retryAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}` : `Updated ${rel(s.mtimeMs)}`;
-  return `<div class="session-item ${s.id === chatId ? 'cur' : ''}">
+  return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}">
     <button class="row" data-id="${esc(s.id)}">
       <span class="body"><span class="title">${esc(s.title)}</span>
       <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${esc(projName(s.cwd))} · ${s.provider === 'codex' ? 'Codex' : 'Claude'}</span>
@@ -661,7 +661,10 @@ function groupedSessionsHTML(list) {
   if(sessionsStale)return `<section class="session-group"><h2>Status unconfirmed<span>${list.length}</span></h2>${list.map(sessionRowHTML).join('')}</section>`;
   return groups.map(([key,label]) => {
     const rows = list.filter(s => key === 'recent' ? !['running','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s) : key === 'failed' ? needsAttention(s) : rowState(s).kind === key);
-    return rows.length ? `<section class="session-group"><h2>${label}<span>${rows.length}</span></h2>${rows.map(sessionRowHTML).join('')}</section>` : '';
+    // Local (Damon): pinned sessions first inside each group, then an accent-coloured rule before the rest.
+    const pinned = rows.filter(s => s.pinned), rest = rows.filter(s => !s.pinned);
+    const body = pinned.map(sessionRowHTML).join('') + (pinned.length && rest.length ? '<div class="pin-divider" role="separator" aria-label="Pinned sessions above, others below"></div>' : '') + rest.map(sessionRowHTML).join('');
+    return rows.length ? `<section class="session-group"><h2>${label}<span>${rows.length}</span></h2>${body}</section>` : '';
   }).join('');
 }
 function paintSessionPanels() {
