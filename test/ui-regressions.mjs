@@ -179,6 +179,17 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    await page.screenshot({path:path.join(out,'fixed-split-desktop.png')});
    await page.click('[data-close-dock]');
   });
+  await check('New-session button stays in the main column and never covers a pane composer',async()=>{
+   const back=await page.evaluate(()=>location.hash);
+   await page.evaluate(()=>{location.hash='#/';});await page.waitForSelector('#new');
+   await page.waitForFunction(()=>!document.getElementById('panes').hidden);
+   const r=await page.evaluate(()=>{const f=document.getElementById('new').getBoundingClientRect(),a=document.getElementById('app').getBoundingClientRect(),
+    p=document.querySelector('.split-pane:not([hidden])').getBoundingClientRect();return {fabRight:f.right,fabBottom:f.bottom,appRight:a.right,paneLeft:p.left,h:innerHeight};});
+   assert.ok(r.fabRight<=r.appRight+1&&r.fabRight<=r.paneLeft+1,'button inside the main column: '+JSON.stringify(r));
+   assert.ok(r.fabBottom<=r.h,'button on screen: '+JSON.stringify(r));
+   await page.screenshot({path:path.join(out,'fab-beside-split.png')});
+   await page.evaluate(h=>{location.hash=h;},back);await page.waitForSelector('#chatmore');
+  });
   await check('Closing main promotes a new pane with its draft',async()=>{
    await page.click('#chatmore');await page.click('#so-close');await page.waitForSelector('#first');
    assert.equal(await page.$eval('#first',e=>e.value),'Beside draft survives resizing.');

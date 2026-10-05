@@ -68,6 +68,10 @@ main.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 }
 .fab svg.i { width: 26px; height: 26px; stroke-width: 2.1; }
 .fab:active { transform: scale(.94); }
+/* With side conversations open, the window's bottom-right corner belongs to a pane's composer:
+   anchor the button to the main column instead so it never covers that pane's Send. */
+body.has-panes #app { position: relative; }
+body.has-panes .fab { position: absolute; }
 
 /* ---------- chat ---------- */
 .msgs { padding: 18px 16px calc(16px + var(--sab)); display: flex; flex-direction: column; gap: 18px; }

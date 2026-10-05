@@ -158,7 +158,7 @@ const Voice = (() => {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
     catch (e) { say(micError(e), 8000); return; }
     try {
-      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=39'); workletReady = true; }
+      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=40'); workletReady = true; }
       const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pocket-capture'), sink = ctx.createGain();
       sink.gain.value = 0; src.connect(node); node.connect(sink); sink.connect(ctx.destination);   // a pulled graph keeps the worklet running
       rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened, handsFree: inHandsFree(),
