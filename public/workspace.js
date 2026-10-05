@@ -92,6 +92,39 @@ function bindChatTextControls(container){
  container.querySelectorAll('[data-text-larger]').forEach(el=>{el.disabled=chatTextSize===CHAT_TEXT_MAX;el.onclick=()=>setChatTextSize(chatTextSize+1);});
  container.querySelectorAll('[data-text-reset]').forEach(el=>el.onclick=()=>setChatTextSize(CHAT_TEXT_DEFAULT));
 }
+// Accent colour (per device, like text size). The whole UI keys off --clay / --clay-deep, so swapping
+// those two variables on <html> re-themes the send button, links, active dots, user bubbles and checkboxes.
+const ACCENTS={
+ clay:{label:'Claude orange',accent:'#D97757',deep:'#3A241C'},
+ blue:{label:'UltraWeb blue',accent:'#4A83F5',deep:'#15254A'},
+ purple:{label:'UltraWeb purple',accent:'#8B6CFF',deep:'#2A2149'}
+};
+const ACCENT_DEFAULT='clay';
+let accentKey=readLocal('pc-accent',ACCENT_DEFAULT);
+if(!ACCENTS[accentKey])accentKey=ACCENT_DEFAULT;
+function applyAccent(key){
+ const a=ACCENTS[key]||ACCENTS[ACCENT_DEFAULT];
+ const root=document.documentElement.style;
+ if(key===ACCENT_DEFAULT){root.removeProperty('--clay');root.removeProperty('--clay-deep');}
+ else{root.setProperty('--clay',a.accent);root.setProperty('--clay-deep',a.deep);}
+}
+applyAccent(accentKey);
+function setAccent(key){
+ if(!ACCENTS[key])return;
+ accentKey=key;writeLocal('pc-accent',key);applyAccent(key);
+ document.querySelectorAll('[data-accent]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.accent===key)));
+}
+function accentControlsHTML(){
+ const swatches=Object.entries(ACCENTS).map(([k,a])=>`<button data-accent="${k}" aria-pressed="${k===accentKey}" aria-label="${a.label}" title="${a.label}"><span class="accent-dot" style="background:${a.accent}"></span>${a.label}</button>`).join('');
+ return `<section class="chat-text-settings accent-settings" aria-label="Highlight colour">
+  <p class="chat-text-label">Highlight colour</p>
+  <div class="chat-text-controls accent-controls" role="group" aria-label="Choose highlight colour">${swatches}</div>
+  <p class="chat-text-help">Used for the send button, links, active markers and your messages. Saved on this browser.</p>
+ </section>`;
+}
+function bindAccentControls(container){
+ container.querySelectorAll('[data-accent]').forEach(el=>{el.onclick=()=>setAccent(el.dataset.accent);});
+}
 let headerCollapsed=readLocal('pc-header-collapsed',false)===true;
 let composerCollapsed=readLocal('pc-composer-collapsed',false)===true;
 let railFiltersCollapsed=readLocal('pc-rail-filters-collapsed',false)===true;
