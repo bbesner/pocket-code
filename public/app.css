@@ -96,7 +96,13 @@ main.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .ledger svg.i { width: 14px; height: 14px; stroke-width: 1.6; color: var(--faint); }
 .ledger .name { color: var(--dim); font-weight: 500; flex: none; }
 .ledger .det { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ledgerwrap { display: flex; flex-direction: column; gap: 4px; }
+.ledgerwrap { display: block; }
+.ledgerwrap > summary { list-style: none; cursor: pointer; display: flex; gap: 6px; align-items: center; font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; font-size: 12.5px; color: var(--faint); padding: 2px 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledgerwrap > summary::-webkit-details-marker { display: none; }
+.ledgerwrap > summary::before { content: '▸'; flex: none; }
+.ledgerwrap[open] > summary::before { content: '▾'; }
+.ledgerwrap > summary:hover { color: var(--dim); }
+.ledgerlist { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 2px 14px; }
 
 .turn-err { color: var(--err); font-size: 14.5px; border: 1px solid var(--err); border-radius: 10px;
   padding: 10px 12px; overflow-wrap: break-word; }
