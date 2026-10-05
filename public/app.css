@@ -167,6 +167,8 @@ mark.fmark.cur { background: var(--clay); color: #1A0F09; }
   border-radius: 14px; padding: 11px 14px; font: inherit; max-height: 40vh; min-height: 46px;
 }
 .composer textarea::placeholder { color: var(--faint); }
+.composer textarea:placeholder-shown { white-space: nowrap; overflow: hidden; }
+.composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer .send {
   width: 46px; height: 46px; border-radius: 50%; background: var(--clay); color: #1A0F09;
   display: flex; align-items: center; justify-content: center; flex: none;
@@ -760,6 +762,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .composer .voice-mic:disabled { color: var(--faint); }
 .composer .voice-mic:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 .composer .voice-mic[hidden] { display: none; }
+.composer .voice-hf.drafting { display: none; }
 .voice-strip { display: flex; align-items: center; gap: 10px; max-width: 720px; margin: 0 auto; padding: 6px 16px; min-height: 40px;
   font-size: 13px; line-height: 1.4; color: var(--dim); }
 .voice-strip[hidden] { display: none; }

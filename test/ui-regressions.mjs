@@ -248,6 +248,55 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='false');
    assert.equal(voiceLog.transcribe.length,heard);
   });
+  await check('Tool calls: consecutive calls across messages fold into one summary that names the latest call',async()=>{
+   const r=await page.evaluate(()=>{const c=document.createElement('div');
+    c.innerHTML=[{role:'assistant',blocks:[{t:'text',text:'Checking.'},{t:'tool',name:'Bash',detail:'pm2 list'}]},{role:'assistant',blocks:[{t:'tool',name:'Edit',detail:'app.js'}]},{role:'assistant',blocks:[{t:'text',text:'Done.'}]}].map(msgHTML).join('');
+    document.body.append(c);mergeToolFolds(c);const f=c.querySelectorAll('details.ledgerwrap');
+    const out={folds:f.length,summary:f[0]?.querySelector('summary').textContent,lines:f[0]?.querySelectorAll('.ledger').length,msgs:c.querySelectorAll('.m-asst').length,open:f[0]?.open};c.remove();return out;});
+   assert.equal(r.folds,1);assert.equal(r.lines,2);assert.equal(r.msgs,2,'a message that held only tool calls is absorbed');
+   assert.match(r.summary,/2 tool calls/);assert.match(r.summary,/Edit app\.js/);assert.equal(r.open,false,'collapsed by default');
+  });
+  await check('Voice: the headset starts a hands-free conversation; the mic stays a single message',async()=>{
+   const heard=voiceLog.transcribe.length;
+   await page.$eval('#box',e=>{e.value='A typed draft';e.dispatchEvent(new Event('input'));});
+   assert.equal(await page.$eval('#hfb',e=>getComputedStyle(e).display),'none','a typed draft hides the headset');
+   assert.notEqual(await page.$eval('#micb',e=>getComputedStyle(e).display),'none','the mic still adds to a draft');
+   await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});
+   const hf=await page.$('#hfb'),box=await hf.boundingBox();
+   assert.ok(box.width>=44&&box.height>=44,'headset target '+JSON.stringify(box));
+   assert.match(await page.$eval('#hfb',e=>e.getAttribute('aria-label')),/Hands-free conversation/);
+   await page.click('#hfb');
+   await page.waitForFunction(()=>document.querySelector('#hfb').getAttribute('aria-pressed')==='true');
+   assert.equal(await page.$eval('#micb',e=>e.getAttribute('aria-pressed')),'false','the plain mic is not the active control');
+   await page.waitForFunction(()=>/Hands-free\. Listening/.test(document.querySelector('#voice-strip').textContent));
+   await scan('voice-hands-free-mobile');await page.screenshot({path:path.join(out,'voice-hands-free-mobile.png')});
+   await page.click('#voice-cancel');
+   await page.waitForFunction(()=>document.querySelector('#hfb').getAttribute('aria-pressed')==='false');
+   assert.equal(await page.evaluate(()=>Voice._test.handsFree()),null,'Cancel ends the conversation');
+   assert.equal(voiceLog.transcribe.length,heard);
+  });
+  await check('Voice: only a hands-free reply listens again; replies and alerts outside it never open the mic',async()=>{
+   const id=await page.evaluate(()=>chatId);
+   const settle=async n=>{for(let i=0;i<60&&voiceLog.speak.length<n;i++)await pause(100);for(let i=0;i<60&&await page.evaluate(()=>Voice._test.state()==='speaking');i++)await pause(100);await pause(600);};
+   // An old "Keep listening" preference must not reopen the mic any more.
+   await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('pc-voice')||'{}');p.keepListening=true;p.speak=true;localStorage.setItem('pc-voice',JSON.stringify(p));});
+   let n=voiceLog.speak.length;
+   await page.evaluate(id=>{Voice._test.arm(id);Voice.onTurnEnd(id,true);},id);await settle(n+1);
+   assert.ok(voiceLog.speak.length>n,'the reply to a plain-mic message is spoken');
+   assert.equal(await page.evaluate(()=>Voice._test.state()),'idle','…and the mic stays off');
+   // A notification never listens, even while a hands-free conversation is on.
+   await page.evaluate(id=>Voice._test.setHandsFree(id),id);
+   assert.match(await page.$eval('#voice-strip',e=>e.textContent),/Hands-free is on/);
+   n=voiceLog.speak.length;await page.evaluate(()=>Voice.speak('Pocket Code. A session finished.'));await settle(n+1);
+   assert.equal(await page.evaluate(()=>Voice._test.state()),'idle','an announcement does not open the mic');
+   // The reply inside the hands-free conversation does listen for the answer.
+   n=voiceLog.speak.length;await page.evaluate(id=>{Voice._test.arm(id);Voice.onTurnEnd(id,true);},id);
+   await page.waitForFunction(()=>Voice._test.state()==='listening',{timeout:8000});
+   assert.match(await page.$eval('#voice-strip',e=>e.textContent),/Hands-free\. Listening for your reply/);
+   await page.click('#hfb');
+   await page.waitForFunction(()=>Voice._test.state()==='idle'&&Voice._test.handsFree()===null);
+   await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('pc-voice'));delete p.keepListening;localStorage.setItem('pc-voice',JSON.stringify(p));});
+  });
   await check('Voice: Settings saves preferences and lists voices',async()=>{
    await page.evaluate(()=>settingsSheet());await page.waitForSelector('#s-voice');
    await page.click('#s-voice > summary');
@@ -302,7 +351,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
   });
   await check('Voice: the mic is hidden when the server has no voice engine',async()=>{
    setMode({voice:false});await page.reload();await page.waitForSelector('#box');await pause(300);
-   assert.equal(await page.$eval('#micb',e=>e.hidden),true);
+   assert.equal(await page.$eval('#micb',e=>e.hidden),true);assert.equal(await page.$eval('#hfb',e=>e.hidden),true);
    setMode({voice:true});await page.reload();await page.waitForSelector('#micb:not([hidden])');
   });
   await scan('chat-desktop');await page.setViewport({width:390,height:844});await scan('chat-mobile');

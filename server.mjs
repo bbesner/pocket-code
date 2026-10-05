@@ -1994,9 +1994,9 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Spoken alerts (voice beta): Pocket can say when any session finishes or needs your approval or answer, with an optional one-line summary, instead of the chime. Turn it on in Settings → Voice (beta) → Announce sessions.",
-  "Alerts wait for you to finish speaking, are said once across tabs, and respect per-session mute.",
-  "A reply that finishes while you're on its conversation keeps Response ready and New until you interact with the page, so voice mode's awake screen no longer marks it read."
+  "Hands-free is now its own button. The headset beside the mic starts a conversation: each reply is spoken and the mic listens for your answer, until you tap it again, tap Cancel or stay quiet. The mic sends one message and never listens again by itself. The Keep listening setting is gone.",
+  "Spoken announcements never turn the microphone on. Session alerts, approval prompts and the spoken reply to anything outside a hands-free conversation stay one-way.",
+  "Tool calls fold behind a one-line summary that shows the count and the latest call (Settings → Collapse tool calls). Also: highlight colour (Orange, Blue, Purple), instant echo of a sent message, a reload banner when the server has a newer build, and pinned sessions first in each group. Contributed by Damon Delcoro."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

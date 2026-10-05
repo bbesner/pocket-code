@@ -1,14 +1,18 @@
 /* Voice mode: speak to a session and hear short spoken replies.
    Speech-to-text and text-to-speech run on the Pocket server (local Whisper + Kokoro, see voice.mjs); this file
    records, detects the end of speech, handles a few short commands on the device, and plays replies.
-   Uses app.js globals: api, toast, esc, chatId, composerWorking, sendMsg, allSessions, needsAttention. */
+   Uses app.js globals: api, toast, esc, chatId, composerWorking, sendMsg, allSessions, needsAttention.
+   Two composer buttons: the mic takes one message (tap or hold); the headset starts a hands-free conversation
+   that speaks each reply and listens for the answer. Only that conversation ever reopens the microphone:
+   session alerts, approval prompts and the spoken reply to anything else never listen afterwards. */
 'use strict';
 const Voice = (() => {
   const MIC = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0013 0M12 18v2.5"/></svg>';
+  const HEADSET = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 14.5V12a7.5 7.5 0 0115 0v2.5"/><rect x="3.5" y="13.5" width="4" height="6" rx="1.8"/><rect x="16.5" y="13.5" width="4" height="6" rx="1.8"/><path d="M18.5 19.5c0 1.3-1.6 2-4 2H13"/></svg>';
   const PREF_KEY = 'pc-voice';
-  const DEFAULTS = { speak: true, review: false, keepListening: false, replyWait: 120, alerts: 'off', voice: 'af_heart', vocab: '' };
+  const DEFAULTS = { speak: true, review: false, replyWait: 120, alerts: 'off', voice: 'af_heart', vocab: '' };
   const ALERT_CHOICES = [['off', 'Off'], ['name', 'Session name only'], ['summary', 'Name and a one-line summary']];
-  // A tap means you're about to speak, so silence ends it after 10 s. After a spoken reply (Keep listening) the mic
+  // A tap means you're about to speak, so silence ends it after 10 s. After a spoken reply (hands-free) the mic
   // waits replyWait seconds, so there is time to read the rest of the reply first. MAX_MS limits one utterance.
   const HOLD_MS = 350, END_SILENCE_MS = 1100, NO_SPEECH_MS = 10000, MAX_MS = 60000;
   const WAIT_CHOICES = [[30, '30 seconds'], [60, '1 minute'], [120, '2 minutes'], [300, '5 minutes']];
@@ -16,6 +20,7 @@ const Voice = (() => {
   let state = 'idle', note = '', noteTimer = null;            // idle | listening | holding | transcribing | speaking
   let rec = null, ctx = null, workletReady = false, wakeLock = null;
   let speech = null;                                            // { cancelled, source }
+  let handsFree = null, hfStarting = false;                     // session id of the hands-free conversation, if one is on
   const armed = new Set();                                      // sessions whose next finished turn is spoken
   const lastReply = new Map();                                  // sessionId -> markdown of the latest reply
   const announced = new Map();                                  // sessionId -> kinds already announced this turn
@@ -32,16 +37,21 @@ const Voice = (() => {
 
   /* ---------- composer controls ---------- */
   function micHTML() {
-    return `<button class="icon voice-mic" id="micb" type="button" hidden aria-pressed="false" aria-label="Voice input" aria-describedby="voice-strip">${MIC}</button>`;
+    return `<button class="icon voice-mic voice-hf" id="hfb" type="button" hidden aria-pressed="false" aria-label="Hands-free conversation" aria-describedby="voice-strip">${HEADSET}</button>`
+      + `<button class="icon voice-mic" id="micb" type="button" hidden aria-pressed="false" aria-label="Voice input" aria-describedby="voice-strip">${MIC}</button>`;
   }
+  const inHandsFree = (id = chatId) => Boolean(id) && handsFree === id;
   function bindComposer() {
-    const b = document.getElementById('micb'); if (!b) return;
-    loadStatus().then(s => { if (b.isConnected) b.hidden = !s.available; paint(); });
+    const b = document.getElementById('micb'), hf = document.getElementById('hfb'); if (!b) return;
+    loadStatus().then(s => { if (b.isConnected) b.hidden = !s.available; if (hf?.isConnected) hf.hidden = !s.available; paint(); });
+    if (hf) hf.onclick = () => handsFreeTap();
+    document.getElementById('box')?.addEventListener('input', syncDraft);
     let downAt = 0, holdTimer = null;
     b.onpointerdown = e => {
       if (e.button) return;
       downAt = Date.now();
       unlockAudio();
+      if (handsFree) { handsFree = null; paint(); }                              // the plain mic is always one message
       if (state === 'idle' || state === 'speaking') holdTimer = setTimeout(() => { holdTimer = null; start('hold'); }, HOLD_MS);
     };
     const up = () => {
@@ -55,28 +65,64 @@ const Voice = (() => {
     paint();
   }
   function tap() {
+    if (handsFree) { handsFree = null; paint(); }
     if (state === 'speaking') { stopSpeaking(); return start('auto'); }
     if (state === 'idle') return start('auto');
     if (state === 'listening') return finish();
   }
 
+  // A typed draft turns any voice input into an addition to that draft (nothing is sent), so the headset has
+  // nothing to do then; it steps aside and gives the narrow phone composer its width back.
+  function syncDraft() {
+    const hf = document.getElementById('hfb'), box = document.getElementById('box');
+    if (hf) hf.classList.toggle('drafting', Boolean(box?.value.trim()) && !inHandsFree());
+  }
   function paint() {
-    const b = document.getElementById('micb'), strip = document.getElementById('voice-strip');
-    const live = state === 'listening' || state === 'holding';
+    syncDraft();
+    const b = document.getElementById('micb'), hf = document.getElementById('hfb'), strip = document.getElementById('voice-strip');
+    const live = state === 'listening' || state === 'holding', conv = inHandsFree();
     if (b) {
-      b.setAttribute('aria-pressed', String(live));
-      b.classList.toggle('on', live);
-      b.setAttribute('aria-label', live ? 'Finish speaking' : state === 'speaking' ? 'Stop reply and speak' : 'Voice input (beta): tap to talk, hold for push-to-talk');
+      const mine = live && !conv;
+      b.setAttribute('aria-pressed', String(mine));
+      b.classList.toggle('on', mine);
+      b.setAttribute('aria-label', mine ? 'Finish speaking' : state === 'speaking' ? 'Stop reply and speak' : 'Voice input (beta): tap to talk once, hold for push-to-talk');
       b.disabled = state === 'transcribing';
     }
+    if (hf) {
+      hf.setAttribute('aria-pressed', String(conv));
+      hf.classList.toggle('on', conv);
+      hf.setAttribute('aria-label', conv ? 'End hands-free conversation' : 'Hands-free conversation (beta): speaks each reply and listens for your answer');
+      hf.title = conv ? 'End hands-free' : 'Hands-free conversation';
+    }
     if (!strip) return;
-    const label = { listening: rec?.reopened && !rec.speechAt ? 'Listening for your reply. Take your time' : 'Listening. Tap the mic when you’re done', holding: 'Listening. Release to send', transcribing: 'Transcribing…', speaking: 'Speaking' }[state] || note;
+    const pre = conv ? 'Hands-free. ' : '';
+    const label = { listening: pre + (rec?.reopened && !rec.speechAt ? 'Listening for your reply. Take your time' : conv ? 'Listening. Pause when you’re done' : 'Listening. Tap the mic when you’re done'),
+      holding: 'Listening. Release to send', transcribing: pre + 'Transcribing…', speaking: pre + 'Speaking' }[state] || note || (conv ? hfStarting ? 'Hands-free. Starting the mic…' : 'Hands-free is on. Waiting for the reply' : '');
     strip.hidden = !label;
     strip.dataset.state = state;
     strip.innerHTML = label ? `${live ? '<span class="voice-level" aria-hidden="true"><i></i><i></i><i></i></span>' : ''}<span class="voice-label">${esc(label)}</span>${
-      live ? '<button class="chip" id="voice-cancel" type="button">Cancel</button>' : state === 'speaking' ? '<button class="chip" id="voice-stop" type="button">Stop</button>' : ''}` : '';
+      live ? '<button class="chip" id="voice-cancel" type="button">Cancel</button>' : state === 'speaking' ? '<button class="chip" id="voice-stop" type="button">Stop</button>'
+        : conv && state === 'idle' ? '<button class="chip" id="voice-end" type="button">End hands-free</button>' : ''}` : '';
     const c = document.getElementById('voice-cancel'); if (c) c.onclick = () => cancel();
-    const s = document.getElementById('voice-stop'); if (s) s.onclick = () => stopSpeaking();
+    const s = document.getElementById('voice-stop'); if (s) s.onclick = () => { handsFree = null; stopSpeaking(); paint(); };
+    const e = document.getElementById('voice-end'); if (e) e.onclick = () => endHandsFree('Hands-free is off.');
+  }
+  // The headset toggles a hands-free conversation for the open session. It never turns on by itself.
+  async function handsFreeTap() {
+    unlockAudio();
+    if (inHandsFree()) return endHandsFree('Hands-free is off.');
+    if (!chatId) return;
+    if (rec) release();
+    handsFree = chatId; hfStarting = true; paint();
+    try { await start('auto'); } finally { hfStarting = false; }
+    if (!rec && inHandsFree() && state === 'idle') { handsFree = null; paint(); }   // the mic did not start: nothing is on
+  }
+  function endHandsFree(message) {
+    handsFree = null;
+    if (rec) release();
+    stopSpeaking();
+    setState('idle');
+    if (message) say(message, 4000);
   }
   function say(message, ms = 5000) { note = message; paint(); clearTimeout(noteTimer); if (ms) noteTimer = setTimeout(() => { note = ''; paint(); }, ms); }
   function setState(next) { state = next; if (next !== 'idle') { note = ''; clearTimeout(noteTimer); } paint(); keepAwake(); }
@@ -86,7 +132,7 @@ const Voice = (() => {
     try { ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === 'suspended') ctx.resume(); } catch { }
   }
   async function keepAwake() {
-    const want = state !== 'idle' || (prefs().keepListening && armed.size);
+    const want = state !== 'idle' || (handsFree && armed.size);
     try {
       if (want && !wakeLock && navigator.wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); }
       else if (!want && wakeLock) { await wakeLock.release(); wakeLock = null; }
@@ -112,10 +158,10 @@ const Voice = (() => {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
     catch (e) { say(micError(e), 8000); return; }
     try {
-      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=38'); workletReady = true; }
+      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=39'); workletReady = true; }
       const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pocket-capture'), sink = ctx.createGain();
       sink.gain.value = 0; src.connect(node); node.connect(sink); sink.connect(ctx.destination);   // a pulled graph keeps the worklet running
-      rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened,
+      rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened, handsFree: inHandsFree(),
         floor: null, warm: 0, voiced: 0, speechAt: 0, lastVoiceAt: 0 };
       node.port.onmessage = e => hear(e.data);
       setState(mode === 'hold' ? 'holding' : 'listening');
@@ -134,7 +180,7 @@ const Voice = (() => {
     if (r.mode !== 'auto') { if (now - r.startedAt > MAX_MS) finish(); return; }
     if (r.speechAt && now - r.lastVoiceAt > END_SILENCE_MS) finish();
     else if (r.speechAt && now - r.speechAt > MAX_MS) finish();
-    else if (!r.speechAt && now - r.startedAt > r.waitMs) { cancel(); say(r.reopened ? 'Stopped listening. Tap the mic to talk.' : 'I didn’t hear anything.', r.reopened ? 0 : 5000); }
+    else if (!r.speechAt && now - r.startedAt > r.waitMs) { const conv = r.handsFree; cancel(); say(conv ? 'Stopped listening. Hands-free is off.' : 'I didn’t hear anything.', conv && r.reopened ? 0 : 5000); }
     else if (!r.speechAt && r.chunks.length > (r.rate * 8) / 2048) r.chunks.splice(0, r.chunks.length - Math.ceil((r.rate * 8) / 2048)); // keep only recent silence
   }
   function release() {
@@ -143,7 +189,7 @@ const Voice = (() => {
     r.stream.getTracks().forEach(t => t.stop());
     return r;
   }
-  function cancel() { release(); setState('idle'); }
+  function cancel() { release(); handsFree = null; setState('idle'); }   // Cancel also ends a hands-free conversation
 
   // Float32 at the device rate → 16 kHz 16-bit PCM (box-filter downsample; plenty for speech recognition).
   function toPcm16(chunks, rate) {
@@ -172,9 +218,9 @@ const Voice = (() => {
     } catch (e) { setState('idle'); say(e.message || 'Transcription failed.', 8000); return; }
     setState('idle');
     const left = r.waitMs - (Date.now() - r.startedAt);
-    if (r.reopened && (!text || VoiceText.isNoise(text, pcm.length / 16000)) && left > 2000 && r.session === chatId) return start('auto', { waitMs: left, reopened: true });
-    if (!text) { say('I didn’t catch that.'); return; }
-    if (r.session !== chatId) { say('You switched sessions, so that wasn’t sent.'); return; }
+    if (r.handsFree && inHandsFree(r.session) && (!text || VoiceText.isNoise(text, pcm.length / 16000)) && left > 2000 && r.session === chatId) return start('auto', { waitMs: left, reopened: r.reopened });
+    if (!text) { if (r.handsFree) handsFree = null; say(r.handsFree ? 'I didn’t catch that. Hands-free is off.' : 'I didn’t catch that.'); return; }
+    if (r.session !== chatId) { handsFree = null; say('You switched sessions, so that wasn’t sent.'); return; }
     await handle(text);
   }
   function replyWaitMs() { const s = Number(prefs().replyWait); return (WAIT_CHOICES.some(([v]) => v === s) ? s : DEFAULTS.replyWait) * 1000; }
@@ -193,20 +239,21 @@ const Voice = (() => {
     // Never send a half-written draft on the user's behalf.
     const draft = box?.value.trim();
     if (p.review || draft || !box || box.readOnly) {
+      handsFree = null;                                          // nothing is sent, so there is no reply to listen after
       if (box && !box.readOnly) { box.value = draft ? `${draft} ${text}` : text; box.dispatchEvent(new Event('input')); box.focus(); }
       say(box?.readOnly ? `Heard: “${text}”. Resolve the pending message first.` : draft ? 'Added to your draft. Review it, then send.' : 'Review the text, then send it.', 6000);
       return;
     }
     say(`Sent: “${text}”`, 5000);
-    if (p.speak) arm(id);
+    if (p.speak || inHandsFree(id)) arm(id);
     await sendMsg(text);
   }
   function arm(id) { armed.add(id); announced.delete(id); keepAwake(); }
 
-  // Quick answers keep hands-free mode going when it is on.
+  // Quick answers keep a hands-free conversation going.
   async function command(kind, id) {
-    const speak = text => speakOut(text, { listenAfter: prefs().keepListening });
-    if (kind === 'quiet') return stopSpeaking();
+    const speak = text => speakOut(text, { listenAfter: inHandsFree(id) });
+    if (kind === 'quiet') { handsFree = null; stopSpeaking(); return paint(); }
     if (kind === 'stop') {
       if (!composerWorking) return speak('Nothing is running in this session.');
       armed.delete(id);
@@ -266,7 +313,9 @@ const Voice = (() => {
         await new Promise(done => { const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); src.onended = done; me.source = src; src.start(); });
       }
     } catch { if (!me.cancelled) say('The reply could not be spoken. It’s on screen.', 6000); }
-    if (speech === me) { speech = null; setState('idle'); if (!me.cancelled && listenAfter && chatId) start('auto', { waitMs: replyWaitMs(), reopened: true }); }
+    // Listening again needs both: a caller that asked for it (a reply, never an alert) and a hands-free
+    // conversation still on for the open session.
+    if (speech === me) { speech = null; setState('idle'); if (!me.cancelled && listenAfter && inHandsFree()) start('auto', { waitMs: replyWaitMs(), reopened: true }); }
     return true;
   }
   // Any tap or click anywhere unlocks audio for later alerts (browser autoplay rules).
@@ -287,11 +336,12 @@ const Voice = (() => {
     if (!armed.has(id)) return;
     if (ok === false && /stopped by you/i.test(error || '')) { armed.delete(id); keepAwake(); return; }
     armed.delete(id); keepAwake();
-    if (id !== chatId || !prefs().speak) return;
+    const conv = inHandsFree(id);
+    if (id !== chatId || (!prefs().speak && !conv)) return;
     spokenTurnEnd.set(id, Date.now());                         // its spoken reply stands in for the alert
     const md = lastReply.get(id) || replyText(id);
     const line = ok === false ? 'The turn didn’t finish. Details are on screen.' : md ? VoiceText.summary(md) : 'It finished.';
-    speakOut(line, { listenAfter: prefs().keepListening });
+    speakOut(line, { listenAfter: conv });                     // only a hands-free conversation listens after a reply
   }
   /* ---------- spoken alerts: any session finishing or needing you, while Pocket is open ---------- */
   const spokenTurnEnd = new Map(), seen = new Map(), queue = [];
@@ -336,7 +386,7 @@ const Voice = (() => {
     queue.push(VoiceText.alertText({ ...ev, reply }, mode));
     drain();
   }
-  // Alerts wait their turn: never over you speaking, a recording, or another reply.
+  // Alerts wait their turn: never over you speaking, a recording, or another reply. They never listen afterwards.
   let audioLocked = false;
   async function drain() {
     if (!queue.length || audioLocked || state !== 'idle' || speech || rec) return;
@@ -362,7 +412,7 @@ const Voice = (() => {
       speakOut(kind === 'approvals' ? 'It needs your approval. Review it on screen.' : 'It has a question for you on screen.');
     }, 800);
   }
-  function onLeave() { if (rec) cancel(); stopSpeaking(); }
+  function onLeave() { handsFree = null; if (rec) cancel(); stopSpeaking(); paint(); }
 
   /* ---------- settings ---------- */
   function settingsHTML() {
@@ -373,20 +423,19 @@ const Voice = (() => {
         <p id="s-voice-state" role="status">Checking voice on the server…</p>
         ${toggle('s-voice-speak', p.speak, 'Speak replies', 'Read a short summary aloud when a turn you started by voice finishes')}
         ${toggle('s-voice-review', p.review, 'Review before sending', 'Put what you said in the message box instead of sending it')}
-        ${toggle('s-voice-keep', p.keepListening, 'Keep listening', 'After a spoken reply, listen again while you read the rest, for hands-free back and forth')}
         <label class="voice-field">Announce sessions<select id="s-voice-alerts">${ALERT_CHOICES.map(([v, l]) => `<option value="${v}"${p.alerts === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <p class="sub">Says when any session finishes or needs you, while Pocket is open, in place of the chime. Muted sessions stay quiet.</p>
-        <label class="voice-field">Wait for my reply<select id="s-voice-wait">${WAIT_CHOICES.map(([v, l]) => `<option value="${v}"${Number(p.replyWait) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="voice-field">Hands-free: wait for my reply<select id="s-voice-wait">${WAIT_CHOICES.map(([v, l]) => `<option value="${v}"${Number(p.replyWait) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="voice-field">Voice<select id="s-voice-voice"></select></label>
         <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, TechPro, Zoho" value="${esc(p.vocab)}"></label>
         <button class="chip" id="s-voice-test" type="button">Play a sample</button>
-        <p class="sub">Tap the mic to talk; it sends when you pause. Hold it for push-to-talk. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers. Speech is processed on your Pocket server.</p>
+        <p class="sub">Tap the mic to send one message; it sends when you pause. Hold it for push-to-talk. Tap the headset for a hands-free conversation: each reply is spoken and the mic listens for your answer, until you end it or stay quiet. Announcements never turn on the mic. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers. Speech is processed on your Pocket server.</p>
         <p class="sub">Voice is in beta and still improving. Report problems under Bugs &amp; feature requests.</p>
       </div></details>`;
   }
   function bindSettings(root) {
     const flip = (sel, key) => { const b = root.querySelector(sel); if (!b) return; b.onclick = () => { const on = !prefs()[key]; setPref(key, on); b.setAttribute('aria-pressed', String(on)); b.querySelector('.dot').classList.toggle('on', on); }; };
-    flip('#s-voice-speak', 'speak'); flip('#s-voice-review', 'review'); flip('#s-voice-keep', 'keepListening');
+    flip('#s-voice-speak', 'speak'); flip('#s-voice-review', 'review');
     const vocab = root.querySelector('#s-voice-vocab'); if (vocab) vocab.onchange = () => setPref('vocab', vocab.value.trim().slice(0, 300));
     const wait = root.querySelector('#s-voice-wait'); if (wait) wait.onchange = () => setPref('replyWait', Number(wait.value));
     const alerts = root.querySelector('#s-voice-alerts'); if (alerts) alerts.onchange = () => { setPref('alerts', alerts.value); unlockAudio(); };
@@ -397,9 +446,9 @@ const Voice = (() => {
       root.querySelectorAll('#s-voice .opt, #s-voice-voice, #s-voice-alerts, #s-voice-wait, #s-voice-vocab, #s-voice-test').forEach(el => { el.disabled = !s.available; });
       if (sel) { sel.innerHTML = (s.voices || [{ id: 'af_heart', label: 'American female' }]).map(v => `<option value="${esc(v.id)}">${esc(v.label)}</option>`).join(''); sel.value = prefs().voice; sel.onchange = () => setPref('voice', sel.value); }
       if (test) test.onclick = () => { unlockAudio(); speakOut('This is how spoken replies will sound in Pocket Code.'); };
-      document.querySelectorAll('#micb').forEach(b => { b.hidden = !s.available; });
+      document.querySelectorAll('#micb, #hfb').forEach(b => { b.hidden = !s.available; });
     });
   }
 
-  return { micHTML, bindComposer, paint, onAssistant, onTurnEnd, onIdle, onSessions, replacesChime, onAttention, onLeave, settingsHTML, bindSettings, speak: speakOut, stopSpeaking, _test: { toPcm16 } };
+  return { micHTML, bindComposer, paint, onAssistant, onTurnEnd, onIdle, onSessions, replacesChime, onAttention, onLeave, settingsHTML, bindSettings, speak: speakOut, stopSpeaking, _test: { toPcm16, handsFree: () => handsFree, setHandsFree: id => { handsFree = id; paint(); }, arm: id => armed.add(id), state: () => state } };
 })();
