@@ -380,6 +380,28 @@ function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
 }
+// Stale-build notice (local change): an open window keeps running the build it loaded, even after the
+// server updates and the service worker swaps the cache. Check release.json once a minute and when the app
+// comes back to the foreground; if the server is newer and nothing is mid-send, show a banner to reload.
+let staleBannerShown = false;
+async function checkStaleBuild() {
+  if (!APP_V || staleBannerShown || document.visibilityState !== 'visible' || document.querySelector('.login')) return;
+  try {
+    const r = await fetch('/release.json?v=' + APP_V, { cache: 'no-store', signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return;
+    const j = await r.json(); const v = Number(j?.assetV) || 0;
+    if (v > APP_V && sendsInFlight.size === 0) {
+      staleBannerShown = true;
+      const b = document.createElement('button'); b.className = 'stale-banner'; b.type = 'button';
+      b.innerHTML = `New Pocket Code build ${v} is on the server (you are on ${APP_V}). Tap to reload.`;
+      b.onclick = () => location.reload();
+      document.body.append(b);
+    }
+  } catch { }
+}
+setInterval(checkStaleBuild, 60000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(checkStaleBuild, 1500); });
+setTimeout(checkStaleBuild, 4000);
 async function api(path, opts) {
   const r = await fetch('/api' + path, { headers: { 'content-type': 'application/json' }, ...opts });
   if (r.status === 401) { renderLogin(); throw new Error('login'); }
