@@ -65,7 +65,7 @@ const Voice = (() => {
     if (b) {
       b.setAttribute('aria-pressed', String(live));
       b.classList.toggle('on', live);
-      b.setAttribute('aria-label', live ? 'Finish speaking' : state === 'speaking' ? 'Stop reply and speak' : 'Voice input: tap to talk, hold for push-to-talk');
+      b.setAttribute('aria-label', live ? 'Finish speaking' : state === 'speaking' ? 'Stop reply and speak' : 'Voice input (beta): tap to talk, hold for push-to-talk');
       b.disabled = state === 'transcribing';
     }
     if (!strip) return;
@@ -111,7 +111,7 @@ const Voice = (() => {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
     catch (e) { say(micError(e), 8000); return; }
     try {
-      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=36'); workletReady = true; }
+      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=37'); workletReady = true; }
       const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pocket-capture'), sink = ctx.createGain();
       sink.gain.value = 0; src.connect(node); node.connect(sink); sink.connect(ctx.destination);   // a pulled graph keeps the worklet running
       rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened,
@@ -303,7 +303,7 @@ const Voice = (() => {
   function settingsHTML() {
     const p = prefs();
     const toggle = (id, on, title, sub) => `<button class="opt" id="${id}" aria-pressed="${on}"><span class="dot ${on ? 'on' : ''}"></span><span>${title}<span class="sub">${sub}</span></span></button>`;
-    return `<details class="settings-details" id="s-voice"><summary>Voice</summary>
+    return `<details class="settings-details" id="s-voice"><summary>Voice (beta)</summary>
       <div class="voice-settings">
         <p id="s-voice-state" role="status">Checking voice on the server…</p>
         ${toggle('s-voice-speak', p.speak, 'Speak replies', 'Read a short summary aloud when a turn you started by voice finishes')}
@@ -314,6 +314,7 @@ const Voice = (() => {
         <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, TechPro, Zoho" value="${esc(p.vocab)}"></label>
         <button class="chip" id="s-voice-test" type="button">Play a sample</button>
         <p class="sub">Tap the mic to talk; it sends when you pause. Hold it for push-to-talk. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers. Speech is processed on your Pocket server.</p>
+        <p class="sub">Voice is in beta and still improving. Report problems under Bugs &amp; feature requests.</p>
       </div></details>`;
   }
   function bindSettings(root) {

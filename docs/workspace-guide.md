@@ -181,9 +181,9 @@ background delivery and audio behavior need a real-device check.
 Phone composers retain their native multiline input behavior. Dialogs trap focus and
 return it to their opener; skip links target the current task or message field.
 
-## Voice mode
+## Voice mode (beta)
 
-Voice mode appears when the server has the voice engine installed (`scripts/voice-setup.sh`).
+Voice mode is in beta: expect its timing and wording to change as it improves. It appears when the server has the voice engine installed (`scripts/voice-setup.sh`).
 The mic sits beside Send in every conversation, including split panes.
 
 - **Tap to talk.** Tap the mic, speak, and pause. Pocket detects the end of speech, transcribes it
