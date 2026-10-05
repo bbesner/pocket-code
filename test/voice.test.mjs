@@ -27,6 +27,13 @@ test('spoken text drops code, tables, URLs and long paths; summaries stay short'
   assert.ok(parts[0].length <= 120 && parts.every(p => p.length <= 221), JSON.stringify(parts.map(p => p.length)));
 });
 
+test('phantom phrases on short noise are ignored while waiting for a reply', () => {
+  assert.equal(V.isNoise('Thank you.', 0.8), true);
+  assert.equal(V.isNoise('you', 1.2), true);
+  assert.equal(V.isNoise('Thank you.', 2.5), false, 'a longer, deliberate thank-you is kept');
+  assert.equal(V.isNoise('Okay, run it', 0.9), false);
+});
+
 test('only short, specific phrases are local commands', () => {
   const cases = { 'Stop.': 'stop', 'Cancel that please': 'stop', "What's it doing right now?": 'status', 'status': 'status',
     'Okay, read me the result.': 'read', 'Read it all': 'readAll', 'Is anything waiting on me?': 'waiting', 'Be quiet': 'quiet',

@@ -84,6 +84,10 @@ const VoiceText = (() => {
     return d ? `${name}, ${d}` : String(name || 'a step');
   }
 
-  return { speakable, sentences, summary, chunks, intent, stepText };
+  // Whisper's well-known phantom phrases on a short burst of noise. Only applied to short recordings.
+  const NOISE = /^(thank you|thanks|thank you for watching|thanks for watching|you|bye|uh|um|hmm|mm|music)[.!]?$/i;
+  function isNoise(text, seconds) { return seconds < 1.6 && NOISE.test(String(text || '').trim()); }
+
+  return { speakable, sentences, summary, chunks, intent, stepText, isNoise };
 })();
 globalThis.VoiceText = VoiceText;

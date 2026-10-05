@@ -1993,8 +1993,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Voice mode: tap the mic beside Send to talk to a session, or hold it for push-to-talk. Speech is transcribed and spoken back on your own Pocket server, with no speech service fees.",
-  "Short questions such as what's it doing, stop, read it or what's waiting on me are answered right away; anything else goes to the session as a normal message, and a short summary of the reply is read aloud."
+  "Hands-free voice waits up to 2 minutes for your reply after reading the start of a response, so there is time to read the rest first. Change it in Settings → Voice → Wait for my reply.",
+  "While waiting, a short burst of background noise no longer ends listening or gets sent as a phantom \"Thank you\"."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

@@ -255,6 +255,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    assert.deepEqual(await page.$$eval('#s-voice-voice option',o=>o.map(x=>x.value)),['af_heart','bm_george']);
    await page.click('#s-voice-review');
    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-voice')).review),true);
+   assert.equal(await page.$eval('#s-voice-wait',e=>e.value),'120','waits 2 minutes for a reply by default');
+   await page.select('#s-voice-wait','300');
+   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-voice')).replyWait),300);
    await page.select('#s-voice-voice','bm_george');
    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-voice')).voice),'bm_george');
    await scan('settings-voice-mobile');
