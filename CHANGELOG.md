@@ -6,6 +6,7 @@
 - Alerts queue behind your speech, recordings and other replies; each event is said once across Pocket tabs; split panes stay quiet; per-session mute silences a session. A hidden tab keeps checking every 8 seconds while alerts are on.
 - Browsers allow sound after one tap on the page. An alert that arrives earlier waits for that tap, with a note, instead of stalling the voice controls.
 - The session list reports which sessions are muted.
+- A reply that finishes while its conversation is on screen keeps the green Response ready and New label until you tap, click, type, scroll, switch back to the tab or open the session. Voice mode keeps the screen awake while you wait, which made those replies count as read immediately.
 
 ## [1.8.2] — 2026-10-05 · build 37
 

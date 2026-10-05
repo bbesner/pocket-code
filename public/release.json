@@ -3,6 +3,7 @@
   "assetV": 38,
   "notes": [
     "Spoken alerts (voice beta): Pocket can say when any session finishes or needs your approval or answer, with an optional one-line summary, instead of the chime. Turn it on in Settings → Voice (beta) → Announce sessions.",
-    "Alerts wait for you to finish speaking, are said once across tabs, and respect per-session mute."
+    "Alerts wait for you to finish speaking, are said once across tabs, and respect per-session mute.",
+    "A reply that finishes while you're on its conversation keeps Response ready and New until you interact with the page, so voice mode's awake screen no longer marks it read."
   ]
 }

@@ -1995,7 +1995,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
   "Spoken alerts (voice beta): Pocket can say when any session finishes or needs your approval or answer, with an optional one-line summary, instead of the chime. Turn it on in Settings → Voice (beta) → Announce sessions.",
-  "Alerts wait for you to finish speaking, are said once across tabs, and respect per-session mute."
+  "Alerts wait for you to finish speaking, are said once across tabs, and respect per-session mute.",
+  "A reply that finishes while you're on its conversation keeps Response ready and New until you interact with the page, so voice mode's awake screen no longer marks it read."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

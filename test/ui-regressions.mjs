@@ -288,6 +288,18 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('pc-voice'));p.alerts='off';localStorage.setItem('pc-voice',JSON.stringify(p));});
    await chat();
   });
+  await check('A reply that finishes on screen stays Response ready until you engage with the page',async()=>{
+   const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state;
+   done.state={kind:'finished',label:'Response ready',at:Date.now()};
+   await page.goto(base+'/#/chat/'+done.id);await page.waitForSelector('#box');
+   await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);awaitingEngagement.add(id);},done.id); // as if the turn ended while watching
+   await page.evaluate(()=>refreshSessions());await pause(200);
+   assert.equal(await page.evaluate(id=>localStorage.getItem('pc-seen-'+id),done.id),null,'an unattended screen does not mark it read');
+   assert.equal(await page.evaluate(id=>isUnread(allSessions.find(s=>s.id===id)),done.id),true,'still New in the session list');
+   await page.mouse.click(200,300);await page.evaluate(()=>refreshSessions());await pause(200);
+   assert.equal(await page.evaluate(id=>localStorage.getItem('pc-seen-'+id),done.id),String(done.state.at),'engaging marks it read');
+   done.state=saved;
+  });
   await check('Voice: the mic is hidden when the server has no voice engine',async()=>{
    setMode({voice:false});await page.reload();await page.waitForSelector('#box');await pause(300);
    assert.equal(await page.$eval('#micb',e=>e.hidden),true);

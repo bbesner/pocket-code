@@ -592,7 +592,14 @@ let sessionProofReceivedAt=0,sessionProofReceivedWallAt=0;
 const seenAt = id => { try { return Number(localStorage.getItem('pc-seen-' + id)) || 0; } catch { return 0; } };
 const needsAttention = s => s.state?.kind === 'input' || s.state?.kind === 'failed' && (s.state.at || 0) > seenAt(s.id);
 const isUnread = s => s.state?.kind === 'finished' && (s.state.at || 0) > seenAt(s.id);
-function markRead(id, state) { if (document.visibilityState === 'visible' && state?.at) { try { localStorage.setItem('pc-seen-' + id, String(state.at)); } catch { } } }
+// A reply that finishes while its conversation is already on screen counts as read only after you engage
+// with the page (tap, click, type, scroll, return to the tab or navigate). Voice mode keeps the screen awake
+// while you wait for a spoken reply, so a visible page alone no longer proves you saw it.
+const awaitingEngagement = new Set();
+for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) addEventListener(ev, () => awaitingEngagement.clear(), { capture: true, passive: true });
+addEventListener('hashchange', () => awaitingEngagement.clear());
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') awaitingEngagement.clear(); });
+function markRead(id, state) { if (document.visibilityState === 'visible' && state?.at && !awaitingEngagement.has(id)) { try { localStorage.setItem('pc-seen-' + id, String(state.at)); } catch { } } }
 function rowState(s) { return s.state || { kind: s.active ? 'observed' : 'idle', label: s.active ? 'Activity elsewhere' : 'Recent' }; }
 // The list announces a finished reply only until it has been opened; afterwards it is an ordinary recent session.
 function listState(s) { const state = rowState(s); return state.kind === 'finished' && !isUnread(s) ? { ...state, kind: 'idle', label: 'Recent' } : state; }
@@ -1517,6 +1524,7 @@ function openES() {
       scrollBottom();
     }
     else if (d.type === 'result') {
+      awaitingEngagement.add(streamId); // finished on screen: stays Response ready / New until you engage
       if (document.visibilityState === 'visible' && !Voice.replacesChime()) chime(); // not watching → push already notified; spoken alerts replace the chime
       Voice.onTurnEnd(streamId, d.ok, d.error);
       if (!d.ok && d.error) msgs.insertAdjacentHTML('beforeend', `<div class="turn-err enter">Turn failed: ${esc(String(d.error)).slice(0, 600)}</div>`);
