@@ -95,9 +95,9 @@ function bindChatTextControls(container){
 // Accent colour (per device, like text size). The whole UI keys off --clay / --clay-deep, so swapping
 // those two variables on <html> re-themes the send button, links, active dots, user bubbles and checkboxes.
 const ACCENTS={
- clay:{label:'Claude orange',accent:'#D97757',deep:'#3A241C'},
- blue:{label:'UltraWeb blue',accent:'#4A83F5',deep:'#15254A'},
- purple:{label:'UltraWeb purple',accent:'#644BB8',deep:'#241C40'}
+ clay:{label:'Orange',accent:'#D97757',deep:'#3A241C'},
+ blue:{label:'Blue',accent:'#4A83F5',deep:'#15254A'},
+ purple:{label:'Purple',accent:'#BEABFF',deep:'#6246C2'}
 };
 const ACCENT_DEFAULT='clay';
 let accentKey=readLocal('pc-accent',ACCENT_DEFAULT);
