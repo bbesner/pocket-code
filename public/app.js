@@ -480,6 +480,7 @@ async function settingsSheet() {
   sh.innerHTML = `
     <h2>Settings</h2>
     ${chatTextControlsHTML()}
+    ${accentControlsHTML()}
     <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button>
     <button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>
     <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button>
@@ -505,6 +506,7 @@ async function settingsSheet() {
     </details>`;
   mountSheet(scrim, sh);
   bindChatTextControls(sh);
+  bindAccentControls(sh);
   Voice.bindSettings(sh);
   sh.querySelector('#s-environment').onclick = openEnvironment;
   sh.querySelector('#s-usage').onclick = openUsagePanel;
