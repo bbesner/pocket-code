@@ -859,6 +859,42 @@ let chatRenderVersion = 0;
 let es = null, chatId = null, lastMeta = null, chatTitle = '', chatPinned = false;
 function closeES() { if (es) { es.close(); es = null; } }
 
+// One fold per run of tool calls, even when Claude emits each call as its own transcript message: after a
+// render, consecutive folds (end of one assistant message -> start of the next, or back-to-back inside one)
+// are merged into the first, so a turn reads prose / one fold / prose. The summary shows the count and the
+// latest call, so it keeps changing while a turn runs; expanding shows every call in order.
+function foldSummary(d) {
+  const items = d.querySelectorAll('.ledgerlist > .ledger');
+  const last = items[items.length - 1];
+  const name = last?.querySelector('.name')?.textContent || '', det = last?.querySelector('.det')?.textContent || '';
+  const sum = d.querySelector(':scope > summary'); if (!sum) return;
+  sum.innerHTML = `<span class="tc-count">${items.length} tool call${items.length === 1 ? '' : 's'}</span><span class="tc-last">${esc(name)} ${esc(det)}</span>`;
+}
+function mergeToolFolds(container) {
+  if (!container) return;
+  const isFold = el => el?.matches?.('details.ledgerwrap');
+  const content = el => [...el.children].filter(c => !c.matches('.copybtn'));
+  for (const d of [...container.querySelectorAll('details.ledgerwrap')]) {
+    if (!d.isConnected) continue;
+    let target = null;
+    const prevEl = d.previousElementSibling;
+    if (isFold(prevEl)) target = prevEl;                       // back-to-back inside one message
+    else {
+      const msg = d.closest('.m-asst');
+      if (msg && content(msg)[0] === d) {                       // first thing in this message
+        const q = msg.previousElementSibling;
+        if (q?.matches('.m-asst') && isFold(q.lastElementChild)) target = q.lastElementChild;
+      }
+    }
+    if (!target) { foldSummary(d); continue; }
+    const list = target.querySelector('.ledgerlist');
+    for (const li of [...d.querySelectorAll('.ledgerlist > .ledger')]) list.append(li);
+    if (d.open) target.open = true;
+    const msg = d.closest('.m-asst'); d.remove();
+    if (msg && content(msg).length === 0) msg.remove();
+    foldSummary(target);
+  }
+}
 function toolsCollapsed() { return readLocal('pc-tools-collapsed', true) !== false; }
 function ledgerHTML(name, detail) {
   return `<div class="ledger enter">${toolIcon(name)}<span class="name">${esc(name)}</span><span class="det">${esc(detail || '')}</span></div>`;
@@ -897,8 +933,7 @@ function msgHTML(m) {
   let toolNames = [];
   const flush = () => {
     if (tools.length) {
-      const names = [...new Set(toolNames)].slice(0, 4).join(', ') + (new Set(toolNames).size > 4 ? '…' : '');
-      parts.push(`<details class="ledgerwrap"${toolsCollapsed() ? '' : ' open'}><summary>${tools.length} tool call${tools.length === 1 ? '' : 's'} · ${esc(names)}</summary><div class="ledgerlist">${tools.join('')}</div></details>`);
+      parts.push(`<details class="ledgerwrap"${toolsCollapsed() ? '' : ' open'}><summary></summary><div class="ledgerlist">${tools.join('')}</div></details>`);
       tools = []; toolNames = [];
     }
   };
@@ -1250,6 +1285,7 @@ async function renderChat(id) {
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const msgs = $('#msgs');
   msgs.innerHTML = s.messages.map(msgHTML).join('') + steeredHTML(id, s.messages);
+  mergeToolFolds(msgs);
   openLastTodo();
   if (lastMeta && lastMeta.id === id) { msgs.insertAdjacentHTML('beforeend', lastMeta.html); lastMeta = null; }
   setComposer(s.active);
@@ -1542,6 +1578,7 @@ function openES() {
     else if (d.type === 'assistant') {
       dropLive(); Voice.onAssistant(streamId, d.msg);
       msgs.insertAdjacentHTML('beforeend', msgHTML(d.msg));
+      mergeToolFolds(msgs);
       openLastTodo();
       if (watching) extPulse();
       scrollBottom();
