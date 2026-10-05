@@ -315,3 +315,12 @@ prose / fold / prose. The accent may be swapped per browser (Orange default, Blu
 Purple) by overriding `--clay` / `--clay-deep` only; nothing else in the palette moves.
 Pinned sessions lead each group with a 2px accent rule. Rendered 360/390/1440 browser
 screenshots and axe scans reviewed; source detector clean.
+
+## Reply suggestions (1.11)
+
+Pinned Operate refinement: variance 3, motion 2, density 6. Suggested replies sit under
+the latest finished reply as 10px-radius buttons in your-side material (clay-deep fill,
+clay hairline, primary text), so a tap reads as "send this as my message". 44px targets,
+wrap on phones, a dim 44px X to dismiss that returns focus to the message box. They
+appear only when nothing is running, nothing is pending and the box is empty; no motion
+beyond the existing message entrance. Rendered 390px screenshot and axe scan reviewed.

@@ -26,6 +26,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   let m;try{m=JSON.parse(line)}catch{return}
   if(m.id==null)return; // notifications and responses
   const p=m.params||{};
+  if(m.method==='thread/start'||m.method==='thread/resume')fs.appendFileSync(calls+'.threads',JSON.stringify({method:m.method,choices:/`choices`/.test(p.developerInstructions||'')})+'\n');
   switch(m.method){
     case 'initialize':return reply(m.id,{});
     case 'thread/start':{const id=randomUUID();takeLock(id);return reply(m.id,{thread:{id},model:'gpt-test',reasoningEffort:null});}

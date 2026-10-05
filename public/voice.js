@@ -158,7 +158,7 @@ const Voice = (() => {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
     catch (e) { say(micError(e), 8000); return; }
     try {
-      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=40'); workletReady = true; }
+      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=41'); workletReady = true; }
       const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pocket-capture'), sink = ctx.createGain();
       sink.gain.value = 0; src.connect(node); node.connect(sink); sink.connect(ctx.destination);   // a pulled graph keeps the worklet running
       rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened, handsFree: inHandsFree(),
@@ -288,7 +288,7 @@ const Voice = (() => {
   function replyText(id) {
     if (lastReply.get(id)) return lastReply.get(id);
     const all = document.querySelectorAll('#msgs .m-asst:not(.live)'); const m = all[all.length - 1]; if (!m) return '';
-    const c = m.cloneNode(true); c.querySelectorAll('.copybtn,.ledgerwrap,pre,table,.todo,.todos').forEach(n => n.remove());
+    const c = m.cloneNode(true); c.querySelectorAll('.copybtn,.ledgerwrap,.choices,pre,table,.todo,.todos').forEach(n => n.remove());
     return (c.innerText || c.textContent || '').trim();
   }
   const replySummary = id => { const t = replyText(id); return t ? VoiceText.summary(t) : ''; };

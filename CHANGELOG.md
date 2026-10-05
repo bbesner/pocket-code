@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.11.0] — Unreleased · build 41
+
+- Reply suggestions. When a reply ends by asking you to choose between specific next steps, the options appear as buttons under the latest reply once the turn has finished. A tap sends the option as your next message. Typing in the message box hides them; the X dismisses them for that reply (remembered on this browser). They are excluded from Copy message and spoken replies.
+- Pocket adds a short instruction to the turns it runs asking the agent to end such questions with a fenced `choices` block: Claude via `--append-system-prompt`, Codex via thread developer instructions. A Codex config with its own `developer_instructions` is never overridden (no suggestions there). The server turns a block at the very end of a reply into reply options, so the raw block never shows, even while streaming; an example mid-reply stays text. `POCKET_CHOICES=0` turns the instruction off.
+- Session search includes the suggested options.
+
 ## [1.10.1] — 2026-10-05 · build 40
 
 - With side conversations open (split view), the round + New session button is anchored to the main column instead of the window, so it no longer covers the Send button of the pane on the right. Reported by Brad from Mission Control.

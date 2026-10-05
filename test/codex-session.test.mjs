@@ -104,3 +104,17 @@ test('a Pocket restart reattaches to the Codex process, mid-turn and between tur
  assert.ok(await f.until(async()=>f.calls().length===3&&await f.idle(id)));
  assert.equal(new Set(f.calls().map(c=>c.pid)).size,1);
 });
+
+const threadCalls=f=>{try{return fs.readFileSync(path.join(f.dir,'calls.threads'),'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)}catch{return []}};
+test('Codex threads get the reply-suggestion instruction unless the Codex config sets its own',async t=>{
+ const f=await fixture(t,18661);
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
+ assert.deepEqual(threadCalls(f).map(c=>c.choices),[true]);
+ const home=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-codex-home-'));t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
+ fs.writeFileSync(path.join(home,'config.toml'),'developer_instructions = "Operator rules"\n');
+ const g=await fixture(t,18701,{CODEX_HOME:home});
+ const id2=(await g.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
+ assert.ok(await g.until(async()=>g.calls().length===1&&await g.idle(id2)));
+ assert.deepEqual(threadCalls(g).map(c=>c.choices),[false],'an operator\'s developer_instructions are never replaced');
+});

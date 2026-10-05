@@ -20,7 +20,7 @@ lines.on('line',line=>{
   const obj=JSON.parse(line);
   if(obj.type==='control_response'){clearInterval(questionKeepAlive);if(obj.response.request_id==='native-approval'&&obj.response.response.behavior==='allow')fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.approved',id+'\n');const msg={type:'assistant',message:{role:'assistant',content:[{type:'text',text:'Blue'}]}};append(msg);console.log(JSON.stringify(msg));console.log(JSON.stringify({type:'result',subtype:'success'}));return;}
   const text=obj.message.content[0].text;
-  fs.appendFileSync(process.env.POCKET_TEST_CALLS,JSON.stringify({id,pid:process.pid,text,permissionMode:args[args.indexOf('--permission-mode')+1],model:args.includes('--model')?args[args.indexOf('--model')+1]:null,effort:JSON.parse(args[args.indexOf('--settings')+1]||'{}').effortLevel??null})+'\n');
+  fs.appendFileSync(process.env.POCKET_TEST_CALLS,JSON.stringify({id,pid:process.pid,text,permissionMode:args[args.indexOf('--permission-mode')+1],model:args.includes('--model')?args[args.indexOf('--model')+1]:null,effort:JSON.parse(args[args.indexOf('--settings')+1]||'{}').effortLevel??null,choices:args.includes('--append-system-prompt')&&/```choices|`choices`/.test(args[args.indexOf('--append-system-prompt')+1]||'')})+'\n');
   // like the real CLI, a message steered into a running turn reaches the transcript only at the next step
   if(!working)append({type:'user',message:{role:'user',content:text}});
   if(text.includes('__APPROVAL__')){questionKeepAlive=setInterval(()=>{},1000);console.log(JSON.stringify({type:'control_request',request_id:'native-approval',request:{subtype:'can_use_tool',tool_name:'Bash',input:{command:'echo fixture-only-secret > approval.txt'}}}));return;}
@@ -45,7 +45,7 @@ lines.on('line',line=>{
     const model='claude-opus-5-5[1m]';
     console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));
     if(usage)console.log(JSON.stringify({type:'rate_limit_event',rate_limit_info:{status:'allowed',resetsAt:1791141000,rateLimitType:'five_hour',overageStatus:'rejected',overageDisabledReason:'out_of_credits',isUsingOverage:false,unifiedWindows:{five_hour:{utilization:0.07,resetsAt:1791141000},seven_day:{utilization:0.02,resetsAt:1791295200}}},session_id:id}));
-    const assistantMsg={type:'assistant',message:{role:'assistant',content:[{type:'text',text:'Test response.'}],...(usage?{model,usage:{input_tokens:1200,cache_read_input_tokens:800,cache_creation_input_tokens:0}}:{})}};
+    const assistantMsg={type:'assistant',message:{role:'assistant',content:[{type:'text',text:text.includes('__CHOICES__')?'Tests pass. Should I merge and deploy?\n\n```choices\nMerge and deploy\nDon\'t merge yet\n```':'Test response.'}],...(usage?{model,usage:{input_tokens:1200,cache_read_input_tokens:800,cache_creation_input_tokens:0}}:{})}};
     append(assistantMsg);
     console.log(JSON.stringify(assistantMsg));
     const result={type:'result',subtype:text.includes('__FAIL__')?'error':'success',result:'Test result',duration_ms:300};
