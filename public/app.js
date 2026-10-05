@@ -977,7 +977,7 @@ function fileChip(f) { // f: {n,p} from the server, plain name string from optim
 }
 function msgHTML(m) {
   if (m.role === 'user') {
-    let h = `<div class="m-user enter">${esc(m.text)}</div>`;
+    let h = `<div class="m-user enter${m.pending ? ' pending' : ''}">${esc(m.text)}</div>`;   // pending: sent, not in the transcript yet
     if (m.files?.length) h += `<div class="m-files">${m.files.map(fileChip).join('')}</div>`;
     return h;
   }

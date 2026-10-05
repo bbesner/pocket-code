@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.11.2] — 2026-10-05 · build 43
+
+- A message sent to an idle session no longer disappears until the turn ends. The CLI writes the user line to the transcript a moment after the turn starts, and the re-render right after the send landed in that gap. The session view now includes the running turn's own message, dimmed as pending, until the transcript has it. It matches on that message among lines written since the turn started, so a steered or queued message landing after it never brings it back twice. Reported, with a first patch, by Damon Delcoro.
+
 ## [1.11.1] — 2026-10-05 · build 42
 
 - While a turn streams, consecutive tool calls stay in one fold even when an empty live placeholder sits between them, so you see one line whose summary shows the count and the latest call, updating as the turn runs. Contributed by Damon Delcoro.

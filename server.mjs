@@ -1403,6 +1403,19 @@ app.get('/api/projects', requireAuth, async (_req, res) => {
   res.json({ projects, defaultCwd: DEFAULT_CWD || null });
 });
 
+// The CLI writes the user's line to the transcript a moment after a turn starts. A client that re-renders in
+// that gap (it does, right after the send is acknowledged) would lose the message just sent until the turn
+// ends. Show the turn's own text as pending until the transcript has it. Match the text among user lines
+// written since the turn started, not "the last user line": a steered or queued message can land after it.
+// (Reported, with a first patch, by Damon Delcoro 2026-10-05.)
+function withPendingUser(messages, turn) {
+  const text = String(turn?.userText || '').trim();
+  if (!text || turn.autonomous) return messages;
+  const since = (turn.startedAt || 0) - 5000;
+  const landed = messages.some(m => m.role === 'user' && (m.text || '').trim() === text && (!m.ts || Date.parse(m.ts) >= since));
+  return landed ? messages : [...messages, { role: 'user', text, pending: true }];
+}
+
 app.get('/api/session/:id', requireAuth, async (req, res) => {
   if (isCx(req.params.id)) {
     const tid = codex.bareId(req.params.id);
@@ -1438,7 +1451,8 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
     return res.status(404).json({ error: 'not found' });
   }
   const meta = await sessionMeta(file, req.params.id);
-  const { msgs: messages, total } = await readTranscript(file);
+  const { msgs, total } = await readTranscript(file);
+  const messages = withPendingUser(msgs, turns.get(req.params.id));
   // turnEvents: what the live stream has already broadcast for the running turn. The
   // transcript above covers it, so a fresh stream connection asks to start after it.
   res.json({ ...meta, state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null });
@@ -1997,7 +2011,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Tool calls stay in one line while a reply streams: the run no longer splits into separate folds, and its summary keeps showing the latest call. Tap it to see every call. Contributed by Damon Delcoro."
+  "A message you send to an idle session stays on screen while the turn starts, instead of disappearing until the reply finishes. Reported by Damon Delcoro."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
