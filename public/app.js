@@ -688,7 +688,7 @@ async function refreshSessions() {
   sessionFetch = (async () => {
     try { const d = await api('/sessions?limit=200&statusCheck='+Date.now(),{cache:'no-store',signal:AbortSignal.timeout(8000)}); allSessions = d.sessions; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
-    finally { sessionFetch = null; paintSessionPanels(); }
+    finally { sessionFetch = null; paintSessionPanels(); if (!sessionsStale) Voice.onSessions(allSessions); }
   })();
   return sessionFetch;
 }
@@ -1517,7 +1517,7 @@ function openES() {
       scrollBottom();
     }
     else if (d.type === 'result') {
-      if (document.visibilityState === 'visible') chime(); // not watching → push already notified
+      if (document.visibilityState === 'visible' && !Voice.replacesChime()) chime(); // not watching → push already notified; spoken alerts replace the chime
       Voice.onTurnEnd(streamId, d.ok, d.error);
       if (!d.ok && d.error) msgs.insertAdjacentHTML('beforeend', `<div class="turn-err enter">Turn failed: ${esc(String(d.error)).slice(0, 600)}</div>`);
       if (d.cost != null) {

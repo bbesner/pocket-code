@@ -88,6 +88,27 @@ const VoiceText = (() => {
   const NOISE = /^(thank you|thanks|thank you for watching|thanks for watching|you|bye|uh|um|hmm|mm|music)[.!]?$/i;
   function isNoise(text, seconds) { return seconds < 1.6 && NOISE.test(String(text || '').trim()); }
 
-  return { speakable, sentences, summary, chunks, intent, stepText, isNoise };
+  // One spoken line for an alert: the first substantial sentence of a reply (skips a bare "Done."), ≤160 chars.
+  function oneLine(md, max = 160) {
+    const all = sentences(speakable(md));
+    let s = all.find(x => x.length >= 25) || all[0] || '';
+    if (s.length > max) s = s.slice(0, max).replace(/\s+\S*$/, '') + '.';
+    return s;
+  }
+  // A session title as spoken: no markdown or paths, at most about eight words.
+  function shortTitle(title) {
+    const words = speakable(String(title || '')).replace(/[.!?]+$/, '').split(/\s+/).filter(Boolean);
+    return words.length ? words.slice(0, 8).join(' ') + (words.length > 8 ? '…' : '') : 'A session';
+  }
+  // What a spoken alert says. kind: finished | failed | input. mode: name | summary.
+  function alertText({ title, kind, approvals = 0, reply = '' }, mode) {
+    const name = shortTitle(title), tail = /\bsession$/i.test(name) ? '' : ' session';
+    if (kind === 'input') return approvals ? `The ${name}${tail} needs your approval.` : `The ${name}${tail} has a question for you.`;
+    if (kind === 'failed') return `The ${name}${tail} stopped with an error.`;
+    const line = mode === 'summary' ? oneLine(reply) : '';
+    return `The ${name}${tail} finished.${line ? ' ' + line : ''}`;
+  }
+
+  return { speakable, sentences, summary, chunks, intent, stepText, isNoise, oneLine, shortTitle, alertText };
 })();
 globalThis.VoiceText = VoiceText;

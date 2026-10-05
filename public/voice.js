@@ -6,7 +6,8 @@
 const Voice = (() => {
   const MIC = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0013 0M12 18v2.5"/></svg>';
   const PREF_KEY = 'pc-voice';
-  const DEFAULTS = { speak: true, review: false, keepListening: false, replyWait: 120, voice: 'af_heart', vocab: '' };
+  const DEFAULTS = { speak: true, review: false, keepListening: false, replyWait: 120, alerts: 'off', voice: 'af_heart', vocab: '' };
+  const ALERT_CHOICES = [['off', 'Off'], ['name', 'Session name only'], ['summary', 'Name and a one-line summary']];
   // A tap means you're about to speak, so silence ends it after 10 s. After a spoken reply (Keep listening) the mic
   // waits replyWait seconds, so there is time to read the rest of the reply first. MAX_MS limits one utterance.
   const HOLD_MS = 350, END_SILENCE_MS = 1100, NO_SPEECH_MS = 10000, MAX_MS = 60000;
@@ -111,7 +112,7 @@ const Voice = (() => {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
     catch (e) { say(micError(e), 8000); return; }
     try {
-      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=37'); workletReady = true; }
+      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=38'); workletReady = true; }
       const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pocket-capture'), sink = ctx.createGain();
       sink.gain.value = 0; src.connect(node); node.connect(sink); sink.connect(ctx.destination);   // a pulled graph keeps the worklet running
       rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened,
@@ -250,6 +251,8 @@ const Voice = (() => {
     stopSpeaking();
     const parts = VoiceText.chunks(text); if (!parts.length) return;
     unlockAudio(); if (!ctx) { say(text, 8000); return; }
+    if (ctx.state !== 'running') { try { await Promise.race([ctx.resume(), new Promise(r => setTimeout(r, 400))]); } catch { } }
+    if (ctx.state !== 'running') { say('Tap anywhere to turn on spoken replies and alerts.', 8000); return false; } // browsers need one tap first
     const me = speech = { cancelled: false, source: null };
     setState('speaking');
     const fetchPart = t => fetch('/api/voice/speak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: t, voice: prefs().voice }) })
@@ -264,7 +267,10 @@ const Voice = (() => {
       }
     } catch { if (!me.cancelled) say('The reply could not be spoken. It’s on screen.', 6000); }
     if (speech === me) { speech = null; setState('idle'); if (!me.cancelled && listenAfter && chatId) start('auto', { waitMs: replyWaitMs(), reopened: true }); }
+    return true;
   }
+  // Any tap or click anywhere unlocks audio for later alerts (browser autoplay rules).
+  document.addEventListener('pointerdown', () => unlockAudio(), { capture: true, passive: true });
   function stopSpeaking() {
     const s = speech; speech = null; if (!s) return;
     s.cancelled = true; try { s.source?.stop(); } catch { }
@@ -282,10 +288,69 @@ const Voice = (() => {
     if (ok === false && /stopped by you/i.test(error || '')) { armed.delete(id); keepAwake(); return; }
     armed.delete(id); keepAwake();
     if (id !== chatId || !prefs().speak) return;
+    spokenTurnEnd.set(id, Date.now());                         // its spoken reply stands in for the alert
     const md = lastReply.get(id) || replyText(id);
     const line = ok === false ? 'The turn didn’t finish. Details are on screen.' : md ? VoiceText.summary(md) : 'It finished.';
     speakOut(line, { listenAfter: prefs().keepListening });
   }
+  /* ---------- spoken alerts: any session finishing or needing you, while Pocket is open ---------- */
+  const spokenTurnEnd = new Map(), seen = new Map(), queue = [];
+  let baselined = false;
+  const alertMode = () => (status?.available && ALERT_CHOICES.some(([v]) => v === prefs().alerts)) ? prefs().alerts : 'off';
+  function replacesChime() { return alertMode() !== 'off'; }
+  // Cross-tab dedupe: two Pocket tabs (or Mission Control plus standalone) say each event once.
+  function claim(key) {
+    let m = {}; try { m = JSON.parse(localStorage.getItem('pc-voice-alerted') || '{}'); } catch { }
+    if (m[key]) return false;
+    const now = Date.now(); m[key] = now;
+    for (const k of Object.keys(m)) if (now - m[k] > 86400000) delete m[k];
+    try { localStorage.setItem('pc-voice-alerted', JSON.stringify(m)); } catch { }
+    return true;
+  }
+  function onSessions(list) {
+    if (typeof PANE !== 'undefined' && PANE) return;             // split panes: only the main window speaks
+    if (!status) { loadStatus(); return; }
+    const mode = alertMode(), first = !baselined;
+    baselined = true;
+    for (const s of list || []) {
+      const st = s.state || {}, prev = seen.get(s.id);
+      seen.set(s.id, { kind: st.kind, at: st.at || 0, approvals: st.approvals || 0, questions: st.questions || 0 });
+      if (first || mode === 'off' || s.muted) continue;
+      let kind = null;
+      // Compare with the previous check, not clocks: device and server time can differ.
+      if (['finished', 'failed', 'ended'].includes(st.kind) && st.at && st.at !== prev?.at) kind = st.kind === 'finished' ? 'finished' : 'failed';
+      else if (st.kind === 'input' && (prev?.kind !== 'input' || (st.approvals || 0) > prev.approvals || (st.questions || 0) > prev.questions)) kind = 'input';
+      if (!kind) continue;
+      if (kind === 'finished' && Date.now() - (spokenTurnEnd.get(s.id) || 0) < 60000) continue;
+      if (!claim(`${s.id}|${kind}|${st.at || ''}|${st.approvals || 0}|${st.questions || 0}`)) continue;
+      announce({ id: s.id, title: s.title, kind, approvals: st.approvals || 0 }, mode);
+    }
+  }
+  async function announce(ev, mode) {
+    let reply = '';
+    if (ev.kind === 'finished' && mode === 'summary') {
+      try { const d = await api(`/session/${encodeURIComponent(ev.id)}`, { signal: AbortSignal.timeout(8000) });
+        const m = [...(d.messages || [])].reverse().find(x => x.role === 'assistant');
+        reply = (m?.blocks || []).filter(b => b.t !== 'tool' && b.t !== 'todo' && b.text).map(b => b.text).join('\n\n'); } catch { }
+    }
+    queue.push(VoiceText.alertText({ ...ev, reply }, mode));
+    drain();
+  }
+  // Alerts wait their turn: never over you speaking, a recording, or another reply.
+  let audioLocked = false;
+  async function drain() {
+    if (!queue.length || audioLocked || state !== 'idle' || speech || rec) return;
+    const text = queue.shift();
+    if (await speakOut(text) === false) { queue.unshift(text); audioLocked = true; } // keep it until the next tap
+  }
+  document.addEventListener('pointerdown', () => { if (audioLocked) { audioLocked = false; setTimeout(drain, 300); } }, { capture: true, passive: true });
+  setInterval(() => {
+    drain();
+    // A hidden tab stops the list's own 5 s refresh; keep checking when alerts are on.
+    if (alertMode() !== 'off' && document.visibilityState !== 'visible' && !document.querySelector('.login') && typeof refreshSessions === 'function') refreshSessions();
+  }, 8000);
+  setInterval(() => { if (queue.length) drain(); }, 700);
+
   function onIdle(id) { if (armed.delete(id)) keepAwake(); } // stopped or ended without a result: nothing to read
   function onAttention(id, kind) {
     if (!armed.has(id) || id !== chatId) return;
@@ -309,6 +374,8 @@ const Voice = (() => {
         ${toggle('s-voice-speak', p.speak, 'Speak replies', 'Read a short summary aloud when a turn you started by voice finishes')}
         ${toggle('s-voice-review', p.review, 'Review before sending', 'Put what you said in the message box instead of sending it')}
         ${toggle('s-voice-keep', p.keepListening, 'Keep listening', 'After a spoken reply, listen again while you read the rest, for hands-free back and forth')}
+        <label class="voice-field">Announce sessions<select id="s-voice-alerts">${ALERT_CHOICES.map(([v, l]) => `<option value="${v}"${p.alerts === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+        <p class="sub">Says when any session finishes or needs you, while Pocket is open, in place of the chime. Muted sessions stay quiet.</p>
         <label class="voice-field">Wait for my reply<select id="s-voice-wait">${WAIT_CHOICES.map(([v, l]) => `<option value="${v}"${Number(p.replyWait) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="voice-field">Voice<select id="s-voice-voice"></select></label>
         <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, TechPro, Zoho" value="${esc(p.vocab)}"></label>
@@ -322,16 +389,17 @@ const Voice = (() => {
     flip('#s-voice-speak', 'speak'); flip('#s-voice-review', 'review'); flip('#s-voice-keep', 'keepListening');
     const vocab = root.querySelector('#s-voice-vocab'); if (vocab) vocab.onchange = () => setPref('vocab', vocab.value.trim().slice(0, 300));
     const wait = root.querySelector('#s-voice-wait'); if (wait) wait.onchange = () => setPref('replyWait', Number(wait.value));
+    const alerts = root.querySelector('#s-voice-alerts'); if (alerts) alerts.onchange = () => { setPref('alerts', alerts.value); unlockAudio(); };
     loadStatus(true).then(s => {
       const st = root.querySelector('#s-voice-state'), sel = root.querySelector('#s-voice-voice'), test = root.querySelector('#s-voice-test');
       if (!st) return;
       st.textContent = s.available ? 'Voice is available on this server.' : s.reason || 'Voice is not available on this server.';
-      root.querySelectorAll('#s-voice .opt, #s-voice-voice, #s-voice-wait, #s-voice-vocab, #s-voice-test').forEach(el => { el.disabled = !s.available; });
+      root.querySelectorAll('#s-voice .opt, #s-voice-voice, #s-voice-alerts, #s-voice-wait, #s-voice-vocab, #s-voice-test').forEach(el => { el.disabled = !s.available; });
       if (sel) { sel.innerHTML = (s.voices || [{ id: 'af_heart', label: 'American female' }]).map(v => `<option value="${esc(v.id)}">${esc(v.label)}</option>`).join(''); sel.value = prefs().voice; sel.onchange = () => setPref('voice', sel.value); }
       if (test) test.onclick = () => { unlockAudio(); speakOut('This is how spoken replies will sound in Pocket Code.'); };
       document.querySelectorAll('#micb').forEach(b => { b.hidden = !s.available; });
     });
   }
 
-  return { micHTML, bindComposer, paint, onAssistant, onTurnEnd, onIdle, onAttention, onLeave, settingsHTML, bindSettings, speak: speakOut, stopSpeaking, _test: { toPcm16 } };
+  return { micHTML, bindComposer, paint, onAssistant, onTurnEnd, onIdle, onSessions, replacesChime, onAttention, onLeave, settingsHTML, bindSettings, speak: speakOut, stopSpeaking, _test: { toPcm16 } };
 })();

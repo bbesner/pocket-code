@@ -201,6 +201,15 @@ The mic sits beside Send in every conversation, including split panes.
   aloud. Code, tables and links are left on screen. If the agent needs an approval or has a question,
   you hear that, and you answer it on screen.
 
+**Spoken alerts.** Settings → Voice (beta) → Announce sessions: Off (default), Session name only, or
+Name and a one-line summary. While Pocket is open, it then says when any session finishes, stops with
+an error, or needs your approval or answer, and replaces the completion chime. Alerts wait until you
+finish speaking or a reply finishes; each event is said once even with several Pocket tabs open, and
+split panes stay quiet (the main window speaks). Per-session mute silences a session's alerts. A
+hidden tab keeps checking every few seconds. Browsers allow sound only after one tap or click on the
+page; an alert that arrives before that waits for your first tap. Push notifications remain the way
+to hear about work while Pocket is closed or the phone is locked.
+
 Settings → Voice controls whether replies are spoken, review-before-sending, keep listening (the
 mic reopens after each spoken reply for hands-free back and forth and waits, 2 minutes by default,
 while you read the rest; Wait for my reply sets 30 seconds to 5 minutes), the voice, and names and terms

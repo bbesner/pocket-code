@@ -1383,6 +1383,7 @@ async function listAllSessions(limit) {
 app.get('/api/sessions', requireAuth, async (req, res) => {
   try {
     const sessions = await listAllSessions(Math.min(Number(req.query.limit) || 60, 200));
+    for (const s of sessions) if (mutes.has(s.id)) s.muted = true; // spoken alerts honor per-session mute
     res.json({ sessions, warnings: sessions.warnings, checkedAt: Date.now() });
   } catch { res.status(503).json({ error: 'Session status is unavailable. Please retry.' }); }
 });
@@ -1993,8 +1994,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Voice mode is now labelled beta in Settings, on the mic button and in the docs, while it continues to improve. Pocket Code itself is a normal release.",
-  "Settings → Voice (beta) says where to report voice problems."
+  "Spoken alerts (voice beta): Pocket can say when any session finishes or needs your approval or answer, with an optional one-line summary, instead of the chime. Turn it on in Settings → Voice (beta) → Announce sessions.",
+  "Alerts wait for you to finish speaking, are said once across tabs, and respect per-session mute."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

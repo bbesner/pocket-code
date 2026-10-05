@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.8.2 / build 37**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.9.0 / build 38**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -228,6 +228,9 @@ a reply was ready in under a second. Without the install, the mic button stays h
   *read it all* and *what's waiting on me*. Anything else is sent as a normal message.
 - Settings → Voice: speak replies, review before sending, keep listening (hands-free), voice and
   names to recognize. Approvals still need a tap.
+- **Spoken alerts.** Settings → Voice → Announce sessions says when any session finishes ("The SCK
+  inventory session finished", optionally with a one-line summary) or needs your approval or answer,
+  in place of the chime, while Pocket is open. Muted sessions stay quiet; push covers a closed app.
 
 Browsers allow the microphone only over HTTPS. An embedding page must grant the frame
 `allow="microphone"`. Details: [workspace guide](docs/workspace-guide.md#voice-mode-beta) and

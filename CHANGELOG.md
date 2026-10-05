@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0] — 2026-10-05 · build 38
+
+- Spoken alerts (voice beta). Settings → Voice (beta) → Announce sessions: Off (default), Session name only, or Name and a one-line summary. While Pocket is open it says when any session finishes ("The SCK inventory session finished. 42 products are below their reorder level."), stops with an error, or needs your approval or answer, and replaces the completion chime.
+- Alerts queue behind your speech, recordings and other replies; each event is said once across Pocket tabs; split panes stay quiet; per-session mute silences a session. A hidden tab keeps checking every 8 seconds while alerts are on.
+- Browsers allow sound after one tap on the page. An alert that arrives earlier waits for that tap, with a note, instead of stalling the voice controls.
+- The session list reports which sessions are muted.
+
 ## [1.8.2] — 2026-10-05 · build 37
 
 - Voice mode is labelled beta: Settings → Voice (beta), the mic button's name and tooltip, and the README, workspace guide and operations guide. It works and is still being tuned from real use. The app version is a normal release, not a pre-release.
