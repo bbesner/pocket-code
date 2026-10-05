@@ -225,14 +225,14 @@ mark.fmark.cur { background: var(--clay); color: #1A0F09; }
 #toast.show { opacity: 1; transform: translateX(-50%); }
 
 
-/* Narrow screens (local change): the message box gets its own full-width row, and the icons (settings, mic,
-   continuous conversation, send) sit on a row beneath it, so adding the voice buttons never squeezes the box. */
+/* Narrow screens and narrow panes: the message box gets its own full-width row and the icons (settings,
+   headset, mic, send; Steer now / After this turn while working) sit on a row beneath it, so the box is never squeezed. */
 @media (max-width: 600px) {
   .composer textarea { flex: 1 1 100%; order: 1; min-width: 0; }
-  .composer .composer-actions, .composer .send-mode, .composer .voice-mic, .composer .voice-keep, .composer .send { order: 2; }
+  .composer .composer-actions, .composer .send-mode, .composer .voice-mic, .composer .send { order: 2; }
   .composer .composer-actions { margin-right: auto; }
   .composer .send-mode { flex: 1 1 auto; }
-  .composer .voice-mic, .composer .voice-keep { width: 42px; height: 42px; }
+  .composer .voice-mic { width: 44px; height: 44px; }
   .composer .send { margin-left: 4px; }
 }
 /* ---------- composer toolbar (attach / model / effort) ---------- */
