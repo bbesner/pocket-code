@@ -22,7 +22,8 @@ lines.on('line',line=>{
   const text=obj.message.content[0].text;
   fs.appendFileSync(process.env.POCKET_TEST_CALLS,JSON.stringify({id,pid:process.pid,text,permissionMode:args[args.indexOf('--permission-mode')+1],model:args.includes('--model')?args[args.indexOf('--model')+1]:null,effort:JSON.parse(args[args.indexOf('--settings')+1]||'{}').effortLevel??null,choices:args.includes('--append-system-prompt')&&/```choices|`choices`/.test(args[args.indexOf('--append-system-prompt')+1]||'')})+'\n');
   // like the real CLI, a message steered into a running turn reaches the transcript only at the next step
-  if(!working)append({type:'user',message:{role:'user',content:text}});
+  // __LATEUSER__: like the real CLI under load, the user line reaches the transcript a moment after the turn starts
+  if(!working){const line={type:'user',message:{role:'user',content:text}};if(text.includes('__LATEUSER__'))setTimeout(()=>append(line),900);else append(line);}
   if(text.includes('__APPROVAL__')){questionKeepAlive=setInterval(()=>{},1000);console.log(JSON.stringify({type:'control_request',request_id:'native-approval',request:{subtype:'can_use_tool',tool_name:'Bash',input:{command:'echo fixture-only-secret > approval.txt'}}}));return;}
   if(text.includes('__QUESTION__')){questionKeepAlive=setInterval(()=>{},1000);console.log(JSON.stringify({type:'control_request',request_id:'native-test',request:{subtype:'can_use_tool',tool_name:'AskUserQuestion',input:{questions:[{header:'Color',question:'Which color?',options:[{label:'Blue',description:'Cool'},{label:'Red',description:'Warm'}],multiSelect:false}]}}}));return;}
   if (working) return;

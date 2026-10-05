@@ -153,3 +153,23 @@ test('POCKET_CHOICES=0 starts the CLI without the instruction',async t=>{
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  assert.equal(f.calls()[0].choices,false);
 });
+
+test('a just-sent message shows as pending until the CLI writes it, and never twice',async t=>{
+ const f=await fixture(t,18751);
+ const first=(await f.call('/new',{cwd:repo,...msg('setup')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(first)==='finished'));
+ const text='__SLOW__ __LATEUSER__ please check the logs';
+ assert.equal((await f.call(`/session/${first}/message`,msg(text))).status,202);
+ const users=async()=>(await f.call(`/session/${first}`)).body.messages.filter(m=>m.role==='user');
+ let u=await users();
+ assert.deepEqual(u.at(-1),{role:'user',text,pending:true},'shown right away, marked pending');
+ assert.ok(await f.until(async()=>{const x=await users();return x.at(-1).text===text&&!x.at(-1).pending;}),'replaced by the transcript line once written');
+ u=await users();assert.equal(u.filter(m=>m.text===text).length,1,'never twice');
+ // A steered message landing after the turn's own line must not re-add the turn's text.
+ const file=fs.readdirSync(path.join(f.dir,'sessions','test-workspace')).find(n=>n.startsWith(first));
+ fs.appendFileSync(path.join(f.dir,'sessions','test-workspace',file),JSON.stringify({type:'attachment',sessionId:first,timestamp:new Date().toISOString(),attachment:{type:'queued_command',prompt:'also check disk space'}})+'\n');
+ u=await users();
+ assert.equal(u.at(-1).text,'also check disk space');assert.equal(u.filter(m=>m.text===text).length,1,'steer after it does not duplicate the turn text');
+ assert.ok(await f.until(async()=>await f.state(first)==='finished',6000));
+ assert.equal((await users()).some(m=>m.pending),false,'nothing pending once the turn ends');
+});

@@ -1,7 +1,7 @@
 {
-  "version": "1.11.1",
-  "assetV": 42,
+  "version": "1.11.2",
+  "assetV": 43,
   "notes": [
-    "Tool calls stay in one line while a reply streams: the run no longer splits into separate folds, and its summary keeps showing the latest call. Tap it to see every call. Contributed by Damon Delcoro."
+    "A message you send to an idle session stays on screen while the turn starts, instead of disappearing until the reply finishes. Reported by Damon Delcoro."
   ]
 }
