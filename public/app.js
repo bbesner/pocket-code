@@ -592,6 +592,8 @@ const needsAttention = s => s.state?.kind === 'input' || s.state?.kind === 'fail
 const isUnread = s => s.state?.kind === 'finished' && (s.state.at || 0) > seenAt(s.id);
 function markRead(id, state) { if (document.visibilityState === 'visible' && state?.at) { try { localStorage.setItem('pc-seen-' + id, String(state.at)); } catch { } } }
 function rowState(s) { return s.state || { kind: s.active ? 'observed' : 'idle', label: s.active ? 'Activity elsewhere' : 'Recent' }; }
+// The list announces a finished reply only until it has been opened; afterwards it is an ordinary recent session.
+function listState(s) { const state = rowState(s); return state.kind === 'finished' && !isUnread(s) ? { ...state, kind: 'idle', label: 'Recent' } : state; }
 function sessionCounts() {
   if(sessionsStale)return {running:0,input:0,observed:0,attention:allSessions.filter(needsAttention).length,fresh:allSessions.filter(isUnread).length};
   return { running: allSessions.filter(s => rowState(s).kind === 'running').length,
@@ -618,7 +620,7 @@ function filteredSessions() {
      sessionFilter === 'attention' && needsAttention(s) || sessionFilter === 'new' && isUnread(s) || sessionFilter==='pinned'&&s.pinned || sessionFilter==='hidden'));
 }
 function sessionRowHTML(s) {
-  const state = rowState(s), running = state.kind === 'running';
+  const state = listState(s), running = state.kind === 'running';
   const detail = running && state.startedAt ? `Started ${rel(state.startedAt)}`
     : state.kind === 'observed' ? 'Recent transcript activity; run status unconfirmed'
     : state.kind === 'waiting' && state.retryAt ? `Retry at ${new Date(state.retryAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}` : `Updated ${rel(s.mtimeMs)}`;

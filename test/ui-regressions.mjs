@@ -95,6 +95,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode}) {
    await page.click('[data-more-filters] > summary');
    await page.screenshot({path:path.join(out,'fixed-sessions-mobile.png')});
   });
+  await check('A finished reply reads Response ready until opened, then Recent',async()=>{
+   const done=rows.find(r=>r.state?.kind==='finished'&&r.state.at);
+   const status=()=>page.$eval(`[data-session-results] [data-id="${done.id}"] .session-status`,e=>({cls:e.className,text:e.textContent}));
+   await page.evaluate(id=>localStorage.removeItem('pc-seen-'+id),done.id);await page.reload();await page.waitForSelector(`[data-session-results] [data-id="${done.id}"]`);
+   assert.deepEqual(await status(),{cls:'session-status state-finished',text:'Response readyNew'});
+   await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,done.state.at]);await page.reload();await page.waitForSelector(`[data-session-results] [data-id="${done.id}"]`);
+   assert.deepEqual(await status(),{cls:'session-status state-idle',text:'Recent'});
+  });
   setMode({workerFailed:false});
   await page.setViewport({width:1440,height:900});
   await page.goto(base+'/#/new');await page.waitForSelector('#first');

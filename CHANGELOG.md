@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.7.3] — 2026-10-05 · build 34
+
+- A session's green Response ready label in the session list now lasts only until you open the session. After that it shows as Recent, like any other session. Unread replies keep the label and the New marker.
+- Browser regression covers the label before and after a reply is opened.
+
 ## [1.7.2] — 2026-10-05 · build 33
 
 - Settings has a Bugs & feature requests section that opens the GitHub issue forms with your version filled in. Security problems are pointed to private reporting.
