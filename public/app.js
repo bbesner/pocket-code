@@ -485,6 +485,7 @@ async function settingsSheet() {
     <button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>
     <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button>
     <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
+    <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse tool calls<span class="sub">Fold Bash, Edit and other actions behind a one-line summary</span></span></button>
     <button class="opt" id="s-push" aria-pressed="false"><span class="dot"></span><span>Turn notifications<span class="sub" id="s-push-state">Checking notification support…</span></span></button>
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
@@ -511,6 +512,13 @@ async function settingsSheet() {
   sh.querySelector('#s-environment').onclick = openEnvironment;
   sh.querySelector('#s-usage').onclick = openUsagePanel;
   sh.querySelector('#s-keys').onclick = keyboardHelp;
+  sh.querySelector('#s-tools').onclick = e => {
+    const on = !toolsCollapsed();
+    writeLocal('pc-tools-collapsed', on);
+    e.currentTarget.setAttribute('aria-pressed', String(on));
+    e.currentTarget.querySelector('.dot').classList.toggle('on', on);
+    document.querySelectorAll('details.ledgerwrap').forEach(d => { d.open = !on; });
+  };
   sh.querySelector('#s-chime').onclick = e => {
     const on = localStorage.getItem('pc-chime') === 'off';
     localStorage.setItem('pc-chime', on ? 'on' : 'off');
@@ -851,6 +859,7 @@ let chatRenderVersion = 0;
 let es = null, chatId = null, lastMeta = null, chatTitle = '', chatPinned = false;
 function closeES() { if (es) { es.close(); es = null; } }
 
+function toolsCollapsed() { return readLocal('pc-tools-collapsed', true) !== false; }
 function ledgerHTML(name, detail) {
   return `<div class="ledger enter">${toolIcon(name)}<span class="name">${esc(name)}</span><span class="det">${esc(detail || '')}</span></div>`;
 }
@@ -883,9 +892,18 @@ function msgHTML(m) {
   }
   const parts = [];
   let tools = [];
-  const flush = () => { if (tools.length) { parts.push(`<div class="ledgerwrap">${tools.join('')}</div>`); tools = []; } };
+  // Tool calls are folded behind a one-line summary (Settings > Collapse tool calls, default on) so a
+  // reply reads as prose; open the fold to see the Bash/Edit/Read ledger. Copy-message skips it either way.
+  let toolNames = [];
+  const flush = () => {
+    if (tools.length) {
+      const names = [...new Set(toolNames)].slice(0, 4).join(', ') + (new Set(toolNames).size > 4 ? '…' : '');
+      parts.push(`<details class="ledgerwrap"${toolsCollapsed() ? '' : ' open'}><summary>${tools.length} tool call${tools.length === 1 ? '' : 's'} · ${esc(names)}</summary><div class="ledgerlist">${tools.join('')}</div></details>`);
+      tools = []; toolNames = [];
+    }
+  };
   for (const b of m.blocks || []) {
-    if (b.t === 'tool') tools.push(ledgerHTML(b.name, b.detail));
+    if (b.t === 'tool') { tools.push(ledgerHTML(b.name, b.detail)); toolNames.push(b.name || 'tool'); }
     else if (b.t === 'todo') { flush(); parts.push(todoHTML(b.todos || [])); }
     else { flush(); parts.push(md(b.text)); }
   }
