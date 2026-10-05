@@ -1501,6 +1501,19 @@ async function submitPending(id) {
   const pending = loadOutbox(id); if (!pending) return;
   sendsInFlight.add(id); deliveryNotices.delete(id); paintDelivery(id);
   recentSends = [...recentSends.slice(-4), { text: pending.text, at: Date.now() }];
+  // Optimistic echo (local change): show the bubble the instant Send is hit instead of after the server
+  // acknowledges and the whole transcript is re-fetched. Removed again if delivery fails; the canonical
+  // re-render after the ack replaces it with the real one.
+  let ghost = null;
+  if (chatId === id && !composerWorking) {
+    const msgs = $('#msgs');
+    if (msgs) {
+      msgs.insertAdjacentHTML('beforeend', msgHTML({ role: 'user', text: pending.text, files: pending.files }));
+      ghost = msgs.lastElementChild; ghost?.classList.add('pending');
+      const box = $('#box'); if (box) box.value = '';
+      scrollBottom();
+    }
+  }
   try {
     const result = await api(`/session/${id}/message`, { method: 'POST', body: JSON.stringify({ text: pending.text, ...pending.opts, clientMessageId: pending.clientMessageId }) });
     saveOutbox(id, null); clearDraft(id);
@@ -1521,6 +1534,7 @@ async function submitPending(id) {
     pending.error = e.code === 'delivery_uncertain' ? e.message
       : rejected ? `Not sent: ${e.message}` : 'Delivery not confirmed. Your message is saved. Retry checks the same request.';
     try { saveOutbox(id, pending); } catch { }
+    if (ghost?.isConnected) { ghost.previousElementSibling?.matches?.('.m-files') && null; ghost.remove(); }
     if (chatId === id && $('#box')) $('#box').value = pending.text;
   } finally { sendsInFlight.delete(id); paintDelivery(id); }
 }
