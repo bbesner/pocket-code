@@ -97,7 +97,7 @@ function bindChatTextControls(container){
 const ACCENTS={
  clay:{label:'Claude orange',accent:'#D97757',deep:'#3A241C'},
  blue:{label:'UltraWeb blue',accent:'#4A83F5',deep:'#15254A'},
- purple:{label:'UltraWeb purple',accent:'#8B6CFF',deep:'#2A2149'}
+ purple:{label:'UltraWeb purple',accent:'#644BB8',deep:'#241C40'}
 };
 const ACCENT_DEFAULT='clay';
 let accentKey=readLocal('pc-accent',ACCENT_DEFAULT);
