@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest a change or addition to Pocket Code.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Pocket Code stays deliberately small: sessions, chat, new session, and the workspace panels
+        around them (see PRODUCT.md). Requests that fit that scope are the easiest to say yes to.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task or situation, not the solution. Where does Pocket Code get in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What would you like Pocket Code to do? Sketches and screenshots welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Phone
+        - Tablet
+        - Desktop
+        - Server / operations
+        - Claude Code sessions
+        - Codex sessions
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds or alternatives you considered
+  - type: input
+    id: version
+    attributes:
+      label: Pocket Code version
+      description: From Settings → About & updates.
+      placeholder: "1.7.1 / build 32"
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and did not find this request.
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/bbesner/pocket-code/security/advisories/new
+    about: Report a vulnerability privately. Please do not open a public issue for security problems.
+  - name: Setup and usage questions
+    url: https://github.com/bbesner/pocket-code#readme
+    about: The README, workspace guide and operations guide cover installation, upgrades and how sessions work.

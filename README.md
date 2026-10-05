@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.7.1 / build 32**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.7.2 / build 33**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -226,6 +226,16 @@ manual validation.
 [CONTRIBUTING.md](CONTRIBUTING.md) explains local development, CI, screenshot capture,
 version consistency and release gates. Historical implementation plans are references;
 the workspace and operations guides describe current behavior.
+
+## Bugs and feature requests
+
+Pocket Code is developed in the open. Report bugs and ask for features in
+[GitHub Issues](https://github.com/bbesner/pocket-code/issues); the issue forms ask for
+the details that make a report actionable. **Settings → Bugs & feature requests** in the
+app opens the same forms with your version and build already filled in.
+
+Security problems go through **Security → Report a vulnerability** on the repository, not
+a public issue. See [SECURITY.md](SECURITY.md).
 
 ## License
 

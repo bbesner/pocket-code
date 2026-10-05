@@ -52,6 +52,17 @@ export async function runUIRegressions({browser,base,rows,out,setMode}) {
    await page.waitForFunction(()=>document.querySelector('#s-version-state').textContent==='Up to date');
    await page.click('#s-about > summary');
   });
+  await check('Bugs & feature requests links open the GitHub issue forms with the version filled in',async()=>{
+   assert.equal(await page.$eval('#s-feedback',e=>e.open),false);
+   await page.click('#s-feedback > summary');
+   const bug=await page.$eval('#s-report-bug',e=>({href:e.href,target:e.target,rel:e.rel}));
+   assert.match(bug.href,/^https:\/\/github\.com\/bbesner\/pocket-code\/issues\/new\?template=bug_report\.yml&version=/);
+   assert.match(decodeURIComponent(bug.href),/build \d+/);
+   assert.equal(bug.target,'_blank');assert.ok(bug.rel.includes('noopener'));
+   assert.match(await page.$eval('#s-request-feature',e=>e.href),/template=feature_request\.yml&version=/);
+   await page.$eval('#s-feedback',e=>e.scrollIntoView({block:'end'}));await page.screenshot({path:path.join(out,'fixed-settings-feedback.png')});
+   await page.click('#s-feedback > summary');
+  });
   await check('Nested usage sheet returns focus to the Settings opener',async()=>{
    await page.click('#s-usage');await page.waitForSelector('#usage-body');await page.keyboard.press('Escape');
    assert.equal(await page.evaluate(()=>document.activeElement.id),'settings');
@@ -59,12 +70,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode}) {
   await check('Settings disclosures remain keyboard reachable and focus stays trapped',async()=>{
    await page.click('#settings');await page.waitForSelector('#s-sync:not(:disabled)');
    await page.focus('.sheet-close');const focused=new Set();
-   for(let i=0;i<22;i++){
+   for(let i=0;i<24;i++){
     await page.keyboard.press('Tab');
     assert.ok(await page.evaluate(()=>document.querySelector('[role=dialog]').contains(document.activeElement)));
     focused.add(await page.evaluate(()=>document.activeElement.closest('details')?.id));
    }
-   assert.ok(focused.has('s-about')&&focused.has('s-notes'));
+   assert.ok(focused.has('s-about')&&focused.has('s-notes')&&focused.has('s-feedback'));
    await page.keyboard.press('Escape');
   });
   await check('Compact filters expose active selections and remember expansion',async()=>{

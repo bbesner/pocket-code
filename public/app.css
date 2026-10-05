@@ -708,6 +708,13 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .settings-details .chip { margin-top: 8px; }
 .settings-details [hidden],.settings-sheet > [hidden] { display: none; }
 #s-version-state,#s-notes-body { font-size: 14px; color: var(--dim); }
+.feedback { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 12px; font-size: 14px; line-height: 1.45; color: var(--dim); }
+.feedback p { margin: 0; }
+.feedback p a { color: var(--clay); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.feedback-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.feedback a.chip { text-decoration: none; color: var(--text); min-height: 36px; padding: 6px 14px; }
+.feedback a.chip:hover { border-color: var(--clay-deep); }
+.feedback a.chip:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 #s-notes-body ul { padding-left: 22px; }
 .session-more-filters { margin: 0 18px 8px; }
 .session-more-filters > summary { min-height: 44px; padding: 8px 0; cursor: pointer; color: var(--dim); font-size: 14px; overflow-wrap: anywhere; }

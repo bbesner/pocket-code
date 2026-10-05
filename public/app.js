@@ -121,7 +121,10 @@ function mountSheet(scrim, sh, trigger = document.activeElement) {
       .find(el => el?.isConnected && el.getClientRects().length && !el.disabled);
     target?.focus({preventScroll:true});
   };
-  const focusables = () => [...sh.querySelectorAll('button,input,textarea,select,summary,a[href],[tabindex="0"]')].filter(el => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
+  // Closed <details> content keeps layout boxes in newer Chrome (content-visibility), so rects alone
+  // would count hidden links as tabbable and the trap would let focus escape past the last summary.
+  const visible = el => (typeof el.checkVisibility === 'function' ? el.checkVisibility({contentVisibilityAuto:true}) : true) && el.getClientRects().length;
+  const focusables = () => [...sh.querySelectorAll('button,input,textarea,select,summary,a[href],[tabindex="0"]')].filter(el => !el.disabled && el.tabIndex >= 0 && visible(el));
   const keydown = e => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
     if (e.key === 'Tab') {
@@ -457,6 +460,9 @@ async function togglePush(btn) {
 }
 
 /* ---------- settings sheet (version, update check, chime, notifications) ---------- */
+const REPO_URL = 'https://github.com/bbesner/pocket-code';
+// GitHub issue forms accept field ids as query parameters; `version` prefills the form's version field.
+const issueUrl = (template, version) => `${REPO_URL}/issues/new?template=${template}.yml&version=${encodeURIComponent(version || ('build ' + (APP_V ?? '?')))}`;
 const APP_V = Number((document.querySelector('script[src*="app.js"]')?.src.match(/v=(\d+)/) || [])[1]) || null;
 async function hardRefresh() {
   try {
@@ -485,7 +491,17 @@ async function settingsSheet() {
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
       <button class="chip" id="s-check">Check again</button><button class="primary" id="s-refresh" hidden></button>
     </details>
-    <details class="settings-details" id="s-notes"><summary>What's new</summary><div class="whatsnew" id="s-notes-body">Loading release notes…</div></details>`;
+    <details class="settings-details" id="s-notes"><summary>What's new</summary><div class="whatsnew" id="s-notes-body">Loading release notes…</div></details>
+    <details class="settings-details" id="s-feedback"><summary>Bugs & feature requests</summary>
+      <div class="feedback">
+        <p>Pocket Code is developed in the open. Reports go to GitHub Issues, with your version filled in.</p>
+        <div class="feedback-links">
+          <a class="chip" id="s-report-bug" href="${esc(issueUrl('bug_report'))}" target="_blank" rel="noopener noreferrer">Report a bug</a>
+          <a class="chip" id="s-request-feature" href="${esc(issueUrl('feature_request'))}" target="_blank" rel="noopener noreferrer">Request a feature</a>
+        </div>
+        <p>Found a security problem? <a href="${REPO_URL}/security/advisories/new" target="_blank" rel="noopener noreferrer">Report it privately</a>, not as a public issue.</p>
+      </div>
+    </details>`;
   mountSheet(scrim, sh);
   bindChatTextControls(sh);
   sh.querySelector('#s-environment').onclick = openEnvironment;
@@ -554,6 +570,10 @@ async function settingsSheet() {
     const newer = Math.max(checked ? a.assetV : 0, release.status === 'fulfilled' ? Number(release.value?.assetV) || 0 : 0);
     status.textContent = !checked ? 'Could not check for updates. Try again.' : newer > APP_V ? 'An update is available.' : a.assetV < APP_V ? 'This browser is newer than the server. Server update pending.' : 'Up to date';
     if (newer > APP_V) { refresh.hidden = false; refresh.textContent = 'Update available: refresh to build ' + newer; }
+    const serverBuild = checked && a.assetV !== APP_V ? ` (server build ${a.assetV}${a.commit ? ' · ' + a.commit : ''})` : '';
+    const versionLabel = `${client?.version || 'Pocket Code'} / build ${APP_V ?? '?'}${serverBuild}`;
+    sh.querySelector('#s-report-bug').href = issueUrl('bug_report', versionLabel);
+    sh.querySelector('#s-request-feature').href = issueUrl('feature_request', versionLabel);
     sh.querySelector('#s-notes-body').innerHTML = Array.isArray(notes) && notes.length ? '<ul>' + notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '<p>Release notes are unavailable. Check again to retry.</p>';
     check.disabled = false;
   };

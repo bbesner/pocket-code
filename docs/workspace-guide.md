@@ -145,7 +145,8 @@ live account-billing meter. A reset that passed since observation is marked expl
 
 Settings opens without waiting for notification support. Accounts & instance, Plan
 usage, keyboard help, completion chime, push and name sync precede the expandable
-About & updates and What's new sections. Version lookup failures offer a retry instead
+About & updates, What's new and Bugs & feature requests sections. The last opens the
+GitHub issue forms with the app version and build filled in. Version lookup failures offer a retry instead
 of claiming the app is current. Frontend and server build numbers can differ until
 the daemon restarts during an upgrade.
 

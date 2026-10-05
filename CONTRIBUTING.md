@@ -4,6 +4,14 @@ Read [PRODUCT.md](PRODUCT.md) and [DESIGN.md](DESIGN.md) before changing the int
 The [workspace guide](docs/workspace-guide.md) describes current behavior; the
 [operations guide](docs/operations.md) covers the persistent-process lifecycle.
 
+## Bugs, feature requests and security problems
+
+Open bugs and feature requests in [GitHub Issues](https://github.com/bbesner/pocket-code/issues)
+using the issue forms; the app's **Settings → Bugs & feature requests** section opens them
+with the version filled in. Search existing issues first. For a change larger than a fix,
+open an issue before the pull request so the scope can be agreed. Security problems go
+through **Security → Report a vulnerability**, never a public issue ([SECURITY.md](SECURITY.md)).
+
 ## Work locally
 
 Use a feature branch or worktree and open a pull request. Keep `.env`, transcripts,
