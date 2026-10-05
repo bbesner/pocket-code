@@ -410,6 +410,9 @@ button:disabled { cursor: default; opacity: .55; }
 .session-more { width: 44px; height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: center; margin: 7px 6px 0 0; border-radius: 10px; color: var(--dim); }
 .session-more:hover, .session-item:hover { background: var(--surface); }
 .session-item.cur { background: var(--raised); }
+.session-item.pinned .row .title { color: var(--clay); }
+.pin-divider { height: 2px; margin: 6px 18px; border-radius: 2px; background: var(--clay); opacity: .85; }
+.rail .pin-divider { margin: 4px 14px; }
 .session-status { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 7px; font-size: 13px; color: var(--dim); }
 .state-running { color: var(--clay); }.state-failed { color: var(--err); }.state-finished { color: var(--ok); }
 .state-observed { color: var(--text); }
