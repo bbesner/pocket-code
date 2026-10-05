@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.8.0] — Unreleased · build 35
+## [1.8.0] — 2026-10-05 · build 35
 
 - Voice mode (optional). A mic button beside Send records what you say; tap to talk and it sends when you pause, or hold for push-to-talk. Speech-to-text (Whisper) and text-to-speech (Kokoro) run in a local process on the Pocket server that starts on first use and stops when idle. No audio or text goes to a speech service. Install with `scripts/voice-setup.sh`; without it the mic stays hidden.
 - Short spoken commands are answered on the device without the agent: what's it doing, stop, read it, read it all and what's waiting on me. Anything else is sent as a normal message, steering a running turn or starting a new one.

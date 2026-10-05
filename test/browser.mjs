@@ -451,6 +451,18 @@ try{
   await f.evaluate(id=>location.hash='#/chat/'+id,idle.id);await f.waitForSelector('#box');
   await f.evaluate(()=>{document.querySelector('#box').value='Fold regression draft';saveDraft(chatId,'Fold regression draft');window.originalComposer=document.querySelector('#box');});
   assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('clipboard-read')),true);
+  // Voice mode inside the wrapper: Mission Control must delegate the microphone and screen wake lock to the frame.
+  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('microphone')),true,'Mission Control grants Pocket the microphone');
+  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('screen-wake-lock')),true,'Mission Control grants screen wake lock');
+  {
+   await f.waitForSelector('#micb:not([hidden])');const heard=voiceLog.transcribe.length;
+   const b=await (await f.$('#micb')).boundingBox();await p.mouse.move(b.x+b.width/2,b.y+b.height/2);await p.mouse.down();
+   await f.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='true');
+   await new Promise(r=>setTimeout(r,900));await p.mouse.up();
+   await f.waitForFunction(()=>/Added to your draft/.test(document.querySelector('#voice-strip').textContent));
+   assert.equal(voiceLog.transcribe.length,heard+1,'speech recorded inside Mission Control reached the server');
+   await f.evaluate(()=>{document.querySelector('#box').value='Fold regression draft';saveDraft(chatId,'Fold regression draft');});
+  }
   for(const [width,height] of [[390,844],[691,650],[840,650],[1000,700],[390,844]]){
    await p.setViewport({width,height,isMobile:true,hasTouch:true});await new Promise(r=>setTimeout(r,120));
    assert.equal(await f.evaluate(()=>document.querySelector('#box')===window.originalComposer),true,'fold must not remount composer');
