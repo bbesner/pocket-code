@@ -905,7 +905,10 @@ function mergeToolFolds(container) {
     else {
       const msg = d.closest('.m-asst');
       if (msg && content(msg)[0] === d) {                       // first thing in this message
-        const q = msg.previousElementSibling;
+        // Walk back over empty streaming placeholders (.m-asst.live with no text) and attachment rows so a
+        // run of single-tool messages still collapses into one fold while the turn is streaming.
+        let q = msg.previousElementSibling;
+        while (q && ((q.matches('.m-asst.live') && !q.textContent.trim()) || q.matches('.m-files'))) q = q.previousElementSibling;
         if (q?.matches('.m-asst') && isFold(q.lastElementChild)) target = q.lastElementChild;
       }
     }
