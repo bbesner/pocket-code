@@ -387,8 +387,8 @@ let staleBannerShown = false;
 async function checkStaleBuild() {
   if (!APP_V || staleBannerShown || document.visibilityState !== 'visible' || document.querySelector('.login')) return;
   try {
-    const r = await fetch('/release.json?v=' + APP_V, { cache: 'no-store', signal: AbortSignal.timeout(6000) });
-    if (!r.ok) return;
+    const r = await fetch('/api/about', { cache: 'no-store', signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return;                                   // /api/about reads index.html live; release.json is a static file
     const j = await r.json(); const v = Number(j?.assetV) || 0;
     if (v > APP_V && sendsInFlight.size === 0) {
       staleBannerShown = true;
