@@ -121,7 +121,7 @@ try{
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'list overflow '+width);
   assert.match(await p.$eval('[data-session-summary]',el=>el.textContent),/1 running/);
   await p.click('[data-filter="active"]');assert.equal(await p.$$eval('[data-session-results] [data-id]',els=>els.length),2);
-  await p.click('[data-filter="attention"]');assert.equal(await p.$$eval('[data-session-results] [data-id]',els=>els.length),1);
+  await p.click('[data-filter="attention"]');assert.equal(await p.$$eval('[data-session-results] [data-id]',els=>els.length),2,'the failed turn and the unopened Response ready reply');
   await p.click('[data-filter="all"]');await p.screenshot({path:path.join(out,`sessions-${width}.png`)});
   if([390,1440].includes(width))await scan('sessions-'+width);
   await p.click(`[data-id="${idle.id}"]`);await p.waitForSelector('#box');

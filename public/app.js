@@ -624,6 +624,9 @@ let sessionProofReceivedAt=0,sessionProofReceivedWallAt=0;
 const seenAt = id => { try { return Number(localStorage.getItem('pc-seen-' + id)) || 0; } catch { return 0; } };
 const needsAttention = s => s.state?.kind === 'input' || s.state?.kind === 'failed' && (s.state.at || 0) > seenAt(s.id);
 const isUnread = s => s.state?.kind === 'finished' && (s.state.at || 0) > seenAt(s.id);
+// The Attention filter and count: anything waiting on you, including a finished reply (Response ready) you
+// have not opened yet. Grouping and voice keep needsAttention, which means a question, approval or failure.
+const inAttention = s => needsAttention(s) || isUnread(s);
 // A reply that finishes while its conversation is already on screen counts as read only after you engage
 // with the page (tap, click, type, scroll, return to the tab or navigate). Voice mode keeps the screen awake
 // while you wait for a spoken reply, so a visible page alone no longer proves you saw it.
@@ -636,11 +639,11 @@ function rowState(s) { return s.state || { kind: s.active ? 'observed' : 'idle',
 // The list announces a finished reply only until it has been opened; afterwards it is an ordinary recent session.
 function listState(s) { const state = rowState(s); return state.kind === 'finished' && !isUnread(s) ? { ...state, kind: 'idle', label: 'Recent' } : state; }
 function sessionCounts() {
-  if(sessionsStale)return {running:0,input:0,observed:0,attention:allSessions.filter(needsAttention).length,fresh:allSessions.filter(isUnread).length};
+  if(sessionsStale)return {running:0,input:0,observed:0,attention:allSessions.filter(inAttention).length,fresh:allSessions.filter(isUnread).length};
   return { running: allSessions.filter(s => rowState(s).kind === 'running').length,
     input:allSessions.filter(s=>rowState(s).kind==='input').length,
     observed: allSessions.filter(s => rowState(s).kind === 'observed').length,
-    attention: allSessions.filter(needsAttention).length,
+    attention: allSessions.filter(inAttention).length,
     fresh: allSessions.filter(isUnread).length };
 }
 function sessionSummary() {
@@ -658,7 +661,7 @@ function filteredSessions() {
   const needle = sessionQuery.trim().toLowerCase();
   return allSessions.filter(s => (!workspaceFilter||s.cwd===workspaceFilter)&&(!providerFilter||s.provider===providerFilter)&&(sessionFilter==='hidden'?isHiddenSession(s):!isHiddenSession(s))&&(!needle || (s.title + ' ' + (s.cwd || '')).toLowerCase().includes(needle)) &&
     (sessionFilter === 'all' || sessionFilter === 'active' && ['running','observed','input'].includes(rowState(s).kind) ||
-     sessionFilter === 'attention' && needsAttention(s) || sessionFilter === 'new' && isUnread(s) || sessionFilter==='pinned'&&s.pinned || sessionFilter==='hidden'));
+     sessionFilter === 'attention' && inAttention(s) || sessionFilter === 'new' && isUnread(s) || sessionFilter==='pinned'&&s.pinned || sessionFilter==='hidden'));
 }
 function sessionRowHTML(s) {
   const state = listState(s), running = state.kind === 'running';

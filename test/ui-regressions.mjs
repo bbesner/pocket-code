@@ -385,6 +385,19 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('pc-voice'));p.alerts='off';localStorage.setItem('pc-voice',JSON.stringify(p));});
    await chat();
   });
+  await check('Attention filter includes Response ready replies until they are opened',async()=>{
+   const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
+   done.state={kind:'finished',label:'Response ready',at};
+   await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
+   await page.evaluate(id=>localStorage.removeItem('pc-seen-'+id),done.id);await page.evaluate(()=>refreshSessions());await pause(300);
+   await page.click('[data-filter="attention"]');await pause(200);
+   const listed=()=>page.evaluate(id=>filteredSessions().some(s=>s.id===id)&&[...document.querySelectorAll('.session-item .row')].some(b=>b.dataset.id===id),done.id);
+   assert.equal(await listed(),true,'an unopened reply is in Attention');
+   assert.match(await page.$eval('[data-filter="attention"]',e=>e.textContent),/Attention\s*\d+/,'counted');
+   await page.evaluate(([id,at])=>{localStorage.setItem('pc-seen-'+id,String(at));},[done.id,at]);await page.evaluate(()=>refreshSessions());await pause(300);
+   assert.equal(await listed(),false,'leaves Attention once opened');
+   await page.click('[data-filter="all"]');done.state=saved;
+  });
   await check('A reply that finishes on screen stays Response ready until you engage with the page',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state;
    done.state={kind:'finished',label:'Response ready',at:Date.now()};
