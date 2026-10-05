@@ -202,7 +202,8 @@ The mic sits beside Send in every conversation, including split panes.
   you hear that, and you answer it on screen.
 
 Settings → Voice controls whether replies are spoken, review-before-sending, keep listening (the
-mic reopens after each spoken reply for hands-free back and forth), the voice, and names and terms
+mic reopens after each spoken reply for hands-free back and forth and waits, 2 minutes by default,
+while you read the rest; Wait for my reply sets 30 seconds to 5 minutes), the voice, and names and terms
 for the recognizer (project names, product codes). The screen stays awake while voice is active.
 Embedded views need microphone permission from the page that embeds Pocket; otherwise the mic
 explains that it is blocked and you can open Pocket Code directly.

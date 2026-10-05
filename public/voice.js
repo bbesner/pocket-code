@@ -6,8 +6,11 @@
 const Voice = (() => {
   const MIC = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0013 0M12 18v2.5"/></svg>';
   const PREF_KEY = 'pc-voice';
-  const DEFAULTS = { speak: true, review: false, keepListening: false, voice: 'af_heart', vocab: '' };
-  const HOLD_MS = 350, END_SILENCE_MS = 1100, NO_SPEECH_MS = 8000, MAX_MS = 60000;
+  const DEFAULTS = { speak: true, review: false, keepListening: false, replyWait: 120, voice: 'af_heart', vocab: '' };
+  // A tap means you're about to speak, so silence ends it after 10 s. After a spoken reply (Keep listening) the mic
+  // waits replyWait seconds, so there is time to read the rest of the reply first. MAX_MS limits one utterance.
+  const HOLD_MS = 350, END_SILENCE_MS = 1100, NO_SPEECH_MS = 10000, MAX_MS = 60000;
+  const WAIT_CHOICES = [[30, '30 seconds'], [60, '1 minute'], [120, '2 minutes'], [300, '5 minutes']];
   let status = null, statusLoading = null;
   let state = 'idle', note = '', noteTimer = null;            // idle | listening | holding | transcribing | speaking
   let rec = null, ctx = null, workletReady = false, wakeLock = null;
@@ -66,7 +69,7 @@ const Voice = (() => {
       b.disabled = state === 'transcribing';
     }
     if (!strip) return;
-    const label = { listening: 'Listening. Tap the mic when you’re done', holding: 'Listening. Release to send', transcribing: 'Transcribing…', speaking: 'Speaking' }[state] || note;
+    const label = { listening: rec?.reopened && !rec.speechAt ? 'Listening for your reply. Take your time' : 'Listening. Tap the mic when you’re done', holding: 'Listening. Release to send', transcribing: 'Transcribing…', speaking: 'Speaking' }[state] || note;
     strip.hidden = !label;
     strip.dataset.state = state;
     strip.innerHTML = label ? `${live ? '<span class="voice-level" aria-hidden="true"><i></i><i></i><i></i></span>' : ''}<span class="voice-label">${esc(label)}</span>${
@@ -97,7 +100,7 @@ const Voice = (() => {
   }
 
   /* ---------- listening ---------- */
-  async function start(mode) {
+  async function start(mode, { waitMs = NO_SPEECH_MS, reopened = false } = {}) {
     const s = await loadStatus();
     if (!s.available) { toast(s.reason || 'Voice is not available on this server.'); return; }
     if (!chatId) return;
@@ -108,10 +111,10 @@ const Voice = (() => {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
     catch (e) { say(micError(e), 8000); return; }
     try {
-      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=35'); workletReady = true; }
+      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=36'); workletReady = true; }
       const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pocket-capture'), sink = ctx.createGain();
       sink.gain.value = 0; src.connect(node); node.connect(sink); sink.connect(ctx.destination);   // a pulled graph keeps the worklet running
-      rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(),
+      rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened,
         floor: null, warm: 0, voiced: 0, speechAt: 0, lastVoiceAt: 0 };
       node.port.onmessage = e => hear(e.data);
       setState(mode === 'hold' ? 'holding' : 'listening');
@@ -123,14 +126,15 @@ const Voice = (() => {
     const now = Date.now();
     if (r.warm < 6) { r.floor = r.floor == null ? rms : Math.min(r.floor * 0.7 + rms * 0.3, Math.max(r.floor, rms)); r.warm++; }
     const threshold = Math.max(0.012, (r.floor || 0) * 2.6);
-    if (rms > threshold) { r.voiced++; r.lastVoiceAt = now; if (r.voiced >= 3 && !r.speechAt) r.speechAt = now; }
+    if (rms > threshold) { r.voiced++; r.lastVoiceAt = now; if (r.voiced >= 3 && !r.speechAt) { r.speechAt = now; if (r.reopened) paint(); } }
     else r.voiced = Math.max(0, r.voiced - 1);
     const strip = document.getElementById('voice-strip');
     if (strip) strip.style.setProperty('--lvl', Math.min(1, rms / Math.max(threshold * 4, 0.05)).toFixed(2));
     if (r.mode !== 'auto') { if (now - r.startedAt > MAX_MS) finish(); return; }
     if (r.speechAt && now - r.lastVoiceAt > END_SILENCE_MS) finish();
-    else if (!r.speechAt && now - r.startedAt > NO_SPEECH_MS) { cancel(); say('I didn’t hear anything.'); }
-    else if (now - r.startedAt > MAX_MS) finish();
+    else if (r.speechAt && now - r.speechAt > MAX_MS) finish();
+    else if (!r.speechAt && now - r.startedAt > r.waitMs) { cancel(); say(r.reopened ? 'Stopped listening. Tap the mic to talk.' : 'I didn’t hear anything.', r.reopened ? 0 : 5000); }
+    else if (!r.speechAt && r.chunks.length > (r.rate * 8) / 2048) r.chunks.splice(0, r.chunks.length - Math.ceil((r.rate * 8) / 2048)); // keep only recent silence
   }
   function release() {
     const r = rec; rec = null; if (!r) return null;
@@ -166,10 +170,13 @@ const Voice = (() => {
       text = (j.text || '').trim();
     } catch (e) { setState('idle'); say(e.message || 'Transcription failed.', 8000); return; }
     setState('idle');
+    const left = r.waitMs - (Date.now() - r.startedAt);
+    if (r.reopened && (!text || VoiceText.isNoise(text, pcm.length / 16000)) && left > 2000 && r.session === chatId) return start('auto', { waitMs: left, reopened: true });
     if (!text) { say('I didn’t catch that.'); return; }
     if (r.session !== chatId) { say('You switched sessions, so that wasn’t sent.'); return; }
     await handle(text);
   }
+  function replyWaitMs() { const s = Number(prefs().replyWait); return (WAIT_CHOICES.some(([v]) => v === s) ? s : DEFAULTS.replyWait) * 1000; }
   function vocabulary() {
     const own = prefs().vocab, names = (allSessions || []).slice(0, 12).map(s => s.title || '').join(', ');
     return `Pocket Code, Claude, Codex. ${own} ${names}`.replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').slice(0, 400);
@@ -256,7 +263,7 @@ const Voice = (() => {
         await new Promise(done => { const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); src.onended = done; me.source = src; src.start(); });
       }
     } catch { if (!me.cancelled) say('The reply could not be spoken. It’s on screen.', 6000); }
-    if (speech === me) { speech = null; setState('idle'); if (!me.cancelled && listenAfter && chatId) start('auto'); }
+    if (speech === me) { speech = null; setState('idle'); if (!me.cancelled && listenAfter && chatId) start('auto', { waitMs: replyWaitMs(), reopened: true }); }
   }
   function stopSpeaking() {
     const s = speech; speech = null; if (!s) return;
@@ -301,7 +308,8 @@ const Voice = (() => {
         <p id="s-voice-state" role="status">Checking voice on the server…</p>
         ${toggle('s-voice-speak', p.speak, 'Speak replies', 'Read a short summary aloud when a turn you started by voice finishes')}
         ${toggle('s-voice-review', p.review, 'Review before sending', 'Put what you said in the message box instead of sending it')}
-        ${toggle('s-voice-keep', p.keepListening, 'Keep listening', 'Listen again after a spoken reply, for hands-free back and forth')}
+        ${toggle('s-voice-keep', p.keepListening, 'Keep listening', 'After a spoken reply, listen again while you read the rest, for hands-free back and forth')}
+        <label class="voice-field">Wait for my reply<select id="s-voice-wait">${WAIT_CHOICES.map(([v, l]) => `<option value="${v}"${Number(p.replyWait) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="voice-field">Voice<select id="s-voice-voice"></select></label>
         <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, TechPro, Zoho" value="${esc(p.vocab)}"></label>
         <button class="chip" id="s-voice-test" type="button">Play a sample</button>
@@ -312,11 +320,12 @@ const Voice = (() => {
     const flip = (sel, key) => { const b = root.querySelector(sel); if (!b) return; b.onclick = () => { const on = !prefs()[key]; setPref(key, on); b.setAttribute('aria-pressed', String(on)); b.querySelector('.dot').classList.toggle('on', on); }; };
     flip('#s-voice-speak', 'speak'); flip('#s-voice-review', 'review'); flip('#s-voice-keep', 'keepListening');
     const vocab = root.querySelector('#s-voice-vocab'); if (vocab) vocab.onchange = () => setPref('vocab', vocab.value.trim().slice(0, 300));
+    const wait = root.querySelector('#s-voice-wait'); if (wait) wait.onchange = () => setPref('replyWait', Number(wait.value));
     loadStatus(true).then(s => {
       const st = root.querySelector('#s-voice-state'), sel = root.querySelector('#s-voice-voice'), test = root.querySelector('#s-voice-test');
       if (!st) return;
       st.textContent = s.available ? 'Voice is available on this server.' : s.reason || 'Voice is not available on this server.';
-      root.querySelectorAll('#s-voice .opt, #s-voice-voice, #s-voice-vocab, #s-voice-test').forEach(el => { el.disabled = !s.available; });
+      root.querySelectorAll('#s-voice .opt, #s-voice-voice, #s-voice-wait, #s-voice-vocab, #s-voice-test').forEach(el => { el.disabled = !s.available; });
       if (sel) { sel.innerHTML = (s.voices || [{ id: 'af_heart', label: 'American female' }]).map(v => `<option value="${esc(v.id)}">${esc(v.label)}</option>`).join(''); sel.value = prefs().voice; sel.onchange = () => setPref('voice', sel.value); }
       if (test) test.onclick = () => { unlockAudio(); speakOut('This is how spoken replies will sound in Pocket Code.'); };
       document.querySelectorAll('#micb').forEach(b => { b.hidden = !s.available; });

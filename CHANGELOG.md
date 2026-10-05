@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.1] — 2026-10-05 · build 36
+
+- With Keep listening on, the mic now waits up to 2 minutes for your reply after a spoken summary (it stopped after 8 seconds), so you can read the rest of the response before answering. Settings → Voice → Wait for my reply offers 30 seconds to 5 minutes. A tap still listens for 10 seconds.
+- While waiting, short background noise no longer ends listening, and Whisper's phantom "Thank you" on noise is ignored instead of being sent. A long wait keeps only recent silence in memory.
+- A recording is limited to 60 seconds of speech, counted from when you start talking rather than from when the mic opened.
+
 ## [1.8.0] — 2026-10-05 · build 35
 
 - Voice mode (optional). A mic button beside Send records what you say; tap to talk and it sends when you pause, or hold for push-to-talk. Speech-to-text (Whisper) and text-to-speech (Kokoro) run in a local process on the Pocket server that starts on first use and stops when idle. No audio or text goes to a speech service. Install with `scripts/voice-setup.sh`; without it the mic stays hidden.
