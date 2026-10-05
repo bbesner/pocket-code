@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.10.0] — Unreleased · build 39
+## [1.10.0] — 2026-10-05 · build 39
 
 - Hands-free has its own button. The headset beside the mic starts a hands-free conversation for the open session: each reply is read aloud and the mic listens for your answer, then repeats, until you tap the headset again, tap Cancel or Stop, leave the session or stay quiet past the wait. The mic sends one message and never reopens by itself. The Keep listening setting is removed, so hands-free is never on unless you start it; a saved Keep listening preference is ignored.
 - Spoken announcements never turn the microphone on. Session alerts, approval and question prompts, and the spoken reply to a typed or single mic message are one-way, including while a hands-free conversation is on.
