@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.7.2] — Unreleased · build 33
+
+- Settings has a Bugs & feature requests section that opens the GitHub issue forms with your version filled in. Security problems are pointed to private reporting.
+- The repository gains bug-report and feature-request issue forms, and the README and contributing guide say where to report problems and ask for features.
+- Keyboard focus stays inside Settings on current Chrome: links inside collapsed sections no longer count as the sheet's last tab stop.
+
 ## [1.7.1] — 2026-10-04 · build 32
 
 - Split panes that no longer fit are hidden in place and return when the window widens, keeping their drafts and sessions.

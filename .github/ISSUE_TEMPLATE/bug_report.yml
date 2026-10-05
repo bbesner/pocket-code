@@ -1,0 +1,74 @@
+name: Bug report
+description: Something in Pocket Code does not work the way the documentation says it should.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The version and build are shown in **Settings → About & updates**.
+        For a security problem, use **Security → Report a vulnerability** instead of this form.
+  - type: input
+    id: version
+    attributes:
+      label: Pocket Code version
+      description: App version and build from Settings → About & updates. Include the server build if it differs.
+      placeholder: "1.7.1 / build 32"
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - Claude Code
+        - Codex
+        - Both
+        - Not provider-specific
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and device
+      description: Browser, OS and screen size where you saw it. Installed PWA or browser tab?
+      placeholder: "Chrome 140 on Android 15, installed PWA, 390px wide"
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: Server
+      description: Node.js version, Claude Code / Codex CLI versions, and how the server is exposed (Cloudflare Tunnel, reverse proxy).
+      placeholder: "Node 22.12, Claude Code 2.1.281, Cloudflare Tunnel"
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a Claude Code session
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Relevant lines from the daemon log (`pm2 logs pocket-claude`) or the browser console, and screenshots. Remove paths, tokens and session content you do not want public.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and did not find this bug.
+          required: true
+        - label: This is not a security problem (those go through Security → Report a vulnerability).
+          required: true

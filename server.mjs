@@ -1992,12 +1992,9 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Split panes that no longer fit are hidden in place and return when the window widens, keeping their drafts and sessions.",
-  "Settings opens even if notification support is unavailable. Failed update checks offer a retry instead of saying Up to date.",
-  "Accounts, usage and notification settings come first; version details and release notes are in expandable sections.",
-  "Keyboard fixes cover agent and workspace choices, skip links, dialog focus and accessible split resizing.",
-  "The session list keeps common filters visible and remembers the expanded filter panel. Active filters stay visible when collapsed.",
-  "Message settings have scroll buttons when they do not fit. Closing a session process is a labelled action in Session options; tab and pane X controls only close views."
+  "Settings has a Bugs & feature requests section that opens the GitHub issue forms with your version filled in. Security problems are pointed to private reporting.",
+  "The repository gains bug-report and feature-request issue forms, and the README and contributing guide say where to report problems and ask for features.",
+  "Keyboard focus stays inside Settings on current Chrome: links inside collapsed sections no longer count as the sheet's last tab stop."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
