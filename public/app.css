@@ -102,6 +102,9 @@ main.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .ledgerwrap > summary::before { content: '▸'; flex: none; }
 .ledgerwrap[open] > summary::before { content: '▾'; }
 .ledgerwrap > summary:hover { color: var(--dim); }
+.ledgerwrap > summary .tc-count { flex: none; color: var(--dim); }
+.ledgerwrap > summary .tc-last { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledgerwrap > summary .tc-last::before { content: '·'; margin: 0 6px 0 0; color: var(--faint); }
 .ledgerlist { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 2px 14px; }
 
 .turn-err { color: var(--err); font-size: 14.5px; border: 1px solid var(--err); border-radius: 10px;
