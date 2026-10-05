@@ -267,6 +267,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    assert.equal(r.folds,1);assert.equal(r.lines,2);assert.equal(r.msgs,2,'a message that held only tool calls is absorbed');
    assert.match(r.summary,/2 tool calls/);assert.match(r.summary,/Edit app\.js/);assert.equal(r.open,false,'collapsed by default');
   });
+  await check('Tool calls: a run stays one fold while streaming, across an empty live placeholder',async()=>{
+   const r=await page.evaluate(()=>{const c=document.createElement('div');
+    c.innerHTML=msgHTML({role:'assistant',blocks:[{t:'tool',name:'Read',detail:'a.js'}]})+'<div class="m-asst live enter"></div>'
+     +msgHTML({role:'assistant',blocks:[{t:'tool',name:'Bash',detail:'npm test'}]});
+    document.body.append(c);mergeToolFolds(c);const f=c.querySelectorAll('details.ledgerwrap');
+    const out={folds:f.length,summary:f[0]?.querySelector('summary').textContent};c.remove();return out;});
+   assert.equal(r.folds,1,'one fold for the run');assert.match(r.summary,/2 tool calls/);assert.match(r.summary,/Bash npm test/,'shows the latest call');
+  });
   await check('Voice: the headset starts a hands-free conversation; the mic stays a single message',async()=>{
    const heard=voiceLog.transcribe.length;
    await page.$eval('#box',e=>{e.value='A typed draft';e.dispatchEvent(new Event('input'));});

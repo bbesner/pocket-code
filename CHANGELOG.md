@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.11.1] — 2026-10-05 · build 42
+
+- While a turn streams, consecutive tool calls stay in one fold even when an empty live placeholder sits between them, so you see one line whose summary shows the count and the latest call, updating as the turn runs. Contributed by Damon Delcoro.
+
 ## [1.11.0] — 2026-10-05 · build 41
 
 - Reply suggestions. When a reply ends by asking you to choose between specific next steps, the options appear as buttons under the latest reply once the turn has finished. A tap sends the option as your next message. Typing in the message box hides them; the X dismisses them for that reply (remembered on this browser). They are excluded from Copy message and spoken replies.
