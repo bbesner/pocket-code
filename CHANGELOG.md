@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.10.0] — Unreleased · build 39
+
+- Hands-free has its own button. The headset beside the mic starts a hands-free conversation for the open session: each reply is read aloud and the mic listens for your answer, then repeats, until you tap the headset again, tap Cancel or Stop, leave the session or stay quiet past the wait. The mic sends one message and never reopens by itself. The Keep listening setting is removed, so hands-free is never on unless you start it; a saved Keep listening preference is ignored.
+- Spoken announcements never turn the microphone on. Session alerts, approval and question prompts, and the spoken reply to a typed or single mic message are one-way, including while a hands-free conversation is on.
+- The headset hides while the message box holds a typed draft (speech then only adds to the draft), which keeps the phone composer wide enough to type in. The placeholder stays on one line.
+- Tool calls fold behind a one-line summary with the number of calls and the latest one ("12 tool calls · Edit app.js"); consecutive calls merge into one fold even across transcript messages. Settings → Collapse tool calls (on by default) opens them all.
+- Settings → Highlight colour: Orange (default), Blue or Purple, saved on this browser. The search highlight follows it.
+- A sent message appears immediately, dimmed until the server confirms it. If delivery fails it is removed, including its file chips, and the text returns to the box.
+- An open window offers a reload when the server is running a newer build.
+- Pinned sessions come first in each session group, in the highlight colour, with a rule before the rest.
+- The tool-call folds, highlight colour, instant echo, reload banner and pinned-first list were contributed by Damon Delcoro.
+
 ## [1.9.0] — 2026-10-05 · build 38
 
 - Spoken alerts (voice beta). Settings → Voice (beta) → Announce sessions: Off (default), Session name only, or Name and a one-line summary. While Pocket is open it says when any session finishes ("The SCK inventory session finished. 42 products are below their reorder level."), stops with an error, or needs your approval or answer, and replaces the completion chime.

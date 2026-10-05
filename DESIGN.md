@@ -299,3 +299,19 @@ docs; the app version itself is not a pre-release. No visual change beyond the w
 
 Spoken alerts (1.9.0) add one native select to Voice (beta) and no visual elements; the existing strip shows
 the one-time "tap anywhere" note when audio is still locked.
+
+## Voice modes and contributed reading aids (1.10)
+
+Pinned Operate refinement: variance 3, motion 2, density 6. The composer carries two
+voice controls in the existing 46px round style: the mic (one message, tap or hold) and
+a drawn headset (hands-free conversation). Only the active control shows the clay-deep
+pressed state, and the strip names the mode ("Hands-free. Listening…") with an End or
+Cancel action. Hands-free is session-scoped and starts only from the headset; every
+announcement is one-way. The headset steps aside while a typed draft is present, which
+keeps the 360px composer's text field at its previous width.
+
+Tool ledgers fold behind a one-line mono summary (count · latest call), so a turn reads
+prose / fold / prose. The accent may be swapped per browser (Orange default, Blue,
+Purple) by overriding `--clay` / `--clay-deep` only; nothing else in the palette moves.
+Pinned sessions lead each group with a 2px accent rule. Rendered 360/390/1440 browser
+screenshots and axe scans reviewed; source detector clean.

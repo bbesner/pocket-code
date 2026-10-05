@@ -210,10 +210,17 @@ hidden tab keeps checking every few seconds. Browsers allow sound only after one
 page; an alert that arrives before that waits for your first tap. Push notifications remain the way
 to hear about work while Pocket is closed or the phone is locked.
 
-Settings → Voice controls whether replies are spoken, review-before-sending, keep listening (the
-mic reopens after each spoken reply for hands-free back and forth and waits, 2 minutes by default,
-while you read the rest; Wait for my reply sets 30 seconds to 5 minutes), the voice, and names and terms
-for the recognizer (project names, product codes). The screen stays awake while voice is active.
+The composer has two voice buttons. The mic sends one message: tap and speak (it sends when you
+pause) or hold for push-to-talk; it never listens again by itself. The headset starts a hands-free
+conversation for the open session: each reply is read aloud and the mic reopens for your answer,
+waiting 2 minutes by default while you read the rest. Tap the headset again, tap Cancel or Stop,
+leave the session or stay quiet past the wait to end it. The headset hides while you have a typed
+draft, since speech then only adds to the draft. Announcements, approval prompts and replies outside a
+hands-free conversation are spoken without reopening the mic.
+
+Settings → Voice controls whether replies are spoken, review-before-sending, Hands-free: wait for my
+reply (30 seconds to 5 minutes), the voice, and names and terms for the recognizer (project names,
+product codes). The screen stays awake while voice is active.
 Embedded views need microphone permission from the page that embeds Pocket; otherwise the mic
 explains that it is blocked and you can open Pocket Code directly.
 

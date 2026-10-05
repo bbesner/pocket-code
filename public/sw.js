@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v38';
-const SHELL = ['/', '/release.json?v=38', '/app.css?v=38', '/app.js?v=38', '/workspace.js?v=38', '/approvals.js?v=38', '/split.js?v=38', '/tips.js?v=38', '/format.js?v=38', '/voice-text.js?v=38', '/voice.js?v=38', '/voice-worklet.js?v=38', '/vendor/marked.js?v=38', '/vendor/purify.js?v=38', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v39';
+const SHELL = ['/', '/release.json?v=39', '/app.css?v=39', '/app.js?v=39', '/workspace.js?v=39', '/approvals.js?v=39', '/split.js?v=39', '/tips.js?v=39', '/format.js?v=39', '/voice-text.js?v=39', '/voice.js?v=39', '/voice-worklet.js?v=39', '/vendor/marked.js?v=39', '/vendor/purify.js?v=39', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });

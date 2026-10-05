@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.9.0 / build 38**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.10.0 / build 39**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -223,14 +223,19 @@ minutes. While loaded it uses about 1 GB of RAM and a few CPU cores per request;
 On a 16-vCPU server a spoken command took about 1 second to transcribe, and the first sentence of
 a reply was ready in under a second. Without the install, the mic button stays hidden.
 
-- **Tap** the mic and speak; it sends when you pause. **Hold** it for push-to-talk.
+- **Tap** the mic and speak; it sends when you pause. **Hold** it for push-to-talk. The mic sends one
+  message and does not listen again.
+- **Hands-free:** tap the headset beside the mic. Each reply is read aloud and the mic listens for your
+  answer (up to 2 minutes by default) until you tap the headset again, tap Cancel or stay quiet. It is
+  never on unless you start it, and it hides while you have a typed draft.
 - Short commands are answered without the agent: *what's it doing*, *stop*, *read it*,
   *read it all* and *what's waiting on me*. Anything else is sent as a normal message.
-- Settings → Voice: speak replies, review before sending, keep listening (hands-free), voice and
-  names to recognize. Approvals still need a tap.
+- Settings → Voice: speak replies, review before sending, how long hands-free waits for your reply,
+  voice and names to recognize. Approvals still need a tap.
 - **Spoken alerts.** Settings → Voice → Announce sessions says when any session finishes ("The SCK
   inventory session finished", optionally with a one-line summary) or needs your approval or answer,
   in place of the chime, while Pocket is open. Muted sessions stay quiet; push covers a closed app.
+  Announcements never turn the microphone on, even during a hands-free conversation.
 
 Browsers allow the microphone only over HTTPS. An embedding page must grant the frame
 `allow="microphone"`. Details: [workspace guide](docs/workspace-guide.md#voice-mode-beta) and
