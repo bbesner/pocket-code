@@ -24,6 +24,7 @@ import {QuestionInbox} from './questions.mjs';
 import {descendantCpu} from './proctree.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
+import {VoiceService} from './voice.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -1992,7 +1993,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "A session's green Response ready label in the session list now lasts only until you open the session. After that it shows as Recent, like any other session."
+  "Voice mode: tap the mic beside Send to talk to a session, or hold it for push-to-talk. Speech is transcribed and spoken back on your own Pocket server, with no speech service fees.",
+  "Short questions such as what's it doing, stop, read it or what's waiting on me are answered right away; anything else goes to the session as a normal message, and a short summary of the reply is read aloud."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
@@ -2033,6 +2035,30 @@ app.get('/api/about', requireAuth, (_req, res) => res.json({
   ...ABOUT, uptime: process.uptime(),
   cli: binVersion(CLAUDE_BIN), codex: CODEX_ON ? binVersion(codex.CODEX_BIN) : null,
 }));
+
+// Optional voice mode (voice.mjs): local speech-to-text and text-to-speech. Audio and text stay on this machine.
+const voice = new VoiceService({ log });
+process.on('exit', () => voice.stop());
+const voiceError = (res, e) => res.status(e.status || 503).json({ error: e.message, code: e.code || 'voice_error' });
+app.get('/api/voice/status', requireAuth, (_req, res) => res.json(voice.status()));
+// Body: 16-bit little-endian mono PCM at 16 kHz (the browser resamples). 90 s cap ≈ 2.9 MB.
+app.post('/api/voice/transcribe', requireAuth, express.raw({ type: () => true, limit: '3mb' }), async (req, res) => {
+  if (!req.body?.length) return res.status(400).json({ error: 'No audio received.', code: 'audio_missing' });
+  try {
+    const out = await voice.transcribe(req.body, String(req.headers['x-vocabulary'] || ''));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ text: out.text || '', seconds: out.seconds, ms: out.ms });
+  } catch (e) { voiceError(res, e); }
+});
+app.post('/api/voice/speak', requireAuth, async (req, res) => {
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'Nothing to say.', code: 'text_required' });
+  try {
+    const wav = await voice.speak(text, req.body?.voice, Number(req.body?.speed) || 1);
+    res.setHeader('Content-Type', 'audio/wav'); res.setHeader('Cache-Control', 'private, no-store');
+    res.end(wav);
+  } catch (e) { voiceError(res, e); }
+});
 
 // Last: whatever a route threw or rejected with ends here, as a 503 for this request only.
 app.use((err, req, res, _next) => {

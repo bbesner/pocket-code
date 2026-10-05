@@ -279,3 +279,18 @@ title-ellipsis, table/toolbar scroll containment and slash-menu-shadow exception
 Off-screen transcript paragraphs remain scroll-reachable; they are not inaccessible
 content behind the composer. These checks do not certify physical-device IME,
 OS push delivery, or assistive-technology behavior outside Chromium.
+
+## Voice mode (1.8)
+
+Pinned brief (design-studio to impeccable handoff): Operate, variance 3, motion 3, density 6;
+warm ink identity unchanged. Read: a voice-control addition for developers using the existing
+composer, calm utility language. The mic is a 46px outlined circle beside the clay Send, so Send
+stays the single primary action; while listening it takes the clay-deep fill and clay ring. One
+status strip above the composer carries every voice state in words (Listening, Release to send,
+Transcribing, Speaking, Heard/Sent) with Cancel or Stop. A three-bar level meter shows the
+microphone is hearing you; it is functional feedback, driven by input level with `transform`, and
+keeps tracking input under reduced motion without easing. The ember stays the only ambient motion.
+Settings → Voice reuses the existing toggle rows, native select and a text field, with 44px targets.
+Rendered 390px scans of the listening strip and Voice settings have no detector findings on voice
+elements; remaining findings are the documented existing exceptions.
+

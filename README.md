@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.7.3 / build 34**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.8.0 / build 35**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -35,6 +35,8 @@ Screenshots use synthetic demo sessions, not private conversations.
   check context use and provider plan limits, and inspect this instance's accounts.
 - **Get completion alerts.** Enable optional push notifications, an on-screen chime,
   or per-session muting. Push requires HTTPS, server keys and browser permission.
+- **Talk to a session (optional).** Tap the mic beside Send and speak; a short summary of
+  the reply is read back. Speech is processed on your own server. See [Voice mode](#voice-mode-optional).
 
 [Workspace guide](docs/workspace-guide.md) · [Operations and upgrades](docs/operations.md)
 · [Action approvals](docs/action-approvals.md) · [Contributing and releases](CONTRIBUTING.md)
@@ -167,6 +169,9 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_DATA_DIR` | no | Pocket state and runner files; defaults to the checkout. Move only after all session processes are closed. |
 | `POCKET_SESSION_ROOT` | no | Override Claude transcript storage for isolated tests; does not relocate Codex. |
 | `POCKET_FRAME_ANCESTORS` | no | Origins allowed to embed Pocket Code in a frame (for example Mission Control), space-separated. Default: only Pocket's own origin. |
+| `POCKET_VOICE` | no | Set to `off` to disable voice mode even when it is installed. |
+| `POCKET_VOICE_HOME` | no | Where `scripts/voice-setup.sh` installed the voice engine. Default `~/.local/share/pocket-code/voice`. |
+| `POCKET_VOICE_IDLE_MS` | no | How long the voice engine stays loaded after its last use, in milliseconds. Default `900000` (15 minutes). |
 | `POCKET_ENV_FILE` | no | Read settings from this file instead of `.env` next to the server; empty means read none (the test suite sets it). |
 
 Turns use your global CLI settings (`~/.claude/settings.json`, Codex config), such as
@@ -200,6 +205,32 @@ browser build. Do not restore an old state snapshot over newer queues or receipt
 Before moving data, uninstalling, or downgrading below 1.7, close **all session processes**,
 including idle Codex app-servers. The [operations guide](docs/operations.md) gives the
 state inventory, health checks, upgrade steps and rollback requirements.
+
+## Voice mode (optional)
+
+Voice mode lets you speak to a session and hear a short spoken summary of the reply.
+Speech-to-text ([faster-whisper](https://github.com/SYSTRAN/faster-whisper), `small.en`) and
+text-to-speech ([Kokoro](https://github.com/thewh1teagle/kokoro-onnx)) run in a local process on
+the Pocket server. No audio or text goes to a speech service, and there are no per-use fees.
+
+```bash
+bash scripts/voice-setup.sh   # Python 3 venv + models, about 1.3 GB; then restart Pocket Code
+```
+
+The engine starts the first time someone uses the mic (a few seconds) and stops after 15 idle
+minutes. While loaded it uses about 1 GB of RAM and a few CPU cores per request; no GPU is needed.
+On a 16-vCPU server a spoken command took about 1 second to transcribe, and the first sentence of
+a reply was ready in under a second. Without the install, the mic button stays hidden.
+
+- **Tap** the mic and speak; it sends when you pause. **Hold** it for push-to-talk.
+- Short commands are answered without the agent: *what's it doing*, *stop*, *read it*,
+  *read it all* and *what's waiting on me*. Anything else is sent as a normal message.
+- Settings → Voice: speak replies, review before sending, keep listening (hands-free), voice and
+  names to recognize. Approvals still need a tap.
+
+Browsers allow the microphone only over HTTPS. An embedding page must grant the frame
+`allow="microphone"`. Details: [workspace guide](docs/workspace-guide.md#voice-mode) and
+[operations](docs/operations.md#voice-engine).
 
 ## Optional MemStem integration
 

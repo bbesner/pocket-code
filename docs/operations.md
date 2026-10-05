@@ -156,3 +156,22 @@ those processes first; do not assume checking out old code will stop them. Downg
 earlier than 1.3 also needs queue compatibility review: `editing` and Plan-mode entries
 must not be handed to older code as runnable instructions. Use the historical release
 notes for that boundary; do not automatically replay or rewrite live queues.
+
+## Voice engine
+
+Voice mode is optional. `scripts/voice-setup.sh` creates a Python virtual environment and downloads
+the Whisper `small.en` and Kokoro models into `POCKET_VOICE_HOME` (default
+`~/.local/share/pocket-code/voice`, about 1.3 GB). Restart Pocket Code afterwards.
+
+- **Lifecycle.** Pocket starts `voice/voice_server.py` on the first voice request, bound to
+  `127.0.0.1` on a random port, and stops it after `POCKET_VOICE_IDLE_MS` (15 minutes) without use.
+  The engine exits on its own if Pocket stops. Loading takes a few seconds; the first request after
+  idle waits for it.
+- **Resources.** About 1 GB of RAM while loaded; each request uses up to 4 CPU threads for
+  transcription and 4 for speech. Audio and text are processed in memory and not stored.
+- **Health.** `GET /api/voice/status` (signed in) reports whether voice is installed, running and
+  the last start error. Engine start and idle stops are logged by the Pocket daemon.
+- **Disable or remove.** Set `POCKET_VOICE=off`, or delete `POCKET_VOICE_HOME`. Nothing else
+  depends on it.
+- **Upgrades.** Rerun the setup script after a release that changes `voice/requirements.txt`.
+

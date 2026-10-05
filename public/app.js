@@ -487,6 +487,7 @@ async function settingsSheet() {
     <button class="opt" id="s-push" aria-pressed="false"><span class="dot"></span><span>Turn notifications<span class="sub" id="s-push-state">Checking notification support…</span></span></button>
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
+    ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"><summary>About & updates</summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
       <button class="chip" id="s-check">Check again</button><button class="primary" id="s-refresh" hidden></button>
@@ -504,6 +505,7 @@ async function settingsSheet() {
     </details>`;
   mountSheet(scrim, sh);
   bindChatTextControls(sh);
+  Voice.bindSettings(sh);
   sh.querySelector('#s-environment').onclick = openEnvironment;
   sh.querySelector('#s-usage').onclick = openUsagePanel;
   sh.querySelector('#s-keys').onclick = keyboardHelp;
@@ -744,6 +746,7 @@ function bindSessionPanel(container) {
   paintSessionPanels();
 }
 async function renderList() {
+  Voice.onLeave();
   app.innerHTML = `<header class="bar"><h1>Pocket Code</h1>
     <button class="icon bell" id="bell" aria-label="Toggle turn-finished notifications">${IC.bellOff}</button>
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
@@ -1136,6 +1139,7 @@ function extPulse() { // ember while another surface (code-server) drives this s
 async function renderChat(id) {
   const renderVersion = ++chatRenderVersion;
   stashAttachments();rememberReading();
+  if (chatId !== id) Voice.onLeave();
   chatId = id; closeES();
   fmarks = []; fidx = -1; // marks from the previous render are gone with the DOM
   const chatCol = `
@@ -1165,7 +1169,7 @@ async function renderChat(id) {
     </div>
     <div class="fmore" id="fmore" hidden></div></section>
     <main class="scroll"><div class="msgs" id="msgs"></div></main>
-    <section class="composerwrap" aria-label="Message composer"><div class="delivery-status" id="delivery-status" role="status" hidden></div><div class="slash" id="slash" hidden></div><div class="composer" id="comp"></div></section>`;
+    <section class="composerwrap" aria-label="Message composer"><div class="delivery-status" id="delivery-status" role="status" hidden></div><div class="slash" id="slash" hidden></div><div class="voice-strip" id="voice-strip" role="status" aria-live="polite" hidden></div><div class="composer" id="comp"></div></section>`;
   app.innerHTML = withShell(chatCol) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   if (PANE) { $('#pane-main').onclick = () => paneSay('main'); $('#pane-close').onclick = () => paneSay('close'); }
@@ -1354,7 +1358,7 @@ function setComposer(working) {
     ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer">Steer now</button><button data-mode="queue">After this turn</button></div>' : ''}
     ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.cog}</button></div>` : ''}
     <textarea id="box" rows="1" placeholder="${working ? 'Steer this turn…' : 'Message this session…'}" enterkeyhint="send"></textarea>
-    <button class="send" id="send" aria-label="Send">${IC.up}</button>`;
+    ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button>`;
   if (working) {
     $('#stopb').onclick = async () => {
       try { await api(`/session/${chatId}/stop`, { method: 'POST', body: '{}' }); }
@@ -1380,6 +1384,7 @@ function setComposer(working) {
     if (e.key === 'Enter' && !e.shiftKey && isWide()) { e.preventDefault(); sendMsg(box.value); }
   };
   $('#send').onclick = () => sendMsg(box.value);
+  Voice.bindComposer();
   paintDelivery(chatId);
 }
 
@@ -1486,8 +1491,8 @@ function openES() {
     if (d.type === 'attach') { if (chatAttachKey && chatAttachKey !== d.key) { chatAttachKey = null; closeES(); renderChat(streamId); } else chatAttachKey = d.key; return; }
     if (d.offset) chatOffset = d.offset; // watch mode: where a reopen should continue from
     if (d.itemId) chatLastItem = d.itemId;
-    if(d.type==='questions'){refreshQuestions(streamId);refreshSessions();return;}
-    if(d.type==='approvals'){refreshApprovals(streamId);refreshSessions();return;}
+    if(d.type==='questions'){refreshQuestions(streamId);refreshSessions();Voice.onAttention(streamId,'questions');return;}
+    if(d.type==='approvals'){refreshApprovals(streamId);refreshSessions();Voice.onAttention(streamId,'approvals');return;}
     if(d.type==='usage'){paintContextMeter(streamId);return;}
     if (d.type === 'watch') { watching = true; if (composerWorking) setComposer(false); }
     else if (d.type === 'user') { // mirror: a message sent from another surface
@@ -1505,7 +1510,7 @@ function openES() {
       scrollBottom();
     }
     else if (d.type === 'assistant') {
-      dropLive();
+      dropLive(); Voice.onAssistant(streamId, d.msg);
       msgs.insertAdjacentHTML('beforeend', msgHTML(d.msg));
       openLastTodo();
       if (watching) extPulse();
@@ -1513,6 +1518,7 @@ function openES() {
     }
     else if (d.type === 'result') {
       if (document.visibilityState === 'visible') chime(); // not watching → push already notified
+      Voice.onTurnEnd(streamId, d.ok, d.error);
       if (!d.ok && d.error) msgs.insertAdjacentHTML('beforeend', `<div class="turn-err enter">Turn failed: ${esc(String(d.error)).slice(0, 600)}</div>`);
       if (d.cost != null) {
         const secs = d.duration_ms ? Math.round(d.duration_ms / 1000) : null;
@@ -1527,7 +1533,7 @@ function openES() {
       scrollBottom();
     }
     else if (d.type === 'done') { dropLive(); closeES(); if (chatId) renderChat(chatId); } // resync from canonical transcript
-    else if (d.type === 'idle') { dropLive(); closeES(); setComposer(false); }
+    else if (d.type === 'idle') { dropLive(); closeES(); setComposer(false); Voice.onIdle(streamId); }
   };
   es.onerror = () => { if (chatId === streamId) setConnection('Connection interrupted. Reconnecting; your draft is kept.'); };
 }

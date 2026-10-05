@@ -25,3 +25,4 @@ owned-transcripts.json
 usage-state.json*
 codex-usage-state.json*
 turnlogs-codex/
+__pycache__/

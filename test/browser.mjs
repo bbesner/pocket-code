@@ -21,7 +21,10 @@ const rows=[
 ];
 const idle=rows.at(-1);let dispatches=0,failNext=false,stale=false;const receipts=new Map();const received=[];
 const uploads=[];let uploadDelay=0;
-const uiModes={aboutFailed:false,workerFailed:false};
+const uiModes={aboutFailed:false,workerFailed:false,voice:true,voiceText:'Please review the incoming quantities again.'};
+const voiceLog={transcribe:[],speak:[]};
+// 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
+const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
 let fixtureSettings={titleSync:false};
 let questionRequests=[];let questionAnswers=null;
 let approvalRequests=[],approvalDecisions=[],approvalFail=false;
@@ -46,6 +49,9 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname==='/sw.js'&&uiModes.workerFailed){res.writeHead(503);res.end('Worker unavailable');return;}
  if(url.pathname==='/api/usage')return json({claude:{}});
+ if(url.pathname==='/api/voice/status')return json(uiModes.voice?{available:true,voices:[{id:'af_heart',label:'American female'},{id:'bm_george',label:'British male (George)'}],defaultVoice:'af_heart'}:{available:false,reason:'Voice is not installed on this server. Run scripts/voice-setup.sh, then restart Pocket Code.'});
+ if(url.pathname==='/api/voice/transcribe'){const chunks=[];for await(const c of req)chunks.push(c);voiceLog.transcribe.push({bytes:Buffer.concat(chunks).length,vocabulary:req.headers['x-vocabulary']||''});return json({text:uiModes.voiceText});}
+ if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}
  if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
  if(url.pathname==='/api/me')return json({ok:true});
  if(url.pathname==='/api/approval-policy')return json({defaultMode:'review',allowFullAccess:true});
@@ -98,7 +104,7 @@ const server=http.createServer(async(req,res)=>{
  res.writeHead(200,{'content-type':rel.endsWith('.js')?'text/javascript':rel.endsWith('.css')?'text/css':rel.endsWith('.html')?'text/html':'application/octet-stream'});res.end(fs.readFileSync(file));
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
-const browser=await puppeteer.launch({executablePath:process.env.PUPPETEER_EXECUTABLE_PATH||'/opt/google/chrome/chrome',headless:true,args:['--no-sandbox']});
+const browser=await puppeteer.launch({executablePath:process.env.PUPPETEER_EXECUTABLE_PATH||'/opt/google/chrome/chrome',headless:true,args:['--no-sandbox','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream','--autoplay-policy=no-user-gesture-required']});
 const errors=[];const p=await browser.newPage();await p.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);p.on('pageerror',e=>errors.push(e.message));
 const scans=[];
 const scan=async label=>{
@@ -508,7 +514,7 @@ try{
 
   fs.writeFileSync(path.join(out,'responsive-metrics.json'),JSON.stringify({before,after,focused,readingGain:focused-before,desktopConversationWidth:measure,foldDraftPreserved:true,clipboardUploads:uploads.length},null,2));
  }
- await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch)});
+ await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),received,voiceLog});
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));

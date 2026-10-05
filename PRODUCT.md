@@ -27,6 +27,9 @@ surface can write to it.
 - Type is large and high-contrast, and comfortable to read outdoors or with tired eyes.
 - Dark theme, because evening and on-the-go use is the main scenario.
 
+**Optional voice:** speak to a session and hear short spoken replies. Speech runs on the
+Pocket server; voice is an input and output method, not a separate assistant.
+
 **Out of scope:** general file browsing/editing, a terminal and multi-user accounts. Native questions and action approvals are
 supported; review/full-access choices govern subsequent Pocket-owned turns, while
 server credentials and provider rules remain the authority. Read-only Git inspection belongs to the
