@@ -296,3 +296,6 @@ elements; remaining findings are the documented existing exceptions.
 
 Voice is labelled beta (1.8.2) in its Settings summary, the mic's accessible name and tooltip, and the
 docs; the app version itself is not a pre-release. No visual change beyond the words.
+
+Spoken alerts (1.9.0) add one native select to Voice (beta) and no visual elements; the existing strip shows
+the one-time "tap anywhere" note when audio is still locked.

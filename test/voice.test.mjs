@@ -34,6 +34,17 @@ test('phantom phrases on short noise are ignored while waiting for a reply', () 
   assert.equal(V.isNoise('Okay, run it', 0.9), false);
 });
 
+test('spoken alerts: who finished, a one-line summary, and what needs you', () => {
+  const reply = '**Done.** Updated the reorder report: 42 products are below their reorder level. See the CSV.';
+  assert.equal(V.alertText({ title: 'SCK inventory', kind: 'finished', reply }, 'summary'), 'The SCK inventory session finished. Updated the reorder report: 42 products are below their reorder level.');
+  assert.equal(V.alertText({ title: 'SCK inventory', kind: 'finished', reply }, 'name'), 'The SCK inventory session finished.');
+  assert.equal(V.alertText({ title: 'DAD bug 41 session', kind: 'input', approvals: 1 }, 'summary'), 'The DAD bug 41 session needs your approval.');
+  assert.equal(V.alertText({ title: 'Footer refresh', kind: 'input' }, 'name'), 'The Footer refresh session has a question for you.');
+  assert.equal(V.alertText({ title: 'Nightly import', kind: 'failed' }, 'summary'), 'The Nightly import session stopped with an error.');
+  assert.equal(V.shortTitle('Review `/home/u/projects/x/src/very/long/path.py` and then fix the remaining flaky tests in CI'), 'Review path.py and then fix the remaining flaky…');
+  assert.ok(V.oneLine('x '.repeat(200) + '.').length <= 161);
+});
+
 test('only short, specific phrases are local commands', () => {
   const cases = { 'Stop.': 'stop', 'Cancel that please': 'stop', "What's it doing right now?": 'status', 'status': 'status',
     'Okay, read me the result.': 'read', 'Read it all': 'readAll', 'Is anything waiting on me?': 'waiting', 'Be quiet': 'quiet',
