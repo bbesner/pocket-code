@@ -1997,8 +1997,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Reply with a tap: when a reply ends by asking you to choose a next step, the options appear as buttons under it. A tap sends that option as your next message; typing or the X hides them.",
-  "Pocket asks Claude and Codex for these options on the turns it runs. Set POCKET_CHOICES=0 to turn that off. Questions asked mid-turn still use the question form."
+  "Tool calls stay in one line while a reply streams: the run no longer splits into separate folds, and its summary keeps showing the latest call. Tap it to see every call. Contributed by Damon Delcoro."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

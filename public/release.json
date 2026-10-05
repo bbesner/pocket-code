@@ -1,8 +1,7 @@
 {
-  "version": "1.11.0",
-  "assetV": 41,
+  "version": "1.11.1",
+  "assetV": 42,
   "notes": [
-    "Reply with a tap: when a reply ends by asking you to choose a next step, the options appear as buttons under it. A tap sends that option as your next message; typing or the X hides them.",
-    "Pocket asks Claude and Codex for these options on the turns it runs. Set POCKET_CHOICES=0 to turn that off. Questions asked mid-turn still use the question form."
+    "Tool calls stay in one line while a reply streams: the run no longer splits into separate folds, and its summary keeps showing the latest call. Tap it to see every call. Contributed by Damon Delcoro."
   ]
 }
