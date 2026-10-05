@@ -380,15 +380,15 @@ function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
 }
-// Stale-build notice (local change): an open window keeps running the build it loaded, even after the
-// server updates and the service worker swaps the cache. Check release.json once a minute and when the app
-// comes back to the foreground; if the server is newer and nothing is mid-send, show a banner to reload.
+// Stale-build notice: an open window keeps running the build it loaded, even after the server updates and
+// the service worker swaps the cache. Ask the server once a minute and when the app returns to the
+// foreground; if its build is newer and nothing is mid-send, offer a reload.
 let staleBannerShown = false;
 async function checkStaleBuild() {
   if (!APP_V || staleBannerShown || document.visibilityState !== 'visible' || document.querySelector('.login')) return;
   try {
     const r = await fetch('/api/about', { cache: 'no-store', signal: AbortSignal.timeout(6000) });
-    if (!r.ok) return;                                   // /api/about reads index.html live; release.json is a static file
+    if (!r.ok) return;                                   // /api/about reports the build the running server started with
     const j = await r.json(); const v = Number(j?.assetV) || 0;
     if (v > APP_V && sendsInFlight.size === 0) {
       staleBannerShown = true;
@@ -691,7 +691,7 @@ function groupedSessionsHTML(list) {
   if(sessionsStale)return `<section class="session-group"><h2>Status unconfirmed<span>${list.length}</span></h2>${list.map(sessionRowHTML).join('')}</section>`;
   return groups.map(([key,label]) => {
     const rows = list.filter(s => key === 'recent' ? !['running','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s) : key === 'failed' ? needsAttention(s) : rowState(s).kind === key);
-    // Local (Damon): pinned sessions first inside each group, then an accent-coloured rule before the rest.
+    // Pinned sessions first inside each group, then an accent-coloured rule before the rest.
     const pinned = rows.filter(s => s.pinned), rest = rows.filter(s => !s.pinned);
     const body = pinned.map(sessionRowHTML).join('') + (pinned.length && rest.length ? '<div class="pin-divider" role="separator" aria-label="Pinned sessions above, others below"></div>' : '') + rest.map(sessionRowHTML).join('');
     return rows.length ? `<section class="session-group"><h2>${label}<span>${rows.length}</span></h2>${body}</section>` : '';
@@ -890,7 +890,8 @@ function foldSummary(d) {
   const last = items[items.length - 1];
   const name = last?.querySelector('.name')?.textContent || '', det = last?.querySelector('.det')?.textContent || '';
   const sum = d.querySelector(':scope > summary'); if (!sum) return;
-  sum.innerHTML = `<span class="tc-count">${items.length} tool call${items.length === 1 ? '' : 's'}</span><span class="tc-last">${esc(name)} ${esc(det)}</span>`;
+  const html = `<span class="tc-count">${items.length} tool call${items.length === 1 ? '' : 's'}</span><span class="tc-last">${esc(name)} ${esc(det)}</span>`;
+  if (sum.innerHTML !== html) sum.innerHTML = html;
 }
 function mergeToolFolds(container) {
   if (!container) return;
@@ -952,15 +953,14 @@ function msgHTML(m) {
   let tools = [];
   // Tool calls are folded behind a one-line summary (Settings > Collapse tool calls, default on) so a
   // reply reads as prose; open the fold to see the Bash/Edit/Read ledger. Copy-message skips it either way.
-  let toolNames = [];
   const flush = () => {
     if (tools.length) {
       parts.push(`<details class="ledgerwrap"${toolsCollapsed() ? '' : ' open'}><summary></summary><div class="ledgerlist">${tools.join('')}</div></details>`);
-      tools = []; toolNames = [];
+      tools = [];
     }
   };
   for (const b of m.blocks || []) {
-    if (b.t === 'tool') { tools.push(ledgerHTML(b.name, b.detail)); toolNames.push(b.name || 'tool'); }
+    if (b.t === 'tool') tools.push(ledgerHTML(b.name, b.detail));
     else if (b.t === 'todo') { flush(); parts.push(todoHTML(b.todos || [])); }
     else { flush(); parts.push(md(b.text)); }
   }
@@ -1523,15 +1523,16 @@ async function submitPending(id) {
   const pending = loadOutbox(id); if (!pending) return;
   sendsInFlight.add(id); deliveryNotices.delete(id); paintDelivery(id);
   recentSends = [...recentSends.slice(-4), { text: pending.text, at: Date.now() }];
-  // Optimistic echo (local change): show the bubble the instant Send is hit instead of after the server
-  // acknowledges and the whole transcript is re-fetched. Removed again if delivery fails; the canonical
-  // re-render after the ack replaces it with the real one.
-  let ghost = null;
+  // Optimistic echo: show the message the instant Send is hit instead of after the server acknowledges and
+  // the transcript is re-fetched. A message with files renders as two elements (bubble + file chips), so
+  // track every node it adds; all are removed if delivery fails, and the canonical re-render replaces them.
+  const ghost = [];
   if (chatId === id && !composerWorking) {
     const msgs = $('#msgs');
     if (msgs) {
+      const mark = msgs.lastElementChild;
       msgs.insertAdjacentHTML('beforeend', msgHTML({ role: 'user', text: pending.text, files: pending.files }));
-      ghost = msgs.lastElementChild; ghost?.classList.add('pending');
+      for (let n = mark ? mark.nextElementSibling : msgs.firstElementChild; n; n = n.nextElementSibling) { n.classList.add('pending'); ghost.push(n); }
       const box = $('#box'); if (box) box.value = '';
       scrollBottom();
     }
@@ -1556,7 +1557,7 @@ async function submitPending(id) {
     pending.error = e.code === 'delivery_uncertain' ? e.message
       : rejected ? `Not sent: ${e.message}` : 'Delivery not confirmed. Your message is saved. Retry checks the same request.';
     try { saveOutbox(id, pending); } catch { }
-    if (ghost?.isConnected) { ghost.previousElementSibling?.matches?.('.m-files') && null; ghost.remove(); }
+    ghost.forEach(n => n.remove());
     if (chatId === id && $('#box')) $('#box').value = pending.text;
   } finally { sendsInFlight.delete(id); paintDelivery(id); }
 }
