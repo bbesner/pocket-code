@@ -119,6 +119,15 @@ its outcome is reviewed and the uncertain row is removed.
 
 ## Questions, permissions and status
 
+**Reply suggestions.** Pocket asks Claude and Codex to end a closing question that offers specific next
+steps with a short list of options. Pocket shows them as buttons under the latest reply once the turn has
+finished; a tap sends that option as your next message, exactly as if you had typed it. Typing in the
+message box hides them, and the X dismisses them for that reply. They never appear mid-turn: questions
+an agent asks while it works still use the question form. The instruction is added only to turns Pocket
+runs (Claude via `--append-system-prompt`, Codex via thread developer instructions; a Codex config that
+sets its own `developer_instructions` is left alone and gets no suggestions). Sessions run from a
+terminal or editor show no buttons. Set `POCKET_CHOICES=0` to turn the instruction off.
+
 Native questions and approval requests appear in separate banners. Answers require
 an explicit submission. Approval cards show the action and offer Allow or Deny;
 closing a dialog or losing the browser connection does not approve it.
@@ -230,7 +239,7 @@ explains that it is blocked and you can open Pocket Code directly.
 |---|---|
 | Open tabs, split arrangement, hidden sessions, filters | Conversation transcripts and native Codex store |
 | Drafts, reading position, attachment references, retry state | Uploaded files and delivery receipts |
-| Text size and collapse preferences | Pins, names, per-session mutes and name-sync setting |
+| Text size and collapse preferences, dismissed reply suggestions | Pins, names, per-session mutes and name-sync setting |
 | Per-session composer choices and chime preference | Follow-up queue, approval audit, usage snapshots, runner state |
 | Voice preferences and vocabulary | Voice engine install (`POCKET_VOICE_HOME`); no recordings are kept |
 

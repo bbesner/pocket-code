@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.10.1 / build 40**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.11.0 / build 41**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -29,6 +29,9 @@ Screenshots use synthetic demo sessions, not private conversations.
   find text across a conversation; copy messages or code; open linked results.
 - **Answer and approve.** Native agent questions and action approval cards appear in
   the session. Choose Review actions or Full access for subsequent turns.
+- **Reply with a tap.** When a reply ends by asking you to choose a next step ("Should I
+  merge and deploy?"), the options appear as buttons under it. A tap sends that option;
+  the X hides them so you can type your own answer.
 - **Choose how to run.** Set the model and reasoning effort per turn, use Codex's
   Plan first mode, or start from an installed skill and a project directory.
 - **See status and limits.** Distinguish confirmed server work from activity elsewhere,
@@ -156,6 +159,7 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `VAPID_CONTACT` | for push | Your email or an https URL, given to push services as the operator contact. |
 | `CLAUDE_BIN` | no | Path to `claude`, if it isn't found automatically. |
 | `POCKET_CODEX` | no | Set to `0` to hide Codex sessions even when `codex` is installed. |
+| `POCKET_CHOICES` | no | Set to `0` to stop asking agents for reply suggestions (the buttons under a closing question). |
 | `CODEX_BIN`, `CODEX_HOME` | no | Path to `codex` and its home directory, if not the defaults. |
 | `POCKET_RETRY_BUFFER_MS` | no | Wait after a usage-limit reset before auto-continuing. Default 5 minutes. |
 | `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | no | Pocket-only Claude default for turns left on Default, e.g. `claude-opus-5-5[1m]` and `high`. Model must be one of the picker ids. |

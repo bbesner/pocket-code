@@ -24,6 +24,7 @@ import {QuestionInbox} from './questions.mjs';
 import {descendantCpu} from './proctree.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
+import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import {VoiceService} from './voice.mjs';
 
 // ---------- config ----------
@@ -424,7 +425,7 @@ function normalizeLineInner(o) {
   if (o.type === 'assistant') {
     const blocks = [];
     for (const b of o.message?.content || []) {
-      if (b.type === 'text' && b.text?.trim()) blocks.push({ t: 'text', text: b.text });
+      if (b.type === 'text' && b.text?.trim()) blocks.push(...textBlocks(b.text)); // a trailing ```choices block → reply buttons
       if (b.type === 'tool_use') {
         // TodoWrite carries the plan — pass the list through so the client can draw a
         // live checklist instead of a truncated JSON blob on a ledger line.
@@ -508,6 +509,7 @@ function msgSearchText(m) {
   if (m.role === 'user') return m.text || '';
   return (m.blocks || []).map(b =>
     b.t === 'text' ? b.text
+      : b.t === 'choices' ? b.options.join('\n')
       : b.t === 'todo' ? b.todos.map(t => t.c).join('\n')
         : `${b.name} ${b.detail || ''}`).join('\n');
 }
@@ -885,6 +887,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
+  if (process.env.POCKET_CHOICES !== '0') args.push('--append-system-prompt', CHOICE_INSTRUCTIONS);
   args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
   args.push(resume ? '--resume' : '--session-id', sessionId);
   const key = Date.now().toString(36);
@@ -1994,7 +1997,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "With side conversations open, the round + New session button stays in the bottom-right of the main column, so it no longer covers the Send button of the pane beside it."
+  "Reply with a tap: when a reply ends by asking you to choose a next step, the options appear as buttons under it. A tap sends that option as your next message; typing or the X hides them.",
+  "Pocket asks Claude and Codex for these options on the turns it runs. Set POCKET_CHOICES=0 to turn that off. Questions asked mid-turn still use the question form."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

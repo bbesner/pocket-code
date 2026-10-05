@@ -24,6 +24,7 @@ import {QuestionInbox} from './questions.mjs';
 import {ApprovalInbox,codexApproval,codexPermissionSettings} from './approvals.mjs';
 import {estimateWindow} from './usage.mjs';
 import {descendantCpu} from './proctree.mjs';
+import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 
 const HOME = os.homedir();
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex');
@@ -255,10 +256,18 @@ export function threadLocked(threadId) {
 // unrecognized becomes a ledger line rather than disappearing.
 const clip = (s, n = 140) => (s == null ? '' : String(s).replace(/\s+/g, ' ').trim().slice(0, n));
 
+// Reply suggestions ride on the thread's developer instructions. A Codex config that sets its own
+// developer_instructions keeps them: Pocket never replaces an operator's instructions.
+function choiceInstructions() {
+  if (process.env.POCKET_CHOICES === '0') return {};
+  try { if (/^\s*developer_instructions\s*=/m.test(fs.readFileSync(path.join(CODEX_HOME, 'config.toml'), 'utf8'))) return {}; } catch { }
+  return { developerInstructions: CHOICE_INSTRUCTIONS };
+}
+
 function itemBlocks(it) {
   switch (it.type) {
     case 'agentMessage':
-      return it.text?.trim() ? [{ t: 'text', text: it.text }] : [];
+      return it.text?.trim() ? textBlocks(it.text) : [];
     case 'reasoning': {
       // Codex keeps summaries separate from raw reasoning; show the summary only, and
       // only when there is one (most items come back empty).
@@ -704,12 +713,12 @@ async function openCodexSession({ threadId, cwd, model, approvalMode, hooks }) {
       // sandbox/approval ride on the resume, not the turn: turn/start's sandboxPolicy is
       // a tagged union, and setting it here keeps one code path for both entry points.
       const resumed = await conn.request('thread/resume', {
-        threadId, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}),
+        threadId, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}), ...choiceInstructions(),
       }, 60_000);
       s.model = resumed.model; s.effort = resumed.reasoningEffort || null; s.cwd = resumed.cwd || cwd;
     } else {
       const r = await conn.request('thread/start', {
-        cwd, ...codexPermissionSettings(approvalMode),
+        cwd, ...codexPermissionSettings(approvalMode), ...choiceInstructions(),
         ...(model ? { model } : {}),
       }, 60_000);
       s.model = r.model; s.effort = r.reasoningEffort || null;

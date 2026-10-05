@@ -8,7 +8,7 @@ const require=createRequire(import.meta.url);
 const axePath=require.resolve('axe-core/axe.min.js');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
-export async function runUIRegressions({browser,base,rows,out,setMode,received=[],voiceLog={transcribe:[],speak:[]}}) {
+export async function runUIRegressions({browser,base,rows,out,setMode,received=[],voiceLog={transcribe:[],speak:[]},conversations=new Map()}) {
  const context=await browser.createBrowserContext(),page=await context.newPage();
  page.setDefaultTimeout(8000);
  const errors=[],checks=[],scans=[];
@@ -307,6 +307,35 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    await page.click('#hfb');
    await page.waitForFunction(()=>Voice._test.state()==='idle'&&Voice._test.handsFree()===null);
    await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('pc-voice'));delete p.keepListening;localStorage.setItem('pc-voice',JSON.stringify(p));});
+  });
+  await check('Reply suggestions: cards under the last reply send on tap; typing or X hides them',async()=>{
+   const conv=conversations.get(idle),saved=conv.slice();await chat();
+   conv.push({role:'assistant',blocks:[{t:'text',text:'Tests pass. Should I merge and deploy?'},{t:'choices',options:['Merge and deploy',"Don't merge yet"]}]});
+   await page.evaluate(id=>{localStorage.removeItem('pc-choices-dismissed');localStorage.removeItem('pc-draft-'+id);},idle);
+   await page.reload();await page.waitForSelector('#box');await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});
+   await page.waitForSelector('.choices:not([hidden])');
+   assert.deepEqual(await page.$$eval('.choices .choice',b=>b.map(x=>x.textContent)),['Merge and deploy',"Don't merge yet"]);
+   assert.equal(await page.$eval('.choices',e=>e.closest('.m-asst')===[...document.querySelectorAll('#msgs .m-asst')].pop()),true,'under the latest reply');
+   assert.ok(await page.$$eval('.choices button',b=>b.every(x=>{const r=x.getBoundingClientRect();return r.width>=44&&r.height>=44;})),'44px targets');
+   assert.doesNotMatch(await page.$eval('#msgs',e=>e.textContent),/```|choices\n/,'the raw block never shows');
+   await page.$eval('.choices',e=>e.scrollIntoView({block:'end'}));await pause(150);
+   await scan('reply-suggestions-mobile');await page.screenshot({path:path.join(out,'reply-suggestions-mobile.png')});
+   await page.type('#box','Something else');
+   assert.equal(await page.$eval('.choices',e=>e.hidden),true,'typing your own answer hides them');
+   await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});
+   assert.equal(await page.$eval('.choices',e=>e.hidden),false);
+   await page.click('.choice-x');
+   assert.equal(await page.$eval('.choices',e=>e.hidden),true);
+   assert.equal(await page.evaluate(()=>document.activeElement.id),'box','focus moves to the message box');
+   await page.reload();await page.waitForSelector('#box');await pause(300);
+   assert.equal(await page.$eval('.choices',e=>e.hidden),true,'a dismissal sticks for that reply');
+   await page.evaluate(()=>localStorage.removeItem('pc-choices-dismissed'));await page.reload();await page.waitForSelector('#box');
+   await page.waitForSelector('.choices:not([hidden])');
+   const sent=received.length;await page.click('.choice');
+   for(let i=0;i<40&&received.length===sent;i++)await pause(100);
+   assert.equal(received.at(-1).text,'Merge and deploy','a tap sends the option as the next message');
+   await page.waitForFunction(()=>!document.querySelector('.choices:not([hidden])'));
+   conv.splice(0,conv.length,...saved);await page.reload();await page.waitForSelector('#box');
   });
   await check('Voice: Settings saves preferences and lists voices',async()=>{
    await page.evaluate(()=>settingsSheet());await page.waitForSelector('#s-voice');

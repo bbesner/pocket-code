@@ -919,6 +919,35 @@ function mergeToolFolds(container) {
   }
 }
 function toolsCollapsed() { return readLocal('pc-tools-collapsed', true) !== false; }
+// Reply suggestions: the agent ends a question with a ```choices block (see choices.mjs); the server turns it
+// into {t:'choices', options}. They show only under the latest reply of a finished turn, while the message
+// box is empty, until dismissed. A tap sends the option as the next message.
+function choicesHTML(options) {
+  if (!options.length) return '';
+  return `<div class="choices" role="group" aria-label="Suggested replies" data-choices="${esc(options.join('\u241e'))}" hidden>${
+    options.map(o => `<button type="button" class="choice" data-choice="${esc(o)}">${esc(o)}</button>`).join('')
+  }<button type="button" class="choice-x" aria-label="Dismiss suggested replies and type your own" title="Dismiss">${IC.x}</button></div>`;
+}
+function paintChoices() {
+  const msgs = $('#msgs'); if (!msgs) return;
+  const sets = msgs.querySelectorAll('[data-choices]'); if (!sets.length) return;
+  const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop();
+  const box = $('#box'), dismissed = readLocal('pc-choices-dismissed', {})[chatId];
+  const open = !composerWorking && !sendsInFlight.has(chatId) && !loadOutbox(chatId) && !box?.value.trim() && !box?.readOnly;
+  sets.forEach(c => { c.hidden = !(open && c.closest('.m-asst') === last && c.dataset.choices !== dismissed); });
+}
+document.addEventListener('click', e => {
+  const x = e.target.closest?.('.choice-x');
+  if (x) {
+    const set = x.closest('[data-choices]'), m = readLocal('pc-choices-dismissed', {});
+    delete m[chatId]; m[chatId] = set.dataset.choices;                          // newest last, so pruning drops the oldest
+    const keys = Object.keys(m); keys.slice(0, Math.max(0, keys.length - 100)).forEach(k => delete m[k]);
+    writeLocal('pc-choices-dismissed', m); set.hidden = true; $('#box')?.focus();
+    return;
+  }
+  const b = e.target.closest?.('.choice');
+  if (b && chatId) { b.closest('[data-choices]').hidden = true; sendMsg(b.dataset.choice); }
+});
 function ledgerHTML(name, detail) {
   return `<div class="ledger enter">${toolIcon(name)}<span class="name">${esc(name)}</span><span class="det">${esc(detail || '')}</span></div>`;
 }
@@ -962,6 +991,7 @@ function msgHTML(m) {
   for (const b of m.blocks || []) {
     if (b.t === 'tool') tools.push(ledgerHTML(b.name, b.detail));
     else if (b.t === 'todo') { flush(); parts.push(todoHTML(b.todos || [])); }
+    else if (b.t === 'choices') { flush(); parts.push(choicesHTML(b.options || [])); }
     else { flush(); parts.push(md(b.text)); }
   }
   flush();
@@ -984,7 +1014,7 @@ document.addEventListener('click', e => {
     e.stopPropagation();
     const clone = msg.closest('.m-asst')?.cloneNode(true);
     if (!clone) return;
-    clone.querySelectorAll('.copybtn, .ledgerwrap').forEach(n => n.remove()); // prose + code, not machinery
+    clone.querySelectorAll('.copybtn, .ledgerwrap, .choices').forEach(n => n.remove()); // prose + code, not machinery
     return copyText((clone.innerText || '').trim(), msg);
   }
 });
@@ -1309,6 +1339,7 @@ async function renderChat(id) {
   msgs.innerHTML = s.messages.map(msgHTML).join('') + steeredHTML(id, s.messages);
   mergeToolFolds(msgs);
   openLastTodo();
+  paintChoices();
   if (lastMeta && lastMeta.id === id) { msgs.insertAdjacentHTML('beforeend', lastMeta.html); lastMeta = null; }
   setComposer(s.active);
   const reading=readingPositions[id],scroller=msgs.closest('main.scroll');
@@ -1467,6 +1498,7 @@ function setComposer(working) {
     grow();
     saveDraft(chatId, box.value);
     if (!working) slashUpdate(box);
+    paintChoices();                                   // typing your own answer hides the suggested replies
   };
   box.onkeydown = e => { // desktop: Enter sends, Shift+Enter for a newline
     if (e.key === 'Enter' && !e.shiftKey && isWide()) { e.preventDefault(); sendMsg(box.value); }
@@ -1474,6 +1506,7 @@ function setComposer(working) {
   $('#send').onclick = () => sendMsg(box.value);
   Voice.bindComposer();
   paintDelivery(chatId);
+  paintChoices();
 }
 
 const sendsInFlight = new Set(), deliveryNotices = new Map();
@@ -1533,6 +1566,7 @@ async function submitPending(id) {
       const mark = msgs.lastElementChild;
       msgs.insertAdjacentHTML('beforeend', msgHTML({ role: 'user', text: pending.text, files: pending.files }));
       for (let n = mark ? mark.nextElementSibling : msgs.firstElementChild; n; n = n.nextElementSibling) { n.classList.add('pending'); ghost.push(n); }
+      paintChoices();
       const box = $('#box'); if (box) box.value = '';
       scrollBottom();
     }
@@ -1559,7 +1593,7 @@ async function submitPending(id) {
     try { saveOutbox(id, pending); } catch { }
     ghost.forEach(n => n.remove());
     if (chatId === id && $('#box')) $('#box').value = pending.text;
-  } finally { sendsInFlight.delete(id); paintDelivery(id); }
+  } finally { sendsInFlight.delete(id); paintDelivery(id); if (chatId === id) paintChoices(); }
 }
 
 let recentSends = []; // for deduping our own messages when they echo back via the mirror
@@ -1609,7 +1643,8 @@ function openES() {
         msgs.insertAdjacentHTML('beforeend', '<div class="m-asst live enter"></div>');
         live = msgs.lastElementChild;
       }
-      live.textContent += d.text;
+      live.raw = (live.raw || '') + d.text;                   // the suggested-replies block never shows as raw text
+      const cut = live.raw.indexOf('```choices'); live.textContent = cut < 0 ? live.raw : live.raw.slice(0, cut);
       scrollBottom();
     }
     else if (d.type === 'assistant') {
@@ -1617,6 +1652,7 @@ function openES() {
       msgs.insertAdjacentHTML('beforeend', msgHTML(d.msg));
       mergeToolFolds(msgs);
       openLastTodo();
+      paintChoices();
       if (watching) extPulse();
       scrollBottom();
     }
