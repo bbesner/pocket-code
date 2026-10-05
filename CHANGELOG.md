@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.7.2] — Unreleased · build 33
+## [1.7.2] — 2026-10-05 · build 33
 
 - Settings has a Bugs & feature requests section that opens the GitHub issue forms with your version filled in. Security problems are pointed to private reporting.
 - The repository gains bug-report and feature-request issue forms, and the README and contributing guide say where to report problems and ask for features.
