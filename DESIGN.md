@@ -294,3 +294,5 @@ Settings → Voice reuses the existing toggle rows, native select and a text fie
 Rendered 390px scans of the listening strip and Voice settings have no detector findings on voice
 elements; remaining findings are the documented existing exceptions.
 
+Voice is labelled beta (1.8.2) in its Settings summary, the mic's accessible name and tooltip, and the
+docs; the app version itself is not a pre-release. No visual change beyond the words.

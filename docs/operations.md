@@ -159,7 +159,7 @@ notes for that boundary; do not automatically replay or rewrite live queues.
 
 ## Voice engine
 
-Voice mode is optional. `scripts/voice-setup.sh` creates a Python virtual environment and downloads
+Voice mode is optional and in beta. `scripts/voice-setup.sh` creates a Python virtual environment and downloads
 the Whisper `small.en` and Kokoro models into `POCKET_VOICE_HOME` (default
 `~/.local/share/pocket-code/voice`, about 1.3 GB). Restart Pocket Code afterwards.
 

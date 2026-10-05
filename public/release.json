@@ -1,8 +1,8 @@
 {
-  "version": "1.8.1",
-  "assetV": 36,
+  "version": "1.8.2",
+  "assetV": 37,
   "notes": [
-    "Hands-free voice waits up to 2 minutes for your reply after reading the start of a response, so there is time to read the rest first. Change it in Settings → Voice → Wait for my reply.",
-    "While waiting, a short burst of background noise no longer ends listening or gets sent as a phantom \"Thank you\"."
+    "Voice mode is now labelled beta in Settings, on the mic button and in the docs, while it continues to improve. Pocket Code itself is a normal release.",
+    "Settings → Voice (beta) says where to report voice problems."
   ]
 }

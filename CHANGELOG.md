@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.2] — 2026-10-05 · build 37
+
+- Voice mode is labelled beta: Settings → Voice (beta), the mic button's name and tooltip, and the README, workspace guide and operations guide. It works and is still being tuned from real use. The app version is a normal release, not a pre-release.
+- Settings → Voice (beta) points to Bugs & feature requests for voice problems.
+
 ## [1.8.1] — 2026-10-05 · build 36
 
 - With Keep listening on, the mic now waits up to 2 minutes for your reply after a spoken summary (it stopped after 8 seconds), so you can read the rest of the response before answering. Settings → Voice → Wait for my reply offers 30 seconds to 5 minutes. A tap still listens for 10 seconds.

@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.8.1 / build 36**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.8.2 / build 37**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -35,8 +35,8 @@ Screenshots use synthetic demo sessions, not private conversations.
   check context use and provider plan limits, and inspect this instance's accounts.
 - **Get completion alerts.** Enable optional push notifications, an on-screen chime,
   or per-session muting. Push requires HTTPS, server keys and browser permission.
-- **Talk to a session (optional).** Tap the mic beside Send and speak; a short summary of
-  the reply is read back. Speech is processed on your own server. See [Voice mode](#voice-mode-optional).
+- **Talk to a session (beta, optional).** Tap the mic beside Send and speak; a short summary of
+  the reply is read back. Speech is processed on your own server. See [Voice mode](#voice-mode-beta).
 
 [Workspace guide](docs/workspace-guide.md) · [Operations and upgrades](docs/operations.md)
 · [Action approvals](docs/action-approvals.md) · [Contributing and releases](CONTRIBUTING.md)
@@ -206,9 +206,10 @@ Before moving data, uninstalling, or downgrading below 1.7, close **all session 
 including idle Codex app-servers. The [operations guide](docs/operations.md) gives the
 state inventory, health checks, upgrade steps and rollback requirements.
 
-## Voice mode (optional)
+## Voice mode (beta)
 
-Voice mode lets you speak to a session and hear a short spoken summary of the reply.
+Voice mode is optional and in beta: it works, and its behavior is still being tuned from real use.
+It lets you speak to a session and hear a short spoken summary of the reply.
 Speech-to-text ([faster-whisper](https://github.com/SYSTRAN/faster-whisper), `small.en`) and
 text-to-speech ([Kokoro](https://github.com/thewh1teagle/kokoro-onnx)) run in a local process on
 the Pocket server. No audio or text goes to a speech service, and there are no per-use fees.
@@ -229,7 +230,7 @@ a reply was ready in under a second. Without the install, the mic button stays h
   names to recognize. Approvals still need a tap.
 
 Browsers allow the microphone only over HTTPS. An embedding page must grant the frame
-`allow="microphone"`. Details: [workspace guide](docs/workspace-guide.md#voice-mode) and
+`allow="microphone"`. Details: [workspace guide](docs/workspace-guide.md#voice-mode-beta) and
 [operations](docs/operations.md#voice-engine).
 
 ## Optional MemStem integration
