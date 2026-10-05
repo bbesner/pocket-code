@@ -1992,9 +1992,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Settings has a Bugs & feature requests section that opens the GitHub issue forms with your version filled in. Security problems are pointed to private reporting.",
-  "The repository gains bug-report and feature-request issue forms, and the README and contributing guide say where to report problems and ask for features.",
-  "Keyboard focus stays inside Settings on current Chrome: links inside collapsed sections no longer count as the sheet's last tab stop."
+  "A session's green Response ready label in the session list now lasts only until you open the session. After that it shows as Recent, like any other session."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
