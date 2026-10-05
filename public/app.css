@@ -79,6 +79,7 @@ main.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   white-space: pre-wrap; overflow-wrap: break-word;
 }
 .m-asst { max-width: 100%; overflow-wrap: break-word; }
+.m-user.pending { opacity: .72; }
 .m-asst p { margin: 0 0 10px; } .m-asst p:last-child { margin-bottom: 0; }
 .m-asst h2, .m-asst h3 { font-size: 17px; font-weight: 650; margin: 14px 0 6px; }
 .m-asst ul, .m-asst ol { margin: 0 0 10px; padding-left: 22px; }
