@@ -181,6 +181,32 @@ background delivery and audio behavior need a real-device check.
 Phone composers retain their native multiline input behavior. Dialogs trap focus and
 return it to their opener; skip links target the current task or message field.
 
+## Voice mode
+
+Voice mode appears when the server has the voice engine installed (`scripts/voice-setup.sh`).
+The mic sits beside Send in every conversation, including split panes.
+
+- **Tap to talk.** Tap the mic, speak, and pause. Pocket detects the end of speech, transcribes it
+  on the server and sends it. Tap the mic again to send early, or Cancel to discard.
+- **Hold to talk.** Hold the mic while you speak and release to send. Useful in noisy places.
+- **While a turn runs**, a spoken message steers the running turn or waits for it, following the
+  When to send choice, exactly like a typed message.
+- **A typed draft is never sent for you.** If the message box already has text, what you say is
+  added to it for you to review and send.
+- **Quick commands** are answered on your device without involving the agent: *what's it doing*
+  (latest step), *stop* (stops the running turn), *read it* (a short summary of the latest reply),
+  *read it all*, *what's waiting on me* (approvals, questions and sessions needing you) and
+  *be quiet* (stops speaking). Longer or different sentences are sent to the session.
+- **Spoken replies.** When a turn you started by voice finishes, the opening of the reply is read
+  aloud. Code, tables and links are left on screen. If the agent needs an approval or has a question,
+  you hear that, and you answer it on screen.
+
+Settings → Voice controls whether replies are spoken, review-before-sending, keep listening (the
+mic reopens after each spoken reply for hands-free back and forth), the voice, and names and terms
+for the recognizer (project names, product codes). The screen stays awake while voice is active.
+Embedded views need microphone permission from the page that embeds Pocket; otherwise the mic
+explains that it is blocked and you can open Pocket Code directly.
+
 ## Where preferences live
 
 | This browser/device | Server/provider data |
@@ -189,6 +215,7 @@ return it to their opener; skip links target the current task or message field.
 | Drafts, reading position, attachment references, retry state | Uploaded files and delivery receipts |
 | Text size and collapse preferences | Pins, names, per-session mutes and name-sync setting |
 | Per-session composer choices and chime preference | Follow-up queue, approval audit, usage snapshots, runner state |
+| Voice preferences and vocabulary | Voice engine install (`POCKET_VOICE_HOME`); no recordings are kept |
 
 Keep browser storage to retain local preferences. Keep the server data inventory in
 [operations](operations.md#state-and-backups) across upgrades and rollbacks.

@@ -35,6 +35,10 @@ calls are required. Browser assertions include 360/390/768/1440px layouts and ad
 split-view transitions up to 2560px. Screenshots default to a temporary directory;
 set `POCKET_SCREENSHOTS` to retain them in a chosen location.
 
+Voice tests use `test/fake-voice.mjs`, a stand-in engine with the same HTTP API as
+`voice/voice_server.py`, so no models are needed; the browser suite uses Chrome's fake microphone.
+To try the real engine, run `scripts/voice-setup.sh` and point `POCKET_VOICE_HOME` at the install.
+
 For an isolated manual server, set `POCKET_ENV_FILE=''`, fresh test credentials,
 `POCKET_DATA_DIR`, `POCKET_SESSION_ROOT`, an unused `PORT`, and explicit provider
 binaries/settings. Merely changing PORT does not isolate credentials or session data.

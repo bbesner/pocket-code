@@ -8,7 +8,7 @@ const require=createRequire(import.meta.url);
 const axePath=require.resolve('axe-core/axe.min.js');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
-export async function runUIRegressions({browser,base,rows,out,setMode}) {
+export async function runUIRegressions({browser,base,rows,out,setMode,received=[],voiceLog={transcribe:[],speak:[]}}) {
  const context=await browser.createBrowserContext(),page=await context.newPage();
  page.setDefaultTimeout(8000);
  const errors=[],checks=[],scans=[];
@@ -197,6 +197,74 @@ export async function runUIRegressions({browser,base,rows,out,setMode}) {
    assert.equal(await page.$eval('#box',e=>e.value),before);
    await page.screenshot({path:path.join(out,'fixed-toolbar-mobile.png')});
    await page.setViewport({width:1440,height:900});await page.waitForFunction(()=>document.querySelector('.toolbar-next').hidden);
+  });
+  await check('Voice: hold to talk records, transcribes and sends to the session',async()=>{
+   setMode({voice:true,voiceText:'Please review the incoming quantities again.'});
+   await page.setViewport({width:390,height:844});await chat();await page.waitForSelector('#micb:not([hidden])');
+   const talk=async ms=>{const b=await (await page.$('#micb')).boundingBox();await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();
+    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='true');await pause(ms);await page.mouse.up();};
+   const draft=await page.$eval('#box',e=>e.value.trim());assert.ok(draft,'fixture has a typed draft');
+   let sentBefore=received.length;await talk(900);
+   await page.waitForFunction(()=>/Added to your draft/.test(document.querySelector('#voice-strip').textContent));
+   assert.equal(await page.$eval('#box',e=>e.value),draft+' Please review the incoming quantities again.');
+   assert.equal(received.length,sentBefore,'a typed draft is never sent on the user\'s behalf');
+   await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});
+   const sent=received.length,heard=voiceLog.transcribe.length;
+   const mic=await page.$('#micb'),box=await mic.boundingBox();
+   assert.ok(box.width>=44&&box.height>=44,'mic target '+JSON.stringify(box));
+   await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();
+   await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='true');
+   assert.match(await page.$eval('#voice-strip',e=>e.textContent),/Release to send/);
+   await pause(1400);await page.mouse.up();
+   await page.waitForFunction(()=>/Sent:/.test(document.querySelector('#voice-strip').textContent));
+   assert.equal(voiceLog.transcribe.length,heard+1);
+   assert.ok(voiceLog.transcribe.at(-1).bytes>16000*2*.8,'about a second of 16 kHz PCM: '+voiceLog.transcribe.at(-1).bytes);
+   assert.match(voiceLog.transcribe.at(-1).vocabulary,/Pocket Code/);
+   for(let i=0;i<40&&received.length===sent;i++)await pause(100);
+   assert.equal(received.at(-1).text,'Please review the incoming quantities again.');
+   await page.screenshot({path:path.join(out,'voice-sent-mobile.png')});
+  });
+  await check('Voice: a quick command is answered on the device and nothing is sent',async()=>{
+   setMode({voiceText:'Read it.'});const sent=received.length,spoken=voiceLog.speak.length;
+   const box=await (await page.$('#micb')).boundingBox();
+   await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();
+   await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='true');
+   await pause(900);await page.mouse.up();
+   for(let i=0;i<40&&voiceLog.speak.length===spoken;i++)await pause(100);
+   assert.ok(voiceLog.speak.length>spoken,'reply spoken');
+   const expected=await page.evaluate(()=>{const all=document.querySelectorAll('#msgs .m-asst');const c=all[all.length-1].cloneNode(true);
+    c.querySelectorAll('.copybtn,.ledgerwrap,pre,table').forEach(n=>n.remove());return VoiceText.chunks(VoiceText.summary(c.innerText))[0];});
+   assert.ok(expected,'latest reply has speakable text');
+   assert.equal(voiceLog.speak[spoken].text,expected,'speaks the start of the latest reply');
+   assert.equal(received.length,sent,'nothing sent to the session');
+  });
+  await check('Voice: tap starts listening, Cancel stops without sending',async()=>{
+   const heard=voiceLog.transcribe.length;
+   await page.click('#micb');
+   await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='true');
+   assert.match(await page.$eval('#voice-strip',e=>e.textContent),/Listening/);
+   await scan('voice-listening-mobile');
+   await page.click('#voice-cancel');
+   await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='false');
+   assert.equal(voiceLog.transcribe.length,heard);
+  });
+  await check('Voice: Settings saves preferences and lists voices',async()=>{
+   await page.evaluate(()=>settingsSheet());await page.waitForSelector('#s-voice');
+   await page.click('#s-voice > summary');
+   await page.waitForFunction(()=>document.querySelector('#s-voice-state').textContent.includes('available'));
+   assert.deepEqual(await page.$$eval('#s-voice-voice option',o=>o.map(x=>x.value)),['af_heart','bm_george']);
+   await page.click('#s-voice-review');
+   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-voice')).review),true);
+   await page.select('#s-voice-voice','bm_george');
+   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-voice')).voice),'bm_george');
+   await scan('settings-voice-mobile');
+   await page.screenshot({path:path.join(out,'voice-settings-mobile.png')});
+   await page.click('#s-voice-review');await page.keyboard.press('Escape');
+  });
+  await check('Voice: the mic is hidden when the server has no voice engine',async()=>{
+   setMode({voice:false});await page.reload();await page.waitForSelector('#box');await pause(300);
+   assert.equal(await page.$eval('#micb',e=>e.hidden),true);
+   setMode({voice:true});await page.reload();await page.waitForSelector('#micb:not([hidden])');
   });
   await scan('chat-desktop');await page.setViewport({width:390,height:844});await scan('chat-mobile');
   await page.evaluate(()=>settingsSheet());await scan('settings-mobile');

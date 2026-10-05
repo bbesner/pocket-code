@@ -1,7 +1,8 @@
 {
-  "version": "1.7.3",
-  "assetV": 34,
+  "version": "1.8.0",
+  "assetV": 35,
   "notes": [
-    "A session's green Response ready label in the session list now lasts only until you open the session. After that it shows as Recent, like any other session."
+    "Voice mode: tap the mic beside Send to talk to a session, or hold it for push-to-talk. Speech is transcribed and spoken back on your own Pocket server, with no speech service fees.",
+    "Short questions such as what's it doing, stop, read it or what's waiting on me are answered right away; anything else goes to the session as a normal message, and a short summary of the reply is read aloud."
   ]
 }
