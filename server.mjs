@@ -1560,7 +1560,7 @@ app.get('/api/session/:id/context', requireAuth, async (req, res) => {
   try {
     if (isCx(req.params.id)) return res.json({ context: codex.getCodexContext(codex.bareId(req.params.id)) });
     const file = await findSessionFile(req.params.id);
-    const context = await getSessionContext(usage, req.params.id, { transcriptFile: file, fsp });
+    const context = await getSessionContext(usage, req.params.id, { transcriptFile: file, fsp, modelHint: runners.get(req.params.id)?.model });
     res.json({ context });
   } catch (e) { res.status(503).json({ error: 'Context could not be loaded. Try again.' }); }
 });
@@ -2011,8 +2011,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Context ring: a small gauge beside the message box fills as the session's context window fills (amber at 70%, red at 90%). Hover for the model, tokens used, window and percentage; click for this session's usage and your plan limits.",
-  "Hands-free asks before it sends: Pocket reads your instruction back and waits for \"send it\" or a tap on Send. Say \"cancel\" or \"edit\" instead, or say something else to replace it."
+  "The context ring no longer shows a 1M-context session (Opus 5.5, Fable 5.1) as a 200k window while a turn runs, which made it look nearly full."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

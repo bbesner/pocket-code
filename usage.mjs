@@ -29,6 +29,9 @@ export function atomicWrite(file, data) {
 function impliesMillionWindow(label) {
   return typeof label === 'string' && /\[1m\]|(?:^|[^a-z0-9])1m(?:[^a-z0-9]|$)|1[\s-]?million/i.test(label);
 }
+// The CLI names a 1M model "claude-opus-5-5[1m]", but the API (and so the transcript and streamed lines)
+// calls it "claude-opus-5-5". Compare models without the suffix.
+const baseModel = m => String(m || '').replace(/\[1m\]$/i, '');
 export function estimateWindow(label, totalTokens = 0) {
   if (impliesMillionWindow(label)) return 1_000_000;
   if (totalTokens > 200_000) return 1_000_000;
@@ -105,7 +108,9 @@ export class UsageStore {
       if (!mu) return null;
       const total = Number.isFinite(prev?.total) ? prev.total : contextTotal(mu);
       const window = mu.contextWindow || estimateWindow(mainModel, total);
-      this.state.sessions[sessionId] = { total, window, model: mainModel, estimated: !mu.contextWindow || !Number.isFinite(prev?.total), lastAt: Date.now() };
+      // reportedWindow: the CLI's own figure. Estimates never replace it while the session stays on that model.
+      this.state.sessions[sessionId] = { total, window, model: mainModel, estimated: !mu.contextWindow || !Number.isFinite(prev?.total), lastAt: Date.now(),
+        reportedWindow: mu.contextWindow || (baseModel(prev?.model) === baseModel(mainModel) ? prev?.reportedWindow : undefined) };
       this.save();
       return { kind: 'session' };
     }
@@ -116,7 +121,11 @@ export class UsageStore {
   // was computed from a transcript tail for a session Pocket never drove.
   recordContext(sessionId, { total, window, model, estimated = false }) {
     if (!sessionId || !Number.isFinite(total)) return;
-    this.state.sessions[sessionId] = { total, window: window || estimateWindow(model, total), model, estimated, lastAt: Date.now() };
+    const prev = this.state.sessions[sessionId];
+    // A transcript estimate only knows "claude-opus-5-5", so it guesses 200k for a 1M session under 200k used.
+    // Keep the window the CLI reported for this model instead (2026-10-06: the ring showed 164k of 200k).
+    const reported = prev?.reportedWindow && baseModel(prev.model) === baseModel(model) ? prev.reportedWindow : undefined;
+    this.state.sessions[sessionId] = { total, window: reported || window || estimateWindow(model, total), model, estimated, lastAt: Date.now(), reportedWindow: reported };
     this.save();
   }
 
@@ -170,7 +179,9 @@ export async function contextFromTranscriptTail(file, fsp, { maxBytes = 512 * 10
 
 // Best-effort context lookup used by the API route: prefer the live/persisted record,
 // fall back to a transcript read, and label the fallback estimated either way.
-export async function getSessionContext(store, sessionId, { transcriptFile, fsp } = {}) {
+// modelHint: the model Pocket started this session's process with ("claude-opus-5-5[1m]"), which knows the
+// window when the transcript's model name does not.
+export async function getSessionContext(store, sessionId, { transcriptFile, fsp, modelHint } = {}) {
   const have = store.sessionSummary(sessionId);
   if (have && !have.estimated) return have;
   if (!transcriptFile || !fsp) return have;
@@ -179,6 +190,7 @@ export async function getSessionContext(store, sessionId, { transcriptFile, fsp 
   if (have) { try { if ((await fsp.stat(transcriptFile)).mtimeMs <= (have.lastAt || 0)) return have; } catch { return have; } }
   const fallback = await contextFromTranscriptTail(transcriptFile, fsp).catch(() => null);
   if (!fallback) return have;
+  if (modelHint && baseModel(modelHint) === baseModel(fallback.model)) fallback.window = estimateWindow(modelHint, fallback.total);
   store.recordContext(sessionId, fallback);
   return store.sessionSummary(sessionId);
 }

@@ -170,3 +170,34 @@ test('API: /api/usage and /api/session/:id/context reflect a turn that reported 
 
   assert.equal((await fetch(`http://127.0.0.1:${port}/api/usage`)).status, 401, 'usage route requires auth');
 });
+
+test('a reported 1M window survives the next turn even though the transcript says "claude-opus-5-5"', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-usage-'));
+  const store = new UsageStore(path.join(dir, 'usage-state.json'));
+  const file = path.join(dir, 'session.jsonl');
+  const line = (model, input) => JSON.stringify({ type: 'assistant', message: { role: 'assistant', model, usage: { input_tokens: input, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } });
+  // turn 1 (Pocket ran it): streamed line uses the API name; the result reports the real window under the CLI name
+  store.observe('s', { type: 'assistant', message: { model: 'claude-opus-5-5', usage: { input_tokens: 120_000 } } });
+  store.observe('s', { type: 'result', modelUsage: { 'claude-opus-5-5[1m]': { inputTokens: 2, contextWindow: 1_000_000 }, 'claude-haiku-4-5-20251001': { inputTokens: 1216, contextWindow: 200_000 } } });
+  assert.equal(store.sessionSummary('s').window, 1_000_000);
+  // turn 2 starts: a streamed line marks it estimated, the transcript moves on, the ring re-reads it
+  store.observe('s', { type: 'assistant', message: { model: 'claude-opus-5-5', usage: { input_tokens: 150_000 } } });
+  await sleep(20); fs.writeFileSync(file, line('claude-opus-5-5', 164_000) + '\n');
+  const ctx = await getSessionContext(store, 's', { transcriptFile: file, fsp });
+  assert.equal(ctx.used, 164_000);
+  assert.equal(ctx.window, 1_000_000, 'not the 200k guess');
+  // a real model change does take a new estimate
+  await sleep(20); fs.writeFileSync(file, line('claude-sonnet-5', 50_000) + '\n');
+  assert.equal((await getSessionContext(store, 's', { transcriptFile: file, fsp })).window, 200_000);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('without a reported window, the model Pocket launched decides the estimate', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-usage-'));
+  const file = path.join(dir, 'session.jsonl');
+  fs.writeFileSync(file, JSON.stringify({ type: 'assistant', message: { role: 'assistant', model: 'claude-opus-5-5', usage: { input_tokens: 150_000 } } }) + '\n');
+  const a = new UsageStore(path.join(dir, 'a.json')), b = new UsageStore(path.join(dir, 'b.json'));
+  assert.equal((await getSessionContext(a, 'x', { transcriptFile: file, fsp, modelHint: 'claude-opus-5-5[1m]' })).window, 1_000_000);
+  assert.equal((await getSessionContext(b, 'x', { transcriptFile: file, fsp })).window, 200_000, 'no hint: still the conservative guess');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
