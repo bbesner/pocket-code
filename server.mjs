@@ -2011,7 +2011,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "The context ring no longer shows a 1M-context session (Opus 5.5, Fable 5.1) as a 200k window while a turn runs, which made it look nearly full."
+  "The session menu is titled Session options with the conversation's name beneath it, so a title like \"Version check\" no longer reads as a feature. Inside a conversation it now has Version & updates, showing the version and build and opening Settings at About & updates. Settings also shows the version on the About & updates line."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

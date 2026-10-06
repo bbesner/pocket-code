@@ -16,6 +16,7 @@ const IC = {
   clip: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5l-8.3 8.3a5 5 0 01-7-7L13 4.5a3.4 3.4 0 014.8 4.8L9.7 17.4a1.8 1.8 0 01-2.5-2.5L15 7.2"/></svg>',
   stop: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
   x: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  info: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
   gauge: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14a8 8 0 0116 0M12 14l3.5-4.5"/><circle cx="12" cy="14" r="1.6"/></svg>',
   bell: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10a6 6 0 0112 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6zM10 19.5a2.2 2.2 0 004 0"/></svg>',
   bellOff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10a6 6 0 0112 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6zM10 19.5a2.2 2.2 0 004 0M4 4l16 16"/></svg>',
@@ -201,7 +202,8 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet';
   sh.innerHTML = `
-    <h2>${esc(s.title)}</h2>
+    <h2>Session options</h2>
+    <p class="sheet-name">${esc(s.title)}</p>
     ${chatTextControlsHTML()}
     ${s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':''}
     ${!PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : ''}
@@ -210,7 +212,8 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
     <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
     <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
-    <button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device — clear it to go back to the automatic one</span></span></button>`;
+    <button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device — clear it to go back to the automatic one</span></span></button>
+    ${s.id===chatId?'<button class="opt" id="so-version">'+IC.info+'<span>Version & updates<span class="sub" id="so-version-sub">'+esc(appVersionLabel())+'</span></span></button>':''}`;
   const close = () => closeCurrentSheet?.();
   scrim.onclick = close;
   sh.querySelector('#so-pin').onclick = async () => {
@@ -230,6 +233,8 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.querySelector('#so-close')?.addEventListener('click',()=>{close();closeMainPane();});
   sh.querySelector('#so-permissions').onclick=()=>{close();chooseApprovalMode(s.id);};
   sh.querySelector('#so-usage')?.addEventListener('click',openUsagePanel);
+  sh.querySelector('#so-version')?.addEventListener('click',()=>settingsSheet({about:true}));
+  if (sh.querySelector('#so-version')) loadAppRelease().then(()=>{const sub=sh.querySelector('#so-version-sub');if(sub)sub.textContent=appVersionLabel();});
   mountSheet(scrim, sh);
 }
 function renameSheet(s, refresh) {
@@ -482,6 +487,13 @@ async function togglePush(btn) {
 }
 
 /* ---------- settings sheet (version, update check, chime, notifications) ---------- */
+// This browser's release metadata (semantic version + notes), fetched once and only
+// trusted when it matches the loaded asset build.
+let appRelease = null, appReleaseLoad = null;
+const loadAppRelease = () => appReleaseLoad ??= fetch('/release.json?v=' + APP_V, {signal:AbortSignal.timeout(8000)})
+  .then(r => r.ok ? r.json() : null).then(r => { if (r?.assetV === APP_V) appRelease = r; return appRelease; })
+  .catch(() => { appReleaseLoad = null; return null; });
+const appVersionLabel = () => `Pocket Code ${appRelease?.version ? appRelease.version + ' · ' : ''}build ${APP_V ?? '?'}`;
 const REPO_URL = 'https://github.com/bbesner/pocket-code';
 // GitHub issue forms accept field ids as query parameters; `version` prefills the form's version field.
 const issueUrl = (template, version) => `${REPO_URL}/issues/new?template=${template}.yml&version=${encodeURIComponent(version || ('build ' + (APP_V ?? '?')))}`;
@@ -494,7 +506,7 @@ async function hardRefresh() {
   } catch { }
   location.reload();
 }
-async function settingsSheet() {
+async function settingsSheet({about = false} = {}) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet settings-sheet';
   const chimeOn = localStorage.getItem('pc-chime') !== 'off';
@@ -512,7 +524,7 @@ async function settingsSheet() {
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
     ${Voice.settingsHTML()}
-    <details class="settings-details" id="s-about"><summary>About & updates</summary>
+    <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
       <button class="chip" id="s-check">Check again</button><button class="primary" id="s-refresh" hidden></button>
     </details>
@@ -528,6 +540,7 @@ async function settingsSheet() {
       </div>
     </details>`;
   mountSheet(scrim, sh);
+  if (about) sh.querySelector('#s-about').scrollIntoView({block:'start'});
   bindChatTextControls(sh);
   bindAccentControls(sh);
   Voice.bindSettings(sh);
@@ -592,6 +605,8 @@ async function settingsSheet() {
     if (!sh.isConnected) return;
     const a = about.status === 'fulfilled' && about.value && typeof about.value === 'object' ? about.value : {};
     const client = release.status === 'fulfilled' && release.value?.assetV === APP_V ? release.value : null;
+    if (client) appRelease = client;
+    sh.querySelector('#s-about-version').textContent = appVersionLabel().replace('Pocket Code ', '');
     const notes = client?.notes || a.notes;
     const up = a.uptime ? (a.uptime > 5400 ? Math.round(a.uptime / 3600) + 'h' : Math.round(a.uptime / 60) + 'm') : '?';
     sh.querySelector('#s-version-info').innerHTML = `

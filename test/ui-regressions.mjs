@@ -129,6 +129,26 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    await page.click('#chatmore');assert.match(await page.$eval('#so-close',e=>e.textContent),/Close session process/);
    await page.keyboard.press('Escape');
   });
+  await check('Session menu names itself, shows the title as the conversation, and opens the version in one tap',async()=>{
+   const release=JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname),'../public/release.json'),'utf8'));
+   const vp=page.viewport();await page.setViewport({width:390,height:844});
+   const settled=()=>page.waitForFunction(()=>document.getAnimations().every(a=>a.playState!=='running'));
+   await page.click('#chatmore');await settled();
+   assert.equal(await page.$eval('#sheet-title',e=>e.textContent),'Session options');
+   assert.equal(await page.$eval('.sheet-name',e=>e.textContent),rows[4].title);
+   await page.waitForFunction(v=>document.querySelector('#so-version-sub')?.textContent.includes(v),{},release.version);
+   assert.equal(await page.$eval('#so-version-sub',e=>e.textContent),`Pocket Code ${release.version} · build ${release.assetV}`);
+   await page.screenshot({path:path.join(out,'session-menu-version.png')});
+   await page.$eval('#so-version',e=>e.scrollIntoView({block:'end'}));await page.screenshot({path:path.join(out,'session-menu-version-row.png')});
+   await page.click('#so-version');await page.waitForSelector('.settings-sheet #s-about[open]');await settled();
+   await page.waitForFunction(()=>document.querySelector('#s-about-version')?.textContent);
+   assert.equal(await page.$eval('#s-about-version',e=>e.textContent),`${release.version} · build ${release.assetV}`);
+   assert.ok(await page.$eval('#s-about',e=>{const r=e.getBoundingClientRect();return r.top>=0&&r.top<innerHeight;}));
+   await page.screenshot({path:path.join(out,'settings-about-open.png')});
+   await page.keyboard.press('Escape');
+   assert.equal(await page.evaluate(()=>document.activeElement.id),'chatmore');
+   await page.setViewport(vp);
+  });
   await page.click('#splitb');await page.click('[data-v=new]');await page.waitForSelector('#panes iframe');
   let pane=await(await page.$('#panes iframe')).contentFrame();await pane.waitForSelector('#first');
   await pane.type('#first','Beside draft survives resizing.');
