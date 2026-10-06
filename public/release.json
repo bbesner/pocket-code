@@ -1,7 +1,7 @@
 {
-  "version": "1.16.0",
-  "assetV": 49,
+  "version": "1.17.0",
+  "assetV": 50,
   "notes": [
-    "Subagents: see how many are working, then open each agent’s task, status and latest activity. Supports Claude and Codex, retains completed results, and labels unconfirmed activity after a disconnect."
+    "Reply suggestions: when the agent has a clear recommendation, that button is filled clay and tagged Recommended. The tag is never part of the message a tap sends. Requested by Brad."
   ]
 }

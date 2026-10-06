@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.17.0] — Unreleased · build 50
+
+- Reply suggestions show the recommended option. When Claude or Codex has a clear recommendation among the choice buttons under a closing question, that button is filled clay with a small Recommended tag; the others keep their outlined look. The agent marks its pick by ending the option with "(Recommended)" in the choices block; Pocket strips the marker, so a tap still sends the plain option text and the reply reads cleanly in the transcript and in other clients. At most one option is marked, and an even choice stays unmarked. Older replies without a marker look as before. Requested by Brad.
+
 ## [1.16.0] — 2026-10-06 · build 49
 
 - Subagent activity: a visible working count opens a list of delegated tasks. Expand an agent for its prompt, status, latest activity or result, and model/tool usage when reported. Available for Claude and Codex; Session options includes the view even before the first agent is recorded.

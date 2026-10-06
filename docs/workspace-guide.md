@@ -128,7 +128,9 @@ session reviewed counts on all your devices: clear it at your desk and it is gon
 
 **Reply suggestions.** Pocket asks Claude and Codex to end a closing question that offers specific next
 steps with a short list of options. Pocket shows them as buttons under the latest reply once the turn has
-finished; a tap sends that option as your next message, exactly as if you had typed it. Typing in the
+finished; a tap sends that option as your next message, exactly as if you had typed it. When the agent has a
+clear recommendation, that button is filled and tagged **Recommended**; the tag is a hint, not part of what a
+tap sends, and an even choice has no tag. Typing in the
 message box hides them, and the X dismisses them for that reply. They never appear mid-turn: questions
 an agent asks while it works still use the question form. The instruction is added only to turns Pocket
 runs (Claude via `--append-system-prompt`, Codex via thread developer instructions; a Codex config that
