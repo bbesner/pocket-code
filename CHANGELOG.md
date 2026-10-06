@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.16.0] — Unreleased · build 49
+## [1.16.0] — 2026-10-06 · build 49
 
 - Subagent activity: a visible working count opens a list of delegated tasks. Expand an agent for its prompt, status, latest activity or result, and model/tool usage when reported. Available for Claude and Codex; Session options includes the view even before the first agent is recorded.
 - Activity refreshes every five seconds, preserves expanded details, and survives browser reconnects through provider records. Unknown or stale states are labelled; background shell jobs do not inflate the agent count. Read-only inspection never resumes a child thread.
