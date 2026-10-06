@@ -351,4 +351,5 @@ opening a session reuses existing surfaces: a "Mark as reviewed" row (tick icon)
 Session options when the session has an unopened reply or failed turn, and in Attention / New a
 surface-toned bar above the groups — dim count left, a 44px chip right — that turns into
 "Marked N as reviewed · Undo" for 10 seconds. No new colour, no motion; the status line is a
-live region and focus moves to Undo. Rendered 390px screenshots reviewed.
+live region and focus moves to Undo. Rendered 390px screenshots reviewed. Reviewed state is
+shared by all devices (server-kept markers); no visual change for that.

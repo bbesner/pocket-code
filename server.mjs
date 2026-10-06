@@ -1387,6 +1387,7 @@ app.get('/api/sessions', requireAuth, async (req, res) => {
   try {
     const sessions = await listAllSessions(Math.min(Number(req.query.limit) || 60, 200));
     for (const s of sessions) if (mutes.has(s.id)) s.muted = true; // spoken alerts honor per-session mute
+    for (const s of sessions) if (smeta[s.id]?.seen) s.seenAt = smeta[s.id].seen; // shared across devices
     res.json({ sessions, warnings: sessions.warnings, checkedAt: Date.now() });
   } catch { res.status(503).json({ error: 'Session status is unavailable. Please retry.' }); }
 });
@@ -1758,6 +1759,23 @@ app.post('/api/new', requireAuth, validateApprovalMode, withDeliveryReceipt(deli
   }
 }));
 
+// Reviewed markers: the newest reply or failure time each session was opened or marked reviewed at.
+// Stored here so every device agrees on what is still waiting. `seen` only moves forward; `restore`
+// sets an exact value (Undo of Mark all reviewed), 0 clearing it.
+app.post('/api/seen', requireAuth, (req, res) => {
+  const ok = (id, at) => anyId(id) && Number.isFinite(at) && at >= 0 && at <= Date.now() + 86400000;
+  const seen = Object.entries(req.body?.seen || {}), restore = Object.entries(req.body?.restore || {});
+  if (seen.length + restore.length > 500) return res.status(400).json({ error: 'too many sessions' });
+  let changed = 0;
+  for (const [id, at] of seen) if (ok(id, at) && at > (smeta[id]?.seen || 0)) { smeta[id] = { ...smeta[id], seen: at }; changed++; }
+  for (const [id, at] of restore) if (ok(id, at) && at !== (smeta[id]?.seen || 0)) {
+    const m = { ...smeta[id], seen: at || undefined }; if (!at) delete m.seen;
+    if (Object.keys(m).length) smeta[id] = m; else delete smeta[id]; changed++;
+  }
+  if (changed) saveSmeta();
+  res.json({ ok: true, changed, seen: Object.fromEntries([...seen, ...restore].map(([id]) => [id, smeta[id]?.seen || 0])) });
+});
+
 app.post('/api/session/:id/pin', requireAuth, (req, res) => {
   const id = req.params.id;
   if (!anyId(id)) return res.status(400).json({ error: 'bad id' });
@@ -2011,7 +2029,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Mark as reviewed: clear Response ready (or a failed turn) without opening the conversation. Long-press a session or tap ⋯ and choose Mark as reviewed, or use Mark all reviewed at the top of Attention or New, with Undo for 10 seconds."
+  "Mark as reviewed: clear Response ready (or a failed turn) without opening the conversation, from the session's ⋯ menu or with Mark all reviewed in Attention and New (Undo for 10 seconds). Reviewed is now shared: what you open or clear on one device is cleared on all of them."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

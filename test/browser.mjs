@@ -62,6 +62,10 @@ const server=http.createServer(async(req,res)=>{
   if(approvalFail)return json({error:'Decision delivery is uncertain. Review the conversation.'},503);
   approvalDecisions.push(body.decision);approvalRequests=[];return json({ok:true});
  }
+ if(url.pathname==='/api/seen'){let raw='';for await(const c of req)raw+=c;const body=JSON.parse(raw||'{}'),out={};
+  for(const [id,at] of Object.entries(body.seen||{})){const r=rows.find(x=>x.id===id);if(r&&at>(r.seenAt||0))r.seenAt=at;out[id]=r?.seenAt||0;}
+  for(const [id,at] of Object.entries(body.restore||{})){const r=rows.find(x=>x.id===id);if(r){if(at)r.seenAt=at;else delete r.seenAt;}out[id]=r?.seenAt||0;}
+  return json({ok:true,seen:out});}
  if(url.pathname==='/api/sessions')return stale?json({error:'Fixture offline'},503):json({sessions:rows,warnings:[],checkedAt:Date.now()});
  if(url.pathname==='/api/projects')return json({projects:['/workspaces/warehouse','/workspaces/products']});
  if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}]});

@@ -98,7 +98,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
   await check('A finished reply reads Response ready until opened, then Recent',async()=>{
    const done=rows.find(r=>r.state?.kind==='finished'&&r.state.at);
    const status=()=>page.$eval(`[data-session-results] [data-id="${done.id}"] .session-status`,e=>({cls:e.className,text:e.textContent}));
-   await page.evaluate(id=>localStorage.removeItem('pc-seen-'+id),done.id);await page.reload();await page.waitForSelector(`[data-session-results] [data-id="${done.id}"]`);
+   delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.reload();await page.waitForSelector(`[data-session-results] [data-id="${done.id}"]`);
    assert.deepEqual(await status(),{cls:'session-status state-finished',text:'Response readyNew'});
    await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,done.state.at]);await page.reload();await page.waitForSelector(`[data-session-results] [data-id="${done.id}"]`);
    assert.deepEqual(await status(),{cls:'session-status state-idle',text:'Recent'});
@@ -510,7 +510,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};
    await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
-   await page.evaluate(id=>localStorage.removeItem('pc-seen-'+id),done.id);await page.evaluate(()=>refreshSessions());await pause(300);
+   delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>refreshSessions());await pause(300);
    await page.click('[data-filter="attention"]');await pause(200);
    const listed=()=>page.evaluate(id=>filteredSessions().some(s=>s.id===id)&&[...document.querySelectorAll('.session-item .row')].some(b=>b.dataset.id===id),done.id);
    assert.equal(await listed(),true,'an unopened reply is in Attention');
@@ -523,27 +523,41 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};
    await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
-   await page.evaluate(id=>localStorage.removeItem('pc-seen-'+id),done.id);await page.evaluate(()=>refreshSessions());await pause(300);
+   delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>refreshSessions());await pause(300);
    await page.click('[data-filter="attention"]');await pause(200);
    const listed=()=>page.evaluate(id=>filteredSessions().some(s=>s.id===id),done.id);
    assert.equal(await listed(),true,'starts in Attention');
    await page.click(`[data-more="${done.id}"]`);await page.waitForSelector('#so-reviewed');await page.screenshot({path:path.join(out,'review-option.png')});await page.click('#so-reviewed');await pause(200);
    assert.equal(await listed(),false,'single mark leaves Attention');
    assert.equal(await page.evaluate(()=>location.hash),'#/','did not open the conversation');
-   await page.evaluate(id=>localStorage.removeItem('pc-seen-'+id),done.id);await page.evaluate(()=>paintSessionPanels());
+   delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>paintSessionPanels());
    await page.waitForSelector('[data-mark-all-reviewed]');await page.screenshot({path:path.join(out,'review-bar.png')});
    await page.click('[data-mark-all-reviewed]');await pause(200);await page.screenshot({path:path.join(out,'review-bar-undo.png')});
    assert.equal(await listed(),false,'bulk mark leaves Attention');
-   await page.click('[data-undo-reviewed]');await pause(200);
+   await pause(400);assert.equal(done.seenAt,at,'saved on the server for other devices');
+   await page.click('[data-undo-reviewed]');await pause(400);
    assert.equal(await listed(),true,'Undo brings it back');
+   assert.equal(done.seenAt,undefined,'Undo also clears it on the server');
    await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,at]);
-   await page.click('[data-filter="all"]');done.state=saved;
+   await page.click('[data-filter="all"]');done.state=saved;delete done.seenAt;
+  });
+  await check('A reply reviewed on another device leaves Attention here, and one opened here is shared',async()=>{
+   const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
+   done.state={kind:'finished',label:'Response ready',at};done.seenAt=at;
+   await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
+   await page.evaluate(id=>localStorage.removeItem('pc-seen-'+id),done.id);await page.evaluate(()=>refreshSessions());await pause(300);
+   await page.click('[data-filter="attention"]');await pause(200);
+   assert.equal(await page.evaluate(id=>filteredSessions().some(s=>s.id===id),done.id),false,'the other device\'s review counts here');
+   delete done.seenAt;await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,at]);
+   await page.evaluate(()=>refreshSessions());await pause(600);
+   assert.equal(done.seenAt,at,'a marker saved only in this browser is sent to the server');
+   await page.click('[data-filter="all"]');done.state=saved;delete done.seenAt;
   });
   await check('A reply that finishes on screen stays Response ready until you engage with the page',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state;
    done.state={kind:'finished',label:'Response ready',at:Date.now()};
    await page.goto(base+'/#/chat/'+done.id);await page.waitForSelector('#box');
-   await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);awaitingEngagement.add(id);},done.id); // as if the turn ended while watching
+   delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);awaitingEngagement.add(id);},done.id); // as if the turn ended while watching
    await page.evaluate(()=>refreshSessions());await pause(200);
    assert.equal(await page.evaluate(id=>localStorage.getItem('pc-seen-'+id),done.id),null,'an unattended screen does not mark it read');
    assert.equal(await page.evaluate(id=>isUnread(allSessions.find(s=>s.id===id)),done.id),true,'still New in the session list');

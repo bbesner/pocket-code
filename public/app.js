@@ -204,7 +204,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.innerHTML = `
     <h2>Session options</h2>
     <p class="sheet-name">${esc(s.title)}</p>
-    ${s.id!==chatId&&canMarkReviewed(allSessions.find(r=>r.id===s.id)||s)?'<button class="opt" id="so-reviewed">'+IC.tick+'<span>Mark as reviewed<span class="sub">Clear '+(s.state?.kind==='failed'?'the failed turn':'Response ready')+' and take it out of Attention without opening it</span></span></button>':''}
+    ${s.id!==chatId&&canMarkReviewed(allSessions.find(r=>r.id===s.id)||s)?'<button class="opt" id="so-reviewed">'+IC.tick+'<span>Mark as reviewed<span class="sub">Clear '+(s.state?.kind==='failed'?'the failed turn':'Response ready')+' on all your devices without opening it</span></span></button>':''}
     ${chatTextControlsHTML()}
     ${s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':''}
     ${!PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : ''}
@@ -638,21 +638,67 @@ async function settingsSheet({about = false} = {}) {
 let allSessions = [], sessionFilter = 'all', sessionQuery = '', sessionCheckedAt = 0, sessionWarnings = [], sessionsStale = false;
 let sessionFetch = null;
 let sessionProofReceivedAt=0,sessionProofReceivedWallAt=0;
-const seenAt = id => { try { return Number(localStorage.getItem('pc-seen-' + id)) || 0; } catch { return 0; } };
+// Reviewed markers: the newest reply or failure time you opened or marked reviewed. The server keeps them so
+// every device agrees; this browser keeps a copy so the list is right before the server answers or offline.
+// Unsent changes wait in seenPending (only moves forward) and seenRestore (Undo, exact) until a save succeeds.
+const serverSeen = new Map(), seenPending = new Map(), seenRestore = new Map();
+let seenFlushT = null, seenFlushing = null;
+const localSeen = id => { try { return Number(localStorage.getItem('pc-seen-' + id)) || 0; } catch { return 0; } };
+const seenAt = id => Math.max(localSeen(id), serverSeen.get(id) || 0);
+function setSeen(id, at) {
+  if (!at || at <= seenAt(id)) return;
+  try { localStorage.setItem('pc-seen-' + id, String(at)); } catch { }
+  seenRestore.delete(id); seenPending.set(id, at); clearTimeout(seenFlushT); seenFlushT = setTimeout(flushSeen, 250);
+}
+async function flushSeen() {
+  if (seenFlushing) return seenFlushing;
+  if (!seenPending.size && !seenRestore.size) return;
+  const seen = Object.fromEntries(seenPending), restore = Object.fromEntries(seenRestore);
+  seenFlushing = (async () => {
+    try {
+      const r = await api('/seen', { method: 'POST', body: JSON.stringify({ seen, restore }) });
+      for (const [id, at] of Object.entries(seen)) if (seenPending.get(id) === at) seenPending.delete(id);
+      for (const [id, at] of Object.entries(restore)) if (seenRestore.get(id) === at) seenRestore.delete(id);
+      for (const [id, at] of Object.entries(r.seen || {})) if (!seenRestore.has(id)) serverSeen.set(id, at);
+    } catch { } // kept for the next session refresh
+    finally { seenFlushing = null; }
+  })();
+  return seenFlushing;
+}
+// Take the server's markers, and send up any this browser has that the server lacks (including markers
+// saved before they were shared), so a reply opened here is cleared everywhere.
+function syncSeen() {
+  for (const s of allSessions) {
+    if (seenRestore.has(s.id)) continue;
+    serverSeen.set(s.id, s.seenAt || 0);
+    const mine = localSeen(s.id);
+    if (mine > (s.seenAt || 0) && !seenPending.has(s.id)) seenPending.set(s.id, mine);
+  }
+  flushSeen();
+}
 const needsAttention = s => s.state?.kind === 'input' || s.state?.kind === 'failed' && (s.state.at || 0) > seenAt(s.id);
 const isUnread = s => s.state?.kind === 'finished' && (s.state.at || 0) > seenAt(s.id);
 // The Attention filter and count: anything waiting on you, including a finished reply (Response ready) you
 // have not opened yet. Grouping and voice keep needsAttention, which means a question, approval or failure.
 const inAttention = s => needsAttention(s) || isUnread(s);
-// Mark reviewed clears a Response ready reply or a failed turn without opening it, on this device, exactly as
-// opening would. Questions and approvals stay until they are answered.
+// Mark reviewed clears a Response ready reply or a failed turn without opening it, on every device, exactly
+// as opening would. Questions and approvals stay until they are answered.
 const canMarkReviewed = s => isUnread(s) || s.state?.kind === 'failed' && (s.state.at || 0) > seenAt(s.id);
 function markReviewed(list) {
   const prior = [];
-  for (const s of list.filter(canMarkReviewed)) { try { prior.push([s.id, localStorage.getItem('pc-seen-' + s.id)]); localStorage.setItem('pc-seen-' + s.id, String(s.state.at)); } catch { } }
+  for (const s of list.filter(canMarkReviewed)) {
+    let mine = null; try { mine = localStorage.getItem('pc-seen-' + s.id); } catch { }
+    prior.push([s.id, mine, serverSeen.get(s.id) || 0]); setSeen(s.id, s.state.at);
+  }
   return prior;
 }
-function restoreReviewed(prior) { for (const [id, v] of prior) { try { v === null ? localStorage.removeItem('pc-seen-' + id) : localStorage.setItem('pc-seen-' + id, v); } catch { } } }
+function restoreReviewed(prior) {
+  for (const [id, mine, server] of prior) {
+    try { mine === null ? localStorage.removeItem('pc-seen-' + id) : localStorage.setItem('pc-seen-' + id, mine); } catch { }
+    seenPending.delete(id); seenRestore.set(id, server); serverSeen.set(id, server);
+  }
+  flushSeen();
+}
 // After Mark all reviewed, the bar offers Undo for a short while instead of the action.
 let reviewUndo = null, reviewUndoT = null;
 // A reply that finishes while its conversation is already on screen counts as read only after you engage
@@ -662,7 +708,7 @@ const awaitingEngagement = new Set();
 for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) addEventListener(ev, () => awaitingEngagement.clear(), { capture: true, passive: true });
 addEventListener('hashchange', () => awaitingEngagement.clear());
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') awaitingEngagement.clear(); });
-function markRead(id, state) { if (document.visibilityState === 'visible' && state?.at && !awaitingEngagement.has(id)) { try { localStorage.setItem('pc-seen-' + id, String(state.at)); } catch { } } }
+function markRead(id, state) { if (document.visibilityState === 'visible' && state?.at && !awaitingEngagement.has(id)) setSeen(id, state.at); }
 function rowState(s) { return s.state || { kind: s.active ? 'observed' : 'idle', label: s.active ? 'Activity elsewhere' : 'Recent' }; }
 // The list announces a finished reply only until it has been opened; afterwards it is an ordinary recent session.
 function listState(s) { const state = rowState(s); return state.kind === 'finished' && !isUnread(s) ? { ...state, kind: 'idle', label: 'Recent' } : state; }
@@ -776,7 +822,7 @@ function paintSessionPanels() {
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
   sessionFetch = (async () => {
-    try { const d = await api('/sessions?limit=200&statusCheck='+Date.now(),{cache:'no-store',signal:AbortSignal.timeout(8000)}); allSessions = d.sessions; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
+    try { const d = await api('/sessions?limit=200&statusCheck='+Date.now(),{cache:'no-store',signal:AbortSignal.timeout(8000)}); allSessions = d.sessions; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
     finally { sessionFetch = null; paintSessionPanels(); if (!sessionsStale) Voice.onSessions(allSessions); }
   })();
