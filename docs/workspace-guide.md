@@ -119,6 +119,9 @@ its outcome is reviewed and the uncertain row is removed.
 
 ## Questions, permissions and status
 
+**Attention** collects everything waiting on you: agent questions, action approvals, failed turns, and
+replies marked Response ready that you have not opened yet. Opening a session clears its Response ready.
+
 **Reply suggestions.** Pocket asks Claude and Codex to end a closing question that offers specific next
 steps with a short list of options. Pocket shows them as buttons under the latest reply once the turn has
 finished; a tap sends that option as your next message, exactly as if you had typed it. Typing in the

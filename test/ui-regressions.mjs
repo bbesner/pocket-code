@@ -385,6 +385,25 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('pc-voice'));p.alerts='off';localStorage.setItem('pc-voice',JSON.stringify(p));});
    await chat();
   });
+  await check('Phone composer: the message box keeps a full row, idle and while a turn runs',async()=>{
+   await page.setViewport({width:390,height:844});
+   const run=rows.find(r=>r.state.kind==='running');
+   for(const id of [idle,run.id]){
+    await page.goto(base+'/#/chat/'+id);await page.waitForSelector('#box');await pause(200);
+    const w=await page.$eval('#box',e=>e.getBoundingClientRect().width);
+    assert.ok(w>=390*0.8,'box width '+w+' for '+id);
+    const bad=await page.$$eval('.composer > .composer-actions button, .composer > .voice-mic:not([hidden]), .composer > .send, .composer > .send-mode button',b=>b.filter(x=>x.getClientRects().length).map(x=>{const r=x.getBoundingClientRect();return {id:x.id||x.className||x.textContent.trim().slice(0,20),right:Math.round(r.right),h:Math.round(r.height),w:Math.round(r.width)};}).filter(r=>r.right>innerWidth+1||r.h<40));
+    assert.deepEqual(bad,[],'buttons on screen '+id);
+   }
+   // one row = every control's vertical centre within a few px of the others
+   const spread=()=>page.$$eval('.composer > .voice-mic:not([hidden]), .composer > .send, .composer > .send-mode',els=>{const c=els.map(e=>{const r=e.getBoundingClientRect();return r.top+r.height/2;});return Math.max(...c)-Math.min(...c);});
+   await page.screenshot({path:path.join(out,'composer-working-mobile.png')});
+   assert.ok(await spread()<8,'steer choices, voice and Send share one row at 390px');
+   await page.setViewport({width:360,height:800});await pause(200);
+   await page.screenshot({path:path.join(out,'composer-working-360.png')});
+   assert.ok(await spread()<8,'one row at 360px: '+await spread());
+   await page.setViewport({width:390,height:844});
+  });
   await check('Attention filter includes Response ready replies until they are opened',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};

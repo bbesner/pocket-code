@@ -231,9 +231,8 @@ mark.fmark.cur { background: var(--clay); color: #1A0F09; }
   .composer textarea { flex: 1 1 100%; order: 1; min-width: 0; }
   .composer .composer-actions, .composer .send-mode, .composer .voice-mic, .composer .send { order: 2; }
   .composer .composer-actions { margin-right: auto; }
-  .composer .send-mode { flex: 1 1 auto; }
-  .composer .voice-mic { width: 44px; height: 44px; }
-  .composer .send { margin-left: 4px; }
+  .composer .send-mode { flex: 1 1 0; min-width: 0; margin: 0; gap: 6px; }  /* shrinks so Send stays on this row */
+  .composer .send-mode button { flex: 0 1 auto; min-width: 0; padding: 8px 7px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 /* ---------- composer toolbar (attach / model / effort) ---------- */
 .composer { flex-wrap: wrap; }
@@ -788,6 +787,8 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .composer .voice-mic:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 .composer .voice-mic[hidden] { display: none; }
 .composer .voice-hf.drafting { display: none; }
+@media (max-width: 600px) { .composer .voice-mic { width: 44px; height: 44px; } }  /* the narrow composer's control row: 44px targets */
+@media (max-width: 380px) { .send-mode .sm-x { display: none; } }  /* closed Fold / small phones: "Steer" and "After turn"; full names stay in aria-label */
 .voice-strip { display: flex; align-items: center; gap: 10px; max-width: 720px; margin: 0 auto; padding: 6px 16px; min-height: 40px;
   font-size: 13px; line-height: 1.4; color: var(--dim); }
 .voice-strip[hidden] { display: none; }

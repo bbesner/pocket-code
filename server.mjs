@@ -2011,6 +2011,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
+  "Attention now includes sessions marked Response ready, until you open them, alongside questions, approvals and failed turns.",
+  "On phones and narrow panes the message box has its own full-width row, with the buttons beneath it, so it is never squeezed, even while steering a running turn. Contributed by Damon Delcoro.",
   "A message you send to an idle session stays on screen while the turn starts, instead of disappearing until the reply finishes. Reported by Damon Delcoro."
 ];
 

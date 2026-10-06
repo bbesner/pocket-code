@@ -1480,7 +1480,7 @@ function setComposer(working) {
         <button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>
         <button class="chip stopchip" id="stopb" aria-label="Stop this turn">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
-    ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer">Steer now</button><button data-mode="queue">After this turn</button></div>' : ''}
+    ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this turn" aria-label="After this turn">After <span class="sm-x">this </span>turn</button></div>' : ''}
     ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.cog}</button></div>` : ''}
     <textarea id="box" rows="1" placeholder="${working ? 'Steer this turn…' : 'Message this session…'}" enterkeyhint="send"></textarea>
     ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button>`;
