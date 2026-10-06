@@ -109,3 +109,10 @@ test('HTTP: voice routes require login, report availability and round-trip audio
   assert.equal(spoken.status, 200); assert.equal(spoken.headers.get('content-type'), 'audio/wav');
   assert.equal((await fetch(url('/speak'), { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: '{}' })).status, 400);
 });
+
+test('hands-free confirmation: only a short yes sends; cancel, edit or anything else does not', () => {
+  for (const t of ['Yes', 'yes, send it', 'Send it.', 'Go ahead', 'do it', 'Okay send it', "That's right", 'Send it please']) assert.equal(V.confirmReply(t), 'yes', t);
+  for (const t of ['No', 'Cancel', "Don't send it", 'Never mind', 'Scratch that', 'stop']) assert.equal(V.confirmReply(t), 'no', t);
+  for (const t of ['Edit', 'let me edit it', 'Change it']) assert.equal(V.confirmReply(t), 'edit', t);
+  for (const t of ['', 'Yes and also deploy the site to production', 'I said yes to him earlier', 'send the invoice to Rob', 'Deploy the new build']) assert.equal(V.confirmReply(t), null, t);
+});

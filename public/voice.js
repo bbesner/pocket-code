@@ -21,6 +21,7 @@ const Voice = (() => {
   let rec = null, ctx = null, workletReady = false, wakeLock = null;
   let speech = null;                                            // { cancelled, source }
   let handsFree = null, hfStarting = false;                     // session id of the hands-free conversation, if one is on
+  let pendingSend = null;                                       // {id, text}: a hands-free instruction waiting for "send it"
   const armed = new Set();                                      // sessions whose next finished turn is spoken
   const lastReply = new Map();                                  // sessionId -> markdown of the latest reply
   const announced = new Map();                                  // sessionId -> kinds already announced this turn
@@ -96,16 +97,22 @@ const Voice = (() => {
     }
     if (!strip) return;
     const pre = conv ? 'Hands-free. ' : '';
+    const pend = pendingSend?.id === chatId ? pendingSend : null;
     const label = { listening: pre + (rec?.reopened && !rec.speechAt ? 'Listening for your reply. Take your time' : conv ? 'Listening. Pause when you’re done' : 'Listening. Tap the mic when you’re done'),
-      holding: 'Listening. Release to send', transcribing: pre + 'Transcribing…', speaking: pre + 'Speaking' }[state] || note || (conv ? hfStarting ? 'Hands-free. Starting the mic…' : 'Hands-free is on. Waiting for the reply' : '');
+      holding: 'Listening. Release to send', transcribing: pre + 'Transcribing…', speaking: pre + 'Speaking' }[state] || note || (pend ? `Send this? “${pend.text}”` : '') || (conv ? hfStarting ? 'Hands-free. Starting the mic…' : 'Hands-free is on. Waiting for the reply' : '');
     strip.hidden = !label;
     strip.dataset.state = state;
     strip.innerHTML = label ? `${live ? '<span class="voice-level" aria-hidden="true"><i></i><i></i><i></i></span>' : ''}<span class="voice-label">${esc(label)}</span>${
       live ? '<button class="chip" id="voice-cancel" type="button">Cancel</button>' : state === 'speaking' ? '<button class="chip" id="voice-stop" type="button">Stop</button>'
+        : pend && state === 'idle' && !note ? '<span class="voice-confirm"><button class="chip voice-send" id="voice-send" type="button">Send</button><button class="chip" id="voice-edit" type="button">Edit</button><button class="chip" id="voice-discard" type="button">Cancel</button></span>'
         : conv && state === 'idle' ? '<button class="chip" id="voice-end" type="button">End hands-free</button>' : ''}` : '';
+    if (pend && (live || state === 'speaking')) strip.querySelector('.voice-label')?.insertAdjacentHTML('beforeend', `<span class="voice-pending"> · Waiting to send: “${esc(pend.text)}”</span>`);
     const c = document.getElementById('voice-cancel'); if (c) c.onclick = () => cancel();
     const s = document.getElementById('voice-stop'); if (s) s.onclick = () => { handsFree = null; stopSpeaking(); paint(); };
     const e = document.getElementById('voice-end'); if (e) e.onclick = () => endHandsFree('Hands-free is off.');
+    const vs = document.getElementById('voice-send'); if (vs) vs.onclick = () => sendPending();
+    const ve = document.getElementById('voice-edit'); if (ve) ve.onclick = () => editPending();
+    const vd = document.getElementById('voice-discard'); if (vd) vd.onclick = () => { pendingSend = null; say('Cancelled. Nothing was sent.', 4000); };
   }
   // The headset toggles a hands-free conversation for the open session. It never turns on by itself.
   async function handsFreeTap() {
@@ -158,7 +165,7 @@ const Voice = (() => {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
     catch (e) { say(micError(e), 8000); return; }
     try {
-      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=43'); workletReady = true; }
+      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=44'); workletReady = true; }
       const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pocket-capture'), sink = ctx.createGain();
       sink.gain.value = 0; src.connect(node); node.connect(sink); sink.connect(ctx.destination);   // a pulled graph keeps the worklet running
       rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened, handsFree: inHandsFree(),
@@ -231,7 +238,9 @@ const Voice = (() => {
 
   /* ---------- what was said ---------- */
   async function handle(text) {
-    const kind = VoiceText.intent(text), id = chatId;
+    const id = chatId;
+    if (pendingSend?.id === id) return confirmStep(text);
+    const kind = VoiceText.intent(text);
     if (kind) { say(`Heard: “${text}”`, 4000); return command(kind, id); }
     const p = prefs();
     const box = document.getElementById('box');
@@ -244,9 +253,38 @@ const Voice = (() => {
       say(box?.readOnly ? `Heard: “${text}”. Resolve the pending message first.` : draft ? 'Added to your draft. Review it, then send.' : 'Review the text, then send it.', 6000);
       return;
     }
+    if (inHandsFree(id)) return askToSend(id, text);       // hands-free never starts a turn without a yes
     say(`Sent: “${text}”`, 5000);
-    if (p.speak || inHandsFree(id)) arm(id);
+    if (p.speak) arm(id);
     await sendMsg(text);
+  }
+  // Hands-free: read the instruction back and wait for "send it" (or a tap) before anything reaches the agent.
+  function askToSend(id, text) {
+    pendingSend = { id, text }; paint();
+    const short = text.length > 140 ? text.slice(0, 140).replace(/\s+\S*$/, '') + ', and the rest' : text;
+    return speakOut(`Ready to send: ${short}. Say send it, or cancel.`, { listenAfter: true });
+  }
+  async function confirmStep(text) {
+    const p = pendingSend, a = VoiceText.confirmReply(text);
+    if (a === 'yes') return sendPending();
+    if (a === 'edit') return editPending();
+    if (a === 'no') { pendingSend = null; paint(); return speakOut('Cancelled. Nothing was sent.', { listenAfter: inHandsFree(p.id) }); }
+    return askToSend(p.id, text);                              // a different instruction replaces it and is confirmed again
+  }
+  async function sendPending() {
+    const p = pendingSend; if (!p) return;
+    pendingSend = null;
+    if (p.id !== chatId) { say('You switched sessions, so that wasn’t sent.'); return; }
+    say(`Sent: “${p.text}”`, 5000);
+    if (prefs().speak || inHandsFree(p.id)) arm(p.id);
+    await sendMsg(p.text);
+  }
+  function editPending() {
+    const p = pendingSend; if (!p) return;
+    pendingSend = null; handsFree = null; if (rec) release(); stopSpeaking(); setState('idle');
+    const box = document.getElementById('box');
+    if (box && !box.readOnly) { box.value = box.value.trim() ? `${box.value.trim()} ${p.text}` : p.text; box.dispatchEvent(new Event('input')); box.focus(); }
+    say('Edit the message, then send it.', 6000);
   }
   function arm(id) { armed.add(id); announced.delete(id); keepAwake(); }
 
@@ -412,7 +450,7 @@ const Voice = (() => {
       speakOut(kind === 'approvals' ? 'It needs your approval. Review it on screen.' : 'It has a question for you on screen.');
     }, 800);
   }
-  function onLeave() { handsFree = null; if (rec) cancel(); stopSpeaking(); paint(); }
+  function onLeave() { handsFree = null; pendingSend = null; if (rec) cancel(); stopSpeaking(); paint(); }
 
   /* ---------- settings ---------- */
   function settingsHTML() {
@@ -429,7 +467,7 @@ const Voice = (() => {
         <label class="voice-field">Voice<select id="s-voice-voice"></select></label>
         <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, TechPro, Zoho" value="${esc(p.vocab)}"></label>
         <button class="chip" id="s-voice-test" type="button">Play a sample</button>
-        <p class="sub">Tap the mic to send one message; it sends when you pause. Hold it for push-to-talk. Tap the headset for a hands-free conversation: each reply is spoken and the mic listens for your answer, until you end it or stay quiet. Announcements never turn on the mic. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers. Speech is processed on your Pocket server.</p>
+        <p class="sub">Tap the mic to send one message; it sends when you pause. Hold it for push-to-talk. Tap the headset for a hands-free conversation: each reply is spoken and the mic listens for your answer, until you end it or stay quiet. In hands-free, Pocket reads your instruction back and sends it only after you say “send it” or tap Send. Announcements never turn on the mic. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers. Speech is processed on your Pocket server.</p>
         <p class="sub">Voice is in beta and still improving. Report problems under Bugs &amp; feature requests.</p>
       </div></details>`;
   }
@@ -450,5 +488,5 @@ const Voice = (() => {
     });
   }
 
-  return { micHTML, bindComposer, paint, onAssistant, onTurnEnd, onIdle, onSessions, replacesChime, onAttention, onLeave, settingsHTML, bindSettings, speak: speakOut, stopSpeaking, _test: { toPcm16, handsFree: () => handsFree, setHandsFree: id => { handsFree = id; paint(); }, arm: id => armed.add(id), state: () => state } };
+  return { micHTML, bindComposer, paint, onAssistant, onTurnEnd, onIdle, onSessions, replacesChime, onAttention, onLeave, settingsHTML, bindSettings, speak: speakOut, stopSpeaking, _test: { toPcm16, handsFree: () => handsFree, setHandsFree: id => { handsFree = id; paint(); }, arm: id => armed.add(id), state: () => state, handle: t => handle(t), pending: () => pendingSend } };
 })();

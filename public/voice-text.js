@@ -78,6 +78,19 @@ const VoiceText = (() => {
     return null;
   }
 
+  // The answer to "Send it?" in a hands-free conversation: 'yes' | 'no' | 'edit' | null (anything else is a new
+  // instruction, which is confirmed again). Only short replies count, so a sentence that merely contains "yes"
+  // or "send" is never taken as consent.
+  function confirmReply(transcript) {
+    const t = String(transcript || '').toLowerCase().replace(/[’']/g, '').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim()
+      .replace(/^(ok(ay)?|um|uh|yeah so|so) /, '').replace(/ (please|thanks|thank you)$/, '');
+    if (!t || t.split(' ').length > 5) return null;
+    if (/^(no|nope|cancel( (it|that))?|dont( send( it)?)?|do not send( it)?|never ?mind|scratch that|forget it|stop)$/.test(t)) return 'no';
+    if (/^(edit( it)?|let me edit( it)?|change it|let me change it|type it|ill type it)$/.test(t)) return 'edit';
+    if (/^(yes|yeah|yep|yup|sure|correct|confirm(ed)?|thats (right|correct|it)|send( it| that)?( now)?|yes send( it)?|go( ahead)?|do it|go for it|ok(ay)?( send( it)?)?)$/.test(t)) return 'yes';
+    return null;
+  }
+
   // A tool ledger line ("Bash  npm test --silent") as a short spoken step.
   function stepText(name, detail) {
     const d = speakable(String(detail || '')).replace(/\s+/g, ' ').slice(0, 70).replace(/\s+\S*$/, '');
@@ -109,6 +122,6 @@ const VoiceText = (() => {
     return `The ${name}${tail} finished.${line ? ' ' + line : ''}`;
   }
 
-  return { speakable, sentences, summary, chunks, intent, stepText, isNoise, oneLine, shortTitle, alertText };
+  return { speakable, sentences, summary, chunks, intent, stepText, isNoise, oneLine, shortTitle, alertText, confirmReply };
 })();
 globalThis.VoiceText = VoiceText;

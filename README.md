@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.12.0 / build 43**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.13.0 / build 44**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -35,7 +35,8 @@ Screenshots use synthetic demo sessions, not private conversations.
 - **Choose how to run.** Set the model and reasoning effort per turn, use Codex's
   Plan first mode, or start from an installed skill and a project directory.
 - **See status and limits.** Distinguish confirmed server work from activity elsewhere,
-  check context use and provider plan limits, and inspect this instance's accounts.
+  watch the context ring beside the composer fill (hover for tokens, click for the session's usage and
+  plan limits), and inspect this instance's accounts.
 - **Get completion alerts.** Enable optional push notifications, an on-screen chime,
   or per-session muting. Push requires HTTPS, server keys and browser permission.
 - **Talk to a session (beta, optional).** Tap the mic beside Send and speak; a short summary of
@@ -231,7 +232,8 @@ a reply was ready in under a second. Without the install, the mic button stays h
   message and does not listen again.
 - **Hands-free:** tap the headset beside the mic. Each reply is read aloud and the mic listens for your
   answer (up to 2 minutes by default) until you tap the headset again, tap Cancel or stay quiet. It is
-  never on unless you start it, and it hides while you have a typed draft.
+  never on unless you start it, and it hides while you have a typed draft. Each instruction is read back
+  and sent only after you say "send it" or tap Send.
 - Short commands are answered without the agent: *what's it doing*, *stop*, *read it*,
   *read it all* and *what's waiting on me*. Anything else is sent as a normal message.
 - Settings → Voice: speak replies, review before sending, how long hands-free waits for your reply,

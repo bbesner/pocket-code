@@ -146,12 +146,11 @@ that confirmation; a locally ticking timer is not evidence that work is progress
 An external transcript can show activity without proving a process is still running.
 Browser suspension may pause status refresh; the server turn remains independent.
 
-The context meter shows the latest known context relative to the model window, with
-estimates labelled `est.`. Phones show the percentage. It is not cumulative token
-billing for the whole turn. Plan usage, available in Session options and Settings,
-shows observed provider windows, reset times in Eastern, extra-usage status where
-reported, and the observation time. It updates when provider events arrive, not as a
-live account-billing meter. A reset that passed since observation is marked explicitly.
+The context ring sits beside the composer's settings button (in the working row while a turn runs). It
+fills as the session's context window fills, turning amber at 70% and red at 90%. Hover or focus it for
+the model, tokens used, the window size and the percentage; click it for this session's usage: the context
+window (window, used, free, as of) and the provider's plan limits. Estimates are labelled. It shows the
+latest known context relative to the model window, not cumulative token billing for the whole turn.
 
 ## Settings, notifications and compact views
 
@@ -229,6 +228,12 @@ waiting 2 minutes by default while you read the rest. Tap the headset again, tap
 leave the session or stay quiet past the wait to end it. The headset hides while you have a typed
 draft, since speech then only adds to the draft. Announcements, approval prompts and replies outside a
 hands-free conversation are spoken without reopening the mic.
+
+In hands-free, Pocket reads each instruction back ("Ready to send: …") and waits. Say "send it" (or yes,
+go ahead) or tap Send to send it; say "cancel" or tap Cancel to drop it; say "edit" or tap Edit to put it in
+the message box. Saying something else replaces it and is read back again. Nothing reaches the agent
+without that yes. Quick commands (what's it doing, stop, read it) are answered at once. The plain mic
+sends as before.
 
 Settings → Voice controls whether replies are spoken, review-before-sending, Hands-free: wait for my
 reply (30 seconds to 5 minutes), the voice, and names and terms for the recognizer (project names,

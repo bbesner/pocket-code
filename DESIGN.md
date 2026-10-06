@@ -332,3 +332,14 @@ controls sit beneath it: settings left, voice controls and Send right, Steer now
 turn filling the space while a turn runs. Costs about 50px of reading height on phones in
 exchange for a box that never collapses (it fell to "Stee…" in a 480px pane). Targets stay 44px.
 Attention counts unopened Response ready replies with questions, approvals and failures.
+
+## Context ring and hands-free confirmation (1.13)
+
+Pinned Operate refinement: variance 3, motion 1, density 6. The state-bar text meter is
+replaced by a 22px ring in a 44px button beside the composer's settings button (in the
+working row while a turn runs): a dim track, a clay arc for the share used, amber at 70%,
+red at 90%. The tooltip gives model · used of window (percent); the accessible name says
+the same. A click opens a "Usage" sheet: this session's context (bar, window / used / free,
+as-of, estimate note) above the provider's plan windows. The arc is the only change of state.
+In hands-free the strip reads the instruction back ("Send this? …") with Send (clay outline),
+Edit and Cancel at 44px. Rendered desktop/phone screenshots and axe scans reviewed.
