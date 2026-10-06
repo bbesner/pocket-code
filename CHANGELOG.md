@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.2] — Unreleased · build 46
+## [1.13.2] — 2026-10-06 · build 46
 
 - Session menu: the sheet opened from ⋯ (or a long-press on a session) is titled "Session options", with the conversation's name on its own line beneath. It used to show only the name as the heading, so a session called "Pocket Code version check" looked like a version feature with nothing in it. Reported by Brad.
 - Version & updates in the session menu. Inside a conversation the ⋯ menu shows "Pocket Code 1.13.2 · build 46" and opens Settings with About & updates expanded and in view; before, the version was only reachable from the session list's gear, behind a collapsed section. The About & updates line in Settings now shows the version even when collapsed.
