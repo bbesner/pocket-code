@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.14.0] — Unreleased · build 47
+## [1.14.0] — 2026-10-06 · build 47
 
 - Spoken reply length. Settings › Voice has Brief (one sentence, like the alert line), Normal (about two sentences, the default and the previous behavior) and Detailed (the whole reply, skipping code, tables and links, ending on a sentence after about three minutes with "The rest is on screen"). It applies to the reply spoken when a voice turn finishes and to "read it". "What's it doing" stays short at any length, and "read it all" always reads the whole reply. It only changes how much of the written reply is read aloud. It does not change what Claude or Codex writes. Requested by Brad.
 
