@@ -325,6 +325,12 @@ wrap on phones, a dim 44px X to dismiss that returns focus to the message box. T
 appear only when nothing is running, nothing is pending and the box is empty; no motion
 beyond the existing message entrance. Rendered 390px screenshot and axe scan reviewed.
 
+**Recommended pick (1.17).** Pinned refinement: variance 3, motion 1, density 5. The option the agent
+marks "(Recommended)" uses the app's primary-action material (clay fill, ink text, like Send) with a
+12px "Recommended" tag beneath the label in the same ink, so it reads at a glance and is announced by
+name. The other buttons are unchanged; nothing new moves. Ink on the clay fill measures 6.0:1 (computed
+2026-10-06); the tag's .9 opacity keeps it above 5:1.
+
 ## Phone composer rows and Attention (1.12)
 
 Up to 600px (phones and narrow split panes) the message box takes a full-width row and the

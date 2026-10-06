@@ -2062,7 +2062,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Subagents: see how many are working, then open each agent’s task, status and latest activity. Supports Claude and Codex, retains completed results, and labels unconfirmed activity after a disconnect."
+  "Reply suggestions: when the agent has a clear recommendation, that button is filled clay and tagged Recommended. The tag is never part of the message a tap sends. Requested by Brad."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

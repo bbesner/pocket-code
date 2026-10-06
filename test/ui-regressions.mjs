@@ -355,11 +355,15 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
   });
   await check('Reply suggestions: cards under the last reply send on tap; typing or X hides them',async()=>{
    const conv=conversations.get(idle),saved=conv.slice();await chat();
-   conv.push({role:'assistant',blocks:[{t:'text',text:'Tests pass. Should I merge and deploy?'},{t:'choices',options:['Merge and deploy',"Don't merge yet"]}]});
+   conv.push({role:'assistant',blocks:[{t:'text',text:'Tests pass. Should I merge and deploy?'},{t:'choices',options:['Merge and deploy',"Don't merge yet"],rec:0}]});
    await page.evaluate(id=>{localStorage.removeItem('pc-choices-dismissed');localStorage.removeItem('pc-draft-'+id);},idle);
    await page.reload();await page.waitForSelector('#box');await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});
    await page.waitForSelector('.choices:not([hidden])');
-   assert.deepEqual(await page.$$eval('.choices .choice',b=>b.map(x=>x.textContent)),['Merge and deploy',"Don't merge yet"]);
+   assert.deepEqual(await page.$$eval('.choices .choice',b=>b.map(x=>x.dataset.choice)),['Merge and deploy',"Don't merge yet"]);
+   assert.deepEqual(await page.$$eval('.choices .choice',b=>b.map(x=>x.classList.contains('choice-rec'))),[true,false],'the marked option is the recommended one');
+   assert.equal(await page.$eval('.choice-rec .choice-tag',e=>e.textContent),'Recommended');
+   assert.equal(await page.$eval('.choice-rec',e=>e.textContent),'Merge and deployRecommended','the tag is in the accessible name');
+   assert.ok(await page.$eval('.choice-rec',e=>{const s=getComputedStyle(e);return s.backgroundColor!==getComputedStyle(e.nextElementSibling).backgroundColor;}),'the recommended button is filled differently');
    assert.equal(await page.$eval('.choices',e=>e.closest('.m-asst')===[...document.querySelectorAll('#msgs .m-asst')].pop()),true,'under the latest reply');
    assert.ok(await page.$$eval('.choices button',b=>b.every(x=>{const r=x.getBoundingClientRect();return r.width>=44&&r.height>=44;})),'44px targets');
    assert.doesNotMatch(await page.$eval('#msgs',e=>e.textContent),/```|choices\n/,'the raw block never shows');

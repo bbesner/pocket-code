@@ -1021,10 +1021,14 @@ function toolsCollapsed() { return readLocal('pc-tools-collapsed', true) !== fal
 // Reply suggestions: the agent ends a question with a ```choices block (see choices.mjs); the server turns it
 // into {t:'choices', options}. They show only under the latest reply of a finished turn, while the message
 // box is empty, until dismissed. A tap sends the option as the next message.
-function choicesHTML(options) {
+// `rec` is the index of the option the agent marked "(Recommended)": that button is filled clay and carries
+// a "Recommended" tag (visible and read by screen readers); the tag is never part of the sent message.
+function choicesHTML(options, rec) {
   if (!options.length) return '';
   return `<div class="choices" role="group" aria-label="Suggested replies" data-choices="${esc(options.join('\u241e'))}" hidden>${
-    options.map(o => `<button type="button" class="choice" data-choice="${esc(o)}">${esc(o)}</button>`).join('')
+    options.map((o, i) => i === rec
+      ? `<button type="button" class="choice choice-rec" data-choice="${esc(o)}"><span class="choice-text">${esc(o)}</span><span class="choice-tag">Recommended</span></button>`
+      : `<button type="button" class="choice" data-choice="${esc(o)}">${esc(o)}</button>`).join('')
   }<button type="button" class="choice-x" aria-label="Dismiss suggested replies and type your own" title="Dismiss">${IC.x}</button></div>`;
 }
 function paintChoices() {
@@ -1090,7 +1094,7 @@ function msgHTML(m) {
   for (const b of m.blocks || []) {
     if (b.t === 'tool') tools.push(ledgerHTML(b.name, b.detail));
     else if (b.t === 'todo') { flush(); parts.push(todoHTML(b.todos || [])); }
-    else if (b.t === 'choices') { flush(); parts.push(choicesHTML(b.options || [])); }
+    else if (b.t === 'choices') { flush(); parts.push(choicesHTML(b.options || [], Number.isInteger(b.rec) ? b.rec : -1)); }
     else { flush(); parts.push(md(b.text)); }
   }
   flush();
