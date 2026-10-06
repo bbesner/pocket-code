@@ -831,3 +831,23 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .voice-field select, .voice-field input { min-height: 44px; font: inherit; font-size: 14px; color: var(--text); background: var(--surface);
   border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
 .voice-field select:focus-visible, .voice-field input:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+
+/* Subagents use the existing sheet and ledger language, including in compact view. */
+.agents-open { flex: none; min-height: 44px; padding: 8px 16px; text-align: left; color: var(--clay); font-size: 13px; border-bottom: 1px solid var(--line); }
+.agents-open[hidden] { display: none; }
+.agents-open:hover { background: var(--raised); }
+.agents-sheet { overflow-y: auto; padding-inline: 16px; }
+.agents-retry[hidden], .agents-limit[hidden] { display: none; }
+.agent-row { border-top: 1px solid var(--line); }
+.agent-row summary { min-height: 52px; padding: 12px 0; cursor: pointer; display: flex; align-items: baseline; gap: 12px; }
+.agent-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 16px; }
+.agent-name::before { content: '+'; display: inline-block; width: 20px; color: var(--dim); }
+.agent-row[open] .agent-name::before { content: '−'; }
+.agent-state { flex: none; max-width: 40%; font-size: 13px; color: var(--dim); }
+.agent-state[data-state=running], .agent-state[data-state=pending] { color: var(--clay); }
+.agent-state[data-state=failed] { color: var(--err); }
+.agent-detail { padding: 0 0 20px 20px; }
+.agent-detail h3 { font-size: 14px; font-weight: 600; margin: 16px 0 8px; }
+.agent-copy { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; }
+.agent-meta { color: var(--dim); font-size: 13px; overflow-wrap: anywhere; margin-top: 12px; }
+.agents-retry { min-height: 44px; }

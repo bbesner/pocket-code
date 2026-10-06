@@ -25,6 +25,7 @@ import {descendantCpu} from './proctree.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
+import {AgentActivity,ClaudeAgentFiles} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
 
 // ---------- config ----------
@@ -1484,6 +1485,38 @@ async function workspaceCwd(id) {
   const file=await findSessionFile(id);
   return turns.get(id)?.cwd || (file ? (await sessionMeta(file,id))?.cwd : null);
 }
+// Read-only, cached per session; concurrent phone/pane requests share one provider read.
+const agentFiles = new ClaudeAgentFiles(), agentResponses = new Map();
+async function sessionAgents(id) {
+  const prior=agentResponses.get(id);
+  if(prior && (prior.pending || Date.now()-prior.at<4000))return prior.promise;
+  const promise=(async()=>{
+    if(isCx(id))return codex.readCodexAgents(codex.bareId(id));
+    const file=await findSessionFile(id), runner=runners.get(id);
+    if(!file&&!runner)throw Object.assign(new Error('Session not found'),{status:404});
+    const activity=new AgentActivity();let truncated=false;
+    // Transcript history supplies terminal/editor sessions; the current runner log
+    // adds task lifecycle events that Claude does not write to its transcript.
+    for(const source of [...new Set([file,runner?.files.out].filter(Boolean))]){
+      const parsed=await agentFiles.read(source);truncated ||= parsed.truncated;
+      for(const event of parsed.events)activity.claude(event);
+    }
+    const result=activity.snapshot({confirmed:Boolean(turns.get(id)),backgroundIds:(runner?.bgTasks||[]).filter(t=>/agent/.test(t.task_type||'')).map(t=>t.task_id)});
+    return {...result,truncated:result.truncated||truncated};
+  })();
+  const entry={at:Date.now(),promise,pending:true};
+  agentResponses.set(id,entry);
+  if(agentResponses.size>60)agentResponses.delete(agentResponses.keys().next().value);
+  try{return await promise;}catch(e){agentResponses.delete(id);throw e;}
+  finally{entry.pending=false;entry.at=Date.now();}
+}
+app.get('/api/session/:id/agents',requireAuth,async(req,res)=>{
+  res.set('Cache-Control','private, no-store');
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
+  try{res.json(await sessionAgents(req.params.id));}
+  catch(e){res.status(e.status||503).json({error:e.status?e.message:'Subagent activity could not be loaded. Try again.'});}
+});
+
 app.get('/api/approval-policy',requireAuth,(_req,res)=>res.json({defaultMode:DEFAULT_APPROVAL_MODE,allowFullAccess:ALLOW_FULL_ACCESS}));
 app.get('/api/session/:id/approvals',requireAuth,(req,res)=>{
   res.set('Cache-Control','no-store');
@@ -2029,7 +2062,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Mark as reviewed: clear Response ready (or a failed turn) without opening the conversation, from the session's ⋯ menu or with Mark all reviewed in Attention and New (Undo for 10 seconds). Reviewed is now shared: what you open or clear on one device is cleared on all of them."
+  "Subagents: see how many are working, then open each agent’s task, status and latest activity. Supports Claude and Codex, retains completed results, and labels unconfirmed activity after a disconnect."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

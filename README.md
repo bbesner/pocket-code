@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.15.0 / build 48**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.16.0 / build 49**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -289,3 +289,17 @@ a public issue. See [SECURITY.md](SECURITY.md).
 Pocket Code is MIT licensed. See [LICENSE](LICENSE). It is an independent project,
 unaffiliated with Anthropic or OpenAI. Claude and Claude Code are trademarks of
 Anthropic; Codex is a trademark of OpenAI.
+
+### Subagent activity
+
+When a session delegates work, a **Subagents** button shows how many agents are
+working. Tap it, then expand an agent to read its task, status and latest activity.
+Completed results remain available. **Session options → Subagents** opens the same
+view, including when no agents have been recorded yet.
+
+The view refreshes every five seconds while visible. It reads Claude and Codex
+records without starting another agent. Background shell jobs are excluded.
+Activity outside Pocket, interrupted connections and missing completion records
+can show **Status unconfirmed**. Older providers may supply fewer details.
+
+[Phone preview](docs/images/subagents-mobile.png) · [Desktop preview](docs/images/subagents-desktop.png) (synthetic demo data).

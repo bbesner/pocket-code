@@ -46,6 +46,13 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  assert.equal((await call(`/session/${id}`)).body.ext,false,'owned transcript writes are not external activity');
  fs.appendFileSync(path.join(dir,'sessions','test-workspace',id+'.jsonl'),JSON.stringify({type:'user',message:{role:'user',content:'External surface update'},timestamp:new Date(Date.now()-120000).toISOString()})+'\n');
  await sleep(100);assert.equal((await call(`/session/${id}`)).body.ext,true,'new external writes remain visible');
+ // Subagent history is read-only, authenticated and survives daemon reconstruction.
+ const agentEvents=[{type:'assistant',message:{content:[{type:'tool_use',id:'agent-tool',name:'Agent',input:{description:'Audit counts',prompt:'Check duplicate products'}}]}},{type:'user',message:{content:[{type:'tool_result',tool_use_id:'agent-tool',content:'Counts verified.'}]}}];
+ fs.appendFileSync(path.join(dir,'sessions','test-workspace',id+'.jsonl'),agentEvents.map(JSON.stringify).join('\n')+'\n');
+ const agents=await call(`/session/${id}/agents`);assert.equal(agents.status,200);assert.equal(agents.body.total,1);assert.equal(agents.body.running,0);assert.equal(agents.body.agents[0].latest,'Counts verified.');
+ assert.equal((await fetch(`http://127.0.0.1:${port}/api/session/${id}/agents`)).status,401);
+ assert.equal((await call('/session/invalid/agents')).status,400);
+ assert.equal((await call(`/session/${randomUUID()}/agents`)).status,404);
  const msg={text:'Follow-up with attachment metadata',clientMessageId:randomUUID()};
  const m=await call(`/session/${id}/message`,msg);assert.equal(m.status,202);
  await sleep(800);

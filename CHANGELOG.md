@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.16.0] — Unreleased · build 49
+
+- Subagent activity: a visible working count opens a list of delegated tasks. Expand an agent for its prompt, status, latest activity or result, and model/tool usage when reported. Available for Claude and Codex; Session options includes the view even before the first agent is recorded.
+- Activity refreshes every five seconds, preserves expanded details, and survives browser reconnects through provider records. Unknown or stale states are labelled; background shell jobs do not inflate the agent count. Read-only inspection never resumes a child thread.
+
 ## [1.15.0] — 2026-10-06 · build 48
 
 - Mark as reviewed. A session showing Response ready stayed in Attention until you opened it, even when you had already seen the reply elsewhere or did not need to. Long-press a session (or tap ⋯) and choose Mark as reviewed to clear it without opening it; failed turns can be cleared the same way. In Attention and New, a bar at the top shows how many are waiting and offers Mark all reviewed, with Undo for 10 seconds. Questions and approvals stay until they are answered.

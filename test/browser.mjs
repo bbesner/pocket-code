@@ -88,6 +88,10 @@ const server=http.createServer(async(req,res)=>{
   }
   if(failNext){req.socket.destroy();return;}return json(receipts.get(body.clientMessageId),202);
  }
+ if(url.pathname.endsWith('/agents')){
+  if(uiModes.agentsFail)return json({error:'Temporarily unavailable'},503);
+  const agents=uiModes.agents||[];return json({agents,total:agents.length,running:agents.filter(a=>a.status==='running').length,checkedAt:Date.now()});
+ }
  if(url.pathname.endsWith('/results'))return json({results:[{kind:'link',target:'https://example.com/inventory',label:'Inventory report',detail:'example.com'},{kind:'file',target:'/home/test/reports/stock.csv',label:'Stock CSV',detail:'CSV file'}]});
  if(url.pathname.includes('/queue')){
   if(req.method==='GET')return json({items:queueRows,active:true,external:false});

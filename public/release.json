@@ -1,7 +1,7 @@
 {
-  "version": "1.15.0",
-  "assetV": 48,
+  "version": "1.16.0",
+  "assetV": 49,
   "notes": [
-    "Mark as reviewed: clear Response ready (or a failed turn) without opening the conversation, from the session's ⋯ menu or with Mark all reviewed in Attention and New (Undo for 10 seconds). Reviewed is now shared: what you open or clear on one device is cleared on all of them."
+    "Subagents: see how many are working, then open each agent’s task, status and latest activity. Supports Claude and Codex, retains completed results, and labels unconfirmed activity after a disconnect."
   ]
 }

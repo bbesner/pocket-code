@@ -118,3 +118,18 @@ test('Codex threads get the reply-suggestion instruction unless the Codex config
  assert.ok(await g.until(async()=>g.calls().length===1&&await g.idle(id2)));
  assert.deepEqual(threadCalls(g).map(c=>c.choices),[false],'an operator\'s developer_instructions are never replaced');
 });
+
+
+test('Codex subagent projection survives reconnect and never resumes a child thread',async t=>{
+ const f=await fixture(t,18419);
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('__AGENTS__ __SLOW__')})).body.id;
+ assert.ok(await f.until(()=>f.calls().length===1));
+ const running=(await f.call(`/session/${id}/agents`)).body;
+ assert.equal(running.running,1);assert.equal(running.total,1);assert.equal(running.agents[0].task,'Check parser failures');
+ await f.stop();await f.start();
+ assert.ok(await f.until(async()=>await f.idle(id),6000));
+ const done=(await f.call(`/session/${id}/agents`)).body;
+ assert.equal(done.running,0);assert.equal(done.agents[0].status,'completed');assert.equal(done.agents[0].latest,'Parser checks passed.');
+ const connections=fs.readFileSync(path.join(f.dir,'calls.threads'),'utf8').trim().split('\n').map(JSON.parse);
+ assert.equal(connections.length,1,'activity reads never start/resume an extra thread');
+});

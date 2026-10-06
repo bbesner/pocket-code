@@ -565,6 +565,35 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    assert.equal(await page.evaluate(id=>localStorage.getItem('pc-seen-'+id),done.id),String(done.state.at),'engaging marks it read');
    done.state=saved;
   });
+  await check('Subagents: live count, disclosure, safe details, refresh, failure and keyboard return',async()=>{
+   const agents=[{id:'review',name:'Review imports',task:'Check duplicate SKUs <script>unsafe()</script>',latest:'Reading supplier.csv',status:'running',model:'Test model'},{id:'tests',name:'Check tests',task:'Run the import checks.',latest:'All checks passed.',status:'completed'}];
+   setMode({agents});await page.setViewport({width:390,height:844});await chat();
+   await page.waitForSelector('#agents-open:not([hidden])');
+   assert.match(await page.$eval('#agents-open',e=>e.textContent),/1 subagent working/);
+   await page.click('#agents-open');await page.waitForSelector('.agent-row');await page.click('.agent-row summary');
+   assert.equal(await page.$$eval('.agent-copy script',es=>es.length),0);
+   assert.match(await page.$eval('.agent-copy',e=>e.textContent),/<script>/);
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+   agents[0].task='Check duplicate SKUs across supplier imports.';await page.evaluate(()=>refreshAgents(chatId));
+   assert.equal(await page.$eval('.agents-retry',e=>getComputedStyle(e).display),'none');
+   await scan('subagents-mobile');await page.screenshot({path:path.join(out,'subagents-mobile.png')});
+   agents[0].latest='Checking duplicates now';await page.evaluate(()=>refreshAgents(chatId));
+   assert.equal(await page.$eval('.agent-row',e=>e.open),true,'refresh preserves disclosure');
+   assert.match(await page.$eval('.agent-detail',e=>e.textContent),/Checking duplicates now/);
+   setMode({agentsFail:true});await page.evaluate(()=>refreshAgents(chatId));
+   assert.match(await page.$eval('.agents-status',e=>e.textContent),/could not be confirmed/);
+   assert.match(await page.$eval('.agent-state',e=>e.textContent),/unconfirmed/);
+   setMode({agentsFail:false});agents[0].status='completed';agents[0].latest='No duplicates.';
+   await page.click('.agents-retry');await page.waitForFunction(()=>document.querySelector('.agents-status').textContent.includes('0 working'));
+   await page.setViewport({width:1440,height:900});await scan('subagents-desktop');await page.screenshot({path:path.join(out,'subagents-desktop.png')});
+   await page.keyboard.press('Escape');assert.equal(await page.evaluate(()=>document.activeElement.id),'agents-open');
+   await page.reload();await page.waitForSelector('#agents-open:not([hidden])');
+   assert.match(await page.$eval('#agents-open',e=>e.textContent),/2 recorded/);
+   setMode({agents:[]});await page.evaluate(()=>refreshAgents(chatId));
+   assert.equal(await page.$eval('#agents-open',e=>e.hidden),true);
+   await page.click('#chatmore');await page.click('#so-agents');await page.waitForFunction(()=>document.querySelector('.agents-status').textContent.includes('No subagents'));
+   await page.keyboard.press('Escape');
+  });
   await check('Voice: the mic is hidden when the server has no voice engine',async()=>{
    setMode({voice:false});await page.reload();await page.waitForSelector('#box');await pause(300);
    assert.equal(await page.$eval('#micb',e=>e.hidden),true);assert.equal(await page.$eval('#hfb',e=>e.hidden),true);
