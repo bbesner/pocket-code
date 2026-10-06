@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.15.0] — Unreleased · build 48
+## [1.15.0] — 2026-10-06 · build 48
 
 - Mark as reviewed. A session showing Response ready stayed in Attention until you opened it, even when you had already seen the reply elsewhere or did not need to. Long-press a session (or tap ⋯) and choose Mark as reviewed to clear it without opening it; failed turns can be cleared the same way. In Attention and New, a bar at the top shows how many are waiting and offers Mark all reviewed, with Undo for 10 seconds. Questions and approvals stay until they are answered.
 - Reviewed is now shared by all your devices. Opening a session or marking it reviewed on the desktop clears Response ready (and a seen failed turn) on the phone too, and the reverse; before, each browser kept its own record, so the phone kept listing replies you had already read at your desk. The server keeps the markers in session-meta.json beside pins and names. Markers a browser saved before this release are sent up the first time it loads, so nothing already read comes back. Undo of Mark all reviewed restores the earlier state everywhere. The empty Attention list now says "Nothing needs your attention." Requested by Brad.
