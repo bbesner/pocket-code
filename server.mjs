@@ -2011,7 +2011,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Voice: choose how much of a reply is spoken under Settings, Voice, Spoken reply length. Brief is one sentence, Normal is about two (as before) and Detailed reads the whole reply, skipping code, tables and links."
+  "Mark as reviewed: clear Response ready (or a failed turn) without opening the conversation. Long-press a session or tap ⋯ and choose Mark as reviewed, or use Mark all reviewed at the top of Attention or New, with Undo for 10 seconds."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

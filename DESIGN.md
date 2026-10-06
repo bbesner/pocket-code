@@ -343,3 +343,12 @@ the same. A click opens a "Usage" sheet: this session's context (bar, window / u
 as-of, estimate note) above the provider's plan windows. The arc is the only change of state.
 In hands-free the strip reads the instruction back ("Send this? …") with Send (clay outline),
 Edit and Cancel at 44px. Rendered desktop/phone screenshots and axe scans reviewed.
+
+## Mark as reviewed (1.15)
+
+Pinned Operate refinement: variance 2, motion 0, density 6. Clearing Response ready without
+opening a session reuses existing surfaces: a "Mark as reviewed" row (tick icon) at the top of
+Session options when the session has an unopened reply or failed turn, and in Attention / New a
+surface-toned bar above the groups — dim count left, a 44px chip right — that turns into
+"Marked N as reviewed · Undo" for 10 seconds. No new colour, no motion; the status line is a
+live region and focus moves to Undo. Rendered 390px screenshots reviewed.

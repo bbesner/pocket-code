@@ -519,6 +519,26 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    assert.equal(await listed(),false,'leaves Attention once opened');
    await page.click('[data-filter="all"]');done.state=saved;
   });
+  await check('Mark reviewed clears Response ready without opening it, singly or all at once with Undo',async()=>{
+   const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
+   done.state={kind:'finished',label:'Response ready',at};
+   await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
+   await page.evaluate(id=>localStorage.removeItem('pc-seen-'+id),done.id);await page.evaluate(()=>refreshSessions());await pause(300);
+   await page.click('[data-filter="attention"]');await pause(200);
+   const listed=()=>page.evaluate(id=>filteredSessions().some(s=>s.id===id),done.id);
+   assert.equal(await listed(),true,'starts in Attention');
+   await page.click(`[data-more="${done.id}"]`);await page.waitForSelector('#so-reviewed');await page.screenshot({path:path.join(out,'review-option.png')});await page.click('#so-reviewed');await pause(200);
+   assert.equal(await listed(),false,'single mark leaves Attention');
+   assert.equal(await page.evaluate(()=>location.hash),'#/','did not open the conversation');
+   await page.evaluate(id=>localStorage.removeItem('pc-seen-'+id),done.id);await page.evaluate(()=>paintSessionPanels());
+   await page.waitForSelector('[data-mark-all-reviewed]');await page.screenshot({path:path.join(out,'review-bar.png')});
+   await page.click('[data-mark-all-reviewed]');await pause(200);await page.screenshot({path:path.join(out,'review-bar-undo.png')});
+   assert.equal(await listed(),false,'bulk mark leaves Attention');
+   await page.click('[data-undo-reviewed]');await pause(200);
+   assert.equal(await listed(),true,'Undo brings it back');
+   await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,at]);
+   await page.click('[data-filter="all"]');done.state=saved;
+  });
   await check('A reply that finishes on screen stays Response ready until you engage with the page',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state;
    done.state={kind:'finished',label:'Response ready',at:Date.now()};

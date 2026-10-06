@@ -1,7 +1,7 @@
 {
-  "version": "1.14.0",
-  "assetV": 47,
+  "version": "1.15.0",
+  "assetV": 48,
   "notes": [
-    "Voice: choose how much of a reply is spoken under Settings, Voice, Spoken reply length. Brief is one sentence, Normal is about two (as before) and Detailed reads the whole reply, skipping code, tables and links."
+    "Mark as reviewed: clear Response ready (or a failed turn) without opening the conversation. Long-press a session or tap ⋯ and choose Mark as reviewed, or use Mark all reviewed at the top of Attention or New, with Undo for 10 seconds."
   ]
 }

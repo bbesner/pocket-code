@@ -121,6 +121,10 @@ its outcome is reviewed and the uncertain row is removed.
 
 **Attention** collects everything waiting on you: agent questions, action approvals, failed turns, and
 replies marked Response ready that you have not opened yet. Opening a session clears its Response ready.
+To clear one without opening it, long-press the session (or tap ⋯) and choose **Mark as reviewed**; a
+failed turn clears the same way. In **Attention** and **New**, the bar above the list offers **Mark all
+reviewed**, with **Undo** for 10 seconds. Questions and approvals stay until you answer them. Like opening a
+session, marking it reviewed is remembered in this browser only.
 
 **Reply suggestions.** Pocket asks Claude and Codex to end a closing question that offers specific next
 steps with a short list of options. Pocket shows them as buttons under the latest reply once the turn has

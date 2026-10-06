@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.15.0] — Unreleased · build 48
+
+- Mark as reviewed. A session showing Response ready stayed in Attention until you opened it, even when you had already seen the reply elsewhere or did not need to. Long-press a session (or tap ⋯) and choose Mark as reviewed to clear it without opening it; failed turns can be cleared the same way. In Attention and New, a bar at the top shows how many are waiting and offers Mark all reviewed, with Undo for 10 seconds. Questions and approvals stay until they are answered. Like opening, this is remembered per browser. The empty Attention list now says "Nothing needs your attention." Requested by Brad.
+
 ## [1.14.0] — 2026-10-06 · build 47
 
 - Spoken reply length. Settings › Voice has Brief (one sentence, like the alert line), Normal (about two sentences, the default and the previous behavior) and Detailed (the whole reply, skipping code, tables and links, ending on a sentence after about three minutes with "The rest is on screen"). It applies to the reply spoken when a voice turn finishes and to "read it". "What's it doing" stays short at any length, and "read it all" always reads the whole reply. It only changes how much of the written reply is read aloud. It does not change what Claude or Codex writes. Requested by Brad.
