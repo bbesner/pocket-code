@@ -210,6 +210,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
     ${!PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : ''}
     ${!PANE && s.id === chatId ? '<button class="opt" id="so-close">'+IC.x+'<span>Close session process<span class="sub">Release its server process. If work is running, choose whether to keep it running or stop it</span></span></button>' : ''}
     ${s.id===chatId?'<button class="opt" id="so-usage">'+IC.gauge+'<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>':''}
+    <button class="opt" id="so-agents">${IC.columns}<span>Subagents<span class="sub">Tasks, status and latest activity</span></span></button>
     <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
     <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
@@ -233,6 +234,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.querySelector('#so-changes')?.addEventListener('click',()=>{close();openChanges();});
   sh.querySelector('#so-beside')?.addEventListener('click',()=>{close();openBeside(s.id);});
   sh.querySelector('#so-close')?.addEventListener('click',()=>{close();closeMainPane();});
+  sh.querySelector('#so-agents').onclick=()=>openAgentsPanel(s.id);
   sh.querySelector('#so-permissions').onclick=()=>{close();chooseApprovalMode(s.id);};
   sh.querySelector('#so-usage')?.addEventListener('click',openUsagePanel);
   sh.querySelector('#so-version')?.addEventListener('click',()=>settingsSheet({about:true}));
@@ -1371,6 +1373,7 @@ async function renderChat(id) {
     </header>
     <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
     <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
+    <button id="agents-open" class="agents-open" aria-haspopup="dialog" hidden></button>
     <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>
     <button class="question-banner" id="approvals-open" hidden>Action needs approval · Review</button>
     <p id="connection-state" class="connection-state" role="status" hidden></p>
@@ -1447,9 +1450,74 @@ async function renderChat(id) {
   refreshQuestions(id);
   refreshApprovals(id);
   restoreDock();
+  refreshAgents(id);
   paintContextMeter(id);
   openES(); // always: daemon turns stream events, idle sessions mirror the transcript live
 }
+
+/* ---------- subagent activity ---------- */
+const agentCache = new Map(), agentFetches = new Map();
+const agentLabels = {running:'Working',pending:'Starting',completed:'Completed',failed:'Failed',interrupted:'Interrupted',closed:'Closed',unknown:'Status unconfirmed'};
+function agentsFresh(d) { return d && !d.error && Date.now()-d.receivedAt<15000; }
+function paintAgents() {
+  const d=agentCache.get(chatId), b=$('#agents-open');
+  if(b){
+    b.hidden=!d?.total;
+    if(d?.total){
+      const label=!agentsFresh(d)?'Subagents · status unavailable':d.running?`${d.running} subagent${d.running===1?'':'s'} working`:`Subagents · ${d.total} recorded`;
+      b.textContent=label+' · View'; b.setAttribute('aria-label',label+'. View tasks and activity');
+    }
+  }
+  const sh=document.querySelector('.agents-sheet');if(!sh)return;
+  const data=agentCache.get(sh.dataset.session);if(!data)return;
+  const fresh=agentsFresh(data), status=sh.querySelector('.agents-status'), list=sh.querySelector('.agents-list');
+  status.textContent=!fresh?'Activity could not be confirmed. Showing the last available details.':data.total?`${data.running} working · ${data.total} recorded. Updates every 5 seconds.`:'No subagents recorded in this session yet.';
+  sh.querySelector('.agents-retry').hidden=fresh;
+  sh.querySelector('.agents-limit').hidden=!data.truncated;
+  const keep=new Set();
+  for(const a of data.agents||[]){
+    keep.add(a.id);
+    let row=[...list.children].find(el=>el.dataset.agent===a.id);
+    if(!row){row=document.createElement('details');row.className='agent-row';row.dataset.agent=a.id;row.innerHTML='<summary><span class="agent-name"></span><span class="agent-state"></span></summary><div class="agent-detail"></div>';list.append(row);}
+    const name=row.querySelector('.agent-name'), badge=row.querySelector('.agent-state');
+    name.textContent=a.name==='Subagent'?`Subagent ${a.id.slice(0,8)}`:a.name;
+    const state=!fresh&&['running','pending'].includes(a.status)?'unknown':a.status;
+    badge.textContent=agentLabels[state]||'Status unconfirmed';badge.dataset.state=state;
+    const facts=[a.kind,a.model].filter(Boolean).join(' · ');
+    const html=(facts?`<p class="agent-meta">${esc(facts)}</p>`:'')+`<h3>Task</h3><p class="agent-copy">${esc(a.task||'The provider did not record a task description.')}</p><h3>Latest activity</h3><p class="agent-copy">${esc(a.latest||'No activity details reported yet.')}</p>`+
+      (a.usage?`<p class="agent-meta">${esc([Number.isFinite(a.usage.tools)?a.usage.tools+' tool calls':null,Number.isFinite(a.usage.tokens)?a.usage.tokens.toLocaleString()+' tokens':null].filter(Boolean).join(' · '))}</p>`:'');
+    const detail=row.querySelector('.agent-detail');if(detail.innerHTML!==html)detail.innerHTML=html;
+  }
+  for(const row of [...list.children])if(!keep.has(row.dataset.agent))row.remove();
+}
+async function refreshAgents(id) {
+  if(!id)return;
+  if(agentFetches.has(id))return agentFetches.get(id);
+  const pending=(async()=>{
+    try {
+      const d=await api('/session/'+encodeURIComponent(id)+'/agents',{cache:'no-store',signal:AbortSignal.timeout(10000)});
+      agentCache.set(id,{...d,receivedAt:Date.now()});
+      if(agentCache.size>60)agentCache.delete(agentCache.keys().next().value);
+    }catch{agentCache.set(id,{...agentCache.get(id),error:true});}
+    finally{agentFetches.delete(id);paintAgents();}
+  })();
+  agentFetches.set(id,pending);return pending;
+}
+function openAgentsPanel(id=chatId) {
+  if(!id)return;
+  const scrim=document.createElement('div');scrim.className='scrim';
+  const sh=document.createElement('div');sh.className='sheet agents-sheet';sh.dataset.session=id;
+  sh.innerHTML='<h2>Subagents</h2><p class="sheet-help agents-status" role="status">Loading subagent activity…</p><button class="chip agents-retry" hidden>Retry</button><div class="agents-list"></div><p class="sheet-help agents-limit" hidden>Showing recent activity. Older details may be omitted.</p>';
+  sh.querySelector('.agents-retry').onclick=()=>refreshAgents(id);
+  mountSheet(scrim,sh);paintAgents();refreshAgents(id);
+}
+document.addEventListener('click',e=>{if(e.target.closest?.('#agents-open'))openAgentsPanel();});
+setInterval(()=>{if(document.visibilityState==='visible'){
+  const ids=new Set([chatId,document.querySelector('.agents-sheet')?.dataset.session]);
+  for(const id of ids)if(id)refreshAgents(id);
+  paintAgents();
+}},5000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){paintAgents();refreshAgents(chatId);}});
 
 /* ---------- usage visibility (1.7): context meter + plan-usage panel ---------- */
 function fmtTokens(n) {

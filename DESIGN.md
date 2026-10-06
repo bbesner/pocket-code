@@ -353,3 +353,23 @@ surface-toned bar above the groups — dim count left, a 44px chip right — tha
 "Marked N as reviewed · Undo" for 10 seconds. No new colour, no motion; the status line is a
 live region and focus moves to Undo. Rendered 390px screenshots reviewed. Reviewed state is
 shared by all devices (server-kept markers); no visual change for that.
+
+## Subagent activity (1.16)
+
+Pinned Operate brief: variance 3, motion 1, density 7. Preserve the warm ink palette,
+native type and existing sheets. A 44px text button appears below conversation
+controls only when agents are recorded; it stays available with the header collapsed.
+Session options always offers the sheet, including its empty state. Each disclosure row
+names the agent and text status, then shows task, latest activity, available model and
+usage. The sheet has 16px side padding; escaped provider text wraps within phone and
+split-pane widths. Five-second refreshes retain open rows and focus. Failed or stale
+checks say the status is unconfirmed and offer Retry. The sheet traps focus, closes
+with Escape and returns focus to its opener.
+
+Rendered phone and desktop screenshots reviewed. Verification: 80 repository tests,
+39 browser regressions and 13 axe scans passed. The rendered detector found no new
+Subagents issue; inherited findings concern app clipping, native font, type hierarchy,
+title ellipses, compact navigation and the hidden slash-menu shadow. An independent
+review found a backend replay-status bug; it was fixed with targeted tests and independently
+reverified. Final review verdict: Pass. These browser checks do not certify a physical device or a
+split-specific screenshot.

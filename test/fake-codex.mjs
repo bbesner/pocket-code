@@ -39,6 +39,16 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       reply(m.id,{turn:{id:turnId}});
       notify('turn/started',{turnId});
       if(text.includes('__HANG__'))return;
+      if(text.includes('__AGENTS__')){
+        const item={id:'agent-spawn',type:'collabAgentToolCall',tool:'spawnAgent',status:'completed',receiverThreadIds:['child-agent'],agentsStates:{'child-agent':{status:'running'}},prompt:'Check parser failures',model:'gpt-test'};
+        notify('item/completed',{item});
+        fs.writeFileSync(path.join(root,p.threadId+'.items.json'),JSON.stringify([item]));
+        setTimeout(()=>{
+          const done={...item,id:'agent-wait',tool:'wait',agentsStates:{'child-agent':{status:'completed',message:'Parser checks passed.'}}};
+          fs.writeFileSync(path.join(root,p.threadId+'.items.json'),JSON.stringify([item,done]));
+          notify('item/completed',{item:done});
+        },1000);
+      }
       setTimeout(()=>{
         notify('item/agentMessage/delta',{delta:'Codex test '});
         notify('item/completed',{item:{type:'agentMessage',id:randomUUID(),text:'Codex test response.'}});
@@ -47,7 +57,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       return;
     }
     case 'turn/interrupt':reply(m.id,{});return notify('turn/completed',{turn:{id:p.turnId,status:'interrupted'}});
-    case 'thread/list':case 'thread/items/list':case 'model/list':case 'skills/list':return reply(m.id,{data:[],nextCursor:null});
+    case 'thread/items/list':{
+      let data=[];try{data=JSON.parse(fs.readFileSync(path.join(root,p.threadId+'.items.json'),'utf8'));}catch{}
+      return reply(m.id,{data,nextCursor:null});
+    }
+    case 'thread/list':case 'model/list':case 'skills/list':return reply(m.id,{data:[],nextCursor:null});
     case 'thread/read':return reply(m.id,{thread:{id:p.threadId,turns:[],preview:'',cwd:process.cwd()}});
     default:return fail(m.id,'unsupported in fake codex: '+m.method);
   }

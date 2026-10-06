@@ -259,3 +259,19 @@ explains that it is blocked and you can open Pocket Code directly.
 
 Keep browser storage to retain local preferences. Keep the server data inventory in
 [operations](operations.md#state-and-backups) across upgrades and rollbacks.
+
+## Subagents
+
+A session with delegated work shows a Subagents button beneath the status controls,
+including with the header collapsed. Its count shows agents whose running state
+Pocket can confirm. Open it and expand a task to see the instructions, status and
+latest activity or result. Model and tool usage appear when the provider supplies them.
+Session options also includes Subagents, with an empty state before any are recorded.
+
+The list refreshes every five seconds while the app is visible. Expanding a row and
+reading its text does not send a message or take control of that agent. Completed
+entries remain in the list. If Pocket loses confirmation, the status changes to
+unconfirmed and the last details remain available with Retry. Terminal/editor
+sessions can supply history without proving that their agents are still running.
+The view shows up to 100 agents; it labels truncated history. Task and result text
+are limited to 12,000 characters per field. Background shell jobs are excluded.

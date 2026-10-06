@@ -15,6 +15,7 @@
 //      per thread between turns, so it holds that lock until the session closes (idle,
 //      Close session, a settings change) — code-server can't write to the thread meanwhile.
 
+import {AgentActivity} from './subagents.mjs';
 import {agentEnv} from './environment.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -423,6 +424,16 @@ async function listAllItems(threadId) {
   return readLegacyItems(threadId);
 }
 
+export async function readCodexAgents(threadId) {
+  const items = await listAllItems(threadId);
+  const turn = codexTurns.get(threadId);
+  const byId = new Map(items.map((it,i)=>[it.id || 'history-'+i,it]));
+  for (const [id,it] of turn?.agentItems || []) byId.set(id,it);
+  const activity = new AgentActivity();
+  for (const it of byId.values()) activity.codex(it);
+  return activity.snapshot({confirmed:Boolean(turn)});
+}
+
 export async function readCodexThread(threadId, maxMsgs = 400) {
   const items = await listAllItems(threadId);
   const msgs = mergeAssistant(items.map(it => normalizeItem(it)).filter(Boolean));
@@ -812,6 +823,10 @@ function promptWithAttachments(text, attachments) {
 // The streaming channel. `item/agentMessage/delta` is the word-by-word feed; completed
 // items become finished bubbles; `turn/completed` closes the turn out with usage.
 function onTurnNotify(turn, method, params) {
+  if (['item/started','item/completed'].includes(method) && ['collabAgentToolCall','subAgentActivity'].includes(params?.item?.type)) {
+    turn.agentItems ||= new Map();
+    turn.agentItems.set(params.item.id, params.item);
+  }
   switch (method) {
     case 'serverRequest/resolved':
       turn.questions?.resolve(params.requestId);
