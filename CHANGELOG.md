@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.13.1] — 2026-10-06 · build 45
+
+- The context window of a 1M session (Opus 5.5, Fable 5.1) no longer drops to 200k while a turn runs. The CLI reports the real window at the end of a turn under the name "claude-opus-5-5[1m]", but the next turn's streamed lines and transcript call the model "claude-opus-5-5". The transcript re-estimate then guessed 200k (anything under 200k used) and overwrote the reported window until the turn ended, so a session at 164k looked 82% full. A reported window is now kept while the session stays on that model, and when no window has been reported yet, the model Pocket launched the session with decides the estimate. Sessions started outside Pocket still show "estimated" until a turn reports the window. Reported by Brad.
+
 ## [1.13.0] — 2026-10-06 · build 44
 
 - Context ring. A 22px gauge beside the composer's settings button (in the working row while a turn runs) fills as the session's context window fills, amber at 70% and red at 90%. Hover or focus it for the model, tokens used, the window and the percentage. Click it for a Usage panel: this session's context (window, used, free, as-of, estimate note) and the provider's plan windows. It replaces the text meter in the state bar. Unknown models get a readable name from their ID (claude-opus-5-5 → Opus 5.5).

@@ -1,8 +1,7 @@
 {
-  "version": "1.13.0",
-  "assetV": 44,
+  "version": "1.13.1",
+  "assetV": 45,
   "notes": [
-    "Context ring: a small gauge beside the message box fills as the session's context window fills (amber at 70%, red at 90%). Hover for the model, tokens used, window and percentage; click for this session's usage and your plan limits.",
-    "Hands-free asks before it sends: Pocket reads your instruction back and waits for \"send it\" or a tap on Send. Say \"cancel\" or \"edit\" instead, or say something else to replace it."
+    "The context ring no longer shows a 1M-context session (Opus 5.5, Fable 5.1) as a 200k window while a turn runs, which made it look nearly full."
   ]
 }
