@@ -336,6 +336,23 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    await page.waitForFunction(()=>Voice._test.state()==='idle'&&Voice._test.handsFree()===null);
    await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('pc-voice'));delete p.keepListening;localStorage.setItem('pc-voice',JSON.stringify(p));});
   });
+  await check('Voice: the spoken reply follows the chosen length',async()=>{
+   const id=await page.evaluate(()=>chatId);
+   const said=async length=>{
+    await page.evaluate(l=>{const p=JSON.parse(localStorage.getItem('pc-voice')||'{}');p.replyLength=l;p.speak=true;localStorage.setItem('pc-voice',JSON.stringify(p));},length);
+    const n=voiceLog.speak.length;
+    const expected=await page.evaluate((id,l)=>{const all=document.querySelectorAll('#msgs .m-asst:not(.live)');const c=all[all.length-1].cloneNode(true);
+     c.querySelectorAll('.copybtn,.ledgerwrap,.choices,pre,table,.todo,.todos').forEach(n=>n.remove());
+     const parts=VoiceText.chunks(VoiceText.reply((c.innerText||c.textContent).trim(),l));Voice._test.arm(id);Voice.onTurnEnd(id,true);return parts;},id,length);
+    for(let i=0;i<80&&voiceLog.speak.length<n+expected.length;i++)await pause(100);
+    for(let i=0;i<60&&await page.evaluate(()=>Voice._test.state()==='speaking');i++)await pause(100);
+    return {expected,spoken:voiceLog.speak.slice(n).map(x=>x.text)};
+   };
+   const brief=await said('brief');assert.deepEqual(brief.spoken,brief.expected,'brief speaks one line');
+   const detailed=await said('detailed');assert.deepEqual(detailed.spoken,detailed.expected,'detailed speaks the whole reply');
+   assert.ok(detailed.expected.join(' ').length>=brief.expected.join(' ').length);
+   await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('pc-voice'));delete p.replyLength;localStorage.setItem('pc-voice',JSON.stringify(p));});
+  });
   await check('Reply suggestions: cards under the last reply send on tap; typing or X hides them',async()=>{
    const conv=conversations.get(idle),saved=conv.slice();await chat();
    conv.push({role:'assistant',blocks:[{t:'text',text:'Tests pass. Should I merge and deploy?'},{t:'choices',options:['Merge and deploy',"Don't merge yet"]}]});
@@ -434,6 +451,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    await page.click('#s-voice-review');
    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-voice')).review),true);
    assert.equal(await page.$eval('#s-voice-wait',e=>e.value),'120','waits 2 minutes for a reply by default');
+   assert.equal(await page.$eval('#s-voice-length',e=>e.value),'normal','spoken replies stay about two sentences by default');
+   await page.select('#s-voice-length','detailed');
+   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-voice')).replyLength),'detailed');
+   await page.select('#s-voice-length','normal');
    await page.select('#s-voice-wait','300');
    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-voice')).replyWait),300);
    await page.select('#s-voice-voice','bm_george');

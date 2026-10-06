@@ -1,7 +1,7 @@
 {
-  "version": "1.13.2",
-  "assetV": 46,
+  "version": "1.14.0",
+  "assetV": 47,
   "notes": [
-    "The session menu is titled Session options with the conversation's name beneath it, so a title like \"Version check\" no longer reads as a feature. Inside a conversation it now has Version & updates, showing the version and build and opening Settings at About & updates. Settings also shows the version on the About & updates line."
+    "Voice: choose how much of a reply is spoken under Settings, Voice, Spoken reply length. Brief is one sentence, Normal is about two (as before) and Detailed reads the whole reply, skipping code, tables and links."
   ]
 }

@@ -43,6 +43,21 @@ const VoiceText = (() => {
     return out;
   }
 
+  // The whole reply as speech, ending on a sentence; past ~2500 characters (about three minutes) the rest stays on screen.
+  function full(md, max = 2500) {
+    let out = '';
+    for (const s of sentences(speakable(md))) {
+      if (out && out.length + s.length + 1 > max) return `${out} The rest is on screen.`;
+      out = out ? `${out} ${s}` : s;
+    }
+    return out.length > max ? out.slice(0, max).replace(/\s+\S*$/, '') + '. The rest is on screen.' : out;
+  }
+
+  // A finished reply at the listener's chosen length: brief (one line), normal (about two sentences) or detailed (all of it).
+  function reply(md, length = 'normal') {
+    return length === 'brief' ? oneLine(md) : length === 'detailed' ? full(md) : summary(md);
+  }
+
   // TTS chunks: start with a short first chunk so audio begins quickly; keep later chunks under ~220 chars.
   function chunks(text, firstMax = 120, max = 220) {
     const out = [];
@@ -122,6 +137,6 @@ const VoiceText = (() => {
     return `The ${name}${tail} finished.${line ? ' ' + line : ''}`;
   }
 
-  return { speakable, sentences, summary, chunks, intent, stepText, isNoise, oneLine, shortTitle, alertText, confirmReply };
+  return { speakable, sentences, summary, full, reply, chunks, intent, stepText, isNoise, oneLine, shortTitle, alertText, confirmReply };
 })();
 globalThis.VoiceText = VoiceText;

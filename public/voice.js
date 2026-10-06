@@ -10,7 +10,8 @@ const Voice = (() => {
   const MIC = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0013 0M12 18v2.5"/></svg>';
   const HEADSET = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 14.5V12a7.5 7.5 0 0115 0v2.5"/><rect x="3.5" y="13.5" width="4" height="6" rx="1.8"/><rect x="16.5" y="13.5" width="4" height="6" rx="1.8"/><path d="M18.5 19.5c0 1.3-1.6 2-4 2H13"/></svg>';
   const PREF_KEY = 'pc-voice';
-  const DEFAULTS = { speak: true, review: false, replyWait: 120, alerts: 'off', voice: 'af_heart', vocab: '' };
+  const DEFAULTS = { speak: true, review: false, replyWait: 120, alerts: 'off', voice: 'af_heart', vocab: '', replyLength: 'normal' };
+  const LENGTH_CHOICES = [['brief', 'Brief: one sentence'], ['normal', 'Normal: about two sentences'], ['detailed', 'Detailed: the whole reply']];
   const ALERT_CHOICES = [['off', 'Off'], ['name', 'Session name only'], ['summary', 'Name and a one-line summary']];
   // A tap means you're about to speak, so silence ends it after 10 s. After a spoken reply (hands-free) the mic
   // waits replyWait seconds, so there is time to read the rest of the reply first. MAX_MS limits one utterance.
@@ -165,7 +166,7 @@ const Voice = (() => {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
     catch (e) { say(micError(e), 8000); return; }
     try {
-      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=46'); workletReady = true; }
+      if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=47'); workletReady = true; }
       const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pocket-capture'), sink = ctx.createGain();
       sink.gain.value = 0; src.connect(node); node.connect(sink); sink.connect(ctx.destination);   // a pulled graph keeps the worklet running
       rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened, handsFree: inHandsFree(),
@@ -230,6 +231,7 @@ const Voice = (() => {
     if (r.session !== chatId) { handsFree = null; say('You switched sessions, so that wasn’t sent.'); return; }
     await handle(text);
   }
+  const replyLength = () => LENGTH_CHOICES.some(([v]) => v === prefs().replyLength) ? prefs().replyLength : DEFAULTS.replyLength;
   function replyWaitMs() { const s = Number(prefs().replyWait); return (WAIT_CHOICES.some(([v]) => v === s) ? s : DEFAULTS.replyWait) * 1000; }
   function vocabulary() {
     const own = prefs().vocab, names = (allSessions || []).slice(0, 12).map(s => s.title || '').join(', ');
@@ -309,7 +311,7 @@ const Voice = (() => {
     if (kind === 'read' || kind === 'readAll') {
       const md = replyText(id);
       if (!md) return speak('There’s no reply to read yet.');
-      return speak(kind === 'readAll' ? VoiceText.speakable(md).slice(0, 2500) : VoiceText.summary(md));
+      return speak(kind === 'readAll' ? VoiceText.full(md) : VoiceText.reply(md, replyLength()));
     }
     if (kind === 'waiting') {
       const here = [!document.getElementById('approvals-open')?.hidden && 'this session needs an approval', !document.getElementById('questions-open')?.hidden && 'this session has a question'].filter(Boolean);
@@ -329,7 +331,7 @@ const Voice = (() => {
     const c = m.cloneNode(true); c.querySelectorAll('.copybtn,.ledgerwrap,.choices,pre,table,.todo,.todos').forEach(n => n.remove());
     return (c.innerText || c.textContent || '').trim();
   }
-  const replySummary = id => { const t = replyText(id); return t ? VoiceText.summary(t) : ''; };
+  const replySummary = id => { const t = replyText(id); return t ? VoiceText.reply(t, replyLength() === 'brief' ? 'brief' : 'normal') : ''; }; // a status answer stays short
 
   /* ---------- speaking ---------- */
   async function speakOut(text, { listenAfter = false } = {}) {
@@ -378,7 +380,7 @@ const Voice = (() => {
     if (id !== chatId || (!prefs().speak && !conv)) return;
     spokenTurnEnd.set(id, Date.now());                         // its spoken reply stands in for the alert
     const md = lastReply.get(id) || replyText(id);
-    const line = ok === false ? 'The turn didn’t finish. Details are on screen.' : md ? VoiceText.summary(md) : 'It finished.';
+    const line = ok === false ? 'The turn didn’t finish. Details are on screen.' : md ? VoiceText.reply(md, replyLength()) : 'It finished.';
     speakOut(line, { listenAfter: conv });                     // only a hands-free conversation listens after a reply
   }
   /* ---------- spoken alerts: any session finishing or needing you, while Pocket is open ---------- */
@@ -459,7 +461,9 @@ const Voice = (() => {
     return `<details class="settings-details" id="s-voice"><summary>Voice (beta)</summary>
       <div class="voice-settings">
         <p id="s-voice-state" role="status">Checking voice on the server…</p>
-        ${toggle('s-voice-speak', p.speak, 'Speak replies', 'Read a short summary aloud when a turn you started by voice finishes')}
+        ${toggle('s-voice-speak', p.speak, 'Speak replies', 'Read the reply aloud when a turn you started by voice finishes')}
+        <label class="voice-field">Spoken reply length<select id="s-voice-length">${LENGTH_CHOICES.map(([v, l]) => `<option value="${v}"${replyLength() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+        <p class="sub">Applies to replies and “read it”. Detailed skips code, tables and links, and stops after about three minutes. Say “read it all” for the whole reply at any length.</p>
         ${toggle('s-voice-review', p.review, 'Review before sending', 'Put what you said in the message box instead of sending it')}
         <label class="voice-field">Announce sessions<select id="s-voice-alerts">${ALERT_CHOICES.map(([v, l]) => `<option value="${v}"${p.alerts === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <p class="sub">Says when any session finishes or needs you, while Pocket is open, in place of the chime. Muted sessions stay quiet.</p>
@@ -475,6 +479,7 @@ const Voice = (() => {
     const flip = (sel, key) => { const b = root.querySelector(sel); if (!b) return; b.onclick = () => { const on = !prefs()[key]; setPref(key, on); b.setAttribute('aria-pressed', String(on)); b.querySelector('.dot').classList.toggle('on', on); }; };
     flip('#s-voice-speak', 'speak'); flip('#s-voice-review', 'review');
     const vocab = root.querySelector('#s-voice-vocab'); if (vocab) vocab.onchange = () => setPref('vocab', vocab.value.trim().slice(0, 300));
+    const length = root.querySelector('#s-voice-length'); if (length) length.onchange = () => setPref('replyLength', length.value);
     const wait = root.querySelector('#s-voice-wait'); if (wait) wait.onchange = () => setPref('replyWait', Number(wait.value));
     const alerts = root.querySelector('#s-voice-alerts'); if (alerts) alerts.onchange = () => { setPref('alerts', alerts.value); unlockAudio(); };
     loadStatus(true).then(s => {
