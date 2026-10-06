@@ -27,6 +27,22 @@ test('spoken text drops code, tables, URLs and long paths; summaries stay short'
   assert.ok(parts[0].length <= 120 && parts.every(p => p.length <= 221), JSON.stringify(parts.map(p => p.length)));
 });
 
+test('spoken reply length: brief is one line, normal about two sentences, detailed the whole reply', () => {
+  const md = '**Done.** The nightly import now skips archived suppliers, so the run is down from 14 minutes to 3.\n\n' +
+    'I also added a retry around the Zoho token refresh. It failed twice last week when the token expired mid-run.\n\n' +
+    '```sh\nnpm test\n```\n\nNext, the duplicate SKU check should move into the same job so it runs once a night.';
+  assert.equal(V.reply(md, 'brief'), 'The nightly import now skips archived suppliers, so the run is down from 14 minutes to 3.');
+  assert.equal(V.reply(md, 'normal'), V.summary(md));
+  assert.equal(V.reply(md), V.summary(md), 'normal is the default');
+  assert.equal(V.reply(md, 'detailed'), V.speakable(md));
+  assert.match(V.reply(md, 'detailed'), /duplicate SKU check/); assert.doesNotMatch(V.reply(md, 'detailed'), /npm test/);
+  const long = Array.from({ length: 80 }, (_, i) => `Sentence number ${i} explains one more part of the change in detail.`).join(' ');
+  const capped = V.full(long);
+  assert.ok(capped.length <= 2500 + 30, String(capped.length));
+  assert.match(capped, /in detail\. The rest is on screen\.$/, 'ends on a whole sentence and says where the rest is');
+  assert.match(V.full('word '.repeat(700) + '.'), /\. The rest is on screen\.$/, 'a single overlong sentence is cut at a word');
+});
+
 test('phantom phrases on short noise are ignored while waiting for a reply', () => {
   assert.equal(V.isNoise('Thank you.', 0.8), true);
   assert.equal(V.isNoise('you', 1.2), true);

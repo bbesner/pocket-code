@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.14.0] — Unreleased · build 47
+
+- Spoken reply length. Settings › Voice has Brief (one sentence, like the alert line), Normal (about two sentences, the default and the previous behavior) and Detailed (the whole reply, skipping code, tables and links, ending on a sentence after about three minutes with "The rest is on screen"). It applies to the reply spoken when a voice turn finishes and to "read it". "What's it doing" stays short at any length, and "read it all" always reads the whole reply. It only changes how much of the written reply is read aloud. It does not change what Claude or Codex writes. Requested by Brad.
+
 ## [1.13.2] — 2026-10-06 · build 46
 
 - Session menu: the sheet opened from ⋯ (or a long-press on a session) is titled "Session options", with the conversation's name on its own line beneath. It used to show only the name as the heading, so a session called "Pocket Code version check" looked like a version feature with nothing in it. Reported by Brad.

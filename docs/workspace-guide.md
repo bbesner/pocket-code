@@ -205,11 +205,13 @@ The mic sits beside Send in every conversation, including split panes.
 - **A typed draft is never sent for you.** If the message box already has text, what you say is
   added to it for you to review and send.
 - **Quick commands** are answered on your device without involving the agent: *what's it doing*
-  (latest step), *stop* (stops the running turn), *read it* (a short summary of the latest reply),
+  (latest step), *stop* (stops the running turn), *read it* (the latest reply at your spoken reply length),
   *read it all*, *what's waiting on me* (approvals, questions and sessions needing you) and
   *be quiet* (stops speaking). Longer or different sentences are sent to the session.
-- **Spoken replies.** When a turn you started by voice finishes, the opening of the reply is read
-  aloud. Code, tables and links are left on screen. If the agent needs an approval or has a question,
+- **Spoken replies.** When a turn you started by voice finishes, the reply is read aloud at the
+  length set in Settings → Voice → Spoken reply length: Brief (one sentence), Normal (about two, the
+  default) or Detailed (the whole reply, stopping after about three minutes). Code, tables and links
+  are left on screen. The setting changes how much is read, not what the agent writes. If the agent needs an approval or has a question,
   you hear that, and you answer it on screen.
 
 **Spoken alerts.** Settings → Voice (beta) → Announce sessions: Off (default), Session name only, or

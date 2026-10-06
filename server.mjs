@@ -2011,7 +2011,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "The session menu is titled Session options with the conversation's name beneath it, so a title like \"Version check\" no longer reads as a feature. Inside a conversation it now has Version & updates, showing the version and build and opening Settings at About & updates. Settings also shows the version on the About & updates line."
+  "Voice: choose how much of a reply is spoken under Settings, Voice, Spoken reply length. Brief is one sentence, Normal is about two (as before) and Detailed reads the whole reply, skipping code, tables and links."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
