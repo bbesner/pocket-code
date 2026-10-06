@@ -343,7 +343,68 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    for(let i=0;i<40&&received.length===sent;i++)await pause(100);
    assert.equal(received.at(-1).text,'Merge and deploy','a tap sends the option as the next message');
    await page.waitForFunction(()=>!document.querySelector('.choices:not([hidden])'));
+   await page.waitForFunction(()=>!loadOutbox(chatId)&&!sendsInFlight.has(chatId));      // delivered before the page reloads
    conv.splice(0,conv.length,...saved);await page.reload();await page.waitForSelector('#box');
+  });
+  await check('Context ring: fills with context use, explains itself on hover and opens the session usage',async()=>{
+   await page.setViewport({width:1440,height:900});await page.reload();await page.waitForSelector('#box');
+   await page.waitForFunction(()=>(document.querySelector('#ctx-ring')?.dataset.tip||'').includes('tokens used'));
+   assert.ok(await page.$eval('#ctx-ring',e=>!!e.closest('.composer-actions')),'idle: beside the settings button');
+   assert.equal(await page.$eval('#ctx-ring .ctx-fill',e=>e.getAttribute('stroke-dasharray')),'43.5 100');
+   const tip=await page.$eval('#ctx-ring',e=>e.dataset.tip);
+   assert.match(tip,/Opus 5\.5/);assert.match(tip,/435k of 1M tokens used \(44%\)/);
+   assert.match(await page.$eval('#ctx-ring',e=>e.getAttribute('aria-label')),/Context window for Opus 5\.5: 435k of 1M tokens used \(44%\)/);
+   assert.equal(await page.$('#ctx-meter'),null,'the old text meter is gone');
+   await page.hover('#ctx-ring');await page.waitForFunction(()=>!document.getElementById('tip').hidden);
+   assert.match(await page.$eval('#tip',e=>e.textContent),/435k of 1M tokens used/);
+   await page.screenshot({path:path.join(out,'context-ring-hover.png')});
+   await page.click('#ctx-ring');await page.waitForSelector('.usage-sheet #usage-body .usage-block');
+   const sheet=await page.$eval('.usage-sheet',e=>e.textContent);
+   assert.match(sheet,/This session · Opus 5\.5/);assert.match(sheet,/Context window/);assert.match(sheet,/Window1M tokens/);assert.match(sheet,/Used435k tokens/);assert.match(sheet,/Free565k tokens/);
+   assert.match(sheet,/Claude Code/);assert.match(sheet,/5-hour/);
+   await scan('context-usage-sheet');await page.screenshot({path:path.join(out,'context-usage-sheet.png')});
+   await page.keyboard.press('Escape');
+   assert.equal(await page.evaluate(()=>document.activeElement.id),'ctx-ring','focus returns to the ring');
+   const run=rows.find(r=>r.state.kind==='running');
+   await page.goto(base+'/#/chat/'+run.id);await page.waitForSelector('.workrow #ctx-ring');
+   await page.setViewport({width:390,height:844});await chat();await page.waitForSelector('.composer-actions #ctx-ring');
+   assert.ok(await page.$eval('#ctx-ring',e=>{const r=e.getBoundingClientRect();return r.width>=44&&r.height>=44&&r.right<=innerWidth;}),'44px target on a phone');
+  });
+  await check('Hands-free: an instruction is read back and sent only after a yes or a tap on Send',async()=>{
+   const id=await page.evaluate(()=>chatId);let sent=received.length;
+   const spoken=()=>voiceLog.speak.map(x=>x.text).join(' | ');
+   const tap=()=>page.evaluate(()=>document.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true})));  // browsers allow sound after a tap
+   await tap();
+   await page.evaluate(id=>Voice._test.setHandsFree(id),id);
+   await page.evaluate(()=>Voice._test.handle('Deploy the new build'));
+   for(let i=0;i<40&&!/Ready to send: Deploy the new build/.test(spoken());i++)await pause(100);
+   assert.match(spoken(),/Ready to send: Deploy the new build\./);
+   for(let i=0;i<30&&!/Say send it, or cancel/.test(spoken());i++)await pause(100);
+   assert.match(spoken(),/Say send it, or cancel\./);
+   assert.equal(received.length,sent,'nothing sent before a yes');
+   assert.deepEqual(await page.evaluate(()=>Voice._test.pending()),{id,text:'Deploy the new build'});
+   await page.evaluate(()=>Voice._test.handle('Cancel'));
+   assert.equal(await page.evaluate(()=>Voice._test.pending()),null);assert.equal(received.length,sent,'cancel sends nothing');
+   await page.evaluate(()=>Voice._test.handle('Check the error logs'));
+   await page.evaluate(()=>Voice._test.handle('Actually check the access logs'));
+   assert.equal(await page.evaluate(()=>Voice._test.pending().text),'Actually check the access logs','a new instruction replaces the pending one');
+   assert.equal(received.length,sent);
+   await page.evaluate(()=>Voice._test.handle('Yes, send it'));
+   for(let i=0;i<40&&received.length===sent;i++)await pause(100);
+   assert.equal(received.at(-1).text,'Actually check the access logs','a yes sends it');
+   sent=received.length;
+   await page.evaluate(id=>{Voice.onLeave();Voice._test.setHandsFree(id);},id);await page.reload();await page.waitForSelector('#box');
+   await tap();await page.evaluate(id=>Voice._test.setHandsFree(id),id);
+   await page.evaluate(()=>Voice._test.handle('Summarize the queue'));
+   await page.waitForFunction(()=>Voice._test.state()==='listening',{timeout:8000});
+   await page.click('#voice-cancel');                                  // stop listening: the instruction waits with buttons
+   await page.waitForSelector('#voice-send');
+   assert.match(await page.$eval('#voice-strip',e=>e.textContent),/Send this\? “Summarize the queue”/);
+   await scan('voice-confirm-mobile');await page.screenshot({path:path.join(out,'voice-confirm-mobile.png')});
+   await page.click('#voice-send');
+   for(let i=0;i<40&&received.length===sent;i++)await pause(100);
+   assert.equal(received.at(-1).text,'Summarize the queue','tapping Send sends it');
+   await page.evaluate(()=>Voice.onLeave());await page.reload();await page.waitForSelector('#box');
   });
   await check('Voice: Settings saves preferences and lists voices',async()=>{
    await page.evaluate(()=>settingsSheet());await page.waitForSelector('#s-voice');

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.0] — 2026-10-06 · build 44
+
+- Context ring. A 22px gauge beside the composer's settings button (in the working row while a turn runs) fills as the session's context window fills, amber at 70% and red at 90%. Hover or focus it for the model, tokens used, the window and the percentage. Click it for a Usage panel: this session's context (window, used, free, as-of, estimate note) and the provider's plan windows. It replaces the text meter in the state bar. Unknown models get a readable name from their ID (claude-opus-5-5 → Opus 5.5).
+- Hands-free confirmation. In a hands-free conversation an instruction is read back ("Ready to send: …. Say send it, or cancel.") and shown with Send, Edit and Cancel. Only a short yes (send it, yes, go ahead, do it) or a tap sends it. Cancel drops it, Edit moves it to the message box, and anything else replaces it and is read back again. Quick commands still answer at once; the plain mic still sends directly.
+
 ## [1.12.0] — 2026-10-05 · build 43
 
 - The Attention filter and count include sessions marked Response ready until you open them, alongside questions, approvals and failed turns. The list summary counts them too. Session grouping and the voice "what's waiting on me" answer still mean a question, approval or failure.

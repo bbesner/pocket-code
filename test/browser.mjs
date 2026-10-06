@@ -48,7 +48,8 @@ const server=http.createServer(async(req,res)=>{
   return json({name:upload.name,path:'/fixture/uploads/'+uploads.length+'-'+upload.name});
  }
  if(url.pathname==='/sw.js'&&uiModes.workerFailed){res.writeHead(503);res.end('Worker unavailable');return;}
- if(url.pathname==='/api/usage')return json({claude:{}});
+ if(url.pathname==='/api/usage')return json({claude:{windows:{five_hour:{utilization:.17,resetsAt:Date.now()+3600000},seven_day:{utilization:.24,resetsAt:Date.now()+86400000}},observedAt:Date.now()},codex:null});
+ if(/^\/api\/session\/[^/]+\/context$/.test(url.pathname))return json({context:uiModes.noContext?null:{used:435000,window:1000000,pct:.435,estimated:false,model:'claude-opus-5-5[1m]',lastAt:Date.now()}});
  if(url.pathname==='/api/voice/status')return json(uiModes.voice?{available:true,voices:[{id:'af_heart',label:'American female'},{id:'bm_george',label:'British male (George)'}],defaultVoice:'af_heart'}:{available:false,reason:'Voice is not installed on this server. Run scripts/voice-setup.sh, then restart Pocket Code.'});
  if(url.pathname==='/api/voice/transcribe'){const chunks=[];for await(const c of req)chunks.push(c);voiceLog.transcribe.push({bytes:Buffer.concat(chunks).length,vocabulary:req.headers['x-vocabulary']||''});return json({text:uiModes.voiceText});}
  if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}

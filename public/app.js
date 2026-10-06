@@ -1279,7 +1279,7 @@ async function renderChat(id) {
       ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
     </header>
     <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
-    <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><span class="ctx-meter" id="ctx-meter" hidden></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
+    <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
     <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>
     <button class="question-banner" id="approvals-open" hidden>Action needs approval · Review</button>
     <p id="connection-state" class="connection-state" role="status" hidden></p>
@@ -1367,21 +1367,63 @@ function fmtTokens(n) {
   if (n >= 1000) return Math.round(n / 1000) + 'k';
   return String(n);
 }
+// Context ring (1.13): a small gauge in the composer that fills as the session's context window fills.
+// Hover or focus shows window, used and percentage; a click opens this session's usage (context + plan).
+const ctxCache = new Map(); // sessionId -> context summary from /api/session/:id/context
+const CTX_RING = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle class="ctx-track" cx="12" cy="12" r="8.5"/><circle class="ctx-fill" cx="12" cy="12" r="8.5" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 12 12)"/></svg>';
+const ctxRingHTML = () => `<button type="button" class="icon ctx-ring" id="ctx-ring" aria-haspopup="dialog">${CTX_RING}</button>`;
+function modelLabel(id) {
+  if (!id) return '';
+  const bare = String(id).replace(/\[1m\]$/, '');
+  const known = MODELS.find(m => String(m[0]).replace(/\[1m\]$/, '') === bare)?.[1];
+  if (known) return known;
+  const m = bare.match(/^claude-([a-z]+)-(\d+(?:-\d+)*?)(?:-\d{8})?$/);  // claude-opus-5-5 → Opus 5.5 (not in the picker list)
+  return m ? m[1][0].toUpperCase() + m[1].slice(1) + ' ' + m[2].replace(/-/g, '.') : String(id);
+}
+function ctxPctText(ctx) { return ctx.used > 0 && ctx.pct < 0.005 ? '<1' : String(Math.round(ctx.pct * 100)); }
+function ctxLine(ctx) { return `${fmtTokens(ctx.used)} of ${fmtTokens(ctx.window)} tokens used (${ctxPctText(ctx)}%${ctx.estimated ? ', estimated' : ''})`; }
+function paintCtxRing() {
+  const el = $('#ctx-ring'); if (!el) return;
+  const ctx = ctxCache.get(chatId);
+  const fill = el.querySelector('.ctx-fill');
+  if (!ctx || !ctx.window) {
+    fill.setAttribute('stroke-dasharray', '0 100'); el.dataset.level = '';
+    el.dataset.tip = 'Context window: shown after the next turn reports it. Click for plan usage.';
+    el.setAttribute('aria-label', 'Context window not reported yet. Open usage');
+    return;
+  }
+  const pct = Math.max(0, Math.min(1, ctx.pct || 0));
+  fill.setAttribute('stroke-dasharray', `${Math.max(pct * 100, ctx.used > 0 ? 2 : 0).toFixed(1)} 100`);
+  el.dataset.level = pct >= 0.9 ? 'red' : pct >= 0.7 ? 'amber' : '';
+  const model = modelLabel(ctx.model);
+  el.dataset.tip = `${model ? model + ' · ' : ''}${ctxLine(ctx)}`;
+  el.setAttribute('aria-label', `Context window${model ? ' for ' + model : ''}: ${ctxLine(ctx)}. Open usage`);
+}
 async function paintContextMeter(id) {
-  const el = $('#ctx-meter'); if (!el) return;
   let ctx;
   try { ({ context: ctx } = await api('/session/' + id + '/context')); } catch { return; }
-  if (chatId !== id || !$('#ctx-meter')) return; // the view moved on while this was in flight
-  if (!ctx || !ctx.window) { el.hidden = true; return; }
-  const pct = ctx.used > 0 && ctx.pct < 0.005 ? '<1' : String(Math.round(ctx.pct * 100));
-  el.dataset.level = ctx.pct >= 0.9 ? 'red' : ctx.pct >= 0.7 ? 'amber' : '';
-  el.hidden = false;
-  const full = `${fmtTokens(ctx.used)} / ${fmtTokens(ctx.window)} · ${pct}%${ctx.estimated ? ' est.' : ''}`;
-  // phones show only the percentage (the counts would squeeze the Sessions control)
-  el.innerHTML = `<span class="ctx-detail">${esc(fmtTokens(ctx.used))} / ${esc(fmtTokens(ctx.window))} · </span>${esc(pct)}%${ctx.estimated ? ' est.' : ''}`;
-  el.title = (ctx.estimated ? 'Estimated from the transcript — this daemon did not run the last turn. ' : 'Context used in this session: ') + full + (ctx.lastAt ? ' · as of ' + fmtAsOfET(ctx.lastAt) : '');
-  el.setAttribute('aria-label', 'Context used: ' + full);
+  if (ctx) ctxCache.set(id, ctx); else ctxCache.delete(id);
+  if (chatId === id) paintCtxRing();
 }
+async function openContextPanel() {
+  const id = chatId; if (!id) return;
+  const ctx = ctxCache.get(id), codexSession = String(id).startsWith('cx:');
+  const scrim = document.createElement('div'); scrim.className = 'scrim';
+  const sh = document.createElement('div'); sh.className = 'sheet usage-sheet';
+  const model = modelLabel(ctx?.model);
+  const ctxBlock = ctx?.window
+    ? `<div class="usage-block"><h3>This session${model ? ' · ' + esc(model) : ''}</h3>${usageWindowRow('Context window', ctx.pct, null)}
+       <dl class="ctx-facts"><div><dt>Window</dt><dd>${esc(fmtTokens(ctx.window))} tokens</dd></div><div><dt>Used</dt><dd>${esc(fmtTokens(ctx.used))} tokens</dd></div><div><dt>Free</dt><dd>${esc(fmtTokens(Math.max(0, ctx.window - ctx.used)))} tokens</dd></div></dl>
+       <p class="usage-asof">${ctx.estimated ? 'Estimated from the transcript. ' : ''}As of ${esc(fmtAsOfET(ctx.lastAt))}</p></div>`
+    : '<div class="usage-block"><h3>This session</h3><p class="usage-empty">Context use appears after the next turn reports it.</p></div>';
+  sh.innerHTML = `<h2>Usage</h2><p class="sheet-help">Only updates when a turn runs, not live.</p><div class="usage-body">${ctxBlock}</div><div class="usage-body" id="usage-body">Loading plan usage…</div>`;
+  mountSheet(scrim, sh);
+  let d;
+  try { d = await api('/usage'); } catch (e) { sh.querySelector('#usage-body').innerHTML = `<p class="usage-empty">Plan usage could not be loaded: ${esc(e.message)}</p>`; return; }
+  if (!sh.isConnected) return;
+  sh.querySelector('#usage-body').innerHTML = codexSession ? (d.codex ? codexUsageBlockHTML(d.codex) : '<div class="usage-block"><h3>Codex</h3><p class="usage-empty">No Codex usage reported.</p></div>') : claudeUsageBlockHTML(d.claude || {});
+}
+document.addEventListener('click', e => { if (e.target.closest?.('#ctx-ring')) openContextPanel(); });
 function fmtResetET(ms) {
   if (!ms) return null;
   const d = new Date(ms);
@@ -1477,11 +1519,11 @@ function setComposer(working) {
   c.innerHTML = `
     ${working ? `
       <div class="workrow"><span class="ember"></span><span id="work-label">Working</span>
-        <button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>
+        ${ctxRingHTML()}<button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>
         <button class="chip stopchip" id="stopb" aria-label="Stop this turn">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
     ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this turn" aria-label="After this turn">After <span class="sm-x">this </span>turn</button></div>' : ''}
-    ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.cog}</button></div>` : ''}
+    ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.cog}</button>${ctxRingHTML()}</div>` : ''}
     <textarea id="box" rows="1" placeholder="${working ? 'Steer this turn…' : 'Message this session…'}" enterkeyhint="send"></textarea>
     ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button>`;
   if (working) {
@@ -1513,6 +1555,7 @@ function setComposer(working) {
   Voice.bindComposer();
   paintDelivery(chatId);
   paintChoices();
+  paintCtxRing();
 }
 
 const sendsInFlight = new Set(), deliveryNotices = new Map();

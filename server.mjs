@@ -2011,9 +2011,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Attention now includes sessions marked Response ready, until you open them, alongside questions, approvals and failed turns.",
-  "On phones and narrow panes the message box has its own full-width row, with the buttons beneath it, so it is never squeezed, even while steering a running turn. Contributed by Damon Delcoro.",
-  "A message you send to an idle session stays on screen while the turn starts, instead of disappearing until the reply finishes. Reported by Damon Delcoro."
+  "Context ring: a small gauge beside the message box fills as the session's context window fills (amber at 70%, red at 90%). Hover for the model, tokens used, window and percentage; click for this session's usage and your plan limits.",
+  "Hands-free asks before it sends: Pocket reads your instruction back and waits for \"send it\" or a tap on Send. Say \"cancel\" or \"edit\" instead, or say something else to replace it."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
