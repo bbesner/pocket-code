@@ -57,6 +57,16 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  const failed=await call(`/session/${id}/message`,{text:'__FAIL__',clientMessageId:randomUUID()});assert.equal(failed.status,202);
  await sleep(800);
  assert.equal((await call('/sessions')).body.sessions.find(s=>s.id===id).state.kind,'failed');
+ // Reviewed markers are shared by every device, only move forward, Undo restores exactly, and survive restarts.
+ const failedAt=(await call('/sessions')).body.sessions.find(s=>s.id===id).state.at;
+ assert.equal((await call('/seen',{seen:{[id]:failedAt}})).body.seen[id],failedAt);
+ assert.equal((await call('/seen',{seen:{[id]:failedAt-5}})).body.seen[id],failedAt,'seen only moves forward');
+ assert.equal((await call('/sessions')).body.sessions.find(s=>s.id===id).seenAt,failedAt,'listed for every device');
+ assert.equal((await call('/seen',{restore:{[id]:0}})).body.seen[id],0,'Undo clears it');
+ assert.equal((await call('/sessions')).body.sessions.find(s=>s.id===id).seenAt,undefined);
+ assert.equal((await call('/seen',{seen:{'not-a-session':1,[randomUUID()]:'soon'}})).body.changed,0,'bad ids and times are ignored');
+ await call('/seen',{seen:{[id]:failedAt}});await stop();await start();
+ assert.equal((await call('/sessions')).body.sessions.find(s=>s.id===id).seenAt,failedAt,'kept across restarts');
  // Saved follow-ups can be edited, paused by stop, and recovered after restart.
  const slow=await call('/new',{cwd:repo,text:'__SLOW__ queue test',clientMessageId:randomUUID()});
  const sid=slow.body.id;await sleep(250);
