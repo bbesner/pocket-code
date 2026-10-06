@@ -1,7 +1,9 @@
 {
-  "version": "1.11.2",
+  "version": "1.12.0",
   "assetV": 43,
   "notes": [
+    "Attention now includes sessions marked Response ready, until you open them, alongside questions, approvals and failed turns.",
+    "On phones and narrow panes the message box has its own full-width row, with the buttons beneath it, so it is never squeezed, even while steering a running turn. Contributed by Damon Delcoro.",
     "A message you send to an idle session stays on screen while the turn starts, instead of disappearing until the reply finishes. Reported by Damon Delcoro."
   ]
 }

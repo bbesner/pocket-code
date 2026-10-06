@@ -324,3 +324,11 @@ clay hairline, primary text), so a tap reads as "send this as my message". 44px 
 wrap on phones, a dim 44px X to dismiss that returns focus to the message box. They
 appear only when nothing is running, nothing is pending and the box is empty; no motion
 beyond the existing message entrance. Rendered 390px screenshot and axe scan reviewed.
+
+## Phone composer rows and Attention (1.12)
+
+Up to 600px (phones and narrow split panes) the message box takes a full-width row and the
+controls sit beneath it: settings left, voice controls and Send right, Steer now / After this
+turn filling the space while a turn runs. Costs about 50px of reading height on phones in
+exchange for a box that never collapses (it fell to "Stee…" in a 480px pane). Targets stay 44px.
+Attention counts unopened Response ready replies with questions, approvals and failures.

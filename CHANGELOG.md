@@ -1,7 +1,9 @@
 # Changelog
 
-## [1.11.2] — 2026-10-05 · build 43
+## [1.12.0] — 2026-10-05 · build 43
 
+- The Attention filter and count include sessions marked Response ready until you open them, alongside questions, approvals and failed turns. The list summary counts them too. Session grouping and the voice "what's waiting on me" answer still mean a question, approval or failure.
+- Phones and panes up to 600px wide give the message box its own full-width row, with settings, headset, mic and Send (and Steer now / After this turn while a turn runs) on the row beneath. Before, the box shrank to a few characters while steering. Contributed by Damon Delcoro.
 - A message sent to an idle session no longer disappears until the turn ends. The CLI writes the user line to the transcript a moment after the turn starts, and the re-render right after the send landed in that gap. The session view now includes the running turn's own message, dimmed as pending, until the transcript has it. It matches on that message among lines written since the turn started, so a steered or queued message landing after it never brings it back twice. Reported, with a first patch, by Damon Delcoro.
 
 ## [1.11.1] — 2026-10-05 · build 42
