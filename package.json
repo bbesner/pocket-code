@@ -1,6 +1,6 @@
 {
   "name": "pocket-code",
-  "version": "1.13.1",
+  "version": "1.13.2",
   "private": true,
   "type": "module",
   "description": "Self-hosted Claude Code and Codex workspace for desktop, tablet and phone, with persistent sessions, split conversations and server-side execution.",

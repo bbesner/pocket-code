@@ -298,6 +298,7 @@ header.bar button.bell.on { color: var(--clay); }
   padding: 14px; border-radius: 12px; font-size: 16.5px;
 }
 .sheet .opt .sub { font-size: 13.5px; color: var(--faint); display: block; margin-top: 2px; }
+.sheet .sheet-name { font-size: 16px; font-weight: 500; color: var(--text); padding: 0 14px 12px; overflow-wrap: anywhere; }
 .sheet .opt.sel { background: var(--raised); }
 .sheet .opt .dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--faint); flex: none; }
 .sheet .opt.sel .dot { border-color: var(--clay); background: radial-gradient(circle, var(--clay) 45%, transparent 50%); }
@@ -755,6 +756,8 @@ header.bar { gap: 2px; padding-inline: 8px; }
 /* UI/UX repair pass (1.7.1): preserve the workbench, make hidden state explicit. */
 .settings-details { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 4px; }
 .settings-details > summary { min-height: 44px; padding: 10px 0; cursor: pointer; color: var(--dim); }
+.settings-details > summary .summary-meta:not(:empty)::before { content: ' · '; }
+.settings-details > summary .summary-meta { color: var(--faint); }
 .settings-details .about { margin: 8px 0; }
 .settings-details .chip { margin-top: 8px; }
 .settings-details [hidden],.settings-sheet > [hidden] { display: none; }
