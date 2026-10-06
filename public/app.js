@@ -204,6 +204,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.innerHTML = `
     <h2>Session options</h2>
     <p class="sheet-name">${esc(s.title)}</p>
+    ${s.id!==chatId&&canMarkReviewed(allSessions.find(r=>r.id===s.id)||s)?'<button class="opt" id="so-reviewed">'+IC.tick+'<span>Mark as reviewed<span class="sub">Clear '+(s.state?.kind==='failed'?'the failed turn':'Response ready')+' and take it out of Attention without opening it</span></span></button>':''}
     ${chatTextControlsHTML()}
     ${s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':''}
     ${!PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : ''}
@@ -226,6 +227,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   };
   sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting sessions stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
+  sh.querySelector('#so-reviewed')?.addEventListener('click',()=>{close();markReviewed([allSessions.find(r=>r.id===s.id)||s]);paintSessionPanels();toast('Marked as reviewed');});
   bindChatTextControls(sh);
   sh.querySelector('#so-find')?.addEventListener('click',()=>{close();findOpen(true);});
   sh.querySelector('#so-changes')?.addEventListener('click',()=>{close();openChanges();});
@@ -642,6 +644,17 @@ const isUnread = s => s.state?.kind === 'finished' && (s.state.at || 0) > seenAt
 // The Attention filter and count: anything waiting on you, including a finished reply (Response ready) you
 // have not opened yet. Grouping and voice keep needsAttention, which means a question, approval or failure.
 const inAttention = s => needsAttention(s) || isUnread(s);
+// Mark reviewed clears a Response ready reply or a failed turn without opening it, on this device, exactly as
+// opening would. Questions and approvals stay until they are answered.
+const canMarkReviewed = s => isUnread(s) || s.state?.kind === 'failed' && (s.state.at || 0) > seenAt(s.id);
+function markReviewed(list) {
+  const prior = [];
+  for (const s of list.filter(canMarkReviewed)) { try { prior.push([s.id, localStorage.getItem('pc-seen-' + s.id)]); localStorage.setItem('pc-seen-' + s.id, String(s.state.at)); } catch { } }
+  return prior;
+}
+function restoreReviewed(prior) { for (const [id, v] of prior) { try { v === null ? localStorage.removeItem('pc-seen-' + id) : localStorage.setItem('pc-seen-' + id, v); } catch { } } }
+// After Mark all reviewed, the bar offers Undo for a short while instead of the action.
+let reviewUndo = null, reviewUndoT = null;
 // A reply that finishes while its conversation is already on screen counts as read only after you engage
 // with the page (tap, click, type, scroll, return to the tab or navigate). Voice mode keeps the screen awake
 // while you wait for a spoken reply, so a visible page alone no longer proves you saw it.
@@ -702,10 +715,26 @@ function bindSessionRows(container) {
     const session = allSessions.find(s => s.id === b.dataset.more);
     if (session) { closeCurrentSheet?.(); sessionSheet(session, refreshSessions); }
   });
+  container.querySelector('[data-mark-all-reviewed]')?.addEventListener('click', () => {
+    const prior = markReviewed(filteredSessions());
+    clearTimeout(reviewUndoT); reviewUndo = prior.length ? prior : null;
+    reviewUndoT = setTimeout(() => { reviewUndo = null; paintSessionPanels(); }, 10000);
+    paintSessionPanels(); document.querySelector('[data-undo-reviewed]')?.focus({preventScroll:true});
+  });
+  container.querySelector('[data-undo-reviewed]')?.addEventListener('click', () => {
+    clearTimeout(reviewUndoT); if (reviewUndo) restoreReviewed(reviewUndo); reviewUndo = null; paintSessionPanels();
+  });
+}
+// Shown in Attention and New: clears every listed reply or failure at once, then offers Undo.
+function reviewBarHTML(list) {
+  if (sessionsStale || !['attention','new'].includes(sessionFilter)) return '';
+  if (reviewUndo) return `<div class="review-bar"><span role="status">Marked ${reviewUndo.length} as reviewed</span><button type="button" class="chip" data-undo-reviewed>Undo</button></div>`;
+  const n = list.filter(canMarkReviewed).length;
+  return n ? `<div class="review-bar"><span>${n} not reviewed yet</span><button type="button" class="chip" data-mark-all-reviewed>${IC.tick}Mark all reviewed</button></div>` : '';
 }
 function groupedSessionsHTML(list) {
   const groups = [['running','Running'],['observed','Activity elsewhere'],['failed','Needs attention'],['waiting','Waiting'],['recent','Recent']];
-  if (!list.length) return `<div class="empty">${sessionsStale ? 'Could not load sessions. Use Refresh to try again.' : sessionQuery || workspaceFilter || providerFilter || ['pinned','hidden'].includes(sessionFilter) ? 'No sessions match these filters.' : sessionFilter === 'active' ? 'No runs or recent external activity.' : sessionFilter === 'attention' ? 'No recorded failed turns.' : sessionFilter === 'new' ? 'No new recorded responses.' : 'No sessions yet. Start a conversation to begin.'}</div>`;
+  if (!list.length) return `<div class="empty">${sessionsStale ? 'Could not load sessions. Use Refresh to try again.' : sessionQuery || workspaceFilter || providerFilter || ['pinned','hidden'].includes(sessionFilter) ? 'No sessions match these filters.' : sessionFilter === 'active' ? 'No runs or recent external activity.' : sessionFilter === 'attention' ? 'Nothing needs your attention.' : sessionFilter === 'new' ? 'No new recorded responses.' : 'No sessions yet. Start a conversation to begin.'}</div>`;
   if(sessionsStale)return `<section class="session-group"><h2>Status unconfirmed<span>${list.length}</span></h2>${list.map(sessionRowHTML).join('')}</section>`;
   return groups.map(([key,label]) => {
     const rows = list.filter(s => key === 'recent' ? !['running','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s) : key === 'failed' ? needsAttention(s) : rowState(s).kind === key);
@@ -728,7 +757,8 @@ function paintSessionPanels() {
   document.querySelectorAll('[data-session-results]').forEach(el => {
     const focus = el.contains(document.activeElement) ? document.activeElement?.dataset : null;
     const id = focus?.id, more = focus?.more;
-    el.innerHTML = groupedSessionsHTML(filteredSessions()); bindSessionRows(el);
+    const list = filteredSessions();
+    el.innerHTML = reviewBarHTML(list) + groupedSessionsHTML(list); bindSessionRows(el);
     if (id || more) el.querySelector(`[${more ? 'data-more' : 'data-id'}="${CSS.escape(more || id)}"]`)?.focus({preventScroll:true});
   });
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
