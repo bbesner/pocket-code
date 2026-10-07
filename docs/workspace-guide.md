@@ -27,11 +27,19 @@ The desktop rail has its own independent Filters disclosure.
 Pinning and renaming are server-side. Hiding a session is local to this browser,
 preserves history, and is reversed by new activity. Active or waiting work stays visible.
 
+Pinned sessions keep an order of their own, saved on the server so every device agrees.
+On desktop widths each pinned row has a grip: drag it onto another pinned row, or focus
+it and press the up and down arrow keys. Session options offers **Move pin up** and
+**Move pin down** on any device. A newly pinned session follows the ordered pins by
+recency; unpinning forgets its place.
+
 ## Desktop workspace
 
 ![Two conversations in the desktop workspace](images/desktop-split.png)
 
-The left rail finds sessions. Open-session tabs keep recent work within reach.
+The left rail finds sessions. Open-session tabs keep recent work within reach. A pinned
+session's tab shows the pin and its title in the accent, and pinned tabs come first in
+the pinned order, then the rest in the order opened; Alt [ / ] follow the same order.
 The panel icon beside the conversation title hides the rail; drag its divider or
 use its arrow keys to resize it.
 
@@ -212,13 +220,22 @@ The mic sits beside Send in every conversation, including split panes.
   added to it for you to review and send.
 - **Quick commands** are answered on your device without involving the agent: *what's it doing*
   (latest step), *stop* (stops the running turn), *read it* (the latest reply at your spoken reply length),
-  *read it all*, *what's waiting on me* (approvals, questions and sessions needing you) and
-  *be quiet* (stops speaking). Longer or different sentences are sent to the session.
+  *read it all*, *what's waiting on me* (approvals, questions and sessions needing you),
+  *be quiet* (stops speaking), *mute* and *unmute* (spoken output on this device). Longer or
+  different sentences are sent to the session.
 - **Spoken replies.** When a turn you started by voice finishes, the reply is read aloud at the
   length set in Settings → Voice → Spoken reply length: Brief (one sentence), Normal (about two, the
   default) or Detailed (the whole reply, stopping after about three minutes). Code, tables and links
   are left on screen. The setting changes how much is read, not what the agent writes. If the agent needs an approval or has a question,
   you hear that, and you answer it on screen.
+
+**Mute voice.** When voice is available, the composer has a **Voice** chip beside Alerts (an icon
+beside the bell while a turn runs). One tap mutes every spoken reply, announcement and approval or
+question prompt on this device, stops anything being spoken and ends a hands-free conversation; your
+Speak replies, Announce sessions and other voice settings are kept and apply again when you tap it
+back. While muted, quick commands show their answer in the voice strip, the completion chime applies
+as configured, and Settings → Voice → Play a sample still plays. Starting hands-free, or saying
+"unmute", turns voice back on. Settings → Voice shows the same switch.
 
 **Spoken alerts.** Settings → Voice (beta) → Announce sessions: Off (default), Session name only, or
 Name and a one-line summary. While Pocket is open, it then says when any session finishes, stops with
@@ -255,9 +272,9 @@ explains that it is blocked and you can open Pocket Code directly.
 |---|---|
 | Open tabs, split arrangement, hidden sessions, filters | Conversation transcripts and native Codex store |
 | Drafts, reading position, attachment references, retry state | Uploaded files and delivery receipts |
-| Text size and collapse preferences, dismissed reply suggestions | Pins, names, per-session mutes and name-sync setting |
+| Text size and collapse preferences, dismissed reply suggestions | Pins and their order, names, per-session mutes and name-sync setting |
 | Per-session composer choices and chime preference | Follow-up queue, approval audit, usage snapshots, runner state |
-| Voice preferences and vocabulary | Voice engine install (`POCKET_VOICE_HOME`); no recordings are kept |
+| Voice preferences, voice mute and vocabulary | Voice engine install (`POCKET_VOICE_HOME`); no recordings are kept |
 
 Keep browser storage to retain local preferences. Keep the server data inventory in
 [operations](operations.md#state-and-backups) across upgrades and rollbacks.

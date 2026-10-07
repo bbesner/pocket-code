@@ -8,7 +8,7 @@ const require=createRequire(import.meta.url);
 const axePath=require.resolve('axe-core/axe.min.js');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
-export async function runUIRegressions({browser,base,rows,out,setMode,received=[],voiceLog={transcribe:[],speak:[]},conversations=new Map()}) {
+export async function runUIRegressions({browser,base,rows,out,setMode,received=[],voiceLog={transcribe:[],speak:[]},conversations=new Map(),pinOrders=[]}) {
  const context=await browser.createBrowserContext(),page=await context.newPage();
  page.setDefaultTimeout(8000);
  const errors=[],checks=[],scans=[];
@@ -597,6 +597,68 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    assert.equal(await page.$eval('#agents-open',e=>e.hidden),true);
    await page.click('#chatmore');await page.click('#so-agents');await page.waitForFunction(()=>document.querySelector('.agents-status').textContent.includes('No subagents'));
    await page.keyboard.press('Escape');
+  });
+  await check('Pinned sessions: tabs carry the pin and follow the shared order; grip drag, arrow keys and Session options reorder',async()=>{
+   await page.setViewport({width:1440,height:900});
+   const a=rows[3].id,b=rows[4].id,clay='rgb(217, 119, 87)';
+   await page.goto(base+'/#/chat/'+a);await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},a);
+   await page.goto(base+'/#/chat/'+b);await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},b);
+   assert.equal(await page.$$eval('#open-sessions .open-session.pinned',es=>es.length),0,'no pins yet');
+   await page.click('#chatmore');await page.waitForSelector('#so-pin');await page.click('#so-pin');                       // pin the open session from its header
+   await page.waitForSelector(`.session-item.pinned[data-item="${b}"] [data-grip]`);
+   await page.click(`[data-more="${a}"]`);await page.waitForSelector('#so-pin');await page.click('#so-pin');            // pin another from the rail
+   await page.waitForSelector(`.session-item.pinned[data-item="${a}"]`);
+   await page.waitForFunction(()=>document.querySelectorAll('#open-sessions .open-session.pinned').length===2);
+   const tabs=()=>page.$$eval('#open-sessions .open-session',es=>es.map(e=>({pinned:e.classList.contains('pinned'),title:e.querySelector('a').textContent.replace(/^Pinned: /,'').trim(),color:getComputedStyle(e.querySelector('a')).color,mark:Boolean(e.querySelector('.pinmark'))})));
+   let shown=await tabs();
+   assert.deepEqual(shown.slice(0,2).map(t=>t.pinned),[true,true],'pinned tabs come first');assert.ok(shown.slice(2).every(t=>!t.pinned),'unpinned tabs after them');
+   assert.deepEqual(shown.slice(0,2).map(t=>t.title),[rows[3].title,rows[4].title],'in the list order (recency) before any reorder');
+   assert.ok(shown.slice(0,2).every(t=>t.mark&&t.color===clay),'pinned tabs show the pin in the accent: '+JSON.stringify(shown));
+   const grip=await page.$(`[data-grip="${b}"]`),gb=await grip.boundingBox(),ab=await (await page.$(`.session-item[data-item="${a}"]`)).boundingBox();
+   let n=pinOrders.length;
+   await page.mouse.move(gb.x+gb.width/2,gb.y+gb.height/2);await page.mouse.down();await page.mouse.move(ab.x+ab.width/2,ab.y+4,{steps:8});
+   assert.equal(await page.$eval(`.session-item[data-item="${a}"]`,e=>e.classList.contains('drop-before')),true,'drop target is marked while dragging');
+   await page.mouse.up();
+   for(let i=0;i<40&&pinOrders.length===n;i++)await pause(100);
+   assert.deepEqual(pinOrders.at(-1),[b,a],'drag saves the order on the server');
+   assert.deepEqual(await page.$$eval('.session-item.pinned',es=>es.map(e=>e.dataset.item)),[b,a],'the list moved at once');
+   shown=await tabs();assert.deepEqual(shown.slice(0,2).map(t=>t.title),[rows[4].title,rows[3].title],'tabs follow the pinned order');
+   n=pinOrders.length;await page.focus(`[data-grip="${b}"]`);await page.keyboard.press('ArrowDown');
+   for(let i=0;i<40&&pinOrders.length===n;i++)await pause(100);
+   assert.deepEqual(pinOrders.at(-1),[a,b],'arrow keys reorder too');
+   assert.equal(await page.evaluate(()=>document.activeElement?.dataset.grip),b,'focus stays on the moved grip');
+   assert.match(await page.$eval('#toast',e=>e.textContent),/Pinned 2 of 2/);
+   await page.click(`[data-more="${a}"]`);await page.waitForSelector('#so-pin-down');assert.equal(await page.$('#so-pin-up'),null,'the first pin cannot move up');
+   n=pinOrders.length;await page.click('#so-pin-down');for(let i=0;i<40&&pinOrders.length===n;i++)await pause(100);
+   assert.deepEqual(pinOrders.at(-1),[b,a],'Session options moves it too');
+   await scan('pinned-tabs-desktop');await page.screenshot({path:path.join(out,'pinned-tabs-desktop.png')});
+   for(const id of [a,b]){await page.click(`[data-more="${id}"]`);await page.waitForSelector('#so-pin');await page.click('#so-pin');await page.waitForFunction(id=>!document.querySelector(`.session-item.pinned[data-item="${id}"]`),{},id);}
+   await page.waitForFunction(()=>document.querySelectorAll('#open-sessions .open-session.pinned').length===0);
+  });
+  await check('Voice: one tap mutes replies and announcements on this device; settings mirror it; hands-free turns it back on',async()=>{
+   await page.setViewport({width:390,height:844});await chat();await page.waitForSelector('#micb:not([hidden])');
+   await page.waitForSelector('[data-voice-mute]:not([hidden])');
+   assert.equal(await page.$eval('[data-voice-mute]',e=>e.getAttribute('aria-pressed')),'false');
+   assert.match(await page.$eval('[data-voice-mute]',e=>e.textContent),/^Voice$/);
+   await page.click('[data-voice-mute]');
+   assert.equal(await page.evaluate(()=>Voice.isMuted()),true);
+   assert.match(await page.$eval('[data-voice-mute]',e=>e.textContent),/Voice off/);
+   assert.equal(await page.$eval('[data-voice-mute]',e=>e.getAttribute('aria-pressed')),'true');
+   const spoken=voiceLog.speak.length;
+   await page.evaluate(()=>Voice._test.handle('Read it.'));await pause(400);
+   assert.equal(voiceLog.speak.length,spoken,'a quick command is answered on screen, not spoken');
+   const strip=await page.$eval('#voice-strip',e=>e.textContent);assert.ok(strip.length>12&&!/^Heard:/.test(strip),'the strip shows the answer: '+strip);
+   await page.evaluate(id=>{Voice._test.arm(id);Voice.onTurnEnd(id,true);},idle);await pause(400);
+   assert.equal(voiceLog.speak.length,spoken,'a finished turn is not read aloud while muted');
+   assert.equal(await page.evaluate(()=>Voice.replacesChime()),false,'the chime preference applies while muted');
+   await page.evaluate(()=>settingsSheet());await page.waitForSelector('#s-voice-mute');
+   assert.equal(await page.$eval('#s-voice-mute',e=>e.getAttribute('aria-pressed')),'true','Settings shows the same switch');
+   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+   await scan('voice-muted-mobile');await page.screenshot({path:path.join(out,'voice-muted-mobile.png')});
+   await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});                                      // a saved draft would hide the headset
+   await page.click('#hfb');await page.waitForFunction(()=>!Voice.isMuted());                                            // starting hands-free is asking to hear it
+   await page.waitForSelector('#voice-cancel');await page.click('#voice-cancel');
+   assert.equal(await page.$eval('[data-voice-mute]',e=>e.getAttribute('aria-pressed')),'false');
   });
   await check('Voice: the mic is hidden when the server has no voice engine',async()=>{
    setMode({voice:false});await page.reload();await page.waitForSelector('#box');await pause(300);

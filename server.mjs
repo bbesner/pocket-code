@@ -148,6 +148,8 @@ const loadSmeta = () => { try { return JSON.parse(fs.readFileSync(SMETA_FILE, 'u
 let smeta = loadSmeta();
 const saveSmeta = () => atomicWrite(SMETA_FILE, smeta);
 const isPinned = id => Boolean(smeta[id]?.pin);
+// Pinned-session order chosen in the rail (drag, or Move up/down). Pins without an order follow by recency.
+const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder : Number.MAX_SAFE_INTEGER;
 // server-wide options (one tenant per install). titleSync: share session names with
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
@@ -1379,6 +1381,8 @@ async function listAllSessions(limit) {
     rows.push({...meta,id,provider:isCx(id)?'codex':'claude',title:smeta[id]?.name||meta?.title||'Queued session',mtimeMs:meta?.mtimeMs||followups.list(id)[0].createdAt});
   }
   rows = rows.map(s => ({ ...s, state: stateFor(s) })).sort((a,b) => b.mtimeMs-a.mtimeMs);
+  // pins first, in their chosen order (unordered pins by recency); everything else keeps recency
+  rows.sort((a, b) => (a.pinned ? pinRank(a.id) : Infinity) < (b.pinned ? pinRank(b.id) : Infinity) ? -1 : (a.pinned ? pinRank(a.id) : Infinity) > (b.pinned ? pinRank(b.id) : Infinity) ? 1 : 0);
   const result = prioritizeSessions(rows, limit);
   result.warnings = warnings;
   return result;
@@ -1389,6 +1393,7 @@ app.get('/api/sessions', requireAuth, async (req, res) => {
     const sessions = await listAllSessions(Math.min(Number(req.query.limit) || 60, 200));
     for (const s of sessions) if (mutes.has(s.id)) s.muted = true; // spoken alerts honor per-session mute
     for (const s of sessions) if (smeta[s.id]?.seen) s.seenAt = smeta[s.id].seen; // shared across devices
+    for (const s of sessions) if (s.pinned && Number.isFinite(smeta[s.id]?.pinOrder)) s.pinOrder = smeta[s.id].pinOrder;
     res.json({ sessions, warnings: sessions.warnings, checkedAt: Date.now() });
   } catch { res.status(503).json({ error: 'Session status is unavailable. Please retry.' }); }
 });
@@ -1812,9 +1817,21 @@ app.post('/api/seen', requireAuth, (req, res) => {
 app.post('/api/session/:id/pin', requireAuth, (req, res) => {
   const id = req.params.id;
   if (!anyId(id)) return res.status(400).json({ error: 'bad id' });
-  setSmeta(id, { pin: req.body?.pinned ? true : null });
+  setSmeta(id, req.body?.pinned ? { pin: true } : { pin: null, pinOrder: null }); // unpinning forgets its place
   log(`session ${isPinned(id) ? 'pinned' : 'unpinned'} session=${id}`);
   res.json({ ok: true, pinned: isPinned(id) });
+});
+
+// Pinned order, shared by every device: the client sends the pinned ids in the order it wants;
+// each gets its index. Ids that are not pinned are ignored; pins left out keep recency order after these.
+app.post('/api/pins/order', requireAuth, (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
+  if (!ids || ids.length > 200 || !ids.every(id => typeof id === 'string' && anyId(id))) return res.status(400).json({ error: 'ids: up to 200 session ids' });
+  const order = [...new Set(ids)].filter(isPinned);
+  order.forEach((id, i) => { smeta[id] = { ...smeta[id], pinOrder: i }; });
+  if (order.length) saveSmeta();
+  log(`pin order set n=${order.length}`);
+  res.json({ ok: true, order });
 });
 
 // custom title overlay — empty name reverts to the transcript-derived title.
@@ -2062,7 +2079,9 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Reply suggestions: when the agent has a clear recommendation, that button is filled clay and tagged Recommended. The tag is never part of the message a tap sends. Requested by Brad."
+  "Pinned sessions show in the desktop tabs: the pin and the clay title mark them, and pinned tabs come first in the same order as the list. Requested by Damon Delcoro.",
+  "Reorder pinned sessions: drag the grip beside a pinned row, press its arrow keys, or use Move pin up / down in Session options. The order is saved on the server, so every device and the tabs follow it. Requested by Damon Delcoro.",
+  "Mute voice in one tap: a Voice chip beside Alerts (an icon beside the bell while a turn runs) silences spoken replies, announcements and prompts on this device without changing your voice settings. Say “mute” or “unmute” too. Requested by Damon Delcoro."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

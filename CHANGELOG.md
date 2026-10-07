@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.0] — Unreleased · build 51
+
+- Pinned sessions are marked in the desktop tabs. A pinned session's tab shows the pin and its title in clay, the same marks as its row in the session list, so the sessions you are working on stand out from tabs you can close. Pinned tabs come first, in the pinned order, then the other tabs in the order you opened them; Alt [ / ] follow the same order. Requested by Damon Delcoro.
+- Reorder pinned sessions. Pinned rows in the desktop list have a grip: drag it onto another pinned row to move the session, or focus it and press the up and down arrow keys. Session options also offers Move pin up and Move pin down on any device. The order is saved on the server beside pins and names (an order number in session-meta.json), so every device and the tabs follow it; a newly pinned session goes after the ordered pins by recency, and unpinning forgets its place. Older builds ignore the order number. Requested by Damon Delcoro.
+- Mute voice in one tap. When voice is available, the composer has a Voice chip beside Alerts (an icon beside the bell while a turn runs) that mutes every spoken reply, announcement and approval or question prompt on this device, without changing Speak replies, Announce sessions or the other voice settings; tap it again to hear them. Muting stops anything being spoken and ends a hands-free conversation; starting hands-free, or saying "unmute", turns voice back on, and "mute" mutes it. While muted, quick commands show their answer in the voice strip instead of speaking it, the completion chime applies as configured, and Play a sample still plays. Settings → Voice shows the same switch. Requested by Damon Delcoro.
+
 ## [1.17.0] — 2026-10-06 · build 50
 
 - Reply suggestions show the recommended option. When Claude or Codex has a clear recommendation among the choice buttons under a closing question, that button is filled clay with a small Recommended tag; the others keep their outlined look. The agent marks its pick by ending the option with "(Recommended)" in the choices block; Pocket strips the marker, so a tap still sends the plain option text and the reply reads cleanly in the transcript and in other clients. At most one option is marked, and an even choice stays unmarked. Older replies without a marker look as before. Requested by Brad.

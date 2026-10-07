@@ -379,3 +379,17 @@ title ellipses, compact navigation and the hidden slash-menu shadow. An independ
 review found a backend replay-status bug; it was fixed with targeted tests and independently
 reverified. Final review verdict: Pass. These browser checks do not certify a physical device or a
 split-specific screenshot.
+
+## Pinned tabs, pin order and voice mute (1.18)
+
+Pinned Operate brief: variance 3, motion 1, density 7. Keep the warm ink palette, native
+type and existing chrome. A pinned open-session tab reuses the rail's marks exactly: the
+13px pin glyph and the clay title (6.0:1 on surface, 5.4:1 on the raised current tab),
+with a visually hidden "Pinned:" prefix for screen readers. Nothing else on the tab strip
+changes. Pinned rows gain a 44px grip (six-dot glyph, faint) before the options button on
+desktop widths only; it drags with pointer events (touch-action none), answers the arrow
+keys, and the drop target shows a 2px inset clay rule above or below. Session options adds
+Move pin up / down with the existing arrow glyphs for phones and keyboards. The voice mute
+is one control in two places: a chip beside Alerts in the idle composer and a bell-sized
+icon in the working row, speaker and speaker-off glyphs in the authored 1.8px stroke, set
+state in clay like the other set chips. It appears only when the server has voice.

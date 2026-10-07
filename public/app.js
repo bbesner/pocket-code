@@ -8,6 +8,7 @@ const IC = {
   back: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
   plus: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   up: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V6M6 12l6-6 6 6"/></svg>',
+  down: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v13M6 12l6 6 6-6"/></svg>',
   term: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7l4 5-4 5M12 17h7"/></svg>',
   doc: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4"/></svg>',
   globe: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c-5 5.7-5 11.3 0 17 5-5.7 5-11.3 0-17z"/></svg>',
@@ -29,6 +30,9 @@ const IC = {
   down1: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg>',
   diff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10.5 10.5h4M12.5 8.5v4M10.5 16h4"/></svg>',
   pin: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3.5h7M10 3.5l-.6 6L6 12.5V14h12v-1.5L14.6 9.5l-.6-6M12 14v6.5"/></svg>',
+  grip: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6.5h.01M9.5 12h.01M9.5 17.5h.01M14.5 6.5h.01M14.5 12h.01M14.5 17.5h.01" stroke-width="2.8"/></svg>',
+  speaker: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4zM16.5 9.2a4.2 4.2 0 010 5.6M19 6.5a7.8 7.8 0 010 11"/></svg>',
+  speakerOff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4zM16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>',
   more: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
   columns: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 4.5v15"/></svg>',
   swap: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h13l-3.5-3.5M19 16H6l3.5 3.5"/></svg>',
@@ -166,7 +170,7 @@ function renderToolbar() {
     <button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>
     <button class="chip" id="c-approval" title="Permissions for the next turn">${permissionLabel(nextApprovalMode())}</button>
     ${tb.provider==='codex'?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
-    ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}`;
+    ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}`;
   const ar = $('#attrow');
   if (ar) {
     ar.innerHTML = tb.attachments.map((a, i) => `
@@ -184,7 +188,7 @@ function renderToolbar() {
   $('#c-eff').onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
     v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   if (loadOutbox(tb.key)) {
-    bar.querySelectorAll('button:not(#c-mute)').forEach(b => { b.disabled = true; });
+    bar.querySelectorAll('button:not(#c-mute):not([data-voice-mute])').forEach(b => { b.disabled = true; });
     if(att)att.disabled=true;
     ar?.querySelectorAll('button').forEach(b => { b.disabled = true; });
   }
@@ -194,6 +198,7 @@ function renderToolbar() {
   paintUploadStatus();
   const mu = $('#c-mute');
   if (mu) mu.onclick = () => toggleMute();
+  Voice.paint();                                              // the voice-mute chip reads its state from Voice
   bindToolbarScroll(bar);
 }
 /* ---------- session options: pin + rename (overlay metadata, server-side) ---------- */
@@ -213,6 +218,8 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
     <button class="opt" id="so-agents">${IC.columns}<span>Subagents<span class="sub">Tasks, status and latest activity</span></span></button>
     <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>
     <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
+    ${s.pinned && pinnedIds().indexOf(s.id) > 0 ? '<button class="opt" id="so-pin-up">'+IC.up+'<span>Move pin up<span class="sub">Earlier among pinned sessions, in the list and the tabs, on every device</span></span></button>' : ''}
+    ${s.pinned && pinnedIds().indexOf(s.id) >= 0 && pinnedIds().indexOf(s.id) < pinnedIds().length - 1 ? '<button class="opt" id="so-pin-down">'+IC.down+'<span>Move pin down<span class="sub">Later among pinned sessions, in the list and the tabs, on every device</span></span></button>' : ''}
     <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
     <button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device — clear it to go back to the automatic one</span></span></button>
     ${s.id===chatId?'<button class="opt" id="so-version">'+IC.info+'<span>Version & updates<span class="sub" id="so-version-sub">'+esc(appVersionLabel())+'</span></span></button>':''}`;
@@ -226,6 +233,8 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
       refresh?.(r);
     } catch (e) { toast('Pin failed: ' + e.message); }
   };
+  sh.querySelector('#so-pin-up')?.addEventListener('click',()=>{close();movePin(s.id,-1);});
+  sh.querySelector('#so-pin-down')?.addEventListener('click',()=>{close();movePin(s.id,1);});
   sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting sessions stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
   sh.querySelector('#so-reviewed')?.addEventListener('click',()=>{close();markReviewed([allSessions.find(r=>r.id===s.id)||s]);paintSessionPanels();toast('Marked as reviewed');});
@@ -744,16 +753,73 @@ function sessionRowHTML(s) {
   const detail = running && state.startedAt ? `Started ${rel(state.startedAt)}`
     : state.kind === 'observed' ? 'Recent transcript activity; run status unconfirmed'
     : state.kind === 'waiting' && state.retryAt ? `Retry at ${new Date(state.retryAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}` : `Updated ${rel(s.mtimeMs)}`;
-  return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}">
+  return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}" data-item="${esc(s.id)}">
     <button class="row" data-id="${esc(s.id)}">
       <span class="body"><span class="title">${esc(s.title)}</span>
       <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${esc(projName(s.cwd))} · ${s.provider === 'codex' ? 'Codex' : 'Claude'}</span>
       <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
       <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
-    </button><button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
+    </button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned session ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
   </div>`;
 }
+/* ---------- pinned order: drag a pin's grip, press its arrow keys, or use Move up/down in Session options.
+   Saved on the server, so every device (and the desktop tabs) share one order. ---------- */
+let pinDragging = false;
+const pinnedIds = () => allSessions.filter(s => s.pinned).map(s => s.id);
+async function setPinOrder(ids, announce) {
+  const rank = new Map(ids.map((id, i) => [id, i]));
+  const key = s => s.pinned ? (rank.has(s.id) ? rank.get(s.id) : 1e9) : 1e10;
+  allSessions = [...allSessions].sort((a, b) => key(a) - key(b));           // optimistic: the list and tabs move at once
+  allSessions.forEach(s => { if (rank.has(s.id)) s.pinOrder = rank.get(s.id); });
+  paintSessionPanels();
+  if (announce) toast(announce);
+  try { await api('/pins/order', { method: 'POST', body: JSON.stringify({ ids }) }); }
+  catch (e) { toast('Could not save the pin order: ' + (e.message || 'error')); refreshSessions(); }
+}
+function movePin(id, delta) {
+  const ids = pinnedIds(), i = ids.indexOf(id), j = i + delta;
+  if (i < 0 || j < 0 || j >= ids.length) return false;
+  ids.splice(i, 1); ids.splice(j, 0, id);
+  setPinOrder(ids, `Pinned ${j + 1} of ${ids.length}`);
+  return true;
+}
+function placePin(id, targetId, after) {
+  const ids = pinnedIds().filter(x => x !== id), j = ids.indexOf(targetId);
+  if (j < 0 || !pinnedIds().includes(id)) return;
+  ids.splice(j + (after ? 1 : 0), 0, id);
+  setPinOrder(ids);
+}
+function bindPinDrag(container) {
+  const clear = () => container.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+  container.querySelectorAll('[data-grip]').forEach(grip => {
+    const id = grip.dataset.grip, item = grip.closest('.session-item');
+    grip.onkeydown = e => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      e.preventDefault();
+      movePin(id, e.key === 'ArrowUp' ? -1 : 1);                 // the repaint keeps focus on this grip
+    };
+    grip.onpointerdown = e => {
+      if (e.button) return;
+      e.preventDefault(); grip.setPointerCapture(e.pointerId);
+      let target = null, after = false;
+      pinDragging = true; item.classList.add('dragging');
+      grip.onpointermove = ev => {
+        const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.session-item.pinned');
+        clear(); target = null;
+        if (!over || over === item || !container.contains(over)) return;
+        const r = over.getBoundingClientRect(); after = ev.clientY > r.top + r.height / 2;
+        target = over; over.classList.add(after ? 'drop-after' : 'drop-before');
+      };
+      grip.onpointerup = grip.onpointercancel = ev => {
+        grip.onpointermove = grip.onpointerup = grip.onpointercancel = null;
+        pinDragging = false; item.classList.remove('dragging'); clear();
+        if (ev.type === 'pointerup' && target) placePin(id, target.dataset.item, after); else paintSessionPanels();
+      };
+    };
+  });
+}
 function bindSessionRows(container) {
+  bindPinDrag(container);
   container.querySelectorAll('[data-id]').forEach(row => {
     row.onclick = () => { closeCurrentSheet?.(); location.hash = '#/chat/' + row.dataset.id; };
     const session = allSessions.find(s => s.id === row.dataset.id);
@@ -803,11 +869,12 @@ function paintSessionPanels() {
     if (focused) el.querySelector(`[data-filter="${focused}"]`)?.focus({preventScroll:true});
   });
   document.querySelectorAll('[data-session-results]').forEach(el => {
+    if (pinDragging) return;                                   // a background refresh must not pull the row out from under the pointer
     const focus = el.contains(document.activeElement) ? document.activeElement?.dataset : null;
-    const id = focus?.id, more = focus?.more;
+    const id = focus?.id, more = focus?.more, grip = focus?.grip;
     const list = filteredSessions();
     el.innerHTML = reviewBarHTML(list) + groupedSessionsHTML(list); bindSessionRows(el);
-    if (id || more) el.querySelector(`[${more ? 'data-more' : 'data-id'}="${CSS.escape(more || id)}"]`)?.focus({preventScroll:true});
+    if (id || more || grip) el.querySelector(`[${grip ? 'data-grip' : more ? 'data-more' : 'data-id'}="${CSS.escape(grip || more || id)}"]`)?.focus({preventScroll:true});
   });
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
   const current = allSessions.find(s => s.id === chatId);
@@ -820,6 +887,7 @@ function paintSessionPanels() {
   paintRunConfirmation();
   const quick = $('#session-switch');
   if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Sessions · status unavailable' : `Sessions · ${c.running} running${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
+  if (typeof paintOpenSessions === 'function') paintOpenSessions(); // tabs show pins and follow the pinned order
 }
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
@@ -1682,7 +1750,7 @@ function setComposer(working) {
   c.innerHTML = `
     ${working ? `
       <div class="workrow"><span class="ember"></span><span id="work-label">Working</span>
-        ${ctxRingHTML()}<button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>
+        ${ctxRingHTML()}<button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>${Voice.muteButtonHTML('icon')}
         <button class="chip stopchip" id="stopb" aria-label="Stop this turn">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
     ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this turn" aria-label="After this turn">After <span class="sm-x">this </span>turn</button></div>' : ''}

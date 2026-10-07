@@ -74,6 +74,19 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  assert.equal((await call('/seen',{seen:{'not-a-session':1,[randomUUID()]:'soon'}})).body.changed,0,'bad ids and times are ignored');
  await call('/seen',{seen:{[id]:failedAt}});await stop();await start();
  assert.equal((await call('/sessions')).body.sessions.find(s=>s.id===id).seenAt,failedAt,'kept across restarts');
+ // Pinned order is shared by every device, beats recency, survives restarts; unpinning forgets the place.
+ const pid=(await call('/new',{cwd:repo,text:'Second pinned session',provider:'claude',clientMessageId:randomUUID()})).body.id;await sleep(400);
+ for(const x of [id,pid])assert.equal((await call(`/session/${x}/pin`,{pinned:true})).body.pinned,true);
+ const pinnedIds=async()=>(await call('/sessions')).body.sessions.filter(s=>s.pinned).map(s=>s.id);
+ assert.deepEqual(await pinnedIds(),[pid,id],'new pins list by recency');
+ assert.deepEqual((await call('/pins/order',{ids:[id,pid,randomUUID()]})).body.order,[id,pid],'ids that are not pinned are ignored');
+ assert.deepEqual(await pinnedIds(),[id,pid],'the chosen order wins over recency');
+ assert.equal((await call('/sessions')).body.sessions.find(s=>s.id===id).pinOrder,0,'order is listed for every device');
+ assert.equal((await call('/pins/order',{ids:'nope'})).status,400);assert.equal((await call('/pins/order',{ids:['../etc']})).status,400);
+ await stop();await start();assert.deepEqual(await pinnedIds(),[id,pid],'order kept across restarts');
+ await call(`/session/${pid}/pin`,{pinned:false});await call(`/session/${pid}/pin`,{pinned:true});
+ assert.deepEqual(await pinnedIds(),[id,pid]);assert.equal((await call('/sessions')).body.sessions.find(s=>s.id===pid).pinOrder,undefined,'unpinning forgets the place; a new pin follows the ordered ones');
+ for(const x of [id,pid])await call(`/session/${x}/pin`,{pinned:false});
  // Saved follow-ups can be edited, paused by stop, and recovered after restart.
  const slow=await call('/new',{cwd:repo,text:'__SLOW__ queue test',clientMessageId:randomUUID()});
  const sid=slow.body.id;await sleep(250);

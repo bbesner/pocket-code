@@ -22,7 +22,8 @@ const rows=[
 const idle=rows.at(-1);let dispatches=0,failNext=false,stale=false;const receipts=new Map();const received=[];
 const uploads=[];let uploadDelay=0;
 const uiModes={aboutFailed:false,workerFailed:false,voice:true,voiceText:'Please review the incoming quantities again.'};
-const voiceLog={transcribe:[],speak:[]};
+const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
+const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
 let fixtureSettings={titleSync:false};
@@ -66,7 +67,9 @@ const server=http.createServer(async(req,res)=>{
   for(const [id,at] of Object.entries(body.seen||{})){const r=rows.find(x=>x.id===id);if(r&&at>(r.seenAt||0))r.seenAt=at;out[id]=r?.seenAt||0;}
   for(const [id,at] of Object.entries(body.restore||{})){const r=rows.find(x=>x.id===id);if(r){if(at)r.seenAt=at;else delete r.seenAt;}out[id]=r?.seenAt||0;}
   return json({ok:true,seen:out});}
- if(url.pathname==='/api/sessions')return stale?json({error:'Fixture offline'},503):json({sessions:rows,warnings:[],checkedAt:Date.now()});
+ if(url.pathname==='/api/sessions')return stale?json({error:'Fixture offline'},503):json({sessions:[...rows].sort((a,b)=>pinKey(a)-pinKey(b)),warnings:[],checkedAt:Date.now()});
+ if(url.pathname.endsWith('/pin')){let raw='';for await(const c of req)raw+=c;const r=rows.find(x=>x.id===decodeURIComponent(url.pathname.split('/').at(-2)));if(r){if(JSON.parse(raw||'{}').pinned)r.pinned=true;else{delete r.pinned;delete r.pinOrder;}}return json({ok:true,pinned:Boolean(r?.pinned)});}
+ if(url.pathname==='/api/pins/order'){let raw='';for await(const c of req)raw+=c;const ids=JSON.parse(raw||'{}').ids||[];pinOrders.push(ids);ids.forEach((id,i)=>{const r=rows.find(x=>x.id===id);if(r?.pinned)r.pinOrder=i;});return json({ok:true,order:ids});}
  if(url.pathname==='/api/projects')return json({projects:['/workspaces/warehouse','/workspaces/products']});
  if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}]});
  if(url.pathname==='/api/claude/models')return json({models:[{id:'test',label:'Test agent'}],defaultLabel:'Test agent'});
@@ -535,7 +538,7 @@ try{
 
   fs.writeFileSync(path.join(out,'responsive-metrics.json'),JSON.stringify({before,after,focused,readingGain:focused-before,desktopConversationWidth:measure,foldDraftPreserved:true,clipboardUploads:uploads.length},null,2));
  }
- await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),received,voiceLog,conversations});
+ await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),received,voiceLog,conversations,pinOrders});
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));

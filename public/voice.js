@@ -10,7 +10,7 @@ const Voice = (() => {
   const MIC = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0013 0M12 18v2.5"/></svg>';
   const HEADSET = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 14.5V12a7.5 7.5 0 0115 0v2.5"/><rect x="3.5" y="13.5" width="4" height="6" rx="1.8"/><rect x="16.5" y="13.5" width="4" height="6" rx="1.8"/><path d="M18.5 19.5c0 1.3-1.6 2-4 2H13"/></svg>';
   const PREF_KEY = 'pc-voice';
-  const DEFAULTS = { speak: true, review: false, replyWait: 120, alerts: 'off', voice: 'af_heart', vocab: '', replyLength: 'normal' };
+  const DEFAULTS = { speak: true, review: false, replyWait: 120, alerts: 'off', voice: 'af_heart', vocab: '', replyLength: 'normal', mute: false };
   const LENGTH_CHOICES = [['brief', 'Brief: one sentence'], ['normal', 'Normal: about two sentences'], ['detailed', 'Detailed: the whole reply']];
   const ALERT_CHOICES = [['off', 'Off'], ['name', 'Session name only'], ['summary', 'Name and a one-line summary']];
   // A tap means you're about to speak, so silence ends it after 10 s. After a spoken reply (hands-free) the mic
@@ -29,6 +29,33 @@ const Voice = (() => {
 
   const prefs = () => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(PREF_KEY) || '{}') }; } catch { return { ...DEFAULTS }; } };
   const setPref = (k, v) => { const p = prefs(); p[k] = v; localStorage.setItem(PREF_KEY, JSON.stringify(p)); };
+
+  /* ---------- quick mute: one tap silences every spoken reply, announcement and prompt on this device.
+     The other voice settings are kept, so unmuting brings back exactly what was configured. ---------- */
+  const isMuted = () => Boolean(prefs().mute);
+  function setMuted(on) {
+    setPref('mute', Boolean(on));
+    if (on) { handsFree = null; pendingSend = null; stopSpeaking(); queue.length = 0; if (state === 'speaking') setState('idle'); }
+    paint();
+    if (typeof toast === 'function') toast(on ? 'Voice muted on this device until you turn it back on' : 'Voice is back on');
+  }
+  // The same control in the idle composer (a chip beside Alerts) and in the working row (an icon beside the bell).
+  function muteButtonHTML(kind) {
+    return `<button class="${kind === 'chip' ? 'chip' : 'icon wbell'} voice-mute" type="button" data-voice-mute hidden aria-pressed="false" aria-label="Mute voice on this device">${IC.speaker}${kind === 'chip' ? '<span data-voice-mute-label>Voice</span>' : ''}</button>`;
+  }
+  function paintMuteButtons() {
+    const on = isMuted();
+    document.querySelectorAll('[data-voice-mute]').forEach(b => {
+      b.hidden = !status?.available;
+      b.setAttribute('aria-pressed', String(on)); b.classList.toggle('set', on); b.classList.toggle('on', on);
+      b.setAttribute('aria-label', on ? 'Voice muted on this device. Turn spoken replies and announcements back on' : 'Mute voice on this device: no spoken replies, announcements or prompts until you turn it back on');
+      b.title = on ? 'Voice muted' : 'Mute voice';
+      const icon = b.querySelector('svg'); if (icon) icon.outerHTML = on ? IC.speakerOff : IC.speaker;
+      const label = b.querySelector('[data-voice-mute-label]'); if (label) label.textContent = on ? 'Voice off' : 'Voice';
+      b.onclick = () => { unlockAudio(); setMuted(!isMuted()); };
+    });
+  }
+  addEventListener('storage', e => { if (e.key === PREF_KEY) paint(); });   // muted in one tab: every tab shows it
 
   async function loadStatus(force = false) {
     if (status && !force) return status;
@@ -80,7 +107,7 @@ const Voice = (() => {
     if (hf) hf.classList.toggle('drafting', Boolean(box?.value.trim()) && !inHandsFree());
   }
   function paint() {
-    syncDraft();
+    syncDraft(); paintMuteButtons();
     const b = document.getElementById('micb'), hf = document.getElementById('hfb'), strip = document.getElementById('voice-strip');
     const live = state === 'listening' || state === 'holding', conv = inHandsFree();
     if (b) {
@@ -118,6 +145,7 @@ const Voice = (() => {
   // The headset toggles a hands-free conversation for the open session. It never turns on by itself.
   async function handsFreeTap() {
     unlockAudio();
+    if (isMuted() && !inHandsFree()) setMuted(false);           // starting a conversation is asking to hear it
     if (inHandsFree()) return endHandsFree('Hands-free is off.');
     if (!chatId) return;
     if (rec) release();
@@ -294,6 +322,8 @@ const Voice = (() => {
   async function command(kind, id) {
     const speak = text => speakOut(text, { listenAfter: inHandsFree(id) });
     if (kind === 'quiet') { handsFree = null; stopSpeaking(); return paint(); }
+    if (kind === 'mute') { setMuted(true); return; }
+    if (kind === 'unmute') { setMuted(false); return speak('Voice is back on.'); }
     if (kind === 'stop') {
       if (!composerWorking) return speak('Nothing is running in this session.');
       armed.delete(id);
@@ -334,9 +364,10 @@ const Voice = (() => {
   const replySummary = id => { const t = replyText(id); return t ? VoiceText.reply(t, replyLength() === 'brief' ? 'brief' : 'normal') : ''; }; // a status answer stays short
 
   /* ---------- speaking ---------- */
-  async function speakOut(text, { listenAfter = false } = {}) {
+  async function speakOut(text, { listenAfter = false, force = false } = {}) {
     stopSpeaking();
     const parts = VoiceText.chunks(text); if (!parts.length) return;
+    if (isMuted() && !force) { say(text.length > 160 ? text.slice(0, 157) + '…' : text, 8000); return true; } // muted: the answer is shown, not spoken
     unlockAudio(); if (!ctx) { say(text, 8000); return; }
     if (ctx.state !== 'running') { try { await Promise.race([ctx.resume(), new Promise(r => setTimeout(r, 400))]); } catch { } }
     if (ctx.state !== 'running') { say('Tap anywhere to turn on spoken replies and alerts.', 8000); return false; } // browsers need one tap first
@@ -376,6 +407,7 @@ const Voice = (() => {
     if (!armed.has(id)) return;
     if (ok === false && /stopped by you/i.test(error || '')) { armed.delete(id); keepAwake(); return; }
     armed.delete(id); keepAwake();
+    if (isMuted()) return;                                     // muted: the reply stays on screen; the chime preference applies
     const conv = inHandsFree(id);
     if (id !== chatId || (!prefs().speak && !conv)) return;
     spokenTurnEnd.set(id, Date.now());                         // its spoken reply stands in for the alert
@@ -386,7 +418,7 @@ const Voice = (() => {
   /* ---------- spoken alerts: any session finishing or needing you, while Pocket is open ---------- */
   const spokenTurnEnd = new Map(), seen = new Map(), queue = [];
   let baselined = false;
-  const alertMode = () => (status?.available && ALERT_CHOICES.some(([v]) => v === prefs().alerts)) ? prefs().alerts : 'off';
+  const alertMode = () => (status?.available && !isMuted() && ALERT_CHOICES.some(([v]) => v === prefs().alerts)) ? prefs().alerts : 'off';
   function replacesChime() { return alertMode() !== 'off'; }
   // Cross-tab dedupe: two Pocket tabs (or Mission Control plus standalone) say each event once.
   function claim(key) {
@@ -443,7 +475,7 @@ const Voice = (() => {
 
   function onIdle(id) { if (armed.delete(id)) keepAwake(); } // stopped or ended without a result: nothing to read
   function onAttention(id, kind) {
-    if (!armed.has(id) || id !== chatId) return;
+    if (!armed.has(id) || id !== chatId || isMuted()) return;
     setTimeout(() => {
       const banner = document.getElementById(kind === 'approvals' ? 'approvals-open' : 'questions-open');
       if (!banner || banner.hidden) return;
@@ -461,6 +493,7 @@ const Voice = (() => {
     return `<details class="settings-details" id="s-voice"><summary>Voice (beta)</summary>
       <div class="voice-settings">
         <p id="s-voice-state" role="status">Checking voice on the server…</p>
+        ${toggle('s-voice-mute', p.mute, 'Mute voice on this device', 'Nothing is spoken here: replies, announcements, approval prompts. The settings below are kept for when you unmute. Also in the composer, or say “mute”')}
         ${toggle('s-voice-speak', p.speak, 'Speak replies', 'Read the reply aloud when a turn you started by voice finishes')}
         <label class="voice-field">Spoken reply length<select id="s-voice-length">${LENGTH_CHOICES.map(([v, l]) => `<option value="${v}"${replyLength() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <p class="sub">Applies to replies and “read it”. Detailed skips code, tables and links, and stops after about three minutes. Say “read it all” for the whole reply at any length.</p>
@@ -471,13 +504,14 @@ const Voice = (() => {
         <label class="voice-field">Voice<select id="s-voice-voice"></select></label>
         <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, TechPro, Zoho" value="${esc(p.vocab)}"></label>
         <button class="chip" id="s-voice-test" type="button">Play a sample</button>
-        <p class="sub">Tap the mic to send one message; it sends when you pause. Hold it for push-to-talk. Tap the headset for a hands-free conversation: each reply is spoken and the mic listens for your answer, until you end it or stay quiet. In hands-free, Pocket reads your instruction back and sends it only after you say “send it” or tap Send. Announcements never turn on the mic. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers. Speech is processed on your Pocket server.</p>
+        <p class="sub">Tap the mic to send one message; it sends when you pause. Hold it for push-to-talk. Tap the headset for a hands-free conversation: each reply is spoken and the mic listens for your answer, until you end it or stay quiet. In hands-free, Pocket reads your instruction back and sends it only after you say “send it” or tap Send. Announcements never turn on the mic. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers; “mute” and “unmute” switch spoken output on this device. Speech is processed on your Pocket server.</p>
         <p class="sub">Voice is in beta and still improving. Report problems under Bugs &amp; feature requests.</p>
       </div></details>`;
   }
   function bindSettings(root) {
     const flip = (sel, key) => { const b = root.querySelector(sel); if (!b) return; b.onclick = () => { const on = !prefs()[key]; setPref(key, on); b.setAttribute('aria-pressed', String(on)); b.querySelector('.dot').classList.toggle('on', on); }; };
     flip('#s-voice-speak', 'speak'); flip('#s-voice-review', 'review');
+    const mute = root.querySelector('#s-voice-mute'); if (mute) mute.onclick = () => { setMuted(!isMuted()); mute.setAttribute('aria-pressed', String(isMuted())); mute.querySelector('.dot').classList.toggle('on', isMuted()); };
     const vocab = root.querySelector('#s-voice-vocab'); if (vocab) vocab.onchange = () => setPref('vocab', vocab.value.trim().slice(0, 300));
     const length = root.querySelector('#s-voice-length'); if (length) length.onchange = () => setPref('replyLength', length.value);
     const wait = root.querySelector('#s-voice-wait'); if (wait) wait.onchange = () => setPref('replyWait', Number(wait.value));
@@ -488,10 +522,10 @@ const Voice = (() => {
       st.textContent = s.available ? 'Voice is available on this server.' : s.reason || 'Voice is not available on this server.';
       root.querySelectorAll('#s-voice .opt, #s-voice-voice, #s-voice-alerts, #s-voice-wait, #s-voice-vocab, #s-voice-test').forEach(el => { el.disabled = !s.available; });
       if (sel) { sel.innerHTML = (s.voices || [{ id: 'af_heart', label: 'American female' }]).map(v => `<option value="${esc(v.id)}">${esc(v.label)}</option>`).join(''); sel.value = prefs().voice; sel.onchange = () => setPref('voice', sel.value); }
-      if (test) test.onclick = () => { unlockAudio(); speakOut('This is how spoken replies will sound in Pocket Code.'); };
+      if (test) test.onclick = () => { unlockAudio(); speakOut('This is how spoken replies will sound in Pocket Code.', { force: true }); }; // a sample is asked for, muted or not
       document.querySelectorAll('#micb, #hfb').forEach(b => { b.hidden = !s.available; });
     });
   }
 
-  return { micHTML, bindComposer, paint, onAssistant, onTurnEnd, onIdle, onSessions, replacesChime, onAttention, onLeave, settingsHTML, bindSettings, speak: speakOut, stopSpeaking, _test: { toPcm16, handsFree: () => handsFree, setHandsFree: id => { handsFree = id; paint(); }, arm: id => armed.add(id), state: () => state, handle: t => handle(t), pending: () => pendingSend } };
+  return { micHTML, muteButtonHTML, bindComposer, paint, onAssistant, onTurnEnd, onIdle, onSessions, replacesChime, onAttention, onLeave, settingsHTML, bindSettings, speak: speakOut, stopSpeaking, isMuted, setMuted, _test: { toPcm16, handsFree: () => handsFree, setHandsFree: id => { handsFree = id; paint(); }, arm: id => armed.add(id), state: () => state, handle: t => handle(t), pending: () => pendingSend } };
 })();
