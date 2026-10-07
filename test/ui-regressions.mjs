@@ -98,8 +98,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
   await check('A finished reply reads Response ready until opened, then Recent',async()=>{
    const done=rows.find(r=>r.state?.kind==='finished'&&r.state.at);
    const status=()=>page.$eval(`[data-session-results] [data-id="${done.id}"] .session-status`,e=>({cls:e.className,text:e.textContent}));
+   setMode({ignoreSeen:done.id});                             // an upload already in flight from the old page must not re-mark it (CI race)
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.reload();await page.waitForSelector(`[data-session-results] [data-id="${done.id}"]`);
    assert.deepEqual(await status(),{cls:'session-status state-finished',text:'Response readyNew'});
+   setMode({ignoreSeen:null});
    await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,done.state.at]);await page.reload();await page.waitForSelector(`[data-session-results] [data-id="${done.id}"]`);
    assert.deepEqual(await status(),{cls:'session-status state-idle',text:'Recent'});
   });

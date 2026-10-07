@@ -64,7 +64,7 @@ const server=http.createServer(async(req,res)=>{
   approvalDecisions.push(body.decision);approvalRequests=[];return json({ok:true});
  }
  if(url.pathname==='/api/seen'){let raw='';for await(const c of req)raw+=c;const body=JSON.parse(raw||'{}'),out={};
-  for(const [id,at] of Object.entries(body.seen||{})){const r=rows.find(x=>x.id===id);if(r&&at>(r.seenAt||0))r.seenAt=at;out[id]=r?.seenAt||0;}
+  for(const [id,at] of Object.entries(body.seen||{})){const r=rows.find(x=>x.id===id);if(r&&at>(r.seenAt||0)&&uiModes.ignoreSeen!==id)r.seenAt=at;out[id]=r?.seenAt||0;} // ignoreSeen: a check that clears a marker must not be re-marked by a late upload from the page it just left
   for(const [id,at] of Object.entries(body.restore||{})){const r=rows.find(x=>x.id===id);if(r){if(at)r.seenAt=at;else delete r.seenAt;}out[id]=r?.seenAt||0;}
   return json({ok:true,seen:out});}
  if(url.pathname==='/api/sessions')return stale?json({error:'Fixture offline'},503):json({sessions:[...rows].sort((a,b)=>pinKey(a)-pinKey(b)),warnings:[],checkedAt:Date.now()});
