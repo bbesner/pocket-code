@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.18.0] — Unreleased · build 51
+## [1.18.0] — 2026-10-07 · build 51
 
 - Pinned sessions are marked in the desktop tabs. A pinned session's tab shows the pin and its title in clay, the same marks as its row in the session list, so the sessions you are working on stand out from tabs you can close. Pinned tabs come first, in the pinned order, then the other tabs in the order you opened them; Alt [ / ] follow the same order. Requested by Damon Delcoro.
 - Reorder pinned sessions. Pinned rows in the desktop list have a grip: drag it onto another pinned row to move the session, or focus it and press the up and down arrow keys. Session options also offers Move pin up and Move pin down on any device. The order is saved on the server beside pins and names (an order number in session-meta.json), so every device and the tabs follow it; a newly pinned session goes after the ordered pins by recency, and unpinning forgets its place. Older builds ignore the order number. Requested by Damon Delcoro.
