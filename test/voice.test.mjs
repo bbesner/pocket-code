@@ -27,6 +27,12 @@ test('spoken text drops code, tables, URLs and long paths; summaries stay short'
   assert.ok(parts[0].length <= 120 && parts.every(p => p.length <= 221), JSON.stringify(parts.map(p => p.length)));
 });
 
+test('mute and unmute are quick commands on the device; longer sentences are not', () => {
+  const cases = { 'Mute.': 'mute', 'mute the voice': 'mute', 'voice off': 'mute', 'turn your voice off': 'mute', 'stop speaking': 'mute',
+    'Unmute': 'unmute', 'voice on': 'unmute', 'turn the voice back on': 'unmute', 'be quiet': 'quiet', 'mute the lobby TV and then continue the import': null };
+  for (const [said, kind] of Object.entries(cases)) assert.equal(V.intent(said), kind, said);
+});
+
 test('spoken reply length: brief is one line, normal about two sentences, detailed the whole reply', () => {
   const md = '**Done.** The nightly import now skips archived suppliers, so the run is down from 14 minutes to 3.\n\n' +
     'I also added a retry around the Zoho token refresh. It failed twice last week when the token expired mid-run.\n\n' +

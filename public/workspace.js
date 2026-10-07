@@ -230,12 +230,24 @@ function rememberOpenSession(s){
  if(openSessions.length>12)openSessions.shift();
  writeLocal('pc-open-sessions',openSessions);writeLocal('pc-last-session',s.id);paintOpenSessions();
 }
+// Tabs follow the session list: pinned sessions first, in their pinned order (shared by every device),
+// then the rest in the order they were opened. Pinned tabs carry the pin and the accent, like the rail rows.
+const pinnedSession=id=>(typeof allSessions!=='undefined'?allSessions:[]).find(s=>s.id===id&&s.pinned)||null;
+function orderedOpenSessions(){
+ const pins=(typeof allSessions!=='undefined'?allSessions:[]).filter(s=>s.pinned).map(s=>s.id);
+ return [...pins.map(id=>openSessions.find(s=>s.id===id)).filter(Boolean),...openSessions.filter(s=>!pins.includes(s.id))];
+}
 function paintOpenSessions(){
  const el=document.getElementById('open-sessions');if(!el)return;
- el.innerHTML=openSessions.map(s=>`<span class="open-session ${s.id===chatId?'current':''}"><a href="#/chat/${encodeURIComponent(s.id).replaceAll('%3A',':')}" ${s.id===chatId?'aria-current="page"':''} title="${esc(s.title)}">${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`).join('');
+ const list=orderedOpenSessions();
+ // Repaint only when something shows differently: the list refreshes every few seconds and must not snap the strip's scroll back.
+ const key=JSON.stringify([chatId,list.map(s=>[s.id,s.title,Boolean(pinnedSession(s.id))])]);
+ if(el.dataset.key===key)return;el.dataset.key=key;
+ el.innerHTML=list.map(s=>{const pinned=Boolean(pinnedSession(s.id));return `<span class="open-session ${s.id===chatId?'current':''} ${pinned?'pinned':''}"><a href="#/chat/${encodeURIComponent(s.id).replaceAll('%3A',':')}" ${s.id===chatId?'aria-current="page"':''} title="${esc(s.title)}${pinned?' · Pinned':''}">${pinned?`<span class="pinmark">${IC.pin}</span><span class="vh">Pinned: </span>`:''}${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`;}).join('');
  el.querySelectorAll('[data-close-session]').forEach(b=>b.onclick=()=>{
-  const id=b.dataset.closeSession,index=openSessions.findIndex(s=>s.id===id);openSessions=openSessions.filter(s=>s.id!==id);writeLocal('pc-open-sessions',openSessions);
-  if(chatId===id)location.hash=openSessions.length?'#/chat/'+openSessions[Math.max(0,index-1)].id:'#/';else paintOpenSessions();
+  const id=b.dataset.closeSession,shown=orderedOpenSessions(),index=shown.findIndex(s=>s.id===id),rest=shown.filter(s=>s.id!==id);
+  openSessions=openSessions.filter(s=>s.id!==id);writeLocal('pc-open-sessions',openSessions);
+  if(chatId===id)location.hash=rest.length?'#/chat/'+rest[Math.max(0,index-1)].id:'#/';else paintOpenSessions();
  });
  el.querySelector('[aria-current]')?.scrollIntoView({block:'nearest',inline:'nearest'});
 }
@@ -285,7 +297,7 @@ document.addEventListener('keydown',e=>{
  if(!document.getElementById('app')?.querySelector('[data-session-search],#box,#first'))return;
  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openSessionSwitcher();return;}
  if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='l'){e.preventDefault();location.hash='#/new';return;}
- if(e.altKey&&['[',']'].includes(e.key)&&chatId&&!closeCurrentSheet){const index=openSessions.findIndex(s=>s.id===chatId),next=openSessions[(index+(e.key===']'?1:-1)+openSessions.length)%openSessions.length];if(next){e.preventDefault();location.hash='#/chat/'+next.id;}}
+ if(e.altKey&&['[',']'].includes(e.key)&&chatId&&!closeCurrentSheet){const shown=orderedOpenSessions(),index=shown.findIndex(s=>s.id===chatId),next=shown[(index+(e.key===']'?1:-1)+shown.length)%shown.length];if(next){e.preventDefault();location.hash='#/chat/'+next.id;}}
 });
 
 async function refreshQuestions(id){

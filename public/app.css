@@ -857,3 +857,19 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .agent-copy { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; }
 .agent-meta { color: var(--dim); font-size: 13px; overflow-wrap: anywhere; margin-top: 12px; }
 .agents-retry { min-height: 44px; }
+
+/* ---------- 1.18: pinned tabs and pin order, quick voice mute ---------- */
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.open-session.pinned a, .open-session.pinned.current a { color: var(--clay); }
+.open-session .pinmark .i { width: 12px; height: 12px; vertical-align: -1px; margin-right: 4px; color: var(--clay); }
+.pin-grip { display: none; width: 44px; height: 44px; flex: 0 0 44px; align-items: center; justify-content: center; margin: 7px 0 0; border-radius: 10px; color: var(--faint); cursor: grab; touch-action: none; }
+.pin-grip .i { width: 18px; height: 18px; }
+.pin-grip:hover { color: var(--dim); background: var(--surface); }
+.pin-grip:focus-visible { outline: 2px solid var(--clay); outline-offset: -2px; }
+@media (min-width: 900px) { .pin-grip { display: flex; } }
+.session-item.dragging { opacity: .55; }
+.session-item.dragging .pin-grip { cursor: grabbing; }
+.session-item.drop-before { box-shadow: inset 0 2px 0 var(--clay); }
+.session-item.drop-after { box-shadow: inset 0 -2px 0 var(--clay); }
+.workrow button.voice-mute { padding: 6px; color: var(--faint); }
+.workrow button.voice-mute.on { color: var(--clay); }

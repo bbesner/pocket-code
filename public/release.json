@@ -1,7 +1,9 @@
 {
-  "version": "1.17.0",
-  "assetV": 50,
+  "version": "1.18.0",
+  "assetV": 51,
   "notes": [
-    "Reply suggestions: when the agent has a clear recommendation, that button is filled clay and tagged Recommended. The tag is never part of the message a tap sends. Requested by Brad."
+    "Pinned sessions show in the desktop tabs: the pin and the clay title mark them, and pinned tabs come first in the same order as the list. Requested by Damon Delcoro.",
+    "Reorder pinned sessions: drag the grip beside a pinned row, press its arrow keys, or use Move pin up / down in Session options. The order is saved on the server, so every device and the tabs follow it. Requested by Damon Delcoro.",
+    "Mute voice in one tap: a Voice chip beside Alerts (an icon beside the bell while a turn runs) silences spoken replies, announcements and prompts on this device without changing your voice settings. Say “mute” or “unmute” too. Requested by Damon Delcoro."
   ]
 }

@@ -79,6 +79,8 @@ const VoiceText = (() => {
   // Short phrases handled on the device, with no AI involved. Anything longer or different goes to the session.
   const INTENTS = [
     ['quiet', /^(be quiet|quiet|stop talking|shut up|silence|enough)$/],
+    ['mute', /^(mute|mute (the |your )?voice|voice off|turn (the |your )?voice off|turn off (the |your )?voice|stop speaking)$/],
+    ['unmute', /^(unmute|unmute (the |your )?voice|voice on|turn (the |your )?voice (back )?on|turn on (the |your )?voice)$/],
     ['stop', /^(stop|stop it|stop that|stop the turn|stop working|stop the session|cancel( it| that| the turn)?|abort)$/],
     ['status', /^(whats|what is) (it|he|she|claude|codex|the agent|the session|this session) (doing|working on|up to)( (right )?now)?$|^(status|progress|whats the status|what is the status|where are we|where are things|hows it going|how is it going|whats happening|what is happening)( (right )?now)?$/],
     ['readAll', /^read (me )?(it |that |the whole thing |everything )?(all|in full|the whole thing|everything|the whole reply|the full reply)$/],
