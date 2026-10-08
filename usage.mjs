@@ -71,6 +71,8 @@ export class UsageStore {
 
   save() { try { atomicWrite(this.file, this.state); } catch { /* best effort — usage is a convenience view */ } }
 
+  clearAccount() { this.state.account = null; this.save(); }
+
   // Called once per stream-json line (and safe to call on every line: everything not
   // recognized is a no-op). `sessionId` is the Pocket-owned session the line belongs to.
   observe(sessionId, o) {

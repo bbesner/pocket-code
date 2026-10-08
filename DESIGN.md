@@ -8,6 +8,17 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Claude account switching (1.26)
+
+Claude account switching (1.26) extends Accounts & instance with the existing sheet,
+chip and primary-button styles. Pinned Operate brief: variance 2, motion 1, density 5.
+Keep the warm ink palette and native type. One link opens Claude, an adjacent Copy
+link button supports another browser, and a labelled password field accepts the
+return code. Status and errors remain beside the form. No new motion or decoration.
+The sheet has a 16px inset on phones. Rendered phone/desktop review and accessibility
+checks cover the form; the retained detector exceptions concern the existing app
+shell, title ellipsis, table containment, native font and compact type hierarchy.
+
 ## Tokens
 
 | Token | Value | Use |

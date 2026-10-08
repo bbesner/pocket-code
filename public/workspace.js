@@ -334,8 +334,52 @@ async function openQuestions(id){
 }
 async function openEnvironment(){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';sh.innerHTML='<h2>Accounts & instance</h2><div data-environment role="status">Checking provider sign-ins…</div>';mountSheet(scrim,sh);
- try{const d=await api('/environment');if(!sh.isConnected)return;sh.querySelector('[data-environment]').innerHTML=`<p class="sheet-help">${esc(d.host)} · Checked ${esc(new Date(d.checkedAt).toLocaleTimeString())}</p>${d.providers.map(p=>`<section class="provider-account"><h3>${p.provider==='codex'?'Codex':'Claude Code'}</h3><p>${esc(p.email||p.method)}</p><p class="sheet-help">${esc([p.plan,p.method].filter(Boolean).join(' · '))}${p.signedIn===false?' · Not signed in':p.signedIn===null?' · Could not verify':''}</p></section>`).join('')}<p class="sheet-help">${esc(d.accountManagement)}</p><h3>Session controls</h3><p class="sheet-help">${esc(d.permissions)}. Codex Plan first can show native agent questions. Plan mode guides behavior; it does not change server permissions. Claude can show native questions during owned turns.</p><p class="sheet-help">MemStem and other tools follow each agent’s server configuration. This page does not change accounts, credentials or memory access.</p><button class="chip" data-env-refresh>Refresh status</button>`;sh.querySelector('[data-env-refresh]').onclick=openEnvironment;}
+ try{const d=await api('/environment');if(!sh.isConnected)return;sh.querySelector('[data-environment]').innerHTML=`<p class="sheet-help">${esc(d.host)} · Checked ${esc(new Date(d.checkedAt).toLocaleTimeString())}</p>${d.providers.map(p=>`<section class="provider-account"><h3>${p.provider==='codex'?'Codex':'Claude Code'}</h3><p>${esc(p.email||p.method)}</p><p class="sheet-help">${esc([p.plan,p.method].filter(Boolean).join(' · '))}${p.signedIn===false?' · Not signed in':p.signedIn===null?' · Could not verify':''}</p>${p.provider==='claude'&&d.capabilities?.claudeLogin?`<button class="chip" data-claude-login>${p.signedIn?'Switch account':'Sign in'}</button>`:''}</section>`).join('')}<p class="sheet-help">${esc(d.accountManagement)}</p><h3>Session controls</h3><p class="sheet-help">${esc(d.permissions)}. Codex Plan first can show native agent questions. Plan mode guides behavior; it does not change server permissions. Claude can show native questions during owned turns.</p><p class="sheet-help">MemStem and other tools follow each agent’s server configuration.</p><button class="chip" data-env-refresh>Refresh status</button>`;sh.querySelector('[data-env-refresh]').onclick=openEnvironment;sh.querySelector('[data-claude-login]')?.addEventListener('click',openClaudeLogin);}
  catch(e){if(sh.isConnected)sh.querySelector('[data-environment]').textContent=e.message;}
+}
+
+async function openClaudeLogin(){
+ const scrim=document.createElement('div');scrim.className='scrim';
+ const sh=document.createElement('div');sh.className='sheet claude-login-sheet';
+ sh.innerHTML='<h2>Claude Code sign-in</h2><p class="sheet-help">Changes the shared Claude login on this server, including code-server. Let active Claude work finish first. Codex can keep running.</p><p data-login-status role="status">Checking sign-in…</p><div data-login-controls></div><p class="question-error" data-login-error role="alert"></p>';
+ mountSheet(scrim,sh);
+ const controls=sh.querySelector('[data-login-controls]'),error=sh.querySelector('[data-login-error]');
+ let current={status:'idle'},rendered='',pollTimer,busy=false,disconnected=false;
+ const schedule=()=>{clearTimeout(pollTimer);if(sh.isConnected)pollTimer=setTimeout(refresh,1500);};
+ const action=async(name,extra={})=>{
+  if(busy)return;busy=true;error.textContent='';
+  controls.querySelectorAll('button').forEach(button=>button.disabled=true);
+  try{draw(await api('/claude/login/'+name,{method:'POST',body:JSON.stringify({id:current.id,...extra})}));}
+  catch(problem){if(sh.isConnected)error.textContent=problem.message;}
+  finally{busy=false;if(sh.isConnected)controls.querySelectorAll('button').forEach(button=>button.disabled=false);schedule();}
+ };
+ function draw(state){
+  if(!sh.isConnected)return;
+  current=state;sh.querySelector('[data-login-status]').textContent=state.message||'Sign in with your Claude subscription.';
+  const key=(state.id||'')+':'+state.status;if(rendered===key)return;rendered=key;
+  if(state.status==='waiting'){
+   controls.innerHTML=`<p class="sheet-help">Open Claude, switch to the account you want, and authorize Claude Code. Return here with the code. This link expires after 10 minutes.</p><div class="login-actions"><a class="chip" data-login-link href="${esc(state.url)}" target="_blank" rel="noopener noreferrer">Open Claude sign-in</a><button class="chip" data-login-copy>Copy link</button></div><form data-login-form><label for="claude-login-code">Code from Claude</label><input id="claude-login-code" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required maxlength="4096" aria-describedby="claude-code-help"><p class="sheet-help" id="claude-code-help">Paste the code here, including any # suffix. It is sent directly to the sign-in process and is not saved in a conversation.</p><button class="primary" type="submit">Finish sign-in</button></form><button class="chip" data-login-cancel>Cancel sign-in</button>`;
+   controls.querySelector('[data-login-copy]').onclick=async()=>{try{await navigator.clipboard.writeText(state.url);toast('Sign-in link copied');}catch{error.textContent='Could not copy. Use Open Claude sign-in.';}};
+   controls.querySelector('form').onsubmit=event=>{event.preventDefault();const input=controls.querySelector('input'),code=input.value;input.value='';action('code',{code});};
+  }else if(state.status==='starting'||state.status==='verifying'){
+   controls.innerHTML='<p class="sheet-help">You can return to Accounts & instance if you close this window.</p><button class="chip" data-login-cancel>Cancel sign-in</button>';
+  }else if(state.status==='success'){
+   controls.innerHTML=`<p class="login-account">${esc(state.account?.email||'Account verified')}</p><p class="sheet-help">Your next Pocket Claude turn uses this login. Reopen other Claude processes to use the new account there.</p><button class="chip" data-login-done>Back to accounts</button><button class="chip" data-login-start>Switch again</button>`;
+   controls.querySelector('[data-login-done]').onclick=openEnvironment;
+  }else{
+   controls.innerHTML='<p class="sheet-help">You’ll get a link to open in your browser. Choose the Claude account you want, then return here to paste its code.</p><button class="primary" data-login-start>Get sign-in link</button><button class="chip" data-login-done>Back to accounts</button>';
+   controls.querySelector('[data-login-done]').onclick=openEnvironment;
+  }
+  controls.querySelector('[data-login-start]')?.addEventListener('click',()=>action('start'));
+  controls.querySelector('[data-login-cancel]')?.addEventListener('click',()=>action('cancel'));
+ }
+ async function refresh(){
+  if(!sh.isConnected)return;if(busy){schedule();return;}
+  try{const state=await api('/claude/login');if(!busy){draw(state);if(disconnected)error.textContent='';disconnected=false;}}
+  catch(problem){disconnected=true;if(sh.isConnected)error.textContent='Could not check sign-in. Reconnecting…';}
+  if(['starting','waiting','verifying'].includes(current.status)||disconnected)schedule();
+ }
+ await refresh();
 }
 
 matchMedia('(min-width: 1280px)').addEventListener('change',()=>{

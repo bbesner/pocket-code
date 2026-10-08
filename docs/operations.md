@@ -34,6 +34,24 @@ Claude ownership checks use transcript activity and replace stale Pocket process
 after another surface writes new turns. External transcript activity is an estimate,
 not proof that an external process is still working.
 
+## Claude account switching
+
+Settings → Accounts & instance runs the installed `claude auth login --claudeai`
+with piped input/output. The CLI owns its OAuth flow and credential storage. Pocket
+keeps only one pending login in memory for ten minutes, validates the authorization
+URL’s provider and path, and accepts the code through an authenticated JSON endpoint.
+It never writes login output or codes to turn logs, conversations, or Pocket state.
+Restarting the daemon cancels pending login; the browser can reopen the form after
+a disconnect. API-key and cloud-provider environment overrides block this flow.
+
+Start is refused while a Pocket Claude turn or background job is active. Idle Claude
+runners close before login and new turns are blocked while it is pending. Rate-limit
+retries wait; Codex is unaffected. Other applications sharing the Claude configuration
+are outside this gate and may need their Claude processes reopened. On success,
+Pocket verifies identity and clears the old account’s cached plan limits, preserving
+session usage history. Cancellation does not restore or revoke credentials; check
+Accounts after cancelling while authorization was finishing.
+
 ## Health and status
 
 ```bash
@@ -174,4 +192,3 @@ the Whisper `small.en` and Kokoro models into `POCKET_VOICE_HOME` (default
 - **Disable or remove.** Set `POCKET_VOICE=off`, or delete `POCKET_VOICE_HOME`. Nothing else
   depends on it.
 - **Upgrades.** Rerun the setup script after a release that changes `voice/requirements.txt`.
-

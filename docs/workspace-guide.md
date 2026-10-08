@@ -241,8 +241,24 @@ GitHub issue forms with the app version and build filled in. Version lookup fail
 of claiming the app is current. Frontend and server build numbers can differ until
 the daemon restarts during an upgrade.
 
-Accounts & instance shows provider identity and plan metadata; it does not change
-credentials. Sign in or change accounts through the server's provider CLI.
+Accounts & instance shows provider identity and plan metadata. Under Claude Code,
+choose **Switch account** (or **Sign in**), then **Get sign-in link**. Open the link,
+select the account you want in Claude’s browser page, and authorize Claude Code.
+Return to Pocket, paste the code including any `#` suffix, and choose **Finish sign-in**.
+Pocket shows the verified account when the CLI finishes. Paste codes only in this
+form, not in a conversation.
+
+This changes the shared Claude login on this server, including code-server when it
+uses the same configuration. Finish Pocket’s active Claude turns and background
+jobs first. Idle Claude processes close and new Claude turns wait until sign-in
+ends; conversations remain saved. Other open Claude processes may need reopening.
+Codex can keep working and its account is unchanged.
+
+Closing the form leaves sign-in pending for up to ten minutes. Return to Accounts &
+instance to resume it, or choose **Cancel sign-in**. A server restart ends a pending
+sign-in. Pocket does not explicitly log out the current account first; after an
+interrupted attempt, refresh Accounts to check which login is in place. API keys,
+cloud-provider authentication, and Codex sign-in are managed through the server.
 
 Chat text size applies across this browser's conversations, from 14 to 24px (17px by
 default). Prose, headings and tables scale; tool logs and application controls keep

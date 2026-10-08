@@ -1,7 +1,7 @@
 {
-  "version": "1.25.0",
-  "assetV": 61,
+  "version": "1.26.0",
+  "assetV": 62,
   "notes": [
-    "Coming back to a session now opens at the end of the conversation instead of at the New since divider, so a long session needs no scrolling. The divider still marks the first new message, and an away card under the latest reply repeats the time, carries the short summary when there is one, offers Read from there to jump back to the divider, and sits above the suggested replies. Requested by Brad."
+    "Switch your Claude Code account from Settings → Accounts & instance. Open the Claude sign-in link, choose your account in the browser, then paste its code into Pocket. This changes the shared Claude login on this server. Active Claude turns and background jobs must finish first; Codex can keep running."
   ]
 }

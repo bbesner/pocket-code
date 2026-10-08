@@ -57,6 +57,21 @@ test('UsageStore.observe: records account rate-limit snapshot and persists to di
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('switching accounts clears persisted plan limits but preserves session usage', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-usage-switch-'));
+  try {
+    const file = path.join(dir, 'usage-state.json');
+    const store = new UsageStore(file);
+    store.state.account = {status:'rejected',windows:{five_hour:{utilization:1}}};
+    store.state.sessions = {conversation:{context:{used:12500}}};
+    store.save();
+    store.clearAccount();
+    const reloaded = new UsageStore(file);
+    assert.equal(reloaded.accountSummary(), null);
+    assert.deepEqual(reloaded.state.sessions, {conversation:{context:{used:12500}}});
+  } finally { fs.rmSync(dir, {recursive:true,force:true}); }
+});
+
 test('UsageStore.observe: session context from assistant usage + result modelUsage, ignoring Haiku', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-usage-'));
   const store = new UsageStore(path.join(dir, 'usage-state.json'));

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.26.0] — Unreleased · build 62
+
+- **Switch Claude accounts.** Settings → Accounts & instance → Claude Code → Switch account opens a browser sign-in link and a field for Claude’s return code. The installed CLI handles authentication; Pocket never puts the code in a conversation or saves it in its data files.
+- Sign-in waits for Pocket’s active Claude turns and background jobs to finish, closes idle Claude processes, and blocks new Claude turns until completion or cancellation. Codex can keep running. Return to the form after closing it to resume the pending sign-in. Links expire after ten minutes.
+- A successful sign-in verifies the account and clears the previous account’s cached plan limits. It changes the server’s shared Claude login; other open Claude processes may need reopening. Configured API keys and cloud providers remain server-managed.
+
 ## [1.25.0] — 2026-10-08 · build 61
 
 - **While you were away opens at the end.** Coming back to a session with work you have not seen now opens at the bottom of the conversation, not at the **New since** divider, so a long session needs no scrolling to reach the latest reply. The divider still marks the first new message. An **away card** under the latest message repeats the time ("New since 8:40 PM"), carries the short summary when the new part is more than a short exchange, and has **Read from there**, which jumps to the divider and holds the view there until you scroll, tap, type or send. When the latest reply ends in suggested replies, the card sits above them so the summary and the choices share the screen. When there is no summary and the divider is already on screen, the card is left out. Requested by Brad.

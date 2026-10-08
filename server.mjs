@@ -31,6 +31,7 @@ import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITL
 import zlib from 'node:zlib';
 import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 import {PromptStore} from './prompts.mjs';
+import {ClaudeLogin} from './claude-login.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -206,7 +207,7 @@ function refreshTitleProviders(maxAgeMs = 10 * 60_000) {
 // Automatic Claude first (far smaller calls), then Codex.
 const titleProvider = () => settings.autoTitles ? helperProvider() : null;
 function helperProvider() {
-  const ok = p => (p === 'claude' ? claudeInstalled() : CODEX_ON) && titleProviders[p].available !== false; // installed is known at once; sign-in after the first check
+  const ok = p => (p === 'claude' ? claudeInstalled() && !claudeLogin.active : CODEX_ON) && titleProviders[p].available !== false; // installed is known at once; sign-in after the first check
   if (settings.titleProvider !== 'auto') return ok(settings.titleProvider) ? settings.titleProvider : null;
   return ok('claude') ? 'claude' : ok('codex') ? 'codex' : null;
 }
@@ -720,6 +721,15 @@ async function pumpTail(id, file) {
 // the CLI then reads EOF and exits 0.
 const turns = new Map(); // sessionId -> active turn {pid, events[], subs:Set<res>, cwd, startedAt, runner}
 const runners = new Map(); // sessionId -> live CLI process for that session
+const claudeLogin = new ClaudeLogin({
+  bin:CLAUDE_BIN, env:spawnEnv(), cwd:HOME,
+  busy:() => turns.size > 0 || [...runners.values()].some(runner => runner.bgTasks.length),
+  prepare:() => { for (const runner of runners.values()) closeRunner(runner,'account sign-in'); },
+  identify:() => readClaudeIdentity(CLAUDE_BIN,spawnEnv()),
+  onSuccess:() => { usage.clearAccount(); titleProviders.checkedAt = 0; log('Claude account sign-in completed'); },
+});
+process.on('exit', () => claudeLogin.dispose());
+for (const signal of ['SIGINT','SIGTERM']) process.once(signal, () => { claudeLogin.dispose(); process.exit(0); });
 const TURNLOG_DIR = path.join(DATA_DIR, 'turnlogs');
 fs.mkdirSync(TURNLOG_DIR, { recursive: true });
 const turnFiles = id => ({
@@ -790,6 +800,7 @@ function scheduleRetry(sessionId, turn, resetAt) {
   log(`rate limited session=${sessionId} — auto-resume at ${fmtET(resetAt)} (attempt ${m.attempt})`);
 }
 async function fireRetry(m) {
+  if (claudeLogin.active) return armRetry({...m,at:Date.now()+15_000});
   retryTimers.delete(m.sessionId);
   try { fs.unlinkSync(turnFiles(m.sessionId).retry); } catch { }
   if (turns.has(m.sessionId)) return log(`retry skipped (turn already running) session=${m.sessionId}`);
@@ -1241,6 +1252,7 @@ function steerTurn(turn, text) {
 }
 
 function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, retryAttempt,approvalMode:requestedMode }) {
+  if (claudeLogin.active) throw Object.assign(new Error('Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.'), {code:409});
   if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   cancelRetry(sessionId); // a manually-started turn supersedes any pending auto-resume
   ({ model, effort } = withDefaults('claude', { model, effort }));
@@ -1976,7 +1988,7 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, withDeli
     startTurn({ sessionId: id, cwd, text, resume: true, ...turnOpts(req.body) });
     res.status(202).json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: String(e.message) });
+    res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) });
   }
 }));
 
@@ -2010,7 +2022,7 @@ app.post('/api/new', requireAuth, validateApprovalMode, withDeliveryReceipt(deli
     try { promptStore.recordRecent({ text, cwd, provider: 'claude' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
     res.status(202).json({ id });
   } catch (e) {
-    res.status(500).json({ error: String(e.message) });
+    res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) });
   }
 }));
 
@@ -2302,7 +2314,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Coming back to a session now opens at the end of the conversation instead of at the New since divider, so a long session needs no scrolling. The divider still marks the first new message, and an away card under the latest reply repeats the time, carries the short summary when there is one, offers Read from there to jump back to the divider, and sits above the suggested replies. Requested by Brad."
+  "Switch your Claude Code account from Settings → Accounts & instance. Open the Claude sign-in link, choose your account in the browser, then paste its code into Pocket. This changes the shared Claude login on this server. Active Claude turns and background jobs must finish first; Codex can keep running."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
@@ -2337,7 +2349,24 @@ function binVersion(bin) {
 app.get('/api/environment',requireAuth,async(_req,res)=>{
   res.setHeader('Cache-Control','private, no-store');
   const [claude,cx]=await Promise.all([readClaudeIdentity(CLAUDE_BIN,spawnEnv()),CODEX_ON?codex.accountSummary().catch(()=>({provider:'codex',signedIn:null,method:'Status unavailable'})):Promise.resolve({provider:'codex',signedIn:false,method:'Not installed'})]);
-  res.json({host:os.hostname(),checkedAt:Date.now(),providers:[claude,cx],permissions:'Selectable native tool approvals; not employee isolation',accountManagement:'Provider sign-ins are managed by the installed CLIs on this instance. Existing runs may keep the account they started with.',capabilities:{claudeQuestions:true,codexQuestions:CODEX_ON,approvalControls:true}});
+  res.json({host:os.hostname(),checkedAt:Date.now(),providers:[claude,cx],permissions:'Selectable native tool approvals; not employee isolation',accountManagement:'Claude sign-in changes the shared login on this server, including code-server using the same configuration. Other open Claude processes may need reopening. Codex sign-in is managed by its installed CLI.',capabilities:{claudeQuestions:true,codexQuestions:CODEX_ON,approvalControls:true,claudeLogin:true}});
+});
+app.get('/api/claude/login',requireAuth,(_req,res)=>{
+  res.setHeader('Cache-Control','private, no-store');
+  res.json(claudeLogin.snapshot());
+});
+app.post('/api/claude/login/:action',requireAuth,(req,res)=>{
+  res.setHeader('Cache-Control','private, no-store');
+  if (!req.is('application/json') || req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({error:'Open sign-in from Pocket Code.'});
+  const {action} = req.params;
+  if (action === 'start') {
+    const overridden = ['ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX','CLAUDE_CODE_USE_FOUNDRY'].some(key => process.env[key] && process.env[key] !== '0');
+    if (overridden) return res.status(409).json({error:'This server uses configured API credentials or a cloud provider. Manage that sign-in on the server.'});
+    return res.json(claudeLogin.start());
+  }
+  if (action === 'code') return res.json(claudeLogin.submit(req.body?.id,req.body?.code));
+  if (action === 'cancel') return res.json(claudeLogin.cancel(req.body?.id));
+  res.status(404).json({error:'Unknown sign-in action.'});
 });
 app.get('/api/about', requireAuth, (_req, res) => res.json({
   ...ABOUT, uptime: process.uptime(),
@@ -2370,6 +2399,10 @@ app.post('/api/voice/speak', requireAuth, async (req, res) => {
 
 // Last: whatever a route threw or rejected with ends here, as a 503 for this request only.
 app.use((err, req, res, _next) => {
+  if (req.path.startsWith('/api/claude/login')) {
+    const status = [400,403,409,413].includes(err?.status) ? err.status : 503;
+    return res.status(status).set('Cache-Control','private, no-store').json({error:err?.type ? 'Invalid sign-in request. Refresh its status before trying again.' : status === 503 ? 'Sign-in request failed. Refresh its status before trying again.' : err.message});
+  }
   log(`request failed ${req.method} ${req.path}: ${err?.stack || err}`);
   if (res.headersSent) { try { res.end(); } catch { } return; }
   res.status(err?.status || 503).json({ error: err?.status ? err.message : 'Request failed. Please retry.' });
