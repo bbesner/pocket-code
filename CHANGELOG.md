@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.20.0] — Unreleased · build 54
+## [1.20.0] — 2026-10-08 · build 54
 
 - Generated titles are a setting, not only an environment variable. Settings has **Generate short titles** directly under Sync names with code-server, and a **Title model** choice: Automatic (Claude first, then Codex), Claude · Haiku, or Codex · GPT-6-Luna. Both are server-wide, like name sync, and saved in `pocket-settings.json`. The line under the switch says whether titles are on and which provider is making them; a note gives the reason a provider is unavailable, which model made the last title, and, for Codex, that each Codex title sends about 25k tokens of your plan against about 400 for Claude. Requested by Brad.
 - Turning titles off also stops showing the titles already made (they are kept and come back when you turn titles on), so with Sync names with code-server on, the list matches code-server.
