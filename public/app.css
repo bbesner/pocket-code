@@ -939,6 +939,14 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .away-divider::before, .away-divider::after { content: ''; flex: 1; height: 1px; background: color-mix(in srgb, var(--clay) 55%, transparent); }
 .away-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; font-size: 15px; line-height: 1.5; }
 .away-label { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--dim); }
+/* 1.25: the card sits at the end of the conversation, above the latest reply's suggested replies. Its label is the
+   divider's clay "New since" line, so the one accent still means "new to you"; Read from there jumps to the divider. */
+.away-end { margin: 14px 0 2px; }
+.away-end .away-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; color: var(--clay); }
+.away-end .away-label + .away-body { margin-top: 8px; }
+.away-jump { flex: none; min-height: 36px; margin: -6px -8px -6px 0; padding: 6px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--dim); }
+.away-jump:hover { color: var(--text); background: var(--raised); }
+.away-jump:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 .away-body { color: var(--text); }
 .away-body ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .away-source { margin: 8px 0 0; font-size: 12.5px; color: var(--dim); }

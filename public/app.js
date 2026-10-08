@@ -613,8 +613,8 @@ async function settingsSheet({about = false} = {}) {
     const away = sh.querySelector('#s-away'), awayOn = t.awaySummaries !== false;
     away.disabled = false; away.setAttribute('aria-pressed', String(awayOn)); away.querySelector('.dot').classList.toggle('on', awayOn);
     sh.querySelector('#s-away-state').textContent = !awayOn ? 'Off. Coming back to a session still marks where new work starts.'
-      : t.helper ? 'When you come back to a session, new work starts under a New since divider with a short summary.'
-      : 'On, but no signed-in Claude Code or Codex on this server can write summaries. The New since divider still shows.';
+      : t.helper ? 'When you come back to a session, it opens at the end with a New since card and a short summary of the new work. A New since divider marks where it starts.'
+      : 'On, but no signed-in Claude Code or Codex on this server can write summaries. The New since divider and card still show.';
     sel.value = t.choice; sel.disabled = !t.enabled && !awayOn;
     const chosen = t.choice === 'auto' ? null : t[t.choice];
     note.textContent = [chosen?.available === false ? chosen.reason : '',
@@ -1403,7 +1403,7 @@ document.addEventListener('click', e => {
     e.stopPropagation();
     const clone = msg.closest('.m-asst')?.cloneNode(true);
     if (!clone) return;
-    clone.querySelectorAll('.copybtn, .ledgerwrap, .choices').forEach(n => n.remove()); // prose + code, not machinery
+    clone.querySelectorAll('.copybtn, .ledgerwrap, .choices, .away-card').forEach(n => n.remove()); // prose + code, not machinery
     return copyText((clone.innerText || '').trim(), msg);
   }
 });
@@ -1659,6 +1659,7 @@ async function renderChat(id, { away = false } = {}) {
   if (chatId !== id) Voice.onLeave();
   chatId = id; closeES();
   fmarks = []; fidx = -1; // marks from the previous render are gone with the DOM
+  awayFollow = false;
   const chatCol = `
     <header class="bar">
       ${PANE ? `<button class="icon" id="pane-main" aria-label="Make this the main conversation">${IC.swap}</button>` : `<button class="icon" id="back" aria-label="Back">${IC.back}</button>
@@ -1760,11 +1761,14 @@ async function renderChat(id, { away = false } = {}) {
   openES(); // always: daemon turns stream events, idle sessions mirror the transcript live
 }
 
-/* ---------- 1.21: While you were away ----------
-   Arriving at a conversation with work you have not seen: a "New since 8:40 PM" divider before the first new
-   message, the view starts there, and when the new part is more than a short exchange, a short summary from
-   the helper model (Settings: same model as titles). Nothing is sent when the new part is only your own messages. */
-let awayAnchor = null;
+/* ---------- 1.21 / 1.25: While you were away ----------
+   Arriving at a conversation with work you have not seen: a "New since 8:40 PM" divider marks the first new
+   message, and (1.25) the conversation opens at the end instead of at the divider. An away card under the
+   latest message repeats the time with a "Read from there" button that jumps to the divider, and when the
+   new part is more than a short exchange it carries a short summary from the helper model (Settings: same
+   model as titles). The card sits above the latest reply's suggested replies, so the summary and the choices
+   share the screen. Nothing is sent when the new part is only your own messages. */
+let awayAnchor = null, awayFollow = false;
 function anchorAway() {
   const d = awayAnchor; if (!d?.isConnected) return;
   const scroller = d.closest('main.scroll'); scroller.scrollTop += d.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
@@ -1787,27 +1791,37 @@ function paintAway(id, since, renderVersion) {
   const label = 'New since ' + awayTimeLabel(since);
   first.insertAdjacentHTML('beforebegin', `<div class="away-divider" id="away-divider" role="separator" aria-label="${esc(label)}"><span>${esc(label)}</span></div>`);
   const divider = $('#away-divider'), scroller = msgs.closest('main.scroll');
-  // Start reading at the divider and keep it there while the conversation settles (toolbar, stream catch-up,
-  // the summary arriving), until you scroll, tap or type.
-  awayAnchor = divider; anchorAway();
-  const release = () => { awayAnchor = null; ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(t => scroller.removeEventListener(t, release)); };
-  ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(t => scroller.addEventListener(t, release, { passive: true }));
-  requestAnimationFrame(() => setTimeout(anchorAway, 300));
   // Summary only for more than a short exchange; the server checks the same rule before calling a model.
   const tools = fresh.reduce((n, e) => n + e.querySelectorAll('.ledger').length, 0);
   const chars = agent.reduce((n, e) => n + (e.textContent || '').length, 0);
-  if (!(tools >= 3 || agent.length >= 2 || chars >= 600)) return;
-  divider.insertAdjacentHTML('afterend', `<section class="away-card enter" id="away-card" aria-labelledby="away-card-label"><p class="away-label" id="away-card-label">While you were away</p><div class="away-body" role="status">Summarizing what happened…</div></section>`);
+  const wantSummary = tools >= 3 || agent.length >= 2 || chars >= 600;
+  // The card goes under the last message, above its suggested replies when it has any.
+  const lastRow = rows.at(-1), choices = lastRow.classList.contains('m-asst') ? lastRow.querySelector(':scope > .choices') : null;
+  const cardHTML = `<section class="away-card away-end enter" id="away-card" aria-labelledby="away-card-label"><p class="away-label"><span id="away-card-label">${esc(label)}</span><button type="button" class="away-jump" id="away-jump" aria-label="Read from the first new message">Read from there</button></p>${
+    wantSummary ? '<div class="away-body" role="status">Summarizing what happened…</div>' : ''}</section>`;
+  if (choices) choices.insertAdjacentHTML('beforebegin', cardHTML); else lastRow.insertAdjacentHTML('afterend', cardHTML);
+  // Open at the end and stay there while the page settles (toolbar, stream catch-up, the summary arriving),
+  // until you scroll, tap or type. Read from there moves to the divider and holds it instead.
+  const dividerOnScreen = () => divider.isConnected && divider.getBoundingClientRect().bottom >= scroller.getBoundingClientRect().top;
+  const trimCard = () => { const c = $('#away-card'); if (c && !c.querySelector('.away-body') && dividerOnScreen()) c.remove(); };
+  const settle = () => { if (chatId !== id || renderVersion !== chatRenderVersion) return; if (awayFollow) scrollBottom(true); else anchorAway(); trimCard(); };
+  awayAnchor = null; awayFollow = true; scrollBottom(true); trimCard();
+  const release = () => { awayFollow = false; awayAnchor = null; };
+  ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(t => scroller.addEventListener(t, release, { passive: true }));
+  const jump = $('#away-jump');
+  if (jump) jump.onclick = () => { awayFollow = false; awayAnchor = divider; anchorAway(); };
+  requestAnimationFrame(() => setTimeout(settle, 300));
+  if (!wantSummary) return;
   api(`/session/${encodeURIComponent(id)}/away`, { method: 'POST', body: JSON.stringify({ since }), signal: AbortSignal.timeout(100000) })
     .then(r => {
       const card = $('#away-card'); if (!card || chatId !== id || renderVersion !== chatRenderVersion) return;
-      if (!r.summary) { card.remove(); return; }
       const body = card.querySelector('.away-body');
+      if (!r.summary) { body?.remove(); trimCard(); return; }
       body.innerHTML = '<ul>' + r.summary.split('\n').map(l => '<li>' + esc(l) + '</li>').join('') + '</ul>';
-      requestAnimationFrame(anchorAway);
       card.insertAdjacentHTML('beforeend', `<p class="away-source">Summary by ${esc(r.provider === 'codex' ? (r.model || 'Codex') : modelLabel(r.model) || 'Claude')}. Read the messages for the details.</p>`);
+      requestAnimationFrame(settle);
     })
-    .catch(() => $('#away-card')?.remove());
+    .catch(() => { $('#away-card .away-body')?.remove(); trimCard(); });
 }
 
 /* ---------- subagent activity ---------- */
@@ -2109,7 +2123,7 @@ async function sendMsg(text) {
   if(uploadsInFlight.get(id)){toast('Wait for the attachment upload to finish.');return;}
   if (!text || !id || sendsInFlight.has(id) || loadOutbox(id)) return;
   if (liveFailure?.id === id) liveFailure = null;
-  awayAnchor = null;                                             // sending goes back to following the conversation
+  awayAnchor = null; awayFollow = false;                         // sending goes back to following the conversation
   document.getElementById('turn-failure')?.remove();
   const opts = composerWorking ? {mode:sendModes.get(id)||'steer',approvalMode:nextApprovalMode()} : turnOpts();
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),

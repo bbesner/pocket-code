@@ -156,13 +156,16 @@ not intentionally create another turn. Review the conversation before discarding
 an uncertain retry.
 
 **While you were away.** Opening a session that kept working while you were gone (or
-returning to the app) starts the conversation at a **New since …** line before the first
-message you have not seen. "Since" is the later of the reviewed marker shared by your
-devices and the last time this browser had the conversation on screen. When the new
-part is more than a short exchange, a card under the line summarizes it in two to four
-lines and names the model that wrote it. The summary uses the model chosen under
-**Settings → Model for titles and summaries** and only the new messages; turn it off with
-**Summarize what you missed** (the line stays).
+returning to the app) opens the conversation at the end, with a **New since …** line
+before the first message you have not seen. "Since" is the later of the reviewed marker
+shared by your devices and the last time this browser had the conversation on screen.
+An away card under the latest message repeats the time and offers **Read from there**,
+which jumps to the line and keeps the view there until you scroll, tap or type. When the
+new part is more than a short exchange, the card also summarizes it in two to four lines
+and names the model that wrote it; when the latest reply ends in suggested replies, the
+card sits above them. The summary uses the model chosen under **Settings → Model for
+titles and summaries** and only the new messages; turn it off with **Summarize what you
+missed** (the line and the card stay).
 
 When the last turn failed, the end of the conversation says so, with the reason when
 the agent gave one, and offers **Send again** (the last message, as a new turn) and

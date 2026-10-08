@@ -817,49 +817,59 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.ok(Math.abs(pos.xTop-pos.firstTop)<4,'dismiss X on the first line '+JSON.stringify(pos));
    await scan('polish-choices-mobile');await page.screenshot({path:path.join(out,'polish-choices-mobile.png')});
   });
-  await check('1.21 While you were away: divider at the first new message, view starts there, summary card, none on re-render',async()=>{
+  await check('1.21/1.25 While you were away: divider at the first new message, view opens at the end, away card above the choices, Read from there, none on re-render',async()=>{
    await page.setViewport({width:390,height:844});
    const id=rows[1].id,now=Date.now(),ts=m=>new Date(now-m*60000).toISOString(),long='Paragraph of earlier work that you already read. '.repeat(8);
    conversations.set(id,[
     ...Array.from({length:6},(_,i)=>[{role:'user',text:'Earlier question '+i,ts:ts(300-i*10)},{role:'assistant',blocks:[{t:'text',text:long}],ts:ts(299-i*10)}]).flat(),
     {role:'user',text:'Check stock and draft the order',ts:ts(60)},
     {role:'assistant',blocks:[{t:'tool',name:'Bash',detail:'stock --all'},{t:'tool',name:'Read',detail:'reorder.csv'},{t:'tool',name:'Bash',detail:'draft-order'},{t:'text',text:'Three products are below their reorder level. The order is drafted. '+'Details for each product follow in the table below. '.repeat(14)}],ts:ts(30)},
-    {role:'assistant',blocks:[{t:'text',text:'Waiting for your approval before sending it.'}],ts:ts(20)},
+    {role:'assistant',blocks:[{t:'text',text:'Waiting for your approval before sending it. Send the order?'},{t:'choices',options:['Send the order','Hold it for now'],rec:0}],ts:ts(20)},
    ]);
    const since=now-45*60000;await page.evaluate((id,since)=>{viewedAt[id]=since;writeLocal('pc-viewed',viewedAt);},id,since);
    const before=(getMode().awayCalls||[]).length;
    await page.goto(base+'/#/');await page.waitForSelector('[data-id]');
    await page.evaluate(id=>{location.hash='#/chat/'+id;},id);await page.waitForSelector('#away-divider');
    await page.waitForFunction(()=>document.querySelector('#away-card .away-body li'));await pause(500);
-   const r=await page.evaluate(()=>{const d=document.getElementById('away-divider'),next=d.nextElementSibling,s=d.closest('main.scroll');
-    return {label:d.getAttribute('aria-label'),afterCard:next?.id==='away-card'?next.nextElementSibling?.dataset.ts:null,before:d.previousElementSibling?.dataset.ts,
-     top:Math.round(d.getBoundingClientRect().top-s.getBoundingClientRect().top),notBottom:s.scrollHeight-s.scrollTop-s.clientHeight>40,st:Math.round(s.scrollTop),sh:s.scrollHeight,ch:s.clientHeight,anchored:Boolean(awayAnchor?.isConnected),dTop:Math.round(d.offsetTop)};});
+   const r=await page.evaluate(()=>{const d=document.getElementById('away-divider'),c=document.getElementById('away-card'),s=d.closest('main.scroll'),last=[...document.querySelectorAll('#msgs > .m-asst')].pop();
+    return {label:d.getAttribute('aria-label'),after:d.nextElementSibling?.dataset.ts,before:d.previousElementSibling?.dataset.ts,
+     cardLabel:c.querySelector('#away-card-label').textContent,inLast:c.parentElement===last,beforeChoices:c.nextElementSibling?.classList.contains('choices')&&!c.nextElementSibling.hidden,
+     gap:Math.round(s.scrollHeight-s.scrollTop-s.clientHeight),dividerAbove:d.getBoundingClientRect().bottom<s.getBoundingClientRect().top,anchored:Boolean(awayAnchor?.isConnected),following:awayFollow};});
    assert.match(r.label,/^New since \d{1,2}:\d{2}/);
-   assert.equal(r.afterCard,ts(30),'divider and card sit before the first message after you left');assert.equal(r.before,ts(60),'your message from before you left stays above');
-   assert.ok(r.top>=0&&r.top<=24,'the view starts at the divider '+JSON.stringify(r));
-   await page.waitForFunction(()=>document.querySelector('#away-card .away-body li'));
+   assert.equal(r.after,ts(30),'the divider sits before the first message after you left');assert.equal(r.before,ts(60),'your message from before you left stays above');
+   assert.ok(r.gap<40,'the view opens at the end '+JSON.stringify(r));assert.ok(r.dividerAbove,'the divider is up in the conversation, not on screen');
+   assert.equal(r.cardLabel,r.label,'the card repeats the New since line');assert.ok(r.inLast&&r.beforeChoices,'the card sits in the latest reply above its suggested replies '+JSON.stringify(r));
+   assert.ok(r.following&&!r.anchored,'the view follows the end while the page settles');
    assert.deepEqual(await page.$$eval('#away-card .away-body li',l=>l.map(x=>x.textContent)),['Checked stock for 24 products','Three are below their reorder level','Waiting on you: approve the order']);
    assert.match(await page.$eval('#away-card .away-source',e=>e.textContent),/^Summary by Haiku 5\.5\./);
    assert.equal((getMode().awayCalls||[]).length,before+1);assert.equal(getMode().awayCalls.at(-1),since);
    await scan('away-mobile');await page.screenshot({path:path.join(out,'away-mobile.png')});
-   await page.setViewport({width:1440,height:900});await pause(200);await page.screenshot({path:path.join(out,'away-desktop.png')});await page.setViewport({width:390,height:844});
-   // A resync of the conversation you are reading (turn end, rail toggle) never adds a divider.
+   await page.setViewport({width:1440,height:900});await pause(200);await page.screenshot({path:path.join(out,'away-desktop.png')});await page.setViewport({width:390,height:844});await pause(200);
+   // Read from there: the divider comes to the top and holds; a scroll releases it.
+   await page.click('#away-jump');await pause(100);
+   const j=await page.evaluate(()=>{const d=document.getElementById('away-divider'),s=d.closest('main.scroll');return {top:Math.round(d.getBoundingClientRect().top-s.getBoundingClientRect().top),anchored:Boolean(awayAnchor?.isConnected),following:awayFollow};});
+   assert.ok(j.top>=0&&j.top<=24&&j.anchored&&!j.following,'Read from there moves to the divider and holds it '+JSON.stringify(j));
+   await page.evaluate(()=>document.querySelector('main.scroll').dispatchEvent(new WheelEvent('wheel',{deltaY:40})));
+   assert.equal(await page.evaluate(()=>awayAnchor),null,'a scroll releases the hold');
+   // A resync of the conversation you are reading (turn end, rail toggle) never adds a divider or a card.
    await page.evaluate(id=>renderChat(id),id);await page.waitForSelector('#box');await pause(200);
-   assert.equal(await page.$('#away-divider'),null);
+   assert.equal(await page.$('#away-divider'),null);assert.equal(await page.$('#away-card'),null);
    // Coming back right after leaving: nothing new, no divider and no call.
    await page.goto(base+'/#/');await page.waitForSelector('[data-id]');await page.evaluate(id=>{location.hash='#/chat/'+id;},id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#ctitle')?.textContent!=='Session',{},id);await pause(300);
    assert.equal(await page.$('#away-divider'),null);assert.equal((getMode().awayCalls||[]).length,before+1);
-   // A short exchange gets the divider only; summaries off still mark where new work starts.
+   // A short exchange whose divider is already on screen at the end gets the divider only: no summary, no card.
    await page.goto(base+'/#/');await page.waitForSelector('[data-id]');                     // leaving records a fresh viewed time, so set it from the list
    await page.evaluate((id,since)=>{viewedAt[id]=since;writeLocal('pc-viewed',viewedAt);},id,now-25*60000);
-   await page.evaluate(id=>{location.hash='#/chat/'+id;},id);await page.waitForSelector('#away-divider');await pause(200);
-   assert.equal(await page.$('#away-card'),null,'one short message: no summary');
+   await page.evaluate(id=>{location.hash='#/chat/'+id;},id);await page.waitForSelector('#away-divider');await pause(400);
+   assert.equal(await page.$('#away-card'),null,'one short message with its divider on screen: no card');
+   assert.equal((getMode().awayCalls||[]).length,before+1,'no summary call for a short exchange');
+   assert.ok(await page.evaluate(()=>{const s=document.querySelector('main.scroll');return s.scrollHeight-s.scrollTop-s.clientHeight<40;}),'still opens at the end');
   });
   await check('1.21 Settings: Summarize what you missed switches summaries on and off',async()=>{
    await page.goto(base+'/#/');await page.waitForSelector('#settings');await page.click('#settings');
    await page.waitForFunction(()=>!document.querySelector('#s-away').disabled);
    assert.equal(await page.$eval('#s-away',e=>e.getAttribute('aria-pressed')),'true');
-   assert.match(await page.$eval('#s-away-state',e=>e.textContent),/New since divider with a short summary/);
+   assert.match(await page.$eval('#s-away-state',e=>e.textContent),/opens at the end with a New since card/);
    await page.click('#s-away');await page.waitForFunction(()=>document.querySelector('#s-away').getAttribute('aria-pressed')==='false');
    assert.equal(settingsState().awaySummaries,false);
    await page.$eval('#s-away',e=>e.scrollIntoView({block:'center'}));await scan('away-settings-mobile');

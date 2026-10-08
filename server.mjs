@@ -2302,7 +2302,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Dates on message times: a message from another day now shows its date with the time (Yesterday 3:05 PM, Oct 6, 3:05 PM), so in a conversation that runs across several days each bubble says which day it belongs to, not only the divider. Requested by Damon Delcoro."
+  "Coming back to a session now opens at the end of the conversation instead of at the New since divider, so a long session needs no scrolling. The divider still marks the first new message, and an away card under the latest reply repeats the time, carries the short summary when there is one, offers Read from there to jump back to the divider, and sits above the suggested replies. Requested by Brad."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
