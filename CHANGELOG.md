@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.25.0] — Unreleased · build 61
+
+- **While you were away opens at the end.** Coming back to a session with work you have not seen now opens at the bottom of the conversation, not at the **New since** divider, so a long session needs no scrolling to reach the latest reply. The divider still marks the first new message. An **away card** under the latest message repeats the time ("New since 8:40 PM"), carries the short summary when the new part is more than a short exchange, and has **Read from there**, which jumps to the divider and holds the view there until you scroll, tap, type or send. When the latest reply ends in suggested replies, the card sits above them so the summary and the choices share the screen. When there is no summary and the divider is already on screen, the card is left out. Requested by Brad.
+- Settings → **Summarize what you missed** describes the new placement. Off still marks where new work starts and still opens at the end.
+
 ## [1.24.1] — 2026-10-08 · build 60
 
 - A message from another day shows its date with the time: "Yesterday 3:05 PM", "Oct 6, 3:05 PM", or "Oct 6, 2025, 3:05 PM" for an earlier year. Today's messages keep the time alone. In a conversation that runs across several days each bubble now says which day it belongs to, not only the day divider. Labels are set when the conversation is drawn, so a page left open past midnight shows yesterday's messages as today's until it is reopened. Requested by Damon Delcoro.

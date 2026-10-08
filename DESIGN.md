@@ -449,6 +449,16 @@ measure. It enters with the existing 180ms rise; nothing else moves. The view an
 the first scroll, tap, key or send. Rendered phone/desktop screenshots and axe scans clean; detector findings
 are the documented exceptions.
 
+## While you were away at the end (1.25)
+
+Pinned Operate refinement: variance 2, motion 1, density 6. The divider stays where it was; the summary card
+moves to the end of the conversation, under the latest message and above its suggested replies, and its
+label becomes the divider's own clay 13px/600 "New since 8:40 PM" line, so the one accent still means
+"new to you" and the card reads as the divider's echo rather than a second voice. The only new control is
+a 13px/600 dim text button, Read from there, on the label's right (36px tall, raised fill on hover), in the
+session-switch language. The view opens at the end and holds there while the page settles; Read from there
+hands the hold to the divider. No new colour, no new motion; the card keeps the existing 180ms rise.
+
 ## Search inside conversations (1.22)
 
 Pinned Operate refinement: variance 2, motion 0, density 6. No new control: the existing session search box
