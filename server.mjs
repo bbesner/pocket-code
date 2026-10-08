@@ -2302,8 +2302,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Saved prompts: on the New session screen, Save as prompt keeps the task with its workspace and agent (and model, effort and permissions if you like); next time one tap fills it all in and you press Start. Recent lists your last five starts from any device, and Manage reorders, renames and deletes. Requested by Brad.",
-  "Search inside conversations: type three or more characters in a session search box and Pocket also searches inside every conversation, with the matching passage and who wrote it. Tap a result to open the conversation with Find on the match. With MemStem on the server it searches every session by wording and meaning; otherwise it searches recent conversations for the exact phrase. Requested by Brad."
+  "Message times: each message shows the time it was sent, and a line marks each day (Today, Yesterday, Tue, Oct 6), so a long conversation reads in order. Settings → Show message times turns them off on this browser. Requested by Damon Delcoro."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

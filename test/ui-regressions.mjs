@@ -866,6 +866,46 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.click('#s-away');await page.waitForFunction(()=>document.querySelector('#s-away').getAttribute('aria-pressed')==='true');
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
   });
+  await check('1.24 Message times: a time on each timestamped message, a divider per day, live dividers, setting hides both',async()=>{
+   await page.setViewport({width:390,height:844});
+   const id=rows[3].id,now=Date.now(),day=86400000,ts=ms=>new Date(ms).toISOString();
+   conversations.set(id,[
+    {role:'user',text:'Start the stock review.',ts:ts(now-2*day-3600000)},{role:'assistant',blocks:[{t:'text',text:'Counting the warehouse shelves now.'}],ts:ts(now-2*day-3500000)},
+    {role:'user',text:'Any surprises?',ts:ts(now-day-7200000)},{role:'assistant',blocks:[{t:'text',text:'Two recorders are missing from bay 4.'}],ts:ts(now-day-7100000)},
+    {role:'user',text:'Draft the reorder.',ts:ts(now-600000)},{role:'assistant',blocks:[{t:'text',text:'The reorder is drafted and waiting for you.'}],ts:ts(now-540000)},
+    {role:'user',text:'A message with no time yet.'},
+   ]);
+   await openChat(id);await pause(200);
+   const r=await page.evaluate(()=>{const m=document.getElementById('msgs'),divs=[...m.querySelectorAll('.day-divider')],rows=[...m.querySelectorAll('[data-ts]')],asst=m.querySelector('.m-asst[data-time]'),user=m.querySelector('.m-user[data-time]');
+    return {labels:divs.map(d=>d.getAttribute('aria-label')),firstIsDivider:m.firstElementChild?.classList.contains('day-divider'),times:rows.map(e=>e.dataset.time||null),
+     noTime:[...m.querySelectorAll('.m-user:not([data-ts])')].map(e=>e.hasAttribute('data-time')),asstBefore:getComputedStyle(asst,'::before').content,userAfter:getComputedStyle(user,'::after').content,
+     asstText:asst.textContent,asstColor:getComputedStyle(asst,'::before').color,userColor:getComputedStyle(user,'::after').color,userBg:getComputedStyle(user).backgroundColor};});
+   assert.equal(r.labels.length,3,'one divider per day '+JSON.stringify(r.labels));assert.deepEqual(r.labels.slice(1),['Yesterday','Today']);
+   assert.match(r.labels[0],/^([A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}|[A-Z][a-z]{2} \d{1,2}, \d{4})$/,'an older day is named by date');
+   assert.ok(r.firstIsDivider,'the conversation opens with the first day');
+   assert.equal(r.times.length,6);r.times.forEach(t=>assert.match(t,/^\d{1,2}:\d{2}/,'every timestamped message shows a clock time'));
+   assert.deepEqual(r.noTime,[false],'a message without a transcript time shows none');
+   assert.equal(r.asstBefore,'"'+r.times[1]+'"');assert.equal(r.userAfter,'"'+r.times[0]+'"');
+   assert.ok(!r.asstText.includes(r.times[1]),'the time is not part of the copied text');
+   // Find never matches a time; the live stream adds a divider only when the day changes.
+   await page.click('#findb');await page.type('#fq',r.times[1]);await pause(100);
+   assert.equal(await page.$eval('#fcount',e=>e.textContent.trim()),'none','a time is not findable text');await page.click('#fclose');
+   const live=await page.evaluate(()=>{const m=document.getElementById('msgs'),n=m.querySelectorAll('.day-divider').length;
+    appendDayDivider(m,new Date().toISOString());const same=m.querySelectorAll('.day-divider').length;
+    appendDayDivider(m,new Date(Date.now()+86400000).toISOString());return {same:same-n,next:m.querySelectorAll('.day-divider').length-same,last:m.lastElementChild.classList.contains('day-divider')};});
+   assert.deepEqual(live,{same:0,next:1,last:true});
+   await page.evaluate(()=>document.querySelector('#msgs .day-divider:last-child')?.remove());
+   await scan('message-times-mobile');await page.screenshot({path:path.join(out,'message-times-mobile.png')});
+   await page.setViewport({width:1440,height:900});await pause(200);await page.screenshot({path:path.join(out,'message-times-desktop.png')});await page.setViewport({width:390,height:844});
+   await page.evaluate(()=>settingsSheet());await page.waitForSelector('#s-times');
+   assert.equal(await page.$eval('#s-times',b=>b.getAttribute('aria-pressed')),'true');
+   await page.click('#s-times');await pause(100);
+   const off=await page.evaluate(()=>{const m=document.getElementById('msgs');return {cls:m.classList.contains('times-off'),div:getComputedStyle(m.querySelector('.day-divider')).display,t:getComputedStyle(m.querySelector('.m-asst[data-time]'),'::before').display,pressed:document.querySelector('#s-times').getAttribute('aria-pressed'),stored:readLocal('pc-times',true)};});
+   assert.deepEqual(off,{cls:true,div:'none',t:'none',pressed:'false',stored:false});
+   await page.click('#s-times');await pause(100);
+   assert.equal(await page.$eval('#msgs',m=>m.classList.contains('times-off')),false);
+   await page.keyboard.press('Escape');await pause(200);
+  });
   await check('1.22 Search inside conversations: results under the box, marked words, related rows, open at the match',async()=>{
    await page.setViewport({width:390,height:844});
    conversations.set(rows[3].id,[{role:'user',text:'How is stock?'},{role:'assistant',blocks:[{t:'text',text:'Incoming stock is separate from the on-hand count for each recorder.'}]}]);

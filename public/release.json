@@ -1,8 +1,7 @@
 {
-  "version": "1.23.0",
-  "assetV": 58,
+  "version": "1.24.0",
+  "assetV": 59,
   "notes": [
-    "Saved prompts: on the New session screen, Save as prompt keeps the task with its workspace and agent (and model, effort and permissions if you like); next time one tap fills it all in and you press Start. Recent lists your last five starts from any device, and Manage reorders, renames and deletes. Requested by Brad.",
-    "Search inside conversations: type three or more characters in a session search box and Pocket also searches inside every conversation, with the matching passage and who wrote it. Tap a result to open the conversation with Find on the match. With MemStem on the server it searches every session by wording and meaning; otherwise it searches recent conversations for the exact phrase. Requested by Brad."
+    "Message times: each message shows the time it was sent, and a line marks each day (Today, Yesterday, Tue, Oct 6), so a long conversation reads in order. Settings → Show message times turns them off on this browser. Requested by Damon Delcoro."
   ]
 }

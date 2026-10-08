@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.24.0] — Unreleased · build 59
+
+- **Message times.** Each message shows the time it was sent: under your own messages, inside the bubble, and above each reply, in the same small mono as the cost line. A divider marks the first message of each day (Today, Yesterday, Tue, Oct 6, or Oct 6, 2025 for an earlier year), including as a conversation crosses midnight while you watch. Times come from the transcript, so Claude and Codex sessions both have them; a message that is not in the transcript yet (just sent, or steered in) shows none. Requested by Damon Delcoro.
+- Settings → **Show message times** turns the times and dividers off on this browser (on by default). The times are drawn by the stylesheet, so Copy message and Find in conversation never include them.
+
 ## [1.23.0] — 2026-10-08 · build 58
 
 - **Saved prompts.** The New session screen has **Save as prompt** beside Choose a skill. It keeps the task's wording, workspace and agent, and, unless you switch it off in the save sheet, the model, effort, permissions and Codex mode. Saved prompts appear as a row of chips above the task box; tapping one fills the whole screen (the chip stays highlighted until you change the wording) and you still press Start, so a stray tap never starts work. The chip's tooltip lists what it will set. Requested by Brad.
