@@ -84,6 +84,10 @@ recency; unpinning forgets its place.
 The left rail finds sessions. Open-session tabs keep recent work within reach. A pinned
 session's tab shows the pin and its title in the accent, and pinned tabs come first in
 the pinned order, then the rest in the order opened; Alt [ / ] follow the same order.
+Each tab also shows its session's status before the title, matching the rail row: the
+breathing ember while a turn runs, a clay dot when it needs you, green for an unread
+reply, red for a failed turn and a ring for activity elsewhere or a paused queue.
+Quiet sessions show no mark. Hover a tab to read the status.
 The panel icon beside the conversation title hides the rail; drag its divider or
 use its arrow keys to resize it.
 

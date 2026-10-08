@@ -870,6 +870,12 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .open-session.pinned a, .open-session.pinned.current a { color: var(--clay); }
 .open-session .pinmark .i { width: 12px; height: 12px; vertical-align: -1px; margin-right: 4px; color: var(--clay); }
+/* Tab status: the rail row's state as a 7px mark before the title. Running reuses the ember. */
+.open-session .tab-state { display: inline-block; width: 7px; height: 7px; margin: 0 6px 0 0; border-radius: 50%; vertical-align: 1px; flex: none; }
+.open-session .tab-input { background: var(--clay); }
+.open-session .tab-failed { background: var(--err); }
+.open-session .tab-finished { background: var(--ok); }
+.open-session :is(.tab-observed,.tab-waiting) { box-sizing: border-box; border: 1.5px solid var(--dim); }
 .pin-grip { display: none; width: 44px; height: 44px; flex: 0 0 44px; align-items: center; justify-content: center; margin: 7px 0 0; border-radius: 10px; color: var(--faint); cursor: grab; touch-action: none; }
 .pin-grip .i { width: 18px; height: 18px; }
 .pin-grip:hover { color: var(--dim); background: var(--surface); }

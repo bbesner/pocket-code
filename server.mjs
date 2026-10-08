@@ -2320,7 +2320,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Claude account switching no longer waits for long-running background watchers. Current Claude turns must finish, but background jobs stay running with their existing session. New sessions use the new account; retained sessions refresh their login after their jobs finish. Codex is unaffected."
+  "Open-session tabs now show each session's status, like the session list: the breathing ember while a turn runs, a clay dot when it needs your answer or approval, green for an unread reply, red for a failed turn and a ring for activity elsewhere or a paused queue. Quiet sessions show nothing. Hover a tab for the status in words."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
