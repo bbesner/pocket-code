@@ -341,7 +341,7 @@ async function openEnvironment(){
 async function openClaudeLogin(){
  const scrim=document.createElement('div');scrim.className='scrim';
  const sh=document.createElement('div');sh.className='sheet claude-login-sheet';
- sh.innerHTML='<h2>Claude Code sign-in</h2><p class="sheet-help">Changes the shared Claude login on this server, including code-server. Let active Claude work finish first. Codex can keep running.</p><p data-login-status role="status">Checking sign-in…</p><div data-login-controls></div><p class="question-error" data-login-error role="alert"></p>';
+ sh.innerHTML='<h2>Claude Code sign-in</h2><p class="sheet-help">Changes the shared Claude login on this server, including code-server. Let current Claude turns finish first. Background jobs and Codex keep running; existing jobs may keep the earlier login.</p><p data-login-status role="status">Checking sign-in…</p><div data-login-controls></div><p class="question-error" data-login-error role="alert"></p>';
  mountSheet(scrim,sh);
  const controls=sh.querySelector('[data-login-controls]'),error=sh.querySelector('[data-login-error]');
  let current={status:'idle'},rendered='',pollTimer,busy=false,disconnected=false;
@@ -364,7 +364,7 @@ async function openClaudeLogin(){
   }else if(state.status==='starting'||state.status==='verifying'){
    controls.innerHTML='<p class="sheet-help">You can return to Accounts & instance if you close this window.</p><button class="chip" data-login-cancel>Cancel sign-in</button>';
   }else if(state.status==='success'){
-   controls.innerHTML=`<p class="login-account">${esc(state.account?.email||'Account verified')}</p><p class="sheet-help">Your next Pocket Claude turn uses this login. Reopen other Claude processes to use the new account there.</p><button class="chip" data-login-done>Back to accounts</button><button class="chip" data-login-start>Switch again</button>`;
+   controls.innerHTML=`<p class="login-account">${esc(state.account?.email||'Account verified')}</p><p class="sheet-help">New Claude sessions use this login. Existing background jobs keep running; their sessions refresh the login after those jobs finish. Reopen other Claude processes to use the new account there.</p><button class="chip" data-login-done>Back to accounts</button><button class="chip" data-login-start>Switch again</button>`;
    controls.querySelector('[data-login-done]').onclick=openEnvironment;
   }else{
    controls.innerHTML='<p class="sheet-help">You’ll get a link to open in your browser. Choose the Claude account you want, then return here to paste its code.</p><button class="primary" data-login-start>Get sign-in link</button><button class="chip" data-login-done>Back to accounts</button>';

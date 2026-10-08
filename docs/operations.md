@@ -44,9 +44,14 @@ It never writes login output or codes to turn logs, conversations, or Pocket sta
 Restarting the daemon cancels pending login; the browser can reopen the form after
 a disconnect. API-key and cloud-provider environment overrides block this flow.
 
-Start is refused while a Pocket Claude turn or background job is active. Idle Claude
-runners close before login and new turns are blocked while it is pending. Rate-limit
-retries wait; Codex is unaffected. Other applications sharing the Claude configuration
+Start is refused while a Pocket Claude turn is active. Idle Claude runners close;
+runners with background jobs stay alive and persist an `accountStale` marker. New
+turns are blocked while sign-in is pending. After sign-in, a retained session refuses
+new requested turns until its jobs finish, then reopens with the current login on its
+next requested turn. Autonomous background completion can use the earlier login.
+Rate-limit events from retained processes do not replace the new account’s cached
+plan limits. Rate-limit retries wait during sign-in; Codex is unaffected.
+Other applications sharing the Claude configuration
 are outside this gate and may need their Claude processes reopened. On success,
 Pocket verifies identity and clears the old account’s cached plan limits, preserving
 session usage history. Cancellation does not restore or revoke credentials; check

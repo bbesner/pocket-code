@@ -18,6 +18,8 @@ return code. Status and errors remain beside the form. No new motion or decorati
 The sheet has a 16px inset on phones. Rendered phone/desktop review and accessibility
 checks cover the form; the retained detector exceptions concern the existing app
 shell, title ellipsis, table containment, native font and compact type hierarchy.
+1.26.1 keeps the same layout and clarifies that background jobs keep running and
+may keep their earlier login. Only current Claude turns block starting sign-in.
 
 ## Tokens
 
