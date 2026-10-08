@@ -1,7 +1,7 @@
 {
-  "version": "1.27.1",
-  "assetV": 65,
+  "version": "1.27.2",
+  "assetV": 66,
   "notes": [
-    "Questions and approvals now show in amber, so they no longer look like a running turn. Clay with the breathing ember means Claude is working; amber means it is waiting on you. This applies to the tab dots, the session list and the conversation status bar."
+    "Switching between Claude Code and Codex clears incompatible model choices, including saved choices in existing sessions. The model menu shows all advertised Codex models. Requests for the wrong agent are rejected before a turn starts."
   ]
 }

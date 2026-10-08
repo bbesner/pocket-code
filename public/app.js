@@ -76,7 +76,7 @@ async function loadCodexModels() {
     if (models?.length) {
       const label = defaultModel && (models.find(m => m.id === defaultModel)?.label || defaultModel);
       CODEX_MODELS = [['default', 'Default', label ? `${label} · Pocket default` : 'Your Codex config', label || 'Default'],
-        ...models.slice(0, 8).map(m => [m.id, m.label || m.id, ''])];
+        ...models.map(m => [m.id, m.label || m.id, ''])];
       providerDefaults.codex = { effort: defaultEffort, pocket: pocketDefault };
     }
   } catch { }
@@ -160,9 +160,21 @@ function sheet(title, options, current, onPick) {
 
 /* Toolbar state shared by chat + new views */
 let tb = null; // {key, prefs, attachments:[{path,name}], allowAttach}
-function tbLabel(list, v) { const o = list.find(o => o[0] === v) || list[0]; return o[3] || o[1]; }
+function normalizeModelPick() {
+  if (!tb) return;
+  const model = tb.prefs.model;
+  const incompatible = tb.provider === 'codex'
+    ? /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[))/i.test(model)
+    : /^(?:gpt-|codex(?:$|-)|o\d(?:$|-))/i.test(model);
+  if (incompatible) {
+    tb.prefs.model = 'default';
+    setPrefs(tb.key, tb.prefs);
+  }
+}
+function tbLabel(list, v) { const option = list.find(option => option[0] === v); return option ? option[3] || option[1] : v || list[0][1]; }
 function renderToolbar() {
   const bar = $('#tbar'); if (!bar || !tb) return;
+  normalizeModelPick();
   $('#composer-actions #c-att')?.remove();
   bar.innerHTML = `
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
@@ -361,6 +373,7 @@ document.addEventListener('paste',event=>{
 
 function turnOpts() {
   if (!tb) return {};
+  normalizeModelPick();
   return {
     approvalMode:nextApprovalMode(),
     executionMode:tb.provider==='codex'&&tb.prefs.executionMode==='plan'?'plan':'work',
@@ -2318,7 +2331,7 @@ async function renderNew() {
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   if (PANE) $('#pane-close').onclick = () => paneSay('close'); else $('#back').onclick = () => { location.hash = '#/'; };
-  tb = { key: NEW_KEY, prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs(NEW_KEY), attachments: loadAttachments(NEW_KEY), allowAttach: true, provider: 'claude' };
+  tb = { key: NEW_KEY, prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs(NEW_KEY), attachments: loadAttachments(NEW_KEY), allowAttach: true, provider: pendingNew?.payload.provider || (localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude') };
   renderToolbar();
   // which agent runs this session — remembered, since most days you stay on one
   let provider = pendingNew?.payload.provider || (localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude');

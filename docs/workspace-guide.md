@@ -24,6 +24,12 @@ Otherwise the app uses its remembered choices and the installed CLI's configurat
 Model and reasoning selectors affect subsequent turns. Codex also offers **Plan first**
 and **Work normally**; Plan first is guidance, not a security sandbox.
 
+Switching agents resets an incompatible model choice to Default. Opening an existing
+session also repairs a saved choice from the other agent. Valid choices stay saved;
+the model button shows an unrecognized model by its ID instead of labelling it as
+the default. Older tabs that send a model for the wrong agent receive a message to
+choose a model and send again; Pocket does not start or queue that request.
+
 The session list distinguishes confirmed Pocket-owned runs from activity seen in an
 external transcript. Search matches recent session titles and workspace paths.
 

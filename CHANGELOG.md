@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.27.2] — 2026-10-08 · build 66
+
+- Switching between Claude Code and Codex clears incompatible model choices. Opening an affected session repairs its saved selection to Default. Other preferences and drafts stay intact.
+- The model button no longer disguises an unrecognized selection as the default. The Codex menu includes every model advertised by the installed CLI.
+- The server rejects cross-agent model requests before starting, steering or queuing a turn, including requests from older browser tabs. Open the model menu, select the intended model and send again.
+
 ## [1.27.1] — 2026-10-08 · build 65
 
 - **Amber means waiting on you.** A session that needs your answer or approval now shows amber instead of clay on its tab, in the session list and in the conversation status bar. At tab size the still clay dot was hard to tell from the breathing ember of a running turn. Clay now always means Claude is working; amber means it is waiting on you. Requested by Brad.

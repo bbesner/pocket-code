@@ -45,7 +45,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       return reply(m.id,{model:'gpt-test',reasoningEffort:null,cwd:p.cwd||process.cwd()});
     case 'turn/start':{
       const text=p.input?.[0]?.text||'',turnId=randomUUID();
-      fs.appendFileSync(calls+'.codex',JSON.stringify({threadId:p.threadId,pid:process.pid,text})+'\n');
+      fs.appendFileSync(calls+'.codex',JSON.stringify({threadId:p.threadId,pid:process.pid,text,model:p.model,collaborationModel:p.collaborationMode?.settings?.model})+'\n');
       reply(m.id,{turn:{id:turnId}});
       notify('turn/started',{turnId});
       if(text.includes('__HANG__'))return;
