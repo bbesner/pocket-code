@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.24.1] — 2026-10-08 · build 60
+
+- A message from another day shows its date with the time: "Yesterday 3:05 PM", "Oct 6, 3:05 PM", or "Oct 6, 2025, 3:05 PM" for an earlier year. Today's messages keep the time alone. In a conversation that runs across several days each bubble now says which day it belongs to, not only the day divider. Labels are set when the conversation is drawn, so a page left open past midnight shows yesterday's messages as today's until it is reopened. Requested by Damon Delcoro.
+
 ## [1.24.0] — 2026-10-08 · build 59
 
 - **Message times.** Each message shows the time it was sent: under your own messages, inside the bubble, and above each reply, in the same small mono as the cost line. A divider marks the first message of each day (Today, Yesterday, Tue, Oct 6, or Oct 6, 2025 for an earlier year), including as a conversation crosses midnight while you watch. Times come from the transcript, so Claude and Codex sessions both have them; a message that is not in the transcript yet (just sent, or steered in) shows none. Requested by Damon Delcoro.
