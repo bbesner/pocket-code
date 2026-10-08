@@ -866,7 +866,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.click('#s-away');await page.waitForFunction(()=>document.querySelector('#s-away').getAttribute('aria-pressed')==='true');
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
   });
-  await check('1.24 Message times: a time on each timestamped message, a divider per day, live dividers, setting hides both',async()=>{
+  await check('1.24 Message times: a time on each timestamped message (with the date on other days), a divider per day, live dividers, setting hides both',async()=>{
    await page.setViewport({width:390,height:844});
    const id=rows[3].id,now=Date.now(),day=86400000,ts=ms=>new Date(ms).toISOString();
    conversations.set(id,[
@@ -883,7 +883,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(r.labels.length,3,'one divider per day '+JSON.stringify(r.labels));assert.deepEqual(r.labels.slice(1),['Yesterday','Today']);
    assert.match(r.labels[0],/^([A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}|[A-Z][a-z]{2} \d{1,2}, \d{4})$/,'an older day is named by date');
    assert.ok(r.firstIsDivider,'the conversation opens with the first day');
-   assert.equal(r.times.length,6);r.times.forEach(t=>assert.match(t,/^\d{1,2}:\d{2}/,'every timestamped message shows a clock time'));
+   assert.equal(r.times.length,6);
+   r.times.slice(4).forEach(t=>assert.match(t,/^\d{1,2}:\d{2} [AP]M$/,'today: time only'));
+   r.times.slice(2,4).forEach(t=>assert.match(t,/^Yesterday \d{1,2}:\d{2} [AP]M$/,'yesterday is named'));
+   r.times.slice(0,2).forEach(t=>assert.match(t,/^[A-Z][a-z]{2} \d{1,2}(, \d{4})?, \d{1,2}:\d{2} [AP]M$/,'older days carry the date'));
    assert.deepEqual(r.noTime,[false],'a message without a transcript time shows none');
    assert.equal(r.asstBefore,'"'+r.times[1]+'"');assert.equal(r.userAfter,'"'+r.times[0]+'"');
    assert.ok(!r.asstText.includes(r.times[1]),'the time is not part of the copied text');

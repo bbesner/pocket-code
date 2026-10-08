@@ -1321,12 +1321,21 @@ function fileChip(f) { // f: {n,p} from the server, plain name string from optim
 }
 /* ---------- 1.24: message times and day dividers ----------
    Every transcript message already carries its time (data-ts, used by While you were away). Each bubble shows
-   it as a small clock time (data-time, drawn by CSS so copy and find never pick it up), and a day divider
+   it as a small time, with the date when the message is not from today (data-time, drawn by CSS so copy and find
+   never pick it up), and a day divider
    ("Today", "Yesterday", "Tue, Oct 6") sits before the first message of each day. Settings > Show message
    times hides both on this browser. Messages without a time (optimistic sends, steered echoes) show none. */
 const showTimes = () => readLocal('pc-times', true) !== false;
-const timeLabel = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const dayKey = ms => { const d = new Date(ms); return d.getFullYear() * 10000 + d.getMonth() * 100 + d.getDate(); };
+// 1.24.1: a message from another day carries its date too ("Yesterday 3:05 PM", "Oct 6, 3:05 PM", "Oct 6, 2025, 3:05 PM"),
+// so the day is on the bubble itself and not only on the divider. Labels are fixed at render time, like the away line.
+function timeLabel(ms) {
+  const d = new Date(ms), now = new Date(), t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (dayKey(ms) === dayKey(now)) return t;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (dayKey(ms) === dayKey(y)) return 'Yesterday ' + t;
+  return (d.getFullYear() === now.getFullYear() ? d.toLocaleDateString([], { month: 'short', day: 'numeric' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })) + ', ' + t;
+}
 function dayLabel(ms) {
   const d = new Date(ms), now = new Date();
   if (dayKey(ms) === dayKey(now)) return 'Today';

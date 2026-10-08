@@ -477,3 +477,6 @@ sibling of the clay "New since" line: 12.5px `--dim` label between 1px `--line` 
 accent still means "new to you". Times are rendered from a `data-time` attribute by the stylesheet,
 so Copy message, Find in conversation and the find marks never touch them. Settings adds one toggle row
 in the existing style. No new colour, no motion.
+
+1.24.1: a bubble from another day carries its date in the same 12px mono line ("Yesterday 3:05 PM",
+"Oct 6, 3:05 PM"); today's keep the time alone, so the common case stays as quiet as before.
