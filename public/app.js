@@ -2234,8 +2234,8 @@ async function renderNew() {
     </header>
     <div id="new-delivery" class="delivery-status" role="status" hidden></div>
     <main class="scroll"><div class="pane task-pane">
-      <div><label class="task-heading" for="first">What would you like done?</label><textarea id="first" placeholder="Describe the task, or choose a skill below."></textarea></div>
-      <div class="task-actions"><button class="chip" id="choose-skill">Choose a skill</button><button class="chip" id="choose-workspace">Choose workspace</button></div>
+      <div><label class="task-heading" for="first">What would you like done?</label><div class="starters" id="starters" hidden></div><textarea id="first" placeholder="Describe the task, or choose a skill below."></textarea></div>
+      <div class="task-actions"><button class="chip" id="choose-skill">Choose a skill</button><button class="chip" id="choose-workspace">Choose workspace</button><button class="chip" id="save-prompt" disabled>Save as prompt</button></div>
       <p class="task-context" id="task-context"></p>
       <div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>
       <button class="primary" id="start" aria-describedby="start-hint">Start session</button><p class="start-hint" id="start-hint" role="alert" hidden></p>
@@ -2280,7 +2280,8 @@ async function renderNew() {
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const first = $('#first');
   first.value = pendingNew?.payload.text || loadDraft(NEW_KEY);
-  first.oninput = () => { saveDraft(NEW_KEY, first.value); const h = $('#start-hint'); if (h) h.hidden = true; };
+  let savedPrompts = [], recentStarts = [], activeStarter = null; // 1.23 (declared before the handlers that read them)
+  first.oninput = () => { saveDraft(NEW_KEY, first.value); const h = $('#start-hint'); if (h) h.hidden = true; paintSaveButton(); if (activeStarter && first.value !== activeStarter.text) { activeStarter = null; paintStarters(); } };
   try {
     const { projects, defaultCwd } = await api('/projects');
     if(viewVersion!==chatRenderVersion)return;
@@ -2315,6 +2316,121 @@ async function renderNew() {
     $('#start').textContent = pending ? 'Retry start' : 'Start session';
   };
   paintNewDelivery();
+  /* ---------- 1.23: saved prompts and recent starts ----------
+     A row of saved prompts above the task box and a Recent list. Choosing one fills the wording, workspace and
+     agent (and model, effort, permissions or Codex mode when saved); you still press Start. */
+  const formState = () => ({ text: first.value.trim(), cwd: $('#cpath').value.trim() || sel || null, provider,
+    model: tb.prefs.model, effort: tb.prefs.effort, approvalMode: nextApprovalMode(), executionMode: provider === 'codex' ? tb.prefs.executionMode : null });
+  const describe = p => [p.cwd ? projName(p.cwd) : 'No workspace', p.provider === 'codex' ? 'Codex' : 'Claude Code',
+    p.model ? modelLabel(p.model) : '', p.effort ? p.effort[0].toUpperCase() + p.effort.slice(1) : '', p.approvalMode === 'full' ? 'Full access' : p.approvalMode === 'review' ? 'Review actions' : '',
+    p.executionMode === 'plan' ? 'Plan first' : ''].filter(Boolean).join(' · ');
+  function paintSaveButton() { const b = $('#save-prompt'); if (b) b.disabled = !first.value.trim() || Boolean(loadOutbox(NEW_KEY)); }
+  function selectWorkspace(cwd) {
+    const pl = $('#plist'), row = cwd && pl?.querySelector(`.row[data-p="${CSS.escape(cwd)}"]`);
+    if (row) { row.click(); return; }
+    pl?.querySelectorAll('.row').forEach(x => { x.classList.remove('sel'); x.setAttribute('aria-checked', 'false'); });
+    sel = null; $('#cpath').value = cwd || ''; context();
+  }
+  function applyStarter(p) {
+    if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.');
+    pickAgent(p.provider === 'codex' ? 'codex' : 'claude');
+    selectWorkspace(p.cwd);
+    const prefs = { ...tb.prefs, model: p.model || tb.prefs.model, effort: p.effort || tb.prefs.effort };
+    if (p.approvalMode) { prefs.approvalMode = p.approvalMode; prefs.approvalModeSource = 'user'; }
+    if (p.executionMode) prefs.executionMode = p.executionMode;
+    tb.prefs = prefs; setPrefs(NEW_KEY, prefs); renderToolbar();
+    first.value = p.text; saveDraft(NEW_KEY, first.value); paintSaveButton();
+    activeStarter = p; paintStarters();
+    $('#start-hint').hidden = true;
+    first.focus({ preventScroll: true }); first.setSelectionRange(first.value.length, first.value.length);
+  }
+  function paintStarters() {
+    const box = $('#starters'); if (!box) return;
+    const recentOpen = box.querySelector('details')?.open ?? readLocal('pc-recent-open', false);
+    box.hidden = !savedPrompts.length && !recentStarts.length;
+    box.innerHTML = (savedPrompts.length ? `<div class="starter-chips" role="group" aria-label="Saved prompts">${savedPrompts.map(p =>
+      `<button type="button" class="chip starter" data-prompt="${esc(p.id)}" aria-pressed="${activeStarter?.id === p.id}" title="${esc(describe(p))}">${esc(p.name)}</button>`).join('')}<button type="button" class="chip starter-manage" id="manage-prompts">Manage</button></div>` : '')
+      + (recentStarts.length ? `<details class="recent-starts"${recentOpen ? ' open' : ''}><summary>Recent</summary><div class="recent-list">${recentStarts.map((r, i) =>
+        `<button type="button" class="recent-start" data-recent="${i}"><span class="recent-text">${esc(r.text)}</span><span class="recent-meta">${esc(describe(r))} · ${esc(rel(r.at))}</span></button>`).join('')}</div></details>` : '');
+    box.querySelectorAll('[data-prompt]').forEach(b => {
+      const pr = savedPrompts.find(x => x.id === b.dataset.prompt);
+      b.onclick = () => { if (!b.dataset.held) applyStarter(pr); delete b.dataset.held; };
+      let t; // long-press (touch) or right-click opens Manage on this prompt
+      b.oncontextmenu = e => { e.preventDefault(); managePrompts(pr.id); };
+      b.ontouchstart = () => { t = setTimeout(() => { b.dataset.held = '1'; managePrompts(pr.id); }, 500); };
+      b.ontouchend = b.ontouchmove = b.ontouchcancel = () => clearTimeout(t);
+    });
+    box.querySelectorAll('[data-recent]').forEach(b => b.onclick = () => applyStarter(recentStarts[Number(b.dataset.recent)]));
+    box.querySelector('#manage-prompts')?.addEventListener('click', () => managePrompts());
+    box.querySelector('details')?.addEventListener('toggle', e => writeLocal('pc-recent-open', e.target.open));
+  }
+  const takeLists = d => { savedPrompts = d.prompts || []; recentStarts = d.recent || []; };
+  // Save what is on screen as a new prompt, or (edit) rename / replace a saved one.
+  function promptSheet(existing) {
+    const state = formState();
+    if (!existing && !state.text) return;
+    const scrim = document.createElement('div'); scrim.className = 'scrim';
+    const sh = document.createElement('div'); sh.className = 'sheet prompt-sheet';
+    const guess = state.text.replace(/\s+/g, ' ').split(' ').slice(0, 6).join(' ').slice(0, 48);
+    sh.innerHTML = `<h2>${existing ? 'Edit saved prompt' : 'Save as prompt'}</h2>
+      <label class="prompt-field">Name<input type="text" class="rename" id="pr-name" maxlength="60" autocomplete="off" value="${esc(existing ? existing.name : guess)}"></label>
+      ${existing ? `<p class="prompt-summary">${esc(describe(existing))}</p><p class="prompt-text">${esc(existing.text)}</p>
+        <button type="button" class="opt" id="pr-replace" ${state.text ? '' : 'disabled'}>${IC.pen}<span>Replace with what is on screen<span class="sub">${esc(state.text ? describe(state) : 'Write or choose a task first')}</span></span></button>`
+      : `<p class="prompt-summary">${esc(describe(state))}</p>
+        <button type="button" class="opt" id="pr-settings" aria-pressed="true"><span class="dot on"></span><span>Keep model, effort and permissions<span class="sub">Off saves only the wording, workspace and agent</span></span></button>`}
+      <p class="prompt-error" id="pr-error" role="alert" hidden></p>
+      <button class="primary" id="pr-save">${existing ? 'Save name' : 'Save prompt'}</button>`;
+    mountSheet(scrim, sh);
+    const name = sh.querySelector('#pr-name'); name.focus(); name.select();
+    let keepSettings = true, replace = false;
+    sh.querySelector('#pr-settings')?.addEventListener('click', e => { keepSettings = !keepSettings; e.currentTarget.setAttribute('aria-pressed', String(keepSettings)); e.currentTarget.querySelector('.dot').classList.toggle('on', keepSettings); });
+    sh.querySelector('#pr-replace')?.addEventListener('click', e => { replace = !replace; e.currentTarget.setAttribute('aria-pressed', String(replace)); e.currentTarget.classList.toggle('sel', replace); sh.querySelector('#pr-save').textContent = replace ? 'Save changes' : 'Save name'; });
+    const save = async () => {
+      const err = sh.querySelector('#pr-error'), btn = sh.querySelector('#pr-save');
+      const body = { name: name.value };
+      if (!existing || replace) Object.assign(body, { text: state.text, cwd: state.cwd, provider: state.provider },
+        !existing && !keepSettings ? { model: null, effort: null, approvalMode: null, executionMode: null }
+          : { model: state.model, effort: state.effort, approvalMode: state.approvalMode, executionMode: state.executionMode });
+      btn.disabled = true;
+      try {
+        const d = await api(existing ? '/prompts/' + encodeURIComponent(existing.id) : '/prompts', { method: existing ? 'PATCH' : 'POST', body: JSON.stringify(body) });
+        takeLists(d); if (!existing) activeStarter = d.prompt; closeCurrentSheet?.(); paintStarters();
+        toast(existing ? 'Saved prompt updated' : 'Saved. Tap it next time to start the same way.');
+      } catch (e) { err.textContent = e.message; err.hidden = false; btn.disabled = false; }
+    };
+    sh.querySelector('#pr-save').onclick = save;
+    name.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
+  }
+  // Every saved prompt with Up, Down, Edit and Delete (Delete asks once more).
+  function managePrompts(focusId) {
+    closeCurrentSheet?.();
+    const scrim = document.createElement('div'); scrim.className = 'scrim';
+    const sh = document.createElement('div'); sh.className = 'sheet prompts-sheet';
+    const paint = () => {
+      sh.innerHTML = `<h2>Saved prompts</h2>${savedPrompts.length ? '' : '<p class="sheet-help">No saved prompts. Write a task and choose Save as prompt.</p>'}<ul class="prompt-rows">${savedPrompts.map((p, i) => `
+        <li class="prompt-row" data-row="${esc(p.id)}"><div class="prompt-row-body"><span class="prompt-row-name">${esc(p.name)}</span><span class="prompt-row-meta">${esc(describe(p))}</span><span class="prompt-row-text">${esc(p.text)}</span></div>
+        <div class="prompt-row-actions"><button type="button" class="icon" data-up="${esc(p.id)}" aria-label="Move ${esc(p.name)} earlier" ${i ? '' : 'disabled'}>${IC.up}</button><button type="button" class="icon" data-down="${esc(p.id)}" aria-label="Move ${esc(p.name)} later" ${i < savedPrompts.length - 1 ? '' : 'disabled'}>${IC.down}</button>
+        <button type="button" class="chip" data-edit="${esc(p.id)}">Edit</button><button type="button" class="chip prompt-delete" data-del="${esc(p.id)}">Delete</button></div></li>`).join('')}</ul>`;
+      sh.querySelectorAll('[data-up],[data-down]').forEach(b => b.onclick = async () => {
+        const id = b.dataset.up || b.dataset.down, ids = savedPrompts.map(p => p.id), i = ids.indexOf(id), j = i + (b.dataset.up ? -1 : 1);
+        ids.splice(i, 1); ids.splice(j, 0, id);
+        try { takeLists(await api('/prompts/order', { method: 'POST', body: JSON.stringify({ ids }) })); paint(); paintStarters(); sh.querySelector(`[${b.dataset.up ? 'data-up' : 'data-down'}="${CSS.escape(id)}"]:not(:disabled)`)?.focus() || sh.querySelector(`[data-row="${CSS.escape(id)}"] button`)?.focus(); }
+        catch (e) { toast(e.message); }
+      });
+      sh.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { closeCurrentSheet?.(); promptSheet(savedPrompts.find(p => p.id === b.dataset.edit)); });
+      sh.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+        if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Delete for good'; b.classList.add('confirm'); return; }
+        try { takeLists(await api('/prompts/' + encodeURIComponent(b.dataset.del), { method: 'DELETE' })); if (activeStarter?.id === b.dataset.del) activeStarter = null; paint(); paintStarters(); toast('Saved prompt deleted'); sh.querySelector('button')?.focus(); }
+        catch (e) { toast(e.message); }
+      });
+    };
+    paint(); mountSheet(scrim, sh);
+    (focusId && sh.querySelector(`[data-row="${CSS.escape(focusId)}"] [data-edit]`) || sh.querySelector('[data-edit]'))?.focus();
+    sh.querySelector(`[data-row="${CSS.escape(focusId || '')}"]`)?.scrollIntoView({ block: 'nearest' });
+  }
+  $('#save-prompt').onclick = () => promptSheet();
+  paintSaveButton();
+  api('/prompts').then(d => { if (viewVersion !== chatRenderVersion) return; takeLists(d); paintStarters(); }).catch(() => { });
   let newPending = null;
   $('#start').onclick = async () => {
     if(uploadsInFlight.get(NEW_KEY))return toast('Wait for the attachment upload to finish.');

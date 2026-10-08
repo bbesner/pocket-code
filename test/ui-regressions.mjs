@@ -899,6 +899,52 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$('.convo-group'),null);
    await page.evaluate(()=>{sessionQuery='';});
   });
+  await check('1.23 Saved prompts: save what is on screen, start from a chip or Recent, manage, delete',async()=>{
+   await page.setViewport({width:390,height:844});
+   await page.evaluate(()=>{clearDraft(NEW_KEY);localStorage.removeItem('pc-lastproj');localStorage.setItem('pc-provider','claude');localStorage.removeItem('pc-recent-open');});
+   await page.goto(base+'/#/new');await page.waitForSelector('#plist .row.sel');await page.waitForSelector('#starters .recent-starts');
+   assert.equal(await page.$('.starter-chips'),null,'no saved prompts yet');
+   assert.equal(await page.$eval('#save-prompt',e=>e.disabled),true,'nothing to save until there is a task');
+   // Save as prompt from what is on screen (warehouse workspace, Claude, Full access).
+   await page.$eval('#first',e=>{e.value='';});await page.type('#first','Check stock levels and draft the reorder list');
+   await page.evaluate(()=>{tb.prefs.approvalMode='full';});
+   assert.equal(await page.$eval('#save-prompt',e=>e.disabled),false);
+   await page.click('#save-prompt');await page.waitForSelector('#pr-name');
+   assert.equal(await page.$eval('#pr-name',e=>e.value),'Check stock levels and draft the');
+   assert.match(await page.$eval('.prompt-summary',e=>e.textContent),/^warehouse · Claude Code/);
+   await scan('save-prompt-sheet-mobile');
+   await page.$eval('#pr-name',e=>{e.value='';});await page.type('#pr-name','Stock check');await page.click('#pr-save');
+   await page.waitForSelector('.starter[aria-pressed="true"]');
+   const saved=getMode().prompts.prompts[0];
+   assert.deepEqual([saved.name,saved.text,saved.cwd,saved.provider],['Stock check','Check stock levels and draft the reorder list','/workspaces/warehouse','claude']);
+   // Change everything, then the chip puts it back.
+   await page.click('#apick [data-a="codex"]');await page.$eval('#first',e=>{e.value='Something else';e.dispatchEvent(new Event('input'));});
+   assert.equal(await page.$eval('.starter',e=>e.getAttribute('aria-pressed')),'false','editing the text lets go of the chip');
+   await page.click('.starter');
+   const form=await page.evaluate(()=>({text:document.getElementById('first').value,agent:document.querySelector('#apick .row.sel')?.dataset.a,ws:document.querySelector('#plist .row.sel')?.dataset.p,ctx:document.getElementById('task-context').textContent}));
+   assert.deepEqual(form,{text:'Check stock levels and draft the reorder list',agent:'claude',ws:'/workspaces/warehouse',ctx:'warehouse · Claude Code'});
+   await scan('saved-prompts-mobile');await page.screenshot({path:path.join(out,'saved-prompts-mobile.png')});
+   // Recent fills from a start made on another device (Codex, products).
+   await page.click('#starters .recent-starts > summary');await page.click('[data-recent="0"]');
+   assert.deepEqual(await page.evaluate(()=>[document.getElementById('first').value,document.querySelector('#apick .row.sel')?.dataset.a,document.querySelector('#plist .row.sel')?.dataset.p]),
+     ['Check incoming quantities before ordering','codex','/workspaces/products']);
+   // Manage: a second prompt, reorder, rename through Edit, delete with a second tap.
+   await page.click('#save-prompt');await page.waitForSelector('#pr-name');await page.$eval('#pr-name',e=>{e.value='';});await page.type('#pr-name','Incoming check');await page.click('#pr-save');
+   await page.waitForFunction(()=>document.querySelectorAll('.starter').length===2);
+   await page.click('#manage-prompts');await page.waitForSelector('.prompt-row');
+   await scan('manage-prompts-mobile');await page.screenshot({path:path.join(out,'manage-prompts-mobile.png')});
+   const second=getMode().prompts.prompts[1].id;
+   await page.click(`[data-up="${second}"]`);await page.waitForFunction(()=>document.querySelector('.prompt-row-name').textContent==='Incoming check');
+   assert.deepEqual(await page.$$eval('.starter',e=>e.map(x=>x.textContent)),['Incoming check','Stock check'],'the chips follow the order');
+   await page.click(`[data-del="${second}"]`);assert.equal(await page.$eval(`[data-del="${second}"]`,e=>e.textContent),'Delete for good');
+   assert.equal(getMode().prompts.prompts.length,2,'one tap does not delete');
+   await page.click(`[data-del="${second}"]`);await page.waitForFunction(()=>document.querySelectorAll('.prompt-row').length===1);
+   const first=getMode().prompts.prompts[0].id;await page.click(`[data-edit="${first}"]`);await page.waitForSelector('#pr-name');
+   await page.$eval('#pr-name',e=>{e.value='';});await page.type('#pr-name','Morning stock check');await page.click('#pr-save');
+   await page.waitForFunction(()=>document.querySelector('.starter')?.textContent==='Morning stock check');
+   assert.equal(getMode().prompts.prompts[0].text,'Check stock levels and draft the reorder list','renaming keeps the wording');
+   await page.$eval('#first',e=>{e.value='';e.dispatchEvent(new Event('input'));});await page.evaluate(()=>clearDraft(NEW_KEY));
+  });
   await scan('chat-desktop');await page.setViewport({width:390,height:844});await scan('chat-mobile');
   await page.evaluate(()=>settingsSheet());await scan('settings-mobile');
   assert.deepEqual(errors,[]);

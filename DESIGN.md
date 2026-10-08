@@ -457,3 +457,12 @@ matches, in the session-row language: title, workspace · agent · age, then a t
 the speaker in primary 600 ("You:", "Claude:", "Codex:", "Related:") and matched words in the find-highlight
 mark. A 13px dim note states the scope honestly (MemStem: every conversation by wording and meaning; Pocket:
 exact phrase in N recent conversations). Loading, empty and failure are plain lines; failure adds a Try again chip.
+
+## Saved prompts (1.23)
+
+Pinned Operate refinement: variance 2, motion 0, density 5. Saved prompts are the existing 44px chips in a
+wrapping row between the task heading and the box; the applied chip takes the set-chip treatment (clay text,
+clay border, clay-deep fill) and a dashed, dim "Manage" chip ends the row. Recent is a closed disclosure with
+bordered rows like the project list (two-line text, 12.5px dim meta). Save and Manage are ordinary sheets:
+name field, a dim summary of what will be set, the existing toggle row, one primary button; Manage rows carry
+44px Up/Down icons and Edit/Delete chips, with Delete turning red and asking once more. No new colour or motion.

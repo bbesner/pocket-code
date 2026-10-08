@@ -30,6 +30,7 @@ import {VoiceService} from './voice.mjs';
 import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION,summarizeAway,awayDigest,awayWorthSummary} from './titles.mjs';
 import zlib from 'node:zlib';
 import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
+import {PromptStore} from './prompts.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -1979,6 +1980,15 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, withDeli
   }
 }));
 
+// ---------- 1.23: saved prompts and recent starts (New session screen) ----------
+const promptStore = new PromptStore(path.join(DATA_DIR, 'saved-prompts.json'), { write: atomicWrite });
+const promptError = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'Could not save prompts. Try again.' });
+app.get('/api/prompts', requireAuth, (_req, res) => { res.setHeader('Cache-Control', 'private, no-store'); res.json(promptStore.list()); });
+app.post('/api/prompts', requireAuth, (req, res) => { try { res.status(201).json({ prompt: promptStore.create(req.body || {}), ...promptStore.list() }); } catch (e) { promptError(res, e); } });
+app.post('/api/prompts/order', requireAuth, (req, res) => { try { promptStore.order(req.body?.ids); res.json(promptStore.list()); } catch (e) { promptError(res, e); } });
+app.patch('/api/prompts/:id', requireAuth, (req, res) => { try { res.json({ prompt: promptStore.update(req.params.id, req.body || {}), ...promptStore.list() }); } catch (e) { promptError(res, e); } });
+app.delete('/api/prompts/:id', requireAuth, (req, res) => { try { promptStore.remove(req.params.id); res.json(promptStore.list()); } catch (e) { promptError(res, e); } });
+
 app.post('/api/new', requireAuth, validateApprovalMode, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const cwd = String(req.body?.cwd || '').trim();
   const text = String(req.body?.text || '').trim();
@@ -1990,12 +2000,14 @@ app.post('/api/new', requireAuth, validateApprovalMode, withDeliveryReceipt(deli
     if (!CODEX_ON) return res.status(400).json({ error: 'codex not available on this box' });
     try { // Codex mints the thread id, so the client learns it from the response
       const turn = await startCodexFromApi({ threadId: null, cwd, text, body: req.body });
+      try { promptStore.recordRecent({ text, cwd, provider: 'codex' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
       return res.status(202).json({ id: codex.CX + turn.threadId });
     } catch (e) { return res.status(500).json({ error: String(e.message) }); }
   }
   const id = randomUUID();
   try {
     startTurn({ sessionId: id, cwd, text, resume: false, ...turnOpts(req.body) });
+    try { promptStore.recordRecent({ text, cwd, provider: 'claude' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
     res.status(202).json({ id });
   } catch (e) {
     res.status(500).json({ error: String(e.message) });
@@ -2290,8 +2302,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Search inside conversations: type three or more characters in a session search box and Pocket also searches inside every conversation, with the matching passage and who wrote it. Tap a result to open the conversation with Find on the match. With MemStem on the server it searches every session by wording and meaning; otherwise it searches recent conversations for the exact phrase. Requested by Brad.",
-  "While you were away: come back to a session that kept working and it opens at a “New since 8:40 PM” line before the first thing you have not seen, with a short summary of what happened and anything waiting on you. Settings → Summarize what you missed turns the summary off; the line stays. Requested by Brad."
+  "Saved prompts: on the New session screen, Save as prompt keeps the task with its workspace and agent (and model, effort and permissions if you like); next time one tap fills it all in and you press Start. Recent lists your last five starts from any device, and Manage reorders, renames and deletes. Requested by Brad.",
+  "Search inside conversations: type three or more characters in a session search box and Pocket also searches inside every conversation, with the matching passage and who wrote it. Tap a result to open the conversation with Find on the match. With MemStem on the server it searches every session by wording and meaning; otherwise it searches recent conversations for the exact phrase. Requested by Brad."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

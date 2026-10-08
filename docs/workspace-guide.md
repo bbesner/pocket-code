@@ -13,6 +13,12 @@ With no default workspace and nothing remembered, the most recent workspace is
 preselected and named above **Start session**. If something is missing, the reason
 appears under the button.
 
+**Saved prompts.** **Save as prompt** keeps the task with its workspace and agent (and, if you
+keep them, model, effort, permissions and Codex mode). Saved prompts show as chips above the task
+box; a tap fills the screen and you press Start. **Recent** lists your last five starts from any
+device. **Manage** (or a long-press on a chip) reorders, renames, replaces and deletes them. They
+are stored on the server, so every device sees the same list.
+
 Pocket-specific defaults may preselect the workspace, model, effort and permissions.
 Otherwise the app uses its remembered choices and the installed CLI's configuration.
 Model and reasoning selectors affect subsequent turns. Codex also offers **Plan first**

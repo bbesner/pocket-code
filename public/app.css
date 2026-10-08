@@ -952,3 +952,36 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .convo-snippet { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: 6px; font-size: 14px; line-height: 1.5; color: var(--dim); }
 .convo-who { color: var(--text); font-weight: 600; }
 .title-empty { padding-top: 4px; }
+
+/* ---------- 1.23: saved prompts and recent starts (chips, rows and sheets already in the app) ---------- */
+.starters { display: flex; flex-direction: column; gap: 8px; margin: -6px 0 12px; }
+.starters[hidden] { display: none; }
+.starter-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.starter-chips .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.starter-chips .chip[aria-pressed="true"] { color: var(--clay); border-color: var(--clay); background: var(--clay-deep); }
+.starter-manage { color: var(--dim); border-style: dashed; }
+.recent-starts > summary { min-height: 44px; padding: 10px 0; cursor: pointer; color: var(--dim); font-size: 14px; }
+.recent-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.recent-start { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 12px 14px; min-height: 44px; border-bottom: 1px solid var(--line); }
+.recent-start:last-child { border-bottom: 0; }
+.recent-start:hover { background: var(--raised); }
+.recent-text { font-size: 15px; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.recent-meta { font-size: 12.5px; color: var(--dim); }
+.prompt-sheet .prompt-field { display: block; padding: 0 14px; font-size: 13px; color: var(--dim); }
+.prompt-sheet .prompt-field .rename { width: 100%; margin: 6px 0 10px; }
+.prompt-summary { padding: 0 14px 8px; font-size: 13.5px; color: var(--dim); }
+.prompt-text { margin: 0 14px 10px; padding: 10px 12px; max-height: 30dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; color: var(--dim); background: var(--bg); border-radius: 10px; }
+.prompt-error { padding: 0 14px 8px; color: var(--err); font-size: 14px; }
+.prompt-error[hidden] { display: none; }
+.prompts-sheet { padding-inline: 16px; }
+.prompts-sheet h2 { padding-left: 0; }
+.prompt-rows { list-style: none; margin: 0; padding: 0; }
+.prompt-row { display: flex; flex-direction: column; gap: 8px; padding: 14px 0; border-top: 1px solid var(--line); }
+.prompt-row-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.prompt-row-name { font-size: 16px; font-weight: 500; }
+.prompt-row-meta { font-size: 12.5px; color: var(--dim); }
+.prompt-row-text { font-size: 14px; color: var(--dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.prompt-row-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.prompt-row-actions .icon { display: grid; place-items: center; width: 44px; height: 44px; color: var(--dim); border-radius: 10px; }
+.prompt-row-actions .icon:disabled { opacity: .35; }
+.prompt-delete.confirm { color: var(--err); border-color: var(--err); }
