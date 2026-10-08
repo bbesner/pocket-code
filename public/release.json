@@ -1,9 +1,11 @@
 {
-  "version": "1.18.0",
-  "assetV": 51,
+  "version": "1.19.0",
+  "assetV": 52,
   "notes": [
-    "Pinned sessions show in the desktop tabs: the pin and the clay title mark them, and pinned tabs come first in the same order as the list. Requested by Damon Delcoro.",
-    "Reorder pinned sessions: drag the grip beside a pinned row, press its arrow keys, or use Move pin up / down in Session options. The order is saved on the server, so every device and the tabs follow it. Requested by Damon Delcoro.",
-    "Mute voice in one tap: a Voice chip beside Alerts (an icon beside the bell while a turn runs) silences spoken replies, announcements and prompts on this device without changing your voice settings. Say “mute” or “unmute” too. Requested by Damon Delcoro."
+    "Easier reading on wide screens: replies keep a comfortable line length on desktop and tablet, while tables and code still use the full width.",
+    "A tidier session list: scheduled runs are grouped under Automated at the end of the list, Codex sessions from scratch folders are left out, and sessions named only by their first message get a short generated title. Your renames always win.",
+    "More room on phones: the run status shares the title bar with the project name instead of a separate strip, and the check time no longer ticks every second.",
+    "A failed turn now says so at the end of the conversation, with the reason when known, and offers Send again or Edit message.",
+    "New session starts in your most recent workspace and explains next to Start when something is missing. Session options are grouped, with display settings last."
   ]
 }

@@ -128,9 +128,14 @@ function bindAccentControls(container){
 let headerCollapsed=readLocal('pc-header-collapsed',false)===true;
 let composerCollapsed=readLocal('pc-composer-collapsed',false)===true;
 let railFiltersCollapsed=readLocal('pc-rail-filters-collapsed',false)===true;
+// 1.19: on phones and narrow panes the run status always sits in the title bar beside the project name,
+// as it does when the header is collapsed, instead of taking its own 28px strip above the conversation.
+const statusInHeaderQuery=matchMedia('(max-width: 600px)');
 function paintWorkspaceDensity(){
  const split=document.querySelector('.split');
  split?.classList.toggle('compact-header',headerCollapsed);
+ const statusInHeader=headerCollapsed||statusInHeaderQuery.matches;
+ split?.classList.toggle('status-in-header',statusInHeader);
  const header=document.getElementById('header-toggle');
  if(header){
   const label=(headerCollapsed?'Expand':'Collapse')+' conversation header';
@@ -140,9 +145,9 @@ function paintWorkspaceDensity(){
  const confirmation=document.getElementById('run-confirmation');
  const bar=header?.closest('header');
  if(confirmation&&bar){
-  const target=headerCollapsed?bar.querySelector('h1'):document.getElementById('conversation-controls');
+  const target=statusInHeader?bar.querySelector('h1'):document.getElementById('conversation-controls');
   if(confirmation.parentElement!==target){
-   if(headerCollapsed)target.append(confirmation);else target.prepend(confirmation);
+   if(statusInHeader)target.append(confirmation);else target.prepend(confirmation);
   }
  }
  reportWorkspaceChrome();
@@ -361,3 +366,4 @@ window.addEventListener('orientationchange',syncViewport);
 window.addEventListener('pageshow',syncViewport);
 window.visualViewport?.addEventListener('resize',syncViewport);
 syncViewport();
+statusInHeaderQuery.addEventListener('change',()=>paintWorkspaceDensity());

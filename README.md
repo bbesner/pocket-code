@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.18.0 / build 51**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.19.0 / build 52**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -161,6 +161,7 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `CLAUDE_BIN` | no | Path to `claude`, if it isn't found automatically. |
 | `POCKET_CODEX` | no | Set to `0` to hide Codex sessions even when `codex` is installed. |
 | `POCKET_CHOICES` | no | Set to `0` to stop asking agents for reply suggestions (the buttons under a closing question). |
+| `POCKET_AUTO_TITLES` | no | Set to `0` to stop generating short titles for sessions named only by their opening request (one Haiku call per session through `claude`, no tools, no saved session). |
 | `CODEX_BIN`, `CODEX_HOME` | no | Path to `codex` and its home directory, if not the defaults. |
 | `POCKET_RETRY_BUFFER_MS` | no | Wait after a usage-limit reset before auto-continuing. Default 5 minutes. |
 | `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | no | Pocket-only Claude default for turns left on Default, e.g. `claude-opus-5-5[1m]` and `high`. Model must be one of the picker ids. |

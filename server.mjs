@@ -27,6 +27,8 @@ import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import {AgentActivity,ClaudeAgentFiles} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
+import {automation,createTitler} from './titles.mjs';
+import zlib from 'node:zlib';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -163,6 +165,9 @@ const setSmeta = (id, patch) => {
   if (Object.keys(m).length) smeta[id] = m; else delete smeta[id];
   saveSmeta();
 };
+// 1.19: short titles for sessions named only by their opening request. POCKET_AUTO_TITLES=0 turns it off.
+const titler = createTitler({ bin: CLAUDE_BIN, enabled: (process.env.POCKET_AUTO_TITLES ?? '1').trim() !== '0',
+  getMeta: id => smeta[id], setMeta: setSmeta, log });
 async function pushNotify(sessionId, title, body) {
   if (!pushReady) return;
   if (mutes.has(sessionId)) return log(`push muted session=${sessionId}`);
@@ -266,12 +271,15 @@ async function readTailLines(file, size, maxBytes = 256 * 1024) {
 // titleSync ON: Claude Code's own records win (custom-title = a rename on either
 // surface, last one in the file wins — matching their reader), then Pocket's overlay,
 // then their ai-title, then the derived title. OFF: overlay then derived, as before.
+// 1.19: Claude Code's own ai-title (not a rename) is also used with sync off, ahead of the opening
+// request; a session with neither gets Pocket's generated title. dedupeTitle keeps the pre-1.19 key
+// for collapsing resume copies, so two different sessions with the same short title never merge.
 const composeTitle = m => {
   const ov = smeta[m.id]?.name;
-  const title = settings.titleSync
-    ? (m.customTitle || ov || m.aiTitle || m.title)
-    : (ov || m.title);
-  return { ...m, title };
+  const named = settings.titleSync ? (m.customTitle || ov || m.aiTitle) : (ov || m.aiTitle);
+  const dedupeTitle = (settings.titleSync ? (m.customTitle || ov || m.aiTitle) : ov) || m.title;
+  const untitled = !named && Boolean(m.fromPrompt);
+  return { ...m, title: named || (untitled && smeta[m.id]?.autoTitle) || m.title, untitled, dedupeTitle };
 };
 async function sessionMeta(file, id) {
   const st = await fsp.stat(file);
@@ -305,7 +313,7 @@ async function sessionMeta(file, id) {
   } catch { /* unreadable — show what we have */ }
   const { title, cwd, firstUser, customTitle, aiTitle } = acc;
   // noise = no human message and no summary anywhere: hook runs, subagent scratch, warmups
-  const meta = { id, title: title || firstUser || '(untitled session)', cwd, noise: !firstUser && !title, customTitle, aiTitle };
+  const meta = { id, title: title || firstUser || '(untitled session)', cwd, noise: !firstUser && !title, customTitle, aiTitle, fromPrompt: !title && Boolean(firstUser) };
   metaCache.set(file, { mtimeMs: st.mtimeMs, meta });
   return composeTitle({ ...meta, mtimeMs: st.mtimeMs, size: st.size });
 }
@@ -344,7 +352,7 @@ async function listSessions(limit = 60) {
     if (meta.cwd?.startsWith('/tmp/') && !pinned) continue; // scratch/test sessions
     const active = turns.has(x.id) || extActive(x.id);
     if (meta.noise && !active && !pinned) continue; // hook/subagent noise: no user message, no summary
-    const key = meta.title + '\u0000' + (meta.cwd || '');
+    const key = meta.dedupeTitle + '\u0000' + (meta.cwd || '');
     const prev = seen.get(key);
     if (prev && !active && !pinned) { prev.dupes = (prev.dupes || 0) + 1; continue; } // older resume copy
     const entry = { ...meta, noise: undefined, active, pinned: pinned || undefined };
@@ -1354,8 +1362,30 @@ function stateFor(s) {
 function recordOutcome(id, turn, result, retryAt = null) {
   const kind = retryAt ? 'waiting' : turn.stopped ? 'stopped' : result?.ok ? 'finished' : result ? 'failed' : 'ended';
   const labels = { waiting: 'Waiting for usage reset', stopped: 'Stopped', finished: 'Response ready', failed: 'Turn failed', ended: 'Turn ended' };
-  try { setSmeta(id, { outcome: { kind, label: labels[kind], at: Date.now(), ...(retryAt ? { retryAt } : {}) } }); }
+  // 1.19: a failed turn keeps its reason, so the conversation can say what went wrong after a reload.
+  const error = kind === 'failed' && result?.error ? String(result.error).slice(0, 300) : null;
+  try { setSmeta(id, { outcome: { kind, label: labels[kind], at: Date.now(), ...(retryAt ? { retryAt } : {}), ...(error ? { error } : {}) } }); }
   catch (e) { log(`outcome not saved session=${id}: ${e.message}`); }
+}
+// The title a row shows: a rename, else the agent's own title, else Pocket's generated one, else
+// the opening request. Scheduled runs show their job name and are marked automated. request: ask
+// for a generated title when the row has none (recent sessions only, one model call at a time).
+const TITLE_WINDOW_MS = 14 * 86400_000;
+function finishTitle(s, request = false) {
+  const out = { ...s, untitled: undefined, dedupeTitle: undefined, fromPrompt: undefined };
+  if (smeta[s.id]?.name) return out;
+  const a = automation(s.title);
+  if (a.automated) return { ...out, automated: true, title: a.title || s.title };
+  if (s.untitled && smeta[s.id]?.autoTitle) return { ...out, title: smeta[s.id].autoTitle };
+  if (request && s.untitled && Date.now() - (s.mtimeMs || 0) < TITLE_WINDOW_MS) titler.request(s.id, s.prompt || s.title);
+  return out;
+}
+// JSON over 1 KB is gzipped when the client accepts it (the session list is ~70 KB every 5 s).
+function sendJson(req, res, body) {
+  const buf = Buffer.from(JSON.stringify(body));
+  res.set('Content-Type', 'application/json; charset=utf-8'); res.vary('Accept-Encoding');
+  if (buf.length > 1024 && /\bgzip\b/.test(req.get('accept-encoding') || '')) { res.set('Content-Encoding', 'gzip'); return res.end(zlib.gzipSync(buf, { level: 4 })); }
+  res.end(buf);
 }
 async function listAllSessions(limit) {
   let rows = (await listSessions(limit)).map(s => ({ ...s, provider: 'claude' }));
@@ -1363,7 +1393,7 @@ async function listAllSessions(limit) {
   if (CODEX_ON) {
     try {
       rows.push(...(await codex.listCodexSessions(limit)).map(s => ({ ...s,
-        title: smeta[s.id]?.name || s.title, pinned: isPinned(s.id) || undefined,
+        title: smeta[s.id]?.name || s.title, untitled: !smeta[s.id]?.name && s.untitled, pinned: isPinned(s.id) || undefined,
         active: codex.codexTurnActive(codex.bareId(s.id)) || codex.codexExtActive(codex.bareId(s.id)),
       })));
     } catch (e) { log(`codex list failed: ${e.message}`); warnings.push('Codex sessions are temporarily unavailable.'); }
@@ -1380,7 +1410,9 @@ async function listAllSessions(limit) {
     const meta=isCx(id)?await codex.codexThreadMeta(codex.bareId(id)).catch(()=>null):file?await sessionMeta(file,id):null;
     rows.push({...meta,id,provider:isCx(id)?'codex':'claude',title:smeta[id]?.name||meta?.title||'Queued session',mtimeMs:meta?.mtimeMs||followups.list(id)[0].createdAt});
   }
-  rows = rows.map(s => ({ ...s, state: stateFor(s) })).sort((a,b) => b.mtimeMs-a.mtimeMs);
+  // Scratch and test workspaces stay out of the list for both agents unless pinned or running.
+  rows = rows.filter(s => !(s.provider === 'codex' && s.cwd?.startsWith('/tmp/') && !s.pinned && !s.active));
+  rows = rows.map(s => ({ ...finishTitle(s, true), state: stateFor(s) })).sort((a,b) => b.mtimeMs-a.mtimeMs);
   // pins first, in their chosen order (unordered pins by recency); everything else keeps recency
   rows.sort((a, b) => (a.pinned ? pinRank(a.id) : Infinity) < (b.pinned ? pinRank(b.id) : Infinity) ? -1 : (a.pinned ? pinRank(a.id) : Infinity) > (b.pinned ? pinRank(b.id) : Infinity) ? 1 : 0);
   const result = prioritizeSessions(rows, limit);
@@ -1394,7 +1426,14 @@ app.get('/api/sessions', requireAuth, async (req, res) => {
     for (const s of sessions) if (mutes.has(s.id)) s.muted = true; // spoken alerts honor per-session mute
     for (const s of sessions) if (smeta[s.id]?.seen) s.seenAt = smeta[s.id].seen; // shared across devices
     for (const s of sessions) if (s.pinned && Number.isFinite(smeta[s.id]?.pinOrder)) s.pinOrder = smeta[s.id].pinOrder;
-    res.json({ sessions, warnings: sessions.warnings, checkedAt: Date.now() });
+    for (const s of sessions) delete s.prompt;
+    // 1.19: the list rarely changes between 5 s polls. A matching If-None-Match gets 304 with the
+    // check time in a header, which still counts as a fresh server confirmation for the client.
+    const payload = { sessions, warnings: sessions.warnings };
+    const etag = '"' + createHash('sha1').update(JSON.stringify(payload)).digest('base64url') + '"', checkedAt = Date.now();
+    res.set({ ETag: etag, 'X-Pocket-Checked-At': String(checkedAt), 'Cache-Control': 'no-store' });
+    if (req.get('if-none-match') === etag) return res.status(304).end();
+    sendJson(req, res, { ...payload, checkedAt });
   } catch { res.status(503).json({ error: 'Session status is unavailable. Please retry.' }); }
 });
 
@@ -1435,9 +1474,9 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       if (turn?.userText) { messages = [{ role: 'user', text: turn.userText }]; total = 1; }
       else return res.status(502).json({ error: String(e.message) });
     }
-    return res.json({
+    return sendJson(req, res, {
       id: req.params.id, provider: 'codex',
-      title: smeta[req.params.id]?.name || meta?.title || turn?.userText?.slice(0, 120) || 'New session',
+      title: smeta[req.params.id]?.name || (meta ? finishTitle({ ...meta, untitled: meta.untitled }).title : turn?.userText?.slice(0, 120)) || 'New session',
       cwd: meta?.cwd || turn?.cwd || null, model: meta?.model, source: meta?.source,
       state: stateFor({ id: req.params.id, mtimeMs: meta?.mtimeMs || 0 }),
       executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid), turnEvents: turn?.events.length ?? null,
@@ -1462,7 +1501,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
   const messages = withPendingUser(msgs, turns.get(req.params.id));
   // turnEvents: what the live stream has already broadcast for the running turn. The
   // transcript above covers it, so a fresh stream connection asks to start after it.
-  res.json({ ...meta, state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null });
+  sendJson(req, res, { ...finishTitle(meta), state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null });
 });
 
 // Extract references from assistant messages on demand; no second document store.
@@ -2079,9 +2118,11 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Pinned sessions show in the desktop tabs: the pin and the clay title mark them, and pinned tabs come first in the same order as the list. Requested by Damon Delcoro.",
-  "Reorder pinned sessions: drag the grip beside a pinned row, press its arrow keys, or use Move pin up / down in Session options. The order is saved on the server, so every device and the tabs follow it. Requested by Damon Delcoro.",
-  "Mute voice in one tap: a Voice chip beside Alerts (an icon beside the bell while a turn runs) silences spoken replies, announcements and prompts on this device without changing your voice settings. Say “mute” or “unmute” too. Requested by Damon Delcoro."
+  "Easier reading on wide screens: replies keep a comfortable line length on desktop and tablet, while tables and code still use the full width.",
+  "A tidier session list: scheduled runs are grouped under Automated at the end of the list, Codex sessions from scratch folders are left out, and sessions named only by their first message get a short generated title. Your renames always win.",
+  "More room on phones: the run status shares the title bar with the project name instead of a separate strip, and the check time no longer ticks every second.",
+  "A failed turn now says so at the end of the conversation, with the reason when known, and offers Send again or Edit message.",
+  "New session starts in your most recent workspace and explains next to Start when something is missing. Session options are grouped, with display settings last."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

@@ -873,3 +873,40 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .session-item.drop-after { box-shadow: inset 0 -2px 0 var(--clay); }
 .workrow button.voice-mute { padding: 6px; color: var(--faint); }
 .workrow button.voice-mute.on { color: var(--clay); }
+
+/* ---------- 1.19: UI/UX audit fixes ---------- */
+/* Reading measure: prose keeps a comfortable line length on wide screens; tables, code and the composer
+   still use the full conversation width. ch follows the chat text size setting. */
+@media (min-width: 700px) {
+  .m-asst :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6):not(.report-table *), .m-asst.live, .turn-failure { max-width: 68ch; }
+  .m-user { max-width: min(85%, 60ch); }
+}
+/* Phones and narrow panes: the run status shares the title bar's second line with the project name. */
+.status-in-header header.bar .run-confirmation { padding: 0; min-height: 18px; border: 0; font-size: 12px; line-height: 1.5; font-weight: 400; letter-spacing: normal; }
+.status-in-header #run-confirmed-at { display: none; }
+.status-in-header #run-confirmed-state { font-weight: 400; }
+.status-in-header:not(.compact-header) header.bar h1 { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; }
+.status-in-header:not(.compact-header) header.bar h1 .one { flex: 1 0 100%; }
+.status-in-header:not(.compact-header) header.bar h1 .tag { flex: 0 1 auto; min-width: 0; max-width: 55%; }
+.status-in-header:not(.compact-header) header.bar h1 .run-confirmation { display: block; flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-in-header:not(.compact-header) header.bar h1 .tag:not(:empty) + .run-confirmation::before { content: '·'; margin-right: 6px; color: var(--faint); }
+/* Scheduled runs: one collapsed group at the end of All. */
+.automated-group > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 10px; min-height: 44px; padding-right: 18px; }
+.automated-group > summary::-webkit-details-marker { display: none; }
+.automated-group > summary h2 { padding-right: 0; }
+.automated-group > summary h2::before { content: '▸'; color: var(--faint); font-weight: 400; }
+.automated-group[open] > summary h2::before { content: '▾'; }
+.automated-group > summary:focus-visible { outline: 2px solid var(--clay); outline-offset: -2px; border-radius: 6px; }
+.automated-note { font-size: 13px; color: var(--dim); }
+/* Session options: groups separated by hairlines; display settings last. */
+.sheet .opt-group + .opt-group { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
+.opt-group .chat-text-settings { border-bottom: 0; }
+/* A failed last turn, at the end of the conversation, with its reason and a retry. */
+.turn-failure { border: 1px solid var(--err); border-radius: 10px; padding: 10px 12px 8px; font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.turn-failure p { margin: 0 0 8px; color: var(--err); }
+.turn-failure-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.turn-failure-actions .chip { color: var(--text); }
+.turn-failure-actions [hidden] { display: none; }
+/* New session: the reason Start did nothing, next to Start. */
+.start-hint { margin: -4px 0 0; color: var(--err); font-size: 14px; }
+.start-hint[hidden] { display: none; }

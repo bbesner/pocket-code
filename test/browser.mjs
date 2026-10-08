@@ -6,6 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
+import {createHash} from 'node:crypto';
 import {runUIRegressions} from './ui-regressions.mjs';
 import {captureDocs} from './docs-screenshots.mjs';
 const repo=path.resolve(import.meta.dirname,'..');
@@ -67,7 +68,14 @@ const server=http.createServer(async(req,res)=>{
   for(const [id,at] of Object.entries(body.seen||{})){const r=rows.find(x=>x.id===id);if(r&&at>(r.seenAt||0)&&uiModes.ignoreSeen!==id)r.seenAt=at;out[id]=r?.seenAt||0;} // ignoreSeen: a check that clears a marker must not be re-marked by a late upload from the page it just left
   for(const [id,at] of Object.entries(body.restore||{})){const r=rows.find(x=>x.id===id);if(r){if(at)r.seenAt=at;else delete r.seenAt;}out[id]=r?.seenAt||0;}
   return json({ok:true,seen:out});}
- if(url.pathname==='/api/sessions')return stale?json({error:'Fixture offline'},503):json({sessions:[...rows].sort((a,b)=>pinKey(a)-pinKey(b)),warnings:[],checkedAt:Date.now()});
+ if(url.pathname==='/api/sessions'){
+  if(stale)return json({error:'Fixture offline'},503);
+  // Like the live server (1.19): an unchanged list answers 304 with the check time in a header.
+  const payload={sessions:[...rows].sort((a,b)=>pinKey(a)-pinKey(b)),warnings:[]},checkedAt=Date.now();
+  const etag='"'+createHash('sha1').update(JSON.stringify(payload)).digest('base64url')+'"';
+  if(req.headers['if-none-match']===etag){uiModes.notModified=(uiModes.notModified||0)+1;res.writeHead(304,{etag,'x-pocket-checked-at':String(checkedAt)});res.end();return;}
+  res.writeHead(200,{'content-type':'application/json',etag,'x-pocket-checked-at':String(checkedAt)});res.end(JSON.stringify({...payload,checkedAt}));return;
+ }
  if(url.pathname.endsWith('/pin')){let raw='';for await(const c of req)raw+=c;const r=rows.find(x=>x.id===decodeURIComponent(url.pathname.split('/').at(-2)));if(r){if(JSON.parse(raw||'{}').pinned)r.pinned=true;else{delete r.pinned;delete r.pinOrder;}}return json({ok:true,pinned:Boolean(r?.pinned)});}
  if(url.pathname==='/api/pins/order'){let raw='';for await(const c of req)raw+=c;const ids=JSON.parse(raw||'{}').ids||[];pinOrders.push(ids);ids.forEach((id,i)=>{const r=rows.find(x=>x.id===id);if(r?.pinned)r.pinOrder=i;});return json({ok:true,order:ids});}
  if(url.pathname==='/api/projects')return json({projects:['/workspaces/warehouse','/workspaces/products']});
@@ -405,20 +413,21 @@ try{
  // A server-owned run needs fresh server proof, including while headers collapse.
  await p.goto(base+'/#/chat/'+rows[0].id,{waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
  await p.evaluate(()=>refreshSessions());
- assert.equal(await p.$eval('#run-confirmed-state',e=>e.textContent),'Running on server');
+ assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/^Running( on server)?$/); // short form in the title bar (1.19)
  const proof=await p.evaluate(()=>sessionProofReceivedAt);
  await p.waitForFunction(previous=>sessionProofReceivedAt>previous,{timeout:8000},proof);
- assert.match(await p.$eval('#run-confirmed-at',e=>e.textContent),/Checked [0-9]+s ago/);
+ assert.match(await p.$eval('#run-confirmed-at',e=>e.textContent),/^Checked (just now|[0-9]+0s ago)$/);
  await p.evaluate(()=>{headerCollapsed=true;paintWorkspaceDensity();sessionProofReceivedAt=performance.now()-16000;paintRunConfirmation();});
- assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/unconfirmed/);
+ assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/unconfirmed/i);
+ assert.equal(await p.$eval('#run-confirmed-at',e=>e.textContent),'Last check 10s ago','an old check is shown in 10-second steps');
  assert.ok(await p.$eval('#run-confirmation',e=>e.getBoundingClientRect().height)>=18);
  stale=true;await p.evaluate(()=>refreshSessions());
- assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/unconfirmed/);
+ assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/unconfirmed/i);
  assert.equal(await p.evaluate(()=>sessionCounts().running),0);
  assert.equal(await p.$eval('#hember',e=>e.hidden),true);
  assert.ok((await p.$$eval('.session-group h2',es=>es.map(e=>e.textContent))).every(t=>!t.startsWith('Running')));
  stale=false;await p.evaluate(()=>refreshSessions());
- assert.equal(await p.$eval('#run-confirmed-state',e=>e.textContent),'Running on server');
+ assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/^Running( on server)?$/); // short form in the title bar (1.19)
  const savedRunning=rows[0].state;rows[0].state={kind:'input',label:'Needs approval',confirmed:true};await p.evaluate(()=>refreshSessions());
  assert.equal(await p.$eval('#run-confirmed-state',e=>e.textContent),'Needs approval');
  await p.evaluate(()=>deliveryNotices.set(chatId,'Message delivered.'));
@@ -427,7 +436,7 @@ try{
  assert.equal(await p.$eval('#run-confirmed-state',e=>e.textContent),'Response ready');rows[0].state=savedRunning;
  rows[1].state={kind:'observed',label:'Activity elsewhere',confirmed:false};
  await p.goto(base+'/#/chat/'+rows[1].id,{waitUntil:'domcontentloaded'});await p.waitForSelector('#box');await p.evaluate(()=>refreshSessions());
- assert.equal(await p.$eval('#run-confirmed-state',e=>e.textContent),'Activity seen. Run unconfirmed');
+ assert.match(await p.$eval('#run-confirmed-state',e=>e.textContent),/^Activity seen(\. Run unconfirmed)?$/);
  // Real clipboard image/text, and attachment ownership across a delayed upload.
  await p.setViewport({width:390,height:844,isMobile:true,hasTouch:true});
  await p.goto(base+'/#/chat/'+idle.id,{waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
@@ -538,7 +547,7 @@ try{
 
   fs.writeFileSync(path.join(out,'responsive-metrics.json'),JSON.stringify({before,after,focused,readingGain:focused-before,desktopConversationWidth:measure,foldDraftPreserved:true,clipboardUploads:uploads.length},null,2));
  }
- await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),received,voiceLog,conversations,pinOrders});
+ await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),getMode:()=>uiModes,received,voiceLog,conversations,pinOrders});
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));

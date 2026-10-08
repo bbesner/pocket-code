@@ -9,6 +9,9 @@ Open a session from the list or choose **New session**. Write the task, choose t
 project directory and agent, then press **Start session**. **Choose a skill** inserts
 an editable instruction from that agent's installed skills; choosing it does not
 start a turn. A custom workspace path must be a directory on the server, not your phone.
+With no default workspace and nothing remembered, the most recent workspace is
+preselected and named above **Start session**. If something is missing, the reason
+appears under the button.
 
 Pocket-specific defaults may preselect the workspace, model, effort and permissions.
 Otherwise the app uses its remembered choices and the installed CLI's configuration.
@@ -17,6 +20,18 @@ and **Work normally**; Plan first is guidance, not a security sandbox.
 
 The session list distinguishes confirmed Pocket-owned runs from activity seen in an
 external transcript. Search matches recent session titles and workspace paths.
+
+A session's title is your rename, else the agent's own title, else a short title
+Pocket generates from the opening request (one small Claude call, Haiku, with no
+tools and no saved session; kept in `session-meta.json`, never written to a
+transcript, and only asked for sessions active in the last 14 days). Clearing a
+rename returns to that title. `POCKET_AUTO_TITLES=0` turns generation off.
+
+Scheduled runs that open with `[cron:<id> Job name]` (or an OpenClaw runtime preamble)
+are marked automated, show the job name, and sit in a collapsed **Automated** group at
+the end of **All**. Search, the other filters, pins, running work and anything needing
+attention show them as usual. Sessions in `/tmp/` workspaces are left out unless pinned
+or running.
 Find in conversation searches the open conversation, including older transcript matches.
 
 **All**, **Active** and **Attention** stay visible on the home list and switcher.
@@ -81,7 +96,9 @@ its writer lock so another surface can continue the thread.
 ## Conversation, results and files
 
 Assistant output reads as a document: headings, lists, tables, quotes, code and task
-checklists. Wide tables scroll within their own region. Tool activity appears in
+checklists. On wide screens prose stops at a readable line length (about 68 characters'
+width at the chosen text size) while tables and code use the full width. Wide tables
+scroll within their own region. Tool activity appears in
 compact ledger rows; copy controls copy message text or code. The newest plan is
 expanded and older plans are collapsible.
 
@@ -107,7 +124,12 @@ where it began, even if you switch conversations before it completes.
 Drafts and attachment references survive a reload on the same browser. When delivery
 is uncertain, **Retry same message** checks the original request identifier; it does
 not intentionally create another turn. Review the conversation before discarding
-an uncertain retry. See [delivery recovery](operations.md#delivery-and-queue-recovery).
+an uncertain retry.
+
+When the last turn failed, the end of the conversation says so, with the reason when
+the agent gave one, and offers **Send again** (the last message, as a new turn) and
+**Edit message** (puts it in the message box). Neither replaces a draft you are typing.
+The notice comes from the server, so it is still there after a reload or on another device. See [delivery recovery](operations.md#delivery-and-queue-recovery).
 
 ## Steering and follow-up queues
 
@@ -154,7 +176,10 @@ operator permits it. A mode choice applies to the next turn and is captured with
 queued instruction; it does not change an active turn. See [action approvals](action-approvals.md)
 for provider-specific scope, restart handling and limitations.
 
-The run-confirmation strip stays visible when the header collapses. Only a fresh
+The run-confirmation strip stays visible when the header collapses. On phones and
+panes up to 600px wide it sits in the title bar beside the project name, in short words
+(Idle, Running, Needs your answer); hover or long-press for the detail. The check time
+moves in steps (just now, 10s ago, 1m ago) so a healthy check does not tick every second. Only a fresh
 server status response confirms an owned run. Failed checks or stale proof remove
 that confirmation; a locally ticking timer is not evidence that work is progressing.
 An external transcript can show activity without proving a process is still running.
