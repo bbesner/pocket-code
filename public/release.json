@@ -1,7 +1,7 @@
 {
-  "version": "1.27.0",
-  "assetV": 64,
+  "version": "1.27.1",
+  "assetV": 65,
   "notes": [
-    "Open-session tabs now show each session's status, like the session list: the breathing ember while a turn runs, a clay dot when it needs your answer or approval, green for an unread reply, red for a failed turn and a ring for activity elsewhere or a paused queue. Quiet sessions show nothing. Hover a tab for the status in words."
+    "Questions and approvals now show in amber, so they no longer look like a running turn. Clay with the breathing ember means Claude is working; amber means it is waiting on you. This applies to the tab dots, the session list and the conversation status bar."
   ]
 }

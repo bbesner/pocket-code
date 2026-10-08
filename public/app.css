@@ -659,7 +659,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 @media(max-width:1279px) { .workspace-dock { display:none; } }
 @media(max-width:899px) { .rail,.railgrip,.open-sessions { display:none; } }
 .question-banner { flex:none;margin:8px 16px;padding:12px;text-align:left;min-height:44px;border:1px solid var(--clay);border-radius:10px;background:var(--clay-deep);color:var(--text);font:600 14px/1.5 system-ui;cursor:pointer; }
-.question-banner[hidden] { display:none; }.state-input { color:var(--clay); }
+.question-banner[hidden] { display:none; }.state-input { color:var(--warn); }
 .question-sheet { max-width:680px; }
 .question-form fieldset { border:0;padding:0;margin:0 0 24px;min-width:0; }
 .question-form legend { font-size:17px;font-weight:600;margin-bottom:12px; }
@@ -704,7 +704,9 @@ header.bar { gap: 2px; padding-inline: 8px; }
 #run-confirmed-state { font-weight: 600; }
 #run-confirmed-at { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .run-confirmation[data-state=running] #run-confirmed-state { color: var(--ok); }
-.run-confirmation[data-state=input] #run-confirmed-state,.run-confirmation[data-state=waiting] #run-confirmed-state { color: var(--clay); }
+.run-confirmation[data-state=waiting] #run-confirmed-state { color: var(--clay); }
+/* Amber means waiting on you (1.27.1): list label, tab mark and status bar; clay stays for work in progress. */
+.run-confirmation[data-state=input] #run-confirmed-state { color: var(--warn); }
 .run-confirmation[data-state=failed] #run-confirmed-state { color: var(--err); }
 
 /* Split view (1.6): sessions side by side on desktop, each pane a framed Pocket window */
@@ -872,7 +874,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .open-session .pinmark .i { width: 12px; height: 12px; vertical-align: -1px; margin-right: 4px; color: var(--clay); }
 /* Tab status: the rail row's state as a 7px mark before the title. Running reuses the ember. */
 .open-session .tab-state { display: inline-block; width: 7px; height: 7px; margin: 0 6px 0 0; border-radius: 50%; vertical-align: 1px; flex: none; }
-.open-session .tab-input { background: var(--clay); }
+.open-session .tab-input { background: var(--warn); }
 .open-session .tab-failed { background: var(--err); }
 .open-session .tab-finished { background: var(--ok); }
 .open-session :is(.tab-observed,.tab-waiting) { box-sizing: border-box; border: 1.5px solid var(--dim); }

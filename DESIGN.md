@@ -10,9 +10,13 @@ clay ember that breathes while Claude works.
 
 ## Tab status (1.27)
 
+1.27.1: clay means work in progress, amber (`--warn`) means waiting on you. The still clay
+needs-you dot was hard to tell from the ember at 7px, so the tab mark, the session-list
+label and the conversation status bar use amber for questions and approvals.
+
 Pinned Operate brief: variance 3, motion 2, density 8. Open-session tabs repeat the rail
 row's state as a 7px mark before the title, with no new colors or motion. Running reuses
-the ember at the rail's 7px size. Needs-you is a still clay dot, an unread reply `--ok`,
+the ember at the rail's 7px size. Needs-you is a still `--warn` amber dot, an unread reply `--ok`,
 a failure `--err`, and activity elsewhere or a paused queue a 1.5px `--dim` ring. Idle,
 read and unconfirmed states show nothing, so a mark always means a confirmed state. The
 mark is `role=img` with the state as its label and adds no text to the tab.

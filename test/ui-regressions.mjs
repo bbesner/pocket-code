@@ -654,6 +654,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     sa.state={kind:'finished',label:'Response ready',at:Date.now()+1e9};sb.state={kind:'failed',label:'Turn failed',at:Date.now()+1e9};paintOpenSessions();out.finished=read(a);out.failed=read(b);
     sa.state={kind:'observed',label:'Activity elsewhere'};sb.state={kind:'idle',label:'Recent'};paintOpenSessions();out.observed=read(a);out.idle=read(b);
     sa.state={kind:'running',label:'Running',confirmed:true};sessionsStale=true;paintOpenSessions();out.stale=read(a);
+    const probe=document.createElement('span');probe.className='session-status state-input';document.querySelector('.rail').append(probe);out.railInput=getComputedStyle(probe).color;probe.remove();
     sessionsStale=false;[sa.state,sb.state]=saved;paintOpenSessions();
     return out;
    },a,b);
@@ -661,7 +662,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.match(r.running.cls,/\bember\b/,'running reuses the ember');assert.equal(r.running.anim,'breathe');assert.equal(r.running.bg,clay);
    assert.equal(r.running.label,'Running');assert.match(r.running.tip,/ · Running$/);assert.equal(r.running.w,7,'small enough not to widen the tab');
    assert.equal(r.running.text,rows[3].title,'the status is not part of the tab text');
-   assert.equal(r.input.bg,clay);assert.equal(r.input.anim,'none','needs-you is a still dot, not the ember');assert.equal(r.input.label,'Needs your answer');
+   assert.equal(r.input.bg,'rgb(217, 169, 78)','needs-you is amber, not the clay of a running turn');assert.equal(r.input.anim,'none','needs-you is a still dot, not the ember');assert.equal(r.input.label,'Needs your answer');assert.equal(r.railInput,'rgb(217, 169, 78)','the session list labels it in the same amber');
    assert.equal(r.finished.label,'Response ready');assert.notEqual(r.finished.bg,clay);
    assert.equal(r.failed.label,'Turn failed');assert.notEqual(r.failed.bg,r.finished.bg);
    assert.match(r.observed.border,/^rgb\(169, 158, 147\) [1-9]/,'activity elsewhere is a dim ring');
