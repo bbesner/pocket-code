@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.24.0] — Unreleased · build 59
+## [1.24.0] — 2026-10-08 · build 59
 
 - **Message times.** Each message shows the time it was sent: under your own messages, inside the bubble, and above each reply, in the same small mono as the cost line. A divider marks the first message of each day (Today, Yesterday, Tue, Oct 6, or Oct 6, 2025 for an earlier year), including as a conversation crosses midnight while you watch. Times come from the transcript, so Claude and Codex sessions both have them; a message that is not in the transcript yet (just sent, or steered in) shows none. Requested by Damon Delcoro.
 - Settings → **Show message times** turns the times and dividers off on this browser (on by default). The times are drawn by the stylesheet, so Copy message and Find in conversation never include them.
