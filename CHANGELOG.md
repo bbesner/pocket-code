@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.22.0] — Unreleased · build 57
+## [1.22.0] — 2026-10-08 · build 57
 
 - **Search inside conversations.** Typing three or more characters in a session search box (home, desktop rail or the session switcher) still filters session titles at once, and after a short pause also searches inside conversations. An **In conversations** section lists up to 15 sessions with the matching passage, who wrote it (You, Claude or Codex) and the matched words marked; tap one to open the conversation with Find already on the match (the phrase, or its longest matching word). The section says how it searched, says so when nothing matched, and offers Try again when the search fails. Requested by Brad.
 - **With MemStem** on the server (`POCKET_MEMSTEM_URL`, default `http://127.0.0.1:7821`; checked once a minute), search uses its keyword + semantic index of every Claude Code and Codex session, so it finds old conversations and related wording, not only exact phrases. Only transcripts in Pocket's own stores count (subagent transcripts and other Codex homes are left out). Snippets come from MemStem's plain-text copy of the conversation; a session that matched by meaning but contains none of the words is shown as **Related** with MemStem's own excerpt. If MemStem stops answering, Pocket falls back to its own search for that request.
