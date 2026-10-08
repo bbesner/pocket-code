@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.23.0 / build 58**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.24.0 / build 59**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -26,7 +26,8 @@ Screenshots use synthetic demo sessions, not private conversations.
 - **Guide a running agent.** Steer the active turn or save a separate follow-up with
   After this turn. Edit, cancel or run paused instructions from Queue.
 - **Review the output.** Read streamed reports, tables, code, images and task checklists;
-  find text across a conversation; copy messages or code; open linked results.
+  find text across a conversation; copy messages or code; open linked results. Each
+  message shows its time and a divider marks each day (Settings → Show message times).
 - **Answer and approve.** Native agent questions and action approval cards appear in
   the session. Choose Review actions or Full access for subsequent turns.
 - **Reply with a tap.** When a reply ends by asking you to choose a next step ("Should I

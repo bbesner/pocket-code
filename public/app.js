@@ -536,6 +536,7 @@ async function settingsSheet({about = false} = {}) {
     <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button>
     <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
     <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse tool calls<span class="sub">Fold Bash, Edit and other actions behind a one-line summary</span></span></button>
+    <button class="opt" id="s-times" aria-pressed="${showTimes()}"><span class="dot ${showTimes() ? 'on' : ''}"></span><span>Show message times<span class="sub">A time on each message and a divider for each day</span></span></button>
     <button class="opt" id="s-push" aria-pressed="false"><span class="dot"></span><span>Turn notifications<span class="sub" id="s-push-state">Checking notification support…</span></span></button>
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
@@ -574,6 +575,13 @@ async function settingsSheet({about = false} = {}) {
     e.currentTarget.setAttribute('aria-pressed', String(on));
     e.currentTarget.querySelector('.dot').classList.toggle('on', on);
     document.querySelectorAll('details.ledgerwrap').forEach(d => { d.open = !on; });
+  };
+  sh.querySelector('#s-times').onclick = e => {
+    const on = !showTimes();
+    writeLocal('pc-times', on);
+    e.currentTarget.setAttribute('aria-pressed', String(on));
+    e.currentTarget.querySelector('.dot').classList.toggle('on', on);
+    document.querySelectorAll('.msgs').forEach(m => m.classList.toggle('times-off', !on));
   };
   sh.querySelector('#s-chime').onclick = e => {
     const on = localStorage.getItem('pc-chime') === 'off';
@@ -1311,9 +1319,42 @@ function fileChip(f) { // f: {n,p} from the server, plain name string from optim
   }
   return `<div class="ledger">${IC.clip}<span class="det">${esc(n)}</span></div>`;
 }
+/* ---------- 1.24: message times and day dividers ----------
+   Every transcript message already carries its time (data-ts, used by While you were away). Each bubble shows
+   it as a small clock time (data-time, drawn by CSS so copy and find never pick it up), and a day divider
+   ("Today", "Yesterday", "Tue, Oct 6") sits before the first message of each day. Settings > Show message
+   times hides both on this browser. Messages without a time (optimistic sends, steered echoes) show none. */
+const showTimes = () => readLocal('pc-times', true) !== false;
+const timeLabel = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const dayKey = ms => { const d = new Date(ms); return d.getFullYear() * 10000 + d.getMonth() * 100 + d.getDate(); };
+function dayLabel(ms) {
+  const d = new Date(ms), now = new Date();
+  if (dayKey(ms) === dayKey(now)) return 'Today';
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (dayKey(ms) === dayKey(y)) return 'Yesterday';
+  return d.getFullYear() === now.getFullYear() ? d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+}
+const timeAttr = ts => { const t = ts ? Date.parse(ts) : NaN; return t ? ` data-time="${esc(timeLabel(t))}"` : ''; };
+const dayDividerHTML = ms => { const l = dayLabel(ms); return `<div class="day-divider" role="separator" aria-label="${esc(l)}"><span>${esc(l)}</span></div>`; };
+// The transcript with a divider wherever the day changes between timestamped messages.
+function withDays(messages) {
+  let last = null;
+  return messages.map(m => {
+    const t = m.ts ? Date.parse(m.ts) : NaN;
+    let h = '';
+    if (t && dayKey(t) !== last) { h = dayDividerHTML(t); last = dayKey(t); }
+    return h + msgHTML(m);
+  }).join('');
+}
+// Live appends: a divider when the next message starts a new day after the last timestamped one on screen.
+function appendDayDivider(msgs, ts) {
+  const t = ts ? Date.parse(ts) : NaN; if (!t) return;
+  const prev = [...msgs.querySelectorAll(':scope > [data-ts]')].at(-1), pt = prev ? Date.parse(prev.dataset.ts) : NaN;
+  if (!pt || dayKey(pt) !== dayKey(t)) msgs.insertAdjacentHTML('beforeend', dayDividerHTML(t));
+}
 function msgHTML(m) {
   if (m.role === 'user') {
-    let h = `<div class="m-user enter${m.pending ? ' pending' : ''}"${m.ts ? ` data-ts="${esc(m.ts)}"` : ''}>${esc(m.text)}</div>`;   // pending: sent, not in the transcript yet
+    let h = `<div class="m-user enter${m.pending ? ' pending' : ''}"${m.ts ? ` data-ts="${esc(m.ts)}"` : ''}${timeAttr(m.ts)}>${esc(m.text)}</div>`;   // pending: sent, not in the transcript yet
     if (m.files?.length) h += `<div class="m-files">${m.files.map(fileChip).join('')}</div>`;
     return h;
   }
@@ -1334,7 +1375,7 @@ function msgHTML(m) {
     else { flush(); parts.push(md(b.text)); }
   }
   flush();
-  return `<div class="m-asst enter"${m.ts ? ` data-ts="${esc(m.ts)}"` : ''}><button class="copybtn msgcopy" data-copy-msg aria-label="Copy message">${IC.copy}</button>${parts.join('')}</div>`;
+  return `<div class="m-asst enter"${m.ts ? ` data-ts="${esc(m.ts)}"` : ''}${timeAttr(m.ts)}><button class="copybtn msgcopy" data-copy-msg aria-label="Copy message">${IC.copy}</button>${parts.join('')}</div>`;
 }
 
 /* ---------- copy affordances (delegated: messages + code blocks) ---------- */
@@ -1688,7 +1729,8 @@ async function renderChat(id, { away = false } = {}) {
   api('/commands?provider=' + (isCx?'codex':'claude') + '&cwd=' + encodeURIComponent(s.cwd || '')).then(r => { chatCmds = r.commands; }).catch(() => { });
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const msgs = $('#msgs');
-  msgs.innerHTML = s.messages.map(msgHTML).join('') + steeredHTML(id, s.messages);
+  msgs.classList.toggle('times-off', !showTimes());
+  msgs.innerHTML = withDays(s.messages) + steeredHTML(id, s.messages);
   mergeToolFolds(msgs);
   openLastTodo();
   paintChoices();
@@ -2150,6 +2192,7 @@ function openES() {
     if (d.type === 'watch') { watching = true; if (composerWorking) setComposer(false); }
     else if (d.type === 'user') { // mirror: a message sent from another surface
       if (recentSends.some(x => x.text === d.msg.text && Date.now() - x.at < 120000)) return;
+      appendDayDivider(msgs, d.msg.ts);
       msgs.insertAdjacentHTML('beforeend', msgHTML(d.msg));
       if (watching) extPulse();
       scrollBottom();
@@ -2165,6 +2208,7 @@ function openES() {
     }
     else if (d.type === 'assistant') {
       dropLive(); Voice.onAssistant(streamId, d.msg);
+      appendDayDivider(msgs, d.msg.ts);
       msgs.insertAdjacentHTML('beforeend', msgHTML(d.msg));
       mergeToolFolds(msgs);
       openLastTodo();

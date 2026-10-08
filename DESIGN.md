@@ -466,3 +466,14 @@ clay border, clay-deep fill) and a dashed, dim "Manage" chip ends the row. Recen
 bordered rows like the project list (two-line text, 12.5px dim meta). Save and Manage are ordinary sheets:
 name field, a dim summary of what will be set, the existing toggle row, one primary button; Manage rows carry
 44px Up/Down icons and Edit/Delete chips, with Delete turning red and asking once more. No new colour or motion.
+
+## Message times (1.24)
+
+Pinned Operate refinement: variance 3, motion 1, density 6. Times are data, so they take the ledger's
+mono voice at 12px: a reply carries its time on a line above the prose in `--dim` (6.9:1), and your own
+message carries it on a line at the bottom-right inside the chip, tinted from the chip's own hue
+(`color-mix` of the chip text and `--clay-deep`, about 6.5:1), never gray. The day divider is the quiet
+sibling of the clay "New since" line: 12.5px `--dim` label between 1px `--line` rules, so the one
+accent still means "new to you". Times are rendered from a `data-time` attribute by the stylesheet,
+so Copy message, Find in conversation and the find marks never touch them. Settings adds one toggle row
+in the existing style. No new colour, no motion.
