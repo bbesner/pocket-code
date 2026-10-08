@@ -639,6 +639,36 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    for(const id of [a,b]){await page.click(`[data-more="${id}"]`);await page.waitForSelector('#so-pin');await page.click('#so-pin');await page.waitForFunction(id=>!document.querySelector(`.session-item.pinned[data-item="${id}"]`),{},id);}
    await page.waitForFunction(()=>document.querySelectorAll('#open-sessions .open-session.pinned').length===0);
   });
+  await check('Open-session tabs show each session status like its rail row; nothing when quiet or unconfirmed',async()=>{
+   await page.setViewport({width:1440,height:900});
+   const a=rows[3].id,b=rows[4].id;
+   await page.goto(base+'/#/chat/'+a);await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},a);
+   await page.goto(base+'/#/chat/'+b);await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},b);
+   // One synchronous pass, so the list's background refresh cannot repaint between setting and reading.
+   const r=await page.evaluate((a,b)=>{
+    const sa=allSessions.find(s=>s.id===a),sb=allSessions.find(s=>s.id===b),saved=[sa.state,sb.state];
+    const read=id=>{const tab=[...document.querySelectorAll('#open-sessions .open-session')].find(e=>e.querySelector('a').getAttribute('href').endsWith(id)),d=tab.querySelector('.tab-state'),cs=d&&getComputedStyle(d);
+     return d?{cls:d.className,label:d.getAttribute('aria-label'),bg:cs.backgroundColor,border:cs.borderTopColor+' '+cs.borderTopWidth,anim:cs.animationName,w:d.getBoundingClientRect().width,tip:tab.querySelector('a').title,text:tab.querySelector('a').textContent}:null;};
+    const out={};
+    sa.state={kind:'running',label:'Running',confirmed:true};sb.state={kind:'input',label:'Needs your answer',confirmed:true};paintOpenSessions();out.running=read(a);out.input=read(b);
+    sa.state={kind:'finished',label:'Response ready',at:Date.now()+1e9};sb.state={kind:'failed',label:'Turn failed',at:Date.now()+1e9};paintOpenSessions();out.finished=read(a);out.failed=read(b);
+    sa.state={kind:'observed',label:'Activity elsewhere'};sb.state={kind:'idle',label:'Recent'};paintOpenSessions();out.observed=read(a);out.idle=read(b);
+    sa.state={kind:'running',label:'Running',confirmed:true};sessionsStale=true;paintOpenSessions();out.stale=read(a);
+    sessionsStale=false;[sa.state,sb.state]=saved;paintOpenSessions();
+    return out;
+   },a,b);
+   const clay='rgb(217, 119, 87)';
+   assert.match(r.running.cls,/\bember\b/,'running reuses the ember');assert.equal(r.running.anim,'breathe');assert.equal(r.running.bg,clay);
+   assert.equal(r.running.label,'Running');assert.match(r.running.tip,/ · Running$/);assert.equal(r.running.w,7,'small enough not to widen the tab');
+   assert.equal(r.running.text,rows[3].title,'the status is not part of the tab text');
+   assert.equal(r.input.bg,clay);assert.equal(r.input.anim,'none','needs-you is a still dot, not the ember');assert.equal(r.input.label,'Needs your answer');
+   assert.equal(r.finished.label,'Response ready');assert.notEqual(r.finished.bg,clay);
+   assert.equal(r.failed.label,'Turn failed');assert.notEqual(r.failed.bg,r.finished.bg);
+   assert.match(r.observed.border,/^rgb\(169, 158, 147\) [1-9]/,'activity elsewhere is a dim ring');
+   assert.equal(r.idle,null,'quiet sessions show nothing');assert.equal(r.stale,null,'an unconfirmed list shows no status');
+   await page.evaluate((a,b)=>{allSessions.find(s=>s.id===a).state={kind:'running',label:'Running',confirmed:true};allSessions.find(s=>s.id===b).state={kind:'input',label:'Needs your answer',confirmed:true};paintOpenSessions();},a,b);
+   await scan('tab-status-desktop');await page.screenshot({path:path.join(out,'tab-status-desktop.png'),clip:{x:0,y:0,width:1440,height:160}});
+  });
   await check('Voice: one tap mutes replies and announcements on this device; settings mirror it; hands-free turns it back on',async()=>{
    await page.setViewport({width:390,height:844});await chat();await page.waitForSelector('#micb:not([hidden])');
    await page.waitForSelector('[data-voice-mute]:not([hidden])');

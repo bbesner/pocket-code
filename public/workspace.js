@@ -243,13 +243,23 @@ function orderedOpenSessions(){
  const pins=(typeof allSessions!=='undefined'?allSessions:[]).filter(s=>s.pinned).map(s=>s.id);
  return [...pins.map(id=>openSessions.find(s=>s.id===id)).filter(Boolean),...openSessions.filter(s=>!pins.includes(s.id))];
 }
+// A tab carries the same status as its rail row: the breathing ember while a turn runs, a clay dot when it
+// needs you, green for an unread reply, red for a failure, a ring for activity elsewhere or a paused queue.
+// Quiet sessions and an unconfirmed list show nothing, so a dot always means a confirmed state.
+function tabState(id){
+ if(typeof allSessions==='undefined'||sessionsStale)return null;
+ const row=allSessions.find(s=>s.id===id);if(!row)return null;
+ const st=listState(row);
+ return ['running','input','failed','finished','observed','waiting'].includes(st.kind)?{kind:st.kind,label:st.kind==='finished'?'Response ready':st.label}:null;
+}
 function paintOpenSessions(){
  const el=document.getElementById('open-sessions');if(!el)return;
  const list=orderedOpenSessions();
  // Repaint only when something shows differently: the list refreshes every few seconds and must not snap the strip's scroll back.
- const key=JSON.stringify([chatId,list.map(s=>[s.id,s.title,Boolean(pinnedSession(s.id))])]);
+ const states=list.map(s=>tabState(s.id));
+ const key=JSON.stringify([chatId,list.map((s,i)=>[s.id,s.title,Boolean(pinnedSession(s.id)),states[i]?.kind,states[i]?.label])]);
  if(el.dataset.key===key)return;el.dataset.key=key;
- el.innerHTML=list.map(s=>{const pinned=Boolean(pinnedSession(s.id));return `<span class="open-session ${s.id===chatId?'current':''} ${pinned?'pinned':''}"><a href="#/chat/${encodeURIComponent(s.id).replaceAll('%3A',':')}" ${s.id===chatId?'aria-current="page"':''} title="${esc(s.title)}${pinned?' · Pinned':''}">${pinned?`<span class="pinmark">${IC.pin}</span><span class="vh">Pinned: </span>`:''}${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`;}).join('');
+ el.innerHTML=list.map((s,i)=>{const pinned=Boolean(pinnedSession(s.id)),st=states[i];return `<span class="open-session ${s.id===chatId?'current':''} ${pinned?'pinned':''}"><a href="#/chat/${encodeURIComponent(s.id).replaceAll('%3A',':')}" ${s.id===chatId?'aria-current="page"':''} title="${esc(s.title)}${pinned?' · Pinned':''}${st?' · '+esc(st.label):''}">${st?`<span class="tab-state ${st.kind==='running'?'ember':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:''}${pinned?`<span class="pinmark">${IC.pin}</span><span class="vh">Pinned: </span>`:''}${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`;}).join('');
  el.querySelectorAll('[data-close-session]').forEach(b=>b.onclick=()=>{
   const id=b.dataset.closeSession,shown=orderedOpenSessions(),index=shown.findIndex(s=>s.id===id),rest=shown.filter(s=>s.id!==id);
   openSessions=openSessions.filter(s=>s.id!==id);writeLocal('pc-open-sessions',openSessions);

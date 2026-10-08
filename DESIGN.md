@@ -8,6 +8,15 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Tab status (1.27)
+
+Pinned Operate brief: variance 3, motion 2, density 8. Open-session tabs repeat the rail
+row's state as a 7px mark before the title, with no new colors or motion. Running reuses
+the ember at the rail's 7px size. Needs-you is a still clay dot, an unread reply `--ok`,
+a failure `--err`, and activity elsewhere or a paused queue a 1.5px `--dim` ring. Idle,
+read and unconfirmed states show nothing, so a mark always means a confirmed state. The
+mark is `role=img` with the state as its label and adds no text to the tab.
+
 ## Claude account switching (1.26)
 
 Claude account switching (1.26) extends Accounts & instance with the existing sheet,

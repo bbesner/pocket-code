@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.27.0] — 2026-10-08 · build 64
+
+- **Status on open-session tabs.** Each tab across the top carries the same status as its session-list row, as a small mark before the title: the breathing ember while a turn runs, a still clay dot when it needs your answer or approval, green for a reply you have not opened, red for a failed turn, and a ring for activity elsewhere or a paused queue. Quiet sessions show nothing, and no tab shows a status while the session list is unconfirmed. Hovering a tab adds the status in words; screen readers announce it with the title. Tabs for sessions older than the loaded list show no status. Requested by Brad.
+
 ## [1.26.1] — 2026-10-08 · build 63
 
 - Account switching no longer waits forever on long-running background jobs such as health watchers. Current Claude turns still finish first; idle processes close, while background jobs and their Claude processes remain alive.
