@@ -784,6 +784,37 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.select('#s-title-model','auto');await page.waitForFunction(()=>!document.querySelector('#s-title-model').disabled);
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
   });
+  await check('1.20.1 Polish: chip fade and short label, gauge track, home workspace, copy, Git, 44px targets, suggestion X',async()=>{
+   await page.setViewport({width:390,height:844});
+   await page.goto(base+'/#/');await page.waitForSelector('[data-id]');
+   const meta=await page.$eval(`[data-id="${idle}"] .meta`,e=>e.textContent.trim());
+   assert.equal(meta,'Claude','a session in the default workspace shows only the agent');
+   assert.match(await page.$eval(`[data-id="${rows[0].id}"] .meta`,e=>e.textContent),/warehouse · Claude/,'other workspaces stay named');
+   const summary=n=>page.evaluate(n=>{const saved=allSessions;allSessions=Array.from({length:n},(_,i)=>({id:'a'+i,state:{kind:'input',label:'Needs approval'}}));const s=sessionSummary();allSessions=saved;return s;},n);
+   assert.match(await summary(1),/· 1 needs attention$/);assert.match(await summary(2),/· 2 need attention$/);
+   rows[4].repo=false;
+   try{
+    await chat();await page.waitForSelector('#c-approval');
+    assert.equal(await page.$eval('#git-open',e=>e.hidden),true,'no Git control outside a repository');
+    const chip=await page.$eval('#c-approval',e=>({text:e.innerText.trim(),label:e.getAttribute('aria-label')}));
+    assert.match(chip.text,/^(Full|Review)$/);assert.match(chip.label,/^Permissions for the next turn: (Full access|Review actions)$/);
+    const fade=await page.$eval('#tbar',e=>({over:e.scrollWidth>e.clientWidth+1,end:e.classList.contains('fade-end')}));
+    assert.equal(fade.end,fade.over,'the scrolling edge fades exactly when the row overflows');
+    assert.match(await page.$eval('.ctx-ring .ctx-track',e=>getComputedStyle(e).strokeDasharray),/\d/,'dotted gauge track');
+    const small=await page.$$eval('.copybtn.msgcopy, .toolbar-scroll > .icon:not([hidden])',es=>es.map(e=>e.getBoundingClientRect()).filter(r=>r.width&&(r.width<44||r.height<44)).length);
+    assert.equal(small,0,'copy and scroll controls are 44px');
+   } finally {delete rows[4].repo;}
+   await page.goto(base+'/#/chat/'+rows[0].id);await page.waitForSelector('#box');
+   assert.equal(await page.$eval('#git-open',e=>e.hidden),false,'Git stays where the server does not say otherwise');
+   // Suggested replies: two long options wrap, the X stays on the first line.
+   const id=rows[3].id;conversations.set(id,[{role:'user',text:'Ready?'},{role:'assistant',blocks:[{t:'text',text:'Tests pass. What next?'},{t:'choices',options:['Merge the pull request and deploy it to both servers now','Hold the release until I have reviewed it']}]}]);
+   await page.goto(base+'/#/chat/'+id);await page.waitForSelector('#box');
+   await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});
+   await page.waitForSelector('.choices:not([hidden])');
+   const pos=await page.$eval('.choices',c=>{const x=c.querySelector('.choice-x').getBoundingClientRect(),first=c.querySelector('.choice').getBoundingClientRect();return {xTop:Math.round(x.top),firstTop:Math.round(first.top)};});
+   assert.ok(Math.abs(pos.xTop-pos.firstTop)<4,'dismiss X on the first line '+JSON.stringify(pos));
+   await scan('polish-choices-mobile');await page.screenshot({path:path.join(out,'polish-choices-mobile.png')});
+  });
   await scan('chat-desktop');await page.setViewport({width:390,height:844});await scan('chat-mobile');
   await page.evaluate(()=>settingsSheet());await scan('settings-mobile');
   assert.deepEqual(errors,[]);

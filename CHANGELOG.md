@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.20.1] — Unreleased · build 55
+
+The remaining small findings (P3) from the 2026-10-08 UI/UX audit.
+
+- Phone message settings no longer show a word cut off at the edge ("Full acces…"). The settings row fades out where it scrolls, at either end, and on phones the permission chip says **Full** or **Review** (its accessible name and tooltip keep the full wording).
+- The context ring's track is dotted, so at low usage it reads as a gauge rather than an empty radio button.
+- Sessions in your default workspace (the instance's default workspace, else your home folder) show only the agent in the list ("Claude"), instead of "~ · Claude" on nearly every row. Other workspaces are still named.
+- The session summary says "1 needs attention" (and "2 need attention"). The login screen says "Your Claude Code and Codex sessions, from anywhere."
+- The conversation hides **Git** when its workspace is not inside a Git repository (the server now reports it with the session), instead of offering a panel that can only say so. Opening Pocket signed out no longer logs a 401 error in the browser console: `/api/me` answers `{ ok: false }`.
+- The copy button on each reply and the message-settings scroll arrows have 44px targets, like the rest of the app. What's new and Bugs & feature requests text sits 16px from the sheet edge.
+- The X that dismisses suggested replies stays at the end of the first line; only the options wrap.
+
 ## [1.20.0] — 2026-10-08 · build 54
 
 - Generated titles are a setting, not only an environment variable. Settings has **Generate short titles** directly under Sync names with code-server, and a **Title model** choice: Automatic (Claude first, then Codex), Claude · Haiku, or Codex · GPT-6-Luna. Both are server-wide, like name sync, and saved in `pocket-settings.json`. The line under the switch says whether titles are on and which provider is making them; a note gives the reason a provider is unavailable, which model made the last title, and, for Codex, that each Codex title sends about 25k tokens of your plan against about 400 for Claude. Requested by Brad.

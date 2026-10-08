@@ -42,6 +42,7 @@ function bindToolbarScroll(bar){
    if(!overflow&&(document.activeElement===previous||document.activeElement===next))bar.querySelector('button:not(:disabled)')?.focus({preventScroll:true});
    previous.hidden=next.hidden=!overflow;
    previous.disabled=bar.scrollLeft<=1;next.disabled=bar.scrollLeft+bar.clientWidth>=bar.scrollWidth-1;
+   bar.classList.toggle('fade-start',overflow&&!previous.disabled);bar.classList.toggle('fade-end',overflow&&!next.disabled); // 1.20.1: a soft edge, not a cut word
   };
   previous.onclick=()=>{bar.scrollLeft-=Math.max(120,bar.clientWidth*.8);paint();};
   next.onclick=()=>{bar.scrollLeft+=Math.max(120,bar.clientWidth*.8);paint();};

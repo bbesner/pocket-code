@@ -1384,7 +1384,8 @@ app.post('/api/login', (req, res) => {
   res.status(403).json({ error: 'wrong password' });
 });
 
-app.get('/api/me', requireAuth, (_req, res) => res.json({ ok: true }));
+// 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
+app.get('/api/me', (req, res) => res.json({ ok: checkCookie(getCookie(req, 'pc_auth')) }));
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -1478,7 +1479,7 @@ app.get('/api/sessions', requireAuth, async (req, res) => {
     for (const s of sessions) delete s.prompt;
     // 1.19: the list rarely changes between 5 s polls. A matching If-None-Match gets 304 with the
     // check time in a header, which still counts as a fresh server confirmation for the client.
-    const payload = { sessions, warnings: sessions.warnings };
+    const payload = { sessions, warnings: sessions.warnings, home: DEFAULT_CWD || HOME }; // 1.20.1: rows omit the workspace when it is this one
     const etag = '"' + createHash('sha1').update(JSON.stringify(payload)).digest('base64url') + '"', checkedAt = Date.now();
     res.set({ ETag: etag, 'X-Pocket-Checked-At': String(checkedAt), 'Cache-Control': 'no-store' });
     if (req.get('if-none-match') === etag) return res.status(304).end();
@@ -1530,7 +1531,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       state: stateFor({ id: req.params.id, mtimeMs: meta?.mtimeMs || 0 }),
       executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid), turnEvents: turn?.events.length ?? null,
       locked: !turn && !codex.codexSessions.has(tid) && codex.threadLocked(tid), // Pocket's own open session holds the lock too
-      muted: mutes.has(req.params.id), pinned: isPinned(req.params.id),
+      muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: isGitWorkspace(meta?.cwd || turn?.cwd),
       messages, total,
     });
   }
@@ -1539,7 +1540,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
     const turn = turns.get(req.params.id);
     if (turn) { // brand-new session: transcript file not written yet
       return res.json({
-        id: req.params.id, title: turn.userText?.slice(0, 120) || 'New session', cwd: turn.cwd,
+        id: req.params.id, title: turn.userText?.slice(0, 120) || 'New session', cwd: turn.cwd, repo: isGitWorkspace(turn.cwd),
         state: stateFor({ id: req.params.id }), active: true, messages: turn.userText ? [{ role: 'user', text: turn.userText }] : [],
       });
     }
@@ -1550,7 +1551,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
   const messages = withPendingUser(msgs, turns.get(req.params.id));
   // turnEvents: what the live stream has already broadcast for the running turn. The
   // transcript above covers it, so a fresh stream connection asks to start after it.
-  sendJson(req, res, { ...finishTitle(meta), state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null });
+  sendJson(req, res, { ...finishTitle(meta), state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: isGitWorkspace(meta.cwd), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null });
 });
 
 // Extract references from assistant messages on demand; no second document store.
@@ -1571,6 +1572,14 @@ async function sessionResults(id) {
   resultCache.set(id, {at:Date.now(),value});
   if(resultCache.size > 40) resultCache.delete(resultCache.keys().next().value);
   return value;
+}
+// 1.20.1: the conversation hides its Git control when the workspace is not inside a Git repository.
+function isGitWorkspace(cwd) {
+  if (!cwd) return false;
+  for (let d = path.resolve(cwd); ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, '.git'))) return true;
+    if (d === path.dirname(d)) return false;
+  }
 }
 async function workspaceCwd(id) {
   if(!anyId(id))throw Object.assign(new Error('Invalid session'),{status:400});
@@ -2172,6 +2181,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
+  "Small fixes from the October audit: phone message settings fade at a scrolling edge and say Full or Review; the context ring has a dotted track so it no longer looks like an empty radio button; sessions in your default workspace show only the agent; Git is hidden where the workspace is not a repository; larger copy and scroll targets; the suggested-reply X stays on the first line.",
   "Generated session titles have their own setting: Settings → Generate short titles turns them on or off, and Title model chooses Automatic (Claude first, then Codex), Claude (Haiku) or Codex (GPT-6-Luna). Settings says which one is in use, which model made the last title, and why a choice is unavailable. Requested by Brad.",
   "Titles never try a CLI that isn't there: a server without a signed-in Claude Code or Codex shows why in Settings and makes no title calls. Turning titles off also hides the ones already made, so your list matches code-server."
 ];
