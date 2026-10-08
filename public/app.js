@@ -540,7 +540,8 @@ async function settingsSheet({about = false} = {}) {
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
     <button class="opt" id="s-titles" disabled aria-pressed="false"><span class="dot"></span><span>Generate short titles<span class="sub" id="s-titles-state">Loading the title setting…</span></span></button>
-    <div class="title-settings"><label class="voice-field">Title model<select id="s-title-model" disabled>
+    <button class="opt" id="s-away" disabled aria-pressed="false"><span class="dot"></span><span>Summarize what you missed<span class="sub" id="s-away-state">Loading the summary setting…</span></span></button>
+    <div class="title-settings"><label class="voice-field">Model for titles and summaries<select id="s-title-model" disabled>
       <option value="auto">Automatic: Claude first, then Codex</option><option value="claude">Claude · Haiku</option><option value="codex">Codex · GPT-6-Luna</option></select></label>
       <p class="title-note" id="s-title-note" role="status"></p></div>
     ${Voice.settingsHTML()}
@@ -601,24 +602,31 @@ async function settingsSheet({about = false} = {}) {
       : t.using ? 'On, using ' + name(t.using) + '. Renames and titles from Claude Code come first.'
       : 'On, but no signed-in Claude Code or Codex on this server can make titles.';
     for (const o of sel.options) if (o.value !== 'auto') { const a = t[o.value]; o.disabled = a.available === false; o.textContent = name(o.value) + (a.available === false ? ' (unavailable)' : ''); }
-    sel.value = t.choice; sel.disabled = !t.enabled;
+    const away = sh.querySelector('#s-away'), awayOn = t.awaySummaries !== false;
+    away.disabled = false; away.setAttribute('aria-pressed', String(awayOn)); away.querySelector('.dot').classList.toggle('on', awayOn);
+    sh.querySelector('#s-away-state').textContent = !awayOn ? 'Off. Coming back to a session still marks where new work starts.'
+      : t.helper ? 'When you come back to a session, new work starts under a New since divider with a short summary.'
+      : 'On, but no signed-in Claude Code or Codex on this server can write summaries. The New since divider still shows.';
+    sel.value = t.choice; sel.disabled = !t.enabled && !awayOn;
     const chosen = t.choice === 'auto' ? null : t[t.choice];
     note.textContent = [chosen?.available === false ? chosen.reason : '',
-      t.enabled && t.using === 'codex' ? 'A Codex title sends about 25k tokens of your plan; a Claude title about 400.' : '',
+      (t.enabled || awayOn) && (t.helper || t.using) === 'codex' ? 'Each Codex call sends about 25k tokens of your plan; a Claude call about 400 for a title and a few thousand for a summary.' : '',
       t.last?.model ? 'Last title by ' + (t.last.provider === 'codex' ? (t.codex.label || t.last.model) : modelLabel(t.last.model)) + '.' : ''].filter(Boolean).join(' ');
   };
   const saveTitles = async patch => {
-    const btn = sh.querySelector('#s-titles'), sel = sh.querySelector('#s-title-model'); btn.disabled = sel.disabled = true;
+    const btn = sh.querySelector('#s-titles'), sel = sh.querySelector('#s-title-model'), away = sh.querySelector('#s-away'); btn.disabled = sel.disabled = away.disabled = true;
     try {
       srv = await api('/settings', { method: 'POST', body: JSON.stringify(patch), signal: AbortSignal.timeout(8000) });
       if (!sh.isConnected) return;
-      toast(patch.autoTitles === false ? 'Generated titles off' : patch.autoTitles ? 'Generated titles on' : 'Titles will use ' + sel.selectedOptions[0].textContent.replace(/^Automatic: /, 'Automatic: '));
+      toast(patch.autoTitles === false ? 'Generated titles off' : patch.autoTitles ? 'Generated titles on'
+        : patch.awaySummaries === false ? 'Summaries off' : patch.awaySummaries ? 'Summaries on' : 'Titles and summaries will use ' + sel.selectedOptions[0].textContent);
       refreshSessions();
     } catch (err) { toast('Could not save: ' + err.message); }
     finally { paintTitles(); }
   };
   sh.querySelector('#s-titles').onclick = () => { if (srv?.titles) saveTitles({ autoTitles: !srv.titles.enabled }); };
   sh.querySelector('#s-title-model').onchange = e => saveTitles({ titleProvider: e.target.value });
+  sh.querySelector('#s-away').onclick = () => { if (srv?.titles) saveTitles({ awaySummaries: srv.titles.awaySummaries === false }); };
   const loadSettings = async () => {
     const btn = sh.querySelector('#s-sync'), retry = sh.querySelector('#s-sync-retry');
     btn.disabled = true; retry.hidden = true;
@@ -1234,7 +1242,7 @@ function fileChip(f) { // f: {n,p} from the server, plain name string from optim
 }
 function msgHTML(m) {
   if (m.role === 'user') {
-    let h = `<div class="m-user enter${m.pending ? ' pending' : ''}">${esc(m.text)}</div>`;   // pending: sent, not in the transcript yet
+    let h = `<div class="m-user enter${m.pending ? ' pending' : ''}"${m.ts ? ` data-ts="${esc(m.ts)}"` : ''}>${esc(m.text)}</div>`;   // pending: sent, not in the transcript yet
     if (m.files?.length) h += `<div class="m-files">${m.files.map(fileChip).join('')}</div>`;
     return h;
   }
@@ -1255,7 +1263,7 @@ function msgHTML(m) {
     else { flush(); parts.push(md(b.text)); }
   }
   flush();
-  return `<div class="m-asst enter"><button class="copybtn msgcopy" data-copy-msg aria-label="Copy message">${IC.copy}</button>${parts.join('')}</div>`;
+  return `<div class="m-asst enter"${m.ts ? ` data-ts="${esc(m.ts)}"` : ''}><button class="copybtn msgcopy" data-copy-msg aria-label="Copy message">${IC.copy}</button>${parts.join('')}</div>`;
 }
 
 /* ---------- copy affordances (delegated: messages + code blocks) ---------- */
@@ -1449,7 +1457,15 @@ function chime() {
 /* ---------- composer drafts (Android kills backgrounded PWAs mid-sentence) ---------- */
 const readingPositions = (()=>{try{return JSON.parse(localStorage.getItem('pc-reading')||'{}');}catch{return {};}})();
 let readingTimer;
+// 1.21: when you last had each conversation in front of you (leaving it, switching away or hiding the app).
+// With the shared reviewed marker this decides where "New since …" goes when you come back.
+const viewedAt=readLocal('pc-viewed',{});
+function rememberViewed(){
+  if(!chatId||PANE&&document.visibilityState!=='visible')return;
+  viewedAt[chatId]=Date.now();const keys=Object.keys(viewedAt);if(keys.length>150)delete viewedAt[keys[0]];writeLocal('pc-viewed',viewedAt);
+}
 function rememberReading() {
+  if($('#msgs'))rememberViewed();
   const m=$('#msgs')?.closest('main.scroll');if(!m||!chatId)return;
   readingPositions[chatId]={top:m.scrollTop,bottom:m.scrollHeight-m.scrollTop-m.clientHeight<100};
   const keys=Object.keys(readingPositions);if(keys.length>80)delete readingPositions[keys[0]];
@@ -1513,8 +1529,11 @@ function extPulse() { // ember while another surface (code-server) drives this s
   extT = setTimeout(() => { const h2 = $('#hember'); if (h2 && !composerWorking) h2.innerHTML = ''; }, 45000);
 }
 
-async function renderChat(id) {
+// away: this render is you arriving (opening the session, or coming back to the app), so new work since you last
+// looked is marked. Re-renders of a conversation you are watching (turn end, resync, rail toggle) never mark it.
+async function renderChat(id, { away = false } = {}) {
   const renderVersion = ++chatRenderVersion;
+  const awaySince = away ? Math.max(seenAt(id), Number(viewedAt[id]) || 0) : 0;
   stashAttachments();rememberReading();
   if (chatId !== id) Voice.onLeave();
   chatId = id; closeES();
@@ -1606,6 +1625,7 @@ async function renderChat(id) {
   setComposer(s.active);
   const reading=readingPositions[id],scroller=msgs.closest('main.scroll');
   if(reading&&!reading.bottom)scroller.scrollTop=reading.top;else scrollBottom(true);
+  if(awaySince)paintAway(id,awaySince,renderVersion);
   scroller.addEventListener('scroll',()=>{clearTimeout(readingTimer);readingTimer=setTimeout(rememberReading,200);},{passive:true});
   if (s.ext && !s.active) extPulse();
   paintDelivery(id); refreshSessions();
@@ -1615,6 +1635,56 @@ async function renderChat(id) {
   refreshAgents(id);
   paintContextMeter(id);
   openES(); // always: daemon turns stream events, idle sessions mirror the transcript live
+}
+
+/* ---------- 1.21: While you were away ----------
+   Arriving at a conversation with work you have not seen: a "New since 8:40 PM" divider before the first new
+   message, the view starts there, and when the new part is more than a short exchange, a short summary from
+   the helper model (Settings: same model as titles). Nothing is sent when the new part is only your own messages. */
+let awayAnchor = null;
+function anchorAway() {
+  const d = awayAnchor; if (!d?.isConnected) return;
+  const scroller = d.closest('main.scroll'); scroller.scrollTop += d.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+}
+function awayTimeLabel(ms) {
+  const d = new Date(ms), now = new Date(), t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return t;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'yesterday ' + t;
+  return (now - d < 6 * 86400000 ? d.toLocaleDateString([], { weekday: 'short' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' })) + ' ' + t;
+}
+function paintAway(id, since, renderVersion) {
+  const msgs = $('#msgs'); if (!msgs || chatId !== id) return;
+  const rows = [...msgs.querySelectorAll(':scope > [data-ts]')];
+  const first = rows.find(e => (Date.parse(e.dataset.ts) || 0) > since);
+  if (!first) return;
+  const fresh = rows.slice(rows.indexOf(first));
+  const agent = fresh.filter(e => e.classList.contains('m-asst'));
+  if (!agent.length) return;                                    // only your own messages since: nothing to point out
+  const label = 'New since ' + awayTimeLabel(since);
+  first.insertAdjacentHTML('beforebegin', `<div class="away-divider" id="away-divider" role="separator" aria-label="${esc(label)}"><span>${esc(label)}</span></div>`);
+  const divider = $('#away-divider'), scroller = msgs.closest('main.scroll');
+  // Start reading at the divider and keep it there while the conversation settles (toolbar, stream catch-up,
+  // the summary arriving), until you scroll, tap or type.
+  awayAnchor = divider; anchorAway();
+  const release = () => { awayAnchor = null; ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(t => scroller.removeEventListener(t, release)); };
+  ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(t => scroller.addEventListener(t, release, { passive: true }));
+  requestAnimationFrame(() => setTimeout(anchorAway, 300));
+  // Summary only for more than a short exchange; the server checks the same rule before calling a model.
+  const tools = fresh.reduce((n, e) => n + e.querySelectorAll('.ledger').length, 0);
+  const chars = agent.reduce((n, e) => n + (e.textContent || '').length, 0);
+  if (!(tools >= 3 || agent.length >= 2 || chars >= 600)) return;
+  divider.insertAdjacentHTML('afterend', `<section class="away-card enter" id="away-card" aria-labelledby="away-card-label"><p class="away-label" id="away-card-label">While you were away</p><div class="away-body" role="status">Summarizing what happened…</div></section>`);
+  api(`/session/${encodeURIComponent(id)}/away`, { method: 'POST', body: JSON.stringify({ since }), signal: AbortSignal.timeout(100000) })
+    .then(r => {
+      const card = $('#away-card'); if (!card || chatId !== id || renderVersion !== chatRenderVersion) return;
+      if (!r.summary) { card.remove(); return; }
+      const body = card.querySelector('.away-body');
+      body.innerHTML = '<ul>' + r.summary.split('\n').map(l => '<li>' + esc(l) + '</li>').join('') + '</ul>';
+      requestAnimationFrame(anchorAway);
+      card.insertAdjacentHTML('beforeend', `<p class="away-source">Summary by ${esc(r.provider === 'codex' ? (r.model || 'Codex') : modelLabel(r.model) || 'Claude')}. Read the messages for the details.</p>`);
+    })
+    .catch(() => $('#away-card')?.remove());
 }
 
 /* ---------- subagent activity ---------- */
@@ -1808,6 +1878,7 @@ async function openUsagePanel() {
 function scrollBottom(force) {
   const m = app.querySelector('main.scroll');
   if (!m) return;
+  if (!force && awayAnchor?.isConnected) return;               // 1.21: reading from "New since" until you scroll or send
   const near = m.scrollHeight - m.scrollTop - m.clientHeight < 240;
   if (force || near) m.scrollTop = m.scrollHeight;
 }
@@ -1915,6 +1986,7 @@ async function sendMsg(text) {
   if(uploadsInFlight.get(id)){toast('Wait for the attachment upload to finish.');return;}
   if (!text || !id || sendsInFlight.has(id) || loadOutbox(id)) return;
   if (liveFailure?.id === id) liveFailure = null;
+  awayAnchor = null;                                             // sending goes back to following the conversation
   document.getElementById('turn-failure')?.remove();
   const opts = composerWorking ? {mode:sendModes.get(id)||'steer',approvalMode:nextApprovalMode()} : turnOpts();
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
@@ -2054,7 +2126,7 @@ function openES() {
 /* resync when the phone comes back — the turn kept running server-side */
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') {rememberReading();return;}
-  if (location.hash.startsWith('#/chat/') && chatId) renderChat(chatId);
+  if (location.hash.startsWith('#/chat/') && chatId) renderChat(chatId, { away: true });
   else if (location.hash === '' || location.hash === '#/') renderList();
 });
 
@@ -2213,7 +2285,7 @@ async function route() {
   await loadApprovalPolicy();
   dockSurface?.remove();dockSurface=null;
   const h = location.hash;
-  if (h.startsWith('#/chat/')) return renderChat(h.slice(7));
+  if (h.startsWith('#/chat/')) return renderChat(h.slice(7), { away: true });
   if (h === '#/new') return renderNew();
   return renderList();
 }

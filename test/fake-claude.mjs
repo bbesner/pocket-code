@@ -8,6 +8,9 @@ if (process.argv[2]==='auth'&&process.argv[3]==='status') { console.log(JSON.str
 // Session titles (titles.mjs): a one-shot -p call with no saved session. Answer like the real CLI's json output.
 if (process.argv.includes('--no-session-persistence')) {
   let input=''; process.stdin.on('data',c=>input+=c); process.stdin.on('end',()=>{
+    const tr=input.match(/<transcript>\n([\s\S]*?)\n<\/transcript>/);
+    if(tr){if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.away',tr[1].replace(/\n/g,' | ')+'\n');
+      console.log(JSON.stringify({type:'result',modelUsage:{'claude-haiku-test':{}},is_error:false,result:'- Worked on: '+tr[1].split('\n')[0].replace(/^Owner: /,'').slice(0,40)+'\n- Nothing is waiting on you.'}));return;}
     const req=(input.match(/<request>\n([\s\S]*?)\n<\/request>/)||[,input])[1];
     if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.titles','claude: '+req.slice(0,200).replace(/\n/g,' ')+'\n');
     console.log(JSON.stringify({type:'result',modelUsage:{'claude-haiku-test':{}},is_error:/__TITLEFAIL__/.test(req),result:/__TITLEFAIL__/.test(req)?'Not logged in':'Title: '+req.split(/\s+/).filter(w=>!/^__/.test(w)).slice(0,4).join(' ')+'.'}));

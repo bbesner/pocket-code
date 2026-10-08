@@ -16,6 +16,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
  const idle=rows[4].id;
  const check=async(name,fn)=>{await fn();checks.push(name);};
  const chat=async()=>{await page.goto(base+'/#/chat/'+idle);await page.waitForSelector('#box');};
+ // Hash-only navigation keeps the old view for a moment; wait for the requested conversation to be loaded.
+ const openChat=async id=>{await page.goto(base+'/#/chat/'+id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#ctitle')?.textContent!=='Session'&&document.querySelector('#box'),{},id);};
  const scan=async name=>{
   // Measure final colors, not the translucent opening frame of a sheet animation.
   await page.evaluate(()=>Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))));
@@ -776,7 +778,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.$eval('#s-titles',e=>e.scrollIntoView({block:'center'}));
    await scan('title-settings-mobile');await page.screenshot({path:path.join(out,'title-settings-mobile.png')});
    await page.click('#s-titles');await page.waitForFunction(()=>document.querySelector('#s-titles').getAttribute('aria-pressed')==='false');
-   assert.equal(settingsState().autoTitles,false);assert.equal(await page.$eval('#s-title-model',e=>e.disabled),true,'the model choice waits until titles are on');
+   assert.equal(settingsState().autoTitles,false);assert.equal(await page.$eval('#s-title-model',e=>e.disabled),false,'the model choice stays available while summaries are on (1.21)');
    assert.match(await page.$eval('#s-titles-state',e=>e.textContent),/^Off\./);
    await page.click('#s-titles');await page.waitForFunction(()=>!document.querySelector('#s-title-model').disabled);
    await page.select('#s-title-model','claude');await page.waitForFunction(()=>!document.querySelector('#s-title-model').disabled);
@@ -804,16 +806,65 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     const small=await page.$$eval('.copybtn.msgcopy, .toolbar-scroll > .icon:not([hidden])',es=>es.map(e=>e.getBoundingClientRect()).filter(r=>r.width&&(r.width<44||r.height<44)).length);
     assert.equal(small,0,'copy and scroll controls are 44px');
    } finally {delete rows[4].repo;}
-   await page.goto(base+'/#/chat/'+rows[0].id);await page.waitForSelector('#box');
+   await openChat(rows[0].id);
    assert.equal(await page.$eval('#git-open',e=>e.hidden),false,'Git stays where the server does not say otherwise');
    // Suggested replies: two long options wrap, the X stays on the first line.
    const id=rows[3].id;conversations.set(id,[{role:'user',text:'Ready?'},{role:'assistant',blocks:[{t:'text',text:'Tests pass. What next?'},{t:'choices',options:['Merge the pull request and deploy it to both servers now','Hold the release until I have reviewed it']}]}]);
-   await page.goto(base+'/#/chat/'+id);await page.waitForSelector('#box');
+   await openChat(id);
    await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});
    await page.waitForSelector('.choices:not([hidden])');
    const pos=await page.$eval('.choices',c=>{const x=c.querySelector('.choice-x').getBoundingClientRect(),first=c.querySelector('.choice').getBoundingClientRect();return {xTop:Math.round(x.top),firstTop:Math.round(first.top)};});
    assert.ok(Math.abs(pos.xTop-pos.firstTop)<4,'dismiss X on the first line '+JSON.stringify(pos));
    await scan('polish-choices-mobile');await page.screenshot({path:path.join(out,'polish-choices-mobile.png')});
+  });
+  await check('1.21 While you were away: divider at the first new message, view starts there, summary card, none on re-render',async()=>{
+   await page.setViewport({width:390,height:844});
+   const id=rows[1].id,now=Date.now(),ts=m=>new Date(now-m*60000).toISOString(),long='Paragraph of earlier work that you already read. '.repeat(8);
+   conversations.set(id,[
+    ...Array.from({length:6},(_,i)=>[{role:'user',text:'Earlier question '+i,ts:ts(300-i*10)},{role:'assistant',blocks:[{t:'text',text:long}],ts:ts(299-i*10)}]).flat(),
+    {role:'user',text:'Check stock and draft the order',ts:ts(60)},
+    {role:'assistant',blocks:[{t:'tool',name:'Bash',detail:'stock --all'},{t:'tool',name:'Read',detail:'reorder.csv'},{t:'tool',name:'Bash',detail:'draft-order'},{t:'text',text:'Three products are below their reorder level. The order is drafted. '+'Details for each product follow in the table below. '.repeat(14)}],ts:ts(30)},
+    {role:'assistant',blocks:[{t:'text',text:'Waiting for your approval before sending it.'}],ts:ts(20)},
+   ]);
+   const since=now-45*60000;await page.evaluate((id,since)=>{viewedAt[id]=since;writeLocal('pc-viewed',viewedAt);},id,since);
+   const before=(getMode().awayCalls||[]).length;
+   await page.goto(base+'/#/');await page.waitForSelector('[data-id]');
+   await page.evaluate(id=>{location.hash='#/chat/'+id;},id);await page.waitForSelector('#away-divider');
+   await page.waitForFunction(()=>document.querySelector('#away-card .away-body li'));await pause(500);
+   const r=await page.evaluate(()=>{const d=document.getElementById('away-divider'),next=d.nextElementSibling,s=d.closest('main.scroll');
+    return {label:d.getAttribute('aria-label'),afterCard:next?.id==='away-card'?next.nextElementSibling?.dataset.ts:null,before:d.previousElementSibling?.dataset.ts,
+     top:Math.round(d.getBoundingClientRect().top-s.getBoundingClientRect().top),notBottom:s.scrollHeight-s.scrollTop-s.clientHeight>40,st:Math.round(s.scrollTop),sh:s.scrollHeight,ch:s.clientHeight,anchored:Boolean(awayAnchor?.isConnected),dTop:Math.round(d.offsetTop)};});
+   assert.match(r.label,/^New since \d{1,2}:\d{2}/);
+   assert.equal(r.afterCard,ts(30),'divider and card sit before the first message after you left');assert.equal(r.before,ts(60),'your message from before you left stays above');
+   assert.ok(r.top>=0&&r.top<=24,'the view starts at the divider '+JSON.stringify(r));
+   await page.waitForFunction(()=>document.querySelector('#away-card .away-body li'));
+   assert.deepEqual(await page.$$eval('#away-card .away-body li',l=>l.map(x=>x.textContent)),['Checked stock for 24 products','Three are below their reorder level','Waiting on you: approve the order']);
+   assert.match(await page.$eval('#away-card .away-source',e=>e.textContent),/^Summary by Haiku 5\.5\./);
+   assert.equal((getMode().awayCalls||[]).length,before+1);assert.equal(getMode().awayCalls.at(-1),since);
+   await scan('away-mobile');await page.screenshot({path:path.join(out,'away-mobile.png')});
+   await page.setViewport({width:1440,height:900});await pause(200);await page.screenshot({path:path.join(out,'away-desktop.png')});await page.setViewport({width:390,height:844});
+   // A resync of the conversation you are reading (turn end, rail toggle) never adds a divider.
+   await page.evaluate(id=>renderChat(id),id);await page.waitForSelector('#box');await pause(200);
+   assert.equal(await page.$('#away-divider'),null);
+   // Coming back right after leaving: nothing new, no divider and no call.
+   await page.goto(base+'/#/');await page.waitForSelector('[data-id]');await page.evaluate(id=>{location.hash='#/chat/'+id;},id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#ctitle')?.textContent!=='Session',{},id);await pause(300);
+   assert.equal(await page.$('#away-divider'),null);assert.equal((getMode().awayCalls||[]).length,before+1);
+   // A short exchange gets the divider only; summaries off still mark where new work starts.
+   await page.goto(base+'/#/');await page.waitForSelector('[data-id]');                     // leaving records a fresh viewed time, so set it from the list
+   await page.evaluate((id,since)=>{viewedAt[id]=since;writeLocal('pc-viewed',viewedAt);},id,now-25*60000);
+   await page.evaluate(id=>{location.hash='#/chat/'+id;},id);await page.waitForSelector('#away-divider');await pause(200);
+   assert.equal(await page.$('#away-card'),null,'one short message: no summary');
+  });
+  await check('1.21 Settings: Summarize what you missed switches summaries on and off',async()=>{
+   await page.goto(base+'/#/');await page.waitForSelector('#settings');await page.click('#settings');
+   await page.waitForFunction(()=>!document.querySelector('#s-away').disabled);
+   assert.equal(await page.$eval('#s-away',e=>e.getAttribute('aria-pressed')),'true');
+   assert.match(await page.$eval('#s-away-state',e=>e.textContent),/New since divider with a short summary/);
+   await page.click('#s-away');await page.waitForFunction(()=>document.querySelector('#s-away').getAttribute('aria-pressed')==='false');
+   assert.equal(settingsState().awaySummaries,false);
+   await page.$eval('#s-away',e=>e.scrollIntoView({block:'center'}));await scan('away-settings-mobile');
+   await page.click('#s-away');await page.waitForFunction(()=>document.querySelector('#s-away').getAttribute('aria-pressed')==='true');
+   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
   });
   await scan('chat-desktop');await page.setViewport({width:390,height:844});await scan('chat-mobile');
   await page.evaluate(()=>settingsSheet());await scan('settings-mobile');

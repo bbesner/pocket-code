@@ -141,6 +141,15 @@ is uncertain, **Retry same message** checks the original request identifier; it 
 not intentionally create another turn. Review the conversation before discarding
 an uncertain retry.
 
+**While you were away.** Opening a session that kept working while you were gone (or
+returning to the app) starts the conversation at a **New since …** line before the first
+message you have not seen. "Since" is the later of the reviewed marker shared by your
+devices and the last time this browser had the conversation on screen. When the new
+part is more than a short exchange, a card under the line summarizes it in two to four
+lines and names the model that wrote it. The summary uses the model chosen under
+**Settings → Model for titles and summaries** and only the new messages; turn it off with
+**Summarize what you missed** (the line stays).
+
 When the last turn failed, the end of the conversation says so, with the reason when
 the agent gave one, and offers **Send again** (the last message, as a new turn) and
 **Edit message** (puts it in the message box). Neither replaces a draft you are typing.

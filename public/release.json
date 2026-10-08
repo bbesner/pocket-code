@@ -1,9 +1,8 @@
 {
-  "version": "1.20.1",
-  "assetV": 55,
+  "version": "1.21.0",
+  "assetV": 56,
   "notes": [
-    "Small fixes from the October audit: phone message settings fade at a scrolling edge and say Full or Review; the context ring has a dotted track so it no longer looks like an empty radio button; sessions in your default workspace show only the agent; Git is hidden where the workspace is not a repository; larger copy and scroll targets; the suggested-reply X stays on the first line.",
-    "Generated session titles have their own setting: Settings → Generate short titles turns them on or off, and Title model chooses Automatic (Claude first, then Codex), Claude (Haiku) or Codex (GPT-6-Luna). Settings says which one is in use, which model made the last title, and why a choice is unavailable. Requested by Brad.",
-    "Titles never try a CLI that isn't there: a server without a signed-in Claude Code or Codex shows why in Settings and makes no title calls. Turning titles off also hides the ones already made, so your list matches code-server."
+    "While you were away: come back to a session that kept working and it opens at a “New since 8:40 PM” line before the first thing you have not seen, with a short summary of what happened and anything waiting on you. Settings → Summarize what you missed turns the summary off; the line stays. Requested by Brad.",
+    "Small fixes from the October audit: phone message settings fade at a scrolling edge and say Full or Review; the context ring has a dotted track; sessions in your default workspace show only the agent; Git is hidden where the workspace is not a repository; larger copy and scroll targets; the suggested-reply X stays on the first line."
   ]
 }

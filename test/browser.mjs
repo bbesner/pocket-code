@@ -27,10 +27,10 @@ const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
 const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
-let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto'};
+let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true};
 // Mirrors the server's titleSettings() (1.20): Claude signed in, Codex without GPT-6-Luna.
 const fixtureTitles=()=>{const using=!fixtureSettings.autoTitles?null:fixtureSettings.titleProvider==='codex'?null:'claude';
- return {enabled:fixtureSettings.autoTitles,choice:fixtureSettings.titleProvider,using,models:{claude:'haiku',codex:'gpt-6-luna'},
+ return {enabled:fixtureSettings.autoTitles,choice:fixtureSettings.titleProvider,using,helper:'claude',awaySummaries:fixtureSettings.awaySummaries,models:{claude:'haiku',codex:'gpt-6-luna'},
   claude:{available:true,reason:''},codex:{available:false,reason:'This Codex CLI does not offer gpt-6-luna. Update Codex to use it.'},
   last:{provider:'claude',model:'claude-haiku-4-5-20251001',at:Date.now()},checkedAt:Date.now()};};
 let questionRequests=[];let questionAnswers=null;
@@ -108,6 +108,8 @@ const server=http.createServer(async(req,res)=>{
   if(uiModes.agentsFail)return json({error:'Temporarily unavailable'},503);
   const agents=uiModes.agents||[];return json({agents,total:agents.length,running:agents.filter(a=>a.status==='running').length,checkedAt:Date.now()});
  }
+ if(url.pathname.endsWith('/away')){let raw='';for await(const c of req)raw+=c;const body=JSON.parse(raw||'{}');uiModes.awayCalls=[...(uiModes.awayCalls||[]),body.since];
+  return json(fixtureSettings.awaySummaries===false?{summary:null,reason:'off'}:{summary:'Checked stock for 24 products\nThree are below their reorder level\nWaiting on you: approve the order',model:'claude-haiku-5-5',provider:'claude',messages:3});}
  if(url.pathname.endsWith('/results'))return json({results:[{kind:'link',target:'https://example.com/inventory',label:'Inventory report',detail:'example.com'},{kind:'file',target:'/home/test/reports/stock.csv',label:'Stock CSV',detail:'CSV file'}]});
  if(url.pathname.includes('/queue')){
   if(req.method==='GET')return json({items:queueRows,active:true,external:false});
