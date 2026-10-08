@@ -5,6 +5,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import {randomUUID} from 'node:crypto';
+// One-shot title call (titles.mjs): `codex exec --ephemeral … --json -` reads the prompt on stdin and prints JSONL events.
+if(process.argv[2]==='exec'&&process.argv.includes('--ephemeral')){
+  let input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{
+    const req=(input.match(/<request>\n([\s\S]*?)\n<\/request>/)||[,input])[1];
+    if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.titles','codex '+process.argv[process.argv.indexOf('-m')+1]+': '+req.slice(0,200).replace(/\n/g,' ')+'\n');
+    for(const o of [{type:'thread.started',thread_id:'x'},{type:'item.completed',item:{type:'reasoning',text:''}},{type:'item.completed',item:{type:'agent_message',text:'Codex '+req.split(/\s+/).slice(0,3).join(' ')}},{type:'turn.completed',usage:{}}])console.log(JSON.stringify(o));
+  });
+} else {
 const root=process.env.POCKET_SESSION_ROOT,calls=process.env.POCKET_TEST_CALLS;
 if(!root||!calls)throw Error('Test environment required');
 const lockDir=path.join(root,'codex-locks');fs.mkdirSync(lockDir,{recursive:true});
@@ -66,3 +74,4 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     default:return fail(m.id,'unsupported in fake codex: '+m.method);
   }
 });
+}

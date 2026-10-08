@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.19.1 / build 53**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.20.0 / build 54**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -161,7 +161,8 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `CLAUDE_BIN` | no | Path to `claude`, if it isn't found automatically. |
 | `POCKET_CODEX` | no | Set to `0` to hide Codex sessions even when `codex` is installed. |
 | `POCKET_CHOICES` | no | Set to `0` to stop asking agents for reply suggestions (the buttons under a closing question). |
-| `POCKET_AUTO_TITLES` | no | Set to `0` to stop generating short titles for sessions named only by their opening request (one Haiku call per session through `claude`, no tools, no saved session). |
+| `POCKET_AUTO_TITLES` | no | Starting value for **Settings → Generate short titles** (on unless `0`). Titles are made for sessions named only by their first message, with the signed-in Claude CLI (Haiku, about 400 tokens each) or Codex (GPT-6-Luna, about 25k tokens each), on that CLI's own account: your subscription, or an API key if that is how the CLI is signed in. After the first change in Settings, the Settings value wins. |
+| `POCKET_TITLE_CLAUDE_MODEL`, `POCKET_TITLE_CODEX_MODEL` | no | Models for generated titles. Defaults `haiku` (the Claude CLI's newest Haiku) and `gpt-6-luna`. |
 | `CODEX_BIN`, `CODEX_HOME` | no | Path to `codex` and its home directory, if not the defaults. |
 | `POCKET_RETRY_BUFFER_MS` | no | Wait after a usage-limit reset before auto-continuing. Default 5 minutes. |
 | `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | no | Pocket-only Claude default for turns left on Default, e.g. `claude-opus-5-5[1m]` and `high`. Model must be one of the picker ids. |

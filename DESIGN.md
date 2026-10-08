@@ -421,3 +421,12 @@ Rendered phone and desktop scans: 20 axe scans clean; detector findings on the n
 documented exceptions (app-shell clip, title ellipsis, native font, compact hierarchy, slash-menu
 shadow, off-screen rows under the sticky header). The one new finding, the failure card's buttons
 under the composer, was fixed by scrolling it into view when you are reading at the end.
+
+## Session title settings (1.20)
+
+Pinned Operate refinement: variance 2, motion 0, density 6. One existing toggle row (dot, title, sub line)
+directly under Sync names with code-server, then the Voice settings' native select ("Title model") indented
+to the row text (50px) with a dim 13px status note. The sub line states the live situation in words (Off /
+On, using Claude · Haiku / On, but nothing can make titles); unavailable providers stay listed but disabled
+with "(unavailable)", and the note gives the reason. No new colour, icon or motion. The select is disabled
+while titles are off. 44px targets; rendered phone screenshot and axe scan reviewed.

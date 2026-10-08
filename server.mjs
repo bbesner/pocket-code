@@ -27,7 +27,7 @@ import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import {AgentActivity,ClaudeAgentFiles} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
-import {automation,createTitler,cleanTitle} from './titles.mjs';
+import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION} from './titles.mjs';
 import zlib from 'node:zlib';
 
 // ---------- config ----------
@@ -166,10 +166,57 @@ const setSmeta = (id, patch) => {
   saveSmeta();
 };
 // 1.19.1: titles saved by 1.19.0 may carry Markdown ("# Planning phase"); show them through the same cleanup.
-const storedAutoTitle = id => smeta[id]?.autoTitle ? cleanTitle(smeta[id].autoTitle) : null; // a bad stored title falls back to the request until it is redone
-// 1.19: short titles for sessions named only by their opening request. POCKET_AUTO_TITLES=0 turns it off.
-const titler = createTitler({ bin: CLAUDE_BIN, enabled: (process.env.POCKET_AUTO_TITLES ?? '1').trim() !== '0',
-  getMeta: id => smeta[id], setMeta: setSmeta, log });
+// 1.20: turning generated titles off in Settings also stops showing them (the stored titles are kept).
+const storedAutoTitle = id => settings.autoTitles && smeta[id]?.autoTitle ? cleanTitle(smeta[id].autoTitle) : null; // a bad stored title falls back to the request until it is redone
+// 1.20: generated titles are a server setting (Settings → Session titles): on/off and Automatic / Claude / Codex.
+// POCKET_AUTO_TITLES only sets the starting value until someone changes it in Settings.
+if (typeof settings.autoTitles !== 'boolean') settings.autoTitles = (process.env.POCKET_AUTO_TITLES ?? '1').trim() !== '0';
+if (!['auto', 'claude', 'codex'].includes(settings.titleProvider)) settings.titleProvider = 'auto';
+const TITLE_MODELS = { claude: (process.env.POCKET_TITLE_CLAUDE_MODEL || 'haiku').trim(), codex: (process.env.POCKET_TITLE_CODEX_MODEL || 'gpt-6-luna').trim() };
+// Whether each CLI can make titles: installed, signed in, and (Codex) offering the title model. Refreshed at
+// most every 10 minutes, or when Settings opens. null = not known yet; a call is tried and backs off on failure.
+const titleProviders = { checkedAt: 0, checking: null, claude: { available: null, reason: '' }, codex: { available: null, reason: '', label: null }, last: null };
+const claudeInstalled = () => CLAUDE_BIN === 'claude' ? (process.env.PATH || '').split(path.delimiter).some(d => d && fs.existsSync(path.join(d, 'claude'))) : fs.existsSync(CLAUDE_BIN);
+function refreshTitleProviders(maxAgeMs = 10 * 60_000) {
+  if (Date.now() - titleProviders.checkedAt < maxAgeMs) return Promise.resolve();
+  return titleProviders.checking ??= (async () => {
+    const [cl, cx] = await Promise.all([
+      (async () => {
+        if (!claudeInstalled()) return { available: false, reason: 'Claude Code is not installed on this server.' };
+        const id = await readClaudeIdentity(CLAUDE_BIN, spawnEnv());
+        return id.signedIn === false ? { available: false, reason: 'Claude Code is not signed in on this server.' } : { available: id.signedIn ? true : null, reason: '' };
+      })(),
+      (async () => {
+        if (!CODEX_ON) return { available: false, reason: process.env.POCKET_CODEX === '0' ? 'Codex is turned off for Pocket on this server.' : 'Codex is not installed on this server.' };
+        const acct = await codex.accountSummary().catch(() => null);
+        if (acct?.signedIn === false) return { available: false, reason: 'Codex is not signed in on this server.' };
+        const models = await codex.codexModels().catch(() => []);
+        const m = models.find(x => x.id === TITLE_MODELS.codex);
+        if (models.length && !m) return { available: false, reason: `This Codex CLI does not offer ${TITLE_MODELS.codex}. Update Codex to use it.` };
+        return { available: acct?.signedIn ? true : null, reason: '', label: m?.label || null };
+      })(),
+    ]).catch(() => [titleProviders.claude, titleProviders.codex]);
+    Object.assign(titleProviders, { claude: cl, codex: cx, checkedAt: Date.now(), checking: null });
+  })();
+}
+// The provider titles use now: the chosen one if it can, or for Automatic Claude first (far smaller calls), then Codex.
+function titleProvider() {
+  if (!settings.autoTitles) return null;
+  const ok = p => (p === 'claude' ? claudeInstalled() : CODEX_ON) && titleProviders[p].available !== false; // installed is known at once; sign-in after the first check
+  if (settings.titleProvider !== 'auto') return ok(settings.titleProvider) ? settings.titleProvider : null;
+  return ok('claude') ? 'claude' : ok('codex') ? 'codex' : null;
+}
+const titler = createTitler({ getMeta: id => smeta[id], setMeta: setSmeta, log,
+  isEnabled: () => { refreshTitleProviders(); return Boolean(titleProvider()); },
+  attempt: () => TITLE_VERSION + ':' + titleProvider(),
+  generate: text => titleProvider() === 'codex'
+    ? generateCodexTitle(codex.CODEX_BIN, text, { model: TITLE_MODELS.codex, env: spawnEnv() })
+    : generateTitle(CLAUDE_BIN, text, { model: TITLE_MODELS.claude, env: spawnEnv() }),
+  onTitled: r => { titleProviders.last = { provider: titleProvider(), model: r.model, at: Date.now() }; } });
+function titleSettings() {
+  return { enabled: settings.autoTitles, choice: settings.titleProvider, using: titleProvider(), models: TITLE_MODELS,
+    claude: titleProviders.claude, codex: titleProviders.codex, last: titleProviders.last, checkedAt: titleProviders.checkedAt };
+}
 async function pushNotify(sessionId, title, body) {
   if (!pushReady) return;
   if (mutes.has(sessionId)) return log(`push muted session=${sessionId}`);
@@ -1905,12 +1952,17 @@ app.post('/api/session/:id/rename', requireAuth, async (req, res) => {
 });
 
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
-app.get('/api/settings', requireAuth, (_req, res) => res.json(settings));
+app.get('/api/settings', requireAuth, async (_req, res) => {
+  await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
+  res.json({ ...settings, titles: titleSettings() });
+});
 app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
+  if (typeof req.body?.autoTitles === 'boolean') settings.autoTitles = req.body.autoTitles;
+  if (['auto', 'claude', 'codex'].includes(req.body?.titleProvider)) settings.titleProvider = req.body.titleProvider;
   saveSettings();
-  log(`settings updated: titleSync=${settings.titleSync}`);
-  res.json(settings);
+  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider}`);
+  res.json({ ...settings, titles: titleSettings() });
 });
 
 app.post('/api/session/:id/mute', requireAuth, (req, res) => {
@@ -2120,12 +2172,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Generated session titles are plain and to the point: Markdown is stripped, a reply that answers the request instead of naming it is rejected, and Codex threads whose name is just their first message now get a short title too.",
-  "Easier reading on wide screens: replies keep a comfortable line length on desktop and tablet, while tables and code still use the full width.",
-  "A tidier session list: scheduled runs are grouped under Automated at the end of the list, Codex sessions from scratch folders are left out, and sessions named only by their first message get a short generated title. Your renames always win.",
-  "More room on phones: the run status shares the title bar with the project name instead of a separate strip, and the check time no longer ticks every second.",
-  "A failed turn now says so at the end of the conversation, with the reason when known, and offers Send again or Edit message.",
-  "New session starts in your most recent workspace and explains next to Start when something is missing. Session options are grouped, with display settings last."
+  "Generated session titles have their own setting: Settings → Generate short titles turns them on or off, and Title model chooses Automatic (Claude first, then Codex), Claude (Haiku) or Codex (GPT-6-Luna). Settings says which one is in use, which model made the last title, and why a choice is unavailable. Requested by Brad.",
+  "Titles never try a CLI that isn't there: a server without a signed-in Claude Code or Codex shows why in Settings and makes no title calls. Turning titles off also hides the ones already made, so your list matches code-server."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
@@ -2198,3 +2246,4 @@ app.use((err, req, res, _next) => {
   res.status(err?.status || 503).json({ error: err?.status ? err.message : 'Request failed. Please retry.' });
 });
 const server = app.listen(PORT, '127.0.0.1', () => log(`pocket-claude listening on 127.0.0.1:${server.address().port}`));
+refreshTitleProviders(0).catch(() => { }); // know which CLIs can make titles before the first list request

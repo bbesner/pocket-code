@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.20.0] — Unreleased · build 54
+
+- Generated titles are a setting, not only an environment variable. Settings has **Generate short titles** directly under Sync names with code-server, and a **Title model** choice: Automatic (Claude first, then Codex), Claude · Haiku, or Codex · GPT-6-Luna. Both are server-wide, like name sync, and saved in `pocket-settings.json`. The line under the switch says whether titles are on and which provider is making them; a note gives the reason a provider is unavailable, which model made the last title, and, for Codex, that each Codex title sends about 25k tokens of your plan against about 400 for Claude. Requested by Brad.
+- Turning titles off also stops showing the titles already made (they are kept and come back when you turn titles on), so with Sync names with code-server on, the list matches code-server.
+- Each provider is checked before it is used: installed, signed in (`claude auth status`, Codex `account/read`) and, for Codex, offering GPT-6-Luna in its model list. A server with neither makes no title calls at all and Settings says why; before, a Codex-only server tried the missing `claude` once a day per session. A failure with one provider no longer blocks a retry with the other.
+- Claude titles ask for the CLI's `haiku` alias, so they move to the newest Haiku when the Claude CLI is updated (Claude Code 2.1.293 maps it to Haiku 5.5; 2.1.281 to Haiku 4.5). Codex titles run `codex exec --ephemeral` read-only with GPT-6-Luna at low effort, without loading your config or rules, and save no session. `POCKET_TITLE_CLAUDE_MODEL` and `POCKET_TITLE_CODEX_MODEL` override the models.
+- Title calls no longer receive Pocket's own secrets in their environment (they use the same environment as agent turns).
+- `POCKET_AUTO_TITLES` now only sets the starting value; once changed in Settings, the Settings value is used.
+
 ## [1.19.1] — 2026-10-08 · build 53
 
 - Generated titles are cleaner. On the first live run of 1.19.0 the model sometimes answered in Markdown ("# Planning Phase: …") or answered the request itself ("I don't have access to…") instead of naming it. The request is now framed as data with the instruction after it (8 of 8 good titles on the cases that went wrong, including the ones that failed), Markdown is stripped, and a multi-line or answer-like reply is rejected. Titles saved by 1.19.0 go through the same check: a bad one shows the request again until it is redone, and failures from the older prompt are retried once.

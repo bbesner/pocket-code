@@ -910,3 +910,8 @@ header.bar { gap: 2px; padding-inline: 8px; }
 /* New session: the reason Start did nothing, next to Start. */
 .start-hint { margin: -4px 0 0; color: var(--err); font-size: 14px; }
 .start-hint[hidden] { display: none; }
+
+/* ---------- 1.20: generated session titles in Settings (existing toggle row + native select) ---------- */
+.title-settings { display: flex; flex-direction: column; gap: 6px; padding: 0 14px 12px 50px; font-size: 14px; color: var(--dim); }
+.title-note { margin: 0; font-size: 13px; line-height: 1.45; color: var(--dim); }
+.title-note:empty { display: none; }
