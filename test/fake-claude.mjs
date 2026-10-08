@@ -4,12 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 if (process.argv.includes('--version')) { console.log('test-cli'); process.exit(0); }
+if (process.argv[2]==='auth'&&process.argv[3]==='status') { console.log(JSON.stringify({loggedIn:process.env.FAKE_CLAUDE_SIGNED_OUT!=='1',authMethod:'claude.ai',email:'owner@example.test',subscriptionType:'max'})); process.exit(0); }
 // Session titles (titles.mjs): a one-shot -p call with no saved session. Answer like the real CLI's json output.
 if (process.argv.includes('--no-session-persistence')) {
   let input=''; process.stdin.on('data',c=>input+=c); process.stdin.on('end',()=>{
     const req=(input.match(/<request>\n([\s\S]*?)\n<\/request>/)||[,input])[1];
-    if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.titles',req.slice(0,200).replace(/\n/g,' ')+'\n');
-    console.log(JSON.stringify({type:'result',is_error:/__TITLEFAIL__/.test(req),result:/__TITLEFAIL__/.test(req)?'Not logged in':'Title: '+req.split(/\s+/).filter(w=>!/^__/.test(w)).slice(0,4).join(' ')+'.'}));
+    if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.titles','claude: '+req.slice(0,200).replace(/\n/g,' ')+'\n');
+    console.log(JSON.stringify({type:'result',modelUsage:{'claude-haiku-test':{}},is_error:/__TITLEFAIL__/.test(req),result:/__TITLEFAIL__/.test(req)?'Not logged in':'Title: '+req.split(/\s+/).filter(w=>!/^__/.test(w)).slice(0,4).join(' ')+'.'}));
   });
 } else {
 const args=process.argv.slice(2);

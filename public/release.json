@@ -1,12 +1,8 @@
 {
-  "version": "1.19.1",
-  "assetV": 53,
+  "version": "1.20.0",
+  "assetV": 54,
   "notes": [
-    "Generated session titles are plain and to the point: Markdown is stripped, a reply that answers the request instead of naming it is rejected, and Codex threads whose name is just their first message now get a short title too.",
-    "Easier reading on wide screens: replies keep a comfortable line length on desktop and tablet, while tables and code still use the full width.",
-    "A tidier session list: scheduled runs are grouped under Automated at the end of the list, Codex sessions from scratch folders are left out, and sessions named only by their first message get a short generated title. Your renames always win.",
-    "More room on phones: the run status shares the title bar with the project name instead of a separate strip, and the check time no longer ticks every second.",
-    "A failed turn now says so at the end of the conversation, with the reason when known, and offers Send again or Edit message.",
-    "New session starts in your most recent workspace and explains next to Start when something is missing. Session options are grouped, with display settings last."
+    "Generated session titles have their own setting: Settings → Generate short titles turns them on or off, and Title model chooses Automatic (Claude first, then Codex), Claude (Haiku) or Codex (GPT-6-Luna). Settings says which one is in use, which model made the last title, and why a choice is unavailable. Requested by Brad.",
+    "Titles never try a CLI that isn't there: a server without a signed-in Claude Code or Codex shows why in Settings and makes no title calls. Turning titles off also hides the ones already made, so your list matches code-server."
   ]
 }

@@ -539,6 +539,10 @@ async function settingsSheet({about = false} = {}) {
     <button class="opt" id="s-push" aria-pressed="false"><span class="dot"></span><span>Turn notifications<span class="sub" id="s-push-state">Checking notification support…</span></span></button>
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
+    <button class="opt" id="s-titles" disabled aria-pressed="false"><span class="dot"></span><span>Generate short titles<span class="sub" id="s-titles-state">Loading the title setting…</span></span></button>
+    <div class="title-settings"><label class="voice-field">Title model<select id="s-title-model" disabled>
+      <option value="auto">Automatic: Claude first, then Codex</option><option value="claude">Claude · Haiku</option><option value="codex">Codex · GPT-6-Luna</option></select></label>
+      <p class="title-note" id="s-title-note" role="status"></p></div>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
@@ -587,17 +591,46 @@ async function settingsSheet({about = false} = {}) {
     sh.querySelector('#s-push-state').textContent = reg ? 'Push to this device when a turn finishes' : 'Unavailable. Reload the app or tap to retry.';
   };
   sh.querySelector('#s-push').onclick = async e => { await togglePush(e.currentTarget); await refreshPush(); };
+  // 1.20: generated session titles. Server-wide like name sync: on/off and which CLI makes them.
+  const paintTitles = () => {
+    const t = srv?.titles, btn = sh.querySelector('#s-titles'), sel = sh.querySelector('#s-title-model'), state = sh.querySelector('#s-titles-state'), note = sh.querySelector('#s-title-note');
+    if (!t || !btn) return;
+    btn.disabled = false; btn.setAttribute('aria-pressed', String(t.enabled)); btn.querySelector('.dot').classList.toggle('on', t.enabled);
+    const name = p => p === 'codex' ? 'Codex · ' + (t.codex.label || t.models.codex) : 'Claude · Haiku';
+    state.textContent = !t.enabled ? 'Off. Sessions named only by their first message show that message.'
+      : t.using ? 'On, using ' + name(t.using) + '. Renames and titles from Claude Code come first.'
+      : 'On, but no signed-in Claude Code or Codex on this server can make titles.';
+    for (const o of sel.options) if (o.value !== 'auto') { const a = t[o.value]; o.disabled = a.available === false; o.textContent = name(o.value) + (a.available === false ? ' (unavailable)' : ''); }
+    sel.value = t.choice; sel.disabled = !t.enabled;
+    const chosen = t.choice === 'auto' ? null : t[t.choice];
+    note.textContent = [chosen?.available === false ? chosen.reason : '',
+      t.enabled && t.using === 'codex' ? 'A Codex title sends about 25k tokens of your plan; a Claude title about 400.' : '',
+      t.last?.model ? 'Last title by ' + (t.last.provider === 'codex' ? (t.codex.label || t.last.model) : modelLabel(t.last.model)) + '.' : ''].filter(Boolean).join(' ');
+  };
+  const saveTitles = async patch => {
+    const btn = sh.querySelector('#s-titles'), sel = sh.querySelector('#s-title-model'); btn.disabled = sel.disabled = true;
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify(patch), signal: AbortSignal.timeout(8000) });
+      if (!sh.isConnected) return;
+      toast(patch.autoTitles === false ? 'Generated titles off' : patch.autoTitles ? 'Generated titles on' : 'Titles will use ' + sel.selectedOptions[0].textContent.replace(/^Automatic: /, 'Automatic: '));
+      refreshSessions();
+    } catch (err) { toast('Could not save: ' + err.message); }
+    finally { paintTitles(); }
+  };
+  sh.querySelector('#s-titles').onclick = () => { if (srv?.titles) saveTitles({ autoTitles: !srv.titles.enabled }); };
+  sh.querySelector('#s-title-model').onchange = e => saveTitles({ titleProvider: e.target.value });
   const loadSettings = async () => {
     const btn = sh.querySelector('#s-sync'), retry = sh.querySelector('#s-sync-retry');
     btn.disabled = true; retry.hidden = true;
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
+      paintTitles();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
     } catch {
-      if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; retry.hidden = false; }
+      if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-titles-state').textContent = 'Could not load this setting.'; retry.hidden = false; }
     }
   };
   sh.querySelector('#s-sync-retry').onclick = loadSettings;

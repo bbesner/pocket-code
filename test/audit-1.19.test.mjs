@@ -37,7 +37,7 @@ test('cleanTitle keeps a short plain title and rejects errors and essays',()=>{
 test('titler: one call at a time, newest first, never over a rename, backs off after a failure',async()=>{
   const meta={},calls=[];let active=0,peak=0;
   const t=createTitler({bin:'x',getMeta:id=>meta[id],setMeta:(id,p)=>{meta[id]={...meta[id],...p};for(const k in meta[id])if(meta[id][k]==null)delete meta[id][k];},
-    generate:async(_b,text)=>{active++;peak=Math.max(peak,active);calls.push(text);await sleep(20);active--;return text==='bad'?null:'T '+text;}});
+    generate:async text=>{active++;peak=Math.max(peak,active);calls.push(text);await sleep(20);active--;return text==='bad'?null:'T '+text;}});
   meta.renamed={name:'Mine'};
   t.request('a','first');t.request('b','second');t.request('c','third');t.request('renamed','x');t.request('a','first');
   while(t.pending)await sleep(10);

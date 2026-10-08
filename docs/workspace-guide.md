@@ -22,10 +22,25 @@ The session list distinguishes confirmed Pocket-owned runs from activity seen in
 external transcript. Search matches recent session titles and workspace paths.
 
 A session's title is your rename, else the agent's own title, else a short title
-Pocket generates from the opening request (one small Claude call, Haiku, with no
-tools and no saved session; kept in `session-meta.json`, never written to a
-transcript, and only asked for sessions active in the last 14 days). Clearing a
-rename returns to that title. `POCKET_AUTO_TITLES=0` turns generation off.
+Pocket generates from the opening request. Clearing a rename returns to that title.
+
+**Settings → Generate short titles** turns generation on or off for the whole server
+(on by default), and **Title model** picks who writes them:
+
+| Choice | Uses | Cost per title |
+|---|---|---|
+| Automatic | Claude when its CLI is installed and signed in, otherwise Codex | as below |
+| Claude · Haiku | `claude -p --model haiku`, no tools, no saved session | about 400 tokens |
+| Codex · GPT-6-Luna | `codex exec --ephemeral`, read-only, low effort | about 25k tokens (Codex's built-in instructions) |
+
+Calls run on that CLI's own sign-in: your Claude or ChatGPT subscription, or an API key
+if the CLI uses one. Titles are kept in `session-meta.json`, never written to a
+transcript, made one at a time, and only for sessions active in the last 14 days.
+A provider that is not installed, not signed in, or (Codex) does not offer GPT-6-Luna is
+shown as unavailable with the reason; with neither available no calls are made. Turning
+titles off also hides the ones already made, so the list matches code-server when Sync
+names with code-server is on. Claude's `haiku` alias follows the installed CLI: update
+Claude Code to move titles to the newest Haiku.
 
 Scheduled runs that open with `[cron:<id> Job name]` (or an OpenClaw runtime preamble)
 are marked automated, show the job name, and sit in a collapsed **Automated** group at

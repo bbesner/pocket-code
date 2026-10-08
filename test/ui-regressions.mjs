@@ -8,7 +8,7 @@ const require=createRequire(import.meta.url);
 const axePath=require.resolve('axe-core/axe.min.js');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
-export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()=>({}),received=[],voiceLog={transcribe:[],speak:[]},conversations=new Map(),pinOrders=[]}) {
+export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()=>({}),settingsState=()=>({}),received=[],voiceLog={transcribe:[],speak:[]},conversations=new Map(),pinOrders=[]}) {
  const context=await browser.createBrowserContext(),page=await context.newPage();
  page.setDefaultTimeout(8000);
  const errors=[],checks=[],scans=[];
@@ -763,6 +763,26 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await scan('new-session-hint-mobile');
    await page.type('#first','x');assert.equal(await page.$eval('#start-hint',e=>e.hidden),true);
    await page.$eval('#first',e=>{e.value='';e.dispatchEvent(new Event('input'));});
+  });
+  await check('1.20 Settings: generated titles switch on and off, choose a model, and say why one is unavailable',async()=>{
+   await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.waitForSelector('#settings');
+   await page.click('#settings');await page.waitForFunction(()=>!document.querySelector('#s-titles').disabled);
+   assert.equal(await page.$eval('#s-titles',e=>e.getAttribute('aria-pressed')),'true');
+   assert.match(await page.$eval('#s-titles-state',e=>e.textContent),/On, using Claude · Haiku/);
+   assert.deepEqual(await page.$$eval('#s-title-model option',os=>os.map(o=>[o.value,o.disabled])),[['auto',false],['claude',false],['codex',true]],'an unavailable provider cannot be chosen');
+   assert.match(await page.$eval('#s-title-model option[value="codex"]',o=>o.textContent),/unavailable/);
+   assert.match(await page.$eval('#s-title-note',e=>e.textContent),/Last title by Haiku 4\.5/);
+   assert.ok(await page.$eval('#s-titles',e=>e.getBoundingClientRect().height)>=44);
+   await page.$eval('#s-titles',e=>e.scrollIntoView({block:'center'}));
+   await scan('title-settings-mobile');await page.screenshot({path:path.join(out,'title-settings-mobile.png')});
+   await page.click('#s-titles');await page.waitForFunction(()=>document.querySelector('#s-titles').getAttribute('aria-pressed')==='false');
+   assert.equal(settingsState().autoTitles,false);assert.equal(await page.$eval('#s-title-model',e=>e.disabled),true,'the model choice waits until titles are on');
+   assert.match(await page.$eval('#s-titles-state',e=>e.textContent),/^Off\./);
+   await page.click('#s-titles');await page.waitForFunction(()=>!document.querySelector('#s-title-model').disabled);
+   await page.select('#s-title-model','claude');await page.waitForFunction(()=>!document.querySelector('#s-title-model').disabled);
+   assert.equal(settingsState().titleProvider,'claude');
+   await page.select('#s-title-model','auto');await page.waitForFunction(()=>!document.querySelector('#s-title-model').disabled);
+   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
   });
   await scan('chat-desktop');await page.setViewport({width:390,height:844});await scan('chat-mobile');
   await page.evaluate(()=>settingsSheet());await scan('settings-mobile');
