@@ -349,6 +349,8 @@ function threadToSession(t) {
     id: CX + t.id,
     provider: 'codex',
     title,
+    untitled: !t.name && Boolean(t.preview), // 1.19: Pocket may generate a short title (server.mjs finishTitle)
+    prompt: !t.name && t.preview ? String(t.preview).slice(0, 1500) : undefined,
     cwd: t.cwd || null,
     mtimeMs: (t.updatedAt || t.recencyAt || t.createdAt || 0) * 1000,
     model: t.model || undefined,

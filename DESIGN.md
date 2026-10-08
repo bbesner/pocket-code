@@ -393,3 +393,31 @@ Move pin up / down with the existing arrow glyphs for phones and keyboards. The 
 is one control in two places: a chip beside Alerts in the idle composer and a bell-sized
 icon in the working row, speaker and speaker-off glyphs in the authored 1.8px stroke, set
 state in clay like the other set chips. It appears only when the server has voice.
+
+## UI/UX audit fixes (1.19)
+
+Pinned Operate refinement from the 2026-10-08 audit: variance 3, motion 1, density 6. Warm ink
+palette, native type and every existing control unchanged; this pass is measure, quieter chrome
+and clearer state.
+
+Prose in a reply (paragraphs, lists, quotes, headings) stops at 68ch from 700px up; tables, code,
+tool folds and the composer keep the 1280px frame, and the user's chip stops at 60ch. ch follows the
+Chat text size setting. At 1440px a paragraph measured 127 characters per line before; the browser
+regression now asserts 80 or fewer.
+
+Up to 600px the run status joins the title bar's second line after the project name and a faint
+middot, in short words (Idle, Running, Unconfirmed); the strip above the conversation is gone there,
+returning 28px to reading. Wider screens keep the strip with its full wording. The check age moves
+in 10-second and minute steps, so the ember stays the only thing that moves while nothing changes.
+
+Scheduled runs sit in a closed `<details>` group at the end of All: the same group heading with a
+drawn disclosure triangle (the tool-fold glyphs) and a dim "Scheduled runs" note; rows inside are
+ordinary rows. A failed last turn ends the conversation with a hairline `--err` card: the reason in
+`--err` (5.6:1 on the page) and two 44px chips in primary text. Session options gain hairline
+separators between four groups; Chat text size moves into the last one. The New session hint under
+Start uses `--err` at 14px, beside the action it explains.
+
+Rendered phone and desktop scans: 20 axe scans clean; detector findings on the new views are the
+documented exceptions (app-shell clip, title ellipsis, native font, compact hierarchy, slash-menu
+shadow, off-screen rows under the sticky header). The one new finding, the failure card's buttons
+under the composer, was fixed by scrolling it into view when you are reading at the end.

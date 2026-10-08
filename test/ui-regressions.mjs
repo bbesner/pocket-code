@@ -8,7 +8,7 @@ const require=createRequire(import.meta.url);
 const axePath=require.resolve('axe-core/axe.min.js');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
-export async function runUIRegressions({browser,base,rows,out,setMode,received=[],voiceLog={transcribe:[],speak:[]},conversations=new Map(),pinOrders=[]}) {
+export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()=>({}),received=[],voiceLog={transcribe:[],speak:[]},conversations=new Map(),pinOrders=[]}) {
  const context=await browser.createBrowserContext(),page=await context.newPage();
  page.setDefaultTimeout(8000);
  const errors=[],checks=[],scans=[];
@@ -666,6 +666,103 @@ export async function runUIRegressions({browser,base,rows,out,setMode,received=[
    setMode({voice:false});await page.reload();await page.waitForSelector('#box');await pause(300);
    assert.equal(await page.$eval('#micb',e=>e.hidden),true);assert.equal(await page.$eval('#hfb',e=>e.hidden),true);
    setMode({voice:true});await page.reload();await page.waitForSelector('#micb:not([hidden])');
+  });
+  // ---------- 1.19: fixes from the 2026-10-08 UI/UX audit ----------
+  await check('1.19 Reading measure: prose stops near 68 characters on wide screens; tables keep the full width',async()=>{
+   const target=rows[3].id,prose='Stock on hand covers the next three weeks for most products, but the outdoor camera line will run short before the incoming order lands, so we should move part of the recorder budget to cameras this month.';
+   conversations.set(target,[{role:'user',text:'How does stock look?'},{role:'assistant',blocks:[{t:'text',text:prose+'\n\n- '+prose+'\n\n| Product | On hand | Incoming | Supplier reference | Notes |\n|---|---:|---:|---|---|\n| Outdoor camera | 24 | 12 | WAREHOUSE-LONG-REFERENCE-001 | '+prose+' |'}]}]);
+   await page.setViewport({width:1440,height:900});await page.goto(base+'/#/chat/'+target);await page.waitForSelector('.m-asst .report-table');
+   const m=await page.evaluate(()=>{const p=[...document.querySelectorAll('.m-asst :is(p,ul,ol,blockquote)')].find(e=>!e.closest('.report-table')),t=document.querySelector('.report-table'),size=parseFloat(getComputedStyle(p).fontSize);
+    const probe=document.createElement('div');probe.style.width='68ch';p.parentElement.append(probe);const limit=probe.getBoundingClientRect().width;probe.remove();
+    const para=[...document.querySelectorAll('.m-asst p')].find(e=>e.textContent.length>150),range=document.createRange();range.selectNodeContents(para);
+    const lines=new Set([...range.getClientRects()].map(r=>Math.round(r.top))).size;
+    return {p:p.getBoundingClientRect().width,t:t.getBoundingClientRect().width,limit,size,charsPerLine:Math.round(para.textContent.length/lines),msgs:document.querySelector('.msgs').getBoundingClientRect().width};});
+   assert.ok(m.p<=m.limit+1,'prose width '+JSON.stringify(m));assert.ok(m.charsPerLine<=80,'line length '+JSON.stringify(m));assert.ok(m.t>m.p+100,'tables keep the wide frame '+JSON.stringify(m));
+   await page.screenshot({path:path.join(out,'measure-desktop.png')});
+  });
+  await check('1.19 Phone header: the run status shares the title bar with the project, with no separate strip',async()=>{
+   await page.setViewport({width:390,height:844});
+   await page.evaluate(()=>{headerCollapsed=false;writeLocal('pc-header-collapsed',false);});await chat();await page.evaluate(()=>refreshSessions());
+   const r=await page.evaluate(()=>{const c=document.getElementById('run-confirmation'),tag=document.getElementById('cproj');
+    return {inHeader:Boolean(c.closest('header.bar h1')),inControls:document.getElementById('conversation-controls').contains(c),dy:Math.abs(c.getBoundingClientRect().bottom-tag.getBoundingClientRect().bottom),
+     header:document.querySelector('.chatcol > header.bar').getBoundingClientRect().height,visible:c.getClientRects().length>0,label:c.textContent};});
+   assert.ok(r.inHeader&&!r.inControls&&r.visible,JSON.stringify(r));
+   assert.equal(await page.$eval('#run-confirmed-state',e=>e.textContent),'Idle','short words in the title bar');assert.ok(r.dy<6,'project and status on one line '+JSON.stringify(r));assert.ok(r.header<=60,JSON.stringify(r));
+   await scan('status-in-header-mobile');await page.screenshot({path:path.join(out,'status-in-header-mobile.png')});
+   await page.setViewport({width:1440,height:900});
+   await page.waitForFunction(()=>document.getElementById('conversation-controls').contains(document.getElementById('run-confirmation')));
+   await page.evaluate(()=>paintRunConfirmation());assert.equal(await page.$eval('#run-confirmed-state',e=>e.textContent),'No active run here','the strip keeps the full wording');
+   await page.setViewport({width:390,height:844});
+   await page.waitForFunction(()=>Boolean(document.getElementById('run-confirmation').closest('header.bar h1')));
+  });
+  await check('1.19 Automated runs: one collapsed group at the end of All; search shows them normally',async()=>{
+   const extra={id:'77777777-7777-4777-8777-777777777777',title:'Nightly backup check',automated:true,cwd:'/workspaces/ops',provider:'codex',mtimeMs:Date.now()-50000,state:{kind:'idle',label:'Recent'}};
+   rows.push(extra);
+   try{
+    await page.goto(base+'/#/');await page.evaluate(()=>{localStorage.removeItem('pc-automated-open');sessionFilter='all';sessionQuery='';refreshSessions();});
+    await page.waitForSelector('[data-automated]');
+    const g=await page.$eval('[data-automated]',(e,id)=>({open:e.open,last:e===e.parentElement.lastElementChild,has:Boolean(e.querySelector(`[data-id="${id}"]`)),label:e.querySelector('summary h2').textContent}),extra.id);
+    assert.equal(g.open,false);assert.ok(g.last&&g.has,JSON.stringify(g));assert.equal(g.label,'Automated1');
+    assert.equal(await page.$$eval('.session-group:not([data-automated]) [data-id="'+extra.id+'"]',e=>e.length),0,'not repeated in Recent');
+    await page.click('[data-automated] > summary');await page.waitForFunction(()=>readLocal('pc-automated-open',false)===true);
+    await page.evaluate(()=>refreshSessions());assert.equal(await page.$eval('[data-automated]',e=>e.open),true,'open state survives a refresh');
+    await scan('automated-group-mobile');await page.screenshot({path:path.join(out,'automated-group-mobile.png')});
+    await page.type('[data-session-search]','backup');
+    assert.equal(await page.$('[data-automated]'),null);assert.ok(await page.$(`section.session-group [data-id="${extra.id}"]`));
+   } finally {
+    rows.splice(rows.indexOf(extra),1);
+    await page.evaluate(()=>{localStorage.removeItem('pc-automated-open');sessionQuery='';document.querySelectorAll('[data-session-search]').forEach(i=>i.value='');refreshSessions();});
+   }
+  });
+  await check('1.19 Session list: an unchanged list answers 304 and still counts as a fresh check',async()=>{
+   await page.goto(base+'/#/');await page.waitForSelector('[data-id]');
+   const before=getMode().notModified||0,t0=await page.evaluate(async()=>{await refreshSessions();return sessionCheckedAt;});
+   await pause(20);await page.evaluate(()=>refreshSessions());
+   assert.ok((getMode().notModified||0)>before,'a 304 was served');
+   assert.ok(await page.evaluate(()=>sessionCheckedAt)>t0,'the check time advanced');
+   assert.equal(await page.evaluate(()=>sessionsStale),false);
+   assert.ok(await page.$$eval('[data-session-results] [data-id]',e=>e.length)>=rows.length,'the list is kept');
+  });
+  await check('1.19 Failed turn: the reason and Send again at the end of the conversation; a draft is never overwritten',async()=>{
+   const failed=rows[2],prior=failed.state;
+   failed.state={kind:'failed',label:'Turn failed',at:Date.now(),confirmed:true,error:'Tool crashed while reading the supplier file'};
+   try{
+    await page.goto(base+'/#/chat/'+failed.id);await page.waitForSelector('#box');await page.evaluate(()=>refreshSessions());
+    await page.waitForSelector('#turn-failure');
+    assert.match(await page.$eval('#turn-failure',e=>e.textContent),/This turn ended with an error: Tool crashed while reading the supplier file/);
+    assert.equal(await page.$eval('#msgs',e=>e.lastElementChild.id),'turn-failure','shown where you are reading');
+    await page.waitForFunction(()=>{const r=document.querySelector('[data-retry-turn]').getBoundingClientRect(),c=document.querySelector('.composerwrap').getBoundingClientRect();return r.bottom<=c.top;},{timeout:3000}); // Send again is above the composer, not behind it
+    await scan('turn-failure-mobile');await page.screenshot({path:path.join(out,'turn-failure-mobile.png')});
+    await page.$eval('#box',e=>{e.value='My own draft';e.dispatchEvent(new Event('input'));});
+    const before=received.length;await page.click('[data-retry-turn]');await pause(300);
+    assert.equal(await page.$eval('#box',e=>e.value),'My own draft');assert.equal(received.length,before,'nothing sent over a draft');
+    await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});
+    await page.click('[data-retry-turn]');
+    for(let i=0;i<40&&received.length===before;i++)await pause(100);
+    assert.equal(received.at(-1).text,'Review the stock report.');
+    assert.equal(await page.$('#turn-failure'),null,'the row goes once you send');
+   } finally {failed.state=prior;}
+  });
+  await check('1.19 Session options: grouped, with display settings last',async()=>{
+   await chat();await page.click('#chatmore');await page.waitForSelector('.sheet .opt-group');
+   const groups=await page.$$eval('.sheet .opt-group',gs=>gs.map(g=>({label:g.getAttribute('aria-label'),ids:[...g.querySelectorAll('button.opt')].map(b=>b.id),size:Boolean(g.querySelector('.chat-text-settings'))})));
+   assert.deepEqual(groups.map(g=>g.label),['This conversation','Session','Server process','Display and version']);
+   assert.deepEqual(groups[0].ids,['so-find','so-changes','so-agents','so-usage']);
+   assert.ok(groups.at(-1).size&&groups.at(-1).ids.includes('so-version'));
+   assert.ok(await page.$eval('#so-find',e=>e.getBoundingClientRect().bottom<innerHeight),'the first action is in view on a phone');
+   await scan('session-options-grouped-mobile');await page.screenshot({path:path.join(out,'session-options-grouped-mobile.png')});
+   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+  });
+  await check('1.19 New session: the most recent workspace is preselected; missing input is explained beside Start',async()=>{
+   await page.evaluate(()=>{localStorage.removeItem('pc-lastproj');clearDraft(NEW_KEY);});
+   await page.goto(base+'/#/new');await page.waitForSelector('#plist .row.sel');
+   assert.equal(await page.$eval('#plist .row.sel',e=>e.dataset.p),'/workspaces/warehouse');
+   assert.match(await page.$eval('#task-context',e=>e.textContent),/warehouse/);
+   await page.$eval('#first',e=>{e.value='';e.dispatchEvent(new Event('input'));});await page.click('#start');
+   assert.equal(await page.$eval('#start-hint',e=>e.hidden),false);assert.match(await page.$eval('#start-hint',e=>e.textContent),/Write what you would like done/);
+   await scan('new-session-hint-mobile');
+   await page.type('#first','x');assert.equal(await page.$eval('#start-hint',e=>e.hidden),true);
+   await page.$eval('#first',e=>{e.value='';e.dispatchEvent(new Event('input'));});
   });
   await scan('chat-desktop');await page.setViewport({width:390,height:844});await scan('chat-mobile');
   await page.evaluate(()=>settingsSheet());await scan('settings-mobile');

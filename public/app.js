@@ -202,6 +202,8 @@ function renderToolbar() {
   bindToolbarScroll(bar);
 }
 /* ---------- session options: pin + rename (overlay metadata, server-side) ---------- */
+// 1.19: Session options are grouped (conversation, session, process, display) with hairlines between groups.
+function optGroup(label, items) { const body = items.filter(Boolean).join(''); return body ? `<div class="opt-group" role="group" aria-label="${label}">${body}</div>` : ''; }
 function sessionSheet(s, refresh) { // s: {id, title, pinned}
   if (document.querySelector('.scrim')) return; // one sheet at a time
   const scrim = document.createElement('div'); scrim.className = 'scrim';
@@ -210,19 +212,20 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
     <h2>Session options</h2>
     <p class="sheet-name">${esc(s.title)}</p>
     ${s.id!==chatId&&canMarkReviewed(allSessions.find(r=>r.id===s.id)||s)?'<button class="opt" id="so-reviewed">'+IC.tick+'<span>Mark as reviewed<span class="sub">Clear '+(s.state?.kind==='failed'?'the failed turn':'Response ready')+' on all your devices without opening it</span></span></button>':''}
-    ${chatTextControlsHTML()}
-    ${s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':''}
-    ${!PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : ''}
-    ${!PANE && s.id === chatId ? '<button class="opt" id="so-close">'+IC.x+'<span>Close session process<span class="sub">Release its server process. If work is running, choose whether to keep it running or stop it</span></span></button>' : ''}
-    ${s.id===chatId?'<button class="opt" id="so-usage">'+IC.gauge+'<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>':''}
-    <button class="opt" id="so-agents">${IC.columns}<span>Subagents<span class="sub">Tasks, status and latest activity</span></span></button>
-    <button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>
-    <button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>
-    ${s.pinned && pinnedIds().indexOf(s.id) > 0 ? '<button class="opt" id="so-pin-up">'+IC.up+'<span>Move pin up<span class="sub">Earlier among pinned sessions, in the list and the tabs, on every device</span></span></button>' : ''}
-    ${s.pinned && pinnedIds().indexOf(s.id) >= 0 && pinnedIds().indexOf(s.id) < pinnedIds().length - 1 ? '<button class="opt" id="so-pin-down">'+IC.down+'<span>Move pin down<span class="sub">Later among pinned sessions, in the list and the tabs, on every device</span></span></button>' : ''}
-    <button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>
-    <button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device — clear it to go back to the automatic one</span></span></button>
-    ${s.id===chatId?'<button class="opt" id="so-version">'+IC.info+'<span>Version & updates<span class="sub" id="so-version-sub">'+esc(appVersionLabel())+'</span></span></button>':''}`;
+    ${optGroup('This conversation', [
+      s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':'',
+      !PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : '',
+      `<button class="opt" id="so-agents">${IC.columns}<span>Subagents<span class="sub">Tasks, status and latest activity</span></span></button>`,
+      s.id===chatId?'<button class="opt" id="so-usage">'+IC.gauge+'<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>':''])}
+    ${optGroup('Session', [
+      `<button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>`,
+      s.pinned && pinnedIds().indexOf(s.id) > 0 ? '<button class="opt" id="so-pin-up">'+IC.up+'<span>Move pin up<span class="sub">Earlier among pinned sessions, in the list and the tabs, on every device</span></span></button>' : '',
+      s.pinned && pinnedIds().indexOf(s.id) >= 0 && pinnedIds().indexOf(s.id) < pinnedIds().length - 1 ? '<button class="opt" id="so-pin-down">'+IC.down+'<span>Move pin down<span class="sub">Later among pinned sessions, in the list and the tabs, on every device</span></span></button>' : '',
+      `<button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device. Clear it to go back to the automatic one</span></span></button>`,
+      `<button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>`,
+      `<button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>`])}
+    ${optGroup('Server process', [!PANE && s.id === chatId ? '<button class="opt" id="so-close">'+IC.x+'<span>Close session process<span class="sub">Release its server process. If work is running, choose whether to keep it running or stop it</span></span></button>' : ''])}
+    ${optGroup('Display and version', [chatTextControlsHTML(), s.id===chatId?'<button class="opt" id="so-version">'+IC.info+'<span>Version & updates<span class="sub" id="so-version-sub">'+esc(appVersionLabel())+'</span></span></button>':''])}`;
   const close = () => closeCurrentSheet?.();
   scrim.onclick = close;
   sh.querySelector('#so-pin').onclick = async () => {
@@ -820,6 +823,7 @@ function bindPinDrag(container) {
 }
 function bindSessionRows(container) {
   bindPinDrag(container);
+  container.querySelector('[data-automated]')?.addEventListener('toggle', e => writeLocal('pc-automated-open', e.target.open));
   container.querySelectorAll('[data-id]').forEach(row => {
     row.onclick = () => { closeCurrentSheet?.(); location.hash = '#/chat/' + row.dataset.id; };
     const session = allSessions.find(s => s.id === row.dataset.id);
@@ -846,9 +850,15 @@ function reviewBarHTML(list) {
   const n = list.filter(canMarkReviewed).length;
   return n ? `<div class="review-bar"><span>${n} not reviewed yet</span><button type="button" class="chip" data-mark-all-reviewed>${IC.tick}Mark all reviewed</button></div>` : '';
 }
-function groupedSessionsHTML(list) {
+// 1.19: scheduled runs (the server marks them automated) that need nothing from you sit in one collapsed group
+// at the end of All, so the sessions you started lead the list. Search, filters, pins and attention show them normally.
+const isQuietAutomated = s => s.automated && !s.pinned && !['running','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s);
+function groupedSessionsHTML(all) {
+  const grouping = sessionFilter === 'all' && !sessionQuery.trim() && !sessionsStale;
+  const automated = grouping ? all.filter(isQuietAutomated) : [];
+  const list = automated.length ? all.filter(s => !isQuietAutomated(s)) : all;
   const groups = [['running','Running'],['observed','Activity elsewhere'],['failed','Needs attention'],['waiting','Waiting'],['recent','Recent']];
-  if (!list.length) return `<div class="empty">${sessionsStale ? 'Could not load sessions. Use Refresh to try again.' : sessionQuery || workspaceFilter || providerFilter || ['pinned','hidden'].includes(sessionFilter) ? 'No sessions match these filters.' : sessionFilter === 'active' ? 'No runs or recent external activity.' : sessionFilter === 'attention' ? 'Nothing needs your attention.' : sessionFilter === 'new' ? 'No new recorded responses.' : 'No sessions yet. Start a conversation to begin.'}</div>`;
+  if (!all.length) return `<div class="empty">${sessionsStale ? 'Could not load sessions. Use Refresh to try again.' : sessionQuery || workspaceFilter || providerFilter || ['pinned','hidden'].includes(sessionFilter) ? 'No sessions match these filters.' : sessionFilter === 'active' ? 'No runs or recent external activity.' : sessionFilter === 'attention' ? 'Nothing needs your attention.' : sessionFilter === 'new' ? 'No new recorded responses.' : 'No sessions yet. Start a conversation to begin.'}</div>`;
   if(sessionsStale)return `<section class="session-group"><h2>Status unconfirmed<span>${list.length}</span></h2>${list.map(sessionRowHTML).join('')}</section>`;
   return groups.map(([key,label]) => {
     const rows = list.filter(s => key === 'recent' ? !['running','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s) : key === 'failed' ? needsAttention(s) : rowState(s).kind === key);
@@ -856,7 +866,7 @@ function groupedSessionsHTML(list) {
     const pinned = rows.filter(s => s.pinned), rest = rows.filter(s => !s.pinned);
     const body = pinned.map(sessionRowHTML).join('') + (pinned.length && rest.length ? '<div class="pin-divider" role="separator" aria-label="Pinned sessions above, others below"></div>' : '') + rest.map(sessionRowHTML).join('');
     return rows.length ? `<section class="session-group"><h2>${label}<span>${rows.length}</span></h2>${body}</section>` : '';
-  }).join('');
+  }).join('') + (automated.length ? `<details class="session-group automated-group" data-automated${readLocal('pc-automated-open', false) ? ' open' : ''}><summary><h2>Automated<span>${automated.length}</span></h2><span class="automated-note">Scheduled runs</span></summary>${automated.map(sessionRowHTML).join('')}</details>` : '');
 }
 function paintSessionPanels() {
   paintWorkspaceFilters();
@@ -889,10 +899,23 @@ function paintSessionPanels() {
   if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Sessions · status unavailable' : `Sessions · ${c.running} running${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
   if (typeof paintOpenSessions === 'function') paintOpenSessions(); // tabs show pins and follow the pinned order
 }
+// 1.19: send the last list's ETag; an unchanged list comes back as 304 with the server's check time in a
+// header, which proves a fresh authenticated check just as a full response does.
+let sessionsEtag = '';
+async function fetchSessionList() {
+  const r = await fetch('/api/sessions?limit=200&statusCheck=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(8000),
+    headers: sessionsEtag && allSessions.length ? { 'if-none-match': sessionsEtag } : {} });
+  if (r.status === 401) { sessionsEtag = ''; renderLogin(); throw new Error('login'); }
+  if (r.status === 304) return { sessions: allSessions, warnings: sessionWarnings, checkedAt: Number(r.headers.get('x-pocket-checked-at')) };
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { sessionsEtag = ''; throw new Error(j.error || r.statusText); }
+  sessionsEtag = r.headers.get('etag') || '';
+  return j;
+}
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
   sessionFetch = (async () => {
-    try { const d = await api('/sessions?limit=200&statusCheck='+Date.now(),{cache:'no-store',signal:AbortSignal.timeout(8000)}); allSessions = d.sessions; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
+    try { const d = await fetchSessionList(); allSessions = d.sessions; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
     finally { sessionFetch = null; paintSessionPanels(); if (!sessionsStale) Voice.onSessions(allSessions); }
   })();
@@ -900,6 +923,9 @@ async function refreshSessions() {
 }
 // This timestamp advances ONLY on a fresh authenticated server status response.
 // Local animation, SSE keepalives and transcript activity never prove an owned run.
+// 1.19: the check age moves in steps (just now, 10s, 20s… then minutes), so a healthy 5-second poll never
+// changes the text; only a check that is getting old visibly counts up.
+function checkAge(s){return s<10?'just now':s<60?Math.floor(s/10)*10+'s ago':Math.floor(s/60)+'m ago';}
 function paintRunConfirmation(){
  const elapsed=sessionProofReceivedAt?Math.max(0,Math.floor(Math.max(performance.now()-sessionProofReceivedAt,Date.now()-sessionProofReceivedWallAt)/1000)):null;
  const fresh=!sessionsStale&&elapsed!==null&&elapsed<=15;
@@ -916,9 +942,11 @@ function paintRunConfirmation(){
    else if(state?.confirmed===true){label=state.label;kind=state.kind;}
    else {label='No active run here';kind='idle';}
   }
+  // 1.19: in the title bar (phones, collapsed header) the same states use short words; the tooltip keeps the detail.
+  if(box.closest('header'))label={'No active run here':'Idle','Running on server':'Running','Activity seen. Run unconfirmed':'Activity seen','Status unconfirmed. Reconnecting…':'Unconfirmed','Checking server…':'Checking…'}[label]||label;
   if(name.textContent!==label)name.textContent=label;
   box.dataset.state=kind;
-  stamp.textContent=elapsed===null?'':(fresh?'Checked ':'Last check ')+elapsed+'s ago';
+  const stampText=elapsed===null?'':(fresh?'Checked ':'Last check ')+checkAge(elapsed);if(stamp.textContent!==stampText)stamp.textContent=stampText;
   box.title=sessionCheckedAt?'Server confirmation: '+new Date(sessionCheckedAt).toLocaleTimeString()+'. '+(state?.startedAt?'Turn started: '+new Date(state.startedAt).toLocaleTimeString()+'. ':'')+'Checks every 5 seconds. Running means the server owns an active turn; it does not guarantee continuous output.':'';
  }
  const headerLamp=document.getElementById('hember');
@@ -929,7 +957,35 @@ function paintRunConfirmation(){
   if(workingLabel.textContent!==label)workingLabel.textContent=label;
   const lamp=workingLabel.parentElement.querySelector('.ember');if(lamp)lamp.hidden=!(fresh&&state?.kind==='running'&&state.confirmed===true);
  }
- document.querySelectorAll('[data-run-age]').forEach(el=>el.textContent=fresh?'confirmed '+elapsed+'s ago':'not currently confirmed');
+ document.querySelectorAll('[data-run-age]').forEach(el=>{const t=fresh?'confirmed '+checkAge(elapsed):'not currently confirmed';if(el.textContent!==t)el.textContent=t;});
+ paintTurnFailure();
+}
+// 1.19: a failed last turn is shown where you are reading, at the end of the conversation, with its reason
+// when known and a way to try again. It comes from the server's session state, so it survives a reload.
+// The streamed result shows it at once; the server's state takes over when the next list check confirms it.
+let liveFailure = null;
+function paintTurnFailure(live) {
+  const msgs = $('#msgs'); if (!msgs) return;
+  if (live) liveFailure = { id: chatId, error: live.error, at: Date.now() };
+  const st = allSessions.find(s => s.id === chatId)?.state;
+  const lf = liveFailure?.id === chatId && !(st?.kind === 'running' && (st.startedAt || 0) > liveFailure.at) && !(st?.confirmed && ['finished','stopped'].includes(st.kind) && (st.at || 0) > liveFailure.at) ? liveFailure : null;
+  const failed = lf || (!sessionsStale && st?.kind === 'failed' && st.confirmed === true);
+  let el = document.getElementById('turn-failure');
+  if (!failed || (composerWorking && !lf)) { el?.remove(); return; }
+  const reason = String(lf?.error || st?.error || '').trim();
+  const text = reason ? 'This turn ended with an error: ' + reason : 'This turn ended with an error.';
+  if (!el) {
+    msgs.insertAdjacentHTML('beforeend', `<div class="turn-failure" id="turn-failure"><p role="status"></p><div class="turn-failure-actions"><button class="chip" type="button" data-retry-turn>Send again</button><button class="chip" type="button" data-edit-turn>Edit message</button></div></div>`);
+    el = msgs.lastElementChild;
+    scrollBottom(); requestAnimationFrame(() => setTimeout(() => scrollBottom(), 250)); // in view if you were reading at the end, after the composer settles
+    const lastUser = () => [...msgs.querySelectorAll('.m-user')].at(-1)?.textContent || '';
+    // Never overwrite a draft you are typing: both actions ask you to send or clear it first.
+    const draftInTheWay = () => { const box = $('#box'); if (box?.value.trim()) { toast('Your draft is in the message box. Send or clear it first.'); box.focus(); return true; } return false; };
+    el.querySelector('[data-retry-turn]').onclick = () => { const t = lastUser(); if (t && !draftInTheWay()) { liveFailure = null; sendMsg(t); } };
+    el.querySelector('[data-edit-turn]').onclick = () => { const box = $('#box'), t = lastUser(); if (box && t && !draftInTheWay()) { box.value = t; box.dispatchEvent(new Event('input', { bubbles: true })); box.focus(); } };
+  } else if (el !== msgs.lastElementChild) msgs.append(el);
+  const p = el.querySelector('p'); if (p.textContent !== text) p.textContent = text;
+  el.querySelector('[data-retry-turn]').hidden = el.querySelector('[data-edit-turn]').hidden = !msgs.querySelector('.m-user');
 }
 function sessionPanelHTML(rail = false) {
   const summary = `<p class="session-summary" data-session-summary role="status">${esc(sessionSummary())}</p>`;
@@ -1824,6 +1880,8 @@ async function sendMsg(text) {
   text = text.trim(); const id = chatId;
   if(uploadsInFlight.get(id)){toast('Wait for the attachment upload to finish.');return;}
   if (!text || !id || sendsInFlight.has(id) || loadOutbox(id)) return;
+  if (liveFailure?.id === id) liveFailure = null;
+  document.getElementById('turn-failure')?.remove();
   const opts = composerWorking ? {mode:sendModes.get(id)||'steer',approvalMode:nextApprovalMode()} : turnOpts();
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
     files: composerWorking ? [] : [...(tb?.attachments || [])], createdAt: Date.now() };
@@ -1940,7 +1998,7 @@ function openES() {
       awaitingEngagement.add(streamId); // finished on screen: stays Response ready / New until you engage
       if (document.visibilityState === 'visible' && !Voice.replacesChime()) chime(); // not watching → push already notified; spoken alerts replace the chime
       Voice.onTurnEnd(streamId, d.ok, d.error);
-      if (!d.ok && d.error) msgs.insertAdjacentHTML('beforeend', `<div class="turn-err enter">Turn failed: ${esc(String(d.error)).slice(0, 600)}</div>`);
+      if (!d.ok && !/^Stopped/.test(String(d.error || ''))) paintTurnFailure({ error: String(d.error || '').slice(0, 300) });
       if (d.cost != null) {
         const secs = d.duration_ms ? Math.round(d.duration_ms / 1000) : null;
         lastMeta = { id: chatId, html: `<div class="turnmeta">$${d.cost.toFixed(2)}${secs ? ` · ${secs >= 90 ? Math.round(secs / 60) + 'm' : secs + 's'}` : ''}</div>` };
@@ -2002,7 +2060,7 @@ async function renderNew() {
       <div class="task-actions"><button class="chip" id="choose-skill">Choose a skill</button><button class="chip" id="choose-workspace">Choose workspace</button></div>
       <p class="task-context" id="task-context"></p>
       <div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>
-      <button class="primary" id="start">Start session</button>
+      <button class="primary" id="start" aria-describedby="start-hint">Start session</button><p class="start-hint" id="start-hint" role="alert" hidden></p>
       <details id="new-setup"><summary>Workspace & agent settings</summary><div class="setup-fields">
       <div><span class="h" id="agenth">Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth">
         <button class="row" role="radio" aria-checked="false" data-a="claude"><span class="dot"></span>${IC.term}<span class="p">Claude Code</span></button>
@@ -2044,14 +2102,14 @@ async function renderNew() {
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const first = $('#first');
   first.value = pendingNew?.payload.text || loadDraft(NEW_KEY);
-  first.oninput = () => saveDraft(NEW_KEY, first.value);
+  first.oninput = () => { saveDraft(NEW_KEY, first.value); const h = $('#start-hint'); if (h) h.hidden = true; };
   try {
     const { projects, defaultCwd } = await api('/projects');
     if(viewVersion!==chatRenderVersion)return;
     const pl = $('#plist');
     pl.innerHTML = projects.slice(0, 10).map((p, i) => `
       <button class="row" role="radio" aria-checked="false" data-p="${esc(p)}">
-        <span class="dot"></span>${IC.folder}<span class="p">${esc(projName(p))}<span class="workspace-path">${esc(projShort(p))}</span></span>
+        <span class="dot"></span>${IC.folder}<span class="p">${esc(projName(p))}${projShort(p) !== projName(p) ? `<span class="workspace-path">${esc(projShort(p))}</span>` : ''}</span>
       </button>`).join('');
     const pick = r => {
       pl.querySelectorAll('.row').forEach(x => { x.classList.remove('sel'); x.setAttribute('aria-checked', 'false'); x.tabIndex = -1; });
@@ -2062,7 +2120,9 @@ async function renderNew() {
     // preselect the instance's default workspace, else where you last started a session
     const last = defaultCwd || localStorage.getItem('pc-lastproj');
     const lastRow = last && pl.querySelector(`.row[data-p="${CSS.escape(last)}"]`);
-    if (lastRow) pick(lastRow);
+    // 1.19: with no default and nothing remembered, start in the most recent workspace (shown above Start).
+    const firstRow = pl.querySelector('.row');
+    if (lastRow) pick(lastRow); else if (firstRow && !$('#cpath').value.trim()) pick(firstRow);
     bindRadioGroup(pl);
   } catch { }
   if(viewVersion!==chatRenderVersion)return;
@@ -2083,8 +2143,10 @@ async function renderNew() {
     const savedStart = loadOutbox(NEW_KEY);
     const cwd = savedStart?.payload.cwd || $('#cpath').value.trim() || sel;
     const text = savedStart?.payload.text || $('#first').value.trim();
-    if (!cwd) {$('#new-setup').open=true;$('#new-setup').scrollIntoView({block:'start'});return toast('Choose a workspace or enter its path');}
-    if (!text) return toast('Write the first message');
+    const hint = msg => { const h = $('#start-hint'); h.textContent = msg; h.hidden = false; };
+    if (!cwd) {$('#new-setup').open=true;hint('Choose a workspace below, or enter its path.');$('#new-setup').scrollIntoView({block:'start'});return;}
+    if (!text) { hint('Write what you would like done first.'); $('#first').focus(); return; }
+    $('#start-hint').hidden = true;
     $('#start').disabled = true; $('#start').textContent = 'Starting…';
     try {
       const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts() };
