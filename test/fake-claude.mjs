@@ -4,6 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 if (process.argv.includes('--version')) { console.log('test-cli'); process.exit(0); }
+if (process.argv[2]==='auth'&&process.argv[3]==='login') {
+ console.log('Open https://claude.com/cai/oauth/authorize?state=test-state&code_challenge=test-challenge');
+ await new Promise(()=>readline.createInterface({input:process.stdin}).once('line',code=>process.exit(code==='test-code#test-state'?0:1)));
+}
 if (process.argv[2]==='auth'&&process.argv[3]==='status') { console.log(JSON.stringify({loggedIn:process.env.FAKE_CLAUDE_SIGNED_OUT!=='1',authMethod:'claude.ai',email:'owner@example.test',subscriptionType:'max'})); process.exit(0); }
 // Session titles (titles.mjs): a one-shot -p call with no saved session. Answer like the real CLI's json output.
 if (process.argv.includes('--no-session-persistence')) {

@@ -23,6 +23,7 @@ const rows=[
 const idle=rows.at(-1);let dispatches=0,failNext=false,stale=false;const receipts=new Map();const received=[];
 const uploads=[];let uploadDelay=0;
 const uiModes={aboutFailed:false,workerFailed:false,voice:true,voiceText:'Please review the incoming quantities again.'};
+let loginState={status:'idle'},loginSequence=0;const loginCodes=[];
 const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
 const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
@@ -90,7 +91,18 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/push/key')return json({});
  if(url.pathname==='/api/settings'){if(req.method==='POST'){let raw='';for await(const c of req)raw+=c;Object.assign(fixtureSettings,JSON.parse(raw));}return json({...fixtureSettings,titles:fixtureTitles()});}
  if(url.pathname==='/api/about')return uiModes.aboutFailed?json({error:'Version unavailable'},503):json({...JSON.parse(fs.readFileSync(path.join(repo,'public/release.json'),'utf8')),cli:'test',host:'preview'});
- if(url.pathname==='/api/environment')return json({host:'test-instance',checkedAt:Date.now(),providers:[{provider:'claude',email:'owner@example.test',plan:'max',method:'claude.ai',signedIn:true},{provider:'codex',email:'coder@example.test',plan:'pro',method:'chatgpt',signedIn:true}],accountManagement:'Sign-ins follow this instance.',permissions:'Unattended server permissions'});
+ if(url.pathname==='/api/environment')return json({host:'test-instance',checkedAt:Date.now(),providers:[{provider:'claude',email:'owner@example.test',plan:'max',method:'claude.ai',signedIn:true},{provider:'codex',email:'coder@example.test',plan:'pro',method:'chatgpt',signedIn:true}],accountManagement:'Sign-ins follow this instance.',permissions:'Unattended server permissions',capabilities:{claudeLogin:true}});
+ if(url.pathname==='/api/claude/login')return uiModes.loginOffline?json({error:'Offline'},503):json(loginState);
+ if(url.pathname.startsWith('/api/claude/login/')){
+  let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);
+  if(url.pathname.endsWith('/start')){
+   if(uiModes.loginBusy)return json({error:'Claude is still working. Let its turns finish.'},409);
+   loginState={id:'login-'+(++loginSequence),status:'waiting',url:'https://claude.com/cai/oauth/authorize?state=fixture&code_challenge=fixture',message:'Open the sign-in link, choose your account, then paste the code here.'};
+  }
+  if(url.pathname.endsWith('/code')){loginCodes.push(body.code);loginState={id:loginState.id,status:'success',account:{email:'new@example.test'},message:'Claude Code is signed in.'};}
+  if(url.pathname.endsWith('/cancel'))loginState={id:loginState.id,status:'cancelled',message:'Sign-in cancelled.'};
+  return json(loginState);
+ }
  if(url.pathname.endsWith('/questions'))return json({supported:url.pathname.includes('cx:'),requests:questionRequests});
  if(url.pathname.endsWith('/questions/request-1/answer')){let raw='';for await(const c of req)raw+=c;questionAnswers=JSON.parse(raw).answers;questionRequests=[];return json({ok:true});}
  if(url.pathname.endsWith('/workspace'))return json({branch:'feature/inventory',total:2,checkedAt:Date.now(),files:[{path:'report.csv',status:' M',inspectable:true},{path:'.env',status:'??',inspectable:false}]});
@@ -273,6 +285,26 @@ try{
  assert.deepEqual(questionAnswers,{format:['CSV']});await p.keyboard.press('Escape');
  await p.click('#c-mode');await p.waitForSelector('[data-v="plan"]');await p.click('[data-v="plan"]');assert.match(await p.$eval('#c-mode',e=>e.textContent),/Plan first/);
  await p.evaluate(()=>openEnvironment());await p.waitForSelector('.provider-account');assert.match(await p.$eval('.provider-account',e=>e.textContent),/owner@example.test/);await p.keyboard.press('Escape');
+ for(const width of [390,1440]){
+  loginState={status:'idle'};await p.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});await p.goto(base+'/#/chat/'+rows[1].id);await p.waitForSelector('#box');
+  await p.evaluate(()=>openEnvironment());await p.waitForSelector('[data-claude-login]');await p.click('[data-claude-login]');await p.waitForSelector('[data-login-start]');
+  uiModes.loginBusy=true;await p.click('[data-login-start]');await p.waitForFunction(()=>document.querySelector('[data-login-error]')?.textContent.includes('still working'));uiModes.loginBusy=false;
+  await p.click('[data-login-start]');await p.waitForSelector('#claude-login-code');
+  assert.equal(await p.$eval('[data-login-link]',element=>element.origin),'https://claude.com');
+  await p.type('#claude-login-code','unsent-secret');await p.keyboard.press('Escape');
+  await p.evaluate(()=>openClaudeLogin());await p.waitForSelector('#claude-login-code');assert.equal(await p.$eval('#claude-login-code',element=>element.value),'');
+  await p.type('#claude-login-code','synthetic-code#fixture');
+  uiModes.loginOffline=true;await p.waitForFunction(()=>document.querySelector('[data-login-error]')?.textContent.includes('Reconnecting'));uiModes.loginOffline=false;
+  await p.waitForFunction(()=>document.querySelector('[data-login-error]')?.textContent==='');assert.equal(await p.$eval('#claude-login-code',element=>element.value),'synthetic-code#fixture');
+  await p.screenshot({path:path.join(out,'claude-login-'+width+'.png')});await scan('claude-login-'+width);
+  await p.addScriptTag({path:path.join(repo,'node_modules/axe-core/axe.min.js')});
+  const accountAxe=await p.evaluate(async()=>{const result=await axe.run('.claude-login-sheet');return result.violations.map(violation=>({id:violation.id,nodes:violation.nodes.map(node=>node.target)}));});assert.deepEqual(accountAxe,[]);
+  assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await p.click('[data-login-form] button');await p.waitForSelector('.login-account');assert.equal(loginCodes.at(-1),'synthetic-code#fixture');
+  assert.match(await p.$eval('.login-account',element=>element.textContent),/new@example.test/);assert.equal(await p.$('#claude-login-code'),null);
+  await p.click('[data-login-start]');await p.waitForSelector('[data-login-cancel]');await p.click('[data-login-cancel]');await p.waitForSelector('[data-login-start]');
+  assert.equal(loginState.status,'cancelled');await p.keyboard.press('Escape');
+ }
  await p.keyboard.down('Control');await p.keyboard.press('k');await p.keyboard.up('Control');await p.waitForSelector('.session-switcher');await p.keyboard.press('Escape');
  // Desktop density controls act independently and do not remount the conversation.
  await p.setViewport({width:1440,height:800,isMobile:false,hasTouch:false});

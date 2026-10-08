@@ -669,6 +669,14 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .question-custom input { display:block;width:100%;min-height:44px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);padding:10px;font:16px system-ui;margin-top:6px; }
 .question-error { color:var(--err);font-size:14px; }.question-form .primary { min-height:44px;padding:12px 18px; }
 .provider-account { padding:16px 0;border-bottom:1px solid var(--line); }.provider-account h3 { font-size:16px;margin-bottom:8px; }.provider-account p { overflow-wrap:anywhere; }
+.claude-login-sheet { padding:16px 16px max(16px,env(safe-area-inset-bottom)); }
+.claude-login-sheet .login-actions { display:flex;flex-wrap:wrap;gap:8px;margin:16px 0; }
+.claude-login-sheet a.chip { display:inline-flex;align-items:center;text-decoration:none; }
+.claude-login-sheet form { margin:24px 0 16px; }
+.claude-login-sheet label { display:block;margin-bottom:8px;font-size:16px; }
+.claude-login-sheet input { width:100%;min-height:48px;padding:12px;font-size:16px;color:var(--text);background:var(--raised);border:1px solid var(--dim);border-radius:10px; }
+.claude-login-sheet .primary { min-height:44px;padding:12px 18px;margin:8px 8px 8px 0; }
+.claude-login-sheet .login-account { overflow-wrap:anywhere;font-weight:600; }
 .resume-last { display:block;min-height:44px;margin:0 16px 8px;padding:10px 0;color:var(--clay);font-size:14px;overflow-wrap:anywhere;text-underline-offset:3px; }
 
 /* Resize the existing conversation in place, including Fold and keyboard changes. */
