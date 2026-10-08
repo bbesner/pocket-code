@@ -899,6 +899,9 @@ function groupedSessionsHTML(all) {
   const automated = grouping ? all.filter(isQuietAutomated) : [];
   const list = automated.length ? all.filter(s => !isQuietAutomated(s)) : all;
   const groups = [['running','Running'],['observed','Activity elsewhere'],['failed','Needs attention'],['waiting','Waiting'],['recent','Recent']];
+  // 1.22: while a search also looks inside conversations, an empty title match is one quiet line, not a big empty state.
+  if (!all.length && sessionQuery.trim().length >= 3 && !sessionsStale && !workspaceFilter && !providerFilter && sessionFilter === 'all')
+    return `<p class="convo-note title-empty">No session titles match. Matches inside conversations are below.</p>`;
   if (!all.length) return `<div class="empty">${sessionsStale ? 'Could not load sessions. Use Refresh to try again.' : sessionQuery || workspaceFilter || providerFilter || ['pinned','hidden'].includes(sessionFilter) ? 'No sessions match these filters.' : sessionFilter === 'active' ? 'No runs or recent external activity.' : sessionFilter === 'attention' ? 'Nothing needs your attention.' : sessionFilter === 'new' ? 'No new recorded responses.' : 'No sessions yet. Start a conversation to begin.'}</div>`;
   if(sessionsStale)return `<section class="session-group"><h2>Status unconfirmed<span>${list.length}</span></h2>${list.map(sessionRowHTML).join('')}</section>`;
   return groups.map(([key,label]) => {
@@ -1037,14 +1040,82 @@ function sessionPanelHTML(rail = false) {
     ${rail ? `<div id="rail-filter-summary" class="rail-filter-summary" hidden><span></span><button id="clear-rail-filters">Clear filters</button></div><div id="rail-filter-controls">${summary}${filters}</div>` : `<nav class="session-filters" data-session-filters data-filter-keys="all active attention" aria-label="Session shortcuts">${filterButtons(['all','active','attention'])}</nav><details class="session-more-filters" data-more-filters ${readLocal('pc-session-filters-open',false)?'open':''}><summary>Filters<span data-filter-summary></span></summary>${`<div data-workspace-filters></div><nav class="session-filters" data-session-filters data-filter-keys="new pinned hidden" aria-label="More session filters">${filterButtons(['new','pinned','hidden'])}</nav>`}</details><button class="chip clear-more-filters" data-clear-more-filters hidden>Clear filters</button>`}
     <p class="session-warning" data-session-warning hidden></p>
     <div class="session-results" data-session-results></div>
+    <div class="convo-results" data-convo-results></div>
     <p class="session-footnote">Recent history and all runs owned by Pocket Code. External activity is an estimate.</p>
   </div>`;
 }
+/* ---------- 1.22: search inside conversations ----------
+   Three or more characters in a session search box also search inside every conversation: MemStem's index when
+   the server has it (wording and meaning, every session), otherwise Pocket's own scan of recent conversations for
+   the exact phrase. A result opens the conversation with Find already on the match. */
+let convo = { q: '', state: 'idle', results: [] }, convoT = null, convoSeq = 0, pendingFind = null;
+function scheduleConvoSearch(force) {
+  clearTimeout(convoT);
+  const q = sessionQuery.replace(/\s+/g, ' ').trim();
+  if (q.length < 3) { convoSeq++; convo = { q: '', state: 'idle', results: [] }; paintConvoResults(); return; }
+  if (!force && q === convo.q && convo.state !== 'error') return;
+  const my = ++convoSeq; convo = { q, state: 'loading', results: [] }; paintConvoResults();
+  convoT = setTimeout(async () => {
+    try {
+      const d = await api('/search?q=' + encodeURIComponent(q), { signal: AbortSignal.timeout(35000) });
+      if (my !== convoSeq) return;
+      convo = { q, state: 'done', results: d.results || [], backend: d.backend, scanned: d.scanned, total: d.total, complete: d.complete };
+    } catch { if (my !== convoSeq) return; convo = { q, state: 'error', results: [] }; }
+    paintConvoResults();
+  }, 450);
+}
+function markTerms(text, q) { // escaped text with each query word marked
+  const terms = [...new Set(q.toLowerCase().split(/[^\p{L}\p{N}_.-]+/u).filter(t => t.length >= 2))].sort((a, b) => b.length - a.length);
+  if (!terms.length) return esc(text);
+  const re = new RegExp('(' + terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'gi');
+  return String(text).split(re).map((part, i) => i % 2 ? `<mark class="fmark">${esc(part)}</mark>` : esc(part)).join('');
+}
+function convoResultsHTML() {
+  const c = convo;
+  if (c.state === 'idle') return '';
+  const head = n => `<h2>In conversations${n != null ? `<span>${n}</span>` : ''}</h2>`;
+  if (c.state === 'loading') return `<section class="session-group convo-group">${head()}<p class="convo-note" role="status">Searching inside conversations…</p></section>`;
+  if (c.state === 'error') return `<section class="session-group convo-group">${head()}<p class="convo-note" role="status">Could not search inside conversations.</p><button type="button" class="chip convo-retry" data-convo-retry>Try again</button></section>`;
+  const scope = c.backend === 'memstem' ? 'Searched every conversation by wording and meaning (MemStem).'
+    : `Exact phrase in ${c.complete ? 'the' : c.scanned + ' of the'} ${c.total} most recent conversations${c.complete ? '' : ', newest first'}.`;
+  const rows = c.results.map(r => {
+    const who = r.related ? 'Related' : r.role === 'user' ? 'You' : r.provider === 'codex' ? 'Codex' : 'Claude';
+    const where = r.cwd && r.cwd !== sessionsHome ? esc(projName(r.cwd)) + ' · ' : '';
+    return `<div class="session-item convo-item"><button class="row" data-convo-id="${esc(r.id)}">
+      <span class="body"><span class="title">${esc(r.title || 'Untitled session')}</span>
+      <span class="meta">${where}${r.provider === 'codex' ? 'Codex' : 'Claude'}${r.mtimeMs ? ' · ' + esc(rel(r.mtimeMs)) : ''}</span>
+      <span class="convo-snippet"><span class="convo-who">${who}:</span> ${r.related ? esc(r.snippet || '') : markTerms(r.snippet || '', c.q)}</span></span>
+    </button></div>`;
+  }).join('');
+  return `<section class="session-group convo-group">${head(c.results.length)}<p class="convo-note">${esc(scope)}</p>${rows || '<p class="convo-note" role="status">No matches inside conversations.</p>'}</section>`;
+}
+function paintConvoResults() {
+  document.querySelectorAll('[data-convo-results]').forEach(el => {
+    el.innerHTML = convoResultsHTML();
+    el.querySelector('[data-convo-retry]')?.addEventListener('click', () => scheduleConvoSearch(true));
+    el.querySelectorAll('[data-convo-id]').forEach(b => b.onclick = () => {
+      const id = b.dataset.convoId; pendingFind = convo.q; closeCurrentSheet?.();
+      if (location.hash === '#/chat/' + id) renderChat(id); else location.hash = '#/chat/' + id;
+    });
+  });
+}
+// After opening a result: Find on the phrase, or else on the longest matching word.
+function applyPendingFind() {
+  const q = pendingFind; pendingFind = null; if (!q || !$('#fq')) return;
+  findOpen(true);
+  const words = q.split(/\s+/).filter(w => w.length >= 3).sort((a, b) => b.length - a.length);
+  for (const term of [q, ...words]) {
+    $('#fq').value = term; findRun(term);
+    if (fmarks.length) break;
+  }
+  findDeep($('#fq').value.trim());
+}
 function bindSessionPanel(container) {
-  container.querySelectorAll('[data-session-search]').forEach(input => input.oninput = e => { sessionQuery = e.target.value; paintSessionPanels(); });
+  container.querySelectorAll('[data-session-search]').forEach(input => input.oninput = e => { sessionQuery = e.target.value; paintSessionPanels(); scheduleConvoSearch(); });
   container.querySelectorAll('[data-more-filters]').forEach(el => {
     el.querySelector('summary').onclick = e => {e.preventDefault();el.open=!el.open;writeLocal('pc-session-filters-open',el.open);};
   });
+  paintConvoResults();
   container.querySelectorAll('[data-clear-more-filters]').forEach(el => {el.onclick = () => {workspaceFilter='';providerFilter='';sessionFilter='all';writeLocal('pc-workspace-filter','');writeLocal('pc-provider-filter','');container.querySelector('[data-more-filters] summary')?.focus();paintSessionPanels();};});
   paintSessionPanels();
 }
@@ -1533,7 +1604,7 @@ function extPulse() { // ember while another surface (code-server) drives this s
 // looked is marked. Re-renders of a conversation you are watching (turn end, resync, rail toggle) never mark it.
 async function renderChat(id, { away = false } = {}) {
   const renderVersion = ++chatRenderVersion;
-  const awaySince = away ? Math.max(seenAt(id), Number(viewedAt[id]) || 0) : 0;
+  const awaySince = away && !pendingFind ? Math.max(seenAt(id), Number(viewedAt[id]) || 0) : 0; // a search result opens at its match instead
   stashAttachments();rememberReading();
   if (chatId !== id) Voice.onLeave();
   chatId = id; closeES();
@@ -1626,6 +1697,7 @@ async function renderChat(id, { away = false } = {}) {
   const reading=readingPositions[id],scroller=msgs.closest('main.scroll');
   if(reading&&!reading.bottom)scroller.scrollTop=reading.top;else scrollBottom(true);
   if(awaySince)paintAway(id,awaySince,renderVersion);
+  if(pendingFind)applyPendingFind();
   scroller.addEventListener('scroll',()=>{clearTimeout(readingTimer);readingTimer=setTimeout(rememberReading,200);},{passive:true});
   if (s.ext && !s.active) extPulse();
   paintDelivery(id); refreshSessions();

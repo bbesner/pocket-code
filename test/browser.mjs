@@ -108,6 +108,11 @@ const server=http.createServer(async(req,res)=>{
   if(uiModes.agentsFail)return json({error:'Temporarily unavailable'},503);
   const agents=uiModes.agents||[];return json({agents,total:agents.length,running:agents.filter(a=>a.status==='running').length,checkedAt:Date.now()});
  }
+ if(url.pathname==='/api/search'){const q=url.searchParams.get('q')||'';uiModes.searchCalls=[...(uiModes.searchCalls||[]),q];
+  if(uiModes.searchFail)return json({error:'Search unavailable'},503);
+  return json({backend:'memstem',tookMs:12,results:[
+   {id:rows[3].id,title:rows[3].title,provider:'claude',cwd:rows[3].cwd,mtimeMs:rows[3].mtimeMs,role:'assistant',snippet:'…Incoming stock is separate from the on-hand count for each recorder.',related:false},
+   {id:rows[1].id,title:rows[1].title,provider:'codex',cwd:rows[1].cwd,mtimeMs:rows[1].mtimeMs,role:null,snippet:'Product photos and listing updates for the new cameras',related:true}]});}
  if(url.pathname.endsWith('/away')){let raw='';for await(const c of req)raw+=c;const body=JSON.parse(raw||'{}');uiModes.awayCalls=[...(uiModes.awayCalls||[]),body.since];
   return json(fixtureSettings.awaySummaries===false?{summary:null,reason:'off'}:{summary:'Checked stock for 24 products\nThree are below their reorder level\nWaiting on you: approve the order',model:'claude-haiku-5-5',provider:'claude',messages:3});}
  if(url.pathname.endsWith('/results'))return json({results:[{kind:'link',target:'https://example.com/inventory',label:'Inventory report',detail:'example.com'},{kind:'file',target:'/home/test/reports/stock.csv',label:'Stock CSV',detail:'CSV file'}]});

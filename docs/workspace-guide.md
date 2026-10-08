@@ -42,6 +42,14 @@ titles off also hides the ones already made, so the list matches code-server whe
 names with code-server is on. Claude's `haiku` alias follows the installed CLI: update
 Claude Code to move titles to the newest Haiku.
 
+**Search inside conversations.** Three or more characters in a session search box also
+search inside conversations after a short pause. The **In conversations** section shows the
+matching passage and who wrote it; tapping a result opens the conversation with Find on the
+match. With [MemStem](https://github.com/Memstem/memstem) beside Pocket the search covers
+every session by wording and meaning (sessions that only match by meaning say **Related**);
+without it, Pocket searches the 200 most recent conversations for the exact phrase, for up to
+six seconds, and says how many it covered.
+
 Scheduled runs that open with `[cron:<id> Job name]` (or an OpenClaw runtime preamble)
 are marked automated, show the job name, and sit in a collapsed **Automated** group at
 the end of **All**. Search, the other filters, pins, running work and anything needing

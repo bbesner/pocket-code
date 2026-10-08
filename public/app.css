@@ -943,3 +943,12 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .away-body ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .away-source { margin: 8px 0 0; font-size: 12.5px; color: var(--dim); }
 @media (min-width: 700px) { .away-card { max-width: 68ch; } }
+
+/* ---------- 1.22: search inside conversations (session-row language; the snippet reads like a quote) ---------- */
+.convo-note { padding: 0 18px 8px; font-size: 13px; line-height: 1.5; color: var(--dim); }
+.rail .convo-note { padding-inline: 12px; }
+.convo-retry { margin: 0 18px 12px; }
+.convo-item .row { padding-right: 18px; }
+.convo-snippet { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: 6px; font-size: 14px; line-height: 1.5; color: var(--dim); }
+.convo-who { color: var(--text); font-weight: 600; }
+.title-empty { padding-top: 4px; }

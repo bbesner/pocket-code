@@ -866,6 +866,39 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.click('#s-away');await page.waitForFunction(()=>document.querySelector('#s-away').getAttribute('aria-pressed')==='true');
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
   });
+  await check('1.22 Search inside conversations: results under the box, marked words, related rows, open at the match',async()=>{
+   await page.setViewport({width:390,height:844});
+   conversations.set(rows[3].id,[{role:'user',text:'How is stock?'},{role:'assistant',blocks:[{t:'text',text:'Incoming stock is separate from the on-hand count for each recorder.'}]}]);
+   await page.goto(base+'/#/');await page.waitForSelector('[data-session-search]');
+   const before=(getMode().searchCalls||[]).length;
+   await page.type('[data-session-search]','in');await pause(700);
+   assert.equal(await page.$('.convo-group'),null,'two characters do not search inside conversations');
+   assert.equal((getMode().searchCalls||[]).length,before);
+   await page.type('[data-session-search]','coming stock');
+   await page.waitForSelector('.convo-group .convo-item');
+   assert.equal((getMode().searchCalls||[]).length,before+1,'one request after typing settles');
+   assert.equal(getMode().searchCalls.at(-1),'incoming stock');
+   const g=await page.$eval('.convo-group',e=>({h:e.querySelector('h2').textContent,note:e.querySelector('.convo-note').textContent,
+     rows:[...e.querySelectorAll('.convo-item')].map(r=>({who:r.querySelector('.convo-who').textContent,marks:[...r.querySelectorAll('mark')].map(m=>m.textContent)}))}));
+   assert.equal(g.h,'In conversations2');assert.match(g.note,/MemStem/);
+   assert.equal(await page.$eval('[data-session-results]',e=>e.textContent.trim()),'No session titles match. Matches inside conversations are below.');
+   assert.deepEqual(g.rows,[{who:'Claude:',marks:['Incoming','stock']},{who:'Related:',marks:[]}]);
+   await scan('convo-search-mobile');await page.screenshot({path:path.join(out,'convo-search-mobile.png')});
+   await page.click(`.convo-item [data-convo-id="${rows[3].id}"]`);
+   await page.waitForFunction(id=>chatId===id&&!document.querySelector('#findbar').hidden&&document.querySelector('#fq').value,{},rows[3].id);
+   const find=await page.evaluate(()=>({q:document.querySelector('#fq').value,marks:fmarks.length}));
+   assert.ok(find.marks>0,'Find lands on the match: '+JSON.stringify(find));assert.match(find.q,/incoming stock|incoming|stock/i);
+   assert.equal(await page.$('#away-divider'),null,'a search result opens at the match, not at New since');
+   await page.keyboard.press('Escape');
+   // A failure says so and offers a retry; clearing the box removes the section.
+   setMode({searchFail:true});
+   await page.goto(base+'/#/');await page.waitForSelector('[data-session-search]');
+   await page.type('[data-session-search]','recorder');await page.waitForSelector('[data-convo-retry]');
+   setMode({searchFail:false});await page.click('[data-convo-retry]');await page.waitForSelector('.convo-group .convo-item');
+   await page.$eval('[data-session-search]',e=>{e.value='';e.dispatchEvent(new Event('input'));});
+   assert.equal(await page.$('.convo-group'),null);
+   await page.evaluate(()=>{sessionQuery='';});
+  });
   await scan('chat-desktop');await page.setViewport({width:390,height:844});await scan('chat-mobile');
   await page.evaluate(()=>settingsSheet());await scan('settings-mobile');
   assert.deepEqual(errors,[]);
