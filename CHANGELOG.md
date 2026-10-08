@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.20.1] — Unreleased · build 55
+## [1.20.1] — 2026-10-08 · build 55
 
 The remaining small findings (P3) from the 2026-10-08 UI/UX audit.
 
