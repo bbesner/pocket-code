@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.27.1] — 2026-10-08 · build 65
+
+- **Amber means waiting on you.** A session that needs your answer or approval now shows amber instead of clay on its tab, in the session list and in the conversation status bar. At tab size the still clay dot was hard to tell from the breathing ember of a running turn. Clay now always means Claude is working; amber means it is waiting on you. Requested by Brad.
+
 ## [1.27.0] — 2026-10-08 · build 64
 
 - **Status on open-session tabs.** Each tab across the top carries the same status as its session-list row, as a small mark before the title: the breathing ember while a turn runs, a still clay dot when it needs your answer or approval, green for a reply you have not opened, red for a failed turn, and a ring for activity elsewhere or a paused queue. Quiet sessions show nothing, and no tab shows a status while the session list is unconfirmed. Hovering a tab adds the status in words; screen readers announce it with the title. Tabs for sessions older than the loaded list show no status. Requested by Brad.
