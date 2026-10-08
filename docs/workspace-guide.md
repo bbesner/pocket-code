@@ -249,10 +249,12 @@ Pocket shows the verified account when the CLI finishes. Paste codes only in thi
 form, not in a conversation.
 
 This changes the shared Claude login on this server, including code-server when it
-uses the same configuration. Finish Pocket’s active Claude turns and background
-jobs first. Idle Claude processes close and new Claude turns wait until sign-in
-ends; conversations remain saved. Other open Claude processes may need reopening.
-Codex can keep working and its account is unchanged.
+uses the same configuration. Finish Pocket’s current Claude turns first. Background
+jobs keep running and may keep their earlier login. Idle Claude processes close and
+new Claude turns wait until sign-in ends; conversations remain saved. After signing
+in, use a new session with the new account, or wait for a retained session’s jobs to
+finish before sending its next message. Pocket then reopens that session with the
+current login. Other open Claude processes may need reopening. Codex is unchanged.
 
 Closing the form leaves sign-in pending for up to ten minutes. Return to Accounts &
 instance to resume it, or choose **Cancel sign-in**. A server restart ends a pending

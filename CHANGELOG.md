@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.26.1] — 2026-10-08 · build 63
+
+- Account switching no longer waits forever on long-running background jobs such as health watchers. Current Claude turns still finish first; idle processes close, while background jobs and their Claude processes remain alive.
+- Retained sessions refresh their login before the next requested turn after their jobs finish. While a retained job is running, start a new session to use the new account. This state survives Pocket restarts, and old processes cannot overwrite the new account’s displayed plan limits.
+- The sign-in form explains that background jobs can keep the earlier login. Codes and authentication continue through the installed Claude CLI.
+
 ## [1.26.0] — 2026-10-08 · build 62
 
 - **Switch Claude accounts.** Settings → Accounts & instance → Claude Code → Switch account opens a browser sign-in link and a field for Claude’s return code. The installed CLI handles authentication; Pocket never puts the code in a conversation or saves it in its data files.

@@ -1,7 +1,7 @@
 {
-  "version": "1.26.0",
-  "assetV": 62,
+  "version": "1.26.1",
+  "assetV": 63,
   "notes": [
-    "Switch your Claude Code account from Settings → Accounts & instance. Open the Claude sign-in link, choose your account in the browser, then paste its code into Pocket. This changes the shared Claude login on this server. Active Claude turns and background jobs must finish first; Codex can keep running."
+    "Claude account switching no longer waits for long-running background watchers. Current Claude turns must finish, but background jobs stay running with their existing session. New sessions use the new account; retained sessions refresh their login after their jobs finish. Codex is unaffected."
   ]
 }

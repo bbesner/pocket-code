@@ -75,18 +75,29 @@ test('authenticated HTTP login: CSRF, privacy, reconnect, turn gate, completion 
   const repo=path.resolve(import.meta.dirname,'..'),secret=randomUUID(),expires=Date.now()+3600000;
   const cookie='pc_auth='+expires+'.'+createHmac('sha256',secret).update(String(expires)).digest('hex');
   const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('POCKET_')&&!key.startsWith('VAPID_')&&!key.startsWith('ANTHROPIC_')&&!key.startsWith('CLAUDE_')));
-  const child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...env,PORT:'0',POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_AUTO_TITLES:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),CLAUDE_CONFIG_DIR:path.join(dir,'config'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
-  let logs='';child.stdout.on('data',data=>{logs+=data;});child.stderr.on('data',data=>{logs+=data;});
+  let child,logs='',base;
+  const boot=async()=>{
+    let startup='';
+    child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...env,PORT:'0',POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_AUTO_TITLES:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_CONFIG_DIR:path.join(dir,'config'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
+    child.stdout.on('data',data=>{logs+=data;startup+=data;});child.stderr.on('data',data=>{logs+=data;startup+=data;});
+    for(let attempt=0;attempt<150&&!startup.includes('listening on');attempt++)await new Promise(resolve=>setTimeout(resolve,40));
+    const port=startup.match(/listening on 127\.0\.0\.1:(\d+)/)?.[1];assert.ok(port,startup);base='http://127.0.0.1:'+port;
+  };
   context.after(async()=>{child.kill('SIGTERM');if(child.exitCode===null&&child.signalCode===null)await once(child,'exit');fs.rmSync(dir,{recursive:true,force:true,maxRetries:10});});
-  for(let attempt=0;attempt<150&&!logs.includes('listening on');attempt++)await new Promise(resolve=>setTimeout(resolve,40));
-  const port=logs.match(/listening on 127\.0\.0\.1:(\d+)/)?.[1];assert.ok(port,logs);
-  const base='http://127.0.0.1:'+port;
+  await boot();
   const request=async(route,body,headers={})=>fetch(base+'/api/'+route,{method:body===undefined?'GET':'POST',headers:{cookie,'content-type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body)});
+  const waitIdle=async()=>{for(let attempt=0;attempt<150;attempt++){const health=await (await request('health')).json();if(health.active===0)return;await new Promise(resolve=>setTimeout(resolve,40));}assert.fail('turn did not finish');};
   assert.equal((await fetch(base+'/api/claude/login')).status,401);
   assert.equal((await request('claude/login/start',{}, {cookie:''})).status,401);
   assert.equal((await request('claude/login/start',{}, {'sec-fetch-site':'cross-site'})).status,403);
   assert.equal((await request('claude/login/start',{}, {'content-type':'text/plain'})).status,403);
+  const background=await (await request('new',{cwd:dir,text:'__BG_LONG__ __SLOW__'})).json();assert.ok(background.id);
+  assert.equal((await request('claude/login/start',{})).status,409);
+  await waitIdle();
+  const runnerFile=()=>path.join(dir,'data','turnlogs',fs.readdirSync(path.join(dir,'data','turnlogs')).find(file=>file.startsWith(background.id)&&file.endsWith('.runner.json')));
+  const originalRunner=JSON.parse(fs.readFileSync(runnerFile(),'utf8'));assert.equal(originalRunner.bgTasks.length,1);
   const started=await (await request('claude/login/start',{})).json();assert.ok(started.id);
+  assert.equal(JSON.parse(fs.readFileSync(runnerFile(),'utf8')).accountStale,true);process.kill(originalRunner.pid,0);
   assert.equal((await (await request('claude/login/start',{})).json()).id,started.id);
   let state;
   for(let attempt=0;attempt<100;attempt++){const response=await request('claude/login');assert.match(response.headers.get('cache-control'),/no-store/);state=await response.json();if(state.status==='waiting')break;await new Promise(resolve=>setTimeout(resolve,20));}
@@ -97,8 +108,17 @@ test('authenticated HTTP login: CSRF, privacy, reconnect, turn gate, completion 
   assert.equal((await request('claude/login/code',{id:started.id,code:'test-code#test-state'})).status,200);
   for(let attempt=0;attempt<100;attempt++){state=await (await request('claude/login')).json();if(state.status==='success')break;await new Promise(resolve=>setTimeout(resolve,20));}
   assert.equal(state.status,'success');assert.equal(state.account.email,'owner@example.test');assert.equal(state.url,null);
+  const previous=child,exited=once(previous,'exit');previous.kill('SIGTERM');await exited;await boot();
+  const adopted=JSON.parse(fs.readFileSync(runnerFile(),'utf8'));assert.equal(adopted.pid,originalRunner.pid);assert.equal(adopted.accountStale,true);process.kill(originalRunner.pid,0);
+  const held=await request('session/'+background.id+'/message',{text:'Use the new account'});assert.equal(held.status,409);assert.match((await held.json()).error,/background jobs/);
+  assert.equal((await request('new',{cwd:dir,text:'A fresh session can use the new account'})).status,202);await waitIdle();
+  fs.appendFileSync(runnerFile().replace('.runner.json','.out.ndjson'),JSON.stringify({type:'system',subtype:'background_tasks_changed',tasks:[]})+'\n');
+  for(let attempt=0;attempt<100&&JSON.parse(fs.readFileSync(runnerFile(),'utf8')).bgTasks.length;attempt++)await new Promise(resolve=>setTimeout(resolve,30));
+  assert.equal((await request('session/'+background.id+'/message',{text:'Background job finished; refresh this session login'})).status,202);await waitIdle();
+  const refreshed=JSON.parse(fs.readFileSync(runnerFile(),'utf8'));assert.notEqual(refreshed.pid,originalRunner.pid);assert.equal(refreshed.accountStale,false);
   const next=await (await request('claude/login/start',{})).json();assert.notEqual(next.id,started.id);
   assert.equal((await request('claude/login/code',{id:started.id,code:'old'})).status,409);
   const cancel=await (await request('claude/login/cancel',{id:next.id})).json();assert.equal(cancel.status,'cancelled');
+  assert.equal((await request('session/'+background.id+'/release',{stop:true})).status,200);
   assert.doesNotMatch(logs,/test-code|private-test-code|code_challenge/);
 });

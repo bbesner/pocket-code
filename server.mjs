@@ -723,8 +723,13 @@ const turns = new Map(); // sessionId -> active turn {pid, events[], subs:Set<re
 const runners = new Map(); // sessionId -> live CLI process for that session
 const claudeLogin = new ClaudeLogin({
   bin:CLAUDE_BIN, env:spawnEnv(), cwd:HOME,
-  busy:() => turns.size > 0 || [...runners.values()].some(runner => runner.bgTasks.length),
-  prepare:() => { for (const runner of runners.values()) closeRunner(runner,'account sign-in'); },
+  busy:() => turns.size > 0,
+  prepare:() => {
+    for (const runner of runners.values()) {
+      if (runner.bgTasks.length) { runner.accountStale = true; writeRunnerMeta(runner); }
+      else closeRunner(runner,'account sign-in');
+    }
+  },
   identify:() => readClaudeIdentity(CLAUDE_BIN,spawnEnv()),
   onSuccess:() => { usage.clearAccount(); titleProviders.checkedAt = 0; log('Claude account sign-in completed'); },
 });
@@ -870,7 +875,7 @@ function attachClaudeQuestions(turn,sessionId){
 }
 function handleTurnLine(turn, line) {
   let o; try { o = JSON.parse(line); } catch { return; }
-  const usageEvent = usage.observe(turn.sessionId, o);
+  const usageEvent = turn.runner?.accountStale && o.type === 'rate_limit_event' ? null : usage.observe(turn.sessionId, o);
   if (usageEvent) broadcast(turn, { type: 'usage', kind: usageEvent.kind });
   if(o.type==='control_request'){
     if(o.request?.subtype==='can_use_tool'&&o.request.tool_name==='AskUserQuestion'&&turn.questions){
@@ -938,7 +943,7 @@ function writeRunnerMeta(r) {
     sessionId: r.sessionId, pid: r.pid, keeperPid: r.keeperPid, key: r.key, cwd: r.cwd, startedAt: r.startedAt,
     model: r.model, effort: r.effort, approvalMode: r.approvalMode,
     turn: t ? { startedAt: t.startedAt, userText: t.userText, offset: t.offset, autonomous: Boolean(t.autonomous) } : null,
-    bgTasks: r.bgTasks,
+    bgTasks: r.bgTasks, accountStale: Boolean(r.accountStale),
     waitingForInput: Boolean(t && (t.questions?.list().length || t.approvals?.list().length || t.inputUnavailable || t.approvalUnavailable)),
     waitingForApproval: Boolean(t?.approvals?.list().length || t?.approvalUnavailable),
   };
@@ -1259,9 +1264,10 @@ function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, r
   const mode=approvalMode(requestedMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);
   let r = runners.get(sessionId);
   if (r) {
+    if (r.accountStale && r.bgTasks.length) throw Object.assign(new Error('This session has background jobs keeping its earlier Claude login. Let them finish, or start a new session with the current account.'), {code:409});
     // A process can only carry on if nothing it was started with has changed, and if no
     // other app added turns since ours (its in-memory history would fork the transcript).
-    const why = r.closing || r.exited ? 'closing'
+    const why = r.closing || r.exited ? 'closing' : r.accountStale ? 'account sign-in changed'
       : r.cwd !== cwd ? 'workspace changed' : r.model !== model ? 'model changed'
         : r.effort !== effort ? 'effort changed' : r.approvalMode !== mode ? 'permissions changed'
           : foreignTurns(sessionId, ownedTranscriptSize.get(sessionId)).since ? 'continued in another app' : null;
@@ -1299,7 +1305,7 @@ function adoptOrphans() {
         let size = 0; try { size = fs.statSync(files.out).size; } catch { }
         const r = {
           sessionId: m.sessionId, key: m.key, pid: m.pid, keeperPid: m.keeperPid, writer, cwd: m.cwd, model: m.model, effort: m.effort,
-          approvalMode: m.approvalMode || 'full', files, startedAt: m.startedAt || Date.now(), turn: null, bgTasks: Array.isArray(m.bgTasks) ? m.bgTasks : [],
+          approvalMode: m.approvalMode || 'full', files, startedAt: m.startedAt || Date.now(), turn: null, bgTasks: Array.isArray(m.bgTasks) ? m.bgTasks : [], accountStale: m.accountStale === true,
           lastLineAt: Date.now(), tailOffset: m.turn ? Math.min(m.turn.offset || 0, size) : size, tailRem: '', adopted: true,
           skipControlBefore: size, // requests answered (or lost) before the restart can't be answered now
         };
@@ -2314,7 +2320,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Switch your Claude Code account from Settings → Accounts & instance. Open the Claude sign-in link, choose your account in the browser, then paste its code into Pocket. This changes the shared Claude login on this server. Active Claude turns and background jobs must finish first; Codex can keep running."
+  "Claude account switching no longer waits for long-running background watchers. Current Claude turns must finish, but background jobs stay running with their existing session. New sessions use the new account; retained sessions refresh their login after their jobs finish. Codex is unaffected."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

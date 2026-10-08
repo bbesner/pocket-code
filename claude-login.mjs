@@ -29,7 +29,7 @@ export class ClaudeLogin {
   start() {
     if (this.active) return this.snapshot();
     if (this.flow?.child?.exitCode === null && this.flow.child.signalCode === null) throw failure('The previous sign-in is closing. Wait a moment, then try again.');
-    if (this.busy()) throw failure('Claude is still working. Let its turns and background jobs finish, then try again. Codex can keep running.');
+    if (this.busy()) throw failure('Claude is still working. Let its current turns finish, then try again. Background jobs and Codex can keep running.');
     const flow = this.flow = {id:randomUUID(),status:'starting',url:null,expiresAt:Date.now()+this.timeoutMs,message:'Preparing sign-in…',output:''};
     try {
       this.prepare();
