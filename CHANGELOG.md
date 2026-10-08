@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.19.0] — Unreleased · build 52
+## [1.19.0] — 2026-10-08 · build 52
 
 From a full UI and UX audit of 1.18 on phone, tablet and desktop (2026-10-08). Requested by Brad.
 
