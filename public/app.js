@@ -168,7 +168,7 @@ function renderToolbar() {
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
     <button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>
-    <button class="chip" id="c-approval" title="Permissions for the next turn">${permissionLabel(nextApprovalMode())}</button>
+    <button class="chip" id="c-approval" title="Permissions for the next turn" aria-label="Permissions for the next turn: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
     ${tb.provider==='codex'?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
     ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}`;
   const ar = $('#attrow');
@@ -442,7 +442,7 @@ function renderLogin() {
   app.innerHTML = `
     <div class="login">
       <h1>Pocket Code</h1>
-      <p class="sub">Your Claude Code sessions, from anywhere.</p>
+      <p class="sub">Your Claude Code and Codex sessions, from anywhere.</p>
       <input type="password" id="pw" placeholder="Password" autocomplete="current-password" enterkeyhint="go">
       <p class="err" id="lerr"></p>
       <button class="primary" id="go">Unlock</button>
@@ -771,7 +771,7 @@ function sessionSummary() {
   if (sessionsStale) return 'Status unavailable. Showing the last saved list.';
   if (!sessionCheckedAt) return 'Checking your sessions…';
   const c = sessionCounts();
-  return [c.running ? `${c.running} running` : 'No confirmed runs', c.observed ? `${c.observed} with activity elsewhere` : '', c.attention ? `${c.attention} need attention` : ''].filter(Boolean).join(' · ');
+  return [c.running ? `${c.running} running` : 'No confirmed runs', c.observed ? `${c.observed} with activity elsewhere` : '', c.attention ? `${c.attention} ${c.attention === 1 ? 'needs' : 'need'} attention` : ''].filter(Boolean).join(' · ');
 }
 function filterButtons(keys) {
   const c = sessionCounts();
@@ -792,7 +792,7 @@ function sessionRowHTML(s) {
   return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}" data-item="${esc(s.id)}">
     <button class="row" data-id="${esc(s.id)}">
       <span class="body"><span class="title">${esc(s.title)}</span>
-      <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${esc(projName(s.cwd))} · ${s.provider === 'codex' ? 'Codex' : 'Claude'}</span>
+      <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${s.provider === 'codex' ? 'Codex' : 'Claude'}</span>
       <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
       <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
     </button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned session ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
@@ -934,12 +934,12 @@ function paintSessionPanels() {
 }
 // 1.19: send the last list's ETag; an unchanged list comes back as 304 with the server's check time in a
 // header, which proves a fresh authenticated check just as a full response does.
-let sessionsEtag = '';
+let sessionsEtag = '', sessionsHome = ''; // 1.20.1: rows in the default workspace show only the agent
 async function fetchSessionList() {
   const r = await fetch('/api/sessions?limit=200&statusCheck=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(8000),
     headers: sessionsEtag && allSessions.length ? { 'if-none-match': sessionsEtag } : {} });
   if (r.status === 401) { sessionsEtag = ''; renderLogin(); throw new Error('login'); }
-  if (r.status === 304) return { sessions: allSessions, warnings: sessionWarnings, checkedAt: Number(r.headers.get('x-pocket-checked-at')) };
+  if (r.status === 304) return { sessions: allSessions, warnings: sessionWarnings, home: sessionsHome, checkedAt: Number(r.headers.get('x-pocket-checked-at')) };
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { sessionsEtag = ''; throw new Error(j.error || r.statusText); }
   sessionsEtag = r.headers.get('etag') || '';
@@ -948,7 +948,7 @@ async function fetchSessionList() {
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
   sessionFetch = (async () => {
-    try { const d = await fetchSessionList(); allSessions = d.sessions; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
+    try { const d = await fetchSessionList(); allSessions = d.sessions; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
     finally { sessionFetch = null; paintSessionPanels(); if (!sessionsStale) Voice.onSessions(allSessions); }
   })();
@@ -1182,11 +1182,11 @@ function toolsCollapsed() { return readLocal('pc-tools-collapsed', true) !== fal
 // a "Recommended" tag (visible and read by screen readers); the tag is never part of the sent message.
 function choicesHTML(options, rec) {
   if (!options.length) return '';
-  return `<div class="choices" role="group" aria-label="Suggested replies" data-choices="${esc(options.join('\u241e'))}" hidden>${
+  return `<div class="choices" role="group" aria-label="Suggested replies" data-choices="${esc(options.join('\u241e'))}" hidden><div class="choice-opts">${
     options.map((o, i) => i === rec
       ? `<button type="button" class="choice choice-rec" data-choice="${esc(o)}"><span class="choice-text">${esc(o)}</span><span class="choice-tag">Recommended</span></button>`
       : `<button type="button" class="choice" data-choice="${esc(o)}">${esc(o)}</button>`).join('')
-  }<button type="button" class="choice-x" aria-label="Dismiss suggested replies and type your own" title="Dismiss">${IC.x}</button></div>`;
+  }</div><button type="button" class="choice-x" aria-label="Dismiss suggested replies and type your own" title="Dismiss">${IC.x}</button></div>`;
 }
 function paintChoices() {
   const msgs = $('#msgs'); if (!msgs) return;
@@ -1576,6 +1576,7 @@ async function renderChat(id) {
   $('#ctitle').title = s.title;
   $('#chat-state').textContent = s.state?.label || (s.active ? 'Running' : s.ext ? 'Activity elsewhere' : 'Recent');
   $('#cproj').textContent = projName(s.cwd);
+  const gitButton = $('#git-open'); if (gitButton) gitButton.hidden = s.repo === false; // 1.20.1: no Git control outside a repository
   if (PANE) paneSay('route', { id, title: s.title }); else rememberOpenSession({...s,id});
   chatTitle = s.title; chatPinned = Boolean(s.pinned);
   const h1 = $('#ctitle').closest('h1');
@@ -2204,7 +2205,7 @@ async function renderNew() {
 async function route() {
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { await api('/me'); }
+  try { const me = await api('/me'); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } } // 1.20.1: 200 {ok:false} when signed out
   catch (e) { // 401 rendered the login; anything else (offline, deploy restart) gets a retry view
     if (e.message !== 'login') renderUnreachable(e);
     reportWorkspaceChrome(); return;

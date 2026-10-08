@@ -915,3 +915,21 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .title-settings { display: flex; flex-direction: column; gap: 6px; padding: 0 14px 12px 50px; font-size: 14px; color: var(--dim); }
 .title-note { margin: 0; font-size: 13px; line-height: 1.45; color: var(--dim); }
 .title-note:empty { display: none; }
+
+/* ---------- 1.20.1: audit polish ---------- */
+/* Message settings: a soft fade at an edge that scrolls, so a chip never looks cut off; short permission words on phones. */
+.toolbar.fade-end { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+.toolbar.fade-start { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
+.toolbar.fade-start.fade-end { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
+#c-approval .label-short { display: none; }
+@media (max-width: 600px) { #c-approval .label-full { display: none; } #c-approval .label-short { display: inline; } }
+/* Context ring: a dotted track reads as a gauge, not an empty radio button. */
+.ctx-ring .ctx-track { stroke-dasharray: 1.4 2.6; stroke-width: 2.4; }
+/* 44px targets: the per-message copy control and the toolbar scroll arrows. */
+.copybtn.msgcopy { width: 44px; height: 44px; display: grid; place-items: center; padding: 0; margin: -10px -12px 0 4px; }
+.toolbar-scroll > .icon { min-height: 44px; }
+/* Settings disclosures: 16px from the sheet edge, like the other sheets. */
+.whatsnew, .feedback { padding-inline: 6px; }
+/* Reply suggestions: options wrap among themselves; the dismiss X stays at the end of the first line. */
+.choices { flex-wrap: nowrap; align-items: flex-start; }
+.choice-opts { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
