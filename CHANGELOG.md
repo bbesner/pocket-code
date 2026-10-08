@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.23.0] — Unreleased · build 58
+## [1.23.0] — 2026-10-08 · build 58
 
 - **Saved prompts.** The New session screen has **Save as prompt** beside Choose a skill. It keeps the task's wording, workspace and agent, and, unless you switch it off in the save sheet, the model, effort, permissions and Codex mode. Saved prompts appear as a row of chips above the task box; tapping one fills the whole screen (the chip stays highlighted until you change the wording) and you still press Start, so a stray tap never starts work. The chip's tooltip lists what it will set. Requested by Brad.
 - **Recent.** A Recent list under the chips holds your last five starts from any device (text, workspace, agent, when), newest first; a repeat moves to the top. Tapping one fills the screen the same way. It opens and closes on tap and remembers that on the browser.
