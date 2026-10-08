@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.25.0] — Unreleased · build 61
+## [1.25.0] — 2026-10-08 · build 61
 
 - **While you were away opens at the end.** Coming back to a session with work you have not seen now opens at the bottom of the conversation, not at the **New since** divider, so a long session needs no scrolling to reach the latest reply. The divider still marks the first new message. An **away card** under the latest message repeats the time ("New since 8:40 PM"), carries the short summary when the new part is more than a short exchange, and has **Read from there**, which jumps to the divider and holds the view there until you scroll, tap, type or send. When the latest reply ends in suggested replies, the card sits above them so the summary and the choices share the screen. When there is no summary and the divider is already on screen, the card is left out. Requested by Brad.
 - Settings → **Summarize what you missed** describes the new placement. Off still marks where new work starts and still opens at the end.
