@@ -108,6 +108,16 @@ const server=http.createServer(async(req,res)=>{
   if(uiModes.agentsFail)return json({error:'Temporarily unavailable'},503);
   const agents=uiModes.agents||[];return json({agents,total:agents.length,running:agents.filter(a=>a.status==='running').length,checkedAt:Date.now()});
  }
+ if(url.pathname.startsWith('/api/prompts')){ // in-memory stand-in for prompts.mjs (1.23)
+  const st=uiModes.prompts||(uiModes.prompts={prompts:[],recent:[{text:'Check incoming quantities before ordering',cwd:'/workspaces/products',provider:'codex',at:Date.now()-3600000}]});
+  let raw='';for await(const c of req)raw+=c;const body=raw?JSON.parse(raw):{};const id=decodeURIComponent(url.pathname.split('/')[3]||'');
+  if(req.method==='GET')return json(st);
+  if(url.pathname==='/api/prompts/order'){st.prompts.sort((a,b)=>body.ids.indexOf(a.id)-body.ids.indexOf(b.id));return json(st);}
+  if(req.method==='POST'){if(!String(body.name||'').trim())return json({error:'Give the prompt a name.'},400);const p={...Object.fromEntries(Object.entries(body).filter(([,v])=>v!=null&&v!=='default')),id:'p'+(st.prompts.length+1)+'-'+Date.now()};st.prompts.push(p);return json({prompt:p,...st},201);}
+  const p=st.prompts.find(x=>x.id===id);if(!p)return json({error:'That prompt no longer exists.'},404);
+  if(req.method==='PATCH'){Object.assign(p,body);return json({prompt:p,...st});}
+  if(req.method==='DELETE'){st.prompts.splice(st.prompts.indexOf(p),1);return json(st);}
+ }
  if(url.pathname==='/api/search'){const q=url.searchParams.get('q')||'';uiModes.searchCalls=[...(uiModes.searchCalls||[]),q];
   if(uiModes.searchFail)return json({error:'Search unavailable'},503);
   return json({backend:'memstem',tookMs:12,results:[
