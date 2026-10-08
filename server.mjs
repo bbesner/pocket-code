@@ -120,7 +120,18 @@ const POCKET_DEFAULTS = {
 };
 for (const [name, ok] of [['POCKET_CLAUDE_MODEL', POCKET_DEFAULTS.claude.model], ['POCKET_CLAUDE_EFFORT', POCKET_DEFAULTS.claude.effort], ['POCKET_CODEX_MODEL', POCKET_DEFAULTS.codex.model], ['POCKET_CODEX_EFFORT', POCKET_DEFAULTS.codex.effort]])
   if (process.env[name] && !ok) console.warn(`${name}=${process.env[name]} is not a supported value; using the CLI default`);
-const withDefaults = (provider, opts) => ({ ...opts, model: opts.model || POCKET_DEFAULTS[provider].model, effort: opts.effort || POCKET_DEFAULTS[provider].effort });
+function validateModel(provider, model) {
+  if (model == null || model === 'default') return;
+  const incompatible = typeof model !== 'string' || (provider === 'codex'
+    ? /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[))/i.test(model)
+    : /^(?:gpt-|codex(?:$|-)|o\d(?:$|-))/i.test(model));
+  if (incompatible) throw Object.assign(new Error(`Choose a ${provider === 'codex' ? 'Codex' : 'Claude'} model from the model menu, then send again.`), { status: 400, code: 400 });
+}
+const withDefaults = (provider, opts) => {
+  const model = opts.model && opts.model !== 'default' ? opts.model : POCKET_DEFAULTS[provider].model;
+  validateModel(provider, model);
+  return { ...opts, model, effort: opts.effort || POCKET_DEFAULTS[provider].effort };
+};
 // Workspace the New session screen preselects; unset = wherever you last started one.
 const DEFAULT_CWD = envPick('POCKET_DEFAULT_CWD', v => path.isAbsolute(v) && fs.existsSync(v) && fs.statSync(v).isDirectory());
 
@@ -1935,7 +1946,12 @@ function validateApprovalMode(req,res,next){
   try{approvalMode(req.body?.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);next();}
   catch(e){res.status(e.status||400).json({error:e.message});}
 }
-app.post('/api/session/:id/message', requireAuth, validateApprovalMode, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
+function validateTurnModel(req, res, next) {
+  const provider = req.params.id ? (isCx(req.params.id) ? 'codex' : 'claude') : (req.body?.provider === 'codex' ? 'codex' : 'claude');
+  try { validateModel(provider, req.body?.model); next(); }
+  catch (error) { res.status(error.status || 400).json({ error: error.message }); }
+}
+app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validateTurnModel, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const id = req.params.id;
   if(!anyId(id))return res.status(400).json({error:'Invalid session'});
   const text = String(req.body?.text || '').trim();
@@ -2007,7 +2023,7 @@ app.post('/api/prompts/order', requireAuth, (req, res) => { try { promptStore.or
 app.patch('/api/prompts/:id', requireAuth, (req, res) => { try { res.json({ prompt: promptStore.update(req.params.id, req.body || {}), ...promptStore.list() }); } catch (e) { promptError(res, e); } });
 app.delete('/api/prompts/:id', requireAuth, (req, res) => { try { promptStore.remove(req.params.id); res.json(promptStore.list()); } catch (e) { promptError(res, e); } });
 
-app.post('/api/new', requireAuth, validateApprovalMode, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
+app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const cwd = String(req.body?.cwd || '').trim();
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
@@ -2320,7 +2336,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Questions and approvals now show in amber, so they no longer look like a running turn. Clay with the breathing ember means Claude is working; amber means it is waiting on you. This applies to the tab dots, the session list and the conversation status bar."
+  "Switching between Claude Code and Codex clears incompatible model choices, including saved choices in existing sessions. The model menu shows all advertised Codex models. Requests for the wrong agent are rejected before a turn starts."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

@@ -8,6 +8,18 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Model selection (1.27.2)
+
+Preserve the existing controls, typography and spacing.
+Pinned Operate brief: variance 3, motion 1, density 6. Switching agents clears an
+incompatible model before painting the button; existing sessions repair the same
+saved-state problem. Unrecognized models show their ID, never a misleading default
+label. The Codex sheet includes the full advertised list and retains its scrolling.
+
+Rendered 390px/1440px checks have no accessibility violations or findings on the
+model controls. Retain the existing app-shell overflow, native-font and compact
+type-hierarchy detector exceptions; this fix changes neither layout nor styling.
+
 ## Tab status (1.27)
 
 1.27.1: clay means work in progress, amber (`--warn`) means waiting on you. The still clay

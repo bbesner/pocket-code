@@ -35,6 +35,38 @@ async function fixture(t,port,env={}){
 }
 const msg=(text,extra={})=>({text,clientMessageId:randomUUID(),...extra});
 
+test('cross-provider models are rejected before dispatch; Codex defaults and explicit selections reach both model fields', async t => {
+ const fixtureServer = await fixture(t, 18431, { POCKET_CODEX_MODEL: 'gpt-6-sol' });
+ const request = { cwd: repo, provider: 'codex', ...msg('model selection') };
+ for (const model of ['claude-opus-5-5[1m]', 'opus', 'sonnet[1m]', 42]) {
+  const rejected = await fixtureServer.call('/new', { ...request, model });
+  assert.equal(rejected.status, 400);
+  assert.match(rejected.body.error, /Choose a Codex model/);
+ }
+ assert.equal(await fixtureServer.procs(), 0);
+ assert.equal(fixtureServer.calls().length, 0);
+ const created = await fixtureServer.call('/new', { ...request, model: 'default' });
+ assert.equal(created.status, 202, 'a rejected request must not reserve the delivery receipt');
+ const sessionId = created.body.id;
+ assert.ok(await fixtureServer.until(async () => fixtureServer.calls().length === 1 && await fixtureServer.idle(sessionId)));
+ for (const mode of ['auto', 'queue', 'steer']) {
+  const rejected = await fixtureServer.call(`/session/${sessionId}/message`, msg('wrong model', { model: 'claude-opus-5-5[1m]', mode }));
+  assert.equal(rejected.status, 400);
+ }
+ for (const model of ['gpt-6-sol', 'gpt-6-astra']) {
+  const count = fixtureServer.calls().length;
+  assert.equal((await fixtureServer.call(`/session/${sessionId}/message`, msg('explicit model', { model }))).status, 202);
+  assert.ok(await fixtureServer.until(async () => fixtureServer.calls().length === count + 1 && await fixtureServer.idle(sessionId)));
+ }
+ assert.deepEqual(fixtureServer.calls().map(call => [call.model, call.collaborationModel]), [
+  ['gpt-6-sol', 'gpt-6-sol'], ['gpt-6-sol', 'gpt-6-sol'], ['gpt-6-astra', 'gpt-6-astra'],
+ ]);
+ for (const model of ['gpt-6-sol', 'gpt-6-astra', 'o3', 'codex-mini-latest']) {
+  assert.equal((await fixtureServer.call('/new', { cwd: repo, ...msg('wrong Claude model', { model }) })).status, 400);
+  assert.equal((await fixtureServer.call('/session/11111111-1111-4111-8111-111111111111/message', msg('wrong Claude model', { model }))).status, 400);
+ }
+});
+
 test('a Codex thread keeps one app-server across turns',async t=>{
  const f=await fixture(t,18401);
  const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
