@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.26.0] — Unreleased · build 62
+## [1.26.0] — 2026-10-08 · build 62
 
 - **Switch Claude accounts.** Settings → Accounts & instance → Claude Code → Switch account opens a browser sign-in link and a field for Claude’s return code. The installed CLI handles authentication; Pocket never puts the code in a conversation or saves it in its data files.
 - Sign-in waits for Pocket’s active Claude turns and background jobs to finish, closes idle Claude processes, and blocks new Claude turns until completion or cancellation. Codex can keep running. Return to the form after closing it to resume the pending sign-in. Links expire after ten minutes.
