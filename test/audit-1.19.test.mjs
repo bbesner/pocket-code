@@ -22,6 +22,13 @@ test('automation labels scheduled runs by job name and leaves ordinary requests 
 test('cleanTitle keeps a short plain title and rejects errors and essays',()=>{
   assert.equal(cleanTitle('"Chunk 7 code review for TechPro Vision NVR."'),'Chunk 7 code review for TechPro Vision NVR');
   assert.equal(cleanTitle('Title: Warehouse stock report\n\nextra'),'Warehouse stock report');
+  assert.equal(cleanTitle("I don't have access to:\n\n- Google Meet\n- Email"),null,'an answer is not a title');
+  assert.equal(cleanTitle("I appreciate you reaching out, but I need to clarify my role"),null);
+  assert.equal(cleanTitle('Here is a title for your session'),null);
+  assert.equal(cleanTitle('one two three four five six seven eight nine ten eleven twelve thirteen'),null);
+  assert.equal(cleanTitle('# Planning Phase: Email from Eric Wilson'),'Planning Phase: Email from Eric Wilson');
+  assert.equal(cleanTitle('**Title:** Warehouse **stock** report'),'Warehouse stock report');
+  assert.equal(cleanTitle('- `pocket-code` release check'),'pocket-code release check');
   assert.equal(cleanTitle('Not logged in · Please run /login'),null);
   assert.equal(cleanTitle('ok'),null);
   assert.equal(cleanTitle('x'.repeat(81)),null);
@@ -39,6 +46,8 @@ test('titler: one call at a time, newest first, never over a rename, backs off a
   assert.equal(meta.a.autoTitle,'T first');assert.equal(meta.renamed.autoTitle,undefined);
   t.request('f','bad');while(t.pending)await sleep(10);
   assert.ok(meta.f.autoTitleFailedAt);t.request('f','bad');assert.equal(t.pending,0,'a failure is not retried within the window');
+  meta.old={autoTitleFailedAt:Date.now()};t.request('old','older failure');assert.equal(t.pending>0,true,'a failure from an older prompt is tried again');while(t.pending)await sleep(10);
+  meta.md={autoTitle:"I don't have access to that"};t.request('md','redo');while(t.pending)await sleep(10);assert.equal(meta.md.autoTitle,'T redo','a stored answer-like title is redone');
 });
 
 test('HTTP: generated titles, automated runs, 304 session lists, gzip and failure reasons',async t=>{
@@ -98,4 +107,15 @@ test('HTTP: generated titles, automated runs, 304 session lists, gzip and failur
   assert.equal((await call(`/session/${id}/message`,{text:'__FAIL__',clientMessageId:randomUUID()})).status,202);
   let failed;for(let i=0;i<40&&!failed;i++){await sleep(100);const r=await row(id);if(r?.state.kind==='failed')failed=r;}
   assert.ok(failed);assert.equal(failed.state.error,'Test result');
+});
+
+test('Codex names that are just the opening request count as untitled (1.19.1)',async()=>{
+  const {promptOnlyName}=await import('../codex.mjs');
+  const ask='there was a previous session running doing chunk 7 code review for techpro vision nvr. I need you to continue';
+  assert.equal(promptOnlyName({name:ask,preview:ask}),true);
+  assert.equal(promptOnlyName({name:ask.slice(0,60),preview:ask}),true,'a clipped copy of the request');
+  assert.equal(promptOnlyName({name:'x'.repeat(81),preview:''}),true,'a sentence-length name');
+  assert.equal(promptOnlyName({name:null,preview:ask}),true);
+  assert.equal(promptOnlyName({name:'NVR code review',preview:ask}),false,'a real name stays');
+  assert.equal(promptOnlyName({name:'Fix login',preview:'Fix login'}),true,'identical to the request');
 });

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.19.1] — 2026-10-08 · build 53
+
+- Generated titles are cleaner. On the first live run of 1.19.0 the model sometimes answered in Markdown ("# Planning Phase: …") or answered the request itself ("I don't have access to…") instead of naming it. The request is now framed as data with the instruction after it (8 of 8 good titles on the cases that went wrong, including the ones that failed), Markdown is stripped, and a multi-line or answer-like reply is rejected. Titles saved by 1.19.0 go through the same check: a bad one shows the request again until it is redone, and failures from the older prompt are retried once.
+- Codex threads whose name is just their first message (Codex often stores the whole message as the name) count as untitled, so they get a short title as well. A name you gave the thread is kept.
+
 ## [1.19.0] — 2026-10-08 · build 52
 
 From a full UI and UX audit of 1.18 on phone, tablet and desktop (2026-10-08). Requested by Brad.

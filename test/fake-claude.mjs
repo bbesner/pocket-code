@@ -7,7 +7,7 @@ if (process.argv.includes('--version')) { console.log('test-cli'); process.exit(
 // Session titles (titles.mjs): a one-shot -p call with no saved session. Answer like the real CLI's json output.
 if (process.argv.includes('--no-session-persistence')) {
   let input=''; process.stdin.on('data',c=>input+=c); process.stdin.on('end',()=>{
-    const req=input.replace(/^Request:\s*/,'');
+    const req=(input.match(/<request>\n([\s\S]*?)\n<\/request>/)||[,input])[1];
     if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.titles',req.slice(0,200).replace(/\n/g,' ')+'\n');
     console.log(JSON.stringify({type:'result',is_error:/__TITLEFAIL__/.test(req),result:/__TITLEFAIL__/.test(req)?'Not logged in':'Title: '+req.split(/\s+/).filter(w=>!/^__/.test(w)).slice(0,4).join(' ')+'.'}));
   });
