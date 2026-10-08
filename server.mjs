@@ -29,6 +29,7 @@ import {AgentActivity,ClaudeAgentFiles} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
 import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION,summarizeAway,awayDigest,awayWorthSummary} from './titles.mjs';
 import zlib from 'node:zlib';
+import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -1744,6 +1745,85 @@ app.get('/api/session/:id/changes', requireAuth, async (req, res) => {
   res.json(await collectChanges(file));
 });
 
+// ---------- 1.22: search across conversations ----------
+// With MemStem beside Pocket (POCKET_MEMSTEM_URL, default http://127.0.0.1:7821; POCKET_MEMSTEM=0 turns it off),
+// search uses its keyword + semantic index of every session, and snippets come from its plain-text copy of the
+// conversation. Otherwise Pocket searches the recent conversations' text itself, for an exact phrase, within a
+// time budget, and says how far it got.
+const MEMSTEM_URL = (process.env.POCKET_MEMSTEM_URL || 'http://127.0.0.1:7821').trim().replace(/\/+$/, '');
+const memstem = { on: process.env.POCKET_MEMSTEM !== '0', checkedAt: 0, ok: false, vault: null };
+async function memstemStatus() {
+  if (!memstem.on || Date.now() - memstem.checkedAt < 60_000) return memstem;
+  try {
+    const r = await fetch(MEMSTEM_URL + '/health', { signal: AbortSignal.timeout(3000) });
+    const j = await r.json();
+    memstem.ok = r.ok && j?.status !== 'down'; memstem.vault = typeof j?.vault === 'string' ? path.resolve(j.vault) : null;
+  } catch { memstem.ok = false; }
+  memstem.checkedAt = Date.now();
+  return memstem;
+}
+async function readHead(file, maxBytes) {
+  const fh = await fsp.open(file, 'r');
+  try { const buf = Buffer.alloc(maxBytes); const { bytesRead } = await fh.read(buf, 0, maxBytes, 0); return buf.toString('utf8', 0, bytesRead); }
+  finally { await fh.close(); }
+}
+const CODEX_SESSIONS_ROOT = path.join(process.env.CODEX_HOME || path.join(HOME, '.codex'), 'sessions');
+const searchRow = (s, extra) => ({ id: s.id, title: s.title, provider: s.provider || (isCx(s.id) ? 'codex' : 'claude'), cwd: s.cwd || null,
+  mtimeMs: s.mtimeMs || 0, automated: s.automated || undefined, pinned: s.pinned || undefined, ...extra });
+app.get('/api/search', requireAuth, async (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  const q = String(req.query.q || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (q.length < 3) return res.status(400).json({ error: 'Type at least 3 characters.' });
+  const t0 = Date.now();
+  const listed = new Map((await listAllSessions(200)).map(s => [s.id, s]));
+  const describe = async id => {
+    if (listed.has(id)) return listed.get(id);
+    if (isCx(id)) { if (!CODEX_ON) return null; const m = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null); return m ? finishTitle(m) : null; }
+    const file = await findSessionFile(id); if (!file) return null;
+    return { ...finishTitle(await sessionMeta(file, id)), provider: 'claude' };
+  };
+  const ms = await memstemStatus();
+  if (ms.ok) {
+    try {
+      const r = await fetch(MEMSTEM_URL + '/search', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: q, limit: 30, types: ['session'] }), signal: AbortSignal.timeout(25_000) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const body = await r.json(), hits = Array.isArray(body) ? body : body.results || [];
+      const picked = [], seen = new Set();
+      for (const h of hits) {
+        const id = sessionIdFromRef(h?.frontmatter?.provenance?.ref, { projectsRoot: PROJECTS_ROOT, codexSessionsRoot: CODEX_SESSIONS_ROOT });
+        if (!id || seen.has(id) || (isCx(id) && !CODEX_ON)) continue;
+        seen.add(id); picked.push({ id, h }); if (picked.length >= 15) break;
+      }
+      const results = (await Promise.all(picked.map(async ({ id, h }) => {
+        const s = await describe(id).catch(() => null); if (!s) return null;
+        let snip = null;
+        const file = ms.vault && typeof h.path === 'string' ? path.resolve(ms.vault, h.path) : null;
+        if (file && file.startsWith(ms.vault + path.sep)) { try { snip = bestSnippet(await readHead(file, 4 * 1024 * 1024), q); } catch { } }
+        return searchRow(s, { role: snip?.role || null, snippet: snip?.text || cleanMemstemSnippet(h.snippet), related: !snip });
+      }))).filter(Boolean);
+      return res.json({ backend: 'memstem', results, tookMs: Date.now() - t0 });
+    } catch (e) { log(`memstem search failed, using Pocket's own: ${e.message}`); memstem.ok = false; memstem.checkedAt = Date.now(); }
+  }
+  // Pocket's own: exact phrase in the newest conversations first, 4 at a time, for up to 6 seconds.
+  const rows = [...listed.values()].sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
+  const results = [], deadline = t0 + 6000; let next = 0, scanned = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    while (next < rows.length && results.length < 15 && Date.now() < deadline) {
+      const s = rows[next++];
+      let m = null;
+      try {
+        if (isCx(s.id)) { if (CODEX_ON) m = searchMsgs((await codex.readCodexThread(codex.bareId(s.id), 2000)).msgs, q, 1).matches[0]; }
+        else { const file = await findSessionFile(s.id); if (file) m = (await searchTranscript(file, q, 1)).matches[0]; }
+      } catch { }
+      scanned++;
+      if (m) results.push(searchRow(s, { role: m.role, snippet: m.text }));
+    }
+  }));
+  results.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  res.json({ backend: 'pocket', results, scanned, total: rows.length, complete: scanned >= rows.length || results.length >= 15, tookMs: Date.now() - t0 });
+});
+
 // full-transcript search — the client's find bar only sees the rendered tail
 app.get('/api/session/:id/search', requireAuth, async (req, res) => {
   const q = String(req.query.q || '').trim();
@@ -2210,8 +2290,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "While you were away: come back to a session that kept working and it opens at a “New since 8:40 PM” line before the first thing you have not seen, with a short summary of what happened and anything waiting on you. Settings → Summarize what you missed turns the summary off; the line stays. Requested by Brad.",
-  "Small fixes from the October audit: phone message settings fade at a scrolling edge and say Full or Review; the context ring has a dotted track; sessions in your default workspace show only the agent; Git is hidden where the workspace is not a repository; larger copy and scroll targets; the suggested-reply X stays on the first line."
+  "Search inside conversations: type three or more characters in a session search box and Pocket also searches inside every conversation, with the matching passage and who wrote it. Tap a result to open the conversation with Find on the match. With MemStem on the server it searches every session by wording and meaning; otherwise it searches recent conversations for the exact phrase. Requested by Brad.",
+  "While you were away: come back to a session that kept working and it opens at a “New since 8:40 PM” line before the first thing you have not seen, with a short summary of what happened and anything waiting on you. Settings → Summarize what you missed turns the summary off; the line stays. Requested by Brad."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

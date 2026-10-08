@@ -448,3 +448,12 @@ source line that names the model and points back to the messages; on wide screen
 measure. It enters with the existing 180ms rise; nothing else moves. The view anchors at the divider until
 the first scroll, tap, key or send. Rendered phone/desktop screenshots and axe scans clean; detector findings
 are the documented exceptions.
+
+## Search inside conversations (1.22)
+
+Pinned Operate refinement: variance 2, motion 0, density 6. No new control: the existing session search box
+also searches inside conversations. Results are a session group ("In conversations" + count) after the title
+matches, in the session-row language: title, workspace · agent · age, then a three-line snippet in dim 14px with
+the speaker in primary 600 ("You:", "Claude:", "Codex:", "Related:") and matched words in the find-highlight
+mark. A 13px dim note states the scope honestly (MemStem: every conversation by wording and meaning; Pocket:
+exact phrase in N recent conversations). Loading, empty and failure are plain lines; failure adds a Try again chip.

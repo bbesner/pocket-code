@@ -1,8 +1,8 @@
 {
-  "version": "1.21.0",
-  "assetV": 56,
+  "version": "1.22.0",
+  "assetV": 57,
   "notes": [
-    "While you were away: come back to a session that kept working and it opens at a “New since 8:40 PM” line before the first thing you have not seen, with a short summary of what happened and anything waiting on you. Settings → Summarize what you missed turns the summary off; the line stays. Requested by Brad.",
-    "Small fixes from the October audit: phone message settings fade at a scrolling edge and say Full or Review; the context ring has a dotted track; sessions in your default workspace show only the agent; Git is hidden where the workspace is not a repository; larger copy and scroll targets; the suggested-reply X stays on the first line."
+    "Search inside conversations: type three or more characters in a session search box and Pocket also searches inside every conversation, with the matching passage and who wrote it. Tap a result to open the conversation with Find on the match. With MemStem on the server it searches every session by wording and meaning; otherwise it searches recent conversations for the exact phrase. Requested by Brad.",
+    "While you were away: come back to a session that kept working and it opens at a “New since 8:40 PM” line before the first thing you have not seen, with a short summary of what happened and anything waiting on you. Settings → Summarize what you missed turns the summary off; the line stays. Requested by Brad."
   ]
 }
