@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.21.0] — 2026-10-08 · build 56
+
+- **While you were away.** When you open a session (or come back to the app) and the agent did something you have not seen, a **New since 8:40 PM** line sits before the first new message and the conversation opens there instead of at the bottom. It stays there while the page settles, until you scroll, tap, type or send. Requested by Brad.
+- Where "new" starts: the later of the reviewed marker your devices share and the moment you last had that conversation on screen in this browser (leaving it, switching away or hiding the app). Re-renders of a conversation you are watching (a turn ending, a resync, the rail toggle) never add the line, and nothing is marked when the only new messages are your own.
+- When the new part is more than a short exchange (three or more tool calls, two agent messages, or a long reply), a **While you were away** card under the line summarizes it in two to four lines: what was done, what was decided, and anything waiting on you, with the model named ("Summary by Haiku 5.5. Read the messages for the details."). The server builds a compact digest of only the new messages (your messages, the agent's text clipped, tool calls grouped by name) and sends it to the same helper model as generated titles: Claude Haiku through the CLI (about 2 s), or Codex GPT-6-Luna (about 3 s, but about 25k tokens per call). Summaries are cached per session and starting point, nothing is written to a transcript, and a failed summary simply leaves the line.
+- Settings → **Summarize what you missed** turns the card on or off (on by default). The model choice is now labelled **Model for titles and summaries** and stays available while either is on.
+- Codex conversations get message times from their turn ids (UUIDv7), so the line works for Codex sessions too.
+
 ## [1.20.1] — 2026-10-08 · build 55
 
 The remaining small findings (P3) from the 2026-10-08 UI/UX audit.

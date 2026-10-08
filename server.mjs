@@ -27,7 +27,7 @@ import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import {AgentActivity,ClaudeAgentFiles} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
-import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION} from './titles.mjs';
+import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION,summarizeAway,awayDigest,awayWorthSummary} from './titles.mjs';
 import zlib from 'node:zlib';
 
 // ---------- config ----------
@@ -172,6 +172,7 @@ const storedAutoTitle = id => settings.autoTitles && smeta[id]?.autoTitle ? clea
 // POCKET_AUTO_TITLES only sets the starting value until someone changes it in Settings.
 if (typeof settings.autoTitles !== 'boolean') settings.autoTitles = (process.env.POCKET_AUTO_TITLES ?? '1').trim() !== '0';
 if (!['auto', 'claude', 'codex'].includes(settings.titleProvider)) settings.titleProvider = 'auto';
+if (typeof settings.awaySummaries !== 'boolean') settings.awaySummaries = true; // 1.21: "While you were away" summaries
 const TITLE_MODELS = { claude: (process.env.POCKET_TITLE_CLAUDE_MODEL || 'haiku').trim(), codex: (process.env.POCKET_TITLE_CODEX_MODEL || 'gpt-6-luna').trim() };
 // Whether each CLI can make titles: installed, signed in, and (Codex) offering the title model. Refreshed at
 // most every 10 minutes, or when Settings opens. null = not known yet; a call is tried and backs off on failure.
@@ -199,9 +200,10 @@ function refreshTitleProviders(maxAgeMs = 10 * 60_000) {
     Object.assign(titleProviders, { claude: cl, codex: cx, checkedAt: Date.now(), checking: null });
   })();
 }
-// The provider titles use now: the chosen one if it can, or for Automatic Claude first (far smaller calls), then Codex.
-function titleProvider() {
-  if (!settings.autoTitles) return null;
+// The helper model's provider (titles and away summaries share the choice): the chosen one if it can, or for
+// Automatic Claude first (far smaller calls), then Codex.
+const titleProvider = () => settings.autoTitles ? helperProvider() : null;
+function helperProvider() {
   const ok = p => (p === 'claude' ? claudeInstalled() : CODEX_ON) && titleProviders[p].available !== false; // installed is known at once; sign-in after the first check
   if (settings.titleProvider !== 'auto') return ok(settings.titleProvider) ? settings.titleProvider : null;
   return ok('claude') ? 'claude' : ok('codex') ? 'codex' : null;
@@ -214,7 +216,7 @@ const titler = createTitler({ getMeta: id => smeta[id], setMeta: setSmeta, log,
     : generateTitle(CLAUDE_BIN, text, { model: TITLE_MODELS.claude, env: spawnEnv() }),
   onTitled: r => { titleProviders.last = { provider: titleProvider(), model: r.model, at: Date.now() }; } });
 function titleSettings() {
-  return { enabled: settings.autoTitles, choice: settings.titleProvider, using: titleProvider(), models: TITLE_MODELS,
+  return { enabled: settings.autoTitles, choice: settings.titleProvider, using: titleProvider(), helper: helperProvider(), awaySummaries: settings.awaySummaries, models: TITLE_MODELS,
     claude: titleProviders.claude, codex: titleProviders.codex, last: titleProviders.last, checkedAt: titleProviders.checkedAt };
 }
 async function pushNotify(sessionId, title, body) {
@@ -1657,6 +1659,32 @@ app.get('/api/session/:id/workspace/diff',requireAuth,async(req,res)=>{
   try {res.json(await workspaceDiff(await workspaceCwd(req.params.id),HOME,String(req.query.path||''),String(req.query.scope||'working')));}
   catch(e){res.status(e.status||503).json({error:e.status?e.message:'Diff could not be inspected. Try again.'});}
 });
+// ---------- 1.21: While you were away ----------
+const awayCache = new Map(), awayInFlight = new Map();
+app.post('/api/session/:id/away', requireAuth, async (req, res) => {
+  const id = req.params.id, since = Number(req.body?.since);
+  if (!anyId(id) || !Number.isFinite(since) || since <= 0) return res.status(400).json({ error: 'Invalid request' });
+  if (!settings.awaySummaries) return res.json({ summary: null, reason: 'off' });
+  refreshTitleProviders();
+  const provider = helperProvider();
+  if (!provider) return res.json({ summary: null, reason: 'unavailable' });
+  let msgs;
+  try {
+    if (isCx(id)) msgs = (await codex.readCodexThread(codex.bareId(id), 600)).msgs;
+    else { const file = await findSessionFile(id); if (!file) return res.status(404).json({ error: 'not found' }); msgs = (await readTranscript(file, 600)).msgs; }
+  } catch { return res.status(502).json({ error: 'Could not read the conversation.' }); }
+  const after = msgs.filter(m => (Date.parse(m.ts || '') || 0) > since);
+  const { digest, stats } = awayDigest(after);
+  if (!awayWorthSummary(stats)) return res.json({ summary: null, reason: 'short' });
+  const key = `${id}|${since}|${after.at(-1)?.ts}|${provider}`;
+  if (awayCache.has(key)) return res.json(awayCache.get(key));
+  if (!awayInFlight.has(key)) awayInFlight.set(key, summarizeAway({ provider, claudeBin: CLAUDE_BIN, codexBin: codex.CODEX_BIN, models: TITLE_MODELS, env: spawnEnv() }, digest)
+    .finally(() => awayInFlight.delete(key)));
+  const r = await awayInFlight.get(key);
+  const body = r ? { summary: r.summary, model: r.model, provider, messages: after.length } : { summary: null, reason: 'failed' };
+  if (r) { awayCache.set(key, body); if (awayCache.size > 100) awayCache.delete(awayCache.keys().next().value); log(`away summary session=${id} provider=${provider} model=${r.model} messages=${after.length}`); }
+  res.json(body);
+});
 app.get('/api/session/:id/results', requireAuth, async (req,res) => {
   if(!anyId(req.params.id)) return res.status(400).json({error:'Invalid session'});
   try { res.json(await sessionResults(req.params.id)); }
@@ -1969,8 +1997,9 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
   if (typeof req.body?.autoTitles === 'boolean') settings.autoTitles = req.body.autoTitles;
   if (['auto', 'claude', 'codex'].includes(req.body?.titleProvider)) settings.titleProvider = req.body.titleProvider;
+  if (typeof req.body?.awaySummaries === 'boolean') settings.awaySummaries = req.body.awaySummaries;
   saveSettings();
-  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider}`);
+  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries}`);
   res.json({ ...settings, titles: titleSettings() });
 });
 
@@ -2181,9 +2210,8 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Small fixes from the October audit: phone message settings fade at a scrolling edge and say Full or Review; the context ring has a dotted track so it no longer looks like an empty radio button; sessions in your default workspace show only the agent; Git is hidden where the workspace is not a repository; larger copy and scroll targets; the suggested-reply X stays on the first line.",
-  "Generated session titles have their own setting: Settings → Generate short titles turns them on or off, and Title model chooses Automatic (Claude first, then Codex), Claude (Haiku) or Codex (GPT-6-Luna). Settings says which one is in use, which model made the last title, and why a choice is unavailable. Requested by Brad.",
-  "Titles never try a CLI that isn't there: a server without a signed-in Claude Code or Codex shows why in Settings and makes no title calls. Turning titles off also hides the ones already made, so your list matches code-server."
+  "While you were away: come back to a session that kept working and it opens at a “New since 8:40 PM” line before the first thing you have not seen, with a short summary of what happened and anything waiting on you. Settings → Summarize what you missed turns the summary off; the line stays. Requested by Brad.",
+  "Small fixes from the October audit: phone message settings fade at a scrolling edge and say Full or Review; the context ring has a dotted track; sessions in your default workspace show only the agent; Git is hidden where the workspace is not a repository; larger copy and scroll targets; the suggested-reply X stays on the first line."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

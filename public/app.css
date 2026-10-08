@@ -933,3 +933,13 @@ header.bar { gap: 2px; padding-inline: 8px; }
 /* Reply suggestions: options wrap among themselves; the dismiss X stays at the end of the first line. */
 .choices { flex-wrap: nowrap; align-items: flex-start; }
 .choice-opts { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
+
+/* ---------- 1.21: While you were away ---------- */
+.away-divider { display: flex; align-items: center; gap: 10px; margin: 4px 0 -4px; color: var(--clay); font-size: 13px; font-weight: 600; }
+.away-divider::before, .away-divider::after { content: ''; flex: 1; height: 1px; background: color-mix(in srgb, var(--clay) 55%, transparent); }
+.away-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; font-size: 15px; line-height: 1.5; }
+.away-label { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--dim); }
+.away-body { color: var(--text); }
+.away-body ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.away-source { margin: 8px 0 0; font-size: 12.5px; color: var(--dim); }
+@media (min-width: 700px) { .away-card { max-width: 68ch; } }

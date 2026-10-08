@@ -430,3 +430,21 @@ to the row text (50px) with a dim 13px status note. The sub line states the live
 On, using Claude · Haiku / On, but nothing can make titles); unavailable providers stay listed but disabled
 with "(unavailable)", and the note gives the reason. No new colour, icon or motion. The select is disabled
 while titles are off. 44px targets; rendered phone screenshot and axe scan reviewed.
+
+## Audit polish (1.20.1)
+
+Pinned Operate refinement: variance 2, motion 0, density 6. A soft mask fades the message-settings row at a
+scrolling edge instead of cutting a word; phone permission chip says Full / Review. The context ring track is
+dotted (a gauge, not a radio). Rows in the default workspace drop "~ ·". Copy and toolbar arrows reach 44px.
+Suggested-reply options wrap in their own group so the dismiss X stays on the first line.
+
+## While you were away (1.21)
+
+Pinned Operate refinement: variance 2, motion 1, density 6. The divider is the pin-divider's language at
+reading size: a 1px clay hairline either side of a 13px/600 clay label ("New since 8:40 PM"), so "new" uses
+the one accent the app already reserves for active markers. The summary card is an existing surface (surface
+fill, hairline, 14px radius, 16px padding) with a 13px dim label, 15px text as a short list and a 12.5px dim
+source line that names the model and points back to the messages; on wide screens it keeps the 68ch prose
+measure. It enters with the existing 180ms rise; nothing else moves. The view anchors at the divider until
+the first scroll, tap, key or send. Rendered phone/desktop screenshots and axe scans clean; detector findings
+are the documented exceptions.

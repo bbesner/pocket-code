@@ -315,6 +315,14 @@ function userText(it) {
   return c.filter(b => b?.type === 'text').map(b => b.text || '').join('\n');
 }
 
+// 1.21: Codex items carry no time, but their turn id is a UUIDv7 whose first 48 bits are the turn's start in ms.
+// That is enough to place "New since …" in a conversation. Not a v7 id → no time.
+export function uuid7Time(id) {
+  const m = /^([0-9a-f]{8})-([0-9a-f]{4})-7[0-9a-f]{3}-/i.exec(String(id || ''));
+  if (!m) return undefined;
+  const ms = parseInt(m[1] + m[2], 16);
+  return ms > 1.5e12 && ms < 4e12 ? new Date(ms).toISOString() : undefined;
+}
 export function normalizeItem(it, ts) {
   if (!it || typeof it !== 'object') return null;
   try {
@@ -410,7 +418,7 @@ function isLegacyError(e) {
 async function readLegacyItems(threadId) {
   const r = await rpc('thread/read', { threadId, includeTurns: true }, 60_000);
   const t = r?.thread || r;
-  return (t?.turns || []).flatMap(turn => turn?.items || []).filter(Boolean);
+  return (t?.turns || []).flatMap(turn => (turn?.items || []).map(it => (it && typeof it === 'object' && turn.id ? Object.assign(it, { __turnId: turn.id }) : it))).filter(Boolean);
 }
 
 // All items of a thread, oldest first, whichever format it is in.
@@ -421,7 +429,7 @@ async function listAllItems(threadId) {
       let cursor = null, pages = 0;
       do {
         const r = await rpc('thread/items/list', { threadId, limit: 200, ...(cursor ? { cursor } : {}) }, 60_000);
-        for (const row of r?.data || []) items.push(row.item || row);
+        for (const row of r?.data || []) { const it = row.item || row; if (row.turnId && it && typeof it === 'object') it.__turnId = row.turnId; items.push(it); }
         cursor = r?.nextCursor || null;
       } while (cursor && ++pages < 20);
       return items;
@@ -446,7 +454,7 @@ export async function readCodexAgents(threadId) {
 
 export async function readCodexThread(threadId, maxMsgs = 400) {
   const items = await listAllItems(threadId);
-  const msgs = mergeAssistant(items.map(it => normalizeItem(it)).filter(Boolean));
+  const msgs = mergeAssistant(items.map(it => normalizeItem(it, uuid7Time(it.__turnId))).filter(Boolean));
   return { msgs: msgs.slice(-maxMsgs), total: msgs.length, itemCount: items.length };
 }
 
