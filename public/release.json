@@ -1,7 +1,8 @@
 {
-  "version": "1.19.0",
-  "assetV": 52,
+  "version": "1.19.1",
+  "assetV": 53,
   "notes": [
+    "Generated session titles are plain and to the point: Markdown is stripped, a reply that answers the request instead of naming it is rejected, and Codex threads whose name is just their first message now get a short title too.",
     "Easier reading on wide screens: replies keep a comfortable line length on desktop and tablet, while tables and code still use the full width.",
     "A tidier session list: scheduled runs are grouped under Automated at the end of the list, Codex sessions from scratch folders are left out, and sessions named only by their first message get a short generated title. Your renames always win.",
     "More room on phones: the run status shares the title bar with the project name instead of a separate strip, and the check time no longer ticks every second.",

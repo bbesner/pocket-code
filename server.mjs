@@ -27,7 +27,7 @@ import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import {AgentActivity,ClaudeAgentFiles} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
-import {automation,createTitler} from './titles.mjs';
+import {automation,createTitler,cleanTitle} from './titles.mjs';
 import zlib from 'node:zlib';
 
 // ---------- config ----------
@@ -165,6 +165,8 @@ const setSmeta = (id, patch) => {
   if (Object.keys(m).length) smeta[id] = m; else delete smeta[id];
   saveSmeta();
 };
+// 1.19.1: titles saved by 1.19.0 may carry Markdown ("# Planning phase"); show them through the same cleanup.
+const storedAutoTitle = id => smeta[id]?.autoTitle ? cleanTitle(smeta[id].autoTitle) : null; // a bad stored title falls back to the request until it is redone
 // 1.19: short titles for sessions named only by their opening request. POCKET_AUTO_TITLES=0 turns it off.
 const titler = createTitler({ bin: CLAUDE_BIN, enabled: (process.env.POCKET_AUTO_TITLES ?? '1').trim() !== '0',
   getMeta: id => smeta[id], setMeta: setSmeta, log });
@@ -279,7 +281,7 @@ const composeTitle = m => {
   const named = settings.titleSync ? (m.customTitle || ov || m.aiTitle) : (ov || m.aiTitle);
   const dedupeTitle = (settings.titleSync ? (m.customTitle || ov || m.aiTitle) : ov) || m.title;
   const untitled = !named && Boolean(m.fromPrompt);
-  return { ...m, title: named || (untitled && smeta[m.id]?.autoTitle) || m.title, untitled, dedupeTitle };
+  return { ...m, title: named || (untitled && storedAutoTitle(m.id)) || m.title, untitled, dedupeTitle };
 };
 async function sessionMeta(file, id) {
   const st = await fsp.stat(file);
@@ -1376,7 +1378,7 @@ function finishTitle(s, request = false) {
   if (smeta[s.id]?.name) return out;
   const a = automation(s.title);
   if (a.automated) return { ...out, automated: true, title: a.title || s.title };
-  if (s.untitled && smeta[s.id]?.autoTitle) return { ...out, title: smeta[s.id].autoTitle };
+  if (s.untitled && storedAutoTitle(s.id)) return { ...out, title: storedAutoTitle(s.id) };
   if (request && s.untitled && Date.now() - (s.mtimeMs || 0) < TITLE_WINDOW_MS) titler.request(s.id, s.prompt || s.title);
   return out;
 }
@@ -2118,6 +2120,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
+  "Generated session titles are plain and to the point: Markdown is stripped, a reply that answers the request instead of naming it is rejected, and Codex threads whose name is just their first message now get a short title too.",
   "Easier reading on wide screens: replies keep a comfortable line length on desktop and tablet, while tables and code still use the full width.",
   "A tidier session list: scheduled runs are grouped under Automated at the end of the list, Codex sessions from scratch folders are left out, and sessions named only by their first message get a short generated title. Your renames always win.",
   "More room on phones: the run status shares the title bar with the project name instead of a separate strip, and the check time no longer ticks every second.",

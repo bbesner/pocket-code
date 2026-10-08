@@ -343,14 +343,22 @@ function mergeAssistant(msgs) {
 // ---------- session list ----------
 const iso = secs => secs ? new Date(secs * 1000).toISOString() : undefined;
 
+export function promptOnlyName(t) {
+  const name = String(t.name || '').trim(), preview = String(t.preview || '').trim();
+  if (!name) return Boolean(preview);
+  if (name.length > 80) return true;
+  return Boolean(preview) && (preview === name || preview.startsWith(name.slice(0, 40)) && name.length >= 40);
+}
 function threadToSession(t) {
   const title = t.name || clip(t.preview, 120) || '(untitled session)';
   return {
     id: CX + t.id,
     provider: 'codex',
     title,
-    untitled: !t.name && Boolean(t.preview), // 1.19: Pocket may generate a short title (server.mjs finishTitle)
-    prompt: !t.name && t.preview ? String(t.preview).slice(0, 1500) : undefined,
+    // 1.19: Pocket may generate a short title (server.mjs finishTitle). Codex often stores the whole first
+    // message as the thread name (1.19.1), so a name that is just the request still counts as untitled.
+    untitled: promptOnlyName(t),
+    prompt: promptOnlyName(t) ? String(t.preview || t.name).slice(0, 1500) : undefined,
     cwd: t.cwd || null,
     mtimeMs: (t.updatedAt || t.recencyAt || t.createdAt || 0) * 1000,
     model: t.model || undefined,
