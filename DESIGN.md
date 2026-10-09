@@ -8,6 +8,25 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Workspace consistency (1.33)
+
+Pinned Operate refinement: variance 3, motion 2, density 4. Preserve the warm ink,
+clay accent, native type and existing control vocabulary. Settings opens six plain
+navigation rows with short descriptions; categories name device/instance scope,
+keep their existing controls, and use All settings or Back to Settings for the parent.
+Close exits the flow. Initial dialog focus targets a visible control.
+
+New session keeps the task and Start dominant. A single outlined setup disclosure
+names workspace, agent and permissions; inside, model controls wrap. Attach, skill
+and saved-prompt actions share one secondary row. The conversation's linked project
+gets its own 44px context row with ellipsis rather than squeezing the action strip.
+
+Library Back restores its origin and scroll; load errors offer Retry and label cached
+data. The rail uses button-group semantics with arrow/Home/End shortcuts. Split view
+uses search and named groups, with a count when results are limited. Document filters,
+preview actions and running-chat mute controls use 44px hit areas. Wide table cues
+occupy a reserved margin so appearing text cannot shift a restored reading position.
+
 ## The library as a grid of previews (1.32)
 
 Pinned Operate refinement: variance 3, motion 1, density 6; existing tokens. Read: on a wide

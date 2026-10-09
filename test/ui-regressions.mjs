@@ -1,3 +1,4 @@
+import {clickControl} from './ui-controls.mjs';
 // Browser regressions for the 1.7 audit. Uses the existing synthetic API server;
 // no real credentials, transcripts, providers or production processes are involved.
 import assert from 'node:assert/strict';
@@ -38,39 +39,40 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   setMode({workerFailed:true,aboutFailed:true});
   await page.goto(base+'/#/');await page.waitForSelector('#settings');
   await check('Settings usable when service worker fails; explicit notification fallback',async()=>{
-   await page.click('#settings');await page.waitForSelector('#s-usage',{timeout:1000});
-   assert.ok(await page.$eval('#s-usage',e=>e.getBoundingClientRect().bottom<innerHeight));
+   await clickControl(page,'#settings');await page.waitForSelector('#s-usage',{timeout:1000});
+   assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),6);
    assert.equal(await page.$eval('#s-notes',e=>e.open),false);
-   await page.click('#s-chime');assert.equal(await page.$eval('#s-chime',e=>e.getAttribute('aria-pressed')),'false');
+   await clickControl(page,'#s-chime');assert.equal(await page.$eval('#s-chime',e=>e.getAttribute('aria-pressed')),'false');
    await page.waitForFunction(()=>document.querySelector('#s-push-state').textContent.includes('Unavailable'));
-   await page.click('#s-push');await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('Notifications unavailable'));
+   await clickControl(page,'#s-push');await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('Notifications unavailable'));
    await page.screenshot({path:path.join(out,'fixed-settings-mobile.png')});
   });
   await check('Failed update check is honest and Retry recovers',async()=>{
-   await page.click('#s-about > summary');
+   await clickControl(page,'#s-about > summary');
    await page.waitForFunction(()=>document.querySelector('#s-version-state').textContent.includes('Could not check'));
    assert.equal(await page.$eval('#s-refresh',e=>e.hidden),true);
-   setMode({aboutFailed:false});await page.click('#s-check');
+   setMode({aboutFailed:false});await clickControl(page,'#s-check');
    await page.waitForFunction(()=>document.querySelector('#s-version-state').textContent==='Up to date');
-   await page.click('#s-about > summary');
+   await clickControl(page,'#s-about > summary');
   });
   await check('Bugs & feature requests links open the GitHub issue forms with the version filled in',async()=>{
    assert.equal(await page.$eval('#s-feedback',e=>e.open),false);
-   await page.click('#s-feedback > summary');
+   await clickControl(page,'#s-feedback > summary');
    const bug=await page.$eval('#s-report-bug',e=>({href:e.href,target:e.target,rel:e.rel}));
    assert.match(bug.href,/^https:\/\/github\.com\/bbesner\/pocket-code\/issues\/new\?template=bug_report\.yml&version=/);
    assert.match(decodeURIComponent(bug.href),/build \d+/);
    assert.equal(bug.target,'_blank');assert.ok(bug.rel.includes('noopener'));
    assert.match(await page.$eval('#s-request-feature',e=>e.href),/template=feature_request\.yml&version=/);
    await page.$eval('#s-feedback',e=>e.scrollIntoView({block:'end'}));await page.screenshot({path:path.join(out,'fixed-settings-feedback.png')});
-   await page.click('#s-feedback > summary');
+   await clickControl(page,'#s-feedback > summary');
   });
   await check('Nested usage sheet returns focus to the Settings opener',async()=>{
-   await page.click('#s-usage');await page.waitForSelector('#usage-body');await page.keyboard.press('Escape');
+   await clickControl(page,'#s-usage');await page.waitForSelector('#usage-body');await page.keyboard.press('Escape');
    assert.equal(await page.evaluate(()=>document.activeElement.id),'settings');
   });
   await check('Settings disclosures remain keyboard reachable and focus stays trapped',async()=>{
-   await page.click('#settings');await page.waitForSelector('#s-sync:not(:disabled)');
+   await clickControl(page,'#settings');await page.waitForSelector('#s-sync:not(:disabled)');
+   await clickControl(page,'[data-settings-category=help]');
    await page.focus('.sheet-close');const focused=new Set();
    for(let i=0;i<30;i++){ // the Tools rows (1.29, 1.30) added four stops before the disclosures
     await page.keyboard.press('Tab');
@@ -84,17 +86,17 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('[data-more-filters]',e=>e.open),false);
    const firstTop=await page.$eval('[data-session-results] [data-id]',e=>e.getBoundingClientRect().top);
    assert.ok(firstTop<430,'first session should be visible above the fold');
-   await page.click('[data-more-filters] > summary');
+   await clickControl(page,'[data-more-filters] > summary');
    await page.select('[data-provider-filter]','codex');
-   await page.click('[data-more-filters] > summary');
+   await clickControl(page,'[data-more-filters] > summary');
    assert.match(await page.$eval('[data-filter-summary]',e=>e.textContent),/Codex/);
    await page.reload();await page.waitForSelector('[data-more-filters]');
    assert.equal(await page.$eval('[data-more-filters]',e=>e.open),false);
-   await page.click('[data-clear-more-filters]');
+   await clickControl(page,'[data-clear-more-filters]');
    assert.equal(await page.$eval('[data-filter-summary]',e=>e.textContent),'');
-   await page.click('[data-more-filters] > summary');await pause(30);await page.reload();
+   await clickControl(page,'[data-more-filters] > summary');await pause(30);await page.reload();
    await page.waitForSelector('[data-more-filters]');assert.equal(await page.$eval('[data-more-filters]',e=>e.open),true);
-   await page.click('[data-more-filters] > summary');
+   await clickControl(page,'[data-more-filters] > summary');
    await page.screenshot({path:path.join(out,'fixed-sessions-mobile.png')});
   });
   await check('A finished reply reads Response ready until opened, then Recent',async()=>{
@@ -115,7 +117,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.evaluate(()=>document.activeElement.id),'first');
   });
   await check('Agent and workspace radio groups support arrows, Home/End and roving Tab',async()=>{
-   await page.click('#choose-workspace');await page.focus('[data-a=claude]');await page.keyboard.press('ArrowDown');
+   await clickControl(page,'#choose-workspace');await page.focus('[data-a=claude]');await page.keyboard.press('ArrowDown');
    assert.equal(await page.$eval('[data-a=codex]',e=>e.getAttribute('aria-checked')),'true');
    assert.equal(await page.$$eval('#apick [tabindex="0"]',es=>es.length),1);
    await page.keyboard.press('Home');assert.equal(await page.$eval('[data-a=claude]',e=>e.getAttribute('aria-checked')),'true');
@@ -130,21 +132,21 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await check('Process closing is a labelled session-menu action, not an adjacent X',async()=>{
    assert.equal(await page.$('#close-main'),null);
    assert.ok(await page.$('[data-close-session]'));
-   await page.click('#chatmore');assert.match(await page.$eval('#so-close',e=>e.textContent),/Close session process/);
+   await clickControl(page,'#chatmore');assert.match(await page.$eval('#so-close',e=>e.textContent),/Close session process/);
    await page.keyboard.press('Escape');
   });
   await check('Session menu names itself, shows the title as the conversation, and opens the version in one tap',async()=>{
    const release=JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname),'../public/release.json'),'utf8'));
    const vp=page.viewport();await page.setViewport({width:390,height:844});
    const settled=()=>page.waitForFunction(()=>document.getAnimations().every(a=>a.playState!=='running'));
-   await page.click('#chatmore');await settled();
+   await clickControl(page,'#chatmore');await settled();
    assert.equal(await page.$eval('#sheet-title',e=>e.textContent),'Session options');
    assert.equal(await page.$eval('.sheet-name',e=>e.textContent),rows[4].title);
    await page.waitForFunction(v=>document.querySelector('#so-version-sub')?.textContent.includes(v),{},release.version);
    assert.equal(await page.$eval('#so-version-sub',e=>e.textContent),`Pocket Code ${release.version} · build ${release.assetV}`);
    await page.screenshot({path:path.join(out,'session-menu-version.png')});
    await page.$eval('#so-version',e=>e.scrollIntoView({block:'end'}));await page.screenshot({path:path.join(out,'session-menu-version-row.png')});
-   await page.click('#so-version');await page.waitForSelector('.settings-sheet #s-about[open]');await settled();
+   await clickControl(page,'#so-version');await page.waitForSelector('.settings-sheet #s-about[open]');await settled();
    await page.waitForFunction(()=>document.querySelector('#s-about-version')?.textContent);
    assert.equal(await page.$eval('#s-about-version',e=>e.textContent),`${release.version} · build ${release.assetV}`);
    assert.ok(await page.$eval('#s-about',e=>{const r=e.getBoundingClientRect();return r.top>=0&&r.top<innerHeight;}));
@@ -153,7 +155,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.evaluate(()=>document.activeElement.id),'chatmore');
    await page.setViewport(vp);
   });
-  await page.click('#splitb');await page.click('[data-v=new]');await page.waitForSelector('#panes iframe');
+  await clickControl(page,'#splitb');await clickControl(page,'[data-v=new]');await page.waitForSelector('#panes iframe');
   let pane=await(await page.$('#panes iframe')).contentFrame();await pane.waitForSelector('#first');
   await pane.type('#first','Beside draft survives resizing.');
   await pane.evaluate(()=>{window.originalInput=document.querySelector('#first');});
@@ -196,12 +198,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   });
   await check('Dock width is included in split capacity',async()=>{
    await page.setViewport({width:1440,height:900});await pause(150);
-   await page.click('#results-open');await page.waitForSelector('.workspace-dock');await pause(150);
+   await clickControl(page,'#results-open');await page.waitForSelector('.workspace-dock');await pause(150);
    assert.ok(await page.$eval('.chatcol',e=>e.getBoundingClientRect().width>=379));
    assert.ok(await page.$$eval('.split-pane:not([hidden])',es=>es.every(e=>e.getBoundingClientRect().right<=innerWidth+1)));
    await scan('split-and-dock-desktop');
    await page.screenshot({path:path.join(out,'fixed-split-desktop.png')});
-   await page.click('[data-close-dock]');
+   await clickControl(page,'[data-close-dock]');
   });
   await check('New-session button stays in the main column and never covers a pane composer',async()=>{
    const back=await page.evaluate(()=>location.hash);
@@ -215,7 +217,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.evaluate(h=>{location.hash=h;},back);await page.waitForSelector('#chatmore');
   });
   await check('Closing main promotes a new pane with its draft',async()=>{
-   await page.click('#chatmore');await page.click('#so-close');await page.waitForSelector('#first');
+   await clickControl(page,'#chatmore');await clickControl(page,'#so-close');await page.waitForSelector('#first');
    assert.equal(await page.$eval('#first',e=>e.value),'Beside draft survives resizing.');
   });
   await page.evaluate(()=>{for(const pane of [...splitPanes])closePane(pane.key);localStorage.removeItem('pc-dock-kind');});
@@ -223,12 +225,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await check('Toolbar overflow offers working controls and preserves draft',async()=>{
    await page.waitForSelector('.toolbar-next:not([hidden])');
    const before=await page.$eval('#box',e=>e.value);
-   await page.click('.toolbar-next');
+   await clickControl(page,'.toolbar-next');
    assert.ok(await page.$eval('#tbar',e=>e.scrollLeft>0));
    assert.equal(await page.$eval('.toolbar-previous',e=>e.disabled),false);
-   await page.click('.toolbar-previous');assert.equal(await page.$eval('#tbar',e=>e.scrollLeft),0);
-   await page.click('#composer-toggle');assert.equal(await page.$eval('.toolbar-scroll',e=>e.getClientRects().length),0);
-   await page.click('#composer-toggle');
+   await clickControl(page,'.toolbar-previous');assert.equal(await page.$eval('#tbar',e=>e.scrollLeft),0);
+   await clickControl(page,'#composer-toggle');assert.equal(await page.$eval('.toolbar-scroll',e=>e.getClientRects().length),0);
+   await clickControl(page,'#composer-toggle');
    assert.equal(await page.$eval('#box',e=>e.value),before);
    await page.screenshot({path:path.join(out,'fixed-toolbar-mobile.png')});
    await page.setViewport({width:1440,height:900});await page.waitForFunction(()=>document.querySelector('.toolbar-next').hidden);
@@ -275,11 +277,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   });
   await check('Voice: tap starts listening, Cancel stops without sending',async()=>{
    const heard=voiceLog.transcribe.length;
-   await page.click('#micb');
+   await clickControl(page,'#micb');
    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='true');
    assert.match(await page.$eval('#voice-strip',e=>e.textContent),/Listening/);
    await scan('voice-listening-mobile');
-   await page.click('#voice-cancel');
+   await clickControl(page,'#voice-cancel');
    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='false');
    assert.equal(voiceLog.transcribe.length,heard);
   });
@@ -308,12 +310,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const hf=await page.$('#hfb'),box=await hf.boundingBox();
    assert.ok(box.width>=44&&box.height>=44,'headset target '+JSON.stringify(box));
    assert.match(await page.$eval('#hfb',e=>e.getAttribute('aria-label')),/Hands-free conversation/);
-   await page.click('#hfb');
+   await clickControl(page,'#hfb');
    await page.waitForFunction(()=>document.querySelector('#hfb').getAttribute('aria-pressed')==='true');
    assert.equal(await page.$eval('#micb',e=>e.getAttribute('aria-pressed')),'false','the plain mic is not the active control');
    await page.waitForFunction(()=>/Hands-free\. Listening/.test(document.querySelector('#voice-strip').textContent));
    await scan('voice-hands-free-mobile');await page.screenshot({path:path.join(out,'voice-hands-free-mobile.png')});
-   await page.click('#voice-cancel');
+   await clickControl(page,'#voice-cancel');
    await page.waitForFunction(()=>document.querySelector('#hfb').getAttribute('aria-pressed')==='false');
    assert.equal(await page.evaluate(()=>Voice._test.handsFree()),null,'Cancel ends the conversation');
    assert.equal(voiceLog.transcribe.length,heard);
@@ -336,7 +338,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    n=voiceLog.speak.length;await page.evaluate(id=>{Voice._test.arm(id);Voice.onTurnEnd(id,true);},id);
    await page.waitForFunction(()=>Voice._test.state()==='listening',{timeout:8000});
    assert.match(await page.$eval('#voice-strip',e=>e.textContent),/Hands-free\. Listening for your reply/);
-   await page.click('#hfb');
+   await clickControl(page,'#hfb');
    await page.waitForFunction(()=>Voice._test.state()==='idle'&&Voice._test.handsFree()===null);
    await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('pc-voice'));delete p.keepListening;localStorage.setItem('pc-voice',JSON.stringify(p));});
   });
@@ -377,14 +379,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('.choices',e=>e.hidden),true,'typing your own answer hides them');
    await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});
    assert.equal(await page.$eval('.choices',e=>e.hidden),false);
-   await page.click('.choice-x');
+   await clickControl(page,'.choice-x');
    assert.equal(await page.$eval('.choices',e=>e.hidden),true);
    assert.equal(await page.evaluate(()=>document.activeElement.id),'box','focus moves to the message box');
    await page.reload();await page.waitForSelector('#box');await pause(300);
    assert.equal(await page.$eval('.choices',e=>e.hidden),true,'a dismissal sticks for that reply');
    await page.evaluate(()=>localStorage.removeItem('pc-choices-dismissed'));await page.reload();await page.waitForSelector('#box');
    await page.waitForSelector('.choices:not([hidden])');
-   const sent=received.length;await page.click('.choice');
+   const sent=received.length;await clickControl(page,'.choice');
    for(let i=0;i<40&&received.length===sent;i++)await pause(100);
    assert.equal(received.at(-1).text,'Merge and deploy','a tap sends the option as the next message');
    await page.waitForFunction(()=>!document.querySelector('.choices:not([hidden])'));
@@ -403,7 +405,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.hover('#ctx-ring');await page.waitForFunction(()=>!document.getElementById('tip').hidden);
    assert.match(await page.$eval('#tip',e=>e.textContent),/435k of 1M tokens used/);
    await page.screenshot({path:path.join(out,'context-ring-hover.png')});
-   await page.click('#ctx-ring');await page.waitForSelector('.usage-sheet #usage-body .usage-block');
+   await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet #usage-body .usage-block');
    const sheet=await page.$eval('.usage-sheet',e=>e.textContent);
    assert.match(sheet,/This session · Opus 5\.5/);assert.match(sheet,/Context window/);assert.match(sheet,/Window1M tokens/);assert.match(sheet,/Used435k tokens/);assert.match(sheet,/Free565k tokens/);
    assert.match(sheet,/Claude Code/);assert.match(sheet,/5-hour/);
@@ -442,21 +444,21 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await tap();await page.evaluate(id=>Voice._test.setHandsFree(id),id);
    await page.evaluate(()=>Voice._test.handle('Summarize the queue'));
    await page.waitForFunction(()=>Voice._test.state()==='listening',{timeout:8000});
-   await page.click('#voice-cancel');                                  // stop listening: the instruction waits with buttons
+   await clickControl(page,'#voice-cancel');                                  // stop listening: the instruction waits with buttons
    await page.waitForSelector('#voice-send');
    assert.match(await page.$eval('#voice-strip',e=>e.textContent),/Send this\? “Summarize the queue”/);
    await scan('voice-confirm-mobile');await page.screenshot({path:path.join(out,'voice-confirm-mobile.png')});
-   await page.click('#voice-send');
+   await clickControl(page,'#voice-send');
    for(let i=0;i<40&&received.length===sent;i++)await pause(100);
    assert.equal(received.at(-1).text,'Summarize the queue','tapping Send sends it');
    await page.evaluate(()=>Voice.onLeave());await page.reload();await page.waitForSelector('#box');
   });
   await check('Voice: Settings saves preferences and lists voices',async()=>{
    await page.evaluate(()=>settingsSheet());await page.waitForSelector('#s-voice');
-   await page.click('#s-voice > summary');
+   await clickControl(page,'#s-voice > summary');
    await page.waitForFunction(()=>document.querySelector('#s-voice-state').textContent.includes('available'));
    assert.deepEqual(await page.$$eval('#s-voice-voice option',o=>o.map(x=>x.value)),['af_heart','bm_george']);
-   await page.click('#s-voice-review');
+   await clickControl(page,'#s-voice-review');
    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-voice')).review),true);
    assert.equal(await page.$eval('#s-voice-wait',e=>e.value),'120','waits 2 minutes for a reply by default');
    assert.equal(await page.$eval('#s-voice-length',e=>e.value),'normal','spoken replies stay about two sentences by default');
@@ -469,7 +471,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-voice')).voice),'bm_george');
    await scan('settings-voice-mobile');
    await page.screenshot({path:path.join(out,'voice-settings-mobile.png')});
-   await page.click('#s-voice-review');await page.keyboard.press('Escape');
+   await clickControl(page,'#s-voice-review');await page.keyboard.press('Escape');
   });
   await check('Voice: sessions that finish or need you are announced once; muted sessions stay quiet',async()=>{
    const saved=rows.map(r=>({state:r.state,muted:r.muted}));
@@ -519,47 +521,47 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    done.state={kind:'finished',label:'Response ready',at};
    await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>refreshSessions());await pause(300);
-   await page.click('[data-filter="attention"]');await pause(200);
+   await clickControl(page,'[data-filter="attention"]');await pause(200);
    const listed=()=>page.evaluate(id=>filteredSessions().some(s=>s.id===id)&&[...document.querySelectorAll('.session-item .row')].some(b=>b.dataset.id===id),done.id);
    assert.equal(await listed(),true,'an unopened reply is in Attention');
    assert.match(await page.$eval('[data-filter="attention"]',e=>e.textContent),/Attention\s*\d+/,'counted');
    await page.evaluate(([id,at])=>{localStorage.setItem('pc-seen-'+id,String(at));},[done.id,at]);await page.evaluate(()=>refreshSessions());await pause(300);
    assert.equal(await listed(),false,'leaves Attention once opened');
-   await page.click('[data-filter="all"]');done.state=saved;
+   await clickControl(page,'[data-filter="all"]');done.state=saved;
   });
   await check('Mark reviewed clears Response ready without opening it, singly or all at once with Undo',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};
    await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>refreshSessions());await pause(300);
-   await page.click('[data-filter="attention"]');await pause(200);
+   await clickControl(page,'[data-filter="attention"]');await pause(200);
    const listed=()=>page.evaluate(id=>filteredSessions().some(s=>s.id===id),done.id);
    assert.equal(await listed(),true,'starts in Attention');
-   await page.click(`[data-more="${done.id}"]`);await page.waitForSelector('#so-reviewed');await page.screenshot({path:path.join(out,'review-option.png')});await page.click('#so-reviewed');await pause(200);
+   await clickControl(page,`[data-more="${done.id}"]`);await page.waitForSelector('#so-reviewed');await page.screenshot({path:path.join(out,'review-option.png')});await clickControl(page,'#so-reviewed');await pause(200);
    assert.equal(await listed(),false,'single mark leaves Attention');
    assert.equal(await page.evaluate(()=>location.hash),'#/','did not open the conversation');
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>paintSessionPanels());
    await page.waitForSelector('[data-mark-all-reviewed]');await page.screenshot({path:path.join(out,'review-bar.png')});
-   await page.click('[data-mark-all-reviewed]');await pause(200);await page.screenshot({path:path.join(out,'review-bar-undo.png')});
+   await clickControl(page,'[data-mark-all-reviewed]');await pause(200);await page.screenshot({path:path.join(out,'review-bar-undo.png')});
    assert.equal(await listed(),false,'bulk mark leaves Attention');
    await pause(400);assert.equal(done.seenAt,at,'saved on the server for other devices');
-   await page.click('[data-undo-reviewed]');await pause(400);
+   await clickControl(page,'[data-undo-reviewed]');await pause(400);
    assert.equal(await listed(),true,'Undo brings it back');
    assert.equal(done.seenAt,undefined,'Undo also clears it on the server');
    await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,at]);
-   await page.click('[data-filter="all"]');done.state=saved;delete done.seenAt;
+   await clickControl(page,'[data-filter="all"]');done.state=saved;delete done.seenAt;
   });
   await check('A reply reviewed on another device leaves Attention here, and one opened here is shared',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};done.seenAt=at;
    await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
    await page.evaluate(id=>localStorage.removeItem('pc-seen-'+id),done.id);await page.evaluate(()=>refreshSessions());await pause(300);
-   await page.click('[data-filter="attention"]');await pause(200);
+   await clickControl(page,'[data-filter="attention"]');await pause(200);
    assert.equal(await page.evaluate(id=>filteredSessions().some(s=>s.id===id),done.id),false,'the other device\'s review counts here');
    delete done.seenAt;await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,at]);
    await page.evaluate(()=>refreshSessions());await pause(600);
    assert.equal(done.seenAt,at,'a marker saved only in this browser is sent to the server');
-   await page.click('[data-filter="all"]');done.state=saved;delete done.seenAt;
+   await clickControl(page,'[data-filter="all"]');done.state=saved;delete done.seenAt;
   });
   await check('A reply that finishes on screen stays Response ready until you engage with the page',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state;
@@ -578,7 +580,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    setMode({agents});await page.setViewport({width:390,height:844});await chat();
    await page.waitForSelector('#agents-open:not([hidden])');
    assert.match(await page.$eval('#agents-open',e=>e.textContent),/1 subagent working/);
-   await page.click('#agents-open');await page.waitForSelector('.agent-row');await page.click('.agent-row summary');
+   await clickControl(page,'#agents-open');await page.waitForSelector('.agent-row');await clickControl(page,'.agent-row summary');
    assert.equal(await page.$$eval('.agent-copy script',es=>es.length),0);
    assert.match(await page.$eval('.agent-copy',e=>e.textContent),/<script>/);
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
@@ -592,14 +594,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.match(await page.$eval('.agents-status',e=>e.textContent),/could not be confirmed/);
    assert.match(await page.$eval('.agent-state',e=>e.textContent),/unconfirmed/);
    setMode({agentsFail:false});agents[0].status='completed';agents[0].latest='No duplicates.';
-   await page.click('.agents-retry');await page.waitForFunction(()=>document.querySelector('.agents-status').textContent.includes('0 working'));
+   await clickControl(page,'.agents-retry');await page.waitForFunction(()=>document.querySelector('.agents-status').textContent.includes('0 working'));
    await page.setViewport({width:1440,height:900});await scan('subagents-desktop');await page.screenshot({path:path.join(out,'subagents-desktop.png')});
    await page.keyboard.press('Escape');assert.equal(await page.evaluate(()=>document.activeElement.id),'agents-open');
    await page.reload();await page.waitForSelector('#agents-open:not([hidden])');
    assert.match(await page.$eval('#agents-open',e=>e.textContent),/2 recorded/);
    setMode({agents:[]});await page.evaluate(()=>refreshAgents(chatId));
    assert.equal(await page.$eval('#agents-open',e=>e.hidden),true);
-   await page.click('#chatmore');await page.click('#so-agents');await page.waitForFunction(()=>document.querySelector('.agents-status').textContent.includes('No subagents'));
+   await clickControl(page,'#chatmore');await clickControl(page,'#so-agents');await page.waitForFunction(()=>document.querySelector('.agents-status').textContent.includes('No subagents'));
    await page.keyboard.press('Escape');
   });
   await check('Pinned sessions: tabs carry the pin and follow the shared order; grip drag, arrow keys and Session options reorder',async()=>{
@@ -608,9 +610,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.goto(base+'/#/chat/'+a);await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},a);
    await page.goto(base+'/#/chat/'+b);await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},b);
    assert.equal(await page.$$eval('#open-sessions .open-session.pinned',es=>es.length),0,'no pins yet');
-   await page.click('#chatmore');await page.waitForSelector('#so-pin');await page.click('#so-pin');                       // pin the open session from its header
+   await clickControl(page,'#chatmore');await page.waitForSelector('#so-pin');await clickControl(page,'#so-pin');                       // pin the open session from its header
    await page.waitForSelector(`.session-item.pinned[data-item="${b}"] [data-grip]`);
-   await page.click(`[data-more="${a}"]`);await page.waitForSelector('#so-pin');await page.click('#so-pin');            // pin another from the rail
+   await clickControl(page,`[data-more="${a}"]`);await page.waitForSelector('#so-pin');await clickControl(page,'#so-pin');            // pin another from the rail
    await page.waitForSelector(`.session-item.pinned[data-item="${a}"]`);
    await page.waitForFunction(()=>document.querySelectorAll('#open-sessions .open-session.pinned').length===2);
    const tabs=()=>page.$$eval('#open-sessions .open-session',es=>es.map(e=>({pinned:e.classList.contains('pinned'),title:e.querySelector('a').textContent.replace(/^Pinned: /,'').trim(),color:getComputedStyle(e.querySelector('a')).color,mark:Boolean(e.querySelector('.pinmark'))})));
@@ -632,11 +634,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.deepEqual(pinOrders.at(-1),[a,b],'arrow keys reorder too');
    assert.equal(await page.evaluate(()=>document.activeElement?.dataset.grip),b,'focus stays on the moved grip');
    assert.match(await page.$eval('#toast',e=>e.textContent),/Pinned 2 of 2/);
-   await page.click(`[data-more="${a}"]`);await page.waitForSelector('#so-pin-down');assert.equal(await page.$('#so-pin-up'),null,'the first pin cannot move up');
-   n=pinOrders.length;await page.click('#so-pin-down');for(let i=0;i<40&&pinOrders.length===n;i++)await pause(100);
+   await clickControl(page,`[data-more="${a}"]`);await page.waitForSelector('#so-pin-down');assert.equal(await page.$('#so-pin-up'),null,'the first pin cannot move up');
+   n=pinOrders.length;await clickControl(page,'#so-pin-down');for(let i=0;i<40&&pinOrders.length===n;i++)await pause(100);
    assert.deepEqual(pinOrders.at(-1),[b,a],'Session options moves it too');
    await scan('pinned-tabs-desktop');await page.screenshot({path:path.join(out,'pinned-tabs-desktop.png')});
-   for(const id of [a,b]){await page.click(`[data-more="${id}"]`);await page.waitForSelector('#so-pin');await page.click('#so-pin');await page.waitForFunction(id=>!document.querySelector(`.session-item.pinned[data-item="${id}"]`),{},id);}
+   for(const id of [a,b]){await clickControl(page,`[data-more="${id}"]`);await page.waitForSelector('#so-pin');await clickControl(page,'#so-pin');await page.waitForFunction(id=>!document.querySelector(`.session-item.pinned[data-item="${id}"]`),{},id);}
    await page.waitForFunction(()=>document.querySelectorAll('#open-sessions .open-session.pinned').length===0);
   });
   await check('Open-session tabs show each session status like its rail row; nothing when quiet or unconfirmed',async()=>{
@@ -684,7 +686,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.match(warm.label,/^5[12]m$/,'minutes left beside the ring');assert.equal(warm.color,'rgb(169, 158, 147)','warm is dim, not a warning');
     assert.match(warm.tip,/435k of 1M tokens used \(44%\) · Prompt cache warm: about 5[12] min left, until .+ ET/);
     assert.match(warm.aria,/Context window for Opus 5\.5: 435k of 1M tokens used \(44%\)\. Prompt cache warm: about 5[12] min left, until .+ ET\. Open usage$/);
-    await page.click('#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
+    await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
     let sheet=await page.$eval('.usage-sheet .cache-block',e=>e.textContent.replace(/\s+/g,' '));
     assert.match(sheet,/Prompt cache/);assert.match(sheet,/Status ?Warm · about 5[12] min left/);assert.match(sheet,/Expires ?([A-Z][a-z]{2} \d+, )?\d/);
     assert.match(sheet,/Cached ?729k tokens/);assert.match(sheet,/Lifetime ?1 hour/);assert.match(sheet,/The last turn, at .+ ET, started 97% from cache\./);
@@ -703,12 +705,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     const cold=await ring();assert.equal(cold.label,'cold');assert.equal(cold.color,'rgb(159, 212, 240)','cold is ice blue');assert.equal(await page.$eval('#ctx-ring .ctx-fill',e=>getComputedStyle(e).stroke),'rgb(159, 212, 240)','the ring itself turns ice blue');assert.match(cold.aria,/Prompt cache expired at .+ ET; the next turn writes 729k tokens to cache again\. Open usage$/);
     const rr=await page.$eval('#ctx-ring',e=>{const b=e.getBoundingClientRect();return {x:b.x,y:b.y};});
     await page.screenshot({path:path.join(out,'cache-ring-cold.png'),clip:{x:Math.max(0,rr.x-160),y:Math.max(0,rr.y-40),width:420,height:120}});
-    await page.click('#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
+    await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
     sheet=await page.$eval('.usage-sheet .cache-block',e=>e.textContent.replace(/\s+/g,' '));
     assert.match(sheet,/Status ?Cold/);assert.match(sheet,/Expired ?([A-Z][a-z]{2} \d+, )?\d/);assert.match(sheet,/The last turn, at .+ ET, started cold: 729k tokens written to cache\./);assert.match(sheet,/The next turn writes the context to cache again/);
     await page.keyboard.press('Escape');
     setMode({cache:{...cache(8),ttlKnown:false,ttlMs:5*min,at:Date.now()-min}});await repaint('warm');
-    await page.click('#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
+    await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
     assert.match(await page.$eval('.usage-sheet .cache-block',e=>e.textContent.replace(/\s+/g,' ')),/Lifetime ?5 minutes \(assumed\)/);
     await page.keyboard.press('Escape');
     setMode({cache:null});await repaint(null);
@@ -743,7 +745,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForSelector('[data-voice-mute]:not([hidden])');
    assert.equal(await page.$eval('[data-voice-mute]',e=>e.getAttribute('aria-pressed')),'false');
    assert.match(await page.$eval('[data-voice-mute]',e=>e.textContent),/^Voice$/);
-   await page.click('[data-voice-mute]');
+   await clickControl(page,'[data-voice-mute]');
    assert.equal(await page.evaluate(()=>Voice.isMuted()),true);
    assert.match(await page.$eval('[data-voice-mute]',e=>e.textContent),/Voice off/);
    assert.equal(await page.$eval('[data-voice-mute]',e=>e.getAttribute('aria-pressed')),'true');
@@ -759,8 +761,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
    await scan('voice-muted-mobile');await page.screenshot({path:path.join(out,'voice-muted-mobile.png')});
    await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});                                      // a saved draft would hide the headset
-   await page.click('#hfb');await page.waitForFunction(()=>!Voice.isMuted());                                            // starting hands-free is asking to hear it
-   await page.waitForSelector('#voice-cancel');await page.click('#voice-cancel');
+   await clickControl(page,'#hfb');await page.waitForFunction(()=>!Voice.isMuted());                                            // starting hands-free is asking to hear it
+   await page.waitForSelector('#voice-cancel');await clickControl(page,'#voice-cancel');
    assert.equal(await page.$eval('[data-voice-mute]',e=>e.getAttribute('aria-pressed')),'false');
   });
   await check('Voice: the mic is hidden when the server has no voice engine',async()=>{
@@ -805,7 +807,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     const g=await page.$eval('[data-automated]',(e,id)=>({open:e.open,last:e===e.parentElement.lastElementChild,has:Boolean(e.querySelector(`[data-id="${id}"]`)),label:e.querySelector('summary h2').textContent}),extra.id);
     assert.equal(g.open,false);assert.ok(g.last&&g.has,JSON.stringify(g));assert.equal(g.label,'Automated1');
     assert.equal(await page.$$eval('.session-group:not([data-automated]) [data-id="'+extra.id+'"]',e=>e.length),0,'not repeated in Recent');
-    await page.click('[data-automated] > summary');await page.waitForFunction(()=>readLocal('pc-automated-open',false)===true);
+    await clickControl(page,'[data-automated] > summary');await page.waitForFunction(()=>readLocal('pc-automated-open',false)===true);
     await page.evaluate(()=>refreshSessions());assert.equal(await page.$eval('[data-automated]',e=>e.open),true,'open state survives a refresh');
     await scan('automated-group-mobile');await page.screenshot({path:path.join(out,'automated-group-mobile.png')});
     await page.type('[data-session-search]','backup');
@@ -835,17 +837,17 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.waitForFunction(()=>{const r=document.querySelector('[data-retry-turn]').getBoundingClientRect(),c=document.querySelector('.composerwrap').getBoundingClientRect();return r.bottom<=c.top;},{timeout:3000}); // Send again is above the composer, not behind it
     await scan('turn-failure-mobile');await page.screenshot({path:path.join(out,'turn-failure-mobile.png')});
     await page.$eval('#box',e=>{e.value='My own draft';e.dispatchEvent(new Event('input'));});
-    const before=received.length;await page.click('[data-retry-turn]');await pause(300);
+    const before=received.length;await clickControl(page,'[data-retry-turn]');await pause(300);
     assert.equal(await page.$eval('#box',e=>e.value),'My own draft');assert.equal(received.length,before,'nothing sent over a draft');
     await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input'));});
-    await page.click('[data-retry-turn]');
+    await clickControl(page,'[data-retry-turn]');
     for(let i=0;i<40&&received.length===before;i++)await pause(100);
     assert.equal(received.at(-1).text,'Review the stock report.');
     assert.equal(await page.$('#turn-failure'),null,'the row goes once you send');
    } finally {failed.state=prior;}
   });
   await check('1.19 Session options: grouped, with display settings last',async()=>{
-   await chat();await page.click('#chatmore');await page.waitForSelector('.sheet .opt-group');
+   await chat();await clickControl(page,'#chatmore');await page.waitForSelector('.sheet .opt-group');
    const groups=await page.$$eval('.sheet .opt-group',gs=>gs.map(g=>({label:g.getAttribute('aria-label'),ids:[...g.querySelectorAll('button.opt')].map(b=>b.id),size:Boolean(g.querySelector('.chat-text-settings'))})));
    assert.deepEqual(groups.map(g=>g.label),['This conversation','Session','Server process','Display and version']);
    assert.deepEqual(groups[0].ids,['so-find','so-changes','so-agents','so-usage']);
@@ -859,7 +861,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.goto(base+'/#/new');await page.waitForSelector('#plist .row.sel');
    assert.equal(await page.$eval('#plist .row.sel',e=>e.dataset.p),'/workspaces/warehouse');
    assert.match(await page.$eval('#task-context',e=>e.textContent),/warehouse/);
-   await page.$eval('#first',e=>{e.value='';e.dispatchEvent(new Event('input'));});await page.click('#start');
+   await page.$eval('#first',e=>{e.value='';e.dispatchEvent(new Event('input'));});await clickControl(page,'#start');
    assert.equal(await page.$eval('#start-hint',e=>e.hidden),false);assert.match(await page.$eval('#start-hint',e=>e.textContent),/Write what you would like done/);
    await scan('new-session-hint-mobile');
    await page.type('#first','x');assert.equal(await page.$eval('#start-hint',e=>e.hidden),true);
@@ -867,19 +869,20 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   });
   await check('1.20 Settings: generated titles switch on and off, choose a model, and say why one is unavailable',async()=>{
    await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.waitForSelector('#settings');
-   await page.click('#settings');await page.waitForFunction(()=>!document.querySelector('#s-titles').disabled);
+   await clickControl(page,'#settings');await page.waitForFunction(()=>!document.querySelector('#s-titles').disabled);
    assert.equal(await page.$eval('#s-titles',e=>e.getAttribute('aria-pressed')),'true');
    assert.match(await page.$eval('#s-titles-state',e=>e.textContent),/On, using Claude · Haiku/);
    assert.deepEqual(await page.$$eval('#s-title-model option',os=>os.map(o=>[o.value,o.disabled])),[['auto',false],['claude',false],['codex',true]],'an unavailable provider cannot be chosen');
    assert.match(await page.$eval('#s-title-model option[value="codex"]',o=>o.textContent),/unavailable/);
    assert.match(await page.$eval('#s-title-note',e=>e.textContent),/Last title by Haiku 4\.5/);
+   await clickControl(page,'[data-settings-category=conversation]');
    assert.ok(await page.$eval('#s-titles',e=>e.getBoundingClientRect().height)>=44);
    await page.$eval('#s-titles',e=>e.scrollIntoView({block:'center'}));
    await scan('title-settings-mobile');await page.screenshot({path:path.join(out,'title-settings-mobile.png')});
-   await page.click('#s-titles');await page.waitForFunction(()=>document.querySelector('#s-titles').getAttribute('aria-pressed')==='false');
+   await clickControl(page,'#s-titles');await page.waitForFunction(()=>document.querySelector('#s-titles').getAttribute('aria-pressed')==='false');
    assert.equal(settingsState().autoTitles,false);assert.equal(await page.$eval('#s-title-model',e=>e.disabled),false,'the model choice stays available while summaries are on (1.21)');
    assert.match(await page.$eval('#s-titles-state',e=>e.textContent),/^Off\./);
-   await page.click('#s-titles');await page.waitForFunction(()=>!document.querySelector('#s-title-model').disabled);
+   await clickControl(page,'#s-titles');await page.waitForFunction(()=>!document.querySelector('#s-title-model').disabled);
    await page.select('#s-title-model','claude');await page.waitForFunction(()=>!document.querySelector('#s-title-model').disabled);
    assert.equal(settingsState().titleProvider,'claude');
    await page.select('#s-title-model','auto');await page.waitForFunction(()=>!document.querySelector('#s-title-model').disabled);
@@ -945,7 +948,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await scan('away-mobile');await page.screenshot({path:path.join(out,'away-mobile.png')});
    await page.setViewport({width:1440,height:900});await pause(200);await page.screenshot({path:path.join(out,'away-desktop.png')});await page.setViewport({width:390,height:844});await pause(200);
    // Read from there: the divider comes to the top and holds; a scroll releases it.
-   await page.click('#away-jump');await pause(100);
+   await clickControl(page,'#away-jump');await pause(100);
    const j=await page.evaluate(()=>{const d=document.getElementById('away-divider'),s=d.closest('main.scroll');return {top:Math.round(d.getBoundingClientRect().top-s.getBoundingClientRect().top),anchored:Boolean(awayAnchor?.isConnected),following:awayFollow};});
    assert.ok(j.top>=0&&j.top<=24&&j.anchored&&!j.following,'Read from there moves to the divider and holds it '+JSON.stringify(j));
    await page.evaluate(()=>document.querySelector('main.scroll').dispatchEvent(new WheelEvent('wheel',{deltaY:40})));
@@ -965,14 +968,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.ok(await page.evaluate(()=>{const s=document.querySelector('main.scroll');return s.scrollHeight-s.scrollTop-s.clientHeight<40;}),'still opens at the end');
   });
   await check('1.21 Settings: Summarize what you missed switches summaries on and off',async()=>{
-   await page.goto(base+'/#/');await page.waitForSelector('#settings');await page.click('#settings');
+   await page.goto(base+'/#/');await page.waitForSelector('#settings');await clickControl(page,'#settings');
    await page.waitForFunction(()=>!document.querySelector('#s-away').disabled);
    assert.equal(await page.$eval('#s-away',e=>e.getAttribute('aria-pressed')),'true');
    assert.match(await page.$eval('#s-away-state',e=>e.textContent),/opens at the end with a New since card/);
-   await page.click('#s-away');await page.waitForFunction(()=>document.querySelector('#s-away').getAttribute('aria-pressed')==='false');
+   await clickControl(page,'#s-away');await page.waitForFunction(()=>document.querySelector('#s-away').getAttribute('aria-pressed')==='false');
    assert.equal(settingsState().awaySummaries,false);
    await page.$eval('#s-away',e=>e.scrollIntoView({block:'center'}));await scan('away-settings-mobile');
-   await page.click('#s-away');await page.waitForFunction(()=>document.querySelector('#s-away').getAttribute('aria-pressed')==='true');
+   await clickControl(page,'#s-away');await page.waitForFunction(()=>document.querySelector('#s-away').getAttribute('aria-pressed')==='true');
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
   });
   await check('1.24 Message times: a time on each timestamped message (with the date on other days), a divider per day, live dividers, setting hides both',async()=>{
@@ -1000,8 +1003,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(r.asstBefore,'"'+r.times[1]+'"');assert.equal(r.userAfter,'"'+r.times[0]+'"');
    assert.ok(!r.asstText.includes(r.times[1]),'the time is not part of the copied text');
    // Find never matches a time; the live stream adds a divider only when the day changes.
-   await page.click('#findb');await page.type('#fq',r.times[1]);await pause(100);
-   assert.equal(await page.$eval('#fcount',e=>e.textContent.trim()),'none','a time is not findable text');await page.click('#fclose');
+   await clickControl(page,'#findb');await page.type('#fq',r.times[1]);await pause(100);
+   assert.equal(await page.$eval('#fcount',e=>e.textContent.trim()),'none','a time is not findable text');await clickControl(page,'#fclose');
    const live=await page.evaluate(()=>{const m=document.getElementById('msgs'),n=m.querySelectorAll('.day-divider').length;
     appendDayDivider(m,new Date().toISOString());const same=m.querySelectorAll('.day-divider').length;
     appendDayDivider(m,new Date(Date.now()+86400000).toISOString());return {same:same-n,next:m.querySelectorAll('.day-divider').length-same,last:m.lastElementChild.classList.contains('day-divider')};});
@@ -1011,10 +1014,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.setViewport({width:1440,height:900});await pause(200);await page.screenshot({path:path.join(out,'message-times-desktop.png')});await page.setViewport({width:390,height:844});
    await page.evaluate(()=>settingsSheet());await page.waitForSelector('#s-times');
    assert.equal(await page.$eval('#s-times',b=>b.getAttribute('aria-pressed')),'true');
-   await page.click('#s-times');await pause(100);
+   await clickControl(page,'#s-times');await pause(100);
    const off=await page.evaluate(()=>{const m=document.getElementById('msgs');return {cls:m.classList.contains('times-off'),div:getComputedStyle(m.querySelector('.day-divider')).display,t:getComputedStyle(m.querySelector('.m-asst[data-time]'),'::before').display,pressed:document.querySelector('#s-times').getAttribute('aria-pressed'),stored:readLocal('pc-times',true)};});
    assert.deepEqual(off,{cls:true,div:'none',t:'none',pressed:'false',stored:false});
-   await page.click('#s-times');await pause(100);
+   await clickControl(page,'#s-times');await pause(100);
    assert.equal(await page.$eval('#msgs',m=>m.classList.contains('times-off')),false);
    await page.keyboard.press('Escape');await pause(200);
   });
@@ -1036,7 +1039,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('[data-session-results]',e=>e.textContent.trim()),'No session titles match. Matches inside conversations are below.');
    assert.deepEqual(g.rows,[{who:'Claude:',marks:['Incoming','stock']},{who:'Related:',marks:[]}]);
    await scan('convo-search-mobile');await page.screenshot({path:path.join(out,'convo-search-mobile.png')});
-   await page.click(`.convo-item [data-convo-id="${rows[3].id}"]`);
+   await clickControl(page,`.convo-item [data-convo-id="${rows[3].id}"]`);
    await page.waitForFunction(id=>chatId===id&&!document.querySelector('#findbar').hidden&&document.querySelector('#fq').value,{},rows[3].id);
    const find=await page.evaluate(()=>({q:document.querySelector('#fq').value,marks:fmarks.length}));
    assert.ok(find.marks>0,'Find lands on the match: '+JSON.stringify(find));assert.match(find.q,/incoming stock|incoming|stock/i);
@@ -1046,7 +1049,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    setMode({searchFail:true});
    await page.goto(base+'/#/');await page.waitForSelector('[data-session-search]');
    await page.type('[data-session-search]','recorder');await page.waitForSelector('[data-convo-retry]');
-   setMode({searchFail:false});await page.click('[data-convo-retry]');await page.waitForSelector('.convo-group .convo-item');
+   setMode({searchFail:false});await clickControl(page,'[data-convo-retry]');await page.waitForSelector('.convo-group .convo-item');
    await page.$eval('[data-session-search]',e=>{e.value='';e.dispatchEvent(new Event('input'));});
    assert.equal(await page.$('.convo-group'),null);
    await page.evaluate(()=>{sessionQuery='';});
@@ -1061,38 +1064,38 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.$eval('#first',e=>{e.value='';});await page.type('#first','Check stock levels and draft the reorder list');
    await page.evaluate(()=>{tb.prefs.approvalMode='full';});
    assert.equal(await page.$eval('#save-prompt',e=>e.disabled),false);
-   await page.click('#save-prompt');await page.waitForSelector('#pr-name');
+   await clickControl(page,'#save-prompt');await page.waitForSelector('#pr-name');
    assert.equal(await page.$eval('#pr-name',e=>e.value),'Check stock levels and draft the');
    assert.match(await page.$eval('.prompt-summary',e=>e.textContent),/^warehouse · Claude Code/);
    await scan('save-prompt-sheet-mobile');
-   await page.$eval('#pr-name',e=>{e.value='';});await page.type('#pr-name','Stock check');await page.click('#pr-save');
+   await page.$eval('#pr-name',e=>{e.value='';});await page.type('#pr-name','Stock check');await clickControl(page,'#pr-save');
    await page.waitForSelector('.starter[aria-pressed="true"]');
    const saved=getMode().prompts.prompts[0];
    assert.deepEqual([saved.name,saved.text,saved.cwd,saved.provider],['Stock check','Check stock levels and draft the reorder list','/workspaces/warehouse','claude']);
    // Change everything, then the chip puts it back.
-   await page.click('#apick [data-a="codex"]');await page.$eval('#first',e=>{e.value='Something else';e.dispatchEvent(new Event('input'));});
+   await clickControl(page,'#apick [data-a="codex"]');await page.$eval('#first',e=>{e.value='Something else';e.dispatchEvent(new Event('input'));});
    assert.equal(await page.$eval('.starter',e=>e.getAttribute('aria-pressed')),'false','editing the text lets go of the chip');
-   await page.click('.starter');
+   await clickControl(page,'.starter');
    const form=await page.evaluate(()=>({text:document.getElementById('first').value,agent:document.querySelector('#apick .row.sel')?.dataset.a,ws:document.querySelector('#plist .row.sel')?.dataset.p,ctx:document.getElementById('task-context').textContent}));
-   assert.deepEqual(form,{text:'Check stock levels and draft the reorder list',agent:'claude',ws:'/workspaces/warehouse',ctx:'warehouse · Claude Code'});
+   assert.deepEqual(form,{text:'Check stock levels and draft the reorder list',agent:'claude',ws:'/workspaces/warehouse',ctx:'Workspace warehouseAgent Claude CodePermissions Full access'});
    await scan('saved-prompts-mobile');await page.screenshot({path:path.join(out,'saved-prompts-mobile.png')});
    // Recent fills from a start made on another device (Codex, products).
-   await page.click('#starters .recent-starts > summary');await page.click('[data-recent="0"]');
+   await clickControl(page,'#starters .recent-starts > summary');await clickControl(page,'[data-recent="0"]');
    assert.deepEqual(await page.evaluate(()=>[document.getElementById('first').value,document.querySelector('#apick .row.sel')?.dataset.a,document.querySelector('#plist .row.sel')?.dataset.p]),
      ['Check incoming quantities before ordering','codex','/workspaces/products']);
    // Manage: a second prompt, reorder, rename through Edit, delete with a second tap.
-   await page.click('#save-prompt');await page.waitForSelector('#pr-name');await page.$eval('#pr-name',e=>{e.value='';});await page.type('#pr-name','Incoming check');await page.click('#pr-save');
+   await clickControl(page,'#save-prompt');await page.waitForSelector('#pr-name');await page.$eval('#pr-name',e=>{e.value='';});await page.type('#pr-name','Incoming check');await clickControl(page,'#pr-save');
    await page.waitForFunction(()=>document.querySelectorAll('.starter').length===2);
-   await page.click('#manage-prompts');await page.waitForSelector('.prompt-row');
+   await clickControl(page,'#manage-prompts');await page.waitForSelector('.prompt-row');
    await scan('manage-prompts-mobile');await page.screenshot({path:path.join(out,'manage-prompts-mobile.png')});
    const second=getMode().prompts.prompts[1].id;
-   await page.click(`[data-up="${second}"]`);await page.waitForFunction(()=>document.querySelector('.prompt-row-name').textContent==='Incoming check');
+   await clickControl(page,`[data-up="${second}"]`);await page.waitForFunction(()=>document.querySelector('.prompt-row-name').textContent==='Incoming check');
    assert.deepEqual(await page.$$eval('.starter',e=>e.map(x=>x.textContent)),['Incoming check','Stock check'],'the chips follow the order');
-   await page.click(`[data-del="${second}"]`);assert.equal(await page.$eval(`[data-del="${second}"]`,e=>e.textContent),'Delete for good');
+   await clickControl(page,`[data-del="${second}"]`);assert.equal(await page.$eval(`[data-del="${second}"]`,e=>e.textContent),'Delete for good');
    assert.equal(getMode().prompts.prompts.length,2,'one tap does not delete');
-   await page.click(`[data-del="${second}"]`);await page.waitForFunction(()=>document.querySelectorAll('.prompt-row').length===1);
-   const first=getMode().prompts.prompts[0].id;await page.click(`[data-edit="${first}"]`);await page.waitForSelector('#pr-name');
-   await page.$eval('#pr-name',e=>{e.value='';});await page.type('#pr-name','Morning stock check');await page.click('#pr-save');
+   await clickControl(page,`[data-del="${second}"]`);await page.waitForFunction(()=>document.querySelectorAll('.prompt-row').length===1);
+   const first=getMode().prompts.prompts[0].id;await clickControl(page,`[data-edit="${first}"]`);await page.waitForSelector('#pr-name');
+   await page.$eval('#pr-name',e=>{e.value='';});await page.type('#pr-name','Morning stock check');await clickControl(page,'#pr-save');
    await page.waitForFunction(()=>document.querySelector('.starter')?.textContent==='Morning stock check');
    assert.equal(getMode().prompts.prompts[0].text,'Check stock levels and draft the reorder list','renaming keeps the wording');
    await page.$eval('#first',e=>{e.value='';e.dispatchEvent(new Event('input'));});await page.evaluate(()=>clearDraft(NEW_KEY));
@@ -1100,27 +1103,26 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await scan('chat-desktop');await page.setViewport({width:390,height:844});await scan('chat-mobile');
   await page.evaluate(()=>settingsSheet());await scan('settings-mobile');
   assert.deepEqual(errors,[]);
-  fs.writeFileSync(path.join(out,'ui-regressions.json'),JSON.stringify({checks,scans,errors},null,2));
-  console.log(JSON.stringify({uiRegressions:checks.length,accessibilityScans:scans.length,ok:true}));
+
   await check('Projects (1.29): off by default, then the list, card, steps, reminders, finish and resume, tracking from a session, tabs, split pane, rail switch, settings and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
    const settings=settingsState();settings.projects=false;
    await page.goto(base+'/#/projects');await page.waitForSelector('#projects-main');
    await page.waitForFunction(()=>/Projects is off/.test(document.querySelector('#projects-main')?.textContent||''));
    assert.equal(await page.$('.rail-switch'),null,'no rail switch while the feature is off');
-   await openChat(rows[4].id);await page.click('#chatmore');await page.waitForSelector('.sheet');
+   await openChat(rows[4].id);await clickControl(page,'#chatmore');await page.waitForSelector('.sheet');
    assert.equal(await page.$('#so-project'),null,'session options offer no project while it is off');await page.keyboard.press('Escape');
    assert.equal(await page.$eval('#project-open',e=>e.hidden),true,'no Project control while it is off');
    settings.projects=true;
    await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'}));
    await page.goto(base+'/#/projects');await page.waitForSelector('.project-item');
-   const list=await page.evaluate(()=>({groups:[...document.querySelectorAll('.project-group h2')].map(h=>h.textContent.replace(/\s+/g,' ').trim()),done:document.querySelector('details.project-group')?.open,chip:document.querySelector('[data-view-link]')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent,badge:document.querySelector('[data-projects-badge]')?.textContent,switchOn:document.querySelector('[data-rail-view="projects"]')?.getAttribute('aria-selected'),first:document.querySelector('.project-item .title')?.textContent}));
+   const list=await page.evaluate(()=>({groups:[...document.querySelectorAll('.project-group h2')].map(h=>h.textContent.replace(/\s+/g,' ').trim()),done:document.querySelector('details.project-group')?.open,chip:document.querySelector('[data-view-link]')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent,badge:document.querySelector('[data-projects-badge]')?.textContent,switchOn:document.querySelector('[data-rail-view="projects"]')?.getAttribute('aria-pressed'),first:document.querySelector('.project-item .title')?.textContent}));
    assert.deepEqual(list.groups,['Active 2','Waiting 1','Done 1']);assert.equal(list.done,false,'finished projects start collapsed');
    assert.equal(list.chip,'Scheduled · 1 due');assert.equal(list.tab,'Projects','the list is a tab like a session');assert.equal(list.badge,'1','due count on the rail switch');assert.equal(list.switchOn,'false');
    assert.equal(list.first,'Warehouse stock report','the project with a due reminder comes first');
    await scan('projects-list-desktop');await page.screenshot({path:path.join(out,'projects-list-desktop.png')});
    // The card: steps, a reminder on a step that ends with the step, a new step, a reminder for the project, finish and resume.
-   await page.click('.project-item a[data-project]');await page.waitForSelector('.project-card');
+   await clickControl(page,'.project-item a[data-project]');await page.waitForSelector('.project-card');
    const card=async()=>page.evaluate(()=>({title:document.querySelector('#ptitle').textContent,tag:document.querySelector('#ptag').textContent,status:document.querySelector('.project-status').textContent,steps:[...document.querySelectorAll('.task-row')].map(r=>[r.querySelector('.task-label span').textContent,r.classList.contains('completed'),r.querySelector('.task-meta')?.textContent||'']),reminders:[...document.querySelectorAll('.reminder-title')].map(e=>e.textContent),sessions:[...document.querySelectorAll('.linked-session .title')].map(e=>e.textContent.trim()),marks:[...document.querySelectorAll('.linked-session .tab-state')].map(e=>e.className),history:Number(document.querySelector('.project-history .summary-meta').textContent),actions:[...document.querySelectorAll('.project-actions .chip')].map(b=>b.textContent),tab:document.querySelector('.open-session.current a')?.textContent}));
    let c=await card();
    assert.equal(c.title,'Warehouse stock report');assert.match(c.tag,/^Active · \/workspaces\/warehouse$/);assert.equal(c.status,'Active');
@@ -1129,66 +1131,66 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(c.tab,'Warehouse stock report','the card is a tab');
    await scan('project-card-desktop');await page.screenshot({path:path.join(out,'project-card-desktop.png')});
    const before=c.history;
-   await page.click('.task-row:not(.completed) input[data-task]');await page.waitForFunction(()=>document.querySelectorAll('.task-row.completed').length===2);
+   await clickControl(page,'.task-row:not(.completed) input[data-task]');await page.waitForFunction(()=>document.querySelectorAll('.task-row.completed').length===2);
    c=await card();assert.deepEqual(c.reminders,[],'finishing the step stops its reminder');assert.equal(c.history,before+1);
    await page.type('[data-task-add] input','Post the inventory adjustment');await page.keyboard.press('Enter');
    await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===3);c=await card();assert.deepEqual(c.steps[2],['Post the inventory adjustment',false,'']);
-   await page.click('[data-remind]');await page.waitForSelector('.sheet [data-pick="tomorrow"]');
+   await clickControl(page,'[data-remind]');await page.waitForSelector('.sheet [data-pick="tomorrow"]');
    const picks=await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));assert.equal(picks.length,4);assert.match(picks[0],/^Tomorrow morning/);
-   await page.click('.sheet [data-pick="tomorrow"]');await page.waitForFunction(()=>document.querySelectorAll('.reminder-title').length===1);
+   await clickControl(page,'.sheet [data-pick="tomorrow"]');await page.waitForFunction(()=>document.querySelectorAll('.reminder-title').length===1);
    c=await card();assert.deepEqual(c.reminders,['Revisit Warehouse stock report']);
-   await page.click('[data-finish]');await page.waitForSelector('.sheet [data-yes]');await page.click('.sheet [data-yes]');
+   await clickControl(page,'[data-finish]');await page.waitForSelector('.sheet [data-yes]');await clickControl(page,'.sheet [data-yes]');
    await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Done');
    c=await card();assert.deepEqual(c.reminders,[],'finishing stops the reminders');assert.deepEqual(c.actions,['Resume project']);assert.equal(await page.$('[data-task-add]'),null,'a finished card takes no new steps');
-   await page.click('[data-resume]');await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Active');
+   await clickControl(page,'[data-resume]');await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Active');
    c=await card();assert.deepEqual(c.reminders,[],'resuming does not restore them');assert.deepEqual(c.actions,['Edit','Remind me','Finish project']);
    // Track a project from a session: the editor takes the session's workspace, the card links the session.
    await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#project-open')?.hidden===false);
-   assert.equal(await page.$eval('#project-open',e=>e.textContent),'Project','the conversation offers Add to project');
-   await page.click('#project-open');await page.waitForSelector('.sheet [data-v="__new"]');await page.keyboard.press('Escape');
-   await page.click('#chatmore');await page.waitForSelector('#so-project');await page.click('#so-project');
+   assert.equal(await page.$eval('#project-open',e=>e.textContent),'Add to project','the conversation offers Add to project');
+   await clickControl(page,'#project-open');await page.waitForSelector('.sheet [data-v="__new"]');await page.keyboard.press('Escape');
+   await clickControl(page,'#chatmore');await page.waitForSelector('#so-project');await clickControl(page,'#so-project');
    await page.waitForSelector('.sheet [data-v="__new"]');
    const choices=await page.$$eval('.sheet .opt',els=>els.map(e=>e.dataset.v));assert.deepEqual(choices.slice(0,1),['__new']);assert.ok(choices.length>=3,'open projects are offered');
-   await page.click('.sheet [data-v="__new"]');await page.waitForSelector('.project-editor');
+   await clickControl(page,'.sheet [data-v="__new"]');await page.waitForSelector('.project-editor');
    assert.equal(await page.$eval('.project-editor [name=directory]',e=>e.value),rows[4].cwd);
-   await page.type('.project-editor [name=name]','Purchasing review');await page.click('.project-editor .primary');
+   await page.type('.project-editor [name=name]','Purchasing review');await clickControl(page,'.project-editor .primary');
    await page.waitForFunction(()=>location.hash==='#/projects/purchasing-review'&&document.querySelector('.project-card'));
    c=await card();assert.equal(c.title,'Purchasing review');assert.deepEqual(c.sessions,[rows[4].title]);
    await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#project-open')?.textContent==='Purchasing review');
-   await page.click('#project-open');await page.waitForFunction(()=>location.hash==='#/projects/purchasing-review');await page.waitForSelector('.project-card');assert.match(c.tag,new RegExp(rows[4].cwd.replace(/[/]/g,'\\/')+'$'));
+   await clickControl(page,'#project-open');await page.waitForFunction(()=>location.hash==='#/projects/purchasing-review');await page.waitForSelector('.project-card');assert.match(c.tag,new RegExp(rows[4].cwd.replace(/[/]/g,'\\/')+'$'));
    // Tabs: project tabs sit beside sessions; closing the current one moves to its neighbour; Alt ] cycles through them.
    let tabs=await page.$$eval('#open-sessions .open-session a',els=>els.map(e=>e.textContent));
    assert.ok(tabs.includes('Projects')&&tabs.includes('Warehouse stock report')&&tabs.includes('Purchasing review'),'project tabs: '+tabs.join(' | '));
    await page.keyboard.down('Alt');await page.keyboard.press(']');await page.keyboard.up('Alt');await sleep(300);
    assert.notEqual(await page.evaluate(()=>location.hash),'#/projects/purchasing-review','Alt ] moved to another tab');
    await page.goto(base+'/#/projects/purchasing-review');await page.waitForSelector('.project-card');
-   await page.click('[data-close-session="projects/purchasing-review"]');await page.waitForFunction(()=>location.hash!=='#/projects/purchasing-review'&&!document.querySelector('[data-close-session="projects/purchasing-review"]'));
+   await clickControl(page,'[data-close-session="projects/purchasing-review"]');await page.waitForFunction(()=>location.hash!=='#/projects/purchasing-review'&&!document.querySelector('[data-close-session="projects/purchasing-review"]'));
    tabs=await page.$$eval('#open-sessions .open-session a',els=>els.map(e=>e.textContent));assert.ok(!tabs.includes('Purchasing review'));
    // Split: a project view beside a conversation; the pane is a full Pocket instance on that route.
-   await openChat(rows[4].id);await page.click('#splitb');await page.waitForSelector('.sheet [data-v="projects/scheduled"]');
-   await page.click('.sheet [data-v="projects/scheduled"]');await page.waitForSelector('#panes iframe');
+   await openChat(rows[4].id);await clickControl(page,'#splitb');await page.waitForSelector('.sheet [data-v="projects/scheduled"]');
+   await clickControl(page,'.sheet [data-v="projects/scheduled"]');await page.waitForSelector('#panes iframe');
    const pane=await page.$eval('#panes iframe',f=>({src:f.getAttribute('src'),title:f.title}));assert.match(pane.src,/#\/projects\/scheduled$/);assert.equal(pane.title,'Session beside: Scheduled');
    const frame=page.frames().find(f=>f.url().includes('#/projects/scheduled'));await frame.waitForSelector('.reminder-item');
    assert.equal(await frame.$eval('#ptitle',e=>e.textContent),'Scheduled');
    await scan('projects-split-desktop');await page.screenshot({path:path.join(out,'projects-split-desktop.png')});
    await frame.click('#pane-close');await page.waitForFunction(()=>!document.querySelector('#panes iframe'));
    // The rail switch: project rows in the rail open as a tab, or beside when this browser says so.
-   await page.click('[data-rail-view="projects"]');await page.waitForSelector('#rail .rail-projects .project-item');
+   await clickControl(page,'[data-rail-view="projects"]');await page.waitForSelector('#rail .rail-projects .project-item');
    assert.equal(await page.$eval('#rail-filter-toggle',e=>e.hidden),true,'session filters hide with the project list');
-   await page.click('#rail .project-item a[data-project]');await page.waitForFunction(()=>location.hash.startsWith('#/projects/')&&document.querySelector('.project-card'));
+   await clickControl(page,'#rail .project-item a[data-project]');await page.waitForFunction(()=>location.hash.startsWith('#/projects/')&&document.querySelector('.project-card'));
    await page.evaluate(()=>localStorage.setItem('pc-projects-open',JSON.stringify('beside')));
    await openChat(rows[4].id);await page.waitForSelector('#rail .rail-projects .project-item');
-   await page.click('#rail .project-item a[data-project]');await page.waitForSelector('#panes iframe');
+   await clickControl(page,'#rail .project-item a[data-project]');await page.waitForSelector('#panes iframe');
    assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/projects\//,'beside: the card opens in a pane');
    await page.evaluate(()=>localStorage.setItem('pc-projects-open',JSON.stringify('tab')));
    await page.evaluate(()=>{document.querySelector('#panes iframe')&&closePane(splitPanes[0].key);});
-   // Settings → Tools turns the feature off and on for the whole install.
-   await page.click('#railsettings');await page.waitForFunction(()=>document.querySelector('#s-projects')?.disabled===false);
+   // Settings → Projects & documents turns the feature off and on for the whole install.
+   await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-projects')?.disabled===false);
    assert.equal(await page.$eval('#s-projects',e=>e.getAttribute('aria-pressed')),'true');
-   await page.click('#s-projects');for(let i=0;i<30&&settings.projects;i++)await sleep(100);
+   await clickControl(page,'#s-projects');for(let i=0;i<30&&settings.projects;i++)await sleep(100);
    assert.equal(settings.projects,false,'the server setting changed');
    await page.goto(base+'/#/');await page.waitForSelector('.session-home');assert.equal(await page.$('[data-projects-home]'),null,'the home chip is gone while off');
-   settings.projects=true;await page.click('[data-rail-view="sessions"]').catch(()=>{});
+   settings.projects=true;await clickControl(page,'[data-rail-view="sessions"]').catch(()=>{});
    // Phone: full-screen views, the home chip, no overflow.
    await page.setViewport({width:390,height:844});
    await page.evaluate(()=>fetch('/api/board/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'remind',project:'camera-ordering-review',at:new Date(Date.now()-60000).toISOString(),text:'Chase the revised quote'})})); // one due reminder for the badge
@@ -1225,12 +1227,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.deepEqual(await page.$$eval('.document-item .doc-vis',els=>els.map(e=>e.textContent)),['Private','Private','Private']);
    await page.select('#doc-kind','text');await page.waitForFunction(()=>document.querySelectorAll('.document-item').length===1);
    assert.match(await page.$eval('.document-group h2',e=>e.textContent.replace(/\s+/g,' ')),/^Markdown and text 1 of 3$/);
-   await page.click('#doc-clear');await page.waitForFunction(()=>document.querySelectorAll('.document-item').length===3);
-   await page.click('.document-item [data-document-more]');await page.waitForSelector('.sheet [data-window]');
+   await clickControl(page,'#doc-clear');await page.waitForFunction(()=>document.querySelectorAll('.document-item').length===3);
+   await clickControl(page,'.document-item [data-document-more]');await page.waitForSelector('.sheet [data-window]');
    assert.equal(await page.$('.sheet [data-copy-link]'),null,'no Copy link while private');
    assert.equal(await page.$eval('.sheet a.opt',e=>getComputedStyle(e).textDecorationLine),'none','a link row is styled like the other rows');
    assert.deepEqual(await page.$$eval('.sheet .opt-group',els=>els.map(e=>e.getAttribute('aria-label'))),['Open','Share','Organize']);
-   await page.click('.sheet [data-share]');await page.waitForSelector('.share-sheet #share-url');
+   await clickControl(page,'.sheet [data-share]');await page.waitForSelector('.share-sheet #share-url');
    assert.match(await page.$eval('#share-url',e=>e.value),/\/#\/documents\/[0-9a-f]{12}$/,'a private document shows its in-app address');
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
    const soloId=await page.evaluate(()=>docsSnap.documents.find(d=>d.kind==='md').id);
@@ -1248,8 +1250,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.ok(cards.find(c=>c.kind==='HTML')?.pic,'the HTML report has a picture: '+JSON.stringify(cards));assert.equal(cards.find(c=>c.kind==='CSV')?.pic,false,'the CSV shows its kind');
    assert.equal(await page.$eval('.doc-card img',e=>e.getAttribute('loading')),'lazy');
    await scan('documents-grid-desktop');await page.screenshot({path:path.join(out,'documents-grid-desktop.png')});
-   await page.click('.doc-card [data-document-more]');await page.waitForSelector('.sheet [data-window]');await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
-   await page.click('.doc-layout [data-layout="list"]');await page.waitForSelector('.document-item');assert.equal(await page.$('.doc-card'),null);
+   await clickControl(page,'.doc-card [data-document-more]');await page.waitForSelector('.sheet [data-window]');await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+   await clickControl(page,'.doc-layout [data-layout="list"]');await page.waitForSelector('.document-item');assert.equal(await page.$('.doc-card'),null);
    await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');assert.equal(await page.$('.doc-card'),null,'the list choice is remembered');
    // The HTML document renders in a sandboxed frame that cannot reach the app.
    await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
@@ -1266,16 +1268,16 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // Share: private → link (URL shown, copy), expiry, new link, → public, → private revokes. Coming back from a share
    // link restores the page from the back-forward cache with the sheet still open, as a browser would; close it first.
    const back=async()=>{await page.goBack();await page.waitForSelector('.doc-tools');if(await page.$('.scrim')){await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));}};
-   await page.click('.doc-tools [data-share]');await page.waitForSelector('.share-sheet');
-   await page.click('.share-sheet [data-v="link"]');await page.waitForSelector('.share-sheet #share-url');
+   await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet');
+   await clickControl(page,'.share-sheet [data-v="link"]');await page.waitForSelector('.share-sheet #share-url');
    const shareUrl=await page.$eval('#share-url',e=>e.value);assert.match(shareUrl,new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'/share/[A-Za-z0-9_-]{40,}$'));
    const shared=await page.goto(shareUrl);assert.equal(shared.status(),200);assert.match(shared.headers()['content-security-policy'],/frame-ancestors 'none'/);
-   await back();await page.click('.doc-tools [data-share]');await page.waitForSelector('.share-sheet [data-reshare]');
-   await page.click('.share-sheet [data-reshare]');await page.waitForSelector('.share-sheet #share-url');const shareUrl2=await page.$eval('#share-url',e=>e.value);assert.notEqual(shareUrl2,shareUrl);
+   await back();await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet [data-reshare]');
+   await clickControl(page,'.share-sheet [data-reshare]');await page.waitForSelector('.share-sheet #share-url');const shareUrl2=await page.$eval('#share-url',e=>e.value);assert.notEqual(shareUrl2,shareUrl);
    assert.equal((await page.goto(shareUrl)).status(),404,'the old link no longer works');await back();
-   await page.click('.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await page.click('.share-sheet [data-v="public"]');await page.waitForFunction(()=>/\/files\//.test(document.querySelector('#share-url')?.value||''));
+   await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await clickControl(page,'.share-sheet [data-v="public"]');await page.waitForFunction(()=>/\/files\//.test(document.querySelector('#share-url')?.value||''));
    const pubUrl=await page.$eval('#share-url',e=>e.value);assert.match(pubUrl,/\/files\/ops-dashboard\.html$/);assert.equal((await page.goto(pubUrl)).status(),200);await back();
-   await page.click('.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await page.click('.share-sheet [data-v="private"]');await page.waitForFunction(()=>!document.querySelector('.share-sheet'));
+   await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await clickControl(page,'.share-sheet [data-v="private"]');await page.waitForFunction(()=>!document.querySelector('.share-sheet'));
    assert.equal((await page.goto(pubUrl)).status(),404,'private again');await back();
    // Markdown and CSV render natively.
    await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
@@ -1286,9 +1288,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.evaluate(()=>{[...document.querySelectorAll('.document-item')].find(r=>r.querySelector('.doc-kind').textContent==='CSV').querySelector('a').click();});
    await page.waitForSelector('.doc-table tbody tr');assert.deepEqual(await page.$$eval('.doc-table th',els=>els.map(e=>e.textContent)),['Aisle','On hand','Incoming']);
    // Keep as document from a session's Results.
-   await openChat(rows[0].id);await page.click('#results-open');await page.waitForSelector('[data-keep]');
+   await openChat(rows[0].id);await clickControl(page,'#results-open');await page.waitForSelector('[data-keep]');
    assert.equal(await page.$eval('[data-keep]',e=>e.textContent),'Keep as document');
-   await page.click('[data-keep]');await page.waitForFunction(()=>document.querySelector('[data-kept]'));
+   await clickControl(page,'[data-keep]');await page.waitForFunction(()=>document.querySelector('[data-kept]'));
    assert.equal(await page.$eval('[data-kept]',e=>e.textContent),'Kept · Open');await page.keyboard.press('Escape');
    // The project card lists its documents.
    await page.goto(base+'/#/projects/warehouse-stock-report');await page.waitForSelector('.project-documents .document-item');
@@ -1296,23 +1298,23 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // Tabs and split.
    let tabs=await page.$$eval('#open-sessions .open-session a',els=>els.map(e=>e.textContent));assert.ok(tabs.includes('Documents')&&tabs.includes('Weekly summary'),tabs.join('|'));
    await openChat(rows[4].id);await page.evaluate(()=>{docsSnap=null;}); // 1.32.1: as on a fresh page, the list is fetched before the chooser opens
-   await page.click('#splitb');await page.waitForSelector('.sheet [data-v^="documents/"]');
+   await clickControl(page,'#splitb');await page.waitForSelector('.sheet [data-v^="documents/"]');
    const offered=await page.$$eval('.sheet [data-v^="documents/"]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));
    assert.ok(offered.some(t=>/^Weekly summary/.test(t)),'1.31.1: the chooser offers the open document tab: '+offered.join('|'));assert.ok(offered.length>=3,'and the recent documents');
-   await page.click('.sheet [data-v="documents"]');
+   await clickControl(page,'.sheet [data-v="documents"]');
    await page.waitForSelector('#panes iframe');assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/documents$/);assert.equal(await page.$eval('#panes iframe',f=>f.title),'Session beside: Documents');
    const pane=page.frames().find(f=>f.url().includes('#/documents'));await pane.waitForSelector('.document-item');await pane.click('#pane-close');await page.waitForFunction(()=>!document.querySelector('#panes iframe'));
    // Rail: Docs segment lists documents; the Project control is unaffected.
-   await page.click('[data-rail-view="documents"]');await page.waitForSelector('#rail .rail-documents .document-item');
+   await clickControl(page,'[data-rail-view="documents"]');await page.waitForSelector('#rail .rail-documents .document-item');
    assert.equal(await page.$eval('#rail-filter-toggle',e=>e.hidden),true);
-   await page.click('[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
-   // Settings → Tools.
-   await page.click('#railsettings');await page.waitForFunction(()=>document.querySelector('#s-documents')?.disabled===false);
+   await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
+   // Settings → Projects & documents.
+   await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-documents')?.disabled===false);
    assert.equal(await page.$eval('#s-documents',e=>e.getAttribute('aria-pressed')),'true');await page.keyboard.press('Escape');
    // Trash and restore from the library.
    await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
-   await page.click('.document-item [data-document-more]');await page.waitForSelector('.sheet [data-trash]');await page.click('.sheet [data-trash]');await page.waitForSelector('.sheet [data-yes]');await page.click('.sheet [data-yes]');
-   await page.waitForSelector('details.document-group [data-restore]');await page.click('details.document-group summary');await page.click('[data-restore]');await page.waitForFunction(()=>!document.querySelector('[data-restore]'));
+   await clickControl(page,'.document-item [data-document-more]');await page.waitForSelector('.sheet [data-trash]');await clickControl(page,'.sheet [data-trash]');await page.waitForSelector('.sheet [data-yes]');await clickControl(page,'.sheet [data-yes]');
+   await page.waitForSelector('details.document-group [data-restore]');await clickControl(page,'details.document-group summary');await clickControl(page,'[data-restore]');await page.waitForFunction(()=>!document.querySelector('[data-restore]'));
    // Phone.
    await page.setViewport({width:390,height:844});
    await page.goto(base+'/?phone=2#/');await page.waitForSelector('a[href="#/documents"].chip');
@@ -1325,6 +1327,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.setViewport({width:1440,height:900});settings.documents=true;
   });
 
+  fs.writeFileSync(path.join(out,'ui-regressions.json'),JSON.stringify({checks,scans,errors},null,2));
+  console.log(JSON.stringify({uiRegressions:checks.length,accessibilityScans:scans.length,ok:true}));
  } catch(e) {
   await page.screenshot({path:path.join(out,'ui-regression-failure.png')});
   fs.writeFileSync(path.join(out,'ui-regressions.json'),JSON.stringify({checks,scans,errors,error:e.message},null,2));throw e;

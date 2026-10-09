@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.32.1 / build 75**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.33.0 / build 76**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -18,12 +18,12 @@ Screenshots use synthetic demo sessions, not private conversations.
 
 - **Work across sessions.** Search and filter the session list, pin or rename work,
   keep open-session tabs, and resume the last conversation on this browser.
-- **Track projects (optional).** Turn on Projects in Settings → Tools to keep a card for
+- **Track projects (optional).** Turn on Projects in Settings → Projects & documents to keep a card for
   each piece of work: where you left off, the next step, remaining steps, reminders and
   the sessions that worked on it. Projects open as a tab, beside a conversation, or
   full-screen on the phone; a Scheduled view lists every reminder, due first; agents keep
   cards current with `pocket-board`. See the [workspace guide](docs/workspace-guide.md#projects).
-- **Keep documents (optional).** Turn on Documents in Settings → Tools for a library of the
+- **Keep documents (optional).** Turn on Documents in Settings → Projects & documents for a library of the
   files that came out of the work. HTML renders sandboxed; PDFs, images, Markdown and CSV
   render natively; share a document privately, by link or publicly, all served by Pocket.
   Keep a file from a session's Results, upload one, or let agents keep deliverables with

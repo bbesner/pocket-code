@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.33.0] — Unreleased · build 76
+
+- Settings has a six-category index, clear device/instance scope labels, reliable initial keyboard focus, and Back to Settings in subpages.
+- New session shows a labeled workspace/agent/permissions summary. Edit setup reveals wrapping model and reasoning controls; attachments stay beside the task.
+- Linked project names occupy a bounded context row instead of squeezing phone conversation navigation.
+- Project and document detail Back restores the originating view, filters and scroll position; failed loads offer Retry and preserve labeled stale data.
+- Split view groups and searches sessions, projects, documents and library destinations, including items beyond the recent list.
+- Rail navigation uses button-group semantics and arrow/Home/End keys. Document filters, preview actions and chat mute controls have 44px touch areas.
+- Wide report tables show a scrolling cue. Matching document project/session names are deduplicated.
+- Leaving a page releases its event stream; returning through browser history reconnects without exhausting HTTP connections. Selected document counts retain readable contrast.
+- Browser checks cover all cleanup findings. Regression summaries now include the Projects and Documents checks that previously ran after the summary was printed.
+
 ## [1.32.1] — 2026-10-09 · build 75
 
 - **Split view names documents on a fresh page too.** 1.31.1 listed documents in the Split view chooser, but only once the library had been loaded in that page; a conversation opened straight from a link still saw just the library. The chooser now fetches the document list first. Found checking the live app after the 1.32.0 deploy.

@@ -37,7 +37,9 @@ const PocketFormat = (() => {
     const tpl=document.createElement('template');tpl.innerHTML=clean;
     tpl.content.querySelectorAll('table').forEach(table=>{
       const wrap=document.createElement('div');wrap.className='report-table';wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label','Report table; scroll horizontally for more columns');
-      table.replaceWith(wrap);wrap.append(table);
+      const frame=document.createElement('div');frame.className='table-scroll-frame';
+      const hint=document.createElement('p');hint.className='table-scroll-hint';hint.hidden=true;hint.textContent='Scroll sideways for more columns';
+      table.replaceWith(frame);frame.append(hint,wrap);wrap.append(table);
       table.querySelectorAll('th').forEach(th=>th.setAttribute('scope','col'));
     });
     tpl.content.querySelectorAll('pre').forEach(pre=>{
@@ -48,4 +50,18 @@ const PocketFormat = (() => {
     return tpl.innerHTML;
   }
   return {render,href};
+})();
+
+// The cue follows the rendered table width, including streamed replies and resize.
+(() => {
+ const active=new Map();let queued=false;
+ const scan=()=>{queued=false;
+  for(const [wrap,entry] of active)if(!wrap.isConnected){entry.observer.disconnect();wrap.removeEventListener('scroll',entry.paint);active.delete(wrap);}
+  document.querySelectorAll('.table-scroll-frame .report-table').forEach(wrap=>{
+   if(active.has(wrap))return;const hint=wrap.previousElementSibling;
+   const paint=()=>{const overflow=wrap.scrollWidth>wrap.clientWidth+1;hint.hidden=!overflow;const text=wrap.scrollLeft+wrap.clientWidth>=wrap.scrollWidth-1?'Scroll left for earlier columns':'Scroll sideways for more columns';if(hint.textContent!==text)hint.textContent=text;};
+   const observer=new ResizeObserver(paint);observer.observe(wrap);if(wrap.firstElementChild)observer.observe(wrap.firstElementChild);wrap.addEventListener('scroll',paint,{passive:true});active.set(wrap,{observer,paint});paint();
+  });
+ };
+ new MutationObserver(records=>{const tablesChanged=records.some(r=>[...r.addedNodes,...r.removedNodes].some(n=>n.nodeType===1&&(n.matches('.report-table')||n.querySelector('.report-table'))));if(tablesChanged&&!queued){queued=true;requestAnimationFrame(scan);}}).observe(document.body,{childList:true,subtree:true});
 })();

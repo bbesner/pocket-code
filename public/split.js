@@ -142,37 +142,50 @@ async function closeMainPane(){
 }
 // 1.32.1: a fresh page has no document list yet; fetch it first so the chooser can name documents, not just the library.
 function chooseBeside(){
- if(typeof documentsOn==='function'&&documentsOn()&&typeof docsSnap!=='undefined'&&!docsSnap&&typeof loadDocs==='function'){loadDocs().catch(()=>{}).then(()=>chooseBesideNow());return;}
- chooseBesideNow();
+ const pending=documentsOn()||projectsOn();
+ const sh=chooseBesideNow(pending);
+ const loads=[];
+ if(typeof documentsOn==='function'&&documentsOn())loads.push(Promise.resolve(docsLoading).catch(()=>{}).then(()=>loadDocs(true)));
+ if(typeof projectsOn==='function'&&projectsOn())loads.push(Promise.resolve(boardLoading).catch(()=>{}).then(()=>loadBoard(true)));
+ if(loads.length){
+  sh.querySelector('[role=status]').textContent='Loading available views…';let deadline;
+  // A slow library must not block New session or the already loaded session list.
+  const timedOut=new Promise(resolve=>{deadline=setTimeout(()=>resolve(null),4000);});
+  Promise.race([Promise.allSettled(loads),timedOut]).then(results=>{clearTimeout(deadline);if(sh.isConnected){sh.loading=false;sh.loadError=results===null?'Some views are still loading. Reopen to refresh them.':results.some(r=>r.status==='rejected')?'Some views could not load. Close and reopen to try again.':'';sh.paintChoices();}});
+ }
 }
-function chooseBesideNow(){
- const taken=new Set([chatId,...splitPanes.map(p=>p.id)]);
- const seen=new Set(),rows=[];
- for(const s of [...openSessions.slice().reverse(),...allSessions.filter(s=>!isHiddenSession(s))]){
-  if(taken.has(s.id)||seen.has(s.id)||isViewId(s.id))continue;seen.add(s.id); // project views are offered separately below
-  const full=allSessions.find(r=>r.id===s.id)||s;
-  rows.push([s.id,full.title||s.title,[projName(full.cwd),full.provider==='codex'?'Codex':full.provider==='claude'?'Claude':'',full.state?.label].filter(Boolean).join(' · ')]);
-  if(rows.length>=12)break;
- }
- rows.unshift(['new','New session','Start a conversation in the new pane']);
- if(typeof projectsOn==='function'&&projectsOn()){ // 1.29: project views open beside like sessions
-  const shown=new Set([currentView(),...splitPanes.map(p=>p.id)]);
-  const views=[['projects','Projects','All tracked projects'],['projects/scheduled','Scheduled','Reminders, due first'],...((typeof boardSnap!=='undefined'&&boardSnap)?boardSnap.projects.filter(p=>p.status!=='done').slice(0,6).map(p=>['projects/'+p.id,p.name,p.next||p.summary||'Project']):[])].filter(r=>!shown.has(r[0]));
-  rows.splice(1,0,...views);
- }
- if(typeof documentsOn==='function'&&documentsOn()){ // 1.31.1: documents open beside like projects: open tabs first, then the most recent, then the library
-  const shown=new Set([currentView(),...splitPanes.map(p=>p.id)]),docs=[];
-  const add=d=>{if(d&&!shown.has('documents/'+d.id)&&!docs.some(x=>x.id===d.id))docs.push(d);};
-  if(typeof docsSnap!=='undefined'&&docsSnap){
-   for(const t of openSessions.slice().reverse())if(t.id.startsWith('documents/'))add(docsSnap.documents.find(d=>d.id===t.id.slice(10)));
-   for(const d of docsSnap.documents){if(docs.length>=6)break;add(d);}
+function chooseBesideNow(loading=false){
+ const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet split-picker';
+ sh.innerHTML=`<h2>Open beside</h2><div class="session-search">${IC.search}<input id="split-picker-search" type="search" aria-label="Find a session, project or document" placeholder="Find a session, project or document" autocomplete="off"></div><p class="sheet-help" role="status"></p><div class="split-choices"></div>`;
+ sh.loading=loading;
+ const paint=()=>{
+  if(sh.loading)return;
+  const taken=new Set([chatId,currentView(),...splitPanes.map(p=>p.id)]),seen=new Set(),q=sh.querySelector('input').value.trim().toLowerCase();
+  const groups=[['New and libraries',[['new','New session','Start a conversation in the new pane']]],['Sessions',[]],['Projects',[]],['Documents',[]]];
+  for(const s of [...openSessions.slice().reverse(),...allSessions.filter(s=>!isHiddenSession(s))]){
+   if(taken.has(s.id)||seen.has(s.id)||isViewId(s.id))continue;seen.add(s.id);const full=allSessions.find(r=>r.id===s.id)||s;
+   groups[1][1].push([s.id,full.title||s.title,[projName(full.cwd),full.provider==='codex'?'Codex':'Claude',full.state?.label].filter(Boolean).join(' · ')]);
   }
-  const views=docs.map(d=>['documents/'+d.id,d.title,[KIND_WORD[d.kind],typeof docWhere==='function'?docWhere(d):'',visWord[d.visibility]].filter(Boolean).join(' · ')]);
-  if(!shown.has('documents'))views.push(['documents','Documents','The library of files from the work']);
-  rows.splice(1,0,...views);
- }
- sheet('Open beside this conversation',rows,null,v=>openBeside(v==='new'?null:v));
+  if(projectsOn()){
+   groups[0][1].push(['projects','Projects','All tracked projects'],['projects/scheduled','Scheduled','Reminders, due first']);
+   groups[2][1]=(boardSnap?.projects||[]).filter(p=>p.status!=='done').map(p=>['projects/'+p.id,p.name,p.next||p.summary||'Project']);
+  }
+  if(documentsOn()){
+   groups[0][1].push(['documents','Documents','The library of files from the work']);
+   const docs=docsSnap?.documents||[],open=openSessions.slice().reverse().filter(t=>t.id.startsWith('documents/')).map(t=>docs.find(d=>d.id===t.id.slice(10))).filter(Boolean);
+   groups[3][1]=[...new Map([...open,...docs].map(d=>[d.id,d])).values()].map(d=>['documents/'+d.id,d.title,[KIND_WORD[d.kind],docWhere(d),visWord[d.visibility]].filter(Boolean).join(' · ')]);
+  }
+  let total=0,shown=0;
+  sh.querySelector('.split-choices').innerHTML=groups.map(([label,rows])=>{
+   const matches=rows.filter(r=>!taken.has(r[0])&&(!q||r.slice(1).join(' ').toLowerCase().includes(q))),limited=matches.slice(0,q?50:8);total+=matches.length;shown+=limited.length;
+   if(!limited.length)return '';return `<section><h3>${label}</h3>${limited.map(([id,title,sub])=>`<button class="opt" data-v="${esc(id)}"><span>${esc(title)}<span class="sub">${esc(sub)}</span></span></button>`).join('')}</section>`;
+  }).join('');
+  sh.querySelector('[role=status]').textContent=sh.loadError||(!total?'No matching views. Try another name.':shown<total?`${shown} of ${total} views. ${q?'Refine your search to see other matches.':'Recent items first; search for more.'}`:q?`${total} matching view${total===1?'':'s'}`:'');
+  sh.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{const v=b.dataset.v;closeCurrentSheet?.();openBeside(v==='new'?null:v);});
+ };
+ sh.paintChoices=paint;sh.querySelector('input').oninput=paint;paint();mountSheet(scrim,sh);return sh;
 }
+
 if(PANE){
  document.documentElement.classList.add('in-pane');
  // Let the window around this pane track which session it shows.
