@@ -179,7 +179,7 @@ let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
 
 // ---------- 1.29: projects ----------
-// The tracked-project board (projects.mjs), off until Settings → Tools turns it on. Agents reach it with the
+// The tracked-project board (projects.mjs), off until Settings → Projects & documents turns it on. Agents reach it with the
 // loopback token Pocket writes at boot: a bearer accepted only on /api/board*, only from a direct loopback
 // connection (a request that arrived through the tunnel or a proxy carries forwarding headers and is refused),
 // and never in place of the cookie anywhere else. Due reminders go out by web push and, when the operator sets
@@ -188,13 +188,13 @@ const board = new ProjectStore(path.join(DATA_DIR, 'projects.json'));
 const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 // ---------- 1.30: documents ----------
 // The library (documents.mjs): files in POCKET_DOCUMENTS_DIR, records in <data dir>/documents.json. Off until
-// Settings → Tools turns it on; while off nothing is served, not even public files. The same loopback token as
+// Settings → Projects & documents turns it on; while off nothing is served, not even public files. The same loopback token as
 // the board serves pocket-docs on /api/documents* only.
 const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'documents');
 const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 const DOCS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-docs.mjs');
-const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Documents is off. Turn it on in Settings → Tools.', code: 'documents_off' });
+const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Documents is off. Turn it on in Settings → Projects & documents.', code: 'documents_off' });
 setInterval(() => { try { const gone = docs.purge(); if (gone.length) log(`documents purged from trash: ${gone.length}`); } catch (e) { log('documents purge: ' + e.message); } }, 6 * 3600_000).unref();
 codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : ''].filter(Boolean).join(' '));
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
@@ -209,7 +209,7 @@ function requireBoardAuth(req, res, next) {
   if (m && direct && timingSafeEqual(Buffer.from(m[1]), Buffer.from(cliToken))) { req.boardActor = 'cli'; return next(); }
   res.status(401).json({ error: 'unauthorized' });
 }
-const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404).json({ error: 'Projects is off. Turn it on in Settings → Tools.', code: 'projects_off' });
+const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404).json({ error: 'Projects is off. Turn it on in Settings → Projects & documents.', code: 'projects_off' });
 const REMINDER_HOOK = process.env.POCKET_REMINDER_HOOK || '';
 function runReminderHook(payload) {
   const child = spawn(REMINDER_HOOK, { shell: true, stdio: ['pipe', 'ignore', 'pipe'] });
@@ -2562,7 +2562,9 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Split view names documents even on a fresh page: the chooser now fetches the document list before it opens, so a conversation opened straight from a link offers the open and recent documents, not just the library."
+  "Settings now opens a short category index, with device and instance scope labels and Back to Settings in subpages.",
+  "New sessions show workspace, agent and permissions together. Edit setup opens the remaining choices; phone conversation navigation keeps project names separate.",
+  "Projects and documents preserve their parent view on Back and offer Retry after load errors. Split view has grouped search; touch targets, keyboard navigation and table scrolling are more consistent."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

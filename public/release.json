@@ -1,7 +1,9 @@
 {
-  "version": "1.32.1",
-  "assetV": 75,
+  "version": "1.33.0",
+  "assetV": 76,
   "notes": [
-    "Split view names documents even on a fresh page: the chooser now fetches the document list before it opens, so a conversation opened straight from a link offers the open and recent documents, not just the library."
+    "Settings now opens a short category index, with device and instance scope labels and Back to Settings in subpages.",
+    "New sessions show workspace, agent and permissions together. Edit setup opens the remaining choices; phone conversation navigation keeps project names separate.",
+    "Projects and documents preserve their parent view on Back and offer Retry after load errors. Split view has grouped search; touch targets, keyboard navigation and table scrolling are more consistent."
   ]
 }

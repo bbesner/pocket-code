@@ -1,3 +1,4 @@
+import {clickControl} from './ui-controls.mjs';
 // Deterministic frontend acceptance checks. This serves fixtures only: no real
 // sessions, credentials, CLI, or production service is involved.
 import http from 'node:http';
@@ -116,13 +117,13 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'},...Array.from({length:8},(_,index)=>({id:'gpt-fixture-'+index,label:'Fixture '+index})),{id:'gpt-6-sol',label:'GPT-6 Sol'},{id:'gpt-6-astra',label:'GPT-6 Astra'}],defaultModel:'gpt-6-sol',pocketDefault:true});
  if(url.pathname==='/api/push/key')return json({});
  if(url.pathname.startsWith('/api/board')){
-  if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Tools.',code:'projects_off'},404);
+  if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects & documents.',code:'projects_off'},404);
   if(url.pathname==='/api/board')return json({...board.snapshot({dir:url.searchParams.get('dir')||''}),push:{enabled:false},hook:false});
   if(url.pathname==='/api/board/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,project:board.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.project?{project:e.project}:{})},e.status||400);}}
   if(url.pathname==='/api/board/reset'){seedBoard();return json({ok:true});}
  }
  if(url.pathname.startsWith('/api/documents')||url.pathname.startsWith('/files/')||url.pathname.startsWith('/share/')){
-  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'Documents is off. Turn it on in Settings → Tools.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
+  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'Documents is off. Turn it on in Settings → Projects & documents.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
   const sendDoc=(r,framed)=>{const file=docStore.filePath(r);if(!fs.existsSync(file)){res.writeHead(404);res.end();return;}
    res.writeHead(200,{'content-type':mimeOf(r.file),'cache-control':'private, no-store','x-content-type-options':'nosniff','content-security-policy':r.kind==='html'?`sandbox allow-scripts allow-popups allow-downloads allow-forms; frame-ancestors ${framed?"'self'":"'none'"}`:`default-src 'none'; style-src 'unsafe-inline'; frame-ancestors ${framed?"'self'":"'none'"}`,'content-disposition':(url.searchParams.get('download')==='1'?'attachment':'inline')+"; filename*=UTF-8''"+encodeURIComponent(r.file)});
    res.end(fs.readFileSync(file));};
@@ -224,22 +225,22 @@ try{
   await p.goto(base,{waitUntil:'domcontentloaded'});await p.waitForSelector('[data-id]');
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'list overflow '+width);
   assert.match(await p.$eval('[data-session-summary]',el=>el.textContent),/1 running/);
-  await p.click('[data-filter="active"]');assert.equal(await p.$$eval('[data-session-results] [data-id]',els=>els.length),2);
-  await p.click('[data-filter="attention"]');assert.equal(await p.$$eval('[data-session-results] [data-id]',els=>els.length),2,'the failed turn and the unopened Response ready reply');
-  await p.click('[data-filter="all"]');await p.screenshot({path:path.join(out,`sessions-${width}.png`)});
+  await clickControl(p,'[data-filter="active"]');assert.equal(await p.$$eval('[data-session-results] [data-id]',els=>els.length),2);
+  await clickControl(p,'[data-filter="attention"]');assert.equal(await p.$$eval('[data-session-results] [data-id]',els=>els.length),2,'the failed turn and the unopened Response ready reply');
+  await clickControl(p,'[data-filter="all"]');await p.screenshot({path:path.join(out,`sessions-${width}.png`)});
   if([390,1440].includes(width))await scan('sessions-'+width);
-  await p.click(`[data-id="${idle.id}"]`);await p.waitForSelector('#box');
+  await clickControl(p,`[data-id="${idle.id}"]`);await p.waitForSelector('#box');
   await p.type('#box','Keep this draft while switching sessions.');
-  await p.click('#session-switch');await p.waitForSelector('[role="dialog"]');
+  await clickControl(p,'#session-switch');await p.waitForSelector('[role="dialog"]');
   assert.equal(await p.evaluate(()=>document.querySelector('[role="dialog"]').contains(document.activeElement)),true);
   await p.keyboard.press('Escape');assert.equal(await p.$('[role="dialog"]'),null);
   assert.equal(await p.$eval('#box',e=>e.value),'Keep this draft while switching sessions.');
-  await p.click('#c-model');await p.waitForSelector('[role="dialog"]');
+  await clickControl(p,'#c-model');await p.waitForSelector('[role="dialog"]');
   for(let i=0;i<8;i++){await p.keyboard.press('Tab');assert.equal(await p.evaluate(()=>document.querySelector('[role="dialog"]').contains(document.activeElement)),true);}
   await p.keyboard.press('Escape');assert.equal(await p.$eval('#c-model',e=>e===document.activeElement),true);
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'chat overflow '+width);
   assert.equal(await p.$$eval('.report-table table',e=>e.length),1);assert.equal(await p.$$eval('blockquote',e=>e.length),1);assert.equal(await p.$$eval('ol li ul',e=>e.length)>0,true);
-  await p.click('#results-open');await p.waitForSelector('.result-row');
+  await clickControl(p,'#results-open');await p.waitForSelector('.result-row');
   assert.equal(await p.$$eval('.result-row',e=>e.length),2);
   if(width===390)await p.screenshot({path:path.join(out,'results-mobile.png')});
   await p.type('#result-query','CSV');assert.equal(await p.$$eval('.result-row',e=>e.length),1);
@@ -254,7 +255,7 @@ try{
  await p.setViewport({width:390,height:844,isMobile:true,hasTouch:true});
  await p.goto(base+'/#/chat/'+idle.id,{waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
  await p.evaluate(()=>{tb.attachments=[{path:'/fixture/stock.csv',name:'stock.csv'}];stashAttachments();renderToolbar();});
- await p.type('#box','Exclude discontinued products.');failNext=true;await p.click('#send');
+ await p.type('#box','Exclude discontinued products.');failNext=true;await clickControl(p,'#send');
  await p.waitForSelector('#retry-message');
  assert.equal(await p.$eval('#box',e=>e.value),'Exclude discontinued products.');
  assert.equal(dispatches,1);
@@ -262,7 +263,7 @@ try{
  await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#retry-message');
  assert.equal(await p.$eval('#box',e=>e.value),'Exclude discontinued products.');
  await p.screenshot({path:path.join(out,'delivery-recovery.png')});
- failNext=false;await p.click('#retry-message');await p.waitForFunction(id=>!localStorage.getItem('pc-outbox-'+id),{},idle.id);await p.waitForSelector('#box');
+ failNext=false;await clickControl(p,'#retry-message');await p.waitForFunction(id=>!localStorage.getItem('pc-outbox-'+id),{},idle.id);await p.waitForSelector('#box');
  assert.equal(dispatches,1);assert.equal(received[0].clientMessageId,received[1].clientMessageId);
  assert.deepEqual(received[0].attachments,['/fixture/stock.csv']);
  assert.equal(await p.$eval('#box',e=>e.value),'');
@@ -271,16 +272,16 @@ try{
  stale=true;await p.evaluate(()=>refreshSessions());
  assert.match(await p.$eval('#session-switch',e=>e.textContent),/unavailable/);
  assert.equal(await p.$$eval('.state-unknown',els=>els.filter(e=>e.getClientRects().length).length)>0,false,'mobile chat has no rendered list until switcher opens');
- await p.click('#session-switch');await p.waitForSelector('.state-unknown');
+ await clickControl(p,'#session-switch');await p.waitForSelector('.state-unknown');
  await p.keyboard.press('Escape');
  // New-session creation must recover the same server-issued session ID too.
  stale=false;await p.goto(base+'/#/new',{waitUntil:'domcontentloaded'});await p.waitForSelector('[data-p]');
- await p.click('#choose-workspace');await p.click('[data-p]');await p.type('#first','Prepare the weekly inventory.');failNext=true;await p.click('#start');
+ await clickControl(p,'#choose-workspace');await clickControl(p,'[data-p]');await p.type('#first','Prepare the weekly inventory.');failNext=true;await clickControl(p,'#start');
  await p.waitForFunction(()=>document.querySelector('#start')?.textContent==='Retry start');
  assert.equal(dispatches,2);await p.reload({waitUntil:'domcontentloaded'});
  await p.waitForFunction(()=>document.querySelector('#start')?.textContent==='Retry start');
  assert.equal(await p.$eval('#first',e=>e.value),'Prepare the weekly inventory.');
- failNext=false;await p.click('#start');await p.waitForSelector('#box');
+ failNext=false;await clickControl(p,'#start');await p.waitForSelector('#box');
  assert.equal(dispatches,2);assert.match(p.url(),/66666666-6666-4666-8666-666666666666/);
  assert.equal(await p.evaluate(()=>localStorage.getItem('pc-outbox-new')),null);
  // Reading position survives reopening a long conversation.
@@ -295,51 +296,51 @@ try{
   return {danger:div.querySelectorAll('script,iframe,form,[onerror],[onfocus],a[href^="javascript:"],img[src^="data:"]').length,pwned:Boolean(window.__pwned)};
  });assert.deepEqual(security,{danger:0,pwned:false});
  await p.goto(base+'/#/chat/'+rows[0].id);await p.waitForSelector('[data-mode="queue"]');
- await p.click('[data-mode="queue"]');assert.equal(await p.$eval('[data-mode="queue"]',e=>e.getAttribute('aria-pressed')),'true');
- await p.click('#queue-open');await p.waitForSelector('[data-edit]');await p.click('[data-edit]');await p.waitForSelector('.queue-editor');
- await p.$eval('.queue-editor',e=>e.value='Only order current models.');await p.click('[data-save]');
+ await clickControl(p,'[data-mode="queue"]');assert.equal(await p.$eval('[data-mode="queue"]',e=>e.getAttribute('aria-pressed')),'true');
+ await clickControl(p,'#queue-open');await p.waitForSelector('[data-edit]');await clickControl(p,'[data-edit]');await p.waitForSelector('.queue-editor');
+ await p.$eval('.queue-editor',e=>e.value='Only order current models.');await clickControl(p,'[data-save]');
  await p.waitForFunction(()=>document.querySelector('.queue-item p')?.textContent==='Only order current models.');
- await p.screenshot({path:path.join(out,'queue-mobile.png')});await p.click('[data-remove]');await p.waitForFunction(()=>document.querySelector('#queue-items')?.textContent.includes('No queued instructions'));await p.keyboard.press('Escape');
+ await p.screenshot({path:path.join(out,'queue-mobile.png')});await clickControl(p,'[data-remove]');await p.waitForFunction(()=>document.querySelector('#queue-items')?.textContent.includes('No queued instructions'));await p.keyboard.press('Escape');
  for(const width of [390,1440]){
   await p.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});await p.goto(base+'/#/new');await p.waitForSelector('[data-p]');
-  await p.click('#choose-skill');await p.waitForSelector('.skill-choice');await p.type('.skill-search','inventory');assert.equal(await p.$$eval('.skill-choice',e=>e.length),1);
-  if(width===390)await p.screenshot({path:path.join(out,'skills-mobile.png')});await p.click('.skill-choice');
+  await clickControl(p,'#choose-skill');await p.waitForSelector('.skill-choice');await p.type('.skill-search','inventory');assert.equal(await p.$$eval('.skill-choice',e=>e.length),1);
+  if(width===390)await p.screenshot({path:path.join(out,'skills-mobile.png')});await clickControl(p,'.skill-choice');
   assert.match(await p.$eval('#first',e=>e.value),/inventory-report/);
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await p.screenshot({path:path.join(out,'new-'+width+'.png')});
  }
  // Daily workspace: filters, tabs, docking, read-only Git and native questions.
- await p.setViewport({width:1440,height:900});await p.goto(base);await p.waitForSelector('[data-workspace-filter]');await p.click('[data-more-filters] > summary');
+ await p.setViewport({width:1440,height:900});await p.goto(base);await p.waitForSelector('[data-workspace-filter]');await clickControl(p,'[data-more-filters] > summary');
  await p.select('[data-workspace-filter]','/workspaces/warehouse');
  assert.equal(await p.$$eval('[data-id]',e=>e.length),2);
  await p.select('[data-provider-filter]','codex');assert.equal(await p.$$eval('[data-id]',e=>e.length),0);
  await p.select('[data-workspace-filter]','');await p.select('[data-provider-filter]','');
- await p.click(`[data-more="${idle.id}"]`);await p.click('#so-hide');assert.equal(await p.$(`[data-id="${idle.id}"]`),null);
- await p.click('[data-filter="hidden"]');await p.click(`[data-more="${idle.id}"]`);await p.click('#so-hide');await p.click('[data-filter="all"]');
- await p.click(`[data-id="${idle.id}"]`);await p.waitForSelector('#box');await p.click('#results-open');await p.waitForSelector('.workspace-dock .result-row');
+ await clickControl(p,`[data-more="${idle.id}"]`);await clickControl(p,'#so-hide');assert.equal(await p.$(`[data-id="${idle.id}"]`),null);
+ await clickControl(p,'[data-filter="hidden"]');await clickControl(p,`[data-more="${idle.id}"]`);await clickControl(p,'#so-hide');await clickControl(p,'[data-filter="all"]');
+ await clickControl(p,`[data-id="${idle.id}"]`);await p.waitForSelector('#box');await clickControl(p,'#results-open');await p.waitForSelector('.workspace-dock .result-row');
  assert.equal(await p.$eval('#app',e=>e.inert),false);await p.type('#box','Desktop draft remains editable.');
- await p.click(`[data-id="${rows[0].id}"]`);await p.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},rows[0].id);
+ await clickControl(p,`[data-id="${rows[0].id}"]`);await p.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},rows[0].id);
  await p.waitForSelector('.workspace-dock .result-row');assert.ok(await p.$$eval('#open-sessions a',e=>e.length)>=2);
- await p.click('#git-open');await p.waitForSelector('[data-git-file]');await p.click('[data-git-file="0"]');await p.waitForFunction(()=>document.querySelector('[data-git-diff] pre')?.textContent.includes('new quantity'));
- assert.equal(await p.$$eval('[data-git-diff] script',e=>e.length),0);await p.click('[data-scope="staged"]');await p.waitForFunction(()=>document.querySelector('[data-git-diff] pre')?.textContent.includes('No staged'));
+ await clickControl(p,'#git-open');await p.waitForSelector('[data-git-file]');await clickControl(p,'[data-git-file="0"]');await p.waitForFunction(()=>document.querySelector('[data-git-diff] pre')?.textContent.includes('new quantity'));
+ assert.equal(await p.$$eval('[data-git-diff] script',e=>e.length),0);await clickControl(p,'[data-scope="staged"]');await p.waitForFunction(()=>document.querySelector('[data-git-diff] pre')?.textContent.includes('No staged'));
  await p.screenshot({path:path.join(out,'workspace-desktop.png')});await scan('workspace-desktop');
  // Resizing preserves the open panel as a phone dialog rather than dropping its contents.
  await p.setViewport({width:390,height:844});await p.waitForSelector('.git-sheet[role="dialog"]');await p.keyboard.press('Escape');
  questionRequests=[{id:'request-1',blocking:true,questions:[{id:'format',header:'Format',question:'Which format should the report use?',options:[{label:'CSV',description:'For spreadsheets'},{label:'PDF',description:'For reading'}]}]}];
  rows[1].state={kind:'input',label:'Needs your answer',questions:1};
  await p.goto(base+'/#/chat/'+rows[1].id);await p.waitForSelector('#questions-open:not([hidden])');
- await p.click('#questions-open');await p.waitForSelector('.question-form');
+ await clickControl(p,'#questions-open');await p.waitForSelector('.question-form');
  await p.screenshot({path:path.join(out,'native-question-mobile.png')});await scan('native-question-mobile');
- await p.click('.question-form [type=submit]');assert.match(await p.$eval('.question-error',e=>e.textContent),/Answer each/);
- await p.click('.question-option input');await p.click('.question-form [type=submit]');await p.waitForFunction(()=>document.querySelector('.question-form')?.textContent.includes('Answers sent'));
+ await clickControl(p,'.question-form [type=submit]');assert.match(await p.$eval('.question-error',e=>e.textContent),/Answer each/);
+ await clickControl(p,'.question-option input');await clickControl(p,'.question-form [type=submit]');await p.waitForFunction(()=>document.querySelector('.question-form')?.textContent.includes('Answers sent'));
  assert.deepEqual(questionAnswers,{format:['CSV']});await p.keyboard.press('Escape');
- await p.click('#c-mode');await p.waitForSelector('[data-v="plan"]');await p.click('[data-v="plan"]');assert.match(await p.$eval('#c-mode',e=>e.textContent),/Plan first/);
+ await clickControl(p,'#c-mode');await p.waitForSelector('[data-v="plan"]');await clickControl(p,'[data-v="plan"]');assert.match(await p.$eval('#c-mode',e=>e.textContent),/Plan first/);
  await p.evaluate(()=>openEnvironment());await p.waitForSelector('.provider-account');assert.match(await p.$eval('.provider-account',e=>e.textContent),/owner@example.test/);await p.keyboard.press('Escape');
  for(const width of [390,1440]){
   loginState={status:'idle'};await p.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});await p.goto(base+'/#/chat/'+rows[1].id);await p.waitForSelector('#box');
-  await p.evaluate(()=>openEnvironment());await p.waitForSelector('[data-claude-login]');await p.click('[data-claude-login]');await p.waitForSelector('[data-login-start]');
-  uiModes.loginBusy=true;await p.click('[data-login-start]');await p.waitForFunction(()=>document.querySelector('[data-login-error]')?.textContent.includes('still working'));uiModes.loginBusy=false;
-  await p.click('[data-login-start]');await p.waitForSelector('#claude-login-code');
+  await p.evaluate(()=>openEnvironment());await p.waitForSelector('[data-claude-login]');await clickControl(p,'[data-claude-login]');await p.waitForSelector('[data-login-start]');
+  uiModes.loginBusy=true;await clickControl(p,'[data-login-start]');await p.waitForFunction(()=>document.querySelector('[data-login-error]')?.textContent.includes('still working'));uiModes.loginBusy=false;
+  await clickControl(p,'[data-login-start]');await p.waitForSelector('#claude-login-code');
   assert.equal(await p.$eval('[data-login-link]',element=>element.origin),'https://claude.com');
   await p.type('#claude-login-code','unsent-secret');await p.keyboard.press('Escape');
   await p.evaluate(()=>openClaudeLogin());await p.waitForSelector('#claude-login-code');assert.equal(await p.$eval('#claude-login-code',element=>element.value),'');
@@ -350,9 +351,9 @@ try{
   await p.addScriptTag({path:path.join(repo,'node_modules/axe-core/axe.min.js')});
   const accountAxe=await p.evaluate(async()=>{const result=await axe.run('.claude-login-sheet');return result.violations.map(violation=>({id:violation.id,nodes:violation.nodes.map(node=>node.target)}));});assert.deepEqual(accountAxe,[]);
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  await p.click('[data-login-form] button');await p.waitForSelector('.login-account');assert.equal(loginCodes.at(-1),'synthetic-code#fixture');
+  await clickControl(p,'[data-login-form] button');await p.waitForSelector('.login-account');assert.equal(loginCodes.at(-1),'synthetic-code#fixture');
   assert.match(await p.$eval('.login-account',element=>element.textContent),/new@example.test/);assert.equal(await p.$('#claude-login-code'),null);
-  await p.click('[data-login-start]');await p.waitForSelector('[data-login-cancel]');await p.click('[data-login-cancel]');await p.waitForSelector('[data-login-start]');
+  await clickControl(p,'[data-login-start]');await p.waitForSelector('[data-login-cancel]');await clickControl(p,'[data-login-cancel]');await p.waitForSelector('[data-login-start]');
   assert.equal(loginState.status,'cancelled');await p.keyboard.press('Escape');
  }
  await p.keyboard.down('Control');await p.keyboard.press('k');await p.keyboard.up('Control');await p.waitForSelector('.session-switcher');await p.keyboard.press('Escape');
@@ -385,15 +386,15 @@ try{
  assert.equal(await p.$eval('#header-toggle',e=>e.getAttribute('aria-expanded')),'false');
  assert.equal(await p.$eval('#rail-filter-toggle',e=>e.getAttribute('aria-expanded')),'false');
  assert.equal(await p.$eval('#box',e=>e.value),'Keep my draft while making room.');
- await p.click('#clear-rail-filters');assert.equal(await p.$eval('#rail-filter-summary',e=>e.hidden),true);
- await p.type('#rail [data-session-search]','warehouse');await p.click('#rail-filter-toggle');await p.click('#rail-filter-toggle');
+ await clickControl(p,'#clear-rail-filters');assert.equal(await p.$eval('#rail-filter-summary',e=>e.hidden),true);
+ await p.type('#rail [data-session-search]','warehouse');await clickControl(p,'#rail-filter-toggle');await clickControl(p,'#rail-filter-toggle');
  assert.equal(await p.$eval('#rail [data-session-search]',e=>e.value),'warehouse');
  await p.$eval('#rail [data-session-search]',e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));});
- await p.click('#header-toggle');await p.click('#results-open');await p.waitForSelector('.workspace-dock');
+ await clickControl(p,'#header-toggle');await clickControl(p,'#results-open');await p.waitForSelector('.workspace-dock');
  await p.evaluate(()=>{window.densityDock=document.querySelector('.workspace-dock');});
- await p.click('#header-toggle');await p.click('#header-toggle');
+ await clickControl(p,'#header-toggle');await clickControl(p,'#header-toggle');
  assert.equal(await p.$eval('.workspace-dock',e=>e===window.densityDock),true);
- await p.click('[data-close-dock]');await p.click('#header-toggle');
+ await clickControl(p,'[data-close-dock]');await clickControl(p,'#header-toggle');
  for(const width of [900,1279,1280,1440,1536]){
   await p.setViewport({width,height:760});
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'compact desktop overflow '+width);
@@ -409,7 +410,7 @@ try{
  assert.equal(await p.$eval('.chat-statebar',e=>e.getClientRects().length),0);
  await p.screenshot({path:path.join(out,'compact-preference-mobile.png')});await scan('compact-preference-mobile');
  await p.setViewport({width:1440,height:760,isMobile:false,hasTouch:false});
- await p.click('#header-toggle');await p.click('#rail-filter-toggle');
+ await clickControl(p,'#header-toggle');await clickControl(p,'#rail-filter-toggle');
  assert.ok(await p.$eval('#open-sessions',e=>e.getClientRects().length)>0);
  assert.equal(await p.$eval('#rail-filter-controls',e=>e.hidden),false);
  await p.screenshot({path:path.join(out,'expanded-workspace-desktop.png')});await scan('expanded-workspace-desktop');
@@ -434,23 +435,23 @@ try{
   assert.equal(await p.$eval('#tbar',e=>e.getClientRects().length),0);
   if([360,1440].includes(width)){await p.screenshot({path:path.join(out,'focus-composer-'+width+'.png')});await scan('focus-composer-'+width);}
  }
- await p.click('#c-att');await p.waitForSelector('[data-v="file"]');await p.keyboard.press('Escape');
+ await clickControl(p,'#c-att');await p.waitForSelector('[data-v="file"]');await p.keyboard.press('Escape');
  await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
  assert.equal(await p.$eval('#composer-toggle',e=>e.getAttribute('aria-expanded')),'false');
  assert.match(await p.$eval('#attrow',e=>e.textContent),/fixture.txt/);
- await p.click('#composer-toggle');await p.click('#c-model');await p.waitForSelector('[data-v="test"]');await p.click('[data-v="test"]');
+ await clickControl(p,'#composer-toggle');await clickControl(p,'#c-model');await p.waitForSelector('[data-v="test"]');await clickControl(p,'[data-v="test"]');
  assert.equal(await p.$$eval('#c-att',es=>es.length),1);
  await p.evaluate(()=>{tb.attachments=[];renderToolbar();stashAttachments();});
  // Chat text scales independently of application chrome and keeps its value on reload.
  const chromeSize=await p.$eval('#results-open',e=>getComputedStyle(e).fontSize);
- await p.click('#chatmore');await p.waitForSelector('[data-text-larger]');
+ await clickControl(p,'#chatmore');await p.waitForSelector('[data-text-larger]');
  assert.equal(await p.$eval('[data-text-size]',e=>e.textContent),'17px');
  await p.focus('[data-text-larger]');await p.keyboard.press('Enter');
  assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'18px');
  assert.equal(await p.$eval('.m-user',e=>getComputedStyle(e).fontSize),'18px');
  assert.equal(await p.$eval('#results-open',e=>getComputedStyle(e).fontSize),chromeSize);
  assert.equal(await p.$eval('#box',e=>e.value),'Keep my draft while making room.');
- for(let i=0;i<6;i++)await p.click('[data-text-larger]');
+ for(let i=0;i<6;i++)await clickControl(p,'[data-text-larger]');
  assert.equal(await p.$eval('[data-text-larger]',e=>e.disabled),true);
  assert.equal(await p.$eval('.chat-text-preview',e=>getComputedStyle(e).fontSize),'24px');
  assert.ok(await p.$eval('.m-asst h2',e=>Math.abs(parseFloat(getComputedStyle(e).fontSize)-24*22/17)<.01));
@@ -459,15 +460,15 @@ try{
  await p.keyboard.press('Escape');assert.equal(await p.$eval('#chatmore',e=>e===document.activeElement),true);
  await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
  assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'24px');
- await p.click('#chatmore');await p.waitForSelector('[data-text-smaller]');
- for(let i=0;i<10;i++)await p.click('[data-text-smaller]');
+ await clickControl(p,'#chatmore');await p.waitForSelector('[data-text-smaller]');
+ for(let i=0;i<10;i++)await clickControl(p,'[data-text-smaller]');
  assert.equal(await p.$eval('[data-text-smaller]',e=>e.disabled),true);
  assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'14px');
- await p.click('[data-text-reset]');assert.equal(await p.$eval('[data-text-size]',e=>e.textContent),'17px');
+ await clickControl(p,'[data-text-reset]');assert.equal(await p.$eval('[data-text-size]',e=>e.textContent),'17px');
  await p.keyboard.press('Escape');
  // Settings exposes the same preference and message anchors remain steady as text reflows.
- await p.click('#railsettings');await p.waitForSelector('[data-text-larger]');
- await p.click('[data-text-larger]');assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'18px');
+ await clickControl(p,'#railsettings');await p.waitForSelector('[data-text-larger]');
+ await clickControl(p,'[data-text-larger]');assert.equal(await p.$eval('.m-asst',e=>getComputedStyle(e).fontSize),'18px');
  await p.keyboard.press('Escape');
  const anchorShift=await p.evaluate(()=>{
   const m=document.querySelector('#msgs').closest('main'),anchor=[...m.querySelectorAll('.m-asst p')].find(e=>e.textContent==='Paragraph 12 in a long report.');
@@ -477,7 +478,7 @@ try{
  for(const width of [360,390,768,1440]){
   await p.setViewport({width,height:844,isMobile:width<700,hasTouch:width<700});
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'large chat text overflow '+width);
-  await p.click('#chatmore');await p.waitForSelector('[data-text-reset]');
+  await clickControl(p,'#chatmore');await p.waitForSelector('[data-text-reset]');
   assert.equal(await p.$eval('[data-text-size]',e=>e.textContent),'24px');
   assert.ok(await p.$eval('[data-text-reset]',e=>{const r=e.getBoundingClientRect();return r.width>=44&&r.height>=44&&r.right<=innerWidth;}));
   if(width===390){await p.screenshot({path:path.join(out,'chat-text-size-mobile.png')});await scan('chat-text-size-mobile');}
@@ -488,13 +489,13 @@ try{
  await p.evaluate(()=>setChatTextSize(17));
  // Approvals show the exact escaped request; no decision is selected or sent on open.
  await p.goto(base+'/#/chat/'+idle.id);await p.waitForSelector('#c-approval');
- await p.click('#c-approval');await p.waitForSelector('[data-v="full"]');await p.click('[data-v="full"]');
+ await clickControl(p,'#c-approval');await p.waitForSelector('[data-v="full"]');await clickControl(p,'[data-v="full"]');
  assert.match(await p.$eval('#c-approval',e=>e.textContent),/Full access/);
- await p.click('#c-approval');await p.click('[data-v="review"]');assert.equal(await p.evaluate(()=>turnOpts().approvalMode),'review');
+ await clickControl(p,'#c-approval');await clickControl(p,'[data-v="review"]');assert.equal(await p.evaluate(()=>turnOpts().approvalMode),'review');
  for(const width of [390,1440]){
   approvalRequests=[{id:'approval-1',title:'Run this command?',kind:'command',details:JSON.stringify({command:'printf "<script>window.__approvalXSS=1</script>" > report.txt',cwd:'/workspaces/reports'},null,2),canAllow:true,status:'pending'}];
   await p.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});await p.evaluate(()=>refreshApprovals(chatId));await p.waitForSelector('#approvals-open:not([hidden])');
-  await p.click('#approvals-open');await p.waitForSelector('.approval-card');
+  await clickControl(p,'#approvals-open');await p.waitForSelector('.approval-card');
   assert.equal(await p.evaluate(()=>Boolean(window.__approvalXSS)),false);assert.equal(await p.$$eval('.approval-card script',e=>e.length),0);
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   const before=approvalDecisions.length;await p.screenshot({path:path.join(out,'approval-'+width+'.png')});await scan('approval-'+width);
@@ -504,14 +505,14 @@ try{
  }
  approvalRequests=[{id:'approval-2',title:'Apply file changes?',kind:'fileChange',details:'+new line',canAllow:true,status:'pending'}];
  await p.evaluate(()=>openApprovals(chatId));await p.waitForSelector('[data-decision="allow"]');approvalFail=true;
- await p.click('[data-decision="allow"]');await p.waitForFunction(()=>document.querySelector('.approval-outcome')?.textContent.includes('uncertain'));
+ await clickControl(p,'[data-decision="allow"]');await p.waitForFunction(()=>document.querySelector('.approval-outcome')?.textContent.includes('uncertain'));
  assert.equal(await p.$eval('[data-decision="allow"]',e=>e.disabled),true);
- approvalFail=false;approvalRequests=[{...approvalRequests[0],status:'uncertain'}];await p.click('[data-refresh-approvals]');
+ approvalFail=false;approvalRequests=[{...approvalRequests[0],status:'uncertain'}];await clickControl(p,'[data-refresh-approvals]');
  await p.waitForFunction(()=>document.querySelector('.approval-outcome')?.textContent.includes('Decision sent or uncertain'));
  assert.equal(await p.$eval('[data-decision="allow"]',e=>e.disabled),true);await p.keyboard.press('Escape');
  approvalRequests=[];
  await p.goto(base);await p.waitForSelector('[data-more]');
- await p.click(`[data-more="${rows[0].id}"]`);await p.click('#so-permissions');await p.waitForSelector('[data-v="full"]');await p.click('[data-v="full"]');
+ await clickControl(p,`[data-more="${rows[0].id}"]`);await clickControl(p,'#so-permissions');await p.waitForSelector('[data-v="full"]');await clickControl(p,'[data-v="full"]');
  assert.equal(await p.evaluate(id=>getPrefs(id).approvalMode,rows[0].id),'full','home-list permissions target the selected session');
  assert.equal(await p.evaluate(id=>getPrefs(id).approvalMode,idle.id),'review','another session keeps its own policy');
  // A server-owned run needs fresh server proof, including while headers collapse.
@@ -555,7 +556,7 @@ try{
  await p.focus('#box');await p.keyboard.down('Control');await p.keyboard.press('v');await p.keyboard.up('Control');
  assert.equal(await p.$eval('#box',e=>e.value),'Plain text still pastes normally.');
  await p.evaluate(async png=>{const bytes=Uint8Array.from(atob(png),c=>c.charCodeAt(0));await navigator.clipboard.write([new ClipboardItem({'image/png':new Blob([bytes],{type:'image/png'})})]);},png);
- await p.click('#c-att');await p.waitForSelector('[data-v="paste"]');await p.click('[data-v="paste"]');
+ await clickControl(p,'#c-att');await p.waitForSelector('[data-v="paste"]');await clickControl(p,'[data-v="paste"]');
  await p.waitForFunction(()=>!uploadsInFlight.size);
  assert.equal(uploads.length,beforePaste+2,'explicit clipboard action uploads the image');
  uploadDelay=700;const destination=rows[3].id;
@@ -601,7 +602,7 @@ try{
   await p.waitForFunction(()=>!document.querySelector('.masthead').hidden);
   await new Promise(r=>setTimeout(r,100));
   const before=await f.$eval('main.scroll',e=>e.clientHeight);
-  await p.click('#workspace-toggle');
+  await clickControl(p,'#workspace-toggle');
   await p.waitForFunction(()=>document.querySelector('.masthead').hidden);
   await new Promise(r=>setTimeout(r,100));
   const after=await f.$eval('main.scroll',e=>e.clientHeight);assert.ok(after-before>80,'collapsing both headers returns reading space');
@@ -630,7 +631,7 @@ try{
   await f.click('#header-toggle');await p.waitForFunction(()=>!document.querySelector('.masthead').hidden);
   assert.equal(await p.$eval('#workspace-nav',e=>e.hidden),false);
   assert.equal(await f.$eval('#composer-toggle',e=>e.getAttribute('aria-expanded')),'false','header expand does not expand bottom');
-  await p.click('#workspace-toggle');await p.waitForFunction(()=>document.querySelector('.masthead').hidden);
+  await clickControl(p,'#workspace-toggle');await p.waitForFunction(()=>document.querySelector('.masthead').hidden);
   assert.equal(await f.$eval('#header-toggle',e=>e.getAttribute('aria-expanded')),'false');
   assert.equal(await f.$eval('#box',e=>e===window.originalComposer),true,'parent control keeps the actual input');
   await p.reload({waitUntil:'domcontentloaded'});
@@ -654,6 +655,8 @@ try{
  const {runModelSelectionRegressions} = await import('./model-selection-browser.mjs');
  await runModelSelectionRegressions({browser,base,rows,out,received});
  await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),getMode:()=>uiModes,settingsState:()=>fixtureSettings,received,voiceLog,conversations,pinOrders});
+ const {runCleanupRegressions}=await import('./cleanup-ui.mjs');
+ await runCleanupRegressions({browser,base,rows,out});
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));

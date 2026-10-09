@@ -51,7 +51,7 @@ async function call(p, body) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
     if (quiet) process.exit(0);
-    if (data.code === 'projects_off') die('Projects is off for this Pocket Code. Turn it on in Settings → Tools.', 3);
+    if (data.code === 'projects_off') die('Projects is off for this Pocket Code. Turn it on in Settings → Projects & documents.', 3);
     if (r.status === 409 && data.project) die(`${data.error}\n` + card(data.project), 2);
     die(data.error || `${r.status} from ${p}`, r.status === 401 ? 4 : 1);
   }

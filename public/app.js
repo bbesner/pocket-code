@@ -116,6 +116,8 @@ function setPrefs(key, p) { localStorage.setItem('pc-prefs-' + key, JSON.stringi
 
 let closeCurrentSheet = null, sheetReturnFocus = null;
 function mountSheet(scrim, sh, trigger = document.activeElement) {
+  const previousSheet = document.querySelector('.sheet[role=dialog]');
+  const parentSettings = !sh.classList.contains('settings-sheet') && (previousSheet?._settingsReturn || previousSheet?._settingsParent);
   // A replacement sheet inherits the original, still-connected opener.
   if (trigger?.closest?.('[role="dialog"]')) trigger = sheetReturnFocus;
   closeCurrentSheet?.();
@@ -126,6 +128,11 @@ function mountSheet(scrim, sh, trigger = document.activeElement) {
   const closeButton = document.createElement('button'); closeButton.className = 'sheet-close icon';
   closeButton.setAttribute('aria-label', 'Close dialog'); closeButton.innerHTML = IC.x;
   sh.prepend(closeButton);
+  if (parentSettings) {
+    sh._settingsParent = parentSettings;
+    const back = document.createElement('button'); back.className = 'chip sheet-back'; back.innerHTML = IC.back + 'Back to Settings';
+    back.onclick = parentSettings; heading?.before(back);
+  }
   const close = () => {
     sh.removeEventListener('keydown', keydown); scrim.remove(); sh.remove(); app.inert = false;
     if (closeCurrentSheet === close) { closeCurrentSheet = null; sheetReturnFocus = null; }
@@ -148,7 +155,7 @@ function mountSheet(scrim, sh, trigger = document.activeElement) {
   };
   scrim.onclick = close; closeButton.onclick = close; sh.addEventListener('keydown', keydown);
   app.inert = true; document.body.append(scrim, sh); closeCurrentSheet = close;
-  (sh.querySelector('input') || closeButton).focus();
+  (focusables().find(el => el.matches('input,textarea')) || closeButton).focus();
   return close;
 }
 
@@ -181,8 +188,10 @@ function normalizeModelPick() {
 function tbLabel(list, v) { const option = list.find(option => option[0] === v); return option ? option[3] || option[1] : v || list[0][1]; }
 function renderToolbar() {
   const bar = $('#tbar'); if (!bar || !tb) return;
+  const focusedControl=bar.contains(document.activeElement)?document.activeElement.id:null;
   normalizeModelPick();
   $('#composer-actions #c-att')?.remove();
+  $('#new-actions #c-att')?.remove();
   bar.innerHTML = `
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
@@ -200,6 +209,7 @@ function renderToolbar() {
   }
   const att = $('#c-att');
   const actions=$('#composer-actions');
+  if(att && $('#new-setup')) $('#new-actions').prepend(att);
   if(att&&actions){att.className='icon composer-attach';att.innerHTML=IC.clip;actions.prepend(att);}
   if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard']],null,v=>{if(v==='file')$('#fpick')?.click();else pasteClipboardImage();});
   $('#c-model').onclick = () => sheet('Model for this turn', modelList(), tb.prefs.model,
@@ -218,7 +228,9 @@ function renderToolbar() {
   const mu = $('#c-mute');
   if (mu) mu.onclick = () => toggleMute();
   Voice.paint();                                              // the voice-mute chip reads its state from Voice
-  bindToolbarScroll(bar);
+  if (!bar.closest('#new-setup')) bindToolbarScroll(bar);
+  updateNewSummary();
+  if(focusedControl)document.getElementById(focusedControl)?.focus({preventScroll:true});
 }
 /* ---------- session options: pin + rename (overlay metadata, server-side) ---------- */
 // 1.19: Session options are grouped (conversation, session, process, display) with hairlines between groups.
@@ -544,7 +556,7 @@ async function hardRefresh() {
   } catch { }
   location.reload();
 }
-async function settingsSheet({about = false} = {}) {
+async function settingsSheet({about = false, category = '', scrollTop = 0} = {}) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet settings-sheet';
   const chimeOn = localStorage.getItem('pc-chime') !== 'off';
@@ -589,6 +601,7 @@ async function settingsSheet({about = false} = {}) {
         <p>Found a security problem? <a href="${REPO_URL}/security/advisories/new" target="_blank" rel="noopener noreferrer">Report it privately</a>, not as a public issue.</p>
       </div>
     </details>`;
+  organizeSettings(sh, {category: about ? 'help' : category, scrollTop});
   mountSheet(scrim, sh);
   if (about) sh.querySelector('#s-about').scrollIntoView({block:'start'});
   bindChatTextControls(sh);
@@ -674,7 +687,7 @@ async function settingsSheet({about = false} = {}) {
     const btn = sh.querySelector('#s-projects'); if (!btn || !srv) return;
     const on = Boolean(srv.projects);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-projects-state').textContent = on ? 'On: tracked projects with steps and reminders, here and from agent sessions (pocket-board)' : 'Off. Turn on to track projects, steps and reminders, here and from agent sessions';
+    sh.querySelector('#s-projects-state').textContent = on ? 'On: tracked projects with steps and reminders, across your devices and agent sessions' : 'Off. Turn on to track projects, steps and reminders, here and from agent sessions';
   };
   sh.querySelector('#s-projects').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
@@ -692,7 +705,7 @@ async function settingsSheet({about = false} = {}) {
     const btn = sh.querySelector('#s-documents'); if (!btn || !srv) return;
     const on = Boolean(srv.documents);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-documents-state').textContent = on ? 'On: a library of the files that came out of the work, with a sandboxed viewer and share links; agents keep files with pocket-docs' : 'Off. Turn on to keep reports, PDFs and other files from sessions in a library you can view and share';
+    sh.querySelector('#s-documents-state').textContent = on ? 'On: a library of files from your work, with previews, sharing and links to sessions' : 'Off. Turn on to keep reports, PDFs and other files from sessions in a library you can view and share';
   };
   sh.querySelector('#s-documents').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
@@ -1692,7 +1705,7 @@ const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return
 function railSwitchHTML() {
   if (!projectsOn() && !documentsOn()) return '<span>Sessions</span>';
   const v = railView();
-  return `<div class="rail-switch" role="tablist" aria-label="Session list, projects or documents"><button role="tab" data-rail-view="sessions" aria-selected="${v === 'sessions'}">Sessions</button>${projectsOn() ? `<button role="tab" data-rail-view="projects" aria-selected="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button role="tab" data-rail-view="documents" aria-selected="${v === 'documents'}">Docs</button>` : ''}</div>`;
+  return `<div class="rail-switch" role="group" aria-label="Browse sessions, projects or documents"><button data-rail-view="sessions" aria-pressed="${v === 'sessions'}">Sessions</button>${projectsOn() ? `<button data-rail-view="projects" aria-pressed="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button data-rail-view="documents" aria-pressed="${v === 'documents'}">Docs</button>` : ''}</div>`;
 }
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
   const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : 'box'; // 1.29/1.30: project and document views have no composer
@@ -1713,7 +1726,8 @@ function wireShell() {
   bindWorkspaceDensity();
   if (PANE || SOLO || !railOpen()) return;
   paintRail();
-  document.querySelectorAll('[data-rail-view]').forEach(b => b.onclick = () => { writeLocal('pc-rail-view', b.dataset.railView); document.querySelectorAll('[data-rail-view]').forEach(x => x.setAttribute('aria-selected', String(x === b))); paintRail(); });
+  document.querySelectorAll('[data-rail-view]').forEach(b => b.onclick = () => { writeLocal('pc-rail-view', b.dataset.railView); document.querySelectorAll('[data-rail-view]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); paintRail(); });
+  bindRailNavigation();
   $('#railsettings').onclick=settingsSheet;
   $('#railnew').onclick = () => { location.hash = '#/new'; };
   const grip = $('#grip'), rail = document.querySelector('aside.rail');
@@ -1772,7 +1786,7 @@ async function renderChat(id, { away = false } = {}) {
       ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
     </header>
     <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
-    <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button><button id="project-open" class="session-switch" hidden>Project</button></div>
+    <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div><button id="project-open" class="conversation-project" hidden>Project</button>
     <button id="agents-open" class="agents-open" aria-haspopup="dialog" hidden></button>
     <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>
     <button class="question-banner" id="approvals-open" hidden>Action needs approval · Review</button>
@@ -2456,11 +2470,9 @@ async function renderNew() {
     <div id="new-delivery" class="delivery-status" role="status" hidden></div>
     <main class="scroll"><div class="pane task-pane">
       <div><label class="task-heading" for="first">What would you like done?</label><div class="starters" id="starters" hidden></div><textarea id="first" placeholder="Describe the task, or choose a skill below."></textarea></div>
-      <div class="task-actions"><button class="chip" id="choose-skill">Choose a skill</button><button class="chip" id="choose-workspace">Choose workspace</button><button class="chip" id="save-prompt" disabled>Save as prompt</button></div>
-      <p class="task-context" id="task-context"></p>
-      <div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>
-      <button class="primary" id="start" aria-describedby="start-hint">Start session</button><p class="start-hint" id="start-hint" role="alert" hidden></p>
-      <details id="new-setup"><summary>Workspace & agent settings</summary><div class="setup-fields">
+      <div class="task-actions" id="new-actions"><button class="chip" id="choose-skill">Choose a skill</button><button class="chip" id="save-prompt" disabled>Save as prompt</button></div>
+      <details id="new-setup"><summary id="choose-workspace"><span class="task-context" id="task-context"></span><span class="setup-edit">Edit setup</span></summary><div class="setup-fields">
+      <div><span class="h">Model, reasoning and permissions</span><div class="toolbar" id="tbar"></div></div>
       <div><span class="h" id="agenth">Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth">
         <button class="row" role="radio" aria-checked="false" data-a="claude"><span class="dot"></span>${IC.term}<span class="p">Claude Code</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="codex"><span class="dot"></span>${IC.term}<span class="p">Codex</span></button>
@@ -2468,6 +2480,8 @@ async function renderNew() {
       <div><span class="h" id="projh">Project</span><div class="projlist" id="plist" role="radiogroup" aria-labelledby="projh"><div class="empty">Loading…</div></div></div>
       <div><label class="h" for="cpath">Or a custom path</label><input type="text" id="cpath" placeholder="/full/path/to/project" autocapitalize="off" autocorrect="off"></div>
       </div></details>
+      <div class="attachrow" id="attrow"></div>
+      <button class="primary" id="start" aria-describedby="start-hint">Start session</button><p class="start-hint" id="start-hint" role="alert" hidden></p>
     </div></main>`;
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
@@ -2477,8 +2491,8 @@ async function renderNew() {
   // which agent runs this session — remembered, since most days you stay on one
   let provider = pendingNew?.payload.provider || (localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude');
   let sel = null;
-  const context = () => {const cwd=$('#cpath')?.value.trim()||sel;const el=$('#task-context');if(el)el.textContent=(cwd?projName(cwd):'Choose a workspace before starting')+' · '+(provider==='codex'?'Codex':'Claude Code');};
-  $('#choose-workspace').onclick=()=>{$('#new-setup').open=true;$('#new-setup').scrollIntoView({block:'start'});};
+  const context = () => {const cwd=$('#cpath')?.value.trim()||sel;const el=$('#task-context');if(el)el.dataset.workspace=cwd?projName(cwd):'Choose a workspace';updateNewSummary();};
+  $('#new-setup').ontoggle=()=>{ $('#new-setup .setup-edit').textContent=$('#new-setup').open?'Close setup':'Edit setup'; };
   $('#cpath').oninput=context;
   $('#choose-skill').onclick=()=>openSkills(provider,$('#cpath').value.trim()||sel||'', $('#first'));
   const ap = $('#apick');
@@ -2684,6 +2698,7 @@ async function renderNew() {
 
 /* ---------- router ---------- */
 async function route() {
+  rememberViewNavigation(location.hash || '#/');
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
   try { const me = await api('/me'); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } window.pocketFeatures = me.features || {}; } // 1.20.1: 200 {ok:false} when signed out
@@ -2713,6 +2728,8 @@ document.addEventListener('keydown', e => {
   if(dockSurface?.contains(document.activeElement)){e.preventDefault();return dockSurface.querySelector('[data-close-dock]').click();}
   if (inChat && !PANE && !document.querySelector('.scrim')) location.hash = '#/';
 });
+window.addEventListener('pagehide',()=>{rememberReading();closeES();});
+window.addEventListener('pageshow',e=>{if(e.persisted&&chatId){openES();refreshSessions();}});
 window.addEventListener('hashchange', route);
 route();
 if (!PANE && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { /* The online app remains usable without installation support. */ });

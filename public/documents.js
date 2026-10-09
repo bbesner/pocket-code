@@ -1,5 +1,5 @@
 /* Documents (1.30): the library of files that came out of the work, inside Pocket Code. Off until Settings →
-   Tools turns it on (window.pocketFeatures.documents). Views: the library (#/documents) and one document
+   Projects & documents turns it on (window.pocketFeatures.documents). Views: the library (#/documents) and one document
    (#/documents/<id>); both open like a session (tab, beside a conversation, full-screen on the phone) and, since
    1.31, in a window of their own (?solo=1); a document also opens in the device's own viewer or downloads. HTML
    renders in a sandboxed frame: the server's policy denies it cookies, storage and the API; scripts in a dashboard
@@ -12,7 +12,7 @@ const docById=id=>docsSnap?.documents.find(d=>d.id===id)||docsSnap?.trash.find(d
 async function loadDocs(force){
  if(!force&&docsSnap&&Date.now()-docsAt<4000)return docsSnap;
  if(docsLoading)return docsLoading;
- docsLoading=api('/documents').then(s=>{docsSnap=s;docsAt=Date.now();return s;}).finally(()=>{docsLoading=null;});
+ docsLoading=api('/documents',{signal:AbortSignal.timeout(8000)}).then(s=>{docsSnap=s;docsAt=Date.now();return s;}).finally(()=>{docsLoading=null;});
  return docsLoading;
 }
 function mergeDoc(d){
@@ -38,7 +38,7 @@ const fmtSize=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.round(n/10
 const docViewTitle=id=>id==='documents'?'Documents':docById(id.slice(10))?.title||'Document';
 const docProjectName=d=>d.project?(typeof projectById==='function'&&projectById(d.project)?.name)||d.project:'';
 const docSessionName=d=>d.session?(typeof sessionName==='function'?sessionName(d.session):d.session):'';
-const docWhere=d=>[docProjectName(d),docSessionName(d)].filter(Boolean).join(' · ');
+const docWhere=d=>[...new Set([docProjectName(d),docSessionName(d)].filter(Boolean))].join(' · ');
 // Search covers the title, file name, project, session, kind and visibility words.
 const docSearchText=d=>[d.title,d.file,docWhere(d),KIND_WORD[d.kind],d.kind,visLong[d.visibility]].join(' ').toLowerCase();
 async function copyLink(url,btn){
@@ -67,16 +67,17 @@ async function renderDocuments(view){
  app.innerHTML=withShell(col);
  wireShell();
  if(PANE){$('#pane-main').onclick=()=>paneSay('main',{view});$('#pane-close').onclick=()=>paneSay('close');}
- else if(!SOLO){$('#back').onclick=()=>{location.hash='#/';};$('#splitb').onclick=chooseBeside;}
+ else if(!SOLO){bindViewBack($('#back'), view);$('#splitb').onclick=chooseBeside;}
  $('#dmore')?.addEventListener('click',()=>documentOptions(view.slice(10)));
  $('#dwin')?.addEventListener('click',()=>openInWindow(view));
  const tog=$('#railtog');if(tog)tog.onclick=()=>{localStorage.setItem('pc-rail',railOpen()?'closed':'open');route();};
  try{await Promise.all([loadDocs(true),typeof refreshSessions==='function'?refreshSessions().catch(()=>{}):null,typeof projectsOn==='function'&&projectsOn()&&typeof loadBoard==='function'?loadBoard().catch(()=>{}):null]);}
- catch(e){const main=$('#documents-main');if(!main)return;main.innerHTML=`<p class="sheet-help">${esc(e.status===404?'Documents is off for this Pocket Code. Turn it on in Settings → Tools.':'Documents could not load: '+(e.message||'error'))}</p>`;return;}
+ catch(e){if(docView!==view)return;const main=$('#documents-main');if(!main)return;if(docsSnap)paintDocumentsView();showLibraryError(main,e,'Documents',()=>renderDocuments(view),Boolean(docsSnap));restoreViewPosition(view);return;}
  if(docView!==view)return;
  if(kind==='doc'&&!docById(view.slice(10))){$('#documents-main').innerHTML='<p class="sheet-help">That document does not exist. It may have been removed on another device.</p>';return;}
  if(PANE)paneSay('route',{id:view,title:docViewTitle(view)});else if(SOLO)document.title=docViewTitle(view)+' · Pocket Code';else rememberOpenView(view,docViewTitle(view));
  paintDocumentsView();
+ restoreViewPosition(view);
 }
 function paintDocumentsView(){
  const main=$('#documents-main');if(!main||!docsSnap||!docView)return;

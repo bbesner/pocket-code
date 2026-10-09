@@ -1,4 +1,4 @@
-/* Projects (1.29): the tracked-project board inside Pocket Code. Off until Settings → Tools turns it on
+/* Projects (1.29): the tracked-project board inside Pocket Code. Off until Settings → Projects & documents turns it on
    (window.pocketFeatures.projects, from /api/me). Views: the list (#/projects), one card (#/projects/<id>)
    and Scheduled (#/projects/scheduled). A view opens like a session: as a tab, beside a conversation, or
    full-screen on the phone. Data comes from /api/board; every change goes through /api/board/act and the
@@ -10,7 +10,7 @@ const projectById=id=>boardSnap?.projects.find(p=>p.id===id)||null;
 async function loadBoard(force){
  if(!force&&boardSnap&&Date.now()-boardAt<4000)return boardSnap;
  if(boardLoading)return boardLoading;
- boardLoading=api('/board').then(s=>{boardSnap=s;boardAt=Date.now();return s;}).finally(()=>{boardLoading=null;});
+ boardLoading=api('/board',{signal:AbortSignal.timeout(8000)}).then(s=>{boardSnap=s;boardAt=Date.now();return s;}).finally(()=>{boardLoading=null;});
  return boardLoading;
 }
 function mergeProject(p){
@@ -47,16 +47,17 @@ async function renderProjects(view){
  app.innerHTML=withShell(col);
  wireShell();
  if(PANE){$('#pane-main').onclick=()=>paneSay('main',{view});$('#pane-close').onclick=()=>paneSay('close');}
- else if(!SOLO){$('#back').onclick=()=>{location.hash='#/';};$('#splitb').onclick=chooseBeside;}
+ else if(!SOLO){bindViewBack($('#back'), view);$('#splitb').onclick=chooseBeside;}
  $('#pmore')?.addEventListener('click',()=>projectOptions(view.slice(9)));
  $('#pwin')?.addEventListener('click',()=>openInWindow(view));
  const tog=$('#railtog');if(tog)tog.onclick=()=>{localStorage.setItem('pc-rail',railOpen()?'closed':'open');route();};
  try{await Promise.all([loadBoard(true),typeof refreshSessions==='function'?refreshSessions().catch(()=>{}):null]);} // session names and marks for the linked list
- catch(e){const main=$('#projects-main');if(!main)return;main.innerHTML=`<p class="sheet-help">${esc(e.status===404?'Projects is off for this Pocket Code. Turn it on in Settings → Tools.':'Projects could not load: '+(e.message||'error'))}</p>`;return;}
+ catch(e){if(boardView!==view)return;const main=$('#projects-main');if(!main)return;if(boardSnap)paintProjectsView();showLibraryError(main,e,'Projects',()=>renderProjects(view),Boolean(boardSnap));restoreViewPosition(view);return;}
  if(boardView!==view)return;
  if(kind==='card'&&!projectById(view.slice(9))){$('#projects-main').innerHTML='<p class="sheet-help">That project does not exist. It may have been removed on another device.</p>';return;}
  if(PANE)paneSay('route',{id:view,title:viewTitle(view)});else if(SOLO)document.title=viewTitle(view)+' · Pocket Code';else rememberOpenView(view,viewTitle(view)); // a pane's or a solo window's view is not a tab of the outer window
  paintProjectsView();
+ restoreViewPosition(view);
 }
 function paintProjectsView(){
  const main=$('#projects-main');if(!main||!boardSnap||!boardView)return;
@@ -271,7 +272,7 @@ function reminderSheet(project,task){
 }
 // From a session's options: track a new project around this session, or add it to an existing one.
 function addSessionToProject(s){
- if(!boardSnap)return loadBoard(true).then(()=>addSessionToProject(s)).catch(e=>toast(e.status===404?'Projects is off. Turn it on in Settings → Tools.':e.message));
+ if(!boardSnap)return loadBoard(true).then(()=>addSessionToProject(s)).catch(e=>toast(e.status===404?'Projects is off. Turn it on in Settings → Projects & documents.':e.message));
  const open=boardSnap.projects.filter(p=>p.status!=='done'&&!p.sessions.includes(s.id));
  const rows=[['__new','Track a new project','A card around this session; its workspace becomes the directory'],...open.map(p=>[p.id,p.name,p.next||p.summary||statusWord[p.status]])];
  sheet('Add to project',rows,null,v=>{
@@ -288,7 +289,7 @@ function paintChatProject(s){
  if(!projectsOn()||!chatId){b.hidden=true;return;}
  b.hidden=false;
  const linked=boardSnap?.projects.find(p=>p.status!=='done'&&p.sessions.includes(chatId))||boardSnap?.projects.find(p=>p.sessions.includes(chatId))||null;
- b.textContent=linked?linked.name:'Project';b.title=linked?'Open the project '+linked.name:'Track this session as a project, or add it to one';
+ b.innerHTML=IC.folder+'<span>'+esc(linked?linked.name:'Add to project')+'</span>';b.setAttribute('aria-label',linked?'Open project: '+linked.name:'Add session to a project');b.title=linked?'Open the project '+linked.name:'Track this session as a project, or add it to one';
  b.classList.toggle('linked',Boolean(linked));
  b.onclick=()=>{
   const row=chatSessionRow||allSessions.find(r=>r.id===chatId)||{id:chatId,title:chatTitle,cwd:''};

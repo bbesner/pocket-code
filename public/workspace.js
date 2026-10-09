@@ -12,7 +12,7 @@ function openInWindow(id){
  const w=window.open('/?solo=1'+tabHref(id),'_blank');
  if(!w&&typeof toast==='function')toast('The browser blocked the new window. Allow pop-ups for Pocket Code and try again.');
 }
-// A plain click on a project or document link opens it the way this browser prefers (Settings → Tools): a tab here,
+// A plain click on a project or document link opens it the way this browser prefers (Settings → Projects & documents): a tab here,
 // beside the conversation, or its own window. Modified clicks keep the browser's own behaviour.
 const plainClick=e=>e.button===0&&!e.metaKey&&!e.ctrlKey&&!e.shiftKey&&!e.altKey;
 function openViewPreferred(id,prefKey,e,canBeside){
@@ -456,3 +456,89 @@ window.addEventListener('pageshow',syncViewport);
 window.visualViewport?.addEventListener('resize',syncViewport);
 syncViewport();
 statusInHeaderQuery.addEventListener('change',()=>paintWorkspaceDensity());
+
+/* Shared navigation and recovery for Projects and Documents. */
+let visibleRoute = null, returningToView = false;
+const viewPositions = new Map(), viewOrigins = new Map();
+function rememberViewNavigation(next) {
+ const main = document.querySelector('main.scroll');
+ if (visibleRoute && main) viewPositions.set(visibleRoute, {top:main.scrollTop, details:[...main.querySelectorAll('details')].map(d=>d.open)});
+ if (next !== visibleRoute) {
+  // Browser Back/Forward revisits an entry's original parent instead of inventing
+  // a reverse relationship between two detail pages.
+  const saved=history.state?.pocketViewNavigation;
+  const origin=saved?.route===next?saved.origin:returningToView?viewOrigins.get(next):visibleRoute;
+  if (/^#\/(projects\/(?!scheduled$)|documents\/)/.test(next)) {
+   if(origin&&origin!==next)viewOrigins.set(next,origin);else viewOrigins.delete(next);
+  }
+  history.replaceState({...history.state,pocketViewNavigation:{route:next,origin:origin||null}},'');
+ }
+ for(const cache of [viewPositions,viewOrigins])while(cache.size>128)cache.delete(cache.keys().next().value);
+ visibleRoute = next; returningToView = false;
+}
+function viewBackTarget(view) {
+ return viewOrigins.get('#/'+view) || (view.startsWith('documents/') ? '#/documents' : view.startsWith('projects/') ? '#/projects' : '#/');
+}
+function bindViewBack(button, view) {
+ const target=viewBackTarget(view),label=target==='#/documents'?'Back to Documents':target==='#/projects'?'Back to Projects':target==='#/projects/scheduled'?'Back to Scheduled':target.startsWith('#/chat/')?'Back to conversation':target==='#/'?'Back to Sessions':'Back to previous view';
+ button.setAttribute('aria-label',label);button.title=label;
+ button.onclick=()=>{returningToView=true;location.hash=target;};
+}
+function restoreViewPosition(view) {
+ const state=viewPositions.get('#/'+view),main=document.querySelector('main.scroll');if(!state||!main)return;
+ main.querySelectorAll('details').forEach((d,i)=>{if(state.details[i]!==undefined)d.open=state.details[i];});main.scrollTop=state.top;
+}
+function showLibraryError(main,error,label,retry,hasData) {
+ const panel=document.createElement('div');panel.className='library-error';panel.setAttribute('role','status');
+ const off=error.status===404;
+ panel.innerHTML=`<p>${esc(off?label+' is off. Turn it on in Settings → Projects & documents.':label+' could not load. '+(hasData?'Showing the last loaded data.':'')+' '+(error.message||'Try again.'))}</p><button class="chip" data-library-retry>Retry</button>${off?'<button class="chip" data-library-settings>Open Settings</button>':''}`;
+ if(!hasData)main.replaceChildren();main.prepend(panel);
+ panel.querySelector('[data-library-settings]')?.addEventListener('click',()=>settingsSheet({category:'libraries'}));
+ panel.querySelector('[data-library-retry]').onclick=async e=>{e.currentTarget.disabled=true;e.currentTarget.textContent='Retrying…';await retry();const again=document.querySelector('[data-library-retry]');if(again)again.focus();else{document.getElementById(main.id)?.focus();toast(label+' loaded');}};
+}
+function bindRailNavigation() {
+ const group=document.querySelector('.rail-switch');if(!group)return;
+ group.onkeydown=e=>{const items=[...group.querySelectorAll('button')],i=items.indexOf(document.activeElement);if(i<0||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+  e.preventDefault();const target=items[e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowRight'?1:-1)+items.length)%items.length];target.focus();target.click();};
+}
+function updateNewSummary() {
+ const el=document.querySelector('#task-context');if(!el||!tb)return;
+ el.innerHTML=`<span><strong>Workspace</strong> ${esc(el.dataset.workspace||'Choose a workspace')}</span><span><strong>Agent</strong> ${tb.provider==='codex'?'Codex':'Claude Code'}</span><span><strong>Permissions</strong> ${esc(permissionLabel(nextApprovalMode()))}</span>`;
+ const bar=document.querySelector('#new-setup #tbar');
+ if(bar)for(const [id,label] of [['c-model','Model'],['c-eff','Reasoning'],['c-approval','Permissions'],['c-mode','Mode']]){const b=document.getElementById(id);if(b){b.setAttribute('aria-label',label+': '+b.textContent);b.dataset.settingLabel=label;}}
+}
+function organizeSettings(sh, {category='',scrollTop=0}={}) {
+ const groups=[
+  ['appearance','Appearance','Text size and highlight colour', [['This device','.chat-text-settings']]],
+  ['conversation','Conversation','Reading, session titles and summaries', [['This device','#s-tools,#s-times'],['This instance · all devices','#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
+  ['agents','Agents & instance','Accounts and plan usage', [['This instance · all devices','#s-environment,#s-usage']]],
+  ['libraries','Projects & documents','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents'],['This device','', '#s-projects-open,#s-documents-open']]],
+  ['notifications','Notifications & voice','Chime, push and spoken replies', [['This device','#s-chime,#s-push,#s-voice']]],
+  ['help','Help & updates','Keyboard shortcuts, version and feedback', [['','#s-keys,#s-about,#s-notes,#s-feedback']]],
+ ];
+ const heading=sh.querySelector('h2'),index=document.createElement('div');index.className='settings-index';
+ const back=document.createElement('button');back.className='chip sheet-back';back.id='settings-back';back.innerHTML=IC.back+'All settings';back.hidden=true;heading.before(back);
+ const panels=new Map(),positions=new Map();let current='';
+ for(const [key,title,description,sections] of groups){
+  const panel=document.createElement('section');panel.dataset.settingsPanel=key;panel.hidden=true;panel.setAttribute('aria-label',title);
+  for(const [scope,selector,fieldSelector] of sections){
+   const nodes=[...(selector?sh.querySelectorAll(selector):[]),...(fieldSelector?[...sh.querySelectorAll(fieldSelector)].map(e=>e.closest('.title-settings')):[])].filter(Boolean);
+   if(scope){const h=document.createElement('h3');h.className='settings-scope';h.textContent=scope;panel.append(h);}
+   nodes.forEach(n=>panel.append(n));
+  }
+  panels.set(key,panel);sh.append(panel);
+  const button=document.createElement('button');button.className='opt';button.dataset.settingsCategory=key;button.innerHTML=`<span>${esc(title)}<span class="sub">${esc(description)}</span></span>${IC.back}`;button.onclick=()=>select(key);index.append(button);
+ }
+ sh.querySelector('.settings-group')?.remove();heading.after(index);
+ function select(key,initial=false){
+  positions.set(current,sh.scrollTop);current=panels.has(key)?key:'';
+  heading.textContent=groups.find(g=>g[0]===current)?.[1]||'Settings';index.hidden=Boolean(current);back.hidden=!current;
+  for(const [k,p] of panels)p.hidden=k!==current;
+  sh.scrollTop=positions.get(current)||0;
+  if(!initial)(current?back:index.querySelector(`[data-settings-category="${key||sh.dataset.lastCategory||'appearance'}"]`))?.focus({preventScroll:true});
+  if(current)sh.dataset.lastCategory=current;
+ }
+ back.onclick=()=>select('');
+ Object.defineProperty(sh,'_settingsReturn',{get(){const key=current,top=sh.scrollTop;return()=>settingsSheet({category:key,scrollTop:top});}});
+ select(category,true);requestAnimationFrame(()=>{if(sh.isConnected)sh.scrollTop=scrollTop;});
+}

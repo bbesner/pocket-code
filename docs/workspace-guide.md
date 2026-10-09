@@ -1,12 +1,12 @@
 # Pocket Code workspace guide
 
-This guide follows the current checkout, including the 1.7.1 UI refinements. Check
+This guide follows the current checkout, including the 1.33 workspace cleanup. Check
 [CHANGELOG.md](../CHANGELOG.md) for which version has been released.
 
 ## Start or resume work
 
 Open a session from the list or choose **New session**. Write the task, choose the
-project directory and agent, then press **Start session**. **Choose a skill** inserts
+workspace and agent in **Edit setup**, then press **Start session**. The summary names the workspace, agent and permissions before you start. Model, reasoning and permission controls wrap inside setup; closing it preserves your draft. **Choose a skill** inserts
 an editable instruction from that agent's installed skills; choosing it does not
 start a turn. A custom workspace path must be a directory on the server, not your phone.
 With no default workspace and nothing remembered, the most recent workspace is
@@ -36,7 +36,7 @@ external transcript. Search matches recent session titles and workspace paths.
 A session's title is your rename, else the agent's own title, else a short title
 Pocket generates from the opening request. Clearing a rename returns to that title.
 
-**Settings → Generate short titles** turns generation on or off for the whole server
+**Settings → Conversation → Generate short titles** turns generation on or off for the whole server
 (on by default), and **Title model** picks who writes them:
 
 | Choice | Uses | Cost per title |
@@ -264,7 +264,7 @@ code-server; the provider can drop a cache sooner. Codex sessions show no cache 
 ## Projects
 
 Projects (1.29) keep the work that comes out of sessions beside the sessions. The feature
-is off until **Settings → Tools → Projects** turns it on for the whole install.
+is off until **Settings → Projects & documents → Projects** turns it on for the whole install.
 
 A project is one card: where you left off, the next step, what it is waiting for, a
 directory and a link, a checklist of remaining steps, reminders, notes, history, and the
@@ -293,7 +293,7 @@ On the desktop the rail head switches between **Sessions** and **Projects**, wit
 count of due reminders. Pick a project from the rail and it opens as a tab in the same
 strip as sessions (pinning, closing and Alt [ / ] work the same; the tab's mark is the due
 count), beside the conversation, or in a new browser window of its own, whichever
-Settings → Tools says; the options sheet and the view header offer all three every time.
+Settings → Projects & documents says; the options sheet and the view header offer all three every time.
 *Open beside* and *Split view* also offer Projects, Scheduled and the active projects. On
 the phone, the session home shows a **Projects** chip and views open full-screen.
 
@@ -305,7 +305,7 @@ on a phone it stays a sheet from the bottom edge.
 
 Documents (1.30) is the library of files that came out of sessions: HTML reports and
 dashboards, PDFs, images, Markdown, text, CSV, JSON, Office files and video. It is off
-until **Settings → Tools → Documents** turns it on for the whole install.
+until **Settings → Projects & documents → Documents** turns it on for the whole install.
 
 A document gets in four ways: an agent keeps it with `pocket-docs add` (agents started by
 Pocket are told to do this for deliverables, linked to the session, and never to share
@@ -343,17 +343,22 @@ Documents open three ways, like projects: as a tab in the strip, beside a conver
 (*Open beside* and *Split view* offer the library), or **in a new window**, a browser tab or
 app window of its own with no session list or tab strip (every options sheet and view
 header offers it). On the phone they open full-screen. The rail head's switch gains
-**Docs**; the phone's session home gets a Documents chip. Settings → Tools chooses whether
+**Docs**; the phone's session home gets a Documents chip. Settings → Projects & documents chooses whether
 a plain click on a document opens a tab, a pane or a new window.
 
 ## Settings, notifications and compact views
 
-Settings opens without waiting for notification support. Accounts & instance, Plan
-usage, keyboard help, completion chime, push and name sync precede the expandable
-About & updates, What's new and Bugs & feature requests sections. The last opens the
-GitHub issue forms with the app version and build filled in. Version lookup failures offer a retry instead
-of claiming the app is current. Frontend and server build numbers can differ until
-the daemon restarts during an upgrade.
+Settings opens a short index: **Appearance**, **Conversation**, **Agents & instance**,
+**Projects & documents**, **Notifications & voice**, and **Help & updates**. Each category
+labels preferences that apply to **This device** or **This instance · all devices**.
+**All settings** returns to the index. Accounts, usage and keyboard subpages offer
+**Back to Settings**, preserving the category and scroll position; Close and Escape
+exit Settings and return focus to its opener.
+
+Help & updates contains keyboard help, About & updates, What's new, and Bugs & feature
+requests. Feedback links open GitHub forms with the app version and build filled in.
+Version lookup failures offer a retry instead of claiming the app is current. Frontend
+and server build numbers can differ until the daemon restarts during an upgrade.
 
 Accounts & instance shows provider identity and plan metadata. Under Claude Code,
 choose **Switch account** (or **Sign in**), then **Get sign-in link**. Open the link,
@@ -492,3 +497,18 @@ unconfirmed and the last details remain available with Retry. Terminal/editor
 sessions can supply history without proving that their agents are still running.
 The view shows up to 100 agents; it labels truncated history. Task and result text
 are limited to 12,000 characters per field. Background shell jobs are excluded.
+
+## Consistent view navigation
+
+On phone and tablet, Back from a project or document restores the view it was opened
+from, including document filters and list position. A direct link falls back to its
+Projects or Documents library. Failed library loads offer Retry; when prior data is
+available, it remains visible with an explicit stale-data message.
+
+The desktop Sessions / Projects / Docs selector is a button group. Tab reaches its
+buttons; Left/Right and Home/End also select a section. Split view groups destinations
+by type, shows recent items first, and searches the available session, project and
+document catalog. Its empty state explains when nothing matches.
+
+Linked projects have a separate context row in conversations. Wide reply tables show
+when more columns are available to the side and remain keyboard-scrollable.
