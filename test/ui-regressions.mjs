@@ -1218,6 +1218,26 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // Search narrows the list without losing the keyboard.
    await page.type('#doc-query','weekly');await page.waitForFunction(()=>document.querySelectorAll('.document-item').length===1);assert.equal(await page.evaluate(()=>document.activeElement.id),'doc-query');
    await page.evaluate(()=>{document.querySelector('#doc-query').value='';});await page.evaluate(()=>{docQuery='';});
+   // 1.31: visibility and kind filters, badges, the grouped options sheet, the share address of a private document, a solo window.
+   await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
+   assert.deepEqual(await page.$$eval('.doc-filters [data-vis]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim())),['All 3','Private 3','Link 0','Public 0']);
+   assert.deepEqual(await page.$$eval('.document-item .doc-vis',els=>els.map(e=>e.textContent)),['Private','Private','Private']);
+   await page.select('#doc-kind','text');await page.waitForFunction(()=>document.querySelectorAll('.document-item').length===1);
+   assert.match(await page.$eval('.document-group h2',e=>e.textContent.replace(/\s+/g,' ')),/^Markdown and text 1 of 3$/);
+   await page.click('#doc-clear');await page.waitForFunction(()=>document.querySelectorAll('.document-item').length===3);
+   await page.click('.document-item [data-document-more]');await page.waitForSelector('.sheet [data-window]');
+   assert.equal(await page.$('.sheet [data-copy-link]'),null,'no Copy link while private');
+   assert.equal(await page.$eval('.sheet a.opt',e=>getComputedStyle(e).textDecorationLine),'none','a link row is styled like the other rows');
+   assert.deepEqual(await page.$$eval('.sheet .opt-group',els=>els.map(e=>e.getAttribute('aria-label'))),['Open','Share','Organize']);
+   await page.click('.sheet [data-share]');await page.waitForSelector('.share-sheet #share-url');
+   assert.match(await page.$eval('#share-url',e=>e.value),/\/#\/documents\/[0-9a-f]{12}$/,'a private document shows its in-app address');
+   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+   const soloId=await page.evaluate(()=>docsSnap.documents.find(d=>d.kind==='md').id);
+   await page.goto(base+'/?solo=1#/documents/'+soloId);await page.waitForSelector('.doc-md');
+   assert.equal(await page.$('aside.rail'),null,'a solo window has no rail');assert.equal(await page.$('#open-sessions'),null,'nor a tab strip');
+   assert.equal(await page.$('#back'),null);assert.equal(await page.$('#dwin'),null);assert.equal(await page.title(),'Weekly summary · Pocket Code');
+   await page.goto(base+'/?solo=1#/projects/warehouse-stock-report');await page.waitForSelector('.project-card');
+   assert.equal(await page.$('aside.rail'),null);assert.equal(await page.$('#pwin'),null);assert.equal(await page.title(),'Warehouse stock report · Pocket Code');
    // The HTML document renders in a sandboxed frame that cannot reach the app.
    await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
    const htmlRow=await page.$eval('.document-item .doc-kind',()=>null,[]).catch(()=>null);

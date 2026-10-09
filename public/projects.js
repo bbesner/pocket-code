@@ -36,24 +36,26 @@ async function renderProjects(view){
  boardView=view;if(typeof docView!=='undefined')docView=null;
  const kind=view==='projects'?'list':view==='projects/scheduled'?'scheduled':'card';
  const col=`<header class="bar">
-   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
+   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
    <h1><span class="one" id="ptitle">${esc(viewTitle(view))}</span><span class="tag" id="ptag">${kind==='list'?'Tracked work':kind==='scheduled'?'Reminders, due first':'Project'}</span></h1>
    ${kind==='card'?`<button class="icon" id="pmore" aria-label="Project options">${IC.more}</button>`:''}
-   ${PANE?'':`<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
+   ${SOLO?'':`<button class="icon" id="pwin" aria-label="Open in a new window" title="Open in a new window">${IC.external}</button>`}
+   ${PANE||SOLO?'':`<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
    ${PANE?`<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>`:''}
   </header>
   <main class="scroll projects-view" id="projects-main" data-kind="${kind}" tabindex="-1"><p class="sheet-help projects-loading">Loading projects…</p></main>`;
  app.innerHTML=withShell(col);
  wireShell();
  if(PANE){$('#pane-main').onclick=()=>paneSay('main',{view});$('#pane-close').onclick=()=>paneSay('close');}
- else{$('#back').onclick=()=>{location.hash='#/';};$('#splitb').onclick=chooseBeside;}
+ else if(!SOLO){$('#back').onclick=()=>{location.hash='#/';};$('#splitb').onclick=chooseBeside;}
  $('#pmore')?.addEventListener('click',()=>projectOptions(view.slice(9)));
+ $('#pwin')?.addEventListener('click',()=>openInWindow(view));
  const tog=$('#railtog');if(tog)tog.onclick=()=>{localStorage.setItem('pc-rail',railOpen()?'closed':'open');route();};
  try{await Promise.all([loadBoard(true),typeof refreshSessions==='function'?refreshSessions().catch(()=>{}):null]);} // session names and marks for the linked list
  catch(e){const main=$('#projects-main');if(!main)return;main.innerHTML=`<p class="sheet-help">${esc(e.status===404?'Projects is off for this Pocket Code. Turn it on in Settings → Tools.':'Projects could not load: '+(e.message||'error'))}</p>`;return;}
  if(boardView!==view)return;
  if(kind==='card'&&!projectById(view.slice(9))){$('#projects-main').innerHTML='<p class="sheet-help">That project does not exist. It may have been removed on another device.</p>';return;}
- if(PANE)paneSay('route',{id:view,title:viewTitle(view)});else rememberOpenView(view,viewTitle(view)); // a pane's view is not a tab of the outer window
+ if(PANE)paneSay('route',{id:view,title:viewTitle(view)});else if(SOLO)document.title=viewTitle(view)+' · Pocket Code';else rememberOpenView(view,viewTitle(view)); // a pane's or a solo window's view is not a tab of the outer window
  paintProjectsView();
 }
 function paintProjectsView(){
@@ -133,7 +135,7 @@ function bindProjectsView(main){
  main.querySelector('#pj-track')?.addEventListener('click',()=>projectEditor(null));
  main.querySelectorAll('[data-project-more]').forEach(b=>b.onclick=()=>projectOptions(b.dataset.projectMore));
  main.querySelectorAll('[data-reminder-more]').forEach(b=>b.onclick=()=>{const [project,id]=b.dataset.reminderMore.split('/');reminderOptions(project,id);});
- main.querySelectorAll('a[data-project]').forEach(a=>a.onclick=e=>{if(!PANE&&isWide()&&readLocal('pc-projects-open','tab')==='beside'&&typeof openBeside==='function'&&boardView!=='projects/'+a.dataset.project&&e.button===0&&!e.metaKey&&!e.ctrlKey){e.preventDefault();openBeside('projects/'+a.dataset.project);}});
+ main.querySelectorAll('a[data-project]').forEach(a=>a.onclick=e=>{const id='projects/'+a.dataset.project;openViewPreferred(id,'pc-projects-open',e,isWide()&&boardView!==id);});
  const id=boardView?.startsWith('projects/')&&boardView!=='projects/scheduled'?boardView.slice(9):null;if(!id)return;
  const p=projectById(id);if(!p)return;
  const act=(body,msg)=>boardAct({...body,project:id,expected_revision:p.revision},msg);
@@ -162,16 +164,19 @@ function projectOptions(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
  const here=boardView==='projects/'+id;
  sh.innerHTML=`<h2>Project options</h2><p class="sheet-name">${esc(p.name)}</p>
-  ${here?'':`<button class="opt" data-open>${IC.folder}<span>Open<span class="sub">Show the card here</span></span></button>`}
-  ${!PANE&&isWide()&&!here&&typeof openBeside==='function'?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">Show the card next to the current view</span></span></button>`:''}
-  ${p.status==='done'?`<button class="opt" data-resume>${IC.up}<span>Resume project<span class="sub">Back to Active, without its old reminders</span></span></button>`:`<button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, summary, next step, waiting for, directory, link</span></span></button>
+  ${optGroup('Open',[
+   here?'':`<button class="opt" data-open>${IC.folder}<span>Open<span class="sub">${PANE?'In this pane':SOLO?'In this window':'As a tab, like a session'}</span></span></button>`,
+   !PANE&&!SOLO&&isWide()&&!here&&typeof openBeside==='function'?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">In a pane next to the current view</span></span></button>`:'',
+   `<button class="opt" data-window>${IC.external}<span>Open in a new window<span class="sub">A browser tab or app window of its own</span></span></button>`])}
+  ${optGroup('Project',[p.status==='done'?`<button class="opt" data-resume>${IC.up}<span>Resume project<span class="sub">Back to Active, without its old reminders</span></span></button>`:`<button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, summary, next step, waiting for, directory, link</span></span></button>
   <button class="opt" data-remind>${IC.hourglass}<span>Remind me<span class="sub">A reminder for the project, sent once when due</span></span></button>
   ${p.status==='waiting'?`<button class="opt" data-active>${IC.tick}<span>Mark active<span class="sub">No longer waiting on anyone</span></span></button>`:`<button class="opt" data-waiting>${IC.hourglass}<span>Mark waiting<span class="sub">Waiting on someone or something; say who in Edit</span></span></button>`}
-  <button class="opt" data-finish>${IC.tick}<span>Finish project<span class="sub">Moves it to Done and stops its reminders</span></span></button>`}`;
+  <button class="opt" data-finish>${IC.tick}<span>Finish project<span class="sub">Moves it to Done and stops its reminders</span></span></button>`])}`;
  const close=()=>closeCurrentSheet?.();
  const act=(body,msg)=>boardAct({...body,project:id,expected_revision:p.revision},msg);
  sh.querySelector('[data-open]')?.addEventListener('click',()=>{close();location.hash=viewHref('projects/'+id);});
  sh.querySelector('[data-beside]')?.addEventListener('click',()=>{close();openBeside('projects/'+id);});
+ sh.querySelector('[data-window]')?.addEventListener('click',()=>{close();openInWindow('projects/'+id);});
  sh.querySelector('[data-edit]')?.addEventListener('click',()=>{close();projectEditor(p);});
  sh.querySelector('[data-remind]')?.addEventListener('click',()=>{close();reminderSheet(id,null);});
  sh.querySelector('[data-active]')?.addEventListener('click',()=>{close();act({action:'update',status:'active'},'Project active');});
@@ -209,7 +214,7 @@ function linkedSessionOptions(project,sessionId){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
  sh.innerHTML=`<h2>Linked session</h2><p class="sheet-name">${esc(sessionName(sessionId))}</p>
   <button class="opt" data-open>${IC.folder}<span>Open session</span></button>
-  ${!PANE&&isWide()&&typeof openBeside==='function'?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">Show it next to this card</span></span></button>`:''}
+  ${!PANE&&!SOLO&&isWide()&&typeof openBeside==='function'?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">Show it next to this card</span></span></button>`:''}
   <button class="opt" data-unlink>${IC.x}<span>Unlink from this project<span class="sub">The session and its history are untouched</span></span></button>`;
  const close=()=>closeCurrentSheet?.();
  sh.querySelector('[data-open]').onclick=()=>{close();location.hash='#/chat/'+sessionId;};
@@ -288,7 +293,8 @@ function paintChatProject(s){
  b.onclick=()=>{
   const row=chatSessionRow||allSessions.find(r=>r.id===chatId)||{id:chatId,title:chatTitle,cwd:''};
   if(!linked)return addSessionToProject(row);
-  if(!PANE&&isWide()&&readLocal('pc-projects-open','tab')==='beside'&&typeof openBeside==='function')openBeside('projects/'+linked.id);else location.hash=viewHref('projects/'+linked.id);
+  const pref=readLocal('pc-projects-open','tab');
+  if(pref==='window')openInWindow('projects/'+linked.id);else if(pref==='beside'&&!PANE&&!SOLO&&isWide()&&typeof openBeside==='function')openBeside('projects/'+linked.id);else location.hash=viewHref('projects/'+linked.id);
  };
  if(!boardSnap)loadBoard().then(()=>paintChatProject()).catch(()=>{});
 }
@@ -313,7 +319,7 @@ function paintRailProjects(){
  el.innerHTML=railProjectsHTML();
  el.querySelector('#rail-track')?.addEventListener('click',()=>projectEditor(null));
  el.querySelectorAll('[data-project-more]').forEach(b=>b.onclick=()=>projectOptions(b.dataset.projectMore));
- el.querySelectorAll('a[data-project]').forEach(a=>a.onclick=e=>{if(readLocal('pc-projects-open','tab')==='beside'&&typeof openBeside==='function'&&chatId&&e.button===0&&!e.metaKey&&!e.ctrlKey){e.preventDefault();openBeside('projects/'+a.dataset.project);}});
+ el.querySelectorAll('a[data-project]').forEach(a=>a.onclick=e=>{const id='projects/'+a.dataset.project;openViewPreferred(id,'pc-projects-open',e,Boolean(chatId)&&boardView!==id);});
  if(!boardSnap)loadBoard().then(()=>{paintRailProjects();paintProjectBadges();}).catch(()=>{const r=document.getElementById('rail');if(r&&railView()==='projects')r.innerHTML='<p class="sheet-help">Projects could not load.</p>';});else paintProjectBadges();
 }
 function paintProjectBadges(){

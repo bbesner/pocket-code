@@ -8,6 +8,31 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Open modes, library filters and desktop dialogs (1.31)
+
+Pinned Operate refinement (design-studio → impeccable): variance 3, motion 1, density 6;
+existing tokens. Read: the library must work like a library (find, filter, copy a link in
+one tap) and every view must open the way the reader wants (tab, pane, own window), while
+the sheets stop looking like a phone drawer on a 1440px screen.
+
+Desktop sheets (≥ 900px) are centred dialogs: `width: min(560px, 100vw - 48px)`
+(760px for Results), a `--line` border, 16px radius, an offset soft shadow, and a 160ms
+fade-and-settle in place of the drawer's rise; phones keep the bottom sheet. Link rows in a
+sheet and link chips inherit the row's colour with no underline. The library's filter row
+is `.chip`s with counts in `--faint` tabular numerals (the pressed one takes the existing
+clay chip state), beside the Project and Kind `.voice-field` selects; each row's
+visibility is a hairline badge in the `.project-status` voice (uppercase 11px, `--dim`;
+`--clay` when Link or Public, the one accent) and a shared row gets a 44px link-icon copy
+button beside its options. Options sheets group into Open · Share · Organize with the
+existing `.opt-group` rule. Three new 24px icons in the one stroke weight: `external`
+(arrow leaving a box), `link` (two chain links), `share` (three joined nodes). A solo window
+(`?solo=1`) is the chatcol alone: the view's bar without back, rail or pane controls, and
+the view's name as the document title.
+
+Rendered checks: no horizontal overflow at 390 for the library and a document; axe clean on
+the library, a document, the share sheet and the phone views (33 scans in the browser
+suite); the source detector reports only the app-shell baseline (ember dot, radial halo).
+
 ## Documents (1.30)
 
 Pinned Operate refinement: variance 3, motion 1, density 6; existing tokens. Read: the
