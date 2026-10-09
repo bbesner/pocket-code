@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.28.0] — Unreleased · build 67
+## [1.28.0] — 2026-10-08 · build 67
 
 - **Prompt cache warmth.** Claude keeps a session's context in a prompt cache for a while after each request: one hour on a normal plan, five minutes in some cases such as extra usage. A turn that starts while the cache is warm reads the context at a fraction of the cost; after it expires, the next turn writes the whole context again, which on a large session uses noticeably more of your plan. Pocket now shows it. Requested by Brad.
 - **Beside the context ring:** minutes left while the cache is warm (`51m`), amber in the last stretch (the final ten minutes of an hour), and `cold` once it has expired. Hover or focus the ring for the expiry time; the screen-reader name says the same.
