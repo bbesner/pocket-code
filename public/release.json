@@ -1,7 +1,7 @@
 {
-  "version": "1.31.1",
-  "assetV": 73,
+  "version": "1.32.0",
+  "assetV": 74,
   "notes": [
-    "Split view offers documents by name. The Split view chooser used to list each active project but only the Documents library as a whole; now it lists the documents open as tabs first, then the six most recent, then the library, each with its kind, project and visibility, so a report can be opened beside a conversation in one tap."
+    "The Documents library is a grid of previews on a wide screen: a picture of each HTML report, PDF first page or image, with the title, kind, visibility and date under it, and Copy link and options on the picture. Pictures are made once on the server with tools already on the box (headless Chrome, pdftoppm, ImageMagick) and cached beside the documents; a kind without a tool shows its name instead. List and Grid buttons above the library switch and are remembered per browser; phones keep the list."
   ]
 }

@@ -6,6 +6,8 @@
    still run. */
 const documentsOn=()=>Boolean(window.pocketFeatures?.documents);
 let docsSnap=null,docsAt=0,docsLoading=null,docView=null,docFilterProject='',docFilterVis='',docFilterKind='',docQuery='',railDocQuery='';
+// 1.32: the library is a grid of previews on a wide screen (remembered per browser), a list on a phone.
+const gridOn=()=>matchMedia('(min-width: 700px)').matches&&readLocal('pc-documents-layout','grid')==='grid';
 const docById=id=>docsSnap?.documents.find(d=>d.id===id)||docsSnap?.trash.find(d=>d.id===id)||null;
 async function loadDocs(force){
  if(!force&&docsSnap&&Date.now()-docsAt<4000)return docsSnap;
@@ -93,6 +95,14 @@ function docRowHTML(d){
   ${url?`<button class="session-more icon" data-copy-link="${esc(d.id)}" aria-label="Copy the ${visWord[d.visibility].toLowerCase()} link for ${esc(d.title)}" title="Copy link">${IC.link}</button>`:''}
   <button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></div>`;
 }
+function docCardHTML(d){
+ const where=docWhere(d),url=docShareUrl(d),pic=Boolean(docsSnap.thumbs?.[d.kind])&&!d.missing;
+ return `<div class="doc-card ${docView==='documents/'+d.id?'cur':''}" data-item="${esc(d.id)}">
+  <a class="doc-card-link" href="${viewHref('documents/'+d.id)}" data-document="${esc(d.id)}"><span class="doc-thumb" data-kind="${esc(d.kind)}">${pic?`<img src="/api/documents/${esc(d.id)}/thumb" alt="" loading="lazy" decoding="async">`:''}<span class="doc-thumb-kind"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span></span></span>
+   <span class="doc-card-body"><span class="doc-card-title">${esc(d.title)}${d.missing?' <span class="due-label">(file missing)</span>':''}</span><span class="doc-card-meta">${esc(where||d.file)}</span>
+   <span class="session-status"><span class="doc-vis vis-${esc(d.visibility)}">${visWord[d.visibility]}</span><span>${esc(rel(Date.parse(d.added)))}</span></span></span></a>
+  <span class="doc-card-actions">${url?`<button class="session-more icon" data-copy-link="${esc(d.id)}" aria-label="Copy the ${visWord[d.visibility].toLowerCase()} link for ${esc(d.title)}" title="Copy link">${IC.link}</button>`:''}<button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></span></div>`;
+}
 function libraryHTML(){
  const q=docQuery.trim().toLowerCase(),all=docsSnap.documents;
  const rows=all.filter(d=>(!docFilterProject||d.project===docFilterProject)&&(!docFilterVis||d.visibility===docFilterVis)&&(!docFilterKind||KIND_GROUP[d.kind]===docFilterKind)&&(!q||docSearchText(d).includes(q)));
@@ -101,12 +111,13 @@ function libraryHTML(){
  const chip=(v,label,n)=>`<button class="chip" data-vis="${v}" aria-pressed="${docFilterVis===v}">${label} <span>${n}</span></button>`;
  const filtered=docFilterProject||docFilterVis||docFilterKind||q;
  const heading=docFilterProject?projects.find(p=>p.id===docFilterProject)?.name||'Project':docFilterVis?visLong[docFilterVis]:docFilterKind?KIND_GROUPS.find(g=>g[0]===docFilterKind)[1]:q?'Matching':'All';
- return `<div class="session-home-head"><h2>Documents</h2><span class="project-head-actions"><button class="chip" id="doc-upload">${IC.up}Upload</button><input type="file" id="doc-file" multiple hidden></span></div>
+ const grid=gridOn();
+ return `<div class="session-home-head"><h2>Documents</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span><button class="chip" id="doc-upload">${IC.up}Upload</button><input type="file" id="doc-file" multiple hidden></span></div>
   <div class="documents-tools"><div class="session-search">${IC.search}<input type="search" id="doc-query" placeholder="Search documents" aria-label="Search documents by title, file, project or session" value="${esc(docQuery)}" autocomplete="off"></div>
    ${projects.length?`<label class="voice-field doc-project-filter">Project<select id="doc-project"><option value="">All projects</option>${projects.map(p=>`<option value="${esc(p.id)}" ${docFilterProject===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
    <label class="voice-field doc-kind-filter">Kind<select id="doc-kind"><option value="">All kinds</option>${KIND_GROUPS.map(([v,label])=>`<option value="${v}" ${docFilterKind===v?'selected':''}>${label}</option>`).join('')}</select></label></div>
   <div class="doc-filters" role="group" aria-label="Show documents by visibility">${chip('','All',all.length)}${chip('private','Private',count('private'))}${chip('link','Link',count('link'))}${chip('public','Public',count('public'))}${filtered?'<button class="chip" id="doc-clear">Clear</button>':''}</div>
-  ${rows.length?`<section class="session-group document-group"><h2>${esc(heading)} <span>${rows.length}${rows.length!==all.length?' of '+all.length:''}</span></h2>${rows.map(docRowHTML).join('')}</section>`
+  ${rows.length?`<section class="session-group document-group"><h2>${esc(heading)} <span>${rows.length}${rows.length!==all.length?' of '+all.length:''}</span></h2>${grid?`<div class="doc-grid">${rows.map(docCardHTML).join('')}</div>`:rows.map(docRowHTML).join('')}</section>`
    :`<p class="sheet-help project-empty">${filtered?'No documents match.':'No documents yet. Upload one, keep a result from a session\'s Results panel, or let an agent keep one with <code>pocket-docs add</code>. Files placed in the documents folder appear here too.'}</p>`}
   ${docsSnap.trash.length?`<details class="session-group document-group settings-details"><summary><h2>Trash <span>${docsSnap.trash.length}</span></h2></summary><p class="sheet-help">Removed documents stay here for ${docsSnap.limits?.trashDays||30} days, then are deleted.</p>${docsSnap.trash.map(d=>`<div class="session-item document-item" data-item="${esc(d.id)}"><span class="row"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}</span><span class="meta">Removed ${esc(rel(Date.parse(d.trashedAt)))}</span></span></span><button class="chip" data-restore="${esc(d.id)}">Restore</button></div>`).join('')}</details>`:''}`;
 }
@@ -121,6 +132,8 @@ function bindLibrary(main){
  main.querySelector('#doc-kind').onchange=e=>{docFilterKind=e.target.value;paintDocumentsView();};
  main.querySelectorAll('[data-vis]').forEach(b=>b.onclick=()=>{docFilterVis=b.dataset.vis;paintDocumentsView();});
  main.querySelector('#doc-clear')?.addEventListener('click',()=>{docFilterProject='';docFilterVis='';docFilterKind='';docQuery='';paintDocumentsView();main.querySelector('#doc-query')?.focus({preventScroll:true});});
+ main.querySelectorAll('[data-layout]').forEach(b=>b.onclick=()=>{writeLocal('pc-documents-layout',b.dataset.layout);paintDocumentsView();});
+ main.querySelectorAll('.doc-thumb img').forEach(img=>{const shown=()=>img.parentElement?.classList.add('loaded');img.onload=shown;img.onerror=()=>img.remove();if(img.complete&&img.naturalWidth)shown();});
  main.querySelector('#doc-upload').onclick=()=>main.querySelector('#doc-file').click();
  main.querySelector('#doc-file').onchange=e=>uploadDocuments([...e.target.files]);
  main.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>docAct(b.dataset.restore,{action:'restore'},'Restored'));
@@ -279,4 +292,5 @@ function paintRailDocuments(){
  bindDocRows(el);
  if(!docsSnap)loadDocs().then(paintRailDocuments).catch(()=>{const r=document.getElementById('rail');if(r&&railView()==='documents')r.innerHTML='<p class="sheet-help">Documents could not load.</p>';});
 }
+matchMedia('(min-width: 700px)').addEventListener('change',()=>{if(docView==='documents')paintDocumentsView();}); // a window dragged across the grid's width repaints
 setInterval(()=>{if(!documentsOn()||document.visibilityState!=='visible'||!(docView||railView()==='documents'))return;loadDocs(true).then(()=>{paintDocumentsView();paintRailDocuments();}).catch(()=>{});},30000);

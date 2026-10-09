@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.32.0] — 2026-10-09 · build 74
+
+- **The Documents library is a grid of previews on a wide screen.** Each card shows a picture of the document (an HTML report as rendered, a PDF's first page, an image), with the title, where it came from, the visibility badge and the date under it; Copy link and the options button sit on the picture and show on hover or focus. List and Grid buttons above the library switch between the rows and the grid, remembered per browser; the grid is the default from 700px up and phones keep the list. Suggested by Brad.
+- **Pictures are made on the server, once.** `GET /api/documents/<id>/thumb` (login only) renders a 480×300 picture with tools already on the box and caches it in `<documents dir>/.thumbs`, keyed by the file's size and modification time so an edited file gets a new picture: headless Chrome for HTML (its own sandbox kept, a throwaway profile, a four-second time budget), `pdftoppm` for PDF, ImageMagick's `convert` for images (or Chrome when `convert` is absent). The library response says which kinds this install can picture, so a card asks only when there is something to get; a failed render is remembered for ten minutes rather than retried on every paint. `POCKET_CHROME`, `POCKET_PDFTOPPM` and `POCKET_CONVERT` choose or disable a tool. Markdown, text, CSV, JSON, Office and video cards show their kind.
+- Unit tests for tool discovery, the cache key, one job per key, failure memory and Chrome's arguments; an HTTP test for the route; the browser suite checks the grid, the kind card and the remembered choice.
+
 ## [1.31.1] — 2026-10-09 · build 73
 
 - **Split view offers documents by name.** The chooser behind the Split view button listed each active project but only the Documents library as a whole, so a single report could be opened beside a conversation only from its own options sheet. It now lists the documents open as tabs first, then the six most recent, then the library, each with its kind, project and visibility. Noticed by Brad.

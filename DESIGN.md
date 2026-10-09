@@ -8,6 +8,26 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## The library as a grid of previews (1.32)
+
+Pinned Operate refinement: variance 3, motion 1, density 6; existing tokens. Read: on a wide
+screen a library of reports is found by sight, so the default is a grid of pictures, with the
+rows one click away and the only layout on a phone. A card is `--surface` with a `--line`
+hairline and 12px radius: a 16:10 picture on `--raised` (object-fit cover, pinned to the top
+so a report's title shows), then the row's words at list sizes (15px title clamped to two
+lines, 12.5px `--faint` origin, the visibility badge and date). While the picture is loading
+or when there is none the kind word sits in the middle of the picture area in its mono pill.
+Hover or focus turns the border `--clay-deep`; the current document's card is `--clay`.
+Copy link and the options button float on the picture, 40px, on a translucent `--bg` chip,
+visible on hover or focus and always on a touch screen. The grid is `auto-fill, minmax(230px,
+1fr)` with 14px gaps, which gives four columns beside the rail at 1440 and three on a tablet.
+List and Grid are two 40px icon buttons beside Upload (the pressed one on `--raised`), hidden
+under 700px. Motion: the picture fades in over 200ms when it arrives; nothing else moves.
+
+Rendered checks: the grid at 1440 (with the rail) and 768, the phone list at 390 with no
+horizontal overflow; axe clean on the grid; the source detector reports only the app-shell
+baseline.
+
 ## Open modes, library filters and desktop dialogs (1.31)
 
 Pinned Operate refinement (design-studio → impeccable): variance 3, motion 1, density 6;
