@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.31.1] — 2026-10-09 · build 73
+
+- **Split view offers documents by name.** The chooser behind the Split view button listed each active project but only the Documents library as a whole, so a single report could be opened beside a conversation only from its own options sheet. It now lists the documents open as tabs first, then the six most recent, then the library, each with its kind, project and visibility. Noticed by Brad.
+
 ## [1.31.0] — 2026-10-09 · build 72
 
 - **Three ways to open a project or a document.** Every options sheet and every project or document header now offers **Open in a new window**: the view in a browser tab or app window of its own (`?solo=1`), with no session list, tab strip or pane controls, and the document's or project's name as the window title. The other two ways are unchanged: as a tab in the strip, or beside the conversation in a split pane. Settings → Tools → Open projects / Open documents gains *In a new browser window* as the default for a plain click. Requested by Brad.

@@ -2550,7 +2550,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Documents and Projects open three ways: as a tab, beside the conversation, or in a new browser window of their own (Open in a new window on every options sheet and view header; Settings \u2192 Tools can make it the default). The Documents library gains Private, Link and Public filters, a Kind filter, a visibility badge and a Copy link button on each shared row, and a search box in the rail. The Share sheet always shows an address to copy. On a desktop, sheets open as dialogs in the middle of the window, and link rows no longer look like web links."
+  "Split view offers documents by name. The Split view chooser used to list each active project but only the Documents library as a whole; now it lists the documents open as tabs first, then the six most recent, then the library, each with its kind, project and visibility, so a report can be opened beside a conversation in one tap."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
