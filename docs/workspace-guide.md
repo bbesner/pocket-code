@@ -243,7 +243,7 @@ window (window, used, free, as of) and the provider's plan limits. Estimates are
 latest known context relative to the model window, not cumulative token billing for the whole turn.
 
 Beside the ring, Claude sessions show how long the prompt cache stays warm (1.28): minutes left, amber in
-the last stretch, `cold` once it has expired. Claude caches the session's context after each request for a
+the last stretch, `cold` once it has expired, when the ring turns ice blue (1.28.1). Claude caches the session's context after each request for a
 lifetime (one hour on a normal plan, five minutes in some cases such as extra usage); a turn that starts
 while it is warm reads the context cheaply, while a turn after it expires writes the whole context to cache
 again. Usage → **Prompt cache** gives the status, expiry, cached tokens, lifetime and how the last turn

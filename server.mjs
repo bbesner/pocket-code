@@ -2347,7 +2347,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Prompt cache warmth: the context ring shows how long the session's prompt cache stays warm, a Prompt cache section in Usage explains it, each turn line says how much came from cache, and tabs mark large sessions whose cache is expiring or expired."
+  "When a session's prompt cache goes cold, the context ring and its \"cold\" label turn ice blue, so a cold cache stands out at a glance. The Prompt cache status in Usage uses the same blue."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

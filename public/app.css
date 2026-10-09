@@ -4,6 +4,7 @@
   --bg: #131110; --surface: #1D1A18; --raised: #272322; --line: #2E2A27;
   --text: #EDE7E0; --dim: #A99E93; --faint: #7A7169;
   --clay: #D97757; --clay-deep: #3A241C; --ok: #7FB069; --err: #E2685C; --warn: #D9A94E;
+  --ice: #9FD4F0; /* 1.28.1: prompt cache gone cold */
   --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
 }
 html { height: 100%; overflow: hidden; }
@@ -1028,6 +1029,11 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .ctx-ring .ctx-cache { font: 12px/1 ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; color: var(--dim); }
 .ctx-ring .ctx-cache:empty { display: none; }
 .ctx-ring[data-cache="cooling"] .ctx-cache, .cache-state[data-cache="cooling"] { color: var(--warn); }
+/* 1.28.1: a cold cache turns the whole ring ice blue (track, fill and label), over the context level colour,
+   since the next turn's cost is the thing to notice; the fill length still shows how full the context is. */
+.ctx-ring[data-cache="cold"] .ctx-cache, .cache-state[data-cache="cold"] { color: var(--ice); }
+.ctx-ring[data-cache="cold"] .ctx-fill { stroke: var(--ice); }
+.ctx-ring[data-cache="cold"] .ctx-track { stroke: color-mix(in srgb, var(--ice) 65%, transparent); }
 .cache-state { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--text); }
 .open-session .tab-cache { display: inline-flex; flex: none; margin-right: 5px; color: var(--dim); }
 .open-session .tab-cache .i { width: 13px; height: 13px; stroke-width: 1.9; }

@@ -700,7 +700,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await scan('cache-ring-phone');await page.screenshot({path:path.join(out,'cache-ring-phone.png'),clip:{x:0,y:Math.max(0,phone.y-120),width:390,height:200}});
     await page.setViewport({width:1440,height:900});
     setMode({cache:cache(125,{lastTurn:{at:Date.now()-130*min,read:0,written:729000,input:4,hit:0}})});await repaint('cold');
-    const cold=await ring();assert.equal(cold.label,'cold');assert.match(cold.aria,/Prompt cache expired at .+ ET; the next turn writes 729k tokens to cache again\. Open usage$/);
+    const cold=await ring();assert.equal(cold.label,'cold');assert.equal(cold.color,'rgb(159, 212, 240)','cold is ice blue');assert.equal(await page.$eval('#ctx-ring .ctx-fill',e=>getComputedStyle(e).stroke),'rgb(159, 212, 240)','the ring itself turns ice blue');assert.match(cold.aria,/Prompt cache expired at .+ ET; the next turn writes 729k tokens to cache again\. Open usage$/);
     const rr=await page.$eval('#ctx-ring',e=>{const b=e.getBoundingClientRect();return {x:b.x,y:b.y};});
     await page.screenshot({path:path.join(out,'cache-ring-cold.png'),clip:{x:Math.max(0,rr.x-160),y:Math.max(0,rr.y-40),width:420,height:120}});
     await page.click('#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
