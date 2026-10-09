@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.33.0] — Unreleased · build 76
+## [1.33.0] — 2026-10-09 · build 76
 
 - Settings has a six-category index, clear device/instance scope labels, reliable initial keyboard focus, and Back to Settings in subpages.
 - New session shows a labeled workspace/agent/permissions summary. Edit setup reveals wrapping model and reasoning controls; attachments stay beside the task.
