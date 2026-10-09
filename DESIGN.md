@@ -8,6 +8,31 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Prompt cache warmth (1.28)
+
+Pinned Operate refinement (design-studio → impeccable): variance 3, motion 2, density 7. Read:
+a quiet countdown on the existing context ring, not a new surface. Existing tokens only.
+The ring button gains a 12px mono label: minutes left (`51m`) in `--dim` while warm,
+`--warn` in the last stretch (ten minutes of an hour, a fifth of a shorter lifetime), `cold`
+in `--dim` once expired. Without an estimate (Codex, no usage yet) the label is empty and the
+ring stays a 44px square. The label repaints every 30 s; no motion. The tooltip and accessible
+name append one sentence with the expiry time in ET.
+
+Usage gains a **Prompt cache** block under This session, reusing the `.usage-row-head` and
+`.ctx-facts` patterns: status (mono, amber while cooling), Expires/Expired, Cached, Lifetime
+("assumed" when the CLI did not report one), the dated last-turn line, and one note that this
+is an estimate. The reply turn line appends "97% cached" or "cold start" in its mono ledger voice.
+
+Tabs mark only sessions with 100k+ cached tokens that are cooling (hourglass) or cold
+(branched snowflake), 13px, `--dim`, after the status mark, `role=img` with the label. The
+plain six-spoke version read as an asterisk at tab size, so each spoke has a branch. No
+colour, so a cache mark never competes with the clay/amber/green/red session status; warm,
+small and unconfirmed sessions show nothing.
+
+Rendered scans (isolated server, synthetic transcripts, 390 and 1440): axe 0; the impeccable
+detector reports only the documented app-shell baseline (`#app`, `#ctitle`, `#chat-statebar`,
+`#slash`, native font), nothing on the new elements.
+
 ## Model selection (1.27.2)
 
 Preserve the existing controls, typography and spacing.

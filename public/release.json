@@ -1,7 +1,7 @@
 {
-  "version": "1.27.2",
-  "assetV": 66,
+  "version": "1.28.0",
+  "assetV": 67,
   "notes": [
-    "Switching between Claude Code and Codex clears incompatible model choices, including saved choices in existing sessions. The model menu shows all advertised Codex models. Requests for the wrong agent are rejected before a turn starts."
+    "Prompt cache warmth: the context ring shows how long the session's prompt cache stays warm, a Prompt cache section in Usage explains it, each turn line says how much came from cache, and tabs mark large sessions whose cache is expiring or expired."
   ]
 }

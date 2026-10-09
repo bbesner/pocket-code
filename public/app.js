@@ -29,6 +29,8 @@ const IC = {
   up1: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg>',
   down1: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg>',
   diff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10.5 10.5h4M12.5 8.5v4M10.5 16h4"/></svg>',
+  snow: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21L12 3M12 6.4l2.5 -2.1M12 6.4l-2.5 -2.1M19.8 16.5L4.2 7.5M7.2 9.2l-0.6 -3.2M7.2 9.2l-3 1.1M19.8 7.5L4.2 16.5M7.2 14.8l-3 -1.1M7.2 14.8l-0.6 3.2M12 17.6l-2.5 2.1M12 17.6l2.5 2.1M16.8 14.8l0.6 3.2M16.8 14.8l3 -1.1M16.8 9.2l3 1.1M16.8 9.2l0.6 -3.2"/></svg>',
+  hourglass: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12M6 20.5h12M7.5 3.5c0 5 9 4.5 9 8.5s-9 3.5-9 8.5M16.5 3.5c0 5-9 4.5-9 8.5s9 3.5 9 8.5"/></svg>',
   pin: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3.5h7M10 3.5l-.6 6L6 12.5V14h12v-1.5L14.6 9.5l-.6-6M12 14v6.5"/></svg>',
   grip: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6.5h.01M9.5 12h.01M9.5 17.5h.01M14.5 6.5h.01M14.5 12h.01M14.5 17.5h.01" stroke-width="2.8"/></svg>',
   speaker: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4zM16.5 9.2a4.2 4.2 0 010 5.6M19 6.5a7.8 7.8 0 010 11"/></svg>',
@@ -711,6 +713,7 @@ async function settingsSheet({about = false} = {}) {
 }
 
 /* ---------- sessions list ---------- */
+let serverSkew = 0; // server clock minus this browser's: cache countdowns run on the server's time (1.28)
 let allSessions = [], sessionFilter = 'all', sessionQuery = '', sessionCheckedAt = 0, sessionWarnings = [], sessionsStale = false;
 let sessionFetch = null;
 let sessionProofReceivedAt=0,sessionProofReceivedWallAt=0;
@@ -980,7 +983,7 @@ async function fetchSessionList() {
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
   sessionFetch = (async () => {
-    try { const d = await fetchSessionList(); allSessions = d.sessions; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
+    try { const d = await fetchSessionList(); allSessions = d.sessions; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;serverSkew = d.checkedAt - Date.now();sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
     finally { sessionFetch = null; paintSessionPanels(); if (!sessionsStale) Voice.onSessions(allSessions); }
   })();
@@ -1912,7 +1915,7 @@ function fmtTokens(n) {
 // Hover or focus shows window, used and percentage; a click opens this session's usage (context + plan).
 const ctxCache = new Map(); // sessionId -> context summary from /api/session/:id/context
 const CTX_RING = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle class="ctx-track" cx="12" cy="12" r="8.5"/><circle class="ctx-fill" cx="12" cy="12" r="8.5" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 12 12)"/></svg>';
-const ctxRingHTML = () => `<button type="button" class="icon ctx-ring" id="ctx-ring" aria-haspopup="dialog">${CTX_RING}</button>`;
+const ctxRingHTML = () => `<button type="button" class="icon ctx-ring" id="ctx-ring" aria-haspopup="dialog">${CTX_RING}<span class="ctx-cache" aria-hidden="true"></span></button>`;
 function modelLabel(id) {
   if (!id) return '';
   const bare = String(id).replace(/\[1m\]$/, '');
@@ -1925,6 +1928,10 @@ function ctxPctText(ctx) { return ctx.used > 0 && ctx.pct < 0.005 ? '<1' : Strin
 function ctxLine(ctx) { return `${fmtTokens(ctx.used)} of ${fmtTokens(ctx.window)} tokens used (${ctxPctText(ctx)}%${ctx.estimated ? ', estimated' : ''})`; }
 function paintCtxRing() {
   const el = $('#ctx-ring'); if (!el) return;
+  paintRingContext(el);
+  paintRingCache(el);
+}
+function paintRingContext(el) {
   const ctx = ctxCache.get(chatId);
   const fill = el.querySelector('.ctx-fill');
   if (!ctx || !ctx.window) {
@@ -1941,10 +1948,59 @@ function paintCtxRing() {
   el.setAttribute('aria-label', `Context window${model ? ' for ' + model : ''}: ${ctxLine(ctx)}. Open usage`);
 }
 async function paintContextMeter(id) {
-  let ctx;
-  try { ({ context: ctx } = await api('/session/' + id + '/context')); } catch { return; }
+  let ctx, cache, serverNow;
+  try { ({ context: ctx, cache, serverNow } = await api('/session/' + id + '/context')); } catch { return; }
   if (ctx) ctxCache.set(id, ctx); else ctxCache.delete(id);
+  if (cache) cacheData.set(id, cache); else cacheData.delete(id);
+  if (Number.isFinite(serverNow)) serverSkew = serverNow - Date.now();
   if (chatId === id) paintCtxRing();
+}
+
+/* ---------- prompt-cache warmth (1.28) ---------- */
+// The server estimates it from the transcript's last request: when it ran (at) and the cache lifetime it
+// used (ttlMs, one hour or five minutes). Each request restarts the lifetime; after it, the next turn writes
+// the whole context to cache again instead of reading it. An estimate: the provider can evict sooner.
+const cacheData = new Map(); // sessionId -> { at, ttlMs, ttlKnown, cached, lastTurn }
+const CACHE_MARK_MIN = 100_000; // tabs flag only sessions big enough for a cold start to cost real usage
+function cacheStatus(c, now = Date.now() + serverSkew) {
+  if (!c || !Number.isFinite(c.at) || !(c.ttlMs > 0)) return null;
+  const expiresAt = c.at + c.ttlMs, left = expiresAt - now;
+  const kind = left <= 0 ? 'cold' : left <= Math.min(10 * 60_000, c.ttlMs * 0.2) ? 'cooling' : 'warm';
+  return { kind, left, expiresAt };
+}
+const cacheMinutes = ms => Math.floor(ms / 60_000);
+const cacheLeftShort = ms => cacheMinutes(ms) < 1 ? '<1m' : cacheMinutes(ms) + 'm';
+const cacheLeftLong = ms => cacheMinutes(ms) < 1 ? 'less than a minute' : 'about ' + cacheMinutes(ms) + ' min';
+function cacheSentence(c, st) {
+  if (st.kind === 'cold') return `Prompt cache expired at ${fmtAsOfET(st.expiresAt)}; the next turn writes ${fmtTokens(c.cached)} tokens to cache again`;
+  return `Prompt cache ${st.kind === 'cooling' ? 'cooling' : 'warm'}: ${cacheLeftLong(st.left)} left, until ${fmtAsOfET(st.expiresAt)}`;
+}
+// The ring's companion label: minutes left while warm, amber in the last stretch, "cold" once expired.
+function paintRingCache(el) {
+  const label = el.querySelector('.ctx-cache'), c = cacheData.get(chatId), st = cacheStatus(c);
+  if (!label) return;
+  if (!st) { label.textContent = ''; delete el.dataset.cache; return; }
+  label.textContent = st.kind === 'cold' ? 'cold' : cacheLeftShort(st.left);
+  el.dataset.cache = st.kind;
+  const sentence = cacheSentence(c, st);
+  el.dataset.tip += ' · ' + sentence;
+  el.setAttribute('aria-label', el.getAttribute('aria-label').replace(/\. Open usage$/, '') + '. ' + sentence + '. Open usage');
+}
+// Countdowns move without a turn: repaint the ring each half minute (the tabs repaint with the list poll).
+setInterval(() => { if (document.visibilityState === 'visible' && chatId && cacheData.has(chatId)) paintCtxRing(); }, 30_000);
+function cacheBlockHTML(c) {
+  const st = cacheStatus(c); if (!st) return '';
+  const head = st.kind === 'cold' ? 'Cold' : `${st.kind === 'cooling' ? 'Cooling' : 'Warm'} · ${cacheLeftLong(st.left)} left`;
+  const life = c.ttlMs >= 3_600_000 ? '1 hour' : Math.round(c.ttlMs / 60_000) + ' minutes';
+  const t = c.lastTurn, pct = t && t.hit != null ? Math.floor(t.hit * 100) : null;
+  // dated, so a warm start shown beside "Cold" reads as history rather than a contradiction
+  const last = pct == null ? '' : `The last turn, at ${fmtAsOfET(t.at)}, started ` + (t.hit >= 0.5 ? `${pct}% from cache.` : `cold: ${fmtTokens(t.written)} tokens written to cache.`);
+  const next = st.kind === 'cold' ? 'The next turn writes the context to cache again, which uses more of your plan than reading it.' : 'A turn before then reads the context from cache at a fraction of the cost.';
+  return `<div class="usage-block cache-block"><h3>Prompt cache</h3>
+    <div class="usage-row-head"><span>Status</span><span class="cache-state" data-cache="${st.kind}">${esc(head)}</span></div>
+    <dl class="ctx-facts"><div><dt>${st.kind === 'cold' ? 'Expired' : 'Expires'}</dt><dd>${esc(fmtAsOfET(st.expiresAt))}</dd></div><div><dt>Cached</dt><dd>${esc(fmtTokens(c.cached))} tokens</dd></div><div><dt>Lifetime</dt><dd>${esc(life)}${c.ttlKnown ? '' : ' (assumed)'}</dd></div></dl>
+    ${last ? `<p class="usage-reset">${esc(last)}</p>` : ''}
+    <p class="usage-asof">${esc(next)} Estimated from the last request at ${esc(fmtAsOfET(c.at))}; each request restarts the lifetime, and the provider can drop a cache sooner.</p></div>`;
 }
 async function openContextPanel() {
   const id = chatId; if (!id) return;
@@ -1957,7 +2013,7 @@ async function openContextPanel() {
        <dl class="ctx-facts"><div><dt>Window</dt><dd>${esc(fmtTokens(ctx.window))} tokens</dd></div><div><dt>Used</dt><dd>${esc(fmtTokens(ctx.used))} tokens</dd></div><div><dt>Free</dt><dd>${esc(fmtTokens(Math.max(0, ctx.window - ctx.used)))} tokens</dd></div></dl>
        <p class="usage-asof">${ctx.estimated ? 'Estimated from the transcript. ' : ''}As of ${esc(fmtAsOfET(ctx.lastAt))}</p></div>`
     : '<div class="usage-block"><h3>This session</h3><p class="usage-empty">Context use appears after the next turn reports it.</p></div>';
-  sh.innerHTML = `<h2>Usage</h2><p class="sheet-help">Only updates when a turn runs, not live.</p><div class="usage-body">${ctxBlock}</div><div class="usage-body" id="usage-body">Loading plan usage…</div>`;
+  sh.innerHTML = `<h2>Usage</h2><p class="sheet-help">Only updates when a turn runs, not live.</p><div class="usage-body">${ctxBlock}${codexSession ? '' : cacheBlockHTML(cacheData.get(id))}</div><div class="usage-body" id="usage-body">Loading plan usage…</div>`;
   mountSheet(scrim, sh);
   let d;
   try { d = await api('/usage'); } catch (e) { sh.querySelector('#usage-body').innerHTML = `<p class="usage-empty">Plan usage could not be loaded: ${esc(e.message)}</p>`; return; }
@@ -2259,7 +2315,9 @@ function openES() {
       if (!d.ok && !/^Stopped/.test(String(d.error || ''))) paintTurnFailure({ error: String(d.error || '').slice(0, 300) });
       if (d.cost != null) {
         const secs = d.duration_ms ? Math.round(d.duration_ms / 1000) : null;
-        lastMeta = { id: chatId, html: `<div class="turnmeta">$${d.cost.toFixed(2)}${secs ? ` · ${secs >= 90 ? Math.round(secs / 60) + 'm' : secs + 's'}` : ''}</div>` };
+        // 1.28: whether the turn resumed from a warm prompt cache or wrote it again
+        const cached = d.cache && Number.isFinite(d.cache.hit) ? (d.cache.hit >= 0.5 ? ` · ${Math.floor(d.cache.hit * 100)}% cached` : ' · cold start') : '';
+        lastMeta = { id: chatId, html: `<div class="turnmeta">$${d.cost.toFixed(2)}${secs ? ` · ${secs >= 90 ? Math.round(secs / 60) + 'm' : secs + 's'}` : ''}${cached}</div>` };
         msgs.insertAdjacentHTML('beforeend', lastMeta.html);
       }
       scrollBottom();
