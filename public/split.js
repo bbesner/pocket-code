@@ -155,7 +155,18 @@ function chooseBeside(){
   const views=[['projects','Projects','All tracked projects'],['projects/scheduled','Scheduled','Reminders, due first'],...((typeof boardSnap!=='undefined'&&boardSnap)?boardSnap.projects.filter(p=>p.status!=='done').slice(0,6).map(p=>['projects/'+p.id,p.name,p.next||p.summary||'Project']):[])].filter(r=>!shown.has(r[0]));
   rows.splice(1,0,...views);
  }
- if(typeof documentsOn==='function'&&documentsOn()&&![currentView(),...splitPanes.map(p=>p.id)].includes('documents'))rows.splice(1,0,['documents','Documents','The library of files from the work']);
+ if(typeof documentsOn==='function'&&documentsOn()){ // 1.31.1: documents open beside like projects: open tabs first, then the most recent, then the library
+  const shown=new Set([currentView(),...splitPanes.map(p=>p.id)]),docs=[];
+  const add=d=>{if(d&&!shown.has('documents/'+d.id)&&!docs.some(x=>x.id===d.id))docs.push(d);};
+  if(typeof docsSnap!=='undefined'&&docsSnap){
+   for(const t of openSessions.slice().reverse())if(t.id.startsWith('documents/'))add(docsSnap.documents.find(d=>d.id===t.id.slice(10)));
+   for(const d of docsSnap.documents){if(docs.length>=6)break;add(d);}
+  }
+  const views=docs.map(d=>['documents/'+d.id,d.title,[KIND_WORD[d.kind],typeof docWhere==='function'?docWhere(d):'',visWord[d.visibility]].filter(Boolean).join(' · ')]);
+  if(!shown.has('documents'))views.push(['documents','Documents','The library of files from the work']);
+  rows.splice(1,0,...views);
+  if(!docsSnap&&typeof loadDocs==='function')loadDocs().catch(()=>{});
+ }
  sheet('Open beside this conversation',rows,null,v=>openBeside(v==='new'?null:v));
 }
 if(PANE){
