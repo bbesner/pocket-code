@@ -1,7 +1,7 @@
 {
-  "version": "1.29.0",
-  "assetV": 69,
+  "version": "1.30.0",
+  "assetV": 70,
   "notes": [
-    "Projects: track the work that comes out of your sessions. A card per project with where you left off, the next step, remaining steps, reminders and the sessions that worked on it; a Scheduled view of every reminder, due first; a Sessions · Projects switch in the desktop rail; projects open as a tab, beside a conversation, or full-screen on the phone. Off until you turn it on in Settings → Tools. Agents keep cards current with the new pocket-board command; reminders go to your devices by push and, if the server sets a reminder hook, wherever it sends them."
+    "Documents: a library of the files that came out of your sessions. HTML renders in a sandboxed frame, PDFs, images, Markdown and CSV natively; a document opens as a tab, beside a conversation, full-screen on the phone, or in your device's own viewer. Share as a private, link or public document, all served by Pocket itself. Keep a file from a session's Results, upload one, or let agents keep deliverables with the new pocket-docs command. Off until you turn it on in Settings → Tools."
   ]
 }

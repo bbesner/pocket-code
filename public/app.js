@@ -565,6 +565,8 @@ async function settingsSheet({about = false} = {}) {
     <h2 class="settings-group">Tools</h2>
     <button class="opt" id="s-projects" disabled aria-pressed="false"><span class="dot"></span><span>Projects<span class="sub" id="s-projects-state">Loading the projects setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Open projects<select id="s-projects-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option></select></label></div>
+    <button class="opt" id="s-documents" disabled aria-pressed="false"><span class="dot"></span><span>Documents<span class="sub" id="s-documents-state">Loading the documents setting…</span></span></button>
+    <div class="title-settings"><label class="voice-field">Open documents<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option></select></label></div>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
@@ -671,6 +673,24 @@ async function settingsSheet({about = false} = {}) {
     } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
   };
   const openSel = sh.querySelector('#s-projects-open'); openSel.value = readLocal('pc-projects-open', 'tab'); openSel.onchange = () => writeLocal('pc-projects-open', openSel.value);
+  // 1.30: Documents, the same way.
+  const paintDocumentsSetting = () => {
+    const btn = sh.querySelector('#s-documents'); if (!btn || !srv) return;
+    const on = Boolean(srv.documents);
+    btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
+    sh.querySelector('#s-documents-state').textContent = on ? 'On: a library of the files that came out of the work, with a sandboxed viewer and share links; agents keep files with pocket-docs' : 'Off. Turn on to keep reports, PDFs and other files from sessions in a library you can view and share';
+  };
+  sh.querySelector('#s-documents').onclick = async e => {
+    const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ documents: !srv.documents }), signal: AbortSignal.timeout(8000) });
+      window.pocketFeatures = { ...(window.pocketFeatures || {}), documents: Boolean(srv.documents) };
+      paintDocumentsSetting(); toast(srv.documents ? 'Documents is on' : 'Documents is off');
+      if (!srv.documents && readLocal('pc-rail-view', 'sessions') === 'documents') writeLocal('pc-rail-view', 'sessions');
+      document.querySelectorAll('.session-home, aside.rail').length && route();
+    } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
+  };
+  const openDocSel = sh.querySelector('#s-documents-open'); openDocSel.value = readLocal('pc-documents-open', 'tab'); openDocSel.onchange = () => writeLocal('pc-documents-open', openDocSel.value);
   sh.querySelector('#s-title-model').onchange = e => saveTitles({ titleProvider: e.target.value });
   sh.querySelector('#s-away').onclick = () => { if (srv?.titles) saveTitles({ awaySummaries: srv.titles.awaySummaries === false }); };
   const loadSettings = async () => {
@@ -679,7 +699,7 @@ async function settingsSheet({about = false} = {}) {
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintProjectsSetting();
+      paintTitles(); paintProjectsSetting(); paintDocumentsSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
@@ -1171,7 +1191,7 @@ async function renderList() {
   app.innerHTML = `<header class="bar"><h1>Pocket Code</h1>
     <button class="icon bell" id="bell" aria-label="Toggle turn-finished notifications">${IC.bellOff}</button>
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
-    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
+    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Documents</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New session">${IC.plus}</button>`;
   $('#new').onclick = () => { location.hash = '#/new'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
@@ -1242,13 +1262,17 @@ async function openResults(id) {
     sh.querySelector('#result-list').innerHTML=rows.map(r=>{
       const href=r.kind==='file'?'/api/session/'+encodeURIComponent(id)+'/artifact?path='+encodeURIComponent(r.target):PocketFormat.href(r.target);
       if(!href)return '';
-      return `<article class="result-row"><a href="${esc(href)}" target="_blank" rel="noopener noreferrer"><span class="result-name">${esc(r.label)}</span><span class="result-detail">${esc(r.detail)}${r.at?' · '+esc(rel(new Date(r.at).getTime())):''}${r.kind==='file'?' · Download':''}</span></a><button class="chip result-copy" data-url="${esc(r.kind==='file'?new URL(href,location.origin).href:r.target)}" aria-label="Copy link for ${esc(r.label)}">Copy link</button></article>`;
+      const safeTarget=r.kind==='file'?r.target.split('/').pop().replace(/[^\w.\-]+/g,'_'):'';
+      const kept=typeof docsSnap!=='undefined'&&docsSnap?docsSnap.documents.find(d=>d.session===id&&d.addedBy==='session'&&(d.file===safeTarget||d.file.replace(/-\d+(?=\.[^.]+$)/,'')===safeTarget))||null:null;
+      const keep=typeof documentsOn==='function'&&documentsOn()&&keepableResult(r)?(kept?`<button class="chip result-keep" data-kept="${esc(kept.id)}">Kept · Open</button>`:`<button class="chip result-keep" data-keep="${esc(r.target)}">Keep as document</button>`):'';
+      return `<article class="result-row"><a href="${esc(href)}" target="_blank" rel="noopener noreferrer"><span class="result-name">${esc(r.label)}</span><span class="result-detail">${esc(r.detail)}${r.at?' · '+esc(rel(new Date(r.at).getTime())):''}${r.kind==='file'?' · Download':''}</span></a>${keep}<button class="chip result-copy" data-url="${esc(r.kind==='file'?new URL(href,location.origin).href:r.target)}" aria-label="Copy link for ${esc(r.label)}">Copy link</button></article>`;
     }).join('') || `<p class="empty">${q?'No matching results.':'No results linked yet. Ask the agent to share a report or file link.'}</p>`;
     if(data.truncated||data.limited)sh.querySelector('#result-list').insertAdjacentHTML('beforeend','<p class="sheet-help">Showing recent references. Older results may still be in the conversation.</p>');
     sh.querySelectorAll('.result-copy').forEach(b=>b.onclick=()=>copyText(b.dataset.url,b));
+    sh.querySelectorAll('[data-keep]').forEach(b=>b.onclick=()=>keepResult(id,b.dataset.keep,b));sh.querySelectorAll('[data-kept]').forEach(b=>b.onclick=()=>{closeCurrentSheet?.();location.hash='#/documents/'+b.dataset.kept;});
   };
   const load=async()=>{const b=sh.querySelector('#result-refresh');b.disabled=true;
-    try {data=await api('/session/'+encodeURIComponent(id)+'/results');if(sh.isConnected)paint();}
+    try {if(typeof documentsOn==='function'&&documentsOn())await loadDocs().catch(()=>{});data=await api('/session/'+encodeURIComponent(id)+'/results');if(sh.isConnected)paint();}
     catch(e){if(sh.isConnected)sh.querySelector('#result-list').innerHTML=`<p class="sheet-help">${esc(e.message)}</p>`;}
     finally{b.disabled=false;}
   };
@@ -1640,18 +1664,18 @@ const isWide = () => matchMedia('(min-width: 900px)').matches;
 const railOpen = () => localStorage.getItem('pc-rail') !== 'closed';
 const railW = () => Math.min(480, Math.max(220, Number(localStorage.getItem('pc-railw')) || 320));
 // 1.29: with Projects on, the rail head switches between the session list and the project list.
-const railView = () => projectsOn() && readLocal('pc-rail-view', 'sessions') === 'projects' ? 'projects' : 'sessions';
+const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return v === 'projects' && projectsOn() ? 'projects' : v === 'documents' && documentsOn() ? 'documents' : 'sessions'; };
 function railSwitchHTML() {
-  if (!projectsOn()) return '<span>Sessions</span>';
+  if (!projectsOn() && !documentsOn()) return '<span>Sessions</span>';
   const v = railView();
-  return `<div class="rail-switch" role="tablist" aria-label="Session list or projects"><button role="tab" data-rail-view="sessions" aria-selected="${v === 'sessions'}">Sessions</button><button role="tab" data-rail-view="projects" aria-selected="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button></div>`;
+  return `<div class="rail-switch" role="tablist" aria-label="Session list, projects or documents"><button role="tab" data-rail-view="sessions" aria-selected="${v === 'sessions'}">Sessions</button>${projectsOn() ? `<button role="tab" data-rail-view="projects" aria-selected="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button role="tab" data-rail-view="documents" aria-selected="${v === 'documents'}">Docs</button>` : ''}</div>`;
 }
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
-  const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : 'box'; // 1.29: project views have no composer
+  const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : 'box'; // 1.29/1.30: project and document views have no composer
   if (PANE) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div></div>`;
   return `<div class="split">
-    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':'Skip to message'}</a>
+    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to documents':'Skip to message'}</a>
       <div class="railhead">${railSwitchHTML()}<button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse session filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div>
       <div id="rail"></div>
     </aside>
@@ -1685,8 +1709,9 @@ function wireShell() {
 let railCache = { at: 0, sessions: [] };
 async function paintRail() {
   const el = $('#rail'); if (!el) return;
-  const ft = $('#rail-filter-toggle'); if (ft) ft.hidden = railView() === 'projects';
+  const ft = $('#rail-filter-toggle'); if (ft) ft.hidden = railView() !== 'sessions';
   if (railView() === 'projects') { if (!el.querySelector('.rail-projects')) el.innerHTML = ''; paintRailProjects(); return; }
+  if (railView() === 'documents') { if (!el.querySelector('.rail-documents')) el.innerHTML = ''; paintRailDocuments(); return; }
   if (!el.querySelector('.session-panel')) { el.innerHTML = sessionPanelHTML(true); bindSessionPanel(el); }
   await refreshSessions();
 }
@@ -2647,7 +2672,8 @@ async function route() {
   const h = location.hash;
   if (typeof boardView !== 'undefined') boardView = null;
   if (h.startsWith('#/chat/')) return renderChat(h.slice(7), { away: true });
-  if (isViewId(h.slice(2))) return renderProjects(h.slice(2)); // 1.29: #/projects, #/projects/<id>, #/projects/scheduled
+  if (typeof docView !== 'undefined') docView = null;
+  if (isViewId(h.slice(2))) return h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30: project and document views
   if (h === '#/new') return renderNew();
   return renderList();
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.30.0] — 2026-10-09 · build 70
+
+- **Documents.** A library of the files that came out of the work: HTML reports and dashboards, PDFs, images, Markdown, text, CSV, JSON, Office files and video. Off until Settings → Tools turns it on. Files live in a documents folder (`POCKET_DOCUMENTS_DIR`, default `<data dir>/documents`); a file placed there appears as a private document on the next listing. Requested by Brad, after a conversation with Damon.
+- **Viewing.** HTML renders in a sandboxed frame: the response carries a sandbox policy and the frame denies the document any access to Pocket's cookies, storage or API, while a dashboard's own scripts still run. PDFs, images, Markdown, text, CSV/TSV and JSON render natively; Office files and video open in your device's own viewer. A document opens as a tab, beside a conversation, full-screen on the phone, **in your viewer**, or downloads.
+- **Sharing.** Private (behind the Pocket login), **link** (an unguessable address, optional expiry, a new link revokes the old) or **public** (a fixed `/files/<name>` address), all served by Pocket on its own hostname with no-store, nosniff, noindex and frame-ancestors 'none'. Removing a document moves it to the trash for 30 days, where it can be restored; links stop working at once.
+- **From a session and a project.** Results rows of document kind gain **Keep as document**, which copies the file in with the session and project links filled. A project card lists its documents; the library filters by project. Each document shows its project and session.
+- **`pocket-docs` for agents.** `scripts/pocket-docs.mjs` (`npx pocket-docs`): `add`, `list`, `show`, `share`, `set`, `trash`, `restore`, `import`. Same loopback token as `pocket-board`, accepted only on the documents routes. With Documents on, agents started by Pocket are told to keep deliverables with it, linked to the session, and never to share unless asked. `pocket-docs import <metadata.json>` brings in a Mission Control documents library once (public stays public, staff becomes link, private stays private).
+
 ## [1.29.0] — 2026-10-09 · build 69
 
 - **Projects.** Track the work that comes out of your sessions, inside Pocket Code. Each project is one card: where you left off, the next step, what it is waiting for, a checklist of remaining steps, reminders, notes, history, and the sessions that worked on it, with their live status. States are Active, Waiting and Done. Finishing a project stops its reminders; resuming does not bring them back. Projects are tracked only when you ask: Track a project, or Add to project from a session's options. Off until you turn it on in Settings → Tools. Requested by Brad, after a conversation with Damon.
