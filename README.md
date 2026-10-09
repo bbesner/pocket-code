@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.28.1 / build 68**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.29.0 / build 69**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -18,6 +18,11 @@ Screenshots use synthetic demo sessions, not private conversations.
 
 - **Work across sessions.** Search and filter the session list, pin or rename work,
   keep open-session tabs, and resume the last conversation on this browser.
+- **Track projects (optional).** Turn on Projects in Settings → Tools to keep a card for
+  each piece of work: where you left off, the next step, remaining steps, reminders and
+  the sessions that worked on it. Projects open as a tab, beside a conversation, or
+  full-screen on the phone; a Scheduled view lists every reminder, due first; agents keep
+  cards current with `pocket-board`. See the [workspace guide](docs/workspace-guide.md#projects).
 - **Use a desktop workspace.** Open up to four conversations side by side when space
   permits, start a new session in a pane, swap it with the main conversation, and resize
   dividers. Results, Queue and read-only Git inspection can stay in a side panel.
@@ -177,6 +182,8 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_ALLOW_FULL_ACCESS` | no | Set to `0` to reject Full access in both API and UI. |
 | `POCKET_DATA_DIR` | no | Pocket state and runner files; defaults to the checkout. Move only after all session processes are closed. |
 | `POCKET_SESSION_ROOT` | no | Override Claude transcript storage for isolated tests; does not relocate Codex. |
+| `POCKET_REMINDER_HOOK` | no | A command run when a project reminder comes due (Projects, 1.29), with the reminder as JSON on its standard input: `project`, `projectName`, `reminder`, `label`, `dueAt`, `task`, `taskText`, `url`. Each reminder is announced once. Use it for email, chat or anything else; web push happens regardless. |
+| `POCKET_TZ` | no | Time zone for `pocket-board` times given without an offset, e.g. `America/New_York`. Default: the server's zone. |
 | `POCKET_FRAME_ANCESTORS` | no | Origins allowed to embed Pocket Code in a frame (for example Mission Control), space-separated. Default: only Pocket's own origin. |
 | `POCKET_VOICE` | no | Set to `off` to disable voice mode even when it is installed. |
 | `POCKET_VOICE_HOME` | no | Where `scripts/voice-setup.sh` installed the voice engine. Default `~/.local/share/pocket-code/voice`. |
