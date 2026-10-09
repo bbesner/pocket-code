@@ -1,7 +1,7 @@
 {
-  "version": "1.28.0",
-  "assetV": 67,
+  "version": "1.28.1",
+  "assetV": 68,
   "notes": [
-    "Prompt cache warmth: the context ring shows how long the session's prompt cache stays warm, a Prompt cache section in Usage explains it, each turn line says how much came from cache, and tabs mark large sessions whose cache is expiring or expired."
+    "When a session's prompt cache goes cold, the context ring and its \"cold\" label turn ice blue, so a cold cache stands out at a glance. The Prompt cache status in Usage uses the same blue."
   ]
 }

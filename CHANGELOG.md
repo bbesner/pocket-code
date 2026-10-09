@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.28.1] — 2026-10-09 · build 68
+
+- **A cold prompt cache turns the ring ice blue.** Once a session's prompt cache has expired, the context ring (its track and fill) and the `cold` label beside it turn a light ice blue, and Usage → Prompt cache shows "Cold" in the same colour. Blue takes over from the clay, amber or red context colour while the cache is cold, because the next turn's cost is what matters then; how far the ring is filled still shows how full the context is, and the tooltip still gives the figures. Warm and cooling are unchanged, and so are the tab marks. Requested by Brad.
+
 ## [1.28.0] — 2026-10-08 · build 67
 
 - **Prompt cache warmth.** Claude keeps a session's context in a prompt cache for a while after each request: one hour on a normal plan, five minutes in some cases such as extra usage. A turn that starts while the cache is warm reads the context at a fraction of the cost; after it expires, the next turn writes the whole context again, which on a large session uses noticeably more of your plan. Pocket now shows it. Requested by Brad.

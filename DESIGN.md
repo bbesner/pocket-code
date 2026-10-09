@@ -33,6 +33,12 @@ Rendered scans (isolated server, synthetic transcripts, 390 and 1440): axe 0; th
 detector reports only the documented app-shell baseline (`#app`, `#ctitle`, `#chat-statebar`,
 `#slash`, native font), nothing on the new elements.
 
+1.28.1: cold turns the ring **ice blue** (`--ice: #9FD4F0`, 11.8:1 on `--bg`, 9.7:1 on the
+`--raised` hover). The one new token, a cool note against the warm palette that reads as frozen without joining
+the clay/amber/green/red status language. Cold tints the fill, the dotted track (65% mix, so a nearly
+empty ring still reads blue) and the label, and wins over the context level colour; the fill length
+still carries context. The Usage status "Cold" uses it too. Tab snowflakes stay `--dim`. No motion.
+
 ## Model selection (1.27.2)
 
 Preserve the existing controls, typography and spacing.
