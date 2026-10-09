@@ -48,6 +48,15 @@ Pocket generates from the opening request. Clearing a rename returns to that tit
 Calls run on that CLI's own sign-in: your Claude or ChatGPT subscription, or an API key
 if the CLI uses one. Titles are kept in `session-meta.json`, never written to a
 transcript, made one at a time, and only for sessions active in the last 14 days.
+
+**Settings → Update titles as sessions progress** (on by default) keeps a title current.
+After a turn run from Pocket ends, a session that has grown enough since its last check
+(four more of your turns or about 8k characters, at least ten minutes apart) is shown to
+the same helper model as a digest of the whole session with its current title. The model
+keeps the title or writes a better one, naming both topics when the session took a second
+turn. An updated title ranks ahead of Claude Code's own one-shot title and behind a
+rename, which is never touched; earlier titles stay in `session-meta.json`. A Claude
+check costs a few thousand tokens, a Codex check about 25k.
 A provider that is not installed, not signed in, or (Codex) does not offer GPT-6-Luna is
 shown as unavailable with the reason; with neither available no calls are made. Turning
 titles off also hides the ones already made, so the list matches code-server when Sync

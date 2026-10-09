@@ -1,7 +1,7 @@
 {
-  "version": "1.30.0",
-  "assetV": 70,
+  "version": "1.30.1",
+  "assetV": 71,
   "notes": [
-    "Documents: a library of the files that came out of your sessions. HTML renders in a sandboxed frame, PDFs, images, Markdown and CSV natively; a document opens as a tab, beside a conversation, full-screen on the phone, or in your device's own viewer. Share as a private, link or public document, all served by Pocket itself. Keep a file from a session's Results, upload one, or let agents keep deliverables with the new pocket-docs command. Off until you turn it on in Settings → Tools."
+    "Titles follow the session. After a turn run from Pocket ends, once a session has moved on (four more of your turns, or about 8k characters, at least ten minutes since the last check), the helper model sees a digest of the whole session and its current title and either keeps it or writes a better one, naming both topics when a session took a second turn. A rename is never touched; an updated title ranks ahead of Claude Code's own one-shot title. Settings → Update titles as sessions progress turns it off."
   ]
 }
