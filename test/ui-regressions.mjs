@@ -1211,6 +1211,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.goto(base+'/#/documents');await page.waitForFunction(()=>/Documents is off/.test(document.querySelector('#documents-main')?.textContent||''));
    assert.equal(await page.$('[data-rail-view="documents"]'),null,'no Docs segment while off');
    settings.documents=true;await page.evaluate(()=>fetch('/api/documents/reset',{method:'POST'}));
+   await page.evaluate(()=>localStorage.setItem('pc-documents-layout','"list"')); // 1.32: the wide default is the grid; these checks read the rows
    await page.goto(base+'/?docs=1#/documents');await page.waitForSelector('.document-item');
    const lib=await page.evaluate(()=>({rows:[...document.querySelectorAll('.document-item .title')].map(e=>e.textContent.trim()),kinds:[...document.querySelectorAll('.document-item .doc-kind')].map(e=>e.textContent),tab:document.querySelector('.open-session.current a')?.textContent,seg:document.querySelector('[data-rail-view="documents"]')?.textContent,where:document.querySelector('.document-item .meta')?.textContent}));
    assert.deepEqual(lib.kinds.sort(),['CSV','HTML','MD']);assert.equal(lib.tab,'Documents','the library is a tab');assert.equal(lib.seg,'Docs');
@@ -1238,6 +1239,18 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$('#back'),null);assert.equal(await page.$('#dwin'),null);assert.equal(await page.title(),'Weekly summary · Pocket Code');
    await page.goto(base+'/?solo=1#/projects/warehouse-stock-report');await page.waitForSelector('.project-card');
    assert.equal(await page.$('aside.rail'),null);assert.equal(await page.$('#pwin'),null);assert.equal(await page.title(),'Warehouse stock report · Pocket Code');
+   // 1.32: the grid of previews on a wide screen: a picture for the HTML report, the kind for the CSV, the choice remembered.
+   await page.evaluate(()=>localStorage.removeItem('pc-documents-layout'));
+   await page.goto(base+'/#/documents');await page.waitForSelector('.doc-card');
+   assert.equal(await page.$eval('.doc-layout [data-layout="grid"]',e=>e.getAttribute('aria-pressed')),'true','the grid is the wide default');
+   await page.waitForFunction(()=>document.querySelector('.doc-thumb.loaded img'));
+   const cards=await page.$$eval('.doc-card',els=>els.map(c=>({kind:c.querySelector('.doc-kind').textContent,pic:Boolean(c.querySelector('.doc-thumb.loaded img')),title:c.querySelector('.doc-card-title').textContent})));
+   assert.ok(cards.find(c=>c.kind==='HTML')?.pic,'the HTML report has a picture: '+JSON.stringify(cards));assert.equal(cards.find(c=>c.kind==='CSV')?.pic,false,'the CSV shows its kind');
+   assert.equal(await page.$eval('.doc-card img',e=>e.getAttribute('loading')),'lazy');
+   await scan('documents-grid-desktop');await page.screenshot({path:path.join(out,'documents-grid-desktop.png')});
+   await page.click('.doc-card [data-document-more]');await page.waitForSelector('.sheet [data-window]');await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+   await page.click('.doc-layout [data-layout="list"]');await page.waitForSelector('.document-item');assert.equal(await page.$('.doc-card'),null);
+   await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');assert.equal(await page.$('.doc-card'),null,'the list choice is remembered');
    // The HTML document renders in a sandboxed frame that cannot reach the app.
    await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
    const htmlRow=await page.$eval('.document-item .doc-kind',()=>null,[]).catch(()=>null);

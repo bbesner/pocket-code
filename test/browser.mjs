@@ -128,10 +128,13 @@ const server=http.createServer(async(req,res)=>{
    res.end(fs.readFileSync(file));};
   if(url.pathname.startsWith('/files/')){const r=docStore.resolvePublic(decodeURIComponent(url.pathname.slice(7)));if(!r){res.writeHead(404);res.end();return;}return sendDoc(r,false);}
   if(url.pathname.startsWith('/share/')){const r=docStore.resolveShare(url.pathname.slice(7));if(!r){res.writeHead(404);res.end();return;}return sendDoc(r,false);}
-  if(url.pathname==='/api/documents'&&req.method==='GET')return json({documents:docStore.list({project:url.searchParams.get('project')||'',q:url.searchParams.get('q')||''}),trash:docStore.list({trashed:true}),dir:docsDir,limits:{inlineHtml:10485760,trashDays:30}});
+  if(url.pathname==='/api/documents'&&req.method==='GET')return json({documents:docStore.list({project:url.searchParams.get('project')||'',q:url.searchParams.get('q')||''}),trash:docStore.list({trashed:true}),dir:docsDir,limits:{inlineHtml:10485760,trashDays:30},thumbs:{html:true,pdf:false,image:false}});
   if(url.pathname==='/api/documents'&&req.method==='POST'){const chunks=[];for await(const c of req)chunks.push(c);try{return json(docStore.addFromBuffer(String(req.headers['x-filename']||''),Buffer.concat(chunks),{addedBy:'ui',project:String(req.headers['x-project']||'')}));}catch(e){return json({error:e.message},e.status||400);}}
   if(url.pathname==='/api/documents/keep'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw);const src=path.join(out,'kept-source.md');fs.writeFileSync(src,'# Kept from a session\n\nbody');try{return json(docStore.addFromPath(src,{session:b.session,project:b.project||'',addedBy:'session'}));}catch(e){return json({error:e.message},e.status||400);}}
   if(url.pathname==='/api/documents/reset'){seedDocs();return json({ok:true});}
+  // 1.32: a fixed picture for HTML documents, nothing for the other kinds (the card shows the kind).
+  const th=/^\/api\/documents\/([0-9a-f]{12})\/thumb$/.exec(url.pathname);
+  if(th){const r=docStore.documents.find(d=>d.id===th[1]);if(!r||r.kind!=='html'){res.writeHead(404);res.end();return;}res.writeHead(200,{'content-type':'image/png','cache-control':'private, max-age=86400'});res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGP4b2pqysBgamoKAB4zA9HwpVv4AAAAAElFTkSuQmCC','base64'));return;}
   const m=/^\/api\/documents\/([0-9a-f]{12})(\/raw)?$/.exec(url.pathname);
   if(m&&m[2]){let r;try{r=docStore.get(m[1]);}catch{res.writeHead(404);res.end();return;}return sendDoc(r,true);}
   if(m&&req.method==='POST'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');try{return json(b.action==='trash'?docStore.trash(m[1]):b.action==='restore'?docStore.restore(m[1]):docStore.update(m[1],b,{actor:'ui'}));}catch(e){return json({error:e.message},e.status||400);}}

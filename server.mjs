@@ -35,6 +35,7 @@ import {PromptStore} from './prompts.mjs';
 import {ClaudeLogin} from './claude-login.mjs';
 import {ProjectStore, projectInstructions} from './projects.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
+import {Thumbnailer} from './thumbnails.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -191,6 +192,7 @@ const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 // the board serves pocket-docs on /api/documents* only.
 const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'documents');
 const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
+const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 const DOCS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-docs.mjs');
 const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Documents is off. Turn it on in Settings → Tools.', code: 'documents_off' });
 setInterval(() => { try { const gone = docs.purge(); if (gone.length) log(`documents purged from trash: ${gone.length}`); } catch (e) { log('documents purge: ' + e.message); } }, 6 * 3600_000).unref();
@@ -2448,7 +2450,7 @@ async function documentSource(p) {
 const docError = (res, e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); };
 app.get('/api/documents', requireBoardAuth, docsOn, (req, res) => {
   const project = typeof req.query.project === 'string' ? req.query.project : '', q = typeof req.query.q === 'string' ? req.query.q : '';
-  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays } });
+  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities() });
 });
 app.post('/api/documents', requireAuth, docsOn, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
   try {
@@ -2484,6 +2486,16 @@ app.get('/api/documents/:id/raw', requireAuth, docsOn, (req, res) => {
   let r; try { r = docs.get(req.params.id); } catch (e) { return docError(res, e); }
   if (r.trashedAt && req.query.trash !== '1') return res.status(404).end();
   sendDocument(res, r, { download: req.query.download === '1', framed: true });
+});
+// 1.32: the thumbnail for the grid. Made on first request, then served from the cache; 404 when this install has no
+// tool for the kind or the picture could not be made (the card shows the kind instead). Login only, never public.
+app.get('/api/documents/:id/thumb', requireAuth, docsOn, async (req, res) => {
+  let r; try { r = docs.get(req.params.id); } catch (e) { return docError(res, e); }
+  if (r.trashedAt || r.missing) return res.status(404).end();
+  const t = await thumbs.get(r);
+  if (!t) return res.status(404).json({ error: 'No thumbnail for this document.' });
+  res.setHeader('Cache-Control', 'private, max-age=86400'); res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Content-Security-Policy', "default-src 'none'");
+  res.type(t.type); res.sendFile(t.path, { dotfiles: 'allow', headers: { 'Content-Type': t.type } }, err => { if (err && !res.headersSent) res.status(404).end(); });
 });
 app.post('/api/documents/:id', requireBoardAuth, docsOn, (req, res) => {
   const action = req.body?.action;
@@ -2550,7 +2562,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Split view offers documents by name. The Split view chooser used to list each active project but only the Documents library as a whole; now it lists the documents open as tabs first, then the six most recent, then the library, each with its kind, project and visibility, so a report can be opened beside a conversation in one tap."
+  "The Documents library is a grid of previews on a wide screen: a picture of each HTML report, PDF first page or image, with the title, kind, visibility and date under it, and Copy link and options on the picture. Pictures are made once on the server with tools already on the box (headless Chrome, pdftoppm, ImageMagick) and cached beside the documents; a kind without a tool shows its name instead. List and Grid buttons above the library switch and are remembered per browser; phones keep the list."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

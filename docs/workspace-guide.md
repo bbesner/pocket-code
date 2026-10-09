@@ -325,6 +325,13 @@ PDF app); **Download** saves it. Office files and video always open that way.
 **Remove** moves a document to the trash for 30 days, where *Restore* brings it back;
 any link stops working at once.
 
+**The grid.** From 700px up the library is a grid of previews: a picture of each HTML
+report, PDF first page or image, with the title, kind, visibility and date under it, and Copy
+link and the options button on the picture. The List and Grid buttons above the library
+switch between the rows and the grid, remembered per browser; phones keep the list. The
+server makes each picture once with tools on the box (headless Chrome, `pdftoppm`,
+ImageMagick) and caches it beside the documents; a kind it cannot picture shows its name.
+
 **Finding a document.** The library's search covers the title, file name, project, session,
 kind and visibility; chips narrow the list to Private, Link or Public documents (with
 counts), the Kind filter to HTML reports, PDFs, images, Markdown and text, CSV and JSON, or

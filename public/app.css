@@ -1150,6 +1150,34 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .share-url input:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
 .share-note { padding-inline: 14px; margin-top: 0; }
 .document-options .opt-group:first-of-type { margin-top: 0; }
+/* 1.32: the library as a grid of previews. A card is a picture with the row's words under it; the picture comes from
+   /thumb when this install can make one, else the kind stands in. Actions sit on the picture and show on hover or focus. */
+.doc-layout { display: none; gap: 4px; }
+@media (min-width: 700px) { .doc-layout { display: inline-flex; } }
+.doc-layout button { width: 40px; height: 40px; border-radius: 10px; color: var(--dim); display: grid; place-items: center; border: 1px solid var(--line); }
+.doc-layout button[aria-pressed="true"] { color: var(--text); background: var(--raised); }
+.doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; padding: 4px 18px 8px; }
+.doc-card { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.doc-card:hover, .doc-card:focus-within { border-color: var(--clay-deep); }
+.doc-card.cur { border-color: var(--clay); }
+.doc-card-link { display: flex; flex-direction: column; flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+.doc-card-link:focus-visible { outline-offset: -2px; border-radius: 12px; }
+.doc-thumb { position: relative; display: block; aspect-ratio: 16 / 10; background: var(--raised); border-bottom: 1px solid var(--line); overflow: hidden; }
+.doc-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; opacity: 0; transition: opacity .2s ease-out; }
+.doc-thumb.loaded img { opacity: 1; }
+.doc-thumb-kind { position: absolute; inset: 0; display: grid; place-items: center; }
+.doc-thumb-kind .doc-kind { font-size: 13px; padding: 4px 10px; margin: 0; background: var(--bg); }
+.doc-thumb.loaded .doc-thumb-kind { display: none; }
+.doc-card-body { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px 12px; min-width: 0; }
+.doc-card-title { font-size: 15px; line-height: 1.35; font-weight: 500; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.doc-card-meta { font-size: 12.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.doc-card .session-status { margin-top: 2px; }
+.doc-card-actions { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s ease-out; }
+.doc-card:hover .doc-card-actions, .doc-card:focus-within .doc-card-actions { opacity: 1; }
+@media (hover: none) { .doc-card-actions { opacity: 1; } }
+.doc-card-actions .session-more { width: 40px; height: 40px; flex-basis: 40px; margin: 0; color: var(--text); background: color-mix(in srgb, var(--bg) 88%, transparent); border: 1px solid var(--line); }
+.doc-card-actions .session-more:hover { background: var(--bg); }
+@media (prefers-reduced-motion: reduce) { .doc-thumb img, .doc-card-actions { transition: none; } }
 .documents-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 4px 18px 8px; }
 .documents-tools .session-search { flex: 1 1 260px; margin: 0; }
 .doc-project-filter { flex: 0 1 220px; }

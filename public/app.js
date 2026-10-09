@@ -37,6 +37,8 @@ const IC = {
   speakerOff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4zM16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>',
   more: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
   columns: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 4.5v15"/></svg>',
+  list: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M4.5 12h15M4.5 17h15"/></svg>',
+  grid: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>',
   external: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4.5h5.5V10M19.5 4.5L11 13M18 13.5v6H4.5V6H10"/></svg>',
   link: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 13.5a3.8 3.8 0 005.4 0l3-3a3.8 3.8 0 00-5.4-5.4l-1.3 1.3M13.5 10.5a3.8 3.8 0 00-5.4 0l-3 3a3.8 3.8 0 005.4 5.4l1.3-1.3"/></svg>',
   share: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="17.5" cy="6" r="2.3"/><circle cx="6.5" cy="12" r="2.3"/><circle cx="17.5" cy="18" r="2.3"/><path d="M8.6 10.9l6.8-3.7M8.6 13.1l6.8 3.7"/></svg>',
