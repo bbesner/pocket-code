@@ -24,6 +24,7 @@ import {QuestionInbox} from './questions.mjs';
 import {descendantCpu} from './proctree.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
+import {cacheFromTranscript,turnCacheSummary} from './cache.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import {AgentActivity,ClaudeAgentFiles} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
@@ -408,7 +409,12 @@ async function listSessions(limit = 60) {
   const metas = new Array(recent.length);
   let next = 0;
   await Promise.all(Array.from({ length: 8 }, async () => {
-    while (next < recent.length) { const i = next++; metas[i] = await sessionMeta(recent[i].file, recent[i].id); }
+    while (next < recent.length) {
+      const i = next++; metas[i] = await sessionMeta(recent[i].file, recent[i].id);
+      // 1.28: prompt-cache warmth for the tab marks — only the last request matters here, so a short tail
+      const c = await cacheFromTranscript(recent[i].file, { maxBytes: 256 * 1024 }).catch(() => null);
+      if (c) metas[i] = { ...metas[i], cache: { at: c.at, ttlMs: c.ttlMs, cached: c.cached } };
+    }
   }));
   const seen = new Map(); // title+cwd -> listed entry (resumed sessions repeat both)
   for (const [i, x] of recent.entries()) {
@@ -888,6 +894,8 @@ function handleTurnLine(turn, line) {
   let o; try { o = JSON.parse(line); } catch { return; }
   const usageEvent = turn.runner?.accountStale && o.type === 'rate_limit_event' ? null : usage.observe(turn.sessionId, o);
   if (usageEvent) broadcast(turn, { type: 'usage', kind: usageEvent.kind });
+  // 1.28: the turn's first request shows whether it resumed from a warm cache or wrote it again
+  if (o.type === 'assistant' && !o.parent_tool_use_id && o.message?.usage && o.message.model !== '<synthetic>' && turn.cacheFirst === undefined) turn.cacheFirst = turnCacheSummary(o.message.usage);
   if(o.type==='control_request'){
     if(o.request?.subtype==='can_use_tool'&&o.request.tool_name==='AskUserQuestion'&&turn.questions){
       const input=o.request.input;const questions=Array.isArray(input?.questions)?input.questions.map((q,i)=>({id:'question-'+i,header:q.header,question:q.question,options:q.options,multiple:q.multiSelect})):[];
@@ -915,7 +923,7 @@ function handleTurnLine(turn, line) {
     broadcast(turn, {
       type: 'result', ok: o.subtype === 'success',
       error: o.subtype !== 'success' ? (o.result || o.subtype) : null,
-      cost: o.total_cost_usd, duration_ms: o.duration_ms,
+      cost: o.total_cost_usd, duration_ms: o.duration_ms, cache: turn.cacheFirst || null,
     });
     // The turn is over but the process stays up for the next message. Legacy pre-1.7
     // turns (no runner) still close stdin so their process exits as before.
@@ -1756,7 +1764,10 @@ app.get('/api/session/:id/context', requireAuth, async (req, res) => {
     if (isCx(req.params.id)) return res.json({ context: codex.getCodexContext(codex.bareId(req.params.id)) });
     const file = await findSessionFile(req.params.id);
     const context = await getSessionContext(usage, req.params.id, { transcriptFile: file, fsp, modelHint: runners.get(req.params.id)?.model });
-    res.json({ context });
+    // 1.28: prompt-cache warmth, estimated from the transcript's last request. serverNow lets the
+    // browser correct for its own clock when it counts down.
+    const cache = await cacheFromTranscript(file).catch(() => null);
+    res.json({ context, cache, serverNow: Date.now() });
   } catch (e) { res.status(503).json({ error: 'Context could not be loaded. Try again.' }); }
 });
 
@@ -2336,7 +2347,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Switching between Claude Code and Codex clears incompatible model choices, including saved choices in existing sessions. The model menu shows all advertised Codex models. Requests for the wrong agent are rejected before a turn starts."
+  "Prompt cache warmth: the context ring shows how long the session's prompt cache stays warm, a Prompt cache section in Usage explains it, each turn line says how much came from cache, and tabs mark large sessions whose cache is expiring or expired."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

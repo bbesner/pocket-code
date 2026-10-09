@@ -170,6 +170,30 @@ test('API: /api/usage and /api/session/:id/context reflect a turn that reported 
   assert.equal(ctx.body.context.used, 2000);
   assert.equal(ctx.body.context.window, 1_000_000);
   assert.equal(ctx.body.context.estimated, false);
+  // 1.28: the prompt-cache estimate comes from the transcript's last request
+  assert.equal(ctx.body.cache.ttlMs, 3_600_000);
+  assert.equal(ctx.body.cache.ttlKnown, true);
+  assert.equal(ctx.body.cache.cached, 1100);
+  assert.equal(ctx.body.cache.lastTurn.hit, 0.4);
+  assert.ok(Math.abs(ctx.body.cache.at - Date.now()) < 10_000);
+  assert.ok(Math.abs(ctx.body.serverNow - Date.now()) < 5_000);
+  const listed = (await call('/sessions')).body.sessions.find(s => s.id === id);
+  assert.deepEqual(Object.keys(listed.cache).sort(), ['at', 'cached', 'ttlMs'], 'the list carries only what the tab marks need');
+  assert.equal(listed.cache.cached, 1100);
+
+  // 1.28: the result line tells the turn line whether this turn resumed warm or wrote the cache again
+  const slowUsage = await call('/new', { cwd: repo, text: '__USAGE__ __SLOW__ cache check', clientMessageId: randomUUID() });
+  await sleep(150);
+  const stream = await fetch(`http://127.0.0.1:${port}/api/session/${slowUsage.body.id}/events`, { headers });
+  const reader = stream.body.getReader(); let sse = '', resultEvent = null;
+  for (const deadline = Date.now() + 5000; !resultEvent && Date.now() < deadline;) {
+    const { value, done } = await reader.read(); if (done) break;
+    sse += Buffer.from(value).toString();
+    const line = sse.split('\n').find(l => l.startsWith('data: ') && l.includes('"type":"result"'));
+    if (line) resultEvent = JSON.parse(line.slice(6));
+  }
+  await reader.cancel();
+  assert.deepEqual(resultEvent.cache, { hit: 0.4, read: 800, written: 300 });
 
   // turn finished: release ends the session's idle process
   const released = await call(`/session/${id}/release`, {});

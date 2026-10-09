@@ -1019,3 +1019,15 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .m-asst.live::before { content: none; }
 .m-user[data-time]::after { content: attr(data-time); display: block; margin-top: 4px; text-align: right; font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; font-size: 12px; line-height: 1.3; color: color-mix(in srgb, #F3E5DD 72%, var(--clay-deep)); white-space: nowrap; }
 .msgs.times-off .day-divider, .msgs.times-off .m-asst[data-time]::before, .msgs.times-off .m-user[data-time]::after { display: none; }
+
+/* ---------- 1.28: prompt-cache warmth ----------
+   The ring carries a mono companion label: minutes left while warm, amber in the last stretch, "cold" once
+   expired. Tabs flag only large sessions that are expiring (hourglass) or expired (snowflake), in --dim. */
+.ctx-ring { grid-auto-flow: column; gap: 5px; }
+.ctx-ring[data-cache] { padding-inline: 6px 8px; }
+.ctx-ring .ctx-cache { font: 12px/1 ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; color: var(--dim); }
+.ctx-ring .ctx-cache:empty { display: none; }
+.ctx-ring[data-cache="cooling"] .ctx-cache, .cache-state[data-cache="cooling"] { color: var(--warn); }
+.cache-state { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--text); }
+.open-session .tab-cache { display: inline-flex; flex: none; margin-right: 5px; color: var(--dim); }
+.open-session .tab-cache .i { width: 13px; height: 13px; stroke-width: 1.9; }

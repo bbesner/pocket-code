@@ -670,6 +670,74 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.evaluate((a,b)=>{allSessions.find(s=>s.id===a).state={kind:'running',label:'Running',confirmed:true};allSessions.find(s=>s.id===b).state={kind:'input',label:'Needs your answer',confirmed:true};paintOpenSessions();},a,b);
    await scan('tab-status-desktop');await page.screenshot({path:path.join(out,'tab-status-desktop.png'),clip:{x:0,y:0,width:1440,height:160}});
   });
+  await check('Prompt cache (1.28): the ring counts down, the usage sheet explains it, large expiring or cold tabs are marked',async()=>{
+   await page.setViewport({width:1440,height:900});
+   const id=rows[4].id,other=rows[3].id,min=60000;
+   const cache=(ago,extra={})=>({at:Date.now()-ago*min,ttlMs:60*min,ttlKnown:true,cached:729000,lastTurn:{at:Date.now()-ago*min-2*min,read:707000,written:21000,input:4,hit:.97},...extra});
+   const ring=()=>page.$eval('#ctx-ring',e=>({kind:e.dataset.cache||null,label:e.querySelector('.ctx-cache').textContent,tip:e.dataset.tip,aria:e.getAttribute('aria-label'),color:getComputedStyle(e.querySelector('.ctx-cache')).color,w:e.getBoundingClientRect().width}));
+   const repaint=async kind=>{await page.evaluate(id=>paintContextMeter(id),id);await page.waitForFunction(k=>(document.querySelector('#ctx-ring')?.dataset.cache||null)===k,{},kind);};
+   try{
+    setMode({cache:cache(8)});
+    await page.goto(base+'/#/chat/'+id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},id);
+    await repaint('warm'); // already open from the previous check, so the hash change alone refetches nothing
+    const warm=await ring();
+    assert.match(warm.label,/^5[12]m$/,'minutes left beside the ring');assert.equal(warm.color,'rgb(169, 158, 147)','warm is dim, not a warning');
+    assert.match(warm.tip,/435k of 1M tokens used \(44%\) · Prompt cache warm: about 5[12] min left, until .+ ET/);
+    assert.match(warm.aria,/Context window for Opus 5\.5: 435k of 1M tokens used \(44%\)\. Prompt cache warm: about 5[12] min left, until .+ ET\. Open usage$/);
+    await page.click('#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
+    let sheet=await page.$eval('.usage-sheet .cache-block',e=>e.textContent.replace(/\s+/g,' '));
+    assert.match(sheet,/Prompt cache/);assert.match(sheet,/Status ?Warm · about 5[12] min left/);assert.match(sheet,/Expires ?([A-Z][a-z]{2} \d+, )?\d/);
+    assert.match(sheet,/Cached ?729k tokens/);assert.match(sheet,/Lifetime ?1 hour/);assert.match(sheet,/The last turn, at .+ ET, started 97% from cache\./);
+    assert.match(sheet,/Estimated from the last request at .+ ET; each request restarts the lifetime/);
+    await page.waitForSelector('.usage-sheet #usage-body .usage-block');
+    await scan('cache-usage-sheet');await page.screenshot({path:path.join(out,'cache-usage-sheet.png')});
+    await page.keyboard.press('Escape');
+    setMode({cache:cache(55)});await repaint('cooling');
+    const cooling=await ring();assert.equal(cooling.label,'4m');assert.equal(cooling.color,'rgb(217, 169, 78)','the last stretch is amber');assert.match(cooling.tip,/Prompt cache cooling: about 4 min left/);
+    await page.setViewport({width:390,height:844});await repaint('cooling');
+    const phone=await page.evaluate(()=>{const r=document.getElementById('ctx-ring'),b=r.getBoundingClientRect(),row=r.parentElement.getBoundingClientRect();return {overflow:document.documentElement.scrollWidth>innerWidth,inRow:b.right<=row.right+0.5&&b.top>=row.top-0.5,h:b.height,x:b.x,y:b.y};});
+    assert.equal(phone.overflow,false);assert.ok(phone.inRow,'the label stays inside the composer row');assert.ok(phone.h>=44,'still a 44px target');
+    await scan('cache-ring-phone');await page.screenshot({path:path.join(out,'cache-ring-phone.png'),clip:{x:0,y:Math.max(0,phone.y-120),width:390,height:200}});
+    await page.setViewport({width:1440,height:900});
+    setMode({cache:cache(125,{lastTurn:{at:Date.now()-130*min,read:0,written:729000,input:4,hit:0}})});await repaint('cold');
+    const cold=await ring();assert.equal(cold.label,'cold');assert.match(cold.aria,/Prompt cache expired at .+ ET; the next turn writes 729k tokens to cache again\. Open usage$/);
+    const rr=await page.$eval('#ctx-ring',e=>{const b=e.getBoundingClientRect();return {x:b.x,y:b.y};});
+    await page.screenshot({path:path.join(out,'cache-ring-cold.png'),clip:{x:Math.max(0,rr.x-160),y:Math.max(0,rr.y-40),width:420,height:120}});
+    await page.click('#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
+    sheet=await page.$eval('.usage-sheet .cache-block',e=>e.textContent.replace(/\s+/g,' '));
+    assert.match(sheet,/Status ?Cold/);assert.match(sheet,/Expired ?([A-Z][a-z]{2} \d+, )?\d/);assert.match(sheet,/The last turn, at .+ ET, started cold: 729k tokens written to cache\./);assert.match(sheet,/The next turn writes the context to cache again/);
+    await page.keyboard.press('Escape');
+    setMode({cache:{...cache(8),ttlKnown:false,ttlMs:5*min,at:Date.now()-min}});await repaint('warm');
+    await page.click('#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
+    assert.match(await page.$eval('.usage-sheet .cache-block',e=>e.textContent.replace(/\s+/g,' ')),/Lifetime ?5 minutes \(assumed\)/);
+    await page.keyboard.press('Escape');
+    setMode({cache:null});await repaint(null);
+    const none=await ring();assert.equal(none.label,'');assert.equal(none.w,44,'no estimate: the ring alone, as before');assert.doesNotMatch(none.tip,/cache/i);
+    // Tabs: only large sessions that are expiring or expired; warm, small and unconfirmed show nothing.
+    await page.goto(base+'/#/chat/'+other);await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},other);
+    await page.goto(base+'/#/chat/'+id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},id);
+    const r=await page.evaluate((a,b)=>{
+     const sa=allSessions.find(s=>s.id===a),sb=allSessions.find(s=>s.id===b),saved=[sa.cache,sb.cache],at=m=>Date.now()+serverSkew-m*60000;
+     const read=id=>{const tab=[...document.querySelectorAll('#open-sessions .open-session')].find(e=>e.querySelector('a').getAttribute('href').endsWith(id)),m=tab.querySelector('.tab-cache');
+      return m?{cls:m.className,label:m.getAttribute('aria-label'),role:m.getAttribute('role'),w:m.getBoundingClientRect().width,color:getComputedStyle(m).color,tip:tab.querySelector('a').title,text:tab.querySelector('a').textContent}:null;};
+     const out={};
+     sa.cache={at:at(125),ttlMs:3600000,cached:300000};sb.cache={at:at(55),ttlMs:3600000,cached:300000};paintOpenSessions();out.cold=read(a);out.cooling=read(b);
+     sa.cache={at:at(5),ttlMs:3600000,cached:300000};sb.cache={at:at(125),ttlMs:3600000,cached:50000};paintOpenSessions();out.warm=read(a);out.small=read(b);
+     sa.cache={at:at(125),ttlMs:3600000,cached:300000};sessionsStale=true;paintOpenSessions();out.stale=read(a);
+     sessionsStale=false;[sa.cache,sb.cache]=saved;paintOpenSessions();
+     return out;
+    },other,id);
+    assert.match(r.cold.cls,/tab-cache-cold/);assert.equal(r.cold.role,'img');assert.equal(r.cold.label,'Prompt cache expired: 300k tokens to write again');
+    assert.match(r.cold.tip,/ · Prompt cache expired: 300k tokens to write again$/);assert.equal(r.cold.text,rows[3].title,'the mark adds no text to the tab');
+    assert.ok(r.cold.w<=13,'small enough not to widen the tab');assert.equal(r.cold.color,'rgb(169, 158, 147)','dim, so it never reads as a session status colour');
+    assert.match(r.cooling.cls,/tab-cache-cooling/);assert.equal(r.cooling.label,'Prompt cache expiring soon');
+    assert.equal(r.warm,null,'a warm cache shows nothing');assert.equal(r.small,null,'a small session shows nothing');assert.equal(r.stale,null,'an unconfirmed list shows nothing');
+    // The live list carries the estimate: both marks arrive with the next poll.
+    rows[3].cache={at:Date.now()-125*min,ttlMs:60*min,cached:300000};rows[4].cache={at:Date.now()-55*min,ttlMs:60*min,cached:640000};
+    await page.waitForFunction(()=>document.querySelectorAll('#open-sessions .tab-cache').length===2,{timeout:12000});
+    await scan('cache-tabs-desktop');await page.screenshot({path:path.join(out,'cache-tabs-desktop.png'),clip:{x:0,y:0,width:1440,height:160}});
+   }finally{setMode({cache:null});delete rows[3].cache;delete rows[4].cache;}
+  });
   await check('Voice: one tap mutes replies and announcements on this device; settings mirror it; hands-free turns it back on',async()=>{
    await page.setViewport({width:390,height:844});await chat();await page.waitForSelector('#micb:not([hidden])');
    await page.waitForSelector('[data-voice-mute]:not([hidden])');

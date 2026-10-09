@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.27.2 / build 66**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.28.0 / build 67**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -37,7 +37,7 @@ Screenshots use synthetic demo sessions, not private conversations.
   Plan first mode, or start from an installed skill and a project directory.
 - **See status and limits.** Distinguish confirmed server work from activity elsewhere,
   watch the context ring beside the composer fill (hover for tokens, click for the session's usage and
-  plan limits), inspect this instance's accounts, and switch its Claude Code login.
+  plan limits), see how long a Claude session's prompt cache stays warm, inspect this instance's accounts, and switch its Claude Code login.
 - **Get completion alerts.** Enable optional push notifications, an on-screen chime,
   or per-session muting. Push requires HTTPS, server keys and browser permission.
 - **Talk to a session (beta, optional).** Tap the mic beside Send and speak; a short summary of

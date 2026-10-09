@@ -252,14 +252,22 @@ function tabState(id){
  const st=listState(row);
  return ['running','input','failed','finished','observed','waiting'].includes(st.kind)?{kind:st.kind,label:st.kind==='finished'?'Response ready':st.label}:null;
 }
+// 1.28: a large session whose prompt cache is about to expire (hourglass) or has expired (snowflake). Resuming it
+// cold writes the whole context to cache again. Warm and small sessions show nothing; an unconfirmed list neither.
+function tabCache(id){
+ if(typeof allSessions==='undefined'||sessionsStale||typeof cacheStatus!=='function')return null;
+ const c=allSessions.find(s=>s.id===id)?.cache;if(!c||!(c.cached>=CACHE_MARK_MIN))return null;
+ const st=cacheStatus(c);if(!st||st.kind==='warm')return null;
+ return st.kind==='cold'?{kind:'cold',label:'Prompt cache expired: '+fmtTokens(c.cached)+' tokens to write again'}:{kind:'cooling',label:'Prompt cache expiring soon'};
+}
 function paintOpenSessions(){
  const el=document.getElementById('open-sessions');if(!el)return;
  const list=orderedOpenSessions();
  // Repaint only when something shows differently: the list refreshes every few seconds and must not snap the strip's scroll back.
- const states=list.map(s=>tabState(s.id));
- const key=JSON.stringify([chatId,list.map((s,i)=>[s.id,s.title,Boolean(pinnedSession(s.id)),states[i]?.kind,states[i]?.label])]);
+ const states=list.map(s=>tabState(s.id)),caches=list.map(s=>tabCache(s.id));
+ const key=JSON.stringify([chatId,list.map((s,i)=>[s.id,s.title,Boolean(pinnedSession(s.id)),states[i]?.kind,states[i]?.label,caches[i]?.label])]);
  if(el.dataset.key===key)return;el.dataset.key=key;
- el.innerHTML=list.map((s,i)=>{const pinned=Boolean(pinnedSession(s.id)),st=states[i];return `<span class="open-session ${s.id===chatId?'current':''} ${pinned?'pinned':''}"><a href="#/chat/${encodeURIComponent(s.id).replaceAll('%3A',':')}" ${s.id===chatId?'aria-current="page"':''} title="${esc(s.title)}${pinned?' · Pinned':''}${st?' · '+esc(st.label):''}">${st?`<span class="tab-state ${st.kind==='running'?'ember':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:''}${pinned?`<span class="pinmark">${IC.pin}</span><span class="vh">Pinned: </span>`:''}${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`;}).join('');
+ el.innerHTML=list.map((s,i)=>{const pinned=Boolean(pinnedSession(s.id)),st=states[i],ca=caches[i];return `<span class="open-session ${s.id===chatId?'current':''} ${pinned?'pinned':''}"><a href="#/chat/${encodeURIComponent(s.id).replaceAll('%3A',':')}" ${s.id===chatId?'aria-current="page"':''} title="${esc(s.title)}${pinned?' · Pinned':''}${st?' · '+esc(st.label):''}${ca?' · '+esc(ca.label):''}">${st?`<span class="tab-state ${st.kind==='running'?'ember':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:''}${pinned?`<span class="pinmark">${IC.pin}</span><span class="vh">Pinned: </span>`:''}${ca?`<span class="tab-cache tab-cache-${ca.kind}" role="img" aria-label="${esc(ca.label)}">${ca.kind==='cold'?IC.snow:IC.hourglass}</span>`:''}${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`;}).join('');
  el.querySelectorAll('[data-close-session]').forEach(b=>b.onclick=()=>{
   const id=b.dataset.closeSession,shown=orderedOpenSessions(),index=shown.findIndex(s=>s.id===id),rest=shown.filter(s=>s.id!==id);
   openSessions=openSessions.filter(s=>s.id!==id);writeLocal('pc-open-sessions',openSessions);

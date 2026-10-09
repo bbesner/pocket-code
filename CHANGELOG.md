@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.28.0] — Unreleased · build 67
+
+- **Prompt cache warmth.** Claude keeps a session's context in a prompt cache for a while after each request: one hour on a normal plan, five minutes in some cases such as extra usage. A turn that starts while the cache is warm reads the context at a fraction of the cost; after it expires, the next turn writes the whole context again, which on a large session uses noticeably more of your plan. Pocket now shows it. Requested by Brad.
+- **Beside the context ring:** minutes left while the cache is warm (`51m`), amber in the last stretch (the final ten minutes of an hour), and `cold` once it has expired. Hover or focus the ring for the expiry time; the screen-reader name says the same.
+- **In Usage:** a Prompt cache section under This session with the status, when it expires or expired, how many tokens are cached, the lifetime, and how the last turn started (for example "The last turn, at 9:05 PM ET, started 99% from cache").
+- **On each reply's turn line:** the share of the turn's first request that came from cache ("$0.42 · 35s · 97% cached"), or "cold start".
+- **On open-session tabs:** an hourglass when a session with at least 100k cached tokens is about to expire, and a snowflake once it has. Warm and smaller sessions show nothing; the tooltip and screen-reader label explain the mark.
+- These are estimates, from the last request in the transcript and the cache lifetime it used. Each request restarts the lifetime, and the provider can drop a cache sooner. Turns run in a terminal or code-server count too. Codex sessions show nothing. Checked against 150 recent transcripts on the owner's server: every resume after more than 65 idle minutes started cold (56 of 56), and 103 of 109 resumes under 55 minutes started warm.
+
 ## [1.27.2] — 2026-10-08 · build 66
 
 - Switching between Claude Code and Codex clears incompatible model choices. Opening an affected session repairs its saved selection to Default. Other preferences and drafts stay intact.

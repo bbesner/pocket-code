@@ -242,6 +242,16 @@ the model, tokens used, the window size and the percentage; click it for this se
 window (window, used, free, as of) and the provider's plan limits. Estimates are labelled. It shows the
 latest known context relative to the model window, not cumulative token billing for the whole turn.
 
+Beside the ring, Claude sessions show how long the prompt cache stays warm (1.28): minutes left, amber in
+the last stretch, `cold` once it has expired. Claude caches the session's context after each request for a
+lifetime (one hour on a normal plan, five minutes in some cases such as extra usage); a turn that starts
+while it is warm reads the context cheaply, while a turn after it expires writes the whole context to cache
+again. Usage → **Prompt cache** gives the status, expiry, cached tokens, lifetime and how the last turn
+started; each reply's turn line adds "97% cached" or "cold start". Open-session tabs mark sessions with
+at least 100k cached tokens with an hourglass when the cache is about to expire and a snowflake once it has.
+All of this is an estimate from the transcript's last request, so it includes turns run in a terminal or
+code-server; the provider can drop a cache sooner. Codex sessions show no cache figures.
+
 ## Settings, notifications and compact views
 
 Settings opens without waiting for notification support. Accounts & instance, Plan
