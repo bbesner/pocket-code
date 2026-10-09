@@ -151,10 +151,11 @@ function chooseBeside(){
  }
  rows.unshift(['new','New session','Start a conversation in the new pane']);
  if(typeof projectsOn==='function'&&projectsOn()){ // 1.29: project views open beside like sessions
-  const shown=new Set([typeof boardView!=='undefined'?boardView:null,...splitPanes.map(p=>p.id)]);
+  const shown=new Set([currentView(),...splitPanes.map(p=>p.id)]);
   const views=[['projects','Projects','All tracked projects'],['projects/scheduled','Scheduled','Reminders, due first'],...((typeof boardSnap!=='undefined'&&boardSnap)?boardSnap.projects.filter(p=>p.status!=='done').slice(0,6).map(p=>['projects/'+p.id,p.name,p.next||p.summary||'Project']):[])].filter(r=>!shown.has(r[0]));
   rows.splice(1,0,...views);
  }
+ if(typeof documentsOn==='function'&&documentsOn()&&![currentView(),...splitPanes.map(p=>p.id)].includes('documents'))rows.splice(1,0,['documents','Documents','The library of files from the work']);
  sheet('Open beside this conversation',rows,null,v=>openBeside(v==='new'?null:v));
 }
 if(PANE){
@@ -170,7 +171,7 @@ if(PANE){
   if(type==='route'&&typeof id==='string'&&validPane({key:p.key,id})){p.id=id;saveSplit();frame.title='Session beside: '+(typeof title==='string'?title:sessionTitle(id));}
   if(type==='close')closePane(p.key);
   if(type==='main'&&p.id){
-   const mainId=chatId||(typeof boardView!=='undefined'?boardView:null);location.hash=tabHref(p.id);
+   const mainId=chatId||currentView();location.hash=tabHref(p.id);
    if(mainId&&mainId!==p.id){p.id=mainId;saveSplit();frame.title='Session beside: '+sessionTitle(mainId);frame.contentWindow.location.hash=tabHref(mainId);}else closePane(p.key);
   }
  });

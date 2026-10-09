@@ -8,6 +8,24 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Documents (1.30)
+
+Pinned Operate refinement: variance 3, motion 1, density 6; existing tokens. Read: the
+library in the session-row voice with one small mono kind tag (`HTML`, `PDF`, `MD` … in a
+`--raised` pill, 11px), the viewer as a frame under Pocket's bar with a row of chips above it
+(Open in your viewer, Download, Share, Project, Session). No new colour: a shared document
+says *Link* or *Public* in words; the Share chip takes the existing `.set` accent when the
+document is not private. The HTML frame is white (the document's own canvas), PDFs use the
+browser's viewer, Markdown reuses the reply typography (`.m-asst`), CSV becomes a sticky-
+header table in tabular numerals. The share sheet reuses `.opt` rows for the three
+visibilities, a mono read-only URL field with Copy, and the `.voice-field` select for
+expiry. The rail head grows a third segment, *Docs*, kept short so Sessions · Projects ·
+Docs fits the 320px rail.
+
+Rendered checks: no horizontal overflow at 390 for the library and an HTML document; axe
+clean on the library, the HTML document and the phone view; the detector reports only the
+app-shell baseline; the sandbox probe in the fixture dashboard reports isolation.
+
 ## Projects (1.29)
 
 Pinned Operate refinement (design-studio → impeccable): variance 3, motion 1, density 6.

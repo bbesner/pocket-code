@@ -287,6 +287,35 @@ count), or beside the conversation if Settings → Tools says so. *Open beside* 
 view* also offer Projects, Scheduled and the active projects. On the phone, the session
 home shows a **Projects** chip and views open full-screen.
 
+## Documents
+
+Documents (1.30) is the library of files that came out of sessions: HTML reports and
+dashboards, PDFs, images, Markdown, text, CSV, JSON, Office files and video. It is off
+until **Settings → Tools → Documents** turns it on for the whole install.
+
+A document gets in four ways: an agent keeps it with `pocket-docs add` (agents started by
+Pocket are told to do this for deliverables, linked to the session, and never to share
+unless you ask); **Keep as document** on a file in a session's Results panel; **Upload**
+in the library or the rail; or a file placed in the documents folder, which appears as a
+private document on the next listing. Each document knows the session and project it came
+from; a project card lists its documents and the library filters by project.
+
+HTML renders in a sandboxed frame that keeps the document away from Pocket's cookies,
+storage and API while its own scripts still run. PDFs, images, Markdown, text, CSV and JSON
+render natively. **Open in your viewer** hands the file to the device (a PDF to the phone's
+PDF app); **Download** saves it. Office files and video always open that way.
+
+**Share** sets the visibility: *Private* (behind the Pocket login), *Anyone with the link*
+(an unguessable address, with an optional expiry; *New link* revokes the old one) or
+*Public* (a fixed address by file name). All are served by Pocket on its own hostname.
+**Remove** moves a document to the trash for 30 days, where *Restore* brings it back;
+any link stops working at once.
+
+Documents open like projects: as a tab in the strip, beside a conversation (*Open beside*
+and *Split view* offer the library), or full-screen on the phone. The rail head's switch
+gains **Docs**; the phone's session home gets a Documents chip. Settings → Tools chooses
+whether picking a document from the rail opens a tab or a pane.
+
 ## Settings, notifications and compact views
 
 Settings opens without waiting for notification support. Accounts & instance, Plan

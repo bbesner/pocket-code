@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v69';
-const SHELL = ['/', '/release.json?v=69', '/app.css?v=69', '/app.js?v=69', '/workspace.js?v=69', '/projects.js?v=69', '/approvals.js?v=69', '/split.js?v=69', '/tips.js?v=69', '/format.js?v=69', '/voice-text.js?v=69', '/voice.js?v=69', '/voice-worklet.js?v=69', '/vendor/marked.js?v=69', '/vendor/purify.js?v=69', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v70';
+const SHELL = ['/', '/release.json?v=70', '/app.css?v=70', '/app.js?v=70', '/workspace.js?v=70', '/projects.js?v=70', '/documents.js?v=70', '/approvals.js?v=70', '/split.js?v=70', '/tips.js?v=70', '/format.js?v=70', '/voice-text.js?v=70', '/voice.js?v=70', '/voice-worklet.js?v=70', '/vendor/marked.js?v=70', '/vendor/purify.js?v=70', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -9,7 +9,7 @@ self.addEventListener('activate', e => {
 });
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (url.pathname.startsWith('/api/')) return; // network only
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/files/') || url.pathname.startsWith('/share/')) return; // network only; documents are never cached
   e.respondWith(
     fetch(e.request).then(r => {
       if (r.ok && e.request.method === 'GET') {

@@ -34,6 +34,7 @@ import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 import {PromptStore} from './prompts.mjs';
 import {ClaudeLogin} from './claude-login.mjs';
 import {ProjectStore, projectInstructions} from './projects.mjs';
+import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -172,7 +173,7 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const loadSettings = () => { try { return { titleSync: false, projects: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false }; } };
+const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
 
@@ -184,11 +185,21 @@ const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
 // POCKET_REMINDER_HOOK, to that command with the reminder as JSON on stdin; each is announced once.
 const board = new ProjectStore(path.join(DATA_DIR, 'projects.json'));
 const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
-codex.setExtraInstructions(threadId => settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '');
+// ---------- 1.30: documents ----------
+// The library (documents.mjs): files in POCKET_DOCUMENTS_DIR, records in <data dir>/documents.json. Off until
+// Settings → Tools turns it on; while off nothing is served, not even public files. The same loopback token as
+// the board serves pocket-docs on /api/documents* only.
+const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'documents');
+const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
+const DOCS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-docs.mjs');
+const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Documents is off. Turn it on in Settings → Tools.', code: 'documents_off' });
+setInterval(() => { try { const gone = docs.purge(); if (gone.length) log(`documents purged from trash: ${gone.length}`); } catch (e) { log('documents purge: ' + e.message); } }, 6 * 3600_000).unref();
+codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : ''].filter(Boolean).join(' '));
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
 const cliToken = randomBytes(32).toString('hex');
 fs.writeFileSync(CLI_TOKEN_FILE, cliToken + '\n', { mode: 0o600 }); fs.chmodSync(CLI_TOKEN_FILE, 0o600);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+// Cookie, or the loopback CLI token: mounted only on /api/board* and /api/documents*.
 function requireBoardAuth(req, res, next) {
   if (checkCookie(getCookie(req, 'pc_auth'))) return next();
   const m = /^Bearer ([0-9a-f]{64})$/.exec(req.get('authorization') || '');
@@ -1037,7 +1048,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
-  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : ''].filter(Boolean).join(' ');
+  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : ''].filter(Boolean).join(' ');
   if (extra) args.push('--append-system-prompt', extra);
   args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
   args.push(resume ? '--resume' : '--session-id', sessionId);
@@ -1478,7 +1489,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
-app.get('/api/me', (req, res) => res.json({ ok: checkCookie(getCookie(req, 'pc_auth')), features: { projects: Boolean(settings.projects) } }));
+app.get('/api/me', (req, res) => res.json({ ok: checkCookie(getCookie(req, 'pc_auth')), features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents) } }));
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -2188,8 +2199,9 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (['auto', 'claude', 'codex'].includes(req.body?.titleProvider)) settings.titleProvider = req.body.titleProvider;
   if (typeof req.body?.awaySummaries === 'boolean') settings.awaySummaries = req.body.awaySummaries;
   if (typeof req.body?.projects === 'boolean') settings.projects = req.body.projects;
+  if (typeof req.body?.documents === 'boolean') settings.documents = req.body.documents;
   saveSettings();
-  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} projects=${settings.projects}`);
+  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} projects=${settings.projects} documents=${settings.documents}`);
   res.json({ ...settings, titles: titleSettings() });
 });
 
@@ -2378,6 +2390,89 @@ app.post('/api/board/import', requireBoardAuth, boardOn, (req, res) => {
   } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
 });
 
+// ---------- 1.30: documents routes ----------
+// A document is sent as itself, never under the app's authority: no-store, nosniff, noindex, and for HTML a
+// sandbox policy that lets a dashboard's scripts run while denying it cookies, storage and the API. Public and
+// share responses add frame-ancestors 'none'; the authenticated raw route allows Pocket's own viewer frame.
+function sendDocument(res, r, { download = false, framed = false } = {}) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  const ancestors = framed ? "frame-ancestors 'self'" : "frame-ancestors 'none'";
+  res.setHeader('Content-Security-Policy', r.kind === 'html' ? `sandbox allow-scripts allow-popups allow-downloads allow-forms; ${ancestors}` : `default-src 'none'; style-src 'unsafe-inline'; ${ancestors}`);
+  res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(r.file)}`);
+  res.type(mimeOf(r.file));
+  res.sendFile(docs.filePath(r), { dotfiles: 'allow', headers: { 'Content-Type': mimeOf(r.file) } }, err => { if (err && !res.headersSent) res.status(err.code === 'ENOENT' ? 404 : 503).end(); });
+}
+// A source path an agent or the Results panel may hand in: a regular file under the home directory, outside dot-directories.
+async function documentSource(p) {
+  const requested = String(p || '');
+  if (!requested.startsWith('/')) throw Object.assign(new Error('The path must be a full path.'), { status: 400 });
+  let real; try { real = await fsp.realpath(requested); } catch { throw Object.assign(new Error('That file does not exist.'), { status: 404 }); }
+  if (!real.startsWith(HOME + '/') || real.slice(HOME.length + 1).split('/').some(x => x.startsWith('.'))) throw Object.assign(new Error('Files outside the home directory, or in hidden directories, are not kept.'), { status: 403 });
+  const st = await fsp.stat(real); if (!st.isFile()) throw Object.assign(new Error('That is not a file.'), { status: 400 });
+  return real;
+}
+const docError = (res, e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); };
+app.get('/api/documents', requireBoardAuth, docsOn, (req, res) => {
+  const project = typeof req.query.project === 'string' ? req.query.project : '', q = typeof req.query.q === 'string' ? req.query.q : '';
+  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays } });
+});
+app.post('/api/documents', requireAuth, docsOn, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
+  try {
+    const d = docs.addFromBuffer(String(req.headers['x-filename'] || ''), req.body, { addedBy: 'ui', project: String(req.headers['x-project'] || ''), session: String(req.headers['x-session'] || '') || null });
+    log(`document added by upload ${d.id} ${d.file} (${d.size} bytes)`); res.json(d);
+  } catch (e) { docError(res, e); }
+});
+app.post('/api/documents/add', requireBoardAuth, docsOn, async (req, res) => {
+  try {
+    const real = await documentSource(req.body?.path);
+    const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: req.body?.session || null, visibility: VISIBILITY_OK(req.body?.visibility), addedBy: req.boardActor === 'cli' ? 'cli' : 'ui' });
+    log(`document added ${d.id} ${d.file} by ${req.boardActor || 'ui'}`); res.json(d);
+  } catch (e) { docError(res, e); }
+});
+const VISIBILITY_OK = v => ['private', 'link', 'public'].includes(v) ? v : 'private';
+// Keep as document from a session's Results: the path must be one of that session's file results.
+app.post('/api/documents/keep', requireAuth, docsOn, async (req, res) => {
+  const id = String(req.body?.session || ''), requested = String(req.body?.path || '');
+  if (!anyId(id)) return res.status(400).json({ error: 'Invalid session' });
+  try {
+    const { results } = await sessionResults(id);
+    if (!results.some(r => r.kind === 'file' && r.target === requested)) return res.status(403).json({ error: 'This file is not a result referenced by the session.' });
+    const real = await documentSource(requested);
+    const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: id, addedBy: 'session' });
+    log(`document kept from session ${id}: ${d.id} ${d.file}`); res.json(d);
+  } catch (e) { docError(res, e); }
+});
+app.post('/api/documents/import', requireBoardAuth, docsOn, (req, res) => {
+  try { const r = docs.importMeta(req.body); log(`documents import: ${JSON.stringify(r.counts)} adopted=${r.adopted} missing=${r.missing.length}`); res.json({ ok: true, ...r }); }
+  catch (e) { docError(res, e); }
+});
+app.get('/api/documents/:id/raw', requireAuth, docsOn, (req, res) => {
+  let r; try { r = docs.get(req.params.id); } catch (e) { return docError(res, e); }
+  if (r.trashedAt && req.query.trash !== '1') return res.status(404).end();
+  sendDocument(res, r, { download: req.query.download === '1', framed: true });
+});
+app.post('/api/documents/:id', requireBoardAuth, docsOn, (req, res) => {
+  const action = req.body?.action;
+  try {
+    const r = action === 'trash' ? docs.trash(req.params.id) : action === 'restore' ? docs.restore(req.params.id) : docs.update(req.params.id, req.body || {}, { actor: req.boardActor || 'ui' });
+    log(`document ${action || 'updated'} ${req.params.id} by ${req.boardActor || 'ui'}`); res.json(r);
+  } catch (e) { docError(res, e); }
+});
+// Unauthenticated: public files by name, link documents by token. Nothing while the feature is off.
+app.get('/files/:name', (req, res) => {
+  if (!settings.documents) return res.status(404).end();
+  const r = docs.resolvePublic(req.params.name); if (!r) return res.status(404).end();
+  sendDocument(res, r, { download: req.query.download === '1' });
+});
+app.get('/share/:token', (req, res) => {
+  if (!settings.documents) return res.status(404).end();
+  const r = docs.resolveShare(req.params.token); if (!r) return res.status(404).end();
+  sendDocument(res, r, { download: req.query.download === '1' });
+});
+
 // ---------- push endpoints ----------
 app.get('/api/push/key', requireAuth, (_req, res) => res.json({ key: pushReady ? process.env.VAPID_PUBLIC : null }));
 app.post('/api/push/subscribe', requireAuth, (req, res) => {
@@ -2424,7 +2519,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Projects: track the work that comes out of your sessions. A card per project with where you left off, the next step, remaining steps, reminders and the sessions that worked on it; a Scheduled view of every reminder, due first; a Sessions · Projects switch in the desktop rail; projects open as a tab, beside a conversation, or full-screen on the phone. Off until you turn it on in Settings → Tools. Agents keep cards current with the new pocket-board command; reminders go to your devices by push and, if the server sets a reminder hook, wherever it sends them."
+  "Documents: a library of the files that came out of your sessions. HTML renders in a sandboxed frame, PDFs, images, Markdown and CSV natively; a document opens as a tab, beside a conversation, full-screen on the phone, or in your device's own viewer. Share as a private, link or public document, all served by Pocket itself. Keep a file from a session's Results, upload one, or let agents keep deliverables with the new pocket-docs command. Off until you turn it on in Settings → Tools."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

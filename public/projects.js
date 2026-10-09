@@ -25,7 +25,7 @@ async function boardAct(body,done){
  catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();}toast(e.message||'Could not update the project');return null;}
 }
 const boardDueCount=()=>boardSnap?.dueCount||0;
-const viewTitle=id=>id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
+const viewTitle=id=>id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'Documents'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
 const fmtDue=iso=>{const d=new Date(iso),now=new Date();const sameYear=d.getFullYear()===now.getFullYear();return d.toLocaleDateString('en-US',{month:'short',day:'numeric',...(sameYear?{}:{year:'numeric'})})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
 const fmtStamp=iso=>rel(Date.parse(iso));
 const statusWord={active:'Active',waiting:'Waiting',done:'Done'};
@@ -33,7 +33,7 @@ const statusWord={active:'Active',waiting:'Waiting',done:'Done'};
 /* ---------- the three views ---------- */
 async function renderProjects(view){
  Voice.onLeave?.();
- boardView=view;
+ boardView=view;if(typeof docView!=='undefined')docView=null;
  const kind=view==='projects'?'list':view==='projects/scheduled'?'scheduled':'card';
  const col=`<header class="bar">
    ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
@@ -118,6 +118,7 @@ function projectCardHTML(p){
   <section class="project-sessions"><h2>Sessions <span>${p.sessions.length||''}</span></h2>
    ${p.sessions.length?p.sessions.map(id=>`<div class="session-item linked-session" data-item="${esc(id)}"><a class="row" href="#/chat/${esc(id)}"><span class="body"><span class="title">${sessionMarkHTML(id)}${esc(sessionName(id))}</span><span class="meta">${id.startsWith('cx:')?'Codex':'Claude'}${typeof tabState==='function'&&tabState(id)?' · '+esc(tabState(id).label):''}</span></span></a><button class="session-more icon" data-session-more="${esc(id)}" aria-label="Options for ${esc(sessionName(id))}">${IC.more}</button></div>`).join('')
    :'<p class="project-empty">No sessions linked. From a session\'s options, choose Add to project.</p>'}</section>
+  ${typeof projectDocumentsHTML==='function'?projectDocumentsHTML(p.id):''}
   <section class="project-notes"><form class="task-add" data-note-add><input name="text" maxlength="600" required placeholder="Add a note" aria-label="New note" autocomplete="off"><button class="chip" type="submit">Note</button></form></section>
   <details class="settings-details project-history"><summary>History<span class="summary-meta">${p.history.length}</span></summary><ul>${p.history.slice().reverse().map(h=>`<li><span class="ledger"><span class="name">${esc(fmtDue(h.at))}</span><span class="det">${esc(historyLine(h))}</span></span></li>`).join('')}</ul></details>
   <div class="project-actions">${done?'<button class="chip set" data-resume>Resume project</button>':`<button class="chip" data-edit>Edit</button><button class="chip" data-remind>Remind me</button><button class="chip" data-finish>Finish project</button>`}</div>
@@ -147,6 +148,7 @@ function bindProjectsView(main){
  main.querySelector('[data-remind]')?.addEventListener('click',()=>reminderSheet(id,null));
  main.querySelector('[data-finish]')?.addEventListener('click',()=>confirmSheet('Finish this project?','It moves to Done and its reminders stop. Unchecked steps stay in its history; Resume brings it back without them.','Finish project',()=>act({action:'update',status:'done'},'Project finished')));
  main.querySelectorAll('[data-session-more]').forEach(b=>b.onclick=()=>linkedSessionOptions(id,b.dataset.sessionMore));
+ if(typeof bindProjectDocuments==='function')bindProjectDocuments(main,id);
 }
 /* ---------- sheets ---------- */
 function confirmSheet(title,help,yes,onYes){
@@ -298,7 +300,7 @@ function rememberOpenView(id,title){
  if(openSessions.length>12)openSessions.shift();
  writeLocal('pc-open-sessions',openSessions);paintOpenSessions();
 }
-const viewTabState=id=>{if(!boardSnap)return null;const p=id==='projects'||id==='projects/scheduled'?null:projectById(id.slice(9));const due=p?p.dueCount:boardDueCount();return due?{kind:'due',label:due===1?'A reminder is due':due+' reminders are due'}:null;};
+const viewTabState=id=>{if(id.startsWith('documents'))return null;if(!boardSnap)return null;const p=id==='projects'||id==='projects/scheduled'?null:projectById(id.slice(9));const due=p?p.dueCount:boardDueCount();return due?{kind:'due',label:due===1?'A reminder is due':due+' reminders are due'}:null;};
 function railProjectsHTML(){
  if(!boardSnap)return '<p class="sheet-help">Loading projects…</p>';
  const due=boardDueCount(),rows=boardSnap.projects.filter(p=>p.status!=='done');

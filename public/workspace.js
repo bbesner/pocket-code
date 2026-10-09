@@ -8,9 +8,11 @@ const NEW_KEY=PANE&&PANE_KEY?'new-pane-'+PANE_KEY:'new';
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function writeLocal(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
 // 1.29: project views open like sessions (tabs, panes); their ids are routes without the leading #/.
-const VIEW_TAB_RE=/^projects(?:\/(scheduled|[a-z0-9][a-z0-9-]{0,79}))?$/;
+const VIEW_TAB_RE=/^(?:projects(?:\/(?:scheduled|[a-z0-9][a-z0-9-]{0,79}))?|documents(?:\/[0-9a-f]{12})?)$/; // 1.30: documents too
 const isViewId=id=>typeof id==='string'&&VIEW_TAB_RE.test(id);
 const tabHref=id=>isViewId(id)?'#/'+id:'#/chat/'+encodeURIComponent(id).replaceAll('%3A',':');
+// The view the main column shows when it is not a conversation: a project view (1.29) or a document view (1.30).
+const currentView=()=>(typeof boardView!=='undefined'&&boardView)||(typeof docView!=='undefined'&&docView)||null;
 // Native radio keyboard conventions for our button-based choices.
 function bindRadioGroup(group) {
  const radios=()=>[...group.querySelectorAll('[role="radio"]')].filter(el=>!el.disabled);
@@ -270,14 +272,14 @@ function paintOpenSessions(){
  const list=orderedOpenSessions();
  // Repaint only when something shows differently: the list refreshes every few seconds and must not snap the strip's scroll back.
  const states=list.map(s=>tabState(s.id)),caches=list.map(s=>tabCache(s.id));
- const current=id=>id===chatId||(!chatId&&typeof boardView!=='undefined'&&id===boardView);
- const key=JSON.stringify([chatId,typeof boardView!=='undefined'?boardView:null,list.map((s,i)=>[s.id,s.title,Boolean(pinnedSession(s.id)),states[i]?.kind,states[i]?.label,caches[i]?.label])]);
+ const current=id=>id===chatId||(!chatId&&id===currentView());
+ const key=JSON.stringify([chatId,currentView(),list.map((s,i)=>[s.id,s.title,Boolean(pinnedSession(s.id)),states[i]?.kind,states[i]?.label,caches[i]?.label])]);
  if(el.dataset.key===key)return;el.dataset.key=key;
  el.innerHTML=list.map((s,i)=>{const pinned=Boolean(pinnedSession(s.id)),st=states[i],ca=caches[i];return `<span class="open-session ${current(s.id)?'current':''} ${pinned?'pinned':''}"><a href="${tabHref(s.id)}" ${current(s.id)?'aria-current="page"':''} title="${esc(s.title)}${pinned?' · Pinned':''}${st?' · '+esc(st.label):''}${ca?' · '+esc(ca.label):''}">${st?`<span class="tab-state ${st.kind==='running'?'ember':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:''}${pinned?`<span class="pinmark">${IC.pin}</span><span class="vh">Pinned: </span>`:''}${ca?`<span class="tab-cache tab-cache-${ca.kind}" role="img" aria-label="${esc(ca.label)}">${ca.kind==='cold'?IC.snow:IC.hourglass}</span>`:''}${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`;}).join('');
  el.querySelectorAll('[data-close-session]').forEach(b=>b.onclick=()=>{
   const id=b.dataset.closeSession,shown=orderedOpenSessions(),index=shown.findIndex(s=>s.id===id),rest=shown.filter(s=>s.id!==id);
   openSessions=openSessions.filter(s=>s.id!==id);writeLocal('pc-open-sessions',openSessions);
-  if(chatId===id||(typeof boardView!=='undefined'&&boardView===id))location.hash=rest.length?tabHref(rest[Math.max(0,index-1)].id):'#/';else paintOpenSessions();
+  if(chatId===id||currentView()===id)location.hash=rest.length?tabHref(rest[Math.max(0,index-1)].id):'#/';else paintOpenSessions();
  });
  el.querySelector('[aria-current]')?.scrollIntoView({block:'nearest',inline:'nearest'});
 }
@@ -327,7 +329,7 @@ document.addEventListener('keydown',e=>{
  if(!document.getElementById('app')?.querySelector('[data-session-search],#box,#first'))return;
  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openSessionSwitcher();return;}
  if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='l'){e.preventDefault();location.hash='#/new';return;}
- const openId=chatId||(typeof boardView!=='undefined'?boardView:null);
+ const openId=chatId||currentView();
  if(e.altKey&&['[',']'].includes(e.key)&&openId&&!closeCurrentSheet){const shown=orderedOpenSessions(),index=shown.findIndex(s=>s.id===openId),next=shown[(index+(e.key===']'?1:-1)+shown.length)%shown.length];if(next){e.preventDefault();location.hash=tabHref(next.id);}}
 });
 

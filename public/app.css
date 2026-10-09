@@ -1057,7 +1057,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .projects-view > .sheet-help { padding-inline: 18px; }
 .session-home-head { flex-wrap: wrap; row-gap: 10px; } /* 1.29: the Projects chip beside Refresh wraps under the title on a phone */
 .projects-view .session-group h2 { padding-top: 14px; }
-.project-item .row, .reminder-item .row, .linked-session .row { display: block; min-width: 0; flex: 1; padding: 12px 8px 14px 18px; text-decoration: none; color: inherit; }
+.project-item .row, .reminder-item .row, .linked-session .row, .document-item .row { display: block; min-width: 0; flex: 1; padding: 12px 8px 14px 18px; text-decoration: none; color: inherit; }
 .project-item .row .meta { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .project-marks { display: inline-flex; gap: 4px; align-items: center; }
 .project-marks .tab-state, .linked-session .tab-state { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none; vertical-align: 1px; margin-right: 6px; }
@@ -1117,3 +1117,40 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .open-session .tab-state.tab-due { background: var(--warn); }
 .sheet h2.settings-group { padding-top: 8px; }
 .chat-statebar #project-open.linked { color: var(--clay); } /* a linked project reads as the conversation's home */
+
+/* ---------- 1.30: documents ----------
+   Library rows keep the session-row voice with a small mono kind tag; the viewer is a frame under Pocket's bar
+   with a row of chips above it. No new colour: a shared document says so in words. */
+.doc-kind { display: inline-block; min-width: 34px; margin-right: 8px; padding: 1px 5px; border-radius: 5px; font: 600 11px/1.5 ui-monospace, "Cascadia Mono", Menlo, monospace; letter-spacing: .04em; color: var(--dim); background: var(--raised); vertical-align: 2px; text-align: center; }
+.document-item .row .title { display: flex; align-items: baseline; min-width: 0; }
+.document-item .row .title .doc-kind { flex: none; }
+.doc-shared { color: var(--text); }
+.documents-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 4px 18px 8px; }
+.documents-tools .session-search { flex: 1 1 260px; margin: 0; }
+.doc-project-filter { flex: 0 1 220px; }
+.documents-view { padding-bottom: calc(24px + var(--sab)); }
+.documents-view[data-kind="doc"] { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+.doc-tools { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex: none; }
+.doc-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
+.doc-media-wrap { flex: 1; overflow: auto; padding: 16px; display: grid; place-items: start center; }
+.doc-media { max-width: 100%; height: auto; border-radius: 10px; }
+video.doc-media { width: 100%; max-height: 70vh; background: #000; }
+.doc-text { flex: 1; overflow: auto; padding: 16px 18px calc(24px + var(--sab)); }
+.doc-md { max-width: 760px; }
+.doc-pre { font: 13.5px/1.5 ui-monospace, "Cascadia Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.doc-table-wrap { overflow: auto; }
+.doc-table { border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.doc-table th, .doc-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.doc-table th { color: var(--dim); font-weight: 600; position: sticky; top: 0; background: var(--bg); }
+.doc-note { padding: 16px 18px; }
+.share-url { display: flex; gap: 8px; padding: 6px 14px 10px; }
+.share-url input { flex: 1; min-width: 0; min-height: 44px; font: 13px/1.4 ui-monospace, Menlo, monospace; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.share-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 0 14px 12px; }
+.share-controls .sheet-help { flex-basis: 100%; margin: 4px 0 0; }
+.result-keep { margin-right: 6px; }
+.project-documents { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.project-documents h2 { display: flex; gap: 8px; align-items: baseline; margin: 0 0 6px; font-size: 13px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--dim); }
+.project-documents h2 span { color: var(--faint); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.project-documents .session-item { border-bottom: 0; }
+.project-documents .linked-session .row { padding-left: 0; }
+.rail-switch button { padding: 6px 8px; }

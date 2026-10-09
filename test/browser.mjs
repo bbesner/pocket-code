@@ -10,6 +10,7 @@ import {createHash} from 'node:crypto';
 import {runUIRegressions} from './ui-regressions.mjs';
 import {captureDocs} from './docs-screenshots.mjs';
 import {ProjectStore} from '../projects.mjs';
+import {DocumentStore,mimeOf} from '../documents.mjs';
 const repo=path.resolve(import.meta.dirname,'..');
 const out=process.env.POCKET_SCREENSHOTS || fs.mkdtempSync(path.join(os.tmpdir(),'pocket-browser-'));
 fs.mkdirSync(out,{recursive:true});
@@ -29,7 +30,17 @@ const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
 const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
-let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false};
+let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false};
+// 1.30: the documents fixture is the real store on a scratch folder: an HTML dashboard whose script tries to reach
+// the parent (the sandbox must stop it), a Markdown note and a CSV.
+const docsDir=path.join(out,'documents');fs.mkdirSync(docsDir,{recursive:true});
+fs.writeFileSync(path.join(docsDir,'ops-dashboard.html'),'<!doctype html><html><head><title>Ops dashboard</title></head><body style="font-family:sans-serif;padding:24px"><h1>Ops dashboard</h1><p id="probe">probing…</p><script>try{document.getElementById("probe").textContent=(parent.document?"REACHED PARENT":"isolated");}catch(e){document.getElementById("probe").textContent="isolated: "+e.name}</script></body></html>');
+fs.writeFileSync(path.join(docsDir,'weekly-summary.md'),'# Weekly summary\n\nStock counts are **reconciled**.\n\n- Aisle 4 recounted\n- Adjustment posted\n');
+fs.writeFileSync(path.join(docsDir,'count-sheet.csv'),'Aisle,On hand,Incoming\n1,24,12\n4,8,4\n');
+const docStore=new DocumentStore(docsDir,path.join(out,'documents.json'));
+const seedDocs=()=>{for(const f of fs.readdirSync(docsDir))if(!['ops-dashboard.html','weekly-summary.md','count-sheet.csv'].includes(f))fs.rmSync(path.join(docsDir,f),{recursive:true,force:true}); // a previous run's kept or uploaded files
+ docStore.documents.length=0;docStore.scan();const md=docStore.documents.find(d=>d.file==='weekly-summary.md');if(md){md.project='warehouse-stock-report';md.session=rows[0].id;docStore.save();}};
+seedDocs();
 // 1.29: the projects fixture is the real store on a scratch file, so the browser checks exercise its rules.
 const board=new ProjectStore(path.join(out,'projects.json'));
 const seedBoard=()=>{board.projects.length=0;
@@ -77,7 +88,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/voice/transcribe'){const chunks=[];for await(const c of req)chunks.push(c);voiceLog.transcribe.push({bytes:Buffer.concat(chunks).length,vocabulary:req.headers['x-vocabulary']||''});return json({text:uiModes.voiceText});}
  if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}
  if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
- if(url.pathname==='/api/me')return json({ok:true,features:{projects:Boolean(fixtureSettings.projects)}});
+ if(url.pathname==='/api/me')return json({ok:true,features:{projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents)}});
  if(url.pathname==='/api/approval-policy')return json({defaultMode:'review',allowFullAccess:true});
  if(url.pathname.endsWith('/approvals'))return json({requests:approvalRequests,interrupted:false,activeMode:'review',defaultMode:'review',allowFullAccess:true});
  if(/\/approvals\/[^/]+\/decision$/.test(url.pathname)){
@@ -109,6 +120,21 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/board')return json({...board.snapshot({dir:url.searchParams.get('dir')||''}),push:{enabled:false},hook:false});
   if(url.pathname==='/api/board/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,project:board.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.project?{project:e.project}:{})},e.status||400);}}
   if(url.pathname==='/api/board/reset'){seedBoard();return json({ok:true});}
+ }
+ if(url.pathname.startsWith('/api/documents')||url.pathname.startsWith('/files/')||url.pathname.startsWith('/share/')){
+  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'Documents is off. Turn it on in Settings → Tools.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
+  const sendDoc=(r,framed)=>{const file=docStore.filePath(r);if(!fs.existsSync(file)){res.writeHead(404);res.end();return;}
+   res.writeHead(200,{'content-type':mimeOf(r.file),'cache-control':'private, no-store','x-content-type-options':'nosniff','content-security-policy':r.kind==='html'?`sandbox allow-scripts allow-popups allow-downloads allow-forms; frame-ancestors ${framed?"'self'":"'none'"}`:`default-src 'none'; style-src 'unsafe-inline'; frame-ancestors ${framed?"'self'":"'none'"}`,'content-disposition':(url.searchParams.get('download')==='1'?'attachment':'inline')+"; filename*=UTF-8''"+encodeURIComponent(r.file)});
+   res.end(fs.readFileSync(file));};
+  if(url.pathname.startsWith('/files/')){const r=docStore.resolvePublic(decodeURIComponent(url.pathname.slice(7)));if(!r){res.writeHead(404);res.end();return;}return sendDoc(r,false);}
+  if(url.pathname.startsWith('/share/')){const r=docStore.resolveShare(url.pathname.slice(7));if(!r){res.writeHead(404);res.end();return;}return sendDoc(r,false);}
+  if(url.pathname==='/api/documents'&&req.method==='GET')return json({documents:docStore.list({project:url.searchParams.get('project')||'',q:url.searchParams.get('q')||''}),trash:docStore.list({trashed:true}),dir:docsDir,limits:{inlineHtml:10485760,trashDays:30}});
+  if(url.pathname==='/api/documents'&&req.method==='POST'){const chunks=[];for await(const c of req)chunks.push(c);try{return json(docStore.addFromBuffer(String(req.headers['x-filename']||''),Buffer.concat(chunks),{addedBy:'ui',project:String(req.headers['x-project']||'')}));}catch(e){return json({error:e.message},e.status||400);}}
+  if(url.pathname==='/api/documents/keep'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw);const src=path.join(out,'kept-source.md');fs.writeFileSync(src,'# Kept from a session\n\nbody');try{return json(docStore.addFromPath(src,{session:b.session,project:b.project||'',addedBy:'session'}));}catch(e){return json({error:e.message},e.status||400);}}
+  if(url.pathname==='/api/documents/reset'){seedDocs();return json({ok:true});}
+  const m=/^\/api\/documents\/([0-9a-f]{12})(\/raw)?$/.exec(url.pathname);
+  if(m&&m[2]){let r;try{r=docStore.get(m[1]);}catch{res.writeHead(404);res.end();return;}return sendDoc(r,true);}
+  if(m&&req.method==='POST'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');try{return json(b.action==='trash'?docStore.trash(m[1]):b.action==='restore'?docStore.restore(m[1]):docStore.update(m[1],b,{actor:'ui'}));}catch(e){return json({error:e.message},e.status||400);}}
  }
  if(url.pathname==='/api/settings'){if(req.method==='POST'){let raw='';for await(const c of req)raw+=c;Object.assign(fixtureSettings,JSON.parse(raw));}return json({...fixtureSettings,titles:fixtureTitles()});}
  if(url.pathname==='/api/about')return uiModes.aboutFailed?json({error:'Version unavailable'},503):json({...JSON.parse(fs.readFileSync(path.join(repo,'public/release.json'),'utf8')),cli:'test',host:'preview'});

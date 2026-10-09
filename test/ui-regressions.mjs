@@ -72,7 +72,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await check('Settings disclosures remain keyboard reachable and focus stays trapped',async()=>{
    await page.click('#settings');await page.waitForSelector('#s-sync:not(:disabled)');
    await page.focus('.sheet-close');const focused=new Set();
-   for(let i=0;i<24;i++){
+   for(let i=0;i<30;i++){ // the Tools rows (1.29, 1.30) added four stops before the disclosures
     await page.keyboard.press('Tab');
     assert.ok(await page.evaluate(()=>document.querySelector('[role=dialog]').contains(document.activeElement)));
     focused.add(await page.evaluate(()=>document.activeElement.closest('details')?.id));
@@ -1202,6 +1202,90 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.goto(base+'/#/projects/warehouse-stock-report');await page.waitForSelector('.project-card');
    await scan('project-card-phone');await page.screenshot({path:path.join(out,'project-card-phone.png')});
    await page.setViewport({width:1440,height:900});
+  });
+
+  await check('Documents (1.30): off by default, then the library, a sandboxed HTML document, Markdown and CSV views, sharing, keep from Results, the project section, tabs, split, rail, settings and the phone',async()=>{
+   await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+   const settings=settingsState();settings.documents=false;settings.projects=true;
+   await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'}));
+   await page.goto(base+'/#/documents');await page.waitForFunction(()=>/Documents is off/.test(document.querySelector('#documents-main')?.textContent||''));
+   assert.equal(await page.$('[data-rail-view="documents"]'),null,'no Docs segment while off');
+   settings.documents=true;await page.evaluate(()=>fetch('/api/documents/reset',{method:'POST'}));
+   await page.goto(base+'/?docs=1#/documents');await page.waitForSelector('.document-item');
+   const lib=await page.evaluate(()=>({rows:[...document.querySelectorAll('.document-item .title')].map(e=>e.textContent.trim()),kinds:[...document.querySelectorAll('.document-item .doc-kind')].map(e=>e.textContent),tab:document.querySelector('.open-session.current a')?.textContent,seg:document.querySelector('[data-rail-view="documents"]')?.textContent,where:document.querySelector('.document-item .meta')?.textContent}));
+   assert.deepEqual(lib.kinds.sort(),['CSV','HTML','MD']);assert.equal(lib.tab,'Documents','the library is a tab');assert.equal(lib.seg,'Docs');
+   await scan('documents-list-desktop');await page.screenshot({path:path.join(out,'documents-list-desktop.png')});
+   // Search narrows the list without losing the keyboard.
+   await page.type('#doc-query','weekly');await page.waitForFunction(()=>document.querySelectorAll('.document-item').length===1);assert.equal(await page.evaluate(()=>document.activeElement.id),'doc-query');
+   await page.evaluate(()=>{document.querySelector('#doc-query').value='';});await page.evaluate(()=>{docQuery='';});
+   // The HTML document renders in a sandboxed frame that cannot reach the app.
+   await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
+   const htmlRow=await page.$eval('.document-item .doc-kind',()=>null,[]).catch(()=>null);
+   await page.evaluate(()=>{const a=[...document.querySelectorAll('.document-item')].find(r=>r.querySelector('.doc-kind').textContent==='HTML').querySelector('a');a.click();});
+   await page.waitForSelector('iframe.doc-frame');
+   const frame=await (await page.$('iframe.doc-frame')).contentFrame();await frame.waitForFunction(()=>/Sandboxed|isolated|REACHED/.test(document.getElementById('probe')?.textContent||''));
+   const probe=await frame.$eval('#probe',e=>e.textContent);assert.match(probe,/^Sandboxed: SecurityError|isolated/,'the document\'s script cannot reach Pocket: '+probe);
+   assert.equal(await page.$eval('iframe.doc-frame',f=>f.getAttribute('sandbox')),'allow-scripts allow-popups allow-downloads allow-forms');
+   const tag=await page.$eval('#dtag',e=>e.textContent);assert.match(tag,/^HTML · /);assert.match(tag,/Private$/);
+   const tools=await page.$$eval('.doc-tools .chip',els=>els.map(e=>[e.textContent,e.getAttribute('href')||'',e.getAttribute('download')||'',e.getAttribute('target')||'']));
+   assert.equal(tools[0][0],'Open in your viewer');assert.match(tools[0][1],/\/api\/documents\/[0-9a-f]{12}\/raw$/);assert.equal(tools[0][3],'_blank');assert.equal(tools[1][0],'Download');assert.match(tools[1][1],/raw\?download=1$/);assert.equal(tools[1][2],'ops-dashboard.html');
+   await scan('document-html-desktop');await page.screenshot({path:path.join(out,'document-html-desktop.png')});
+   // Share: private → link (URL shown, copy), expiry, new link, → public, → private revokes. Coming back from a share
+   // link restores the page from the back-forward cache with the sheet still open, as a browser would; close it first.
+   const back=async()=>{await page.goBack();await page.waitForSelector('.doc-tools');if(await page.$('.scrim')){await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));}};
+   await page.click('.doc-tools [data-share]');await page.waitForSelector('.share-sheet');
+   await page.click('.share-sheet [data-v="link"]');await page.waitForSelector('.share-sheet #share-url');
+   const shareUrl=await page.$eval('#share-url',e=>e.value);assert.match(shareUrl,new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'/share/[A-Za-z0-9_-]{40,}$'));
+   const shared=await page.goto(shareUrl);assert.equal(shared.status(),200);assert.match(shared.headers()['content-security-policy'],/frame-ancestors 'none'/);
+   await back();await page.click('.doc-tools [data-share]');await page.waitForSelector('.share-sheet [data-reshare]');
+   await page.click('.share-sheet [data-reshare]');await page.waitForSelector('.share-sheet #share-url');const shareUrl2=await page.$eval('#share-url',e=>e.value);assert.notEqual(shareUrl2,shareUrl);
+   assert.equal((await page.goto(shareUrl)).status(),404,'the old link no longer works');await back();
+   await page.click('.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await page.click('.share-sheet [data-v="public"]');await page.waitForFunction(()=>/\/files\//.test(document.querySelector('#share-url')?.value||''));
+   const pubUrl=await page.$eval('#share-url',e=>e.value);assert.match(pubUrl,/\/files\/ops-dashboard\.html$/);assert.equal((await page.goto(pubUrl)).status(),200);await back();
+   await page.click('.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await page.click('.share-sheet [data-v="private"]');await page.waitForFunction(()=>!document.querySelector('.share-sheet'));
+   assert.equal((await page.goto(pubUrl)).status(),404,'private again');await back();
+   // Markdown and CSV render natively.
+   await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
+   await page.evaluate(()=>{[...document.querySelectorAll('.document-item')].find(r=>r.querySelector('.doc-kind').textContent==='MD').querySelector('a').click();});
+   await page.waitForSelector('.doc-md strong');assert.equal(await page.$eval('.doc-md strong',e=>e.textContent),'reconciled');assert.equal(await page.$eval('#dtitle',e=>e.textContent),'Weekly summary');
+   assert.equal(await page.$eval('.doc-tools [data-project]',e=>e.textContent),'Warehouse stock report','the document shows its project');assert.ok(await page.$('.doc-tools a[href^="#/chat/"]'),'and its session');
+   await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
+   await page.evaluate(()=>{[...document.querySelectorAll('.document-item')].find(r=>r.querySelector('.doc-kind').textContent==='CSV').querySelector('a').click();});
+   await page.waitForSelector('.doc-table tbody tr');assert.deepEqual(await page.$$eval('.doc-table th',els=>els.map(e=>e.textContent)),['Aisle','On hand','Incoming']);
+   // Keep as document from a session's Results.
+   await openChat(rows[0].id);await page.click('#results-open');await page.waitForSelector('[data-keep]');
+   assert.equal(await page.$eval('[data-keep]',e=>e.textContent),'Keep as document');
+   await page.click('[data-keep]');await page.waitForFunction(()=>document.querySelector('[data-kept]'));
+   assert.equal(await page.$eval('[data-kept]',e=>e.textContent),'Kept · Open');await page.keyboard.press('Escape');
+   // The project card lists its documents.
+   await page.goto(base+'/#/projects/warehouse-stock-report');await page.waitForSelector('.project-documents .document-item');
+   const pdocs=await page.$$eval('.project-documents .document-item .title',els=>els.map(e=>[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim()));assert.ok(pdocs.includes('Weekly summary'),pdocs.join('|'));assert.ok(pdocs.includes('Kept from a session'),pdocs.join('|'));
+   // Tabs and split.
+   let tabs=await page.$$eval('#open-sessions .open-session a',els=>els.map(e=>e.textContent));assert.ok(tabs.includes('Documents')&&tabs.includes('Weekly summary'),tabs.join('|'));
+   await openChat(rows[4].id);await page.click('#splitb');await page.waitForSelector('.sheet [data-v="documents"]');await page.click('.sheet [data-v="documents"]');
+   await page.waitForSelector('#panes iframe');assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/documents$/);assert.equal(await page.$eval('#panes iframe',f=>f.title),'Session beside: Documents');
+   const pane=page.frames().find(f=>f.url().includes('#/documents'));await pane.waitForSelector('.document-item');await pane.click('#pane-close');await page.waitForFunction(()=>!document.querySelector('#panes iframe'));
+   // Rail: Docs segment lists documents; the Project control is unaffected.
+   await page.click('[data-rail-view="documents"]');await page.waitForSelector('#rail .rail-documents .document-item');
+   assert.equal(await page.$eval('#rail-filter-toggle',e=>e.hidden),true);
+   await page.click('[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
+   // Settings → Tools.
+   await page.click('#railsettings');await page.waitForFunction(()=>document.querySelector('#s-documents')?.disabled===false);
+   assert.equal(await page.$eval('#s-documents',e=>e.getAttribute('aria-pressed')),'true');await page.keyboard.press('Escape');
+   // Trash and restore from the library.
+   await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
+   await page.click('.document-item [data-document-more]');await page.waitForSelector('.sheet [data-trash]');await page.click('.sheet [data-trash]');await page.waitForSelector('.sheet [data-yes]');await page.click('.sheet [data-yes]');
+   await page.waitForSelector('details.document-group [data-restore]');await page.click('details.document-group summary');await page.click('[data-restore]');await page.waitForFunction(()=>!document.querySelector('[data-restore]'));
+   // Phone.
+   await page.setViewport({width:390,height:844});
+   await page.goto(base+'/?phone=2#/');await page.waitForSelector('a[href="#/documents"].chip');
+   for(const [hash,sel] of [['#/documents','.document-item'],['#/documents/'+await page.evaluate(()=>docsSnap?.documents.find(d=>d.kind==='html')?.id||''),'iframe.doc-frame']]){
+    if(hash.endsWith('/'))continue;
+    await page.goto(base+'/'+hash);await page.waitForSelector(sel);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390: '+hash);
+   }
+   await scan('document-html-phone');await page.screenshot({path:path.join(out,'document-html-phone.png')});
+   await page.setViewport({width:1440,height:900});settings.documents=true;
   });
 
  } catch(e) {
