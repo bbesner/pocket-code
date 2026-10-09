@@ -49,7 +49,10 @@ test('HTTP: prompts round-trip, need login, and a started session appears under 
   const child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,
     POCKET_CODEX:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
-  t.after(async()=>{if(child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});}); // the started session's fake CLI may still be writing: retry ENOTEMPTY
+  // The started session's fake CLI outlives the server by design and may still be writing: end it by pid first, then remove the dir.
+  t.after(async()=>{if(child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}
+   try{for(const line of fs.readFileSync(path.join(dir,'calls'),'utf8').trim().split('\n')){const pid=JSON.parse(line).pid;if(pid)try{process.kill(pid,'SIGKILL');}catch{}}}catch{}
+   await new Promise(r=>setTimeout(r,50));fs.rmSync(dir,{recursive:true,force:true,maxRetries:30,retryDelay:100});});
   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{if((await fetch(`http://127.0.0.1:${port}/api/health`)).ok)break;}catch{} await sleep(30);}
   const call=async(p,method='GET',body)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method,headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()};};
   assert.deepEqual((await call('/prompts')).body,{prompts:[],recent:[]});

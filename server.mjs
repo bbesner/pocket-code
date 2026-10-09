@@ -7,7 +7,7 @@
 import express from 'express';
 import webpush from 'web-push';
 import { spawn, execSync, execFileSync } from 'node:child_process';
-import { createHmac, createHash, timingSafeEqual, randomUUID } from 'node:crypto';
+import { createHmac, createHash, timingSafeEqual, randomUUID, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -33,6 +33,7 @@ import zlib from 'node:zlib';
 import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 import {PromptStore} from './prompts.mjs';
 import {ClaudeLogin} from './claude-login.mjs';
+import {ProjectStore, projectInstructions} from './projects.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -171,9 +172,53 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const loadSettings = () => { try { return { titleSync: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false }; } };
+const loadSettings = () => { try { return { titleSync: false, projects: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
+
+// ---------- 1.29: projects ----------
+// The tracked-project board (projects.mjs), off until Settings → Tools turns it on. Agents reach it with the
+// loopback token Pocket writes at boot: a bearer accepted only on /api/board*, only from a direct loopback
+// connection (a request that arrived through the tunnel or a proxy carries forwarding headers and is refused),
+// and never in place of the cookie anywhere else. Due reminders go out by web push and, when the operator sets
+// POCKET_REMINDER_HOOK, to that command with the reminder as JSON on stdin; each is announced once.
+const board = new ProjectStore(path.join(DATA_DIR, 'projects.json'));
+const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
+codex.setExtraInstructions(threadId => settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '');
+const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
+const cliToken = randomBytes(32).toString('hex');
+fs.writeFileSync(CLI_TOKEN_FILE, cliToken + '\n', { mode: 0o600 }); fs.chmodSync(CLI_TOKEN_FILE, 0o600);
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+function requireBoardAuth(req, res, next) {
+  if (checkCookie(getCookie(req, 'pc_auth'))) return next();
+  const m = /^Bearer ([0-9a-f]{64})$/.exec(req.get('authorization') || '');
+  const direct = LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
+  if (m && direct && timingSafeEqual(Buffer.from(m[1]), Buffer.from(cliToken))) { req.boardActor = 'cli'; return next(); }
+  res.status(401).json({ error: 'unauthorized' });
+}
+const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404).json({ error: 'Projects is off. Turn it on in Settings → Tools.', code: 'projects_off' });
+const REMINDER_HOOK = process.env.POCKET_REMINDER_HOOK || '';
+function runReminderHook(payload) {
+  const child = spawn(REMINDER_HOOK, { shell: true, stdio: ['pipe', 'ignore', 'pipe'] });
+  let err = ''; child.stderr.on('data', b => { err += b; });
+  child.on('exit', code => { if (code) log(`reminder hook exited ${code}: ${err.trim().slice(0, 300)}`); });
+  child.on('error', e => log(`reminder hook failed: ${e.message}`));
+  child.stdin.on('error', () => { }); child.stdin.end(JSON.stringify(payload));
+}
+async function announceReminders() {
+  if (!settings.projects) return;
+  for (const r of board.due()) {
+    board.markNotified(r.project, r.reminder); // first, so a crash mid-send never announces it twice
+    const url = '/#/projects/' + r.project;
+    const devices = await pushRaw(`Reminder: ${r.projectName}`, r.label, { tag: 'reminder:' + r.reminder, url });
+    if (REMINDER_HOOK) runReminderHook({ ...r, url });
+    log(`reminder due project=${r.project} reminder=${r.reminder} push=${devices ?? 'off'} hook=${REMINDER_HOOK ? 'yes' : 'no'}`);
+  }
+}
+const REMINDER_CHECK_MS = Math.max(250, Number(process.env.POCKET_REMINDER_CHECK_MS) || 60_000);
+setInterval(() => announceReminders().catch(e => log('reminders: ' + e.message)), REMINDER_CHECK_MS).unref();
+setTimeout(() => announceReminders().catch(e => log('reminders: ' + e.message)), Math.min(5_000, REMINDER_CHECK_MS)).unref();
+
 const setSmeta = (id, patch) => {
   const m = { ...smeta[id], ...patch };
   for (const k of Object.keys(m)) if (m[k] == null) delete m[k];
@@ -237,16 +282,22 @@ function titleSettings() {
 async function pushNotify(sessionId, title, body) {
   if (!pushReady) return;
   if (mutes.has(sessionId)) return log(`push muted session=${sessionId}`);
+  const devices = await pushRaw(title, body, { tag: sessionId, url: '/#/chat/' + sessionId });
+  if (devices != null) log(`push sent (${devices} devices) session=${sessionId}`);
+}
+// One notification to every subscribed device; returns how many received it, or null when push is off or unused.
+async function pushRaw(title, body, { tag, url }) {
+  if (!pushReady) return null;
   const subs = loadSubs();
-  if (!subs.length) return;
-  const payload = JSON.stringify({ title: title.slice(0, 70), body, tag: sessionId, url: '/#/chat/' + sessionId });
+  if (!subs.length) return null;
+  const payload = JSON.stringify({ title: title.slice(0, 70), body, tag, url });
   const dead = [];
   await Promise.all(subs.map(async s => {
     try { await webpush.sendNotification(s, payload); }
     catch (e) { if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint); }
   }));
   if (dead.length) saveSubs(loadSubs().filter(s => !dead.includes(s.endpoint)));
-  log(`push sent (${subs.length - dead.length} devices) session=${sessionId}`);
+  return subs.length - dead.length;
 }
 
 // ---------- auth ----------
@@ -986,7 +1037,8 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
-  if (process.env.POCKET_CHOICES !== '0') args.push('--append-system-prompt', CHOICE_INSTRUCTIONS);
+  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : ''].filter(Boolean).join(' ');
+  if (extra) args.push('--append-system-prompt', extra);
   args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
   args.push(resume ? '--resume' : '--session-id', sessionId);
   const key = Date.now().toString(36);
@@ -1426,7 +1478,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
-app.get('/api/me', (req, res) => res.json({ ok: checkCookie(getCookie(req, 'pc_auth')) }));
+app.get('/api/me', (req, res) => res.json({ ok: checkCookie(getCookie(req, 'pc_auth')), features: { projects: Boolean(settings.projects) } }));
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -2135,8 +2187,9 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.autoTitles === 'boolean') settings.autoTitles = req.body.autoTitles;
   if (['auto', 'claude', 'codex'].includes(req.body?.titleProvider)) settings.titleProvider = req.body.titleProvider;
   if (typeof req.body?.awaySummaries === 'boolean') settings.awaySummaries = req.body.awaySummaries;
+  if (typeof req.body?.projects === 'boolean') settings.projects = req.body.projects;
   saveSettings();
-  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries}`);
+  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} projects=${settings.projects}`);
   res.json({ ...settings, titles: titleSettings() });
 });
 
@@ -2301,6 +2354,30 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   pumpTail(id, file); // catch anything written between transcript fetch and connect
 });
 
+// ---------- 1.29: projects board ----------
+app.get('/api/board', requireBoardAuth, boardOn, (req, res) => {
+  const dir = typeof req.query.dir === 'string' ? req.query.dir : '';
+  let snap;
+  try { snap = board.snapshot({ dir }); } catch (e) { if (!e.status) throw e; return res.status(e.status).json({ error: e.message }); }
+  res.set('Cache-Control', 'private, no-store').json({ ...snap, push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK) });
+});
+app.post('/api/board/act', requireBoardAuth, boardOn, (req, res) => {
+  const actor = req.boardActor || 'ui';
+  try {
+    const project = board.act(req.body || {}, { actor });
+    log(`board ${req.body?.action} project=${project.id} by ${actor}`);
+    res.set('Cache-Control', 'private, no-store').json({ ok: true, project });
+  } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.project ? { project: e.project } : {}) }); }
+});
+// One-time import of a Mission Control board snapshot; projects already here are left alone.
+app.post('/api/board/import', requireBoardAuth, boardOn, (req, res) => {
+  try {
+    const r = board.importSnapshot(req.body, { actor: req.boardActor || 'ui' });
+    log(`board import added=${r.added.length} skipped=${r.skipped.length} by ${req.boardActor || 'ui'}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
+});
+
 // ---------- push endpoints ----------
 app.get('/api/push/key', requireAuth, (_req, res) => res.json({ key: pushReady ? process.env.VAPID_PUBLIC : null }));
 app.post('/api/push/subscribe', requireAuth, (req, res) => {
@@ -2347,7 +2424,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "When a session's prompt cache goes cold, the context ring and its \"cold\" label turn ice blue, so a cold cache stands out at a glance. The Prompt cache status in Usage uses the same blue."
+  "Projects: track the work that comes out of your sessions. A card per project with where you left off, the next step, remaining steps, reminders and the sessions that worked on it; a Scheduled view of every reminder, due first; a Sessions · Projects switch in the desktop rail; projects open as a tab, beside a conversation, or full-screen on the phone. Off until you turn it on in Settings → Tools. Agents keep cards current with the new pocket-board command; reminders go to your devices by push and, if the server sets a reminder hook, wherever it sends them."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

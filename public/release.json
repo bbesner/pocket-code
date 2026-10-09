@@ -1,7 +1,7 @@
 {
-  "version": "1.28.1",
-  "assetV": 68,
+  "version": "1.29.0",
+  "assetV": 69,
   "notes": [
-    "When a session's prompt cache goes cold, the context ring and its \"cold\" label turn ice blue, so a cold cache stands out at a glance. The Prompt cache status in Usage uses the same blue."
+    "Projects: track the work that comes out of your sessions. A card per project with where you left off, the next step, remaining steps, reminders and the sessions that worked on it; a Scheduled view of every reminder, due first; a Sessions · Projects switch in the desktop rail; projects open as a tab, beside a conversation, or full-screen on the phone. Off until you turn it on in Settings → Tools. Agents keep cards current with the new pocket-board command; reminders go to your devices by push and, if the server sets a reminder hook, wherever it sends them."
   ]
 }

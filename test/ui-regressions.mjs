@@ -1102,6 +1102,108 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   assert.deepEqual(errors,[]);
   fs.writeFileSync(path.join(out,'ui-regressions.json'),JSON.stringify({checks,scans,errors},null,2));
   console.log(JSON.stringify({uiRegressions:checks.length,accessibilityScans:scans.length,ok:true}));
+  await check('Projects (1.29): off by default, then the list, card, steps, reminders, finish and resume, tracking from a session, tabs, split pane, rail switch, settings and the phone',async()=>{
+   await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+   const settings=settingsState();settings.projects=false;
+   await page.goto(base+'/#/projects');await page.waitForSelector('#projects-main');
+   await page.waitForFunction(()=>/Projects is off/.test(document.querySelector('#projects-main')?.textContent||''));
+   assert.equal(await page.$('.rail-switch'),null,'no rail switch while the feature is off');
+   await openChat(rows[4].id);await page.click('#chatmore');await page.waitForSelector('.sheet');
+   assert.equal(await page.$('#so-project'),null,'session options offer no project while it is off');await page.keyboard.press('Escape');
+   assert.equal(await page.$eval('#project-open',e=>e.hidden),true,'no Project control while it is off');
+   settings.projects=true;
+   await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'}));
+   await page.goto(base+'/#/projects');await page.waitForSelector('.project-item');
+   const list=await page.evaluate(()=>({groups:[...document.querySelectorAll('.project-group h2')].map(h=>h.textContent.replace(/\s+/g,' ').trim()),done:document.querySelector('details.project-group')?.open,chip:document.querySelector('[data-view-link]')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent,badge:document.querySelector('[data-projects-badge]')?.textContent,switchOn:document.querySelector('[data-rail-view="projects"]')?.getAttribute('aria-selected'),first:document.querySelector('.project-item .title')?.textContent}));
+   assert.deepEqual(list.groups,['Active 2','Waiting 1','Done 1']);assert.equal(list.done,false,'finished projects start collapsed');
+   assert.equal(list.chip,'Scheduled · 1 due');assert.equal(list.tab,'Projects','the list is a tab like a session');assert.equal(list.badge,'1','due count on the rail switch');assert.equal(list.switchOn,'false');
+   assert.equal(list.first,'Warehouse stock report','the project with a due reminder comes first');
+   await scan('projects-list-desktop');await page.screenshot({path:path.join(out,'projects-list-desktop.png')});
+   // The card: steps, a reminder on a step that ends with the step, a new step, a reminder for the project, finish and resume.
+   await page.click('.project-item a[data-project]');await page.waitForSelector('.project-card');
+   const card=async()=>page.evaluate(()=>({title:document.querySelector('#ptitle').textContent,tag:document.querySelector('#ptag').textContent,status:document.querySelector('.project-status').textContent,steps:[...document.querySelectorAll('.task-row')].map(r=>[r.querySelector('.task-label span').textContent,r.classList.contains('completed'),r.querySelector('.task-meta')?.textContent||'']),reminders:[...document.querySelectorAll('.reminder-title')].map(e=>e.textContent),sessions:[...document.querySelectorAll('.linked-session .title')].map(e=>e.textContent.trim()),marks:[...document.querySelectorAll('.linked-session .tab-state')].map(e=>e.className),history:Number(document.querySelector('.project-history .summary-meta').textContent),actions:[...document.querySelectorAll('.project-actions .chip')].map(b=>b.textContent),tab:document.querySelector('.open-session.current a')?.textContent}));
+   let c=await card();
+   assert.equal(c.title,'Warehouse stock report');assert.match(c.tag,/^Active · \/workspaces\/warehouse$/);assert.equal(c.status,'Active');
+   assert.deepEqual(c.steps.map(x=>x[1]),[true,false]);assert.match(c.steps[1][2],/^Due /,'the open step carries its due reminder');
+   assert.deepEqual(c.reminders,['Recount aisle 4 excluding Friday delivery']);assert.deepEqual(c.sessions,[rows[0].title]);assert.match(c.marks[0],/ember/,'the linked session shows its live status');
+   assert.equal(c.tab,'Warehouse stock report','the card is a tab');
+   await scan('project-card-desktop');await page.screenshot({path:path.join(out,'project-card-desktop.png')});
+   const before=c.history;
+   await page.click('.task-row:not(.completed) input[data-task]');await page.waitForFunction(()=>document.querySelectorAll('.task-row.completed').length===2);
+   c=await card();assert.deepEqual(c.reminders,[],'finishing the step stops its reminder');assert.equal(c.history,before+1);
+   await page.type('[data-task-add] input','Post the inventory adjustment');await page.keyboard.press('Enter');
+   await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===3);c=await card();assert.deepEqual(c.steps[2],['Post the inventory adjustment',false,'']);
+   await page.click('[data-remind]');await page.waitForSelector('.sheet [data-pick="tomorrow"]');
+   const picks=await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));assert.equal(picks.length,4);assert.match(picks[0],/^Tomorrow morning/);
+   await page.click('.sheet [data-pick="tomorrow"]');await page.waitForFunction(()=>document.querySelectorAll('.reminder-title').length===1);
+   c=await card();assert.deepEqual(c.reminders,['Revisit Warehouse stock report']);
+   await page.click('[data-finish]');await page.waitForSelector('.sheet [data-yes]');await page.click('.sheet [data-yes]');
+   await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Done');
+   c=await card();assert.deepEqual(c.reminders,[],'finishing stops the reminders');assert.deepEqual(c.actions,['Resume project']);assert.equal(await page.$('[data-task-add]'),null,'a finished card takes no new steps');
+   await page.click('[data-resume]');await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Active');
+   c=await card();assert.deepEqual(c.reminders,[],'resuming does not restore them');assert.deepEqual(c.actions,['Edit','Remind me','Finish project']);
+   // Track a project from a session: the editor takes the session's workspace, the card links the session.
+   await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#project-open')?.hidden===false);
+   assert.equal(await page.$eval('#project-open',e=>e.textContent),'Project','the conversation offers Add to project');
+   await page.click('#project-open');await page.waitForSelector('.sheet [data-v="__new"]');await page.keyboard.press('Escape');
+   await page.click('#chatmore');await page.waitForSelector('#so-project');await page.click('#so-project');
+   await page.waitForSelector('.sheet [data-v="__new"]');
+   const choices=await page.$$eval('.sheet .opt',els=>els.map(e=>e.dataset.v));assert.deepEqual(choices.slice(0,1),['__new']);assert.ok(choices.length>=3,'open projects are offered');
+   await page.click('.sheet [data-v="__new"]');await page.waitForSelector('.project-editor');
+   assert.equal(await page.$eval('.project-editor [name=directory]',e=>e.value),rows[4].cwd);
+   await page.type('.project-editor [name=name]','Purchasing review');await page.click('.project-editor .primary');
+   await page.waitForFunction(()=>location.hash==='#/projects/purchasing-review'&&document.querySelector('.project-card'));
+   c=await card();assert.equal(c.title,'Purchasing review');assert.deepEqual(c.sessions,[rows[4].title]);
+   await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#project-open')?.textContent==='Purchasing review');
+   await page.click('#project-open');await page.waitForFunction(()=>location.hash==='#/projects/purchasing-review');await page.waitForSelector('.project-card');assert.match(c.tag,new RegExp(rows[4].cwd.replace(/[/]/g,'\\/')+'$'));
+   // Tabs: project tabs sit beside sessions; closing the current one moves to its neighbour; Alt ] cycles through them.
+   let tabs=await page.$$eval('#open-sessions .open-session a',els=>els.map(e=>e.textContent));
+   assert.ok(tabs.includes('Projects')&&tabs.includes('Warehouse stock report')&&tabs.includes('Purchasing review'),'project tabs: '+tabs.join(' | '));
+   await page.keyboard.down('Alt');await page.keyboard.press(']');await page.keyboard.up('Alt');await sleep(300);
+   assert.notEqual(await page.evaluate(()=>location.hash),'#/projects/purchasing-review','Alt ] moved to another tab');
+   await page.goto(base+'/#/projects/purchasing-review');await page.waitForSelector('.project-card');
+   await page.click('[data-close-session="projects/purchasing-review"]');await page.waitForFunction(()=>location.hash!=='#/projects/purchasing-review'&&!document.querySelector('[data-close-session="projects/purchasing-review"]'));
+   tabs=await page.$$eval('#open-sessions .open-session a',els=>els.map(e=>e.textContent));assert.ok(!tabs.includes('Purchasing review'));
+   // Split: a project view beside a conversation; the pane is a full Pocket instance on that route.
+   await openChat(rows[4].id);await page.click('#splitb');await page.waitForSelector('.sheet [data-v="projects/scheduled"]');
+   await page.click('.sheet [data-v="projects/scheduled"]');await page.waitForSelector('#panes iframe');
+   const pane=await page.$eval('#panes iframe',f=>({src:f.getAttribute('src'),title:f.title}));assert.match(pane.src,/#\/projects\/scheduled$/);assert.equal(pane.title,'Session beside: Scheduled');
+   const frame=page.frames().find(f=>f.url().includes('#/projects/scheduled'));await frame.waitForSelector('.reminder-item');
+   assert.equal(await frame.$eval('#ptitle',e=>e.textContent),'Scheduled');
+   await scan('projects-split-desktop');await page.screenshot({path:path.join(out,'projects-split-desktop.png')});
+   await frame.click('#pane-close');await page.waitForFunction(()=>!document.querySelector('#panes iframe'));
+   // The rail switch: project rows in the rail open as a tab, or beside when this browser says so.
+   await page.click('[data-rail-view="projects"]');await page.waitForSelector('#rail .rail-projects .project-item');
+   assert.equal(await page.$eval('#rail-filter-toggle',e=>e.hidden),true,'session filters hide with the project list');
+   await page.click('#rail .project-item a[data-project]');await page.waitForFunction(()=>location.hash.startsWith('#/projects/')&&document.querySelector('.project-card'));
+   await page.evaluate(()=>localStorage.setItem('pc-projects-open',JSON.stringify('beside')));
+   await openChat(rows[4].id);await page.waitForSelector('#rail .rail-projects .project-item');
+   await page.click('#rail .project-item a[data-project]');await page.waitForSelector('#panes iframe');
+   assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/projects\//,'beside: the card opens in a pane');
+   await page.evaluate(()=>localStorage.setItem('pc-projects-open',JSON.stringify('tab')));
+   await page.evaluate(()=>{document.querySelector('#panes iframe')&&closePane(splitPanes[0].key);});
+   // Settings → Tools turns the feature off and on for the whole install.
+   await page.click('#railsettings');await page.waitForFunction(()=>document.querySelector('#s-projects')?.disabled===false);
+   assert.equal(await page.$eval('#s-projects',e=>e.getAttribute('aria-pressed')),'true');
+   await page.click('#s-projects');for(let i=0;i<30&&settings.projects;i++)await sleep(100);
+   assert.equal(settings.projects,false,'the server setting changed');
+   await page.goto(base+'/#/');await page.waitForSelector('.session-home');assert.equal(await page.$('[data-projects-home]'),null,'the home chip is gone while off');
+   settings.projects=true;await page.click('[data-rail-view="sessions"]').catch(()=>{});
+   // Phone: full-screen views, the home chip, no overflow.
+   await page.setViewport({width:390,height:844});
+   await page.evaluate(()=>fetch('/api/board/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'remind',project:'camera-ordering-review',at:new Date(Date.now()-60000).toISOString(),text:'Chase the revised quote'})})); // one due reminder for the badge
+   await page.goto(base+'/?phone=1#/');await page.waitForSelector('[data-projects-home]'); // a fresh load picks up the restored setting
+   await page.waitForFunction(()=>document.querySelector('[data-projects-home]')?.textContent==='Projects · 1 due');
+   for(const [hash,sel] of [['#/projects','.project-item'],['#/projects/warehouse-stock-report','.project-card'],['#/projects/scheduled','.reminder-item']]){
+    await page.goto(base+'/'+hash);await page.waitForSelector(sel);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390: '+hash);
+    assert.equal(await page.evaluate(()=>Boolean(document.querySelector('aside.rail')?.getClientRects().length)),false,'the rail is not shown on the phone');
+   }
+   await page.goto(base+'/#/projects/warehouse-stock-report');await page.waitForSelector('.project-card');
+   await scan('project-card-phone');await page.screenshot({path:path.join(out,'project-card-phone.png')});
+   await page.setViewport({width:1440,height:900});
+  });
+
  } catch(e) {
   await page.screenshot({path:path.join(out,'ui-regression-failure.png')});
   fs.writeFileSync(path.join(out,'ui-regressions.json'),JSON.stringify({checks,scans,errors,error:e.message},null,2));throw e;

@@ -1,8 +1,11 @@
 {
   "name": "pocket-code",
-  "version": "1.28.1",
+  "version": "1.29.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "pocket-board": "scripts/pocket-board.mjs"
+  },
   "description": "Self-hosted Claude Code and Codex workspace for desktop, tablet and phone, with persistent sessions, split conversations and server-side execution.",
   "keywords": [
     "claude-code",

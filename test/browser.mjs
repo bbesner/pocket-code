@@ -9,6 +9,7 @@ import puppeteer from 'puppeteer-core';
 import {createHash} from 'node:crypto';
 import {runUIRegressions} from './ui-regressions.mjs';
 import {captureDocs} from './docs-screenshots.mjs';
+import {ProjectStore} from '../projects.mjs';
 const repo=path.resolve(import.meta.dirname,'..');
 const out=process.env.POCKET_SCREENSHOTS || fs.mkdtempSync(path.join(os.tmpdir(),'pocket-browser-'));
 fs.mkdirSync(out,{recursive:true});
@@ -28,7 +29,21 @@ const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
 const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
-let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true};
+let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false};
+// 1.29: the projects fixture is the real store on a scratch file, so the browser checks exercise its rules.
+const board=new ProjectStore(path.join(out,'projects.json'));
+const seedBoard=()=>{board.projects.length=0;
+ const a=board.act({action:'track',name:'Warehouse stock report',summary:'Counts for aisles 1-3 are reconciled against MOM. Aisle 4 still shows 14 units unaccounted for.',next:'Recount aisle 4 with the Friday delivery excluded, then post the adjustment.',directory:'/workspaces/warehouse',link:'https://example.test/stock',session:rows[0].id});
+ board.act({action:'task-add',project:a.id,text:'Reconcile aisles 1-3 against MOM'});const t=board.act({action:'task-add',project:a.id,text:'Recount aisle 4 excluding Friday delivery'}).tasks[1];
+ board.act({action:'task-update',project:a.id,task:board.get(a.id).tasks[0].id,done:true});
+ board.act({action:'remind',project:a.id,at:new Date(now-3600000).toISOString(),task:t.id});
+ const b=board.act({action:'track',name:'Supplier inventory import',summary:'CSV mapping drafted for ENS and Centro feeds.',next:'Run the dry import against staging and compare counts.',directory:'/workspaces/inventory',session:rows[2].id});
+ board.act({action:'task-add',project:b.id,text:'Dry run on staging'});
+ const c=board.act({action:'track',name:'Camera ordering review',summary:'Vendor quotes collected; waiting on the revised pricing.',next:'Compare the revised quote and decide.'});
+ board.act({action:'update',project:c.id,status:'waiting',waitingFor:'Revised vendor quote'});board.act({action:'remind',project:c.id,at:new Date(now+5*86400000).toISOString(),text:'Chase the revised quote'});
+ const d=board.act({action:'track',name:'Monthly warehouse summary',summary:'September summary sent.'});board.act({action:'update',project:d.id,status:'done'});
+};
+seedBoard();
 // Mirrors the server's titleSettings() (1.20): Claude signed in, Codex without GPT-6-Luna.
 const fixtureTitles=()=>{const using=!fixtureSettings.autoTitles?null:fixtureSettings.titleProvider==='codex'?null:'claude';
  return {enabled:fixtureSettings.autoTitles,choice:fixtureSettings.titleProvider,using,helper:'claude',awaySummaries:fixtureSettings.awaySummaries,models:{claude:'haiku',codex:'gpt-6-luna'},
@@ -62,7 +77,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/voice/transcribe'){const chunks=[];for await(const c of req)chunks.push(c);voiceLog.transcribe.push({bytes:Buffer.concat(chunks).length,vocabulary:req.headers['x-vocabulary']||''});return json({text:uiModes.voiceText});}
  if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}
  if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
- if(url.pathname==='/api/me')return json({ok:true});
+ if(url.pathname==='/api/me')return json({ok:true,features:{projects:Boolean(fixtureSettings.projects)}});
  if(url.pathname==='/api/approval-policy')return json({defaultMode:'review',allowFullAccess:true});
  if(url.pathname.endsWith('/approvals'))return json({requests:approvalRequests,interrupted:false,activeMode:'review',defaultMode:'review',allowFullAccess:true});
  if(/\/approvals\/[^/]+\/decision$/.test(url.pathname)){
@@ -89,6 +104,12 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/claude/models')return json({models:[{id:'test',label:'Test agent'},{id:'claude-opus-5-5[1m]',label:'Opus 5.5'}],defaultLabel:'Test agent'});
  if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'},...Array.from({length:8},(_,index)=>({id:'gpt-fixture-'+index,label:'Fixture '+index})),{id:'gpt-6-sol',label:'GPT-6 Sol'},{id:'gpt-6-astra',label:'GPT-6 Astra'}],defaultModel:'gpt-6-sol',pocketDefault:true});
  if(url.pathname==='/api/push/key')return json({});
+ if(url.pathname.startsWith('/api/board')){
+  if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Tools.',code:'projects_off'},404);
+  if(url.pathname==='/api/board')return json({...board.snapshot({dir:url.searchParams.get('dir')||''}),push:{enabled:false},hook:false});
+  if(url.pathname==='/api/board/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,project:board.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.project?{project:e.project}:{})},e.status||400);}}
+  if(url.pathname==='/api/board/reset'){seedBoard();return json({ok:true});}
+ }
  if(url.pathname==='/api/settings'){if(req.method==='POST'){let raw='';for await(const c of req)raw+=c;Object.assign(fixtureSettings,JSON.parse(raw));}return json({...fixtureSettings,titles:fixtureTitles()});}
  if(url.pathname==='/api/about')return uiModes.aboutFailed?json({error:'Version unavailable'},503):json({...JSON.parse(fs.readFileSync(path.join(repo,'public/release.json'),'utf8')),cli:'test',host:'preview'});
  if(url.pathname==='/api/environment')return json({host:'test-instance',checkedAt:Date.now(),providers:[{provider:'claude',email:'owner@example.test',plan:'max',method:'claude.ai',signedIn:true},{provider:'codex',email:'coder@example.test',plan:'pro',method:'chatgpt',signedIn:true}],accountManagement:'Sign-ins follow this instance.',permissions:'Unattended server permissions',capabilities:{claudeLogin:true}});

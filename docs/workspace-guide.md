@@ -252,6 +252,41 @@ at least 100k cached tokens with an hourglass when the cache is about to expire 
 All of this is an estimate from the transcript's last request, so it includes turns run in a terminal or
 code-server; the provider can drop a cache sooner. Codex sessions show no cache figures.
 
+## Projects
+
+Projects (1.29) keep the work that comes out of sessions beside the sessions. The feature
+is off until **Settings → Tools → Projects** turns it on for the whole install.
+
+A project is one card: where you left off, the next step, what it is waiting for, a
+directory and a link, a checklist of remaining steps, reminders, notes, history, and the
+sessions that worked on it, each with its live status mark. States are Active, Waiting and
+Done. Finishing a project stops its reminders; resuming it does not bring them back.
+A reminder belongs to the project or to one step; finishing the step stops its reminder,
+and a new reminder on the same project or step replaces the open one (that is what
+*Remind later* does). An edit made from a stale card is refused and the current card is
+shown.
+
+Projects are tracked only when you ask: **Track a project** on the list, the **Project**
+control under a conversation's header, or **Add to project** in a session's options, which tracks a new project around the session (its
+workspace becomes the directory) or links the session to an existing one. Agents keep a
+card current with the `pocket-board` command (see the README); they may track a project
+only with `--requested`, so nothing enrolls work by inference. With Projects on, agents
+started by Pocket are told how, and told to do it only when you ask, so "track this as a
+project" works in any session.
+
+**Scheduled** lists every open reminder across projects, due first. Only reminders Pocket
+Code itself keeps appear there. When a reminder comes due it is sent once to your devices
+by push, with a link to the card, and once to the server's reminder hook if the operator
+set one; the card and the Scheduled list keep showing it as due until you dismiss it or
+set a new time.
+
+On the desktop the rail head switches between **Sessions** and **Projects**, with the
+count of due reminders. Pick a project from the rail and it opens as a tab in the same
+strip as sessions (pinning, closing and Alt [ / ] work the same; the tab's mark is the due
+count), or beside the conversation if Settings → Tools says so. *Open beside* and *Split
+view* also offer Projects, Scheduled and the active projects. On the phone, the session
+home shows a **Projects** chip and views open full-screen.
+
 ## Settings, notifications and compact views
 
 Settings opens without waiting for notification support. Accounts & instance, Plan

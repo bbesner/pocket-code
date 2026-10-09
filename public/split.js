@@ -5,12 +5,12 @@
 const SPLIT_MIN=380,SPLIT_MAX_PANES=3,SPLIT_GRIP=5;
 let splitRailObserver=null,observedSplitRail=null;
 // id null = the pane is on its New session screen until that session starts
-const validPane=p=>p&&typeof p.key==='string'&&/^[0-9a-f-]{36}$/.test(p.key)&&(p.id===null||typeof p.id==='string'&&/^(cx:)?[0-9a-f-]{36}$/.test(p.id));
+const validPane=p=>p&&typeof p.key==='string'&&/^[0-9a-f-]{36}$/.test(p.key)&&(p.id===null||typeof p.id==='string'&&(/^(cx:)?[0-9a-f-]{36}$/.test(p.id)||isViewId(p.id))); // 1.29: a pane may show a project view
 let splitPanes=PANE?[]:readLocal('pc-split-panes',[]);
 splitPanes=Array.isArray(splitPanes)?splitPanes.filter(validPane).slice(0,SPLIT_MAX_PANES).map(p=>({key:p.key,id:p.id,w:Number.isFinite(p.w)?p.w:null})):[];
 const saveSplit=()=>writeLocal('pc-split-panes',splitPanes);
-const paneSrc=(key,id)=>'/?pane='+key+(id?'#/chat/'+encodeURIComponent(id).replaceAll('%3A',':'):'#/new');
-const sessionTitle=id=>!id?'New session':allSessions.find(s=>s.id===id)?.title||openSessions.find(s=>s.id===id)?.title||'Session';
+const paneSrc=(key,id)=>'/?pane='+key+(id?tabHref(id):'#/new');
+const sessionTitle=id=>!id?'New session':isViewId(id)?(typeof viewTitle==='function'?viewTitle(id):'Projects'):allSessions.find(s=>s.id===id)?.title||openSessions.find(s=>s.id===id)?.title||'Session';
 const railSpace=()=>{const rail=document.querySelector('aside.rail');if(!rail)return 0;const grip=document.getElementById('grip');return Math.round(rail.getBoundingClientRect().width+(grip?.getBoundingClientRect().width||0));};
 const dockSpace=()=>Math.round(document.querySelector('.workspace-dock')?.getBoundingClientRect().width||0);
 function splitHasRoom(){return innerWidth>=900 && innerWidth-railSpace()-dockSpace()>=(splitPanes.length+2)*SPLIT_MIN+(splitPanes.length+1)*SPLIT_GRIP;}
@@ -144,12 +144,17 @@ function chooseBeside(){
  const taken=new Set([chatId,...splitPanes.map(p=>p.id)]);
  const seen=new Set(),rows=[];
  for(const s of [...openSessions.slice().reverse(),...allSessions.filter(s=>!isHiddenSession(s))]){
-  if(taken.has(s.id)||seen.has(s.id))continue;seen.add(s.id);
+  if(taken.has(s.id)||seen.has(s.id)||isViewId(s.id))continue;seen.add(s.id); // project views are offered separately below
   const full=allSessions.find(r=>r.id===s.id)||s;
   rows.push([s.id,full.title||s.title,[projName(full.cwd),full.provider==='codex'?'Codex':full.provider==='claude'?'Claude':'',full.state?.label].filter(Boolean).join(' · ')]);
   if(rows.length>=12)break;
  }
  rows.unshift(['new','New session','Start a conversation in the new pane']);
+ if(typeof projectsOn==='function'&&projectsOn()){ // 1.29: project views open beside like sessions
+  const shown=new Set([typeof boardView!=='undefined'?boardView:null,...splitPanes.map(p=>p.id)]);
+  const views=[['projects','Projects','All tracked projects'],['projects/scheduled','Scheduled','Reminders, due first'],...((typeof boardSnap!=='undefined'&&boardSnap)?boardSnap.projects.filter(p=>p.status!=='done').slice(0,6).map(p=>['projects/'+p.id,p.name,p.next||p.summary||'Project']):[])].filter(r=>!shown.has(r[0]));
+  rows.splice(1,0,...views);
+ }
  sheet('Open beside this conversation',rows,null,v=>openBeside(v==='new'?null:v));
 }
 if(PANE){
@@ -165,8 +170,8 @@ if(PANE){
   if(type==='route'&&typeof id==='string'&&validPane({key:p.key,id})){p.id=id;saveSplit();frame.title='Session beside: '+(typeof title==='string'?title:sessionTitle(id));}
   if(type==='close')closePane(p.key);
   if(type==='main'&&p.id){
-   const mainId=chatId;location.hash='#/chat/'+p.id;
-   if(mainId&&mainId!==p.id){p.id=mainId;saveSplit();frame.contentWindow.location.hash='#/chat/'+mainId;}else closePane(p.key);
+   const mainId=chatId||(typeof boardView!=='undefined'?boardView:null);location.hash=tabHref(p.id);
+   if(mainId&&mainId!==p.id){p.id=mainId;saveSplit();frame.title='Session beside: '+sessionTitle(mainId);frame.contentWindow.location.hash=tabHref(mainId);}else closePane(p.key);
   }
  });
  addEventListener('resize',()=>{clearTimeout(window.splitResizeT);window.splitResizeT=setTimeout(sizeMainForSplit,100);});

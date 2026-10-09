@@ -8,6 +8,34 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Projects (1.29)
+
+Pinned Operate refinement (design-studio → impeccable): variance 3, motion 1, density 6.
+Read: the tracked-project board as part of the workbench, in the session-row voice, not a
+dashboard. Existing tokens only; the rail switch is the only new control.
+
+The list and Scheduled reuse `.session-item` rows: title, a two-line meta (the next step),
+and a `.session-status` line with the project's linked-session marks (the same 7px marks
+as tabs) and a due label in `--warn`. Groups are Active, Waiting and Done (a collapsed
+`<details>`). The card is a document: a status word in a hairline chip (Active in `--ok`,
+Waiting in `--warn`, Done in `--dim`; no fill), a mono meta line (updated, verified),
+labelled sections with uppercase 13px `--dim` headings, the checklist as 44px rows with a
+clay-accented checkbox and a reminder date in the row (under the step on phones), the
+reminders, the linked sessions as session rows, a note form, history as a collapsed ledger,
+and the actions as chips. Sheets reuse `.opt` rows and the `.voice-field` inputs; the
+editor and the reminder picker are plain forms in a sheet.
+
+Desktop: the rail head is a two-way `role=tablist` switch, Sessions · Projects, with a
+`--warn` badge for due reminders; beside it the filter toggle drops its label (icon only)
+so the head fits the 320px rail, and hides in the project list. A project view is a tab in
+the open-session strip (title; `tab-due` mark in `--warn`) and a pane target like a session,
+because panes are full Pocket instances keyed by route. Phone: the session home gets a
+Projects chip (amber when something is due); views are full-screen with the ordinary bar.
+
+Rendered checks: no horizontal overflow at 390; axe clean on the list, card, split and
+phone card; the detector reports only the app-shell baseline. 44px targets throughout
+(the 20px checkbox sits in a 44px label).
+
 ## Prompt cache warmth (1.28)
 
 Pinned Operate refinement (design-studio → impeccable): variance 3, motion 2, density 7. Read:

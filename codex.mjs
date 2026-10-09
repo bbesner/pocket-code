@@ -259,10 +259,12 @@ const clip = (s, n = 140) => (s == null ? '' : String(s).replace(/\s+/g, ' ').tr
 
 // Reply suggestions ride on the thread's developer instructions. A Codex config that sets its own
 // developer_instructions keeps them: Pocket never replaces an operator's instructions.
-function choiceInstructions() {
-  if (process.env.POCKET_CHOICES === '0') return {};
+let extraInstructions = () => '';
+export const setExtraInstructions = fn => { extraInstructions = fn; }; // 1.29: the server adds the projects line when that feature is on
+function choiceInstructions(threadId = null) {
   try { if (/^\s*developer_instructions\s*=/m.test(fs.readFileSync(path.join(CODEX_HOME, 'config.toml'), 'utf8'))) return {}; } catch { }
-  return { developerInstructions: CHOICE_INSTRUCTIONS };
+  const parts = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', extraInstructions(threadId)].filter(Boolean);
+  return parts.length ? { developerInstructions: parts.join(' ') } : {};
 }
 
 function itemBlocks(it) {
@@ -742,7 +744,7 @@ async function openCodexSession({ threadId, cwd, model, approvalMode, hooks }) {
       // sandbox/approval ride on the resume, not the turn: turn/start's sandboxPolicy is
       // a tagged union, and setting it here keeps one code path for both entry points.
       const resumed = await conn.request('thread/resume', {
-        threadId, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}), ...choiceInstructions(),
+        threadId, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}), ...choiceInstructions(threadId),
       }, 60_000);
       s.model = resumed.model; s.effort = resumed.reasoningEffort || null; s.cwd = resumed.cwd || cwd;
     } else {

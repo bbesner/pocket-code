@@ -237,7 +237,8 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
       s.pinned && pinnedIds().indexOf(s.id) >= 0 && pinnedIds().indexOf(s.id) < pinnedIds().length - 1 ? '<button class="opt" id="so-pin-down">'+IC.down+'<span>Move pin down<span class="sub">Later among pinned sessions, in the list and the tabs, on every device</span></span></button>' : '',
       `<button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device. Clear it to go back to the automatic one</span></span></button>`,
       `<button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>`,
-      `<button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>`])}
+      `<button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>`,
+      projectsOn() ? '<button class="opt" id="so-project">'+IC.folder+'<span>Add to project<span class="sub">Track a new project around this session, or link it to one</span></span></button>' : ''])}
     ${optGroup('Server process', [!PANE && s.id === chatId ? '<button class="opt" id="so-close">'+IC.x+'<span>Close session process<span class="sub">Release its server process. If work is running, choose whether to keep it running or stop it</span></span></button>' : ''])}
     ${optGroup('Display and version', [chatTextControlsHTML(), s.id===chatId?'<button class="opt" id="so-version">'+IC.info+'<span>Version & updates<span class="sub" id="so-version-sub">'+esc(appVersionLabel())+'</span></span></button>':''])}`;
   const close = () => closeCurrentSheet?.();
@@ -254,6 +255,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.querySelector('#so-pin-down')?.addEventListener('click',()=>{close();movePin(s.id,1);});
   sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting sessions stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
+  sh.querySelector('#so-project')?.addEventListener('click',()=>{close();addSessionToProject(allSessions.find(r=>r.id===s.id)||s);});
   sh.querySelector('#so-reviewed')?.addEventListener('click',()=>{close();markReviewed([allSessions.find(r=>r.id===s.id)||s]);paintSessionPanels();toast('Marked as reviewed');});
   bindChatTextControls(sh);
   sh.querySelector('#so-find')?.addEventListener('click',()=>{close();findOpen(true);});
@@ -442,7 +444,7 @@ async function api(path, opts) {
   const r = await fetch('/api' + path, { headers: { 'content-type': 'application/json' }, ...opts });
   if (r.status === 401) { renderLogin(); throw new Error('login'); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { status: r.status, code: j.code });
+  if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { status: r.status, code: j.code, body: j });
   return j;
 }
 
@@ -560,6 +562,9 @@ async function settingsSheet({about = false} = {}) {
     <div class="title-settings"><label class="voice-field">Model for titles and summaries<select id="s-title-model" disabled>
       <option value="auto">Automatic: Claude first, then Codex</option><option value="claude">Claude · Haiku</option><option value="codex">Codex · GPT-6-Luna</option></select></label>
       <p class="title-note" id="s-title-note" role="status"></p></div>
+    <h2 class="settings-group">Tools</h2>
+    <button class="opt" id="s-projects" disabled aria-pressed="false"><span class="dot"></span><span>Projects<span class="sub" id="s-projects-state">Loading the projects setting…</span></span></button>
+    <div class="title-settings"><label class="voice-field">Open projects<select id="s-projects-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option></select></label></div>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
@@ -648,6 +653,24 @@ async function settingsSheet({about = false} = {}) {
     finally { paintTitles(); }
   };
   sh.querySelector('#s-titles').onclick = () => { if (srv?.titles) saveTitles({ autoTitles: !srv.titles.enabled }); };
+  // 1.29: Projects is server-wide (every device, the CLI); how a project opens is this browser's choice.
+  const paintProjectsSetting = () => {
+    const btn = sh.querySelector('#s-projects'); if (!btn || !srv) return;
+    const on = Boolean(srv.projects);
+    btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
+    sh.querySelector('#s-projects-state').textContent = on ? 'On: tracked projects with steps and reminders, here and from agent sessions (pocket-board)' : 'Off. Turn on to track projects, steps and reminders, here and from agent sessions';
+  };
+  sh.querySelector('#s-projects').onclick = async e => {
+    const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ projects: !srv.projects }), signal: AbortSignal.timeout(8000) });
+      window.pocketFeatures = { ...(window.pocketFeatures || {}), projects: Boolean(srv.projects) };
+      paintProjectsSetting(); toast(srv.projects ? 'Projects is on' : 'Projects is off');
+      if (!srv.projects) writeLocal('pc-rail-view', 'sessions');
+      paintProjectBadges(); document.querySelectorAll('.session-home, aside.rail').length && route();
+    } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
+  };
+  const openSel = sh.querySelector('#s-projects-open'); openSel.value = readLocal('pc-projects-open', 'tab'); openSel.onchange = () => writeLocal('pc-projects-open', openSel.value);
   sh.querySelector('#s-title-model').onchange = e => saveTitles({ titleProvider: e.target.value });
   sh.querySelector('#s-away').onclick = () => { if (srv?.titles) saveTitles({ awaySummaries: srv.titles.awaySummaries === false }); };
   const loadSettings = async () => {
@@ -656,7 +679,7 @@ async function settingsSheet({about = false} = {}) {
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles();
+      paintTitles(); paintProjectsSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
@@ -1148,13 +1171,13 @@ async function renderList() {
   app.innerHTML = `<header class="bar"><h1>Pocket Code</h1>
     <button class="icon bell" id="bell" aria-label="Toggle turn-finished notifications">${IC.bellOff}</button>
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
-    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><button class="chip" id="refresh-sessions">Refresh</button></div>
+    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New session">${IC.plus}</button>`;
   $('#new').onclick = () => { location.hash = '#/new'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
   pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
   $('#bell').onclick = () => togglePush($('#bell'));
-  bindSessionPanel(app); await refreshSessions();
+  bindSessionPanel(app); if (projectsOn()) loadBoard().then(paintProjectBadges).catch(() => { }); await refreshSessions();
   const last=openSessions.find(s=>s.id===readLocal('pc-last-session',''));if(last&&$('#resume-last'))$('#resume-last').innerHTML=`<a class="resume-last" href="#/chat/${esc(last.id)}">Resume: ${esc(last.title)}</a>`;
 }
 function openSessionSwitcher() {
@@ -1616,13 +1639,20 @@ const clearDraft = id => { try { localStorage.removeItem(draftKey(id)); } catch 
 const isWide = () => matchMedia('(min-width: 900px)').matches;
 const railOpen = () => localStorage.getItem('pc-rail') !== 'closed';
 const railW = () => Math.min(480, Math.max(220, Number(localStorage.getItem('pc-railw')) || 320));
+// 1.29: with Projects on, the rail head switches between the session list and the project list.
+const railView = () => projectsOn() && readLocal('pc-rail-view', 'sessions') === 'projects' ? 'projects' : 'sessions';
+function railSwitchHTML() {
+  if (!projectsOn()) return '<span>Sessions</span>';
+  const v = railView();
+  return `<div class="rail-switch" role="tablist" aria-label="Session list or projects"><button role="tab" data-rail-view="sessions" aria-selected="${v === 'sessions'}">Sessions</button><button role="tab" data-rail-view="projects" aria-selected="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button></div>`;
+}
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
-  const inputId = colHtml.includes('id="first"') ? 'first' : 'box';
+  const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : 'box'; // 1.29: project views have no composer
   if (PANE) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div></div>`;
   return `<div class="split">
-    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':'Skip to message'}</a>
-      <div class="railhead"><span>Sessions</span><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse session filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div>
+    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':'Skip to message'}</a>
+      <div class="railhead">${railSwitchHTML()}<button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse session filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div>
       <div id="rail"></div>
     </aside>
     <div class="rail-resize-region" role="region" aria-label="Session list layout"><div class="railgrip" id="grip" role="separator" tabindex="0" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="${railW()}" aria-label="Resize session list"></div></div>
@@ -1635,6 +1665,7 @@ function wireShell() {
   bindWorkspaceDensity();
   if (PANE || !railOpen()) return;
   paintRail();
+  document.querySelectorAll('[data-rail-view]').forEach(b => b.onclick = () => { writeLocal('pc-rail-view', b.dataset.railView); document.querySelectorAll('[data-rail-view]').forEach(x => x.setAttribute('aria-selected', String(x === b))); paintRail(); });
   $('#railsettings').onclick=settingsSheet;
   $('#railnew').onclick = () => { location.hash = '#/new'; };
   const grip = $('#grip'), rail = document.querySelector('aside.rail');
@@ -1654,6 +1685,8 @@ function wireShell() {
 let railCache = { at: 0, sessions: [] };
 async function paintRail() {
   const el = $('#rail'); if (!el) return;
+  const ft = $('#rail-filter-toggle'); if (ft) ft.hidden = railView() === 'projects';
+  if (railView() === 'projects') { if (!el.querySelector('.rail-projects')) el.innerHTML = ''; paintRailProjects(); return; }
   if (!el.querySelector('.session-panel')) { el.innerHTML = sessionPanelHTML(true); bindSessionPanel(el); }
   await refreshSessions();
 }
@@ -1690,7 +1723,7 @@ async function renderChat(id, { away = false } = {}) {
       ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
     </header>
     <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
-    <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
+    <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button><button id="project-open" class="session-switch" hidden>Project</button></div>
     <button id="agents-open" class="agents-open" aria-haspopup="dialog" hidden></button>
     <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>
     <button class="question-banner" id="approvals-open" hidden>Action needs approval · Review</button>
@@ -1734,6 +1767,7 @@ async function renderChat(id, { away = false } = {}) {
   $('#chat-state').textContent = s.state?.label || (s.active ? 'Running' : s.ext ? 'Activity elsewhere' : 'Recent');
   $('#cproj').textContent = projName(s.cwd);
   const gitButton = $('#git-open'); if (gitButton) gitButton.hidden = s.repo === false; // 1.20.1: no Git control outside a repository
+  paintChatProject(s); // 1.29: the linked project, or Add to project
   if (PANE) paneSay('route', { id, title: s.title }); else rememberOpenSession({...s,id});
   chatTitle = s.title; chatPinned = Boolean(s.pinned);
   const h1 = $('#ctitle').closest('h1');
@@ -2603,7 +2637,7 @@ async function renderNew() {
 async function route() {
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { const me = await api('/me'); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } } // 1.20.1: 200 {ok:false} when signed out
+  try { const me = await api('/me'); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } window.pocketFeatures = me.features || {}; } // 1.20.1: 200 {ok:false} when signed out
   catch (e) { // 401 rendered the login; anything else (offline, deploy restart) gets a retry view
     if (e.message !== 'login') renderUnreachable(e);
     reportWorkspaceChrome(); return;
@@ -2611,7 +2645,9 @@ async function route() {
   await loadApprovalPolicy();
   dockSurface?.remove();dockSurface=null;
   const h = location.hash;
+  if (typeof boardView !== 'undefined') boardView = null;
   if (h.startsWith('#/chat/')) return renderChat(h.slice(7), { away: true });
+  if (isViewId(h.slice(2))) return renderProjects(h.slice(2)); // 1.29: #/projects, #/projects/<id>, #/projects/scheduled
   if (h === '#/new') return renderNew();
   return renderList();
 }
