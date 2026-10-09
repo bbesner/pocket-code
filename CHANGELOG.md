@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.30.1] — 2026-10-09 · build 71
+
+- **Titles follow the session.** A generated title used to be made once, from the opening request, so a session that moved on kept a title about where it started. Now, after a turn run from Pocket ends, a session that has grown enough since its last check (four more of your turns, or about 8k characters of conversation, and at least ten minutes since the last check) is shown to the helper model as a digest of the whole session together with its current title. The model answers KEEP, or writes a better 3 to 7 word title; when a session took up a second substantial topic it names both ("Pocket titles, then away summaries"). Requested by Brad.
+- An updated title ranks ahead of Claude Code's own one-shot title, since it reflects what happened since, and behind a rename, which is never touched. The titles a session had before are kept in `session-meta.json` (`titleHistory`). The open conversation's header follows a title that changes on the server at the next list refresh, as does a rename made from another device.
+- **Settings → Update titles as sessions progress** turns it off (on by default; it needs Generate short titles and uses the same model choice). The line under it names the last update. Checks use the away-summary digest, one at a time: about 2k to 4k tokens with Claude Haiku, about 25k with Codex. `POCKET_LIVE_TITLE_GAP_MS` changes the minimum gap between checks (tests set it to 1 ms). Turns run from a terminal or code-server do not trigger a check.
+
 ## [1.30.0] — 2026-10-09 · build 70
 
 - **Documents.** A library of the files that came out of the work: HTML reports and dashboards, PDFs, images, Markdown, text, CSV, JSON, Office files and video. Off until Settings → Tools turns it on. Files live in a documents folder (`POCKET_DOCUMENTS_DIR`, default `<data dir>/documents`); a file placed there appears as a private document on the next listing. Requested by Brad, after a conversation with Damon.

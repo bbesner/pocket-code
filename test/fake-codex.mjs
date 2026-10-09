@@ -9,6 +9,9 @@ import {randomUUID} from 'node:crypto';
 if(process.argv[2]==='exec'&&process.argv.includes('--ephemeral')){
   let input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{
     const tr=input.match(/<transcript>\n([\s\S]*?)\n<\/transcript>/);
+    const se=input.match(/<session>\n([\s\S]*?)\n<\/session>\n\nThe session is currently titled: (.*)\n/);
+    if(se){if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.live','codex '+se[2]+' => '+se[1].replace(/\n/g,' | ').slice(0,300)+'\n');
+      for(const o of [{type:'item.completed',item:{type:'agent_message',text:/KEEPTITLE/.test(se[1])?'KEEP':'Codex now '+(se[1].split('\n').filter(l=>l.startsWith('Owner: ')).at(-1)||'').replace(/^Owner: /,'').split(/\s+/).slice(0,3).join(' ')}},{type:'turn.completed',usage:{}}])console.log(JSON.stringify(o));return;}
     if(tr){for(const o of [{type:'item.completed',item:{type:'agent_message',text:'Codex summary: '+tr[1].split('\n')[0].slice(0,40)}},{type:'turn.completed',usage:{}}])console.log(JSON.stringify(o));return;}
     const req=(input.match(/<request>\n([\s\S]*?)\n<\/request>/)||[,input])[1];
     if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.titles','codex '+process.argv[process.argv.indexOf('-m')+1]+': '+req.slice(0,200).replace(/\n/g,' ')+'\n');

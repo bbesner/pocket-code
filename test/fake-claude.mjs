@@ -13,6 +13,12 @@ if (process.argv[2]==='auth'&&process.argv[3]==='status') { console.log(JSON.str
 if (process.argv.includes('--no-session-persistence')) {
   let input=''; process.stdin.on('data',c=>input+=c); process.stdin.on('end',()=>{
     const tr=input.match(/<transcript>\n([\s\S]*?)\n<\/transcript>/);
+    // Living titles (titles.mjs retitle): a digest of the whole session plus its current title. KEEPTITLE in the
+    // digest keeps it; otherwise the title follows the last owner message. Recorded as "current => digest".
+    const se=input.match(/<session>\n([\s\S]*?)\n<\/session>\n\nThe session is currently titled: (.*)\n/);
+    if(se){if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.live',se[2]+' => '+se[1].replace(/\n/g,' | ').slice(0,300)+'\n');
+      const owners=se[1].split('\n').filter(l=>l.startsWith('Owner: '));const last=(owners.at(-1)||'').replace(/^Owner: /,'');
+      console.log(JSON.stringify({type:'result',modelUsage:{'claude-haiku-test':{}},is_error:false,result:/KEEPTITLE/.test(se[1])?'KEEP':/__LIVEFAIL__/.test(se[1])?'I cannot title this session.':'Reply: Now '+last.split(/\s+/).filter(w=>!/^__/.test(w)).slice(0,3).join(' ')}));return;}
     if(tr){if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.away',tr[1].replace(/\n/g,' | ')+'\n');
       console.log(JSON.stringify({type:'result',modelUsage:{'claude-haiku-test':{}},is_error:false,result:'- Worked on: '+tr[1].split('\n')[0].replace(/^Owner: /,'').slice(0,40)+'\n- Nothing is waiting on you.'}));return;}
     const req=(input.match(/<request>\n([\s\S]*?)\n<\/request>/)||[,input])[1];

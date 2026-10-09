@@ -28,7 +28,7 @@ import {cacheFromTranscript,turnCacheSummary} from './cache.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import {AgentActivity,ClaudeAgentFiles} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
-import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION,summarizeAway,awayDigest,awayWorthSummary} from './titles.mjs';
+import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION,summarizeAway,awayDigest,awayWorthSummary,createRetitler,retitle} from './titles.mjs';
 import zlib from 'node:zlib';
 import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 import {PromptStore} from './prompts.mjs';
@@ -239,11 +239,14 @@ const setSmeta = (id, patch) => {
 // 1.19.1: titles saved by 1.19.0 may carry Markdown ("# Planning phase"); show them through the same cleanup.
 // 1.20: turning generated titles off in Settings also stops showing them (the stored titles are kept).
 const storedAutoTitle = id => settings.autoTitles && smeta[id]?.autoTitle ? cleanTitle(smeta[id].autoTitle) : null; // a bad stored title falls back to the request until it is redone
+// 1.29.1: a title updated from the session's progress outranks the agent's own one-shot title (not a rename).
+const liveAutoTitle = id => smeta[id]?.autoTitleLive ? storedAutoTitle(id) : null;
 // 1.20: generated titles are a server setting (Settings → Session titles): on/off and Automatic / Claude / Codex.
 // POCKET_AUTO_TITLES only sets the starting value until someone changes it in Settings.
 if (typeof settings.autoTitles !== 'boolean') settings.autoTitles = (process.env.POCKET_AUTO_TITLES ?? '1').trim() !== '0';
 if (!['auto', 'claude', 'codex'].includes(settings.titleProvider)) settings.titleProvider = 'auto';
 if (typeof settings.awaySummaries !== 'boolean') settings.awaySummaries = true; // 1.21: "While you were away" summaries
+if (typeof settings.liveTitles !== 'boolean') settings.liveTitles = true; // 1.29.1: titles follow the session
 const TITLE_MODELS = { claude: (process.env.POCKET_TITLE_CLAUDE_MODEL || 'haiku').trim(), codex: (process.env.POCKET_TITLE_CODEX_MODEL || 'gpt-6-luna').trim() };
 // Whether each CLI can make titles: installed, signed in, and (Codex) offering the title model. Refreshed at
 // most every 10 minutes, or when Settings opens. null = not known yet; a call is tried and backs off on failure.
@@ -286,8 +289,30 @@ const titler = createTitler({ getMeta: id => smeta[id], setMeta: setSmeta, log,
     ? generateCodexTitle(codex.CODEX_BIN, text, { model: TITLE_MODELS.codex, env: spawnEnv() })
     : generateTitle(CLAUDE_BIN, text, { model: TITLE_MODELS.claude, env: spawnEnv() }),
   onTitled: r => { titleProviders.last = { provider: titleProvider(), model: r.model, at: Date.now() }; } });
+// 1.29.1: living titles. After a turn run from Pocket ends, a session that has grown enough since its last check
+// (four owner turns or 8k characters, at least ten minutes apart) is shown to the helper model with its current
+// title; the model keeps it or writes a better one. Needs generated titles on and the same helper as titles.
+const liveTitlesOn = () => settings.autoTitles && settings.liveTitles && Boolean(helperProvider());
+const retitler = createRetitler({ getMeta: id => smeta[id], setMeta: setSmeta, log,
+  isEnabled: () => { refreshTitleProviders(); return liveTitlesOn(); },
+  load: async id => {
+    if (isCx(id)) return codex.readCodexThread(codex.bareId(id), 600);
+    const file = await findSessionFile(id);
+    return file ? readTranscript(file, 600) : { msgs: [], total: 0 };
+  },
+  currentTitle: async id => {
+    if (smeta[id]?.name) return null;
+    if (isCx(id)) { const m = await codex.codexThreadMeta(codex.bareId(id)); return m ? liveAutoTitle(id) || (m.untitled && storedAutoTitle(id)) || m.title : null; }
+    const file = await findSessionFile(id);
+    const m = file && await sessionMeta(file, id);
+    return m && !m.noise && !automation(m.title).automated ? m.title : null;
+  },
+  generate: (digest, current) => retitle({ provider: helperProvider(), claudeBin: CLAUDE_BIN, codexBin: codex.CODEX_BIN, models: TITLE_MODELS, env: spawnEnv() }, digest, current),
+  onTitled: r => { titleProviders.lastLive = { provider: helperProvider(), model: r.model, at: Date.now(), title: r.title, from: r.from }; },
+  gapMs: msSetting('POCKET_LIVE_TITLE_GAP_MS', 10 * 60_000) }); // tests shorten the gap between checks
 function titleSettings() {
   return { enabled: settings.autoTitles, choice: settings.titleProvider, using: titleProvider(), helper: helperProvider(), awaySummaries: settings.awaySummaries, models: TITLE_MODELS,
+    live: settings.liveTitles, liveUsing: liveTitlesOn() ? helperProvider() : null, lastLive: titleProviders.lastLive || null,
     claude: titleProviders.claude, codex: titleProviders.codex, last: titleProviders.last, checkedAt: titleProviders.checkedAt };
 }
 async function pushNotify(sessionId, title, body) {
@@ -404,7 +429,8 @@ async function readTailLines(file, size, maxBytes = 256 * 1024) {
 // for collapsing resume copies, so two different sessions with the same short title never merge.
 const composeTitle = m => {
   const ov = smeta[m.id]?.name;
-  const named = settings.titleSync ? (m.customTitle || ov || m.aiTitle) : (ov || m.aiTitle);
+  const live = liveAutoTitle(m.id);
+  const named = settings.titleSync ? (m.customTitle || ov || live || m.aiTitle) : (ov || live || m.aiTitle);
   const dedupeTitle = (settings.titleSync ? (m.customTitle || ov || m.aiTitle) : ov) || m.title;
   const untitled = !named && Boolean(m.fromPrompt);
   return { ...m, title: named || (untitled && storedAutoTitle(m.id)) || m.title, untitled, dedupeTitle };
@@ -1292,6 +1318,7 @@ async function finalizeTurn(sessionId, turn, code) {
     }
   }
   recordOutcome(sessionId, turn, [...turn.events].reverse().find(e => e.type === 'result'), retryAt);
+  retitler.request(sessionId); // 1.29.1: does the title still fit?
   const watching = turn.subs.size > 0;
   broadcast(turn, { type: 'done' });
   for (const res of turn.subs) { try { res.end(); } catch { } }
@@ -1530,6 +1557,8 @@ function finishTitle(s, request = false) {
   if (smeta[s.id]?.name) return out;
   const a = automation(s.title);
   if (a.automated) return { ...out, automated: true, title: a.title || s.title };
+  const live = liveAutoTitle(s.id); // 1.29.1: an updated title, ahead of the agent's own
+  if (live) return { ...out, title: live };
   if (s.untitled && storedAutoTitle(s.id)) return { ...out, title: storedAutoTitle(s.id) };
   if (request && s.untitled && Date.now() - (s.mtimeMs || 0) < TITLE_WINDOW_MS) titler.request(s.id, s.prompt || s.title);
   return out;
@@ -1957,6 +1986,7 @@ function turnOpts(body) {
 // run whatever was queued while it worked) mirror the Claude side's finalizeTurn.
 async function codexTurnFinished(id, turn, ev) {
   recordOutcome(id, turn, ev);
+  retitler.request(id); // 1.29.1
   if (!turn.stopped && ev.ok && followups.list(id)[0]?.status === 'pending') {
     // Let the previous app-server release its writer lock before resuming.
     await new Promise(resolve=>setTimeout(resolve,600));
@@ -2198,10 +2228,11 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.autoTitles === 'boolean') settings.autoTitles = req.body.autoTitles;
   if (['auto', 'claude', 'codex'].includes(req.body?.titleProvider)) settings.titleProvider = req.body.titleProvider;
   if (typeof req.body?.awaySummaries === 'boolean') settings.awaySummaries = req.body.awaySummaries;
+  if (typeof req.body?.liveTitles === 'boolean') settings.liveTitles = req.body.liveTitles;
   if (typeof req.body?.projects === 'boolean') settings.projects = req.body.projects;
   if (typeof req.body?.documents === 'boolean') settings.documents = req.body.documents;
   saveSettings();
-  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} projects=${settings.projects} documents=${settings.documents}`);
+  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents}`);
   res.json({ ...settings, titles: titleSettings() });
 });
 
@@ -2519,7 +2550,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Documents: a library of the files that came out of your sessions. HTML renders in a sandboxed frame, PDFs, images, Markdown and CSV natively; a document opens as a tab, beside a conversation, full-screen on the phone, or in your device's own viewer. Share as a private, link or public document, all served by Pocket itself. Keep a file from a session's Results, upload one, or let agents keep deliverables with the new pocket-docs command. Off until you turn it on in Settings → Tools."
+  "Titles follow the session. After a turn run from Pocket ends, once a session has moved on (four more of your turns, or about 8k characters, at least ten minutes since the last check), the helper model sees a digest of the whole session and its current title and either keeps it or writes a better one, naming both topics when a session took a second turn. A rename is never touched; an updated title ranks ahead of Claude Code's own one-shot title. Settings → Update titles as sessions progress turns it off."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

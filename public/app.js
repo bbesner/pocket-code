@@ -558,6 +558,7 @@ async function settingsSheet({about = false} = {}) {
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
     <button class="opt" id="s-titles" disabled aria-pressed="false"><span class="dot"></span><span>Generate short titles<span class="sub" id="s-titles-state">Loading the title setting…</span></span></button>
+    <button class="opt" id="s-live" disabled aria-pressed="false"><span class="dot"></span><span>Update titles as sessions progress<span class="sub" id="s-live-state">Loading the title setting…</span></span></button>
     <button class="opt" id="s-away" disabled aria-pressed="false"><span class="dot"></span><span>Summarize what you missed<span class="sub" id="s-away-state">Loading the summary setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Model for titles and summaries<select id="s-title-model" disabled>
       <option value="auto">Automatic: Claude first, then Codex</option><option value="claude">Claude · Haiku</option><option value="codex">Codex · GPT-6-Luna</option></select></label>
@@ -629,9 +630,16 @@ async function settingsSheet({about = false} = {}) {
     btn.disabled = false; btn.setAttribute('aria-pressed', String(t.enabled)); btn.querySelector('.dot').classList.toggle('on', t.enabled);
     const name = p => p === 'codex' ? 'Codex · ' + (t.codex.label || t.models.codex) : 'Claude · Haiku';
     state.textContent = !t.enabled ? 'Off. Sessions named only by their first message show that message.'
-      : t.using ? 'On, using ' + name(t.using) + '. Renames and titles from Claude Code come first.'
+      : t.using ? 'On, using ' + name(t.using) + '. A rename always comes first.'
       : 'On, but no signed-in Claude Code or Codex on this server can make titles.';
     for (const o of sel.options) if (o.value !== 'auto') { const a = t[o.value]; o.disabled = a.available === false; o.textContent = name(o.value) + (a.available === false ? ' (unavailable)' : ''); }
+    // 1.29.1: living titles follow the generated-titles switch and the same helper model.
+    const live = sh.querySelector('#s-live'), liveOn = t.live !== false, ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+    live.disabled = !t.enabled; live.setAttribute('aria-pressed', String(liveOn && t.enabled)); live.querySelector('.dot').classList.toggle('on', liveOn && t.enabled);
+    sh.querySelector('#s-live-state').textContent = !t.enabled ? 'Needs Generate short titles.'
+      : !liveOn ? 'Off. A title is made once, from the opening request.'
+      : t.liveUsing ? 'After a turn, once a session has moved on, its title is checked and rewritten to say what it is about now. Renames are never touched.' + (t.lastLive ? ' Last update ' + ago(t.lastLive.at) + ': "' + t.lastLive.title + '".' : '')
+      : 'On, but no signed-in Claude Code or Codex on this server can check titles.';
     const away = sh.querySelector('#s-away'), awayOn = t.awaySummaries !== false;
     away.disabled = false; away.setAttribute('aria-pressed', String(awayOn)); away.querySelector('.dot').classList.toggle('on', awayOn);
     sh.querySelector('#s-away-state').textContent = !awayOn ? 'Off. Coming back to a session still marks where new work starts.'
@@ -644,11 +652,12 @@ async function settingsSheet({about = false} = {}) {
       t.last?.model ? 'Last title by ' + (t.last.provider === 'codex' ? (t.codex.label || t.last.model) : modelLabel(t.last.model)) + '.' : ''].filter(Boolean).join(' ');
   };
   const saveTitles = async patch => {
-    const btn = sh.querySelector('#s-titles'), sel = sh.querySelector('#s-title-model'), away = sh.querySelector('#s-away'); btn.disabled = sel.disabled = away.disabled = true;
+    const btn = sh.querySelector('#s-titles'), sel = sh.querySelector('#s-title-model'), away = sh.querySelector('#s-away'), live = sh.querySelector('#s-live'); btn.disabled = sel.disabled = away.disabled = live.disabled = true;
     try {
       srv = await api('/settings', { method: 'POST', body: JSON.stringify(patch), signal: AbortSignal.timeout(8000) });
       if (!sh.isConnected) return;
       toast(patch.autoTitles === false ? 'Generated titles off' : patch.autoTitles ? 'Generated titles on'
+        : patch.liveTitles === false ? 'Titles stay as first made' : patch.liveTitles ? 'Titles will follow the session'
         : patch.awaySummaries === false ? 'Summaries off' : patch.awaySummaries ? 'Summaries on' : 'Titles and summaries will use ' + sel.selectedOptions[0].textContent);
       refreshSessions();
     } catch (err) { toast('Could not save: ' + err.message); }
@@ -693,6 +702,7 @@ async function settingsSheet({about = false} = {}) {
   const openDocSel = sh.querySelector('#s-documents-open'); openDocSel.value = readLocal('pc-documents-open', 'tab'); openDocSel.onchange = () => writeLocal('pc-documents-open', openDocSel.value);
   sh.querySelector('#s-title-model').onchange = e => saveTitles({ titleProvider: e.target.value });
   sh.querySelector('#s-away').onclick = () => { if (srv?.titles) saveTitles({ awaySummaries: srv.titles.awaySummaries === false }); };
+  sh.querySelector('#s-live').onclick = () => { if (srv?.titles?.enabled) saveTitles({ liveTitles: srv.titles.live === false }); };
   const loadSettings = async () => {
     const btn = sh.querySelector('#s-sync'), retry = sh.querySelector('#s-sync-retry');
     btn.disabled = true; retry.hidden = true;
@@ -1023,12 +1033,21 @@ async function fetchSessionList() {
   sessionsEtag = r.headers.get('etag') || '';
   return j;
 }
+// 1.29.1: a title updated on the server (living titles, or a rename from another device) reaches the open
+// conversation's header on the next list refresh instead of waiting for a reload.
+function followChatTitle() {
+  if (!chatId) return;
+  const row = allSessions.find(s => s.id === chatId);
+  if (!row?.title || row.title === chatTitle) return;
+  chatTitle = row.title;
+  const t = $('#ctitle'); if (t) { t.textContent = row.title; t.title = row.title; }
+}
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
   sessionFetch = (async () => {
     try { const d = await fetchSessionList(); allSessions = d.sessions; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;serverSkew = d.checkedAt - Date.now();sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
-    finally { sessionFetch = null; paintSessionPanels(); if (!sessionsStale) Voice.onSessions(allSessions); }
+    finally { sessionFetch = null; paintSessionPanels(); followChatTitle(); if (!sessionsStale) Voice.onSessions(allSessions); }
   })();
   return sessionFetch;
 }
