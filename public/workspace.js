@@ -5,6 +5,23 @@ const PANE=new URLSearchParams(location.search).has('pane');
 // never collides with the main window's New screen or another pane's.
 const PANE_KEY=(k=>/^[0-9a-f-]{36}$/.test(k||'')?k:'')(new URLSearchParams(location.search).get('pane'));
 const NEW_KEY=PANE&&PANE_KEY?'new-pane-'+PANE_KEY:'new';
+// ?solo=1 (1.31): this window shows one view on its own, in its own browser tab or app window: no rail, no tab
+// strip, no pane controls. "Open in a new window" for a project or a document.
+const SOLO=!PANE&&new URLSearchParams(location.search).has('solo');
+function openInWindow(id){
+ const w=window.open('/?solo=1'+tabHref(id),'_blank');
+ if(!w&&typeof toast==='function')toast('The browser blocked the new window. Allow pop-ups for Pocket Code and try again.');
+}
+// A plain click on a project or document link opens it the way this browser prefers (Settings → Tools): a tab here,
+// beside the conversation, or its own window. Modified clicks keep the browser's own behaviour.
+const plainClick=e=>e.button===0&&!e.metaKey&&!e.ctrlKey&&!e.shiftKey&&!e.altKey;
+function openViewPreferred(id,prefKey,e,canBeside){
+ if(!plainClick(e))return false;
+ const pref=readLocal(prefKey,'tab');
+ if(pref==='window'){e.preventDefault();openInWindow(id);return true;}
+ if(pref==='beside'&&canBeside&&!PANE&&!SOLO&&typeof openBeside==='function'){e.preventDefault();openBeside(id);return true;}
+ return false;
+}
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function writeLocal(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
 // 1.29: project views open like sessions (tabs, panes); their ids are routes without the leading #/.

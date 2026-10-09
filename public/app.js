@@ -37,6 +37,9 @@ const IC = {
   speakerOff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4zM16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>',
   more: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
   columns: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 4.5v15"/></svg>',
+  external: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4.5h5.5V10M19.5 4.5L11 13M18 13.5v6H4.5V6H10"/></svg>',
+  link: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 13.5a3.8 3.8 0 005.4 0l3-3a3.8 3.8 0 00-5.4-5.4l-1.3 1.3M13.5 10.5a3.8 3.8 0 00-5.4 0l-3 3a3.8 3.8 0 005.4 5.4l1.3-1.3"/></svg>',
+  share: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="17.5" cy="6" r="2.3"/><circle cx="6.5" cy="12" r="2.3"/><circle cx="17.5" cy="18" r="2.3"/><path d="M8.6 10.9l6.8-3.7M8.6 13.1l6.8 3.7"/></svg>',
   swap: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h13l-3.5-3.5M19 16H6l3.5 3.5"/></svg>',
   pen: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l.9-3.9L16 5a2.1 2.1 0 013 3L7.9 19.1 4 20zM13.8 7.2l3 3"/></svg>',
 };
@@ -565,9 +568,9 @@ async function settingsSheet({about = false} = {}) {
       <p class="title-note" id="s-title-note" role="status"></p></div>
     <h2 class="settings-group">Tools</h2>
     <button class="opt" id="s-projects" disabled aria-pressed="false"><span class="dot"></span><span>Projects<span class="sub" id="s-projects-state">Loading the projects setting…</span></span></button>
-    <div class="title-settings"><label class="voice-field">Open projects<select id="s-projects-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option></select></label></div>
+    <div class="title-settings"><label class="voice-field">Open projects<select id="s-projects-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
     <button class="opt" id="s-documents" disabled aria-pressed="false"><span class="dot"></span><span>Documents<span class="sub" id="s-documents-state">Loading the documents setting…</span></span></button>
-    <div class="title-settings"><label class="voice-field">Open documents<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option></select></label></div>
+    <div class="title-settings"><label class="voice-field">Open documents<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
@@ -1691,7 +1694,7 @@ function railSwitchHTML() {
 }
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
   const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : 'box'; // 1.29/1.30: project and document views have no composer
-  if (PANE) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs
+  if (PANE || SOLO) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs; a solo window shows one view
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div></div>`;
   return `<div class="split">
     <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to documents':'Skip to message'}</a>
@@ -1706,7 +1709,7 @@ function wireShell() {
   paintOpenSessions();
   if (typeof sizeMainForSplit === 'function') sizeMainForSplit();
   bindWorkspaceDensity();
-  if (PANE || !railOpen()) return;
+  if (PANE || SOLO || !railOpen()) return;
   paintRail();
   document.querySelectorAll('[data-rail-view]').forEach(b => b.onclick = () => { writeLocal('pc-rail-view', b.dataset.railView); document.querySelectorAll('[data-rail-view]').forEach(x => x.setAttribute('aria-selected', String(x === b))); paintRail(); });
   $('#railsettings').onclick=settingsSheet;
@@ -1812,7 +1815,7 @@ async function renderChat(id, { away = false } = {}) {
   $('#cproj').textContent = projName(s.cwd);
   const gitButton = $('#git-open'); if (gitButton) gitButton.hidden = s.repo === false; // 1.20.1: no Git control outside a repository
   paintChatProject(s); // 1.29: the linked project, or Add to project
-  if (PANE) paneSay('route', { id, title: s.title }); else rememberOpenSession({...s,id});
+  if (PANE) paneSay('route', { id, title: s.title }); else if (!SOLO) rememberOpenSession({...s,id}); // a solo window is not a tab of the main one
   chatTitle = s.title; chatPinned = Boolean(s.pinned);
   const h1 = $('#ctitle').closest('h1');
   h1.classList.add('tappable');

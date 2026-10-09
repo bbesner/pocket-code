@@ -292,9 +292,14 @@ set a new time.
 On the desktop the rail head switches between **Sessions** and **Projects**, with the
 count of due reminders. Pick a project from the rail and it opens as a tab in the same
 strip as sessions (pinning, closing and Alt [ / ] work the same; the tab's mark is the due
-count), or beside the conversation if Settings → Tools says so. *Open beside* and *Split
-view* also offer Projects, Scheduled and the active projects. On the phone, the session
-home shows a **Projects** chip and views open full-screen.
+count), beside the conversation, or in a new browser window of its own, whichever
+Settings → Tools says; the options sheet and the view header offer all three every time.
+*Open beside* and *Split view* also offer Projects, Scheduled and the active projects. On
+the phone, the session home shows a **Projects** chip and views open full-screen.
+
+On a desktop (900px and wider) every sheet, such as a project's or document's options,
+Share, a session's options and Settings, opens as a dialog in the middle of the window;
+on a phone it stays a sheet from the bottom edge.
 
 ## Documents
 
@@ -320,10 +325,19 @@ PDF app); **Download** saves it. Office files and video always open that way.
 **Remove** moves a document to the trash for 30 days, where *Restore* brings it back;
 any link stops working at once.
 
-Documents open like projects: as a tab in the strip, beside a conversation (*Open beside*
-and *Split view* offer the library), or full-screen on the phone. The rail head's switch
-gains **Docs**; the phone's session home gets a Documents chip. Settings → Tools chooses
-whether picking a document from the rail opens a tab or a pane.
+**Finding a document.** The library's search covers the title, file name, project, session,
+kind and visibility; chips narrow the list to Private, Link or Public documents (with
+counts), the Kind filter to HTML reports, PDFs, images, Markdown and text, CSV and JSON, or
+Office and video, and the Project filter to one project; *Clear* resets them. Each row shows
+a visibility badge, and a shared row has a **Copy link** button beside its options. The
+rail's Docs list has the same search.
+
+Documents open three ways, like projects: as a tab in the strip, beside a conversation
+(*Open beside* and *Split view* offer the library), or **in a new window**, a browser tab or
+app window of its own with no session list or tab strip (every options sheet and view
+header offers it). On the phone they open full-screen. The rail head's switch gains
+**Docs**; the phone's session home gets a Documents chip. Settings → Tools chooses whether
+a plain click on a document opens a tab, a pane or a new window.
 
 ## Settings, notifications and compact views
 

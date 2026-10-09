@@ -2550,7 +2550,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Titles follow the session. After a turn run from Pocket ends, once a session has moved on (four more of your turns, or about 8k characters, at least ten minutes since the last check), the helper model sees a digest of the whole session and its current title and either keeps it or writes a better one, naming both topics when a session took a second turn. A rename is never touched; an updated title ranks ahead of Claude Code's own one-shot title. Settings → Update titles as sessions progress turns it off."
+  "Documents and Projects open three ways: as a tab, beside the conversation, or in a new browser window of their own (Open in a new window on every options sheet and view header; Settings \u2192 Tools can make it the default). The Documents library gains Private, Link and Public filters, a Kind filter, a visibility badge and a Copy link button on each shared row, and a search box in the rail. The Share sheet always shows an address to copy. On a desktop, sheets open as dialogs in the middle of the window, and link rows no longer look like web links."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
