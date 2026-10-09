@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.32.1] — 2026-10-09 · build 75
+
+- **Split view names documents on a fresh page too.** 1.31.1 listed documents in the Split view chooser, but only once the library had been loaded in that page; a conversation opened straight from a link still saw just the library. The chooser now fetches the document list first. Found checking the live app after the 1.32.0 deploy.
+
 ## [1.32.0] — 2026-10-09 · build 74
 
 - **The Documents library is a grid of previews on a wide screen.** Each card shows a picture of the document (an HTML report as rendered, a PDF's first page, an image), with the title, where it came from, the visibility badge and the date under it; Copy link and the options button sit on the picture and show on hover or focus. List and Grid buttons above the library switch between the rows and the grid, remembered per browser; the grid is the default from 700px up and phones keep the list. Suggested by Brad.

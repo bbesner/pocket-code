@@ -1295,7 +1295,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const pdocs=await page.$$eval('.project-documents .document-item .title',els=>els.map(e=>[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim()));assert.ok(pdocs.includes('Weekly summary'),pdocs.join('|'));assert.ok(pdocs.includes('Kept from a session'),pdocs.join('|'));
    // Tabs and split.
    let tabs=await page.$$eval('#open-sessions .open-session a',els=>els.map(e=>e.textContent));assert.ok(tabs.includes('Documents')&&tabs.includes('Weekly summary'),tabs.join('|'));
-   await openChat(rows[4].id);await page.click('#splitb');await page.waitForSelector('.sheet [data-v="documents"]');
+   await openChat(rows[4].id);await page.evaluate(()=>{docsSnap=null;}); // 1.32.1: as on a fresh page, the list is fetched before the chooser opens
+   await page.click('#splitb');await page.waitForSelector('.sheet [data-v^="documents/"]');
    const offered=await page.$$eval('.sheet [data-v^="documents/"]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));
    assert.ok(offered.some(t=>/^Weekly summary/.test(t)),'1.31.1: the chooser offers the open document tab: '+offered.join('|'));assert.ok(offered.length>=3,'and the recent documents');
    await page.click('.sheet [data-v="documents"]');

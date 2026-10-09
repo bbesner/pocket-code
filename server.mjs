@@ -2562,7 +2562,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "The Documents library is a grid of previews on a wide screen: a picture of each HTML report, PDF first page or image, with the title, kind, visibility and date under it, and Copy link and options on the picture. Pictures are made once on the server with tools already on the box (headless Chrome, pdftoppm, ImageMagick) and cached beside the documents; a kind without a tool shows its name instead. List and Grid buttons above the library switch and are remembered per browser; phones keep the list."
+  "Split view names documents even on a fresh page: the chooser now fetches the document list before it opens, so a conversation opened straight from a link offers the open and recent documents, not just the library."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

@@ -140,7 +140,12 @@ async function closeMainPane(){
   });
  }
 }
+// 1.32.1: a fresh page has no document list yet; fetch it first so the chooser can name documents, not just the library.
 function chooseBeside(){
+ if(typeof documentsOn==='function'&&documentsOn()&&typeof docsSnap!=='undefined'&&!docsSnap&&typeof loadDocs==='function'){loadDocs().catch(()=>{}).then(()=>chooseBesideNow());return;}
+ chooseBesideNow();
+}
+function chooseBesideNow(){
  const taken=new Set([chatId,...splitPanes.map(p=>p.id)]);
  const seen=new Set(),rows=[];
  for(const s of [...openSessions.slice().reverse(),...allSessions.filter(s=>!isHiddenSession(s))]){
@@ -165,7 +170,6 @@ function chooseBeside(){
   const views=docs.map(d=>['documents/'+d.id,d.title,[KIND_WORD[d.kind],typeof docWhere==='function'?docWhere(d):'',visWord[d.visibility]].filter(Boolean).join(' · ')]);
   if(!shown.has('documents'))views.push(['documents','Documents','The library of files from the work']);
   rows.splice(1,0,...views);
-  if(!docsSnap&&typeof loadDocs==='function')loadDocs().catch(()=>{});
  }
  sheet('Open beside this conversation',rows,null,v=>openBeside(v==='new'?null:v));
 }
