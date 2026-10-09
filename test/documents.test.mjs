@@ -109,7 +109,7 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   assert.equal((await call('/api/documents',null,{...bearer,'cf-connecting-ip':'203.0.113.5'})).status,401,'the token is refused through the tunnel');
   // Share and public paths: no login; the right file and nothing else; strict headers; revocation.
   const sh=await raw('/share/'+added.body.token);assert.equal(sh.status,200);assert.match(sh.text,/Quarterly report/);assert.match(sh.headers.get('content-security-policy'),/frame-ancestors 'none'/);assert.equal(sh.headers.get('x-robots-tag'),'noindex, nofollow, noarchive, nosnippet');
-  assert.equal((await raw('/share/'+added.body.token.slice(0,-1)+'A')).status,404);assert.equal((await raw('/files/report.md')).status,404,'a link document is not public');
+  assert.equal((await raw('/share/'+added.body.token.slice(0,-1)+(added.body.token.endsWith('A')?'B':'A'))).status,404,'a token with one character changed is refused');assert.equal((await raw('/files/report.md')).status,404,'a link document is not public');
   assert.equal((await raw('/files/dashboard.html')).status,404,'private is private');
   const pub=await call('/api/documents/'+dash.id,{visibility:'public'});assert.equal(pub.body.url,'/files/dashboard.html');
   const pf=await raw('/files/dashboard.html');assert.equal(pf.status,200);assert.match(pf.headers.get('content-security-policy'),/^sandbox allow-scripts[^;]*; frame-ancestors 'none'$/);assert.match(pf.text,/<script>/,'the document is sent as itself');

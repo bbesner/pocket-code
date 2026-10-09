@@ -3,6 +3,7 @@
 ## [1.31.1] — 2026-10-09 · build 73
 
 - **Split view offers documents by name.** The chooser behind the Split view button listed each active project but only the Documents library as a whole, so a single report could be opened beside a conversation only from its own options sheet. It now lists the documents open as tabs first, then the six most recent, then the library, each with its kind, project and visibility. Noticed by Brad.
+- The documents HTTP test altered a share token by replacing its last character with `A`, which did nothing about one time in sixty-four when the token already ended in `A`, so the "wrong token is refused" assertion failed at random (seen once locally and once in CI). It now picks a character that differs.
 
 ## [1.31.0] — 2026-10-09 · build 72
 
