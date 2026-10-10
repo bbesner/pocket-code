@@ -18,11 +18,21 @@ const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const checkSession = id => { const s = str(id, 64); if (!SESSION_RE.test(s)) throw fail('That is not a session id.'); return s; };
 const checkDirectory = dir => { if (!dir) return ''; if (!path.isAbsolute(dir)) throw fail('The directory must be a full path.'); return path.normalize(dir).replace(/\/+$/, '') || '/'; };
 
-// One line for an agent's instructions when Tasks is on: a task is created only when the user asks, by voice
-// or text; the summary is the agent's own words about the session, written only when the user wants the context.
-export function taskInstructions(cli, sessionId) {
-  const sid = sessionId ? ` --session ${sessionId}` : '';
-  return `This Pocket Code keeps tasks (to-dos). Only when the user asks to create a task, add a to-do, or note something to do later, run \`node ${cli} add "<text>"${sid} [--due "YYYY-MM-DDTHH:MM"] [--summary "…"]\`; the pocket-tasks skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-tasks', 'SKILL.md')}\`) has the procedure. Give a task a due time only when the user names one (a time without an offset is this server's time zone). When the user wants the task to carry the context of this session, write --summary yourself: two to four plain sentences on what is being worked on, where it stands and what the task needs. \`list\` shows the open tasks and \`done <id>\` finishes one. Never create a task the user did not ask for.`;
+// The agent's instructions while Tasks is on. A task is created only when the user asks (typed or spoken) or accepts
+// the agent's offer of one. 1.37: at a natural follow-up point the agent may offer once, as a suggested-reply button when
+// Pocket shows them, and an accepted offer is filed with the session, a summary the agent writes and any agreed time.
+export function taskInstructions(cli, sessionId, { choices = true } = {}) {
+  const sid = sessionId ? ` --session ${sessionId}` : ' --dir "<working directory>"';
+  const offer = choices
+    ? 'offer it once as a suggested reply: one option in the `choices` block that ends your reply, written as the user would say it and naming what and when (for example "Remind me Nov 7 to recheck the numbers" or "Add a task to test the fix"). If the reply would not otherwise end with choices, ask in one short line whether to add it and list that option with one to decline.'
+    : 'offer it once in one short line and wait for the answer.';
+  return [
+    'This Pocket Code keeps tasks (to-dos).',
+    'Create a task only when the user asks (create a task, add a to-do, remind me, note something for later; typed or spoken) or accepts your offer of one. Never create one the user did not ask for or accept.',
+    `Before you finish each reply, check whether the work now needs the user to come back to it later: waiting on time (propagation, data building up, a scheduled date), a test or measurement still to run, another person's reply or action, a step the user chose to put off, or a date they mentioned. If it does and no task or reminder already covers it, ${offer} This applies even when the user only asked for a recap or a short answer. Do not offer for work you are about to do in this session or for trivial errands, and do not repeat an offer the user passed on.`,
+    `When the user asks or accepts, run \`node ${cli} add "<text>"${sid} --summary "…" [--due "YYYY-MM-DDTHH:MM"]\`. The text is one clear sentence of what to do. Write the summary yourself (always for an accepted offer, and whenever the task depends on this session): two to four plain sentences on what is being worked on, where it stands and what finishing the task needs (files, decisions, blockers). Give --due only for a date or time the user named or agreed; a time without an offset is this server's time zone. ${sessionId ? "Pocket adds the session's title and workspace, so Start opens the task in the right place." : 'Pass the working directory so Start opens the task in the right place.'} Then confirm in one sentence with the task and its due time.`,
+    `\`list\` shows the open tasks and \`done <id>\` finishes one. The pocket-tasks skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-tasks', 'SKILL.md')}\`) has the procedure.`,
+  ].join(' ');
 }
 
 export class TaskStore {

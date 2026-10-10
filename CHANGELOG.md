@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.37.0] — 2026-10-10 · build 81
+
+- **Agents offer tasks.** While Tasks is on, an agent that reaches a point you will need to come back to (a report that needs weeks of data, a test still to run, someone else's reply, a step you chose to put off, a date you mentioned) offers once to add a task, as one of the suggested-reply buttons at the end of its turn, written as you would say it: *Remind me Nov 7 to recheck the numbers*. With suggested replies off it asks in one line. Nothing is added unless you tap it or say yes, an offer you pass on is not repeated, and there is no offer for work the agent is about to do or for trivial errands. Requested by Brad.
+- **Accepted offers carry the context.** The agent files the task with the session, a two-to-four-sentence briefing it writes from the whole conversation (what is being worked on, where it stands, what finishing needs) and the date or time from the offer. Pocket's per-turn instruction and the `pocket-tasks` skill say so for Claude Code and Codex.
+- **Tasks from agents know their session.** `pocket-tasks add --session` now gets that session's title and workspace filled in by the server, as the Add task button does, so the list says where the task came from and **Start** opens New session in the right folder. An explicit `--dir` or title still wins; without a session id, agents are told to pass `--dir`.
+
 ## [1.36.0] — 2026-10-10 · build 80
 
 - **Tasks.** A third library beside Projects and Files, off until **Settings → Projects, files & tasks → Tasks** turns it on for the whole install. A task is one line of text with an optional date and time, the session it came from and, when you ask for it, a short briefing on that session. The list (`#/tasks`) opens like a session: a tab, a split pane, its own window, or full-screen on a phone; open tasks come first, due ones at the top, finished ones collapsed under Done. The rail switch reads Sessions | Projects | Files | Tasks with the count of due tasks; the phone's session home gets a Tasks chip. A dated task is announced once when it comes due, by push with a link to the list and to the server's reminder hook (`kind: "task"`); it stays due until it is done or re-dated. Requested by Brad.

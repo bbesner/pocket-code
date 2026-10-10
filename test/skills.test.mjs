@@ -60,7 +60,7 @@ test('skills: roots follow HOME, CLAUDE_CONFIG_DIR and CODEX_HOME; Codex only wh
 
 test('skills and agent lines: every name for the library maps to Files; projects ask little and remind only on request',()=>{
   const files=fs.readFileSync(path.join(repo,'skills','pocket-files','SKILL.md'),'utf8'),projects=fs.readFileSync(path.join(repo,'skills','pocket-projects','SKILL.md'),'utf8'),tasks=fs.readFileSync(path.join(repo,'skills','pocket-tasks','SKILL.md'),'utf8');
-  assert.match(tasks,/only when the user asks/);assert.match(tasks,/Never invent a time/);assert.match(tasks,/--summary/);assert.match(tasks,/Settings → Projects, files & tasks → Tasks/);
+  assert.match(tasks,/only when the user asks/);assert.match(tasks,/## Offering one/);assert.match(tasks,/offer \*\*once\*\*/);assert.match(tasks,/for every accepted offer/);assert.match(tasks,/Never add the task before the user says yes/);assert.match(tasks,/Never invent a time/);assert.match(tasks,/--summary/);assert.match(tasks,/Settings → Projects, files & tasks → Tasks/);
   for(const phrase of ['files','my files','documents','my documents','docs'])assert.ok(files.toLowerCase().includes(phrase),phrase);
   assert.match(files,/Settings → Projects, files & tasks → Files/);
   assert.match(projects,/at most one short question/);assert.match(projects,/Never add a reminder by default/);assert.match(projects,/--requested/);

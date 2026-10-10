@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.36.0 / build 80**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.37.0 / build 81**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -33,7 +33,8 @@ Screenshots use synthetic demo sessions, not private conversations.
   the session it came from and, if you ask, a short briefing on that session. Add one from
   a conversation's **Add task** chip, from the Tasks list, or by telling an agent "create a
   task to …"; **Start** opens a new session with the task written in, ready to send. Agents
-  use `pocket-tasks`. See the [workspace guide](docs/workspace-guide.md#tasks).
+  use `pocket-tasks`, and offer a task as a suggested reply when the work needs a later
+  follow-up; an accepted offer carries the session's briefing and the agreed date. See the [workspace guide](docs/workspace-guide.md#tasks).
 - **Agents that already know Pocket.** While Projects, Files or Tasks is on, Pocket installs the
   `pocket-projects`, `pocket-files` and `pocket-tasks` skills for Claude Code and Codex, so any
   agent on the server knows how to track a project, that "my files", "documents" or "docs" mean

@@ -44,6 +44,15 @@ test('TaskStore: adding, ordering, due, done, editing, stale edits, removal and 
   assert.equal(s.act({action:'add',text:'x'.repeat(2000)}).text.length,LIMITS.text);
   assert.match(taskInstructions('/srv/pocket/scripts/pocket-tasks.mjs',S1),/node \/srv\/pocket\/scripts\/pocket-tasks\.mjs add "<text>" --session 11111111-1111-4111-8111-111111111111/);
   assert.match(taskInstructions('/srv/pocket/scripts/pocket-tasks.mjs',null),/skills\/pocket-tasks\/SKILL\.md/);
+  // 1.37: offer once at a follow-up point, as a suggested-reply button when Pocket shows them; file an accepted offer with context.
+  const offered=taskInstructions('/srv/pocket/scripts/pocket-tasks.mjs',S1);
+  assert.match(offered,/offer it once as a suggested reply: one option in the `choices` block/);
+  assert.match(offered,/Never create one the user did not ask for or accept/);
+  assert.match(offered,/--summary "…"/);assert.match(offered,/always for an accepted offer/);assert.match(offered,/only for a date or time the user named or agreed/);
+  assert.match(offered,/do not repeat an offer the user passed on/);assert.match(offered,/Pocket adds the session's title and workspace/);
+  const noButtons=taskInstructions('/srv/pocket/scripts/pocket-tasks.mjs',S1,{choices:false});
+  assert.doesNotMatch(noButtons,/choices/,'no button wording when suggested replies are off');assert.match(noButtons,/offer it once in one short line/);
+  assert.match(taskInstructions('/srv/pocket/scripts/pocket-tasks.mjs',null),/add "<text>" --dir "<working directory>"/,'without a session the agent passes its directory');
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
@@ -101,6 +110,16 @@ test('HTTP: tasks are off until Settings turns them on, the loopback token serve
   const made=await call('/tasks/act',{action:'add',text:'Send the recount',dueAt:'2027-07-04T09:00',session:S1});
   assert.equal(made.status,200);assert.equal(made.body.task.by,'ui');assert.equal(made.body.task.dueAt,'2027-07-04T13:00:00Z','server-side time zone');
   const viaCli=await call('/tasks/act',{action:'add',text:'From an agent',summary:'Context here'},bearer);assert.equal(viaCli.body.task.by,'cli');
+  // 1.37: an agent's task from a session gets that session's title and workspace, as the Add task button does.
+  const sid=calls().at(-1).id;
+  const hasTranscript=d=>fs.readdirSync(d,{withFileTypes:true}).some(e=>e.isDirectory()?hasTranscript(path.join(d,e.name)):e.name===sid+'.jsonl');
+  for(let i=0;i<60&&!hasTranscript(path.join(dir,'sessions'));i++)await sleep(50);
+  const fromSession=await call('/tasks/act',{action:'add',text:'Offered and accepted',session:sid,summary:'Where the work stands.'},bearer);
+  assert.equal(fromSession.status,200);assert.equal(fromSession.body.task.directory,repo,'the session workspace is filled in');
+  assert.ok(fromSession.body.task.sessionTitle,'the session title is filled in');assert.equal(fromSession.body.task.summary,'Where the work stands.');
+  const given=await call('/tasks/act',{action:'add',text:'Own folder',session:sid,directory:'/srv/elsewhere',sessionTitle:'Named'},bearer);
+  assert.equal(given.body.task.directory,'/srv/elsewhere','an explicit directory wins');assert.equal(given.body.task.sessionTitle,'Named');
+  for(const x of [fromSession,given])assert.equal((await call('/tasks/act',{action:'remove',task:x.body.task.id})).status,200);
   const stale=await call('/tasks/act',{action:'update',task:made.body.task.id,expected_revision:9,text:'x'});assert.equal(stale.status,409);assert.equal(stale.body.task.revision,1,'the 409 carries the current task');
   assert.equal((await call('/tasks/act',{action:'nope',task:made.body.task.id})).status,400);
   assert.equal((await call('/tasks/summary',{session:'bad'})).status,400);
