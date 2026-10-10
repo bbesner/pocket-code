@@ -370,7 +370,8 @@ stops working at once.
 **The grid.** From 700px up the library is a grid of previews: a picture of each HTML
 report, PDF first page or image, with the title, kind, visibility and date under it, and Copy
 link and the options button on the picture. The List and Grid buttons above the library
-switch between the rows and the grid, remembered per browser; phones keep the list. The
+switch between the rows and the grid, remembered per browser; phones keep the list. A split
+pane keeps the grid at any width, with smaller cards (1.37.2). The
 server makes each picture once with tools on the box (headless Chrome, `pdftoppm`,
 ImageMagick) and caches it beside the files; a kind it cannot picture shows its name.
 

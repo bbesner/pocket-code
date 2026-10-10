@@ -1159,9 +1159,11 @@ header.bar { gap: 2px; padding-inline: 8px; }
    /thumb when this install can make one, else the kind stands in. Actions sit on the picture and show on hover or focus. */
 .doc-layout { display: none; gap: 4px; }
 @media (min-width: 700px) { .doc-layout { display: inline-flex; } }
+.in-pane .doc-layout { display: inline-flex; }
 .doc-layout button { width: 40px; height: 40px; border-radius: 10px; color: var(--dim); display: grid; place-items: center; border: 1px solid var(--line); }
 .doc-layout button[aria-pressed="true"] { color: var(--text); background: var(--raised); }
 .doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; padding: 4px 18px 8px; }
+.in-pane .doc-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; } /* two columns in a 380px pane */
 .doc-card { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .doc-card:hover, .doc-card:focus-within { border-color: var(--clay-deep); }
 .doc-card.cur { border-color: var(--clay); }

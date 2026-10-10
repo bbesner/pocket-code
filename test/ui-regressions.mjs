@@ -1377,7 +1377,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.deepEqual(await page.$$eval('#rail .rail-documents .rail-project-actions .chip',els=>els.map(e=>e.textContent.trim())),['Upload','Split','Tab']);
    assert.deepEqual(await page.$$eval('[data-open-library]',els=>els.map(e=>e.getAttribute('aria-label'))),['Open the file library in split view','Open the file library in a tab']);
    await (await page.$('aside.rail')).screenshot({path:path.join(out,'rail-files-actions.png')});
+   // 1.37.2: a split pane is a narrow frame on a desktop, so it keeps the grid of previews instead of falling back to the phone's list.
+   await page.evaluate(()=>writeLocal('pc-documents-layout','grid'));
    await clickControl(page,'[data-open-library="beside"]');await page.waitForSelector('#panes iframe');assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/documents$/);
+   {const gridPane=page.frames().find(f=>f.url().includes('#/documents'));await gridPane.waitForSelector('.doc-card');await gridPane.waitForFunction(()=>document.querySelector('.doc-thumb.loaded img'));
+    const g=await gridPane.evaluate(()=>({w:innerWidth,cols:getComputedStyle(document.querySelector('.doc-grid')).gridTemplateColumns.split(' ').length,toggle:getComputedStyle(document.querySelector('.doc-layout')).display}));
+    assert.ok(g.w<700,'the pane is narrower than the phone breakpoint: '+g.w);assert.ok(g.cols>=2,'two or more columns of previews in the pane: '+JSON.stringify(g));assert.notEqual(g.toggle,'none','the layout switch shows in a pane');
+    await page.screenshot({path:path.join(out,'documents-grid-pane.png')});}
+   await page.evaluate(()=>writeLocal('pc-documents-layout','list'));
    await page.frames().find(f=>f.url().includes('#/documents')).waitForSelector('#pane-close');await page.frames().find(f=>f.url().includes('#/documents')).click('#pane-close');await page.waitForFunction(()=>!document.querySelector('#panes iframe'));
    await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
    // Settings → Files button: open the library in a tab straight from the Files segment.

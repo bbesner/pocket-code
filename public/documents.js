@@ -7,7 +7,8 @@
 const documentsOn=()=>Boolean(window.pocketFeatures?.documents);
 let docsSnap=null,docsAt=0,docsLoading=null,docView=null,docFilterProject='',docFilterVis='',docFilterKind='',docQuery='',railDocQuery='';
 // 1.32: the library is a grid of previews on a wide screen (remembered per browser), a list on a phone.
-const gridOn=()=>matchMedia('(min-width: 700px)').matches&&readLocal('pc-documents-layout','grid')==='grid';
+// A split pane is a narrow frame on a desktop, not a phone, so it keeps the grid (with smaller cards).
+const gridOn=()=>(PANE||matchMedia('(min-width: 700px)').matches)&&readLocal('pc-documents-layout','grid')==='grid';
 const docById=id=>docsSnap?.documents.find(d=>d.id===id)||docsSnap?.trash.find(d=>d.id===id)||null;
 async function loadDocs(force){
  if(!force&&docsSnap&&Date.now()-docsAt<4000)return docsSnap;

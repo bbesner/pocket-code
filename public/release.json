@@ -1,7 +1,7 @@
 {
-  "version": "1.37.1",
-  "assetV": 82,
+  "version": "1.37.2",
+  "assetV": 83,
   "notes": [
-    "A reminder command (POCKET_REMINDER_HOOK) now runs without Pocket's own secrets in its environment, the same as agent turns."
+    "In split view, Files shows the grid of previews, the same as in a tab, with smaller cards so a narrow pane fits two columns."
   ]
 }
