@@ -221,8 +221,10 @@ function requireBoardAuth(req, res, next) {
 }
 const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404).json({ error: 'Projects is off. Turn it on in Settings → Projects, files & tasks.', code: 'projects_off' });
 const REMINDER_HOOK = process.env.POCKET_REMINDER_HOOK || '';
+// 1.37.1: the hook gets the same environment as agent turns, without the daemon's secrets (login password,
+// cookie-signing key, push private key). It is an operator's own command, but it has no use for them.
 function runReminderHook(payload) {
-  const child = spawn(REMINDER_HOOK, { shell: true, stdio: ['pipe', 'ignore', 'pipe'] });
+  const child = spawn(REMINDER_HOOK, { shell: true, env: agentEnv(process.env), stdio: ['pipe', 'ignore', 'pipe'] });
   let err = ''; child.stderr.on('data', b => { err += b; });
   child.on('exit', code => { if (code) log(`reminder hook exited ${code}: ${err.trim().slice(0, 300)}`); });
   child.on('error', e => log(`reminder hook failed: ${e.message}`));
@@ -2628,9 +2630,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Agents offer a task when the work needs a later follow-up, as one of the suggested-reply buttons at the end of a turn. Nothing is added unless you tap it.",
-  "An accepted offer is filed with the session, a briefing the agent writes from the conversation, and the date in the offer.",
-  "A task an agent adds from a session gets its title and workspace, so Start opens in the right folder."
+  "A reminder command (POCKET_REMINDER_HOOK) now runs without Pocket's own secrets in its environment, the same as agent turns."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

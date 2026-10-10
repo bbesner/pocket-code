@@ -3,6 +3,10 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.37.1] — 2026-10-10 · build 82
+
+- **The reminder command no longer sees Pocket's secrets.** `POCKET_REMINDER_HOOK`, run when a project reminder or a dated task comes due, used to start with the daemon's whole environment, including the login password (`POCKET_PASSWORD`), the cookie-signing key (`POCKET_SECRET`) and the push private key (`VAPID_PRIVATE`). It now gets the same filtered environment as agent turns, so those three are removed; everything else (PATH, PORT and your own variables) is unchanged. Found by the 1.37 documentation audit. A test checks that the hook cannot see them.
+
 ## [1.37.0] — 2026-10-10 · build 81
 
 - **Agents offer tasks.** While Tasks is on, an agent that reaches a point you will need to come back to (a report that needs weeks of data, a test still to run, someone else's reply, a step you chose to put off, a date you mentioned) offers once to add a task, as one of the suggested-reply buttons at the end of its turn, written as you would say it: *Remind me Nov 7 to recheck the numbers*. With suggested replies off it asks in one line. Nothing is added unless you tap it or say yes, an offer you pass on is not repeated, and there is no offer for work the agent is about to do or for trivial errands. Requested by Brad.
