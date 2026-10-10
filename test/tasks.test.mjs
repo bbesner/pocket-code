@@ -12,6 +12,7 @@ const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
 const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-tasks-'));
 const S1='11111111-1111-4111-8111-111111111111';
+process.env.POCKET_TZ='America/New_York'; // the store reads the install zone per call; CI runs in UTC
 
 test('TaskStore: adding, ordering, due, done, editing, stale edits, removal and persistence',()=>{
   const dir=tmp(),file=path.join(dir,'tasks.json');let clock=Date.parse('2026-10-10T12:00:00Z');
