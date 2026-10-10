@@ -264,7 +264,7 @@ code-server; the provider can drop a cache sooner. Codex sessions show no cache 
 ## Projects
 
 Projects (1.29) keep the work that comes out of sessions beside the sessions. The feature
-is off until **Settings → Projects & documents → Projects** turns it on for the whole install.
+is off until **Settings → Projects & files → Projects** turns it on for the whole install.
 
 A project is one card: where you left off, the next step, what it is waiting for, a
 directory and a link, a checklist of remaining steps, reminders, notes, history, and the
@@ -293,63 +293,92 @@ On the desktop the rail head switches between **Sessions** and **Projects**, wit
 count of due reminders. Pick a project from the rail and it opens as a tab in the same
 strip as sessions (pinning, closing and Alt [ / ] work the same; the tab's mark is the due
 count), beside the conversation, or in a new browser window of its own, whichever
-Settings → Projects & documents says; the options sheet and the view header offer all three every time.
+Settings → Projects & files says; the options sheet and the view header offer all three every time.
 *Open beside* and *Split view* also offer Projects, Scheduled and the active projects. On
 the phone, the session home shows a **Projects** chip and views open full-screen.
 
-On a desktop (900px and wider) every sheet, such as a project's or document's options,
+On a desktop (900px and wider) every sheet, such as a project's or file's options,
 Share, a session's options and Settings, opens as a dialog in the middle of the window;
 on a phone it stays a sheet from the bottom edge.
 
-## Documents
+## Files
 
-Documents (1.30) is the library of files that came out of sessions: HTML reports and
-dashboards, PDFs, images, Markdown, text, CSV, JSON, Office files and video. It is off
-until **Settings → Projects & documents → Documents** turns it on for the whole install.
+Files (1.30; called Documents before 1.34) is the library of files that came out of
+sessions: HTML reports and dashboards, PDFs, images, Markdown, text, CSV, JSON, Office files
+and video. It is off until **Settings → Projects & files → Files** turns it on for the
+whole install.
 
-A document gets in four ways: an agent keeps it with `pocket-docs add` (agents started by
+A file gets in four ways: an agent keeps it with `pocket-docs add` (agents started by
 Pocket are told to do this for deliverables, linked to the session, and never to share
-unless you ask); **Keep as document** on a file in a session's Results panel; **Upload**
-in the library or the rail; or a file placed in the documents folder, which appears as a
-private document on the next listing. Each document knows the session and project it came
-from; a project card lists its documents and the library filters by project.
+unless you ask); **Keep in Files** on a file in a session's Results panel; **Upload**
+in the library or the rail; or a file placed in the library's folder on the server
+(`POCKET_DOCUMENTS_DIR`), which appears as a private file on the next listing. Each file
+knows the session and project it came from; a project card lists its files and the library
+filters by project.
 
-HTML renders in a sandboxed frame that keeps the document away from Pocket's cookies,
-storage and API while its own scripts still run. PDFs, images, Markdown, text, CSV and JSON
-render natively. **Open in your viewer** hands the file to the device (a PDF to the phone's
-PDF app); **Download** saves it. Office files and video always open that way.
+HTML renders in a sandboxed frame that keeps the file away from Pocket's cookies, storage
+and API while its own scripts still run. PDFs, images, Markdown, text, CSV and JSON render
+natively. **Open in your viewer** hands the file to the device (a PDF to the phone's PDF
+app); **Download** saves it. Office files and video always open that way.
 
 **Share** sets the visibility: *Private* (behind the Pocket login), *Anyone with the link*
 (an unguessable address, with an optional expiry; *New link* revokes the old one) or
 *Public* (a fixed address by file name). All are served by Pocket on its own hostname.
-**Remove** moves a document to the trash for 30 days, where *Restore* brings it back;
-any link stops working at once.
+**Remove** moves a file to the trash for 30 days, where *Restore* brings it back; any link
+stops working at once.
 
 **The grid.** From 700px up the library is a grid of previews: a picture of each HTML
 report, PDF first page or image, with the title, kind, visibility and date under it, and Copy
 link and the options button on the picture. The List and Grid buttons above the library
 switch between the rows and the grid, remembered per browser; phones keep the list. The
 server makes each picture once with tools on the box (headless Chrome, `pdftoppm`,
-ImageMagick) and caches it beside the documents; a kind it cannot picture shows its name.
+ImageMagick) and caches it beside the files; a kind it cannot picture shows its name.
 
-**Finding a document.** The library's search covers the title, file name, project, session,
-kind and visibility; chips narrow the list to Private, Link or Public documents (with
-counts), the Kind filter to HTML reports, PDFs, images, Markdown and text, CSV and JSON, or
-Office and video, and the Project filter to one project; *Clear* resets them. Each row shows
-a visibility badge, and a shared row has a **Copy link** button beside its options. The
-rail's Docs list has the same search.
+**Finding a file.** The library's search covers the title, file name, project, session,
+kind and visibility; chips narrow the list to Private, Link or Public files (with counts),
+the Kind filter to HTML reports, PDFs, images, Markdown and text, CSV and JSON, or Office
+and video, and the Project filter to one project; *Clear* resets them. Each row shows a
+visibility badge, and a shared row has a **Copy link** button beside its options. The
+rail's Files list has the same search.
 
-Documents open three ways, like projects: as a tab in the strip, beside a conversation
+Files open three ways, like projects: as a tab in the strip, beside a conversation
 (*Open beside* and *Split view* offer the library), or **in a new window**, a browser tab or
 app window of its own with no session list or tab strip (every options sheet and view
-header offers it). On the phone they open full-screen. The rail head's switch gains
-**Docs**; the phone's session home gets a Documents chip. Settings → Projects & documents chooses whether
-a plain click on a document opens a tab, a pane or a new window.
+header offers it). On the phone they open full-screen. The rail head's switch reads
+**Sessions | Projects | Files**, with a light divider between them; the phone's session
+home gets a Files chip. Settings → Projects & files chooses whether a plain click on a
+file opens a tab, a pane or a new window.
+
+**Agents know what "my files" means.** Whether the user says files, my files, documents,
+my documents or docs, agents treat it as this library. Pocket tells its own agents so on
+every turn, and installs the **pocket-files** skill (and **pocket-projects** for Projects)
+into the user's Claude Code and Codex skill folders while the feature is on, so terminal and
+code-server sessions on the server know it too. See [Agent skills](#agent-skills).
+
+The internal names are unchanged, so existing installs, links and scripts keep working:
+the `/api/documents` routes, `#/documents` links, `documents.json`, `POCKET_DOCUMENTS_DIR`
+and the `pocket-docs` command.
+
+## Agent skills
+
+Pocket Code ships two skills in `skills/`, written for any Claude Code or Codex agent:
+
+- **pocket-projects**: when to create a project (only when the user asks), the steps,
+  asking at most one question (which project, what it tracks, or when to remind), and
+  setting reminders only when the user asks or agrees to a time.
+- **pocket-files**: every name users give the library (files, my files, documents, my
+  documents, docs) maps to Files; what to keep, how to keep it, and sharing only on request.
+
+While Projects or Files is on, Pocket writes the matching skill to `~/.claude/skills/` (or
+`$CLAUDE_CONFIG_DIR/skills/`) and, where Codex is installed, `$CODEX_HOME/skills/`, with
+this server's command filled in. Turning the feature off removes it. Pocket only touches a
+folder holding its `.pocket-managed` marker, so your own skill of the same name is left
+alone. Set `POCKET_SKILLS=0` to turn installation off.
 
 ## Settings, notifications and compact views
 
 Settings opens a short index: **Appearance**, **Conversation**, **Agents & instance**,
-**Projects & documents**, **Notifications & voice**, and **Help & updates**. Each category
+**Projects & files**, **Notifications & voice**, and **Help & updates**. Each category
 labels preferences that apply to **This device** or **This instance · all devices**.
 **All settings** returns to the index. Accounts, usage and keyboard subpages offer
 **Back to Settings**, preserving the category and scroll position; Close and Escape
@@ -500,12 +529,12 @@ are limited to 12,000 characters per field. Background shell jobs are excluded.
 
 ## Consistent view navigation
 
-On phone and tablet, Back from a project or document restores the view it was opened
-from, including document filters and list position. A direct link falls back to its
-Projects or Documents library. Failed library loads offer Retry; when prior data is
+On phone and tablet, Back from a project or file restores the view it was opened
+from, including Files filters and list position. A direct link falls back to its
+Projects or Files library. Failed library loads offer Retry; when prior data is
 available, it remains visible with an explicit stale-data message.
 
-The desktop Sessions / Projects / Docs selector is a button group. Tab reaches its
+The desktop Sessions / Projects / Files selector is a button group. Tab reaches its
 buttons; Left/Right and Home/End also select a section. Split view groups destinations
 by type, shows recent items first, and searches the available session, project and
 document catalog. Its empty state explains when nothing matches.

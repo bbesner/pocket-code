@@ -25,7 +25,7 @@ async function boardAct(body,done){
  catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();}toast(e.message||'Could not update the project');return null;}
 }
 const boardDueCount=()=>boardSnap?.dueCount||0;
-const viewTitle=id=>id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'Documents'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
+const viewTitle=id=>id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'Files'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
 const fmtDue=iso=>{const d=new Date(iso),now=new Date();const sameYear=d.getFullYear()===now.getFullYear();return d.toLocaleDateString('en-US',{month:'short',day:'numeric',...(sameYear?{}:{year:'numeric'})})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
 const fmtStamp=iso=>rel(Date.parse(iso));
 const statusWord={active:'Active',waiting:'Waiting',done:'Done'};
@@ -272,7 +272,7 @@ function reminderSheet(project,task){
 }
 // From a session's options: track a new project around this session, or add it to an existing one.
 function addSessionToProject(s){
- if(!boardSnap)return loadBoard(true).then(()=>addSessionToProject(s)).catch(e=>toast(e.status===404?'Projects is off. Turn it on in Settings → Projects & documents.':e.message));
+ if(!boardSnap)return loadBoard(true).then(()=>addSessionToProject(s)).catch(e=>toast(e.status===404?'Projects is off. Turn it on in Settings → Projects & files.':e.message));
  const open=boardSnap.projects.filter(p=>p.status!=='done'&&!p.sessions.includes(s.id));
  const rows=[['__new','Track a new project','A card around this session; its workspace becomes the directory'],...open.map(p=>[p.id,p.name,p.next||p.summary||statusWord[p.status]])];
  sheet('Add to project',rows,null,v=>{

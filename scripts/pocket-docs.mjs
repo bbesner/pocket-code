@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// pocket-docs: keep documents in Pocket Code from a terminal or an agent session (1.30).
+// pocket-docs: keep files in Pocket Code's Files library from a terminal or an agent session (1.30; called Documents before 1.34).
 // Talks to the running Pocket Code server over loopback with the token it writes to <data dir>/cli-token;
-// it never touches the documents folder itself. Documents are private unless the user asks to share.
+// it never touches the library's folder itself. Files are private unless the user asks to share.
 //
 //   pocket-docs add <path> [--title "…"] [--project <id>] [--session <id>] [--visibility private|link|public]
 //   pocket-docs list [--project <id>] [--q text] [--json]
@@ -42,7 +42,7 @@ async function call(p, body, method) {
   catch (e) { die(`Pocket Code is not reachable at ${base}: ${e.cause?.code || e.message}`); }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
-    if (data.code === 'documents_off') die('Documents is off for this Pocket Code. Turn it on in Settings → Projects & documents.', 3);
+    if (data.code === 'documents_off') die('Files is off for this Pocket Code. Turn it on in Settings → Projects & files.', 3);
     die(data.error || `${r.status} from ${p}`, r.status === 401 ? 4 : 1);
   }
   return data;
@@ -65,33 +65,33 @@ switch (cmd) {
     if (!rest[0]) die('add needs a file path');
     const p = path.resolve(rest[0]);
     const d = await call('/api/documents/add', { path: p, title: opts.title || '', project: opts.project || '', session: opts.session || '', visibility: opts.visibility || 'private' });
-    out(d, 'Kept as document:\n' + card(d, d.token)); break;
+    out(d, 'Kept in Files:\n' + card(d, d.token)); break;
   }
   case 'list': {
     const q = new URLSearchParams(); if (opts.project) q.set('project', opts.project); if (opts.q) q.set('q', opts.q);
     const r = await call('/api/documents?' + q);
     if (opts.json) { console.log(JSON.stringify(r, null, 1)); break; }
-    if (!r.documents.length) { console.log('No documents.'); break; }
+    if (!r.documents.length) { console.log('No files.'); break; }
     for (const d of r.documents) console.log(line(d));
     if (r.trash?.length) console.log(`(${r.trash.length} in the trash)`);
     break;
   }
-  case 'show': { if (!rest[0]) die('show needs a document id'); const r = await call('/api/documents?all=1'); const d = r.documents.find(x => x.id === rest[0]) || r.trash?.find(x => x.id === rest[0]); if (!d) die('No document with id ' + rest[0], 5); out(d, card(d)); break; }
+  case 'show': { if (!rest[0]) die('show needs a file id'); const r = await call('/api/documents?all=1'); const d = r.documents.find(x => x.id === rest[0]) || r.trash?.find(x => x.id === rest[0]); if (!d) die('No file with id ' + rest[0], 5); out(d, card(d)); break; }
   case 'share': {
-    if (!rest[0]) die('share needs a document id');
-    const r = await call('/api/documents?all=1'), d = r.documents.find(x => x.id === rest[0]); if (!d) die('No document with id ' + rest[0], 5);
+    if (!rest[0]) die('share needs a file id');
+    const r = await call('/api/documents?all=1'), d = r.documents.find(x => x.id === rest[0]); if (!d) die('No file with id ' + rest[0], 5);
     const body = d.visibility === 'link' ? { action: 'reshare' } : { visibility: 'link' };
     const e = expiresFrom(opts.expires); if (opts.expires) body.expiresAt = e;
     const u = await call('/api/documents/' + encodeURIComponent(d.id), body);
     out(u, `Share URL: ${abs('/share/' + u.token)}${u.share?.expiresAt ? `  (expires ${when(u.share.expiresAt)})` : ''}`); break;
   }
   case 'set': {
-    if (!rest[0]) die('set needs a document id');
+    if (!rest[0]) die('set needs a file id');
     const body = {}; for (const [k, v] of [['title', opts.title], ['project', opts.project], ['visibility', opts.visibility]]) if (v !== undefined) body[k] = v;
     if (!Object.keys(body).length) die('set needs --title, --project or --visibility');
     const u = await call('/api/documents/' + encodeURIComponent(rest[0]), body); out(u, card(u, u.token)); break;
   }
-  case 'trash': case 'restore': { if (!rest[0]) die(`${cmd} needs a document id`); const u = await call('/api/documents/' + encodeURIComponent(rest[0]), { action: cmd }); out(u, `${cmd === 'trash' ? 'Moved to the trash (restorable for 30 days)' : 'Restored'}: ${u.title}`); break; }
+  case 'trash': case 'restore': { if (!rest[0]) die(`${cmd} needs a file id`); const u = await call('/api/documents/' + encodeURIComponent(rest[0]), { action: cmd }); out(u, `${cmd === 'trash' ? 'Moved to the trash (restorable for 30 days)' : 'Restored'}: ${u.title}`); break; }
   case 'import': {
     if (!rest[0]) die('import needs the path of the metadata file');
     let meta; try { meta = JSON.parse(fs.readFileSync(rest[0], 'utf8')); } catch (e) { die(`Could not read ${rest[0]}: ${e.message}`); }

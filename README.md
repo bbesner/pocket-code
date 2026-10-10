@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.33.1 / build 77**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.34.0 / build 78**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -18,16 +18,20 @@ Screenshots use synthetic demo sessions, not private conversations.
 
 - **Work across sessions.** Search and filter the session list, pin or rename work,
   keep open-session tabs, and resume the last conversation on this browser.
-- **Track projects (optional).** Turn on Projects in Settings → Projects & documents to keep a card for
+- **Track projects (optional).** Turn on Projects in Settings → Projects & files to keep a card for
   each piece of work: where you left off, the next step, remaining steps, reminders and
   the sessions that worked on it. Projects open as a tab, beside a conversation, or
   full-screen on the phone; a Scheduled view lists every reminder, due first; agents keep
   cards current with `pocket-board`. See the [workspace guide](docs/workspace-guide.md#projects).
-- **Keep documents (optional).** Turn on Documents in Settings → Projects & documents for a library of the
+- **Keep files (optional).** Turn on Files in Settings → Projects & files for a library of the
   files that came out of the work. HTML renders sandboxed; PDFs, images, Markdown and CSV
-  render natively; share a document privately, by link or publicly, all served by Pocket.
+  render natively; share a file privately, by link or publicly, all served by Pocket.
   Keep a file from a session's Results, upload one, or let agents keep deliverables with
-  `pocket-docs`. See the [workspace guide](docs/workspace-guide.md#documents).
+  `pocket-docs`. See the [workspace guide](docs/workspace-guide.md#files).
+- **Agents that already know Pocket.** While Projects or Files is on, Pocket installs the
+  `pocket-projects` and `pocket-files` skills for Claude Code and Codex, so any agent on the
+  server knows how to track a project and that "my files", "documents" or "docs" mean Files.
+  See [Agent skills](docs/workspace-guide.md#agent-skills).
 - **Use a desktop workspace.** Open up to four conversations side by side when space
   permits, start a new session in a pane, swap it with the main conversation, and resize
   dividers. Results, Queue and read-only Git inspection can stay in a side panel.
@@ -189,7 +193,8 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_DATA_DIR` | no | Pocket state and runner files; defaults to the checkout. Move only after all session processes are closed. |
 | `POCKET_SESSION_ROOT` | no | Override Claude transcript storage for isolated tests; does not relocate Codex. |
 | `POCKET_REMINDER_HOOK` | no | A command run when a project reminder comes due (Projects, 1.29), with the reminder as JSON on its standard input: `project`, `projectName`, `reminder`, `label`, `dueAt`, `task`, `taskText`, `url`. Each reminder is announced once. Use it for email, chat or anything else; web push happens regardless. |
-| `POCKET_DOCUMENTS_DIR` | no | Where Documents (1.30) keeps files. Default `<data dir>/documents`. Files placed there appear as private documents; removed documents wait in its `.trash` for 30 days. |
+| `POCKET_DOCUMENTS_DIR` | no | Where Files (1.30; Documents before 1.34) keeps files. Default `<data dir>/documents`. Files placed there appear as private files; removed files wait in its `.trash` for 30 days. |
+| `POCKET_SKILLS` | no | `0` stops Pocket installing its `pocket-projects` and `pocket-files` agent skills into `~/.claude/skills` and `$CODEX_HOME/skills` (1.34). On by default while the matching feature is on. |
 | `POCKET_CHROME`, `POCKET_PDFTOPPM`, `POCKET_CONVERT` | no | The tools that make the library's preview pictures (1.32): a Chrome or Chromium binary for HTML reports (and images when ImageMagick is absent), `pdftoppm` from poppler for PDFs, ImageMagick's `convert` for images. Found automatically in the usual places and on `PATH`; set one to a path to choose it, or to an empty value to turn it off. Pictures are cached in `<documents dir>/.thumbs`. A kind without a tool shows its name on the card instead. |
 | `POCKET_TZ` | no | Time zone for `pocket-board` times given without an offset, e.g. `America/New_York`. Default: the server's zone. |
 | `POCKET_FRAME_ANCESTORS` | no | Origins allowed to embed Pocket Code in a frame (for example Mission Control), space-separated. Default: only Pocket's own origin. |

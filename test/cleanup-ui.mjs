@@ -96,7 +96,7 @@ export async function runCleanupRegressions({browser,base,rows,out}) {
   const r=await fetch(base+'/api/documents',{method:'POST',headers:{'x-filename':'zebra-search-target.md'},body:'# Zebra search target'});assert.equal(r.ok,true);
   await page.click('#splitb');await page.waitForSelector('#split-picker-search');await page.type('#split-picker-search','zebra');
   await page.waitForFunction(()=>document.querySelector('.split-choices').textContent.includes('Zebra search target'));
-  assert.equal(await page.$$eval('.split-choices [data-v]',es=>es.length),1);assert.match(await page.$eval('.split-choices h3',e=>e.textContent),/Documents/);
+  assert.equal(await page.$$eval('.split-choices [data-v]',es=>es.length),1);assert.match(await page.$eval('.split-choices h3',e=>e.textContent),/Files/);
   await page.$eval('#split-picker-search',e=>{e.value='';e.dispatchEvent(new Event('input'))});await scan('split-desktop');await page.keyboard.press('Escape');
  });
  await check('A stalled document catalog does not block split-session choices',async()=>{

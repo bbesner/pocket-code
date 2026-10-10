@@ -35,10 +35,10 @@ export function titleFor(file, text) {
   if (kind === 'md' && text) { const m = text.slice(0, 20000).match(/^#{1,3}\s+(.+)$/m); if (m) return m[1].replace(/[*_`#]/g, '').trim().slice(0, LIMITS.title); }
   return path.basename(file, path.extname(file)).replace(/[_-]+/g, ' ').trim().slice(0, LIMITS.title) || file;
 }
-// One line for an agent's instructions when Documents is on.
+// One line for an agent's instructions when Files (the documents feature) is on.
 export function documentInstructions(cli, sessionId) {
   const sid = sessionId ? ` --session ${sessionId}` : '';
-  return `This Pocket Code keeps documents. When you produce a deliverable for the user to read (an HTML report or dashboard, a PDF, an image, a Markdown write-up, a CSV), keep it with \`node ${cli} add <path>${sid} [--title "…"] [--project <id>]\` so it appears in Pocket's Documents, linked to this session; link it to the directory's tracked project when there is one. Documents are private unless the user asks to share; use \`node ${cli} share <id>\` for a link only when asked. Mention the document by title in your reply, not by server path.`;
+  return `This Pocket Code keeps a Files library. When the user says files, my files, documents, my documents or docs, they mean this library (not a folder on the server or another drive, unless they name one); the pocket-files skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-files', 'SKILL.md')}\`) has the full procedure. When you produce a deliverable for the user to read (an HTML report or dashboard, a PDF, an image, a Markdown write-up, a CSV or spreadsheet), or the user asks to save something there, keep it with \`node ${cli} add <path>${sid} [--title "…"] [--project <id>]\` so it appears in Pocket's Files, linked to this session; link it to the directory's tracked project when there is one. Files are private unless the user asks to share; use \`node ${cli} share <id>\` for a link only when asked. Mention the file by its title in your reply, not by server path.`;
 }
 
 export class DocumentStore {
@@ -50,7 +50,7 @@ export class DocumentStore {
     this.documents = Array.isArray(d.documents) ? d.documents.filter(r => r && typeof r.id === 'string' && typeof r.file === 'string') : [];
   }
   save() { this.write(this.file, { version: 1, documents: this.documents }); }
-  get(id) { const r = this.documents.find(x => x.id === id); if (!r) throw fail('That document does not exist.', 404); return r; }
+  get(id) { const r = this.documents.find(x => x.id === id); if (!r) throw fail('That file does not exist.', 404); return r; }
   trashDir() { return path.join(this.dir, '.trash'); }
   filePath(r) { return r.trashedAt ? path.join(this.trashDir(), r.id + '-' + r.file) : path.join(this.dir, r.file); }
   // The record as the UI and CLI see it: a share URL only for link/public, never the token hash.
@@ -64,7 +64,7 @@ export class DocumentStore {
     return file;
   }
   record(file, { title, project, session, visibility, addedBy, size, at }) {
-    if (this.documents.length >= LIMITS.documents) throw fail(`The library holds up to ${LIMITS.documents} documents.`, 409);
+    if (this.documents.length >= LIMITS.documents) throw fail(`The Files library holds up to ${LIMITS.documents} files.`, 409);
     if (session && !SESSION_RE.test(session)) throw fail('That is not a session id.');
     if (visibility && !VISIBILITIES.includes(visibility)) throw fail('Visibility must be private, link or public.');
     const r = { id: randomBytes(6).toString('hex'), file, title: str(title, LIMITS.title) || titleFor(file, this.peek(path.join(this.dir, file))), kind: kindOf(file), size, added: at, addedBy, updated: at, session: session || null, project: str(project, 80) || null, visibility: visibility || 'private', share: null, shareHash: null, trashedAt: null };
@@ -98,7 +98,7 @@ export class DocumentStore {
   }
   // Copy a file in (the server checks the source path first). The name is made safe and unique.
   addFromPath(src, opts = {}) {
-    const name = safeName(src); if (!name) throw fail('That file type is not kept as a document.');
+    const name = safeName(src); if (!name) throw fail('That file type cannot be kept in Files.');
     const st = fs.statSync(src); if (!st.isFile()) throw fail('That is not a file.');
     const file = this.uniqueFile(name), at = iso(this.now());
     fs.copyFileSync(src, path.join(this.dir, file)); fs.chmodSync(path.join(this.dir, file), 0o600);
@@ -106,7 +106,7 @@ export class DocumentStore {
     this.save(); return { ...this.view(r), ...(token ? { token } : {}) };
   }
   addFromBuffer(name, buffer, opts = {}) {
-    const safe = safeName(name); if (!safe) throw fail('That file type is not kept as a document.');
+    const safe = safeName(name); if (!safe) throw fail('That file type cannot be kept in Files.');
     if (!buffer?.length) throw fail('The upload is empty.');
     const file = this.uniqueFile(safe), at = iso(this.now());
     fs.writeFileSync(path.join(this.dir, file), buffer, { mode: 0o600 });
@@ -119,9 +119,9 @@ export class DocumentStore {
     return token;
   }
   update(id, input, { actor = 'ui' } = {}) {
-    const r = this.get(id); if (r.trashedAt) throw fail('This document is in the trash. Restore it first.', 409);
+    const r = this.get(id); if (r.trashedAt) throw fail('This file is in the trash. Restore it first.', 409);
     const at = iso(this.now()); let token = null;
-    if ('title' in input) { const t = str(input.title, LIMITS.title); if (!t) throw fail('Give the document a title.'); r.title = t; }
+    if ('title' in input) { const t = str(input.title, LIMITS.title); if (!t) throw fail('Give the file a title.'); r.title = t; }
     if ('project' in input) r.project = str(input.project, 80) || null;
     if ('session' in input) { const s = str(input.session, 64); if (s && !SESSION_RE.test(s)) throw fail('That is not a session id.'); r.session = s || null; }
     if ('expiresAt' in input) { const e = input.expiresAt ? Date.parse(input.expiresAt) : NaN; if (input.expiresAt && Number.isNaN(e)) throw fail('That expiry is not a valid time.'); if (r.share) r.share.expiresAt = input.expiresAt ? iso(e) : null; }
@@ -133,7 +133,7 @@ export class DocumentStore {
         else { r.share = null; r.shareHash = null; } // leaving link revokes the old URL
       }
     }
-    if (input.action === 'reshare') { if (r.visibility !== 'link') throw fail('Only a link-visible document has a share link.'); token = this.mintShare(r, r.share?.expiresAt || null); }
+    if (input.action === 'reshare') { if (r.visibility !== 'link') throw fail('Only a file shared by link has a share link.'); token = this.mintShare(r, r.share?.expiresAt || null); }
     r.updated = at; r.updatedBy = actor; this.save();
     return { ...this.view(r), ...(token ? { token } : {}) };
   }
