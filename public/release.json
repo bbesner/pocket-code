@@ -2,7 +2,8 @@
   "version": "1.34.0",
   "assetV": 78,
   "notes": [
-    "Documents is now called My Files, everywhere in the app and in Settings (Projects & files).",
-    "Sessions, Projects and My Files are separated by a light divider in the sidebar switch."
+    "Documents is now called Files, everywhere in the app and in Settings (Projects & files).",
+    "Agents know that files, my files, documents and docs all mean Files, and Pocket installs skills that teach them how to track projects and keep files.",
+    "Sessions, Projects and Files are separated by a light divider in the sidebar switch."
   ]
 }

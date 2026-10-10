@@ -123,7 +123,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/board/reset'){seedBoard();return json({ok:true});}
  }
  if(url.pathname.startsWith('/api/documents')||url.pathname.startsWith('/files/')||url.pathname.startsWith('/share/')){
-  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'My Files is off. Turn it on in Settings → Projects & files.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
+  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'Files is off. Turn it on in Settings → Projects & files.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
   const sendDoc=(r,framed)=>{const file=docStore.filePath(r);if(!fs.existsSync(file)){res.writeHead(404);res.end();return;}
    res.writeHead(200,{'content-type':mimeOf(r.file),'cache-control':'private, no-store','x-content-type-options':'nosniff','content-security-policy':r.kind==='html'?`sandbox allow-scripts allow-popups allow-downloads allow-forms; frame-ancestors ${framed?"'self'":"'none'"}`:`default-src 'none'; style-src 'unsafe-inline'; frame-ancestors ${framed?"'self'":"'none'"}`,'content-disposition':(url.searchParams.get('download')==='1'?'attachment':'inline')+"; filename*=UTF-8''"+encodeURIComponent(r.file)});
    res.end(fs.readFileSync(file));};

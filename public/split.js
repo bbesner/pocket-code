@@ -161,7 +161,7 @@ function chooseBesideNow(loading=false){
  const paint=()=>{
   if(sh.loading)return;
   const taken=new Set([chatId,currentView(),...splitPanes.map(p=>p.id)]),seen=new Set(),q=sh.querySelector('input').value.trim().toLowerCase();
-  const groups=[['New and libraries',[['new','New session','Start a conversation in the new pane']]],['Sessions',[]],['Projects',[]],['My Files',[]]];
+  const groups=[['New and libraries',[['new','New session','Start a conversation in the new pane']]],['Sessions',[]],['Projects',[]],['Files',[]]];
   for(const s of [...openSessions.slice().reverse(),...allSessions.filter(s=>!isHiddenSession(s))]){
    if(taken.has(s.id)||seen.has(s.id)||isViewId(s.id))continue;seen.add(s.id);const full=allSessions.find(r=>r.id===s.id)||s;
    groups[1][1].push([s.id,full.title||s.title,[projName(full.cwd),full.provider==='codex'?'Codex':'Claude',full.state?.label].filter(Boolean).join(' · ')]);
@@ -171,7 +171,7 @@ function chooseBesideNow(loading=false){
    groups[2][1]=(boardSnap?.projects||[]).filter(p=>p.status!=='done').map(p=>['projects/'+p.id,p.name,p.next||p.summary||'Project']);
   }
   if(documentsOn()){
-   groups[0][1].push(['documents','My Files','The library of files from the work']);
+   groups[0][1].push(['documents','Files','The library of files from the work']);
    const docs=docsSnap?.documents||[],open=openSessions.slice().reverse().filter(t=>t.id.startsWith('documents/')).map(t=>docs.find(d=>d.id===t.id.slice(10))).filter(Boolean);
    groups[3][1]=[...new Map([...open,...docs].map(d=>[d.id,d])).values()].map(d=>['documents/'+d.id,d.title,[KIND_WORD[d.kind],docWhere(d),visWord[d.visibility]].filter(Boolean).join(' · ')]);
   }

@@ -34,6 +34,7 @@ import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 import {PromptStore} from './prompts.mjs';
 import {ClaudeLogin} from './claude-login.mjs';
 import {ProjectStore, projectInstructions} from './projects.mjs';
+import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 import {Thumbnailer} from './thumbnails.mjs';
 
@@ -194,9 +195,11 @@ const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'docume
 const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 const DOCS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-docs.mjs');
-const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'My Files is off. Turn it on in Settings → Projects & files.', code: 'documents_off' });
+const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Files is off. Turn it on in Settings → Projects & files.', code: 'documents_off' });
 setInterval(() => { try { const gone = docs.purge(); if (gone.length) log(`documents purged from trash: ${gone.length}`); } catch (e) { log('documents purge: ' + e.message); } }, 6 * 3600_000).unref();
 codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : ''].filter(Boolean).join(' '));
+const syncAgentSkills = () => syncSkills({ settings, commands: { board: BOARD_CLI, docs: DOCS_CLI }, log }); // 1.34: pocket-projects / pocket-files for every agent on the box
+syncAgentSkills();
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
 const cliToken = randomBytes(32).toString('hex');
 fs.writeFileSync(CLI_TOKEN_FILE, cliToken + '\n', { mode: 0o600 }); fs.chmodSync(CLI_TOKEN_FILE, 0o600);
@@ -2234,6 +2237,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.projects === 'boolean') settings.projects = req.body.projects;
   if (typeof req.body?.documents === 'boolean') settings.documents = req.body.documents;
   saveSettings();
+  if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean') syncAgentSkills();
   log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents}`);
   res.json({ ...settings, titles: titleSettings() });
 });
@@ -2562,8 +2566,9 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Documents is now called My Files, everywhere in the app and in Settings (Projects & files).",
-  "Sessions, Projects and My Files are separated by a light divider in the sidebar switch."
+  "Documents is now called Files, everywhere in the app and in Settings (Projects & files).",
+  "Agents know that files, my files, documents and docs all mean Files, and Pocket installs skills that teach them how to track projects and keep files.",
+  "Sessions, Projects and Files are separated by a light divider in the sidebar switch."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

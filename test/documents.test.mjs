@@ -135,7 +135,7 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   const cli=(args,cwd=okDir)=>new Promise(r=>execFile(process.execPath,[path.join(repo,'scripts/pocket-docs.mjs'),...args],{cwd,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),POCKET_PUBLIC_URL:'https://pocket.example.test'}},(e,stdout,stderr)=>r({code:e?e.code:0,stdout,stderr})));
   let out=await cli(['list']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/Ops dashboard/);assert.match(out.stdout,/Quarterly report/);
   fs.writeFileSync(path.join(okDir,'memo.txt'),'memo');
-  out=await cli(['add','memo.txt','--title','Memo to staff','--project','warehouse-stock-report']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/Kept in My Files:\n[0-9a-f]{12}  private txt    Memo to staff  \[warehouse-stock-report\]/);
+  out=await cli(['add','memo.txt','--title','Memo to staff','--project','warehouse-stock-report']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/Kept in Files:\n[0-9a-f]{12}  private txt    Memo to staff  \[warehouse-stock-report\]/);
   const memoId=/\n([0-9a-f]{12}) /.exec(out.stdout)[1];
   out=await cli(['share',memoId,'--expires','7d']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/^Share URL: https:\/\/pocket\.example\.test\/share\/[A-Za-z0-9_-]{40,}  \(expires /);
   const url=/\/share\/([A-Za-z0-9_-]+)/.exec(out.stdout)[1];assert.equal((await raw('/share/'+url)).status,200);

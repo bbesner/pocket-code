@@ -1058,7 +1058,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .chip.due { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 .rail-switch button[aria-pressed="true"] { color: var(--text); background: var(--raised); }
 .rail-switch button:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
-/* 1.34: a light pipe between Sessions | Projects | My Files, centred in the gap; decorative, so pointer-transparent. */
+/* 1.34: a light pipe between Sessions | Projects | Files, centred in the gap; decorative, so pointer-transparent. */
 .rail-switch { gap: 4px; }
 .rail-switch button { position: relative; }
 .rail-switch button + button::before { content: ""; position: absolute; left: -2.5px; top: 50%; width: 1px; height: 14px; transform: translateY(-50%); background: color-mix(in srgb, var(--faint) 55%, transparent); pointer-events: none; }
@@ -1273,8 +1273,3 @@ video.doc-media { width: 100%; max-height: 70vh; background: #000; }
     width: clamp(32px, calc(10cqi + 2px), 44px);
   }
 }
-
-/* 1.34: "My Files" in the rail switch drops to "Files" (aria-label keeps the full name) when the header is too
-   narrow to hold it on one row: below 300px always, below 360px while the Projects due badge takes room. */
-@container (max-width: 360px) { .rail-switch:has(.badge:not([hidden])) .rail-label-long { display: none; } }
-@container (max-width: 300px) { .rail-label-long { display: none; } }

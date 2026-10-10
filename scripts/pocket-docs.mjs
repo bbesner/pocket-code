@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// pocket-docs: keep files in Pocket Code's My Files from a terminal or an agent session (1.30; named My Files in 1.34).
+// pocket-docs: keep files in Pocket Code's Files library from a terminal or an agent session (1.30; called Documents before 1.34).
 // Talks to the running Pocket Code server over loopback with the token it writes to <data dir>/cli-token;
 // it never touches the library's folder itself. Files are private unless the user asks to share.
 //
@@ -42,7 +42,7 @@ async function call(p, body, method) {
   catch (e) { die(`Pocket Code is not reachable at ${base}: ${e.cause?.code || e.message}`); }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
-    if (data.code === 'documents_off') die('My Files is off for this Pocket Code. Turn it on in Settings → Projects & files.', 3);
+    if (data.code === 'documents_off') die('Files is off for this Pocket Code. Turn it on in Settings → Projects & files.', 3);
     die(data.error || `${r.status} from ${p}`, r.status === 401 ? 4 : 1);
   }
   return data;
@@ -65,7 +65,7 @@ switch (cmd) {
     if (!rest[0]) die('add needs a file path');
     const p = path.resolve(rest[0]);
     const d = await call('/api/documents/add', { path: p, title: opts.title || '', project: opts.project || '', session: opts.session || '', visibility: opts.visibility || 'private' });
-    out(d, 'Kept in My Files:\n' + card(d, d.token)); break;
+    out(d, 'Kept in Files:\n' + card(d, d.token)); break;
   }
   case 'list': {
     const q = new URLSearchParams(); if (opts.project) q.set('project', opts.project); if (opts.q) q.set('q', opts.q);

@@ -25,7 +25,7 @@ async function boardAct(body,done){
  catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();}toast(e.message||'Could not update the project');return null;}
 }
 const boardDueCount=()=>boardSnap?.dueCount||0;
-const viewTitle=id=>id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'My Files'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
+const viewTitle=id=>id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'Files'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
 const fmtDue=iso=>{const d=new Date(iso),now=new Date();const sameYear=d.getFullYear()===now.getFullYear();return d.toLocaleDateString('en-US',{month:'short',day:'numeric',...(sameYear?{}:{year:'numeric'})})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
 const fmtStamp=iso=>rel(Date.parse(iso));
 const statusWord={active:'Active',waiting:'Waiting',done:'Done'};

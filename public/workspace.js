@@ -480,7 +480,7 @@ function viewBackTarget(view) {
  return viewOrigins.get('#/'+view) || (view.startsWith('documents/') ? '#/documents' : view.startsWith('projects/') ? '#/projects' : '#/');
 }
 function bindViewBack(button, view) {
- const target=viewBackTarget(view),label=target==='#/documents'?'Back to My Files':target==='#/projects'?'Back to Projects':target==='#/projects/scheduled'?'Back to Scheduled':target.startsWith('#/chat/')?'Back to conversation':target==='#/'?'Back to Sessions':'Back to previous view';
+ const target=viewBackTarget(view),label=target==='#/documents'?'Back to Files':target==='#/projects'?'Back to Projects':target==='#/projects/scheduled'?'Back to Scheduled':target.startsWith('#/chat/')?'Back to conversation':target==='#/'?'Back to Sessions':'Back to previous view';
  button.setAttribute('aria-label',label);button.title=label;
  button.onclick=()=>{returningToView=true;location.hash=target;};
 }

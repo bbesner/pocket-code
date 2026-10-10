@@ -301,16 +301,16 @@ On a desktop (900px and wider) every sheet, such as a project's or file's option
 Share, a session's options and Settings, opens as a dialog in the middle of the window;
 on a phone it stays a sheet from the bottom edge.
 
-## My Files
+## Files
 
-My Files (1.30; named Documents before 1.34) is the library of files that came out of
+Files (1.30; called Documents before 1.34) is the library of files that came out of
 sessions: HTML reports and dashboards, PDFs, images, Markdown, text, CSV, JSON, Office files
-and video. It is off until **Settings → Projects & files → My Files** turns it on for the
+and video. It is off until **Settings → Projects & files → Files** turns it on for the
 whole install.
 
 A file gets in four ways: an agent keeps it with `pocket-docs add` (agents started by
 Pocket are told to do this for deliverables, linked to the session, and never to share
-unless you ask); **Keep in My Files** on a file in a session's Results panel; **Upload**
+unless you ask); **Keep in Files** on a file in a session's Results panel; **Upload**
 in the library or the rail; or a file placed in the library's folder on the server
 (`POCKET_DOCUMENTS_DIR`), which appears as a private file on the next listing. Each file
 knows the session and project it came from; a project card lists its files and the library
@@ -339,19 +339,41 @@ kind and visibility; chips narrow the list to Private, Link or Public files (wit
 the Kind filter to HTML reports, PDFs, images, Markdown and text, CSV and JSON, or Office
 and video, and the Project filter to one project; *Clear* resets them. Each row shows a
 visibility badge, and a shared row has a **Copy link** button beside its options. The
-rail's My Files list has the same search.
+rail's Files list has the same search.
 
 Files open three ways, like projects: as a tab in the strip, beside a conversation
 (*Open beside* and *Split view* offer the library), or **in a new window**, a browser tab or
 app window of its own with no session list or tab strip (every options sheet and view
 header offers it). On the phone they open full-screen. The rail head's switch reads
-**Sessions | Projects | My Files**, with a light divider between them (a narrow rail shortens it to Files); the phone's session
-home gets a My Files chip. Settings → Projects & files chooses whether a plain click on a
+**Sessions | Projects | Files**, with a light divider between them; the phone's session
+home gets a Files chip. Settings → Projects & files chooses whether a plain click on a
 file opens a tab, a pane or a new window.
+
+**Agents know what "my files" means.** Whether the user says files, my files, documents,
+my documents or docs, agents treat it as this library. Pocket tells its own agents so on
+every turn, and installs the **pocket-files** skill (and **pocket-projects** for Projects)
+into the user's Claude Code and Codex skill folders while the feature is on, so terminal and
+code-server sessions on the server know it too. See [Agent skills](#agent-skills).
 
 The internal names are unchanged, so existing installs, links and scripts keep working:
 the `/api/documents` routes, `#/documents` links, `documents.json`, `POCKET_DOCUMENTS_DIR`
 and the `pocket-docs` command.
+
+## Agent skills
+
+Pocket Code ships two skills in `skills/`, written for any Claude Code or Codex agent:
+
+- **pocket-projects**: when to create a project (only when the user asks), the steps,
+  asking at most one question (which project, what it tracks, or when to remind), and
+  setting reminders only when the user asks or agrees to a time.
+- **pocket-files**: every name users give the library (files, my files, documents, my
+  documents, docs) maps to Files; what to keep, how to keep it, and sharing only on request.
+
+While Projects or Files is on, Pocket writes the matching skill to `~/.claude/skills/` (or
+`$CLAUDE_CONFIG_DIR/skills/`) and, where Codex is installed, `$CODEX_HOME/skills/`, with
+this server's command filled in. Turning the feature off removes it. Pocket only touches a
+folder holding its `.pocket-managed` marker, so your own skill of the same name is left
+alone. Set `POCKET_SKILLS=0` to turn installation off.
 
 ## Settings, notifications and compact views
 
@@ -508,11 +530,11 @@ are limited to 12,000 characters per field. Background shell jobs are excluded.
 ## Consistent view navigation
 
 On phone and tablet, Back from a project or file restores the view it was opened
-from, including My Files filters and list position. A direct link falls back to its
-Projects or My Files library. Failed library loads offer Retry; when prior data is
+from, including Files filters and list position. A direct link falls back to its
+Projects or Files library. Failed library loads offer Retry; when prior data is
 available, it remains visible with an explicit stale-data message.
 
-The desktop Sessions / Projects / My Files selector is a button group. Tab reaches its
+The desktop Sessions / Projects / Files selector is a button group. Tab reaches its
 buttons; Left/Right and Home/End also select a section. Split view groups destinations
 by type, shows recent items first, and searches the available session, project and
 document catalog. Its empty state explains when nothing matches.

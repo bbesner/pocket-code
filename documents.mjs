@@ -35,10 +35,10 @@ export function titleFor(file, text) {
   if (kind === 'md' && text) { const m = text.slice(0, 20000).match(/^#{1,3}\s+(.+)$/m); if (m) return m[1].replace(/[*_`#]/g, '').trim().slice(0, LIMITS.title); }
   return path.basename(file, path.extname(file)).replace(/[_-]+/g, ' ').trim().slice(0, LIMITS.title) || file;
 }
-// One line for an agent's instructions when Documents is on.
+// One line for an agent's instructions when Files (the documents feature) is on.
 export function documentInstructions(cli, sessionId) {
   const sid = sessionId ? ` --session ${sessionId}` : '';
-  return `This Pocket Code keeps a My Files library. When you produce a deliverable for the user to read (an HTML report or dashboard, a PDF, an image, a Markdown write-up, a CSV), keep it with \`node ${cli} add <path>${sid} [--title "…"] [--project <id>]\` so it appears in Pocket's My Files, linked to this session; link it to the directory's tracked project when there is one. Files there are private unless the user asks to share; use \`node ${cli} share <id>\` for a link only when asked. Mention the file by title in your reply, not by server path.`;
+  return `This Pocket Code keeps a Files library. When the user says files, my files, documents, my documents or docs, they mean this library (not a folder on the server or another drive, unless they name one); the pocket-files skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-files', 'SKILL.md')}\`) has the full procedure. When you produce a deliverable for the user to read (an HTML report or dashboard, a PDF, an image, a Markdown write-up, a CSV or spreadsheet), or the user asks to save something there, keep it with \`node ${cli} add <path>${sid} [--title "…"] [--project <id>]\` so it appears in Pocket's Files, linked to this session; link it to the directory's tracked project when there is one. Files are private unless the user asks to share; use \`node ${cli} share <id>\` for a link only when asked. Mention the file by its title in your reply, not by server path.`;
 }
 
 export class DocumentStore {
@@ -64,7 +64,7 @@ export class DocumentStore {
     return file;
   }
   record(file, { title, project, session, visibility, addedBy, size, at }) {
-    if (this.documents.length >= LIMITS.documents) throw fail(`My Files holds up to ${LIMITS.documents} files.`, 409);
+    if (this.documents.length >= LIMITS.documents) throw fail(`The Files library holds up to ${LIMITS.documents} files.`, 409);
     if (session && !SESSION_RE.test(session)) throw fail('That is not a session id.');
     if (visibility && !VISIBILITIES.includes(visibility)) throw fail('Visibility must be private, link or public.');
     const r = { id: randomBytes(6).toString('hex'), file, title: str(title, LIMITS.title) || titleFor(file, this.peek(path.join(this.dir, file))), kind: kindOf(file), size, added: at, addedBy, updated: at, session: session || null, project: str(project, 80) || null, visibility: visibility || 'private', share: null, shareHash: null, trashedAt: null };
@@ -98,7 +98,7 @@ export class DocumentStore {
   }
   // Copy a file in (the server checks the source path first). The name is made safe and unique.
   addFromPath(src, opts = {}) {
-    const name = safeName(src); if (!name) throw fail('That file type cannot be kept in My Files.');
+    const name = safeName(src); if (!name) throw fail('That file type cannot be kept in Files.');
     const st = fs.statSync(src); if (!st.isFile()) throw fail('That is not a file.');
     const file = this.uniqueFile(name), at = iso(this.now());
     fs.copyFileSync(src, path.join(this.dir, file)); fs.chmodSync(path.join(this.dir, file), 0o600);
@@ -106,7 +106,7 @@ export class DocumentStore {
     this.save(); return { ...this.view(r), ...(token ? { token } : {}) };
   }
   addFromBuffer(name, buffer, opts = {}) {
-    const safe = safeName(name); if (!safe) throw fail('That file type cannot be kept in My Files.');
+    const safe = safeName(name); if (!safe) throw fail('That file type cannot be kept in Files.');
     if (!buffer?.length) throw fail('The upload is empty.');
     const file = this.uniqueFile(safe), at = iso(this.now());
     fs.writeFileSync(path.join(this.dir, file), buffer, { mode: 0o600 });

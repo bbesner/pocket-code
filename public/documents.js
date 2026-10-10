@@ -35,7 +35,7 @@ const docRawUrl=(d,download)=>'/api/documents/'+encodeURIComponent(d.id)+'/raw'+
 const docShareUrl=d=>d.visibility==='public'&&d.url?location.origin+d.url:d.visibility==='link'&&d.share?.url?location.origin+d.share.url:'';
 const docAppUrl=d=>location.origin+'/#/documents/'+d.id; // the in-app address: needs the Pocket login
 const fmtSize=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B';
-const docViewTitle=id=>id==='documents'?'My Files':docById(id.slice(10))?.title||'File';
+const docViewTitle=id=>id==='documents'?'Files':docById(id.slice(10))?.title||'File';
 const docProjectName=d=>d.project?(typeof projectById==='function'&&projectById(d.project)?.name)||d.project:'';
 const docSessionName=d=>d.session?(typeof sessionName==='function'?sessionName(d.session):d.session):'';
 const docWhere=d=>[...new Set([docProjectName(d),docSessionName(d)].filter(Boolean))].join(' · ');
@@ -57,7 +57,7 @@ async function renderDocuments(view){
  const kind=view==='documents'?'list':'doc';
  const col=`<header class="bar">
    ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
-   <h1><span class="one" id="dtitle">${esc(docViewTitle(view))}</span><span class="tag" id="dtag">${kind==='list'?'Files from the work':'File'}</span></h1>
+   <h1><span class="one" id="dtitle">${esc(docViewTitle(view))}</span><span class="tag" id="dtag">${kind==='list'?'From your sessions':'File'}</span></h1>
    ${kind==='doc'?`<button class="icon" id="dmore" aria-label="File options">${IC.more}</button>`:''}
    ${SOLO?'':`<button class="icon" id="dwin" aria-label="Open in a new window" title="Open in a new window">${IC.external}</button>`}
    ${PANE||SOLO?'':`<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
@@ -72,7 +72,7 @@ async function renderDocuments(view){
  $('#dwin')?.addEventListener('click',()=>openInWindow(view));
  const tog=$('#railtog');if(tog)tog.onclick=()=>{localStorage.setItem('pc-rail',railOpen()?'closed':'open');route();};
  try{await Promise.all([loadDocs(true),typeof refreshSessions==='function'?refreshSessions().catch(()=>{}):null,typeof projectsOn==='function'&&projectsOn()&&typeof loadBoard==='function'?loadBoard().catch(()=>{}):null]);}
- catch(e){if(docView!==view)return;const main=$('#documents-main');if(!main)return;if(docsSnap)paintDocumentsView();showLibraryError(main,e,'My Files',()=>renderDocuments(view),Boolean(docsSnap));restoreViewPosition(view);return;}
+ catch(e){if(docView!==view)return;const main=$('#documents-main');if(!main)return;if(docsSnap)paintDocumentsView();showLibraryError(main,e,'Files',()=>renderDocuments(view),Boolean(docsSnap));restoreViewPosition(view);return;}
  if(docView!==view)return;
  if(kind==='doc'&&!docById(view.slice(10))){$('#documents-main').innerHTML='<p class="sheet-help">That file does not exist. It may have been removed on another device.</p>';return;}
  if(PANE)paneSay('route',{id:view,title:docViewTitle(view)});else if(SOLO)document.title=docViewTitle(view)+' · Pocket Code';else rememberOpenView(view,docViewTitle(view));
@@ -113,7 +113,7 @@ function libraryHTML(){
  const filtered=docFilterProject||docFilterVis||docFilterKind||q;
  const heading=docFilterProject?projects.find(p=>p.id===docFilterProject)?.name||'Project':docFilterVis?visLong[docFilterVis]:docFilterKind?KIND_GROUPS.find(g=>g[0]===docFilterKind)[1]:q?'Matching':'All';
  const grid=gridOn();
- return `<div class="session-home-head"><h2>My Files</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span><button class="chip" id="doc-upload">${IC.up}Upload</button><input type="file" id="doc-file" multiple hidden></span></div>
+ return `<div class="session-home-head"><h2>Files</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span><button class="chip" id="doc-upload">${IC.up}Upload</button><input type="file" id="doc-file" multiple hidden></span></div>
   <div class="documents-tools"><div class="session-search">${IC.search}<input type="search" id="doc-query" placeholder="Search files" aria-label="Search files by title, file name, project or session" value="${esc(docQuery)}" autocomplete="off"></div>
    ${projects.length?`<label class="voice-field doc-project-filter">Project<select id="doc-project"><option value="">All projects</option>${projects.map(p=>`<option value="${esc(p.id)}" ${docFilterProject===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
    <label class="voice-field doc-kind-filter">Kind<select id="doc-kind"><option value="">All kinds</option>${KIND_GROUPS.map(([v,label])=>`<option value="${v}" ${docFilterKind===v?'selected':''}>${label}</option>`).join('')}</select></label></div>
@@ -254,7 +254,7 @@ async function keepResult(sessionId,target,button){
  try{
   const project=typeof boardSnap!=='undefined'&&boardSnap?boardSnap.projects.find(p=>p.status!=='done'&&p.sessions.includes(sessionId))?.id||'':'';
   const d=await api('/documents/keep',{method:'POST',body:JSON.stringify({session:sessionId,path:target,project})});
-  mergeDoc(d);toast('Kept in My Files: '+d.title);
+  mergeDoc(d);toast('Kept in Files: '+d.title);
   if(button){button.textContent='Kept · Open';button.disabled=false;delete button.dataset.keep;button.dataset.kept=d.id;button.onclick=()=>{closeCurrentSheet?.();location.hash=viewHref('documents/'+d.id);};}
  }catch(e){toast(e.message||'Could not keep the file');if(button)button.disabled=false;}
 }

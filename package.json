@@ -36,7 +36,7 @@
   "main": "server.mjs",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test test/*.test.mjs",
+    "test": "POCKET_SKILLS=0 node --test test/*.test.mjs",
     "test:browser": "node test/browser.mjs",
     "vendor": "node scripts/vendor.mjs",
     "check:release": "node scripts/check-release.mjs"

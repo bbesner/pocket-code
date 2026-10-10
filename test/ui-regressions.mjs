@@ -1211,13 +1211,13 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
    const settings=settingsState();settings.documents=false;settings.projects=true;
    await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'}));
-   await page.goto(base+'/#/documents');await page.waitForFunction(()=>/My Files is off/.test(document.querySelector('#documents-main')?.textContent||''));
-   assert.equal(await page.$('[data-rail-view="documents"]'),null,'no My Files segment while off');
+   await page.goto(base+'/#/documents');await page.waitForFunction(()=>/Files is off/.test(document.querySelector('#documents-main')?.textContent||''));
+   assert.equal(await page.$('[data-rail-view="documents"]'),null,'no Files segment while off');
    settings.documents=true;await page.evaluate(()=>fetch('/api/documents/reset',{method:'POST'}));
    await page.evaluate(()=>localStorage.setItem('pc-documents-layout','"list"')); // 1.32: the wide default is the grid; these checks read the rows
    await page.goto(base+'/?docs=1#/documents');await page.waitForSelector('.document-item');
    const lib=await page.evaluate(()=>({rows:[...document.querySelectorAll('.document-item .title')].map(e=>e.textContent.trim()),kinds:[...document.querySelectorAll('.document-item .doc-kind')].map(e=>e.textContent),tab:document.querySelector('.open-session.current a')?.textContent,seg:document.querySelector('[data-rail-view="documents"]')?.textContent,where:document.querySelector('.document-item .meta')?.textContent}));
-   assert.deepEqual(lib.kinds.sort(),['CSV','HTML','MD']);assert.equal(lib.tab,'My Files','the library is a tab');assert.equal(lib.seg,'My Files');
+   assert.deepEqual(lib.kinds.sort(),['CSV','HTML','MD']);assert.equal(lib.tab,'Files','the library is a tab');assert.equal(lib.seg,'Files');
    await scan('documents-list-desktop');await page.screenshot({path:path.join(out,'documents-list-desktop.png')});
    // Search narrows the list without losing the keyboard.
    await page.type('#doc-query','weekly');await page.waitForFunction(()=>document.querySelectorAll('.document-item').length===1);assert.equal(await page.evaluate(()=>document.activeElement.id),'doc-query');
@@ -1290,20 +1290,20 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForSelector('.doc-table tbody tr');assert.deepEqual(await page.$$eval('.doc-table th',els=>els.map(e=>e.textContent)),['Aisle','On hand','Incoming']);
    // Keep as document from a session's Results.
    await openChat(rows[0].id);await clickControl(page,'#results-open');await page.waitForSelector('[data-keep]');
-   assert.equal(await page.$eval('[data-keep]',e=>e.textContent),'Keep in My Files');
+   assert.equal(await page.$eval('[data-keep]',e=>e.textContent),'Keep in Files');
    await clickControl(page,'[data-keep]');await page.waitForFunction(()=>document.querySelector('[data-kept]'));
    assert.equal(await page.$eval('[data-kept]',e=>e.textContent),'Kept · Open');await page.keyboard.press('Escape');
    // The project card lists its documents.
    await page.goto(base+'/#/projects/warehouse-stock-report');await page.waitForSelector('.project-documents .document-item');
    const pdocs=await page.$$eval('.project-documents .document-item .title',els=>els.map(e=>[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim()));assert.ok(pdocs.includes('Weekly summary'),pdocs.join('|'));assert.ok(pdocs.includes('Kept from a session'),pdocs.join('|'));
    // Tabs and split.
-   let tabs=await page.$$eval('#open-sessions .open-session a',els=>els.map(e=>e.textContent));assert.ok(tabs.includes('My Files')&&tabs.includes('Weekly summary'),tabs.join('|'));
+   let tabs=await page.$$eval('#open-sessions .open-session a',els=>els.map(e=>e.textContent));assert.ok(tabs.includes('Files')&&tabs.includes('Weekly summary'),tabs.join('|'));
    await openChat(rows[4].id);await page.evaluate(()=>{docsSnap=null;}); // 1.32.1: as on a fresh page, the list is fetched before the chooser opens
    await clickControl(page,'#splitb');await page.waitForSelector('.sheet [data-v^="documents/"]');
    const offered=await page.$$eval('.sheet [data-v^="documents/"]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));
    assert.ok(offered.some(t=>/^Weekly summary/.test(t)),'1.31.1: the chooser offers the open document tab: '+offered.join('|'));assert.ok(offered.length>=3,'and the recent documents');
    await clickControl(page,'.sheet [data-v="documents"]');
-   await page.waitForSelector('#panes iframe');assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/documents$/);assert.equal(await page.$eval('#panes iframe',f=>f.title),'Session beside: My Files');
+   await page.waitForSelector('#panes iframe');assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/documents$/);assert.equal(await page.$eval('#panes iframe',f=>f.title),'Session beside: Files');
    const pane=page.frames().find(f=>f.url().includes('#/documents'));await pane.waitForSelector('.document-item');await pane.click('#pane-close');await page.waitForFunction(()=>!document.querySelector('#panes iframe'));
    // Rail: Docs segment lists documents; the Project control is unaffected.
    await clickControl(page,'[data-rail-view="documents"]');await page.waitForSelector('#rail .rail-documents .document-item');
