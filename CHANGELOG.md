@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.37.0] — Unreleased · build 81
+## [1.37.0] — 2026-10-10 · build 81
 
 - **Agents offer tasks.** While Tasks is on, an agent that reaches a point you will need to come back to (a report that needs weeks of data, a test still to run, someone else's reply, a step you chose to put off, a date you mentioned) offers once to add a task, as one of the suggested-reply buttons at the end of its turn, written as you would say it: *Remind me Nov 7 to recheck the numbers*. With suggested replies off it asks in one line. Nothing is added unless you tap it or say yes, an offer you pass on is not repeated, and there is no offer for work the agent is about to do or for trivial errands. Requested by Brad.
 - **Accepted offers carry the context.** The agent files the task with the session, a two-to-four-sentence briefing it writes from the whole conversation (what is being worked on, where it stands, what finishing needs) and the date or time from the offer. Pocket's per-turn instruction and the `pocket-tasks` skill say so for Claude Code and Codex.
