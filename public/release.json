@@ -1,9 +1,9 @@
 {
-  "version": "1.36.0",
-  "assetV": 80,
+  "version": "1.37.0",
+  "assetV": 81,
   "notes": [
-    "Tasks: to-dos beside your sessions, with an optional date, the session they came from and, if you ask, a briefing on it. Add task sits in the message toolbar; Start opens a new session with the task written in.",
-    "Agents keep tasks with the pocket-tasks command and skill, by voice or text, only when you ask.",
-    "The conversation's project chip now says Add project."
+    "Agents offer a task when the work needs a later follow-up, as one of the suggested-reply buttons at the end of a turn. Nothing is added unless you tap it.",
+    "An accepted offer is filed with the session, a briefing the agent writes from the conversation, and the date in the offer.",
+    "A task an agent adds from a session gets its title and workspace, so Start opens in the right folder."
   ]
 }

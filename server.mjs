@@ -204,7 +204,7 @@ setInterval(() => { try { const gone = docs.purge(); if (gone.length) log(`docum
 const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'));
 const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
 const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).json({ error: 'Tasks is off. Turn it on in Settings → Projects, files & tasks.', code: 'tasks_off' });
-codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null) : ''].filter(Boolean).join(' '));
+codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null, { choices: process.env.POCKET_CHOICES !== '0' }) : ''].filter(Boolean).join(' '));
 const syncAgentSkills = () => syncSkills({ settings, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks) for every agent on the box
 syncAgentSkills();
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
@@ -1093,7 +1093,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
-  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId) : ''].filter(Boolean).join(' ');
+  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId, { choices: process.env.POCKET_CHOICES !== '0' }) : ''].filter(Boolean).join(' ');
   if (extra) args.push('--append-system-prompt', extra);
   args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
   args.push(resume ? '--resume' : '--session-id', sessionId);
@@ -2446,11 +2446,27 @@ app.post('/api/board/import', requireBoardAuth, boardOn, (req, res) => {
 app.get('/api/tasks', requireBoardAuth, tasksOn, (_req, res) => {
   res.set('Cache-Control', 'private, no-store').json({ ...taskStore.snapshot(), push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK) });
 });
-app.post('/api/tasks/act', requireBoardAuth, tasksOn, (req, res) => {
-  const actor = req.boardActor || 'ui';
+// 1.37: a task an agent adds from a session (pocket-tasks add --session) gets that session's title and
+// workspace, as the Add task button does, so the list names where it came from and Start opens in the right place.
+async function sessionFacts(id) {
   try {
-    const task = taskStore.act(req.body || {}, { actor });
-    log(`task ${req.body?.action} task=${task.id} by ${actor}`);
+    if (isCx(id)) { const m = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null); return m ? { title: m.title || '', cwd: m.cwd || '' } : null; }
+    const file = await findSessionFile(id);
+    if (!file) return null;
+    const m = await sessionMeta(file, id);
+    return { title: m.title || '', cwd: m.cwd || '' };
+  } catch { return null; }
+}
+app.post('/api/tasks/act', requireBoardAuth, tasksOn, async (req, res) => {
+  const actor = req.boardActor || 'ui';
+  const body = { ...(req.body || {}) };
+  if (body.action === 'add' && anyId(String(body.session || '')) && (!body.sessionTitle || !body.directory)) {
+    const f = await sessionFacts(String(body.session));
+    if (f) { body.sessionTitle ||= f.title; body.directory ||= f.cwd; }
+  }
+  try {
+    const task = taskStore.act(body, { actor });
+    log(`task ${body.action} task=${task.id} by ${actor}`);
     res.set('Cache-Control', 'private, no-store').json({ ok: true, task });
   } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.task ? { task: e.task } : {}) }); }
 });
@@ -2612,9 +2628,9 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Tasks: to-dos beside your sessions, with an optional date, the session they came from and, if you ask, a briefing on it. Add task sits in the message toolbar; Start opens a new session with the task written in.",
-  "Agents keep tasks with the pocket-tasks command and skill, by voice or text, only when you ask.",
-  "The conversation's project chip now says Add project."
+  "Agents offer a task when the work needs a later follow-up, as one of the suggested-reply buttons at the end of a turn. Nothing is added unless you tap it.",
+  "An accepted offer is filed with the session, a briefing the agent writes from the conversation, and the date in the offer.",
+  "A task an agent adds from a session gets its title and workspace, so Start opens in the right folder."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

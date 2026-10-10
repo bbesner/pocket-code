@@ -390,6 +390,15 @@ too short, the task is added without it and the editor says so. Agents add tasks
 "create a task to …", typed or by voice, and the agent runs `pocket-tasks`, gives the task a
 time only when you name one, and writes the briefing itself when you ask for the context.
 
+**Agents offer them (1.37).** When the work reaches a point you will need to come back to (a
+report that needs weeks of data, a test still to run, someone else's reply, a step you chose to
+put off), the agent offers once to add a task, as one of the suggested-reply buttons at the end
+of its turn, for example *Remind me Nov 7 to recheck the numbers*. Nothing is added unless you
+tap it or say yes; an offer you pass on is not repeated. An accepted offer is filed with the
+session, a two-to-four-sentence briefing the agent writes from the whole conversation, and the
+date or time named in the offer. A task an agent adds from a session also gets that session's
+title and workspace, so the list names where it came from and **Start** opens in the right folder.
+
 **Starting one.** A task's sheet shows its facts and briefing, with **Start**: it opens New
 session in the task's workspace with the task text, the briefing and the task's id as the
 draft, editable, so one tap of Send begins the work; an agent that finishes it marks the task
