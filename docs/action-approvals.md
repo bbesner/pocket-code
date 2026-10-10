@@ -10,8 +10,13 @@ it in the picker. This setting does not retroactively alter running turns.
 
 When a native request arrives, the session moves to Needs approval and shows a Review
 banner. Open it to inspect the command, file changes, or tool arguments, then choose
-Allow once or Deny. Closing the sheet, sleeping the phone or losing the browser
-connection does not approve anything. Refresh reloads the live pending requests.
+Deny or the card's allow button. The allow button names its scope: **Allow once** for a
+command, file change or tool call, which covers that one pending request;
+**Allow network access** for a Codex network request, which can release several pending
+requests to the displayed destination; and **Allow for this turn** for a Codex request for
+additional permissions, which grants the listed access until the turn ends. The card
+states the same scope above the details. Closing the sheet, sleeping the phone or losing
+the browser connection does not approve anything. Refresh reloads the live pending requests.
 Push notifications contain no command or argument details. A decision being sent is
 not evidence of successful execution; check the conversation for the result.
 
@@ -87,9 +92,9 @@ turns before an older daemon starts. Preserve current transcripts, receipts, met
 and audit records; do not overwrite them with an old state snapshot.
 
 Run confirmation (build25): the always-visible status strip polls authenticated
-server ownership/state every5seconds. Only a new server checkedAt confirms a run;
+server ownership/state every 5 seconds. Only a new server checkedAt confirms a run;
 local age ticks, transcript activity and SSE keepalives cannot renew it. Failed
-checks or15seconds without proof remove running lamps/counts and mark status
+checks or 15 seconds without proof remove running lamps/counts and mark status
 unconfirmed. Input requests and external/unconfirmed activity stay distinct.
 The delivery receipt says Message delivered and clears on a confirmed outcome;
 it does not claim work is still running. Phone/browser suspension may pause UI

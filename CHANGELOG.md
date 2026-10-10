@@ -1,5 +1,8 @@
 # Changelog
 
+Every version that reached a server is listed here, newest first, with its frontend asset
+build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
+
 ## [1.37.0] — 2026-10-10 · build 81
 
 - **Agents offer tasks.** While Tasks is on, an agent that reaches a point you will need to come back to (a report that needs weeks of data, a test still to run, someone else's reply, a step you chose to put off, a date you mentioned) offers once to add a task, as one of the suggested-reply buttons at the end of its turn, written as you would say it: *Remind me Nov 7 to recheck the numbers*. With suggested replies off it asks in one line. Nothing is added unless you tap it or say yes, an offer you pass on is not repeated, and there is no offer for work the agent is about to do or for trivial errands. Requested by Brad.
@@ -390,7 +393,7 @@ front-end release so browsers load fresh assets.
 ## [1.4.1] — 2026-10-04 · build 25
 
 - Keep a run-confirmation strip visible even with headers collapsed. Poll authenticated
-  server turn state every5seconds, show check age, distinguish pending input/completion
+  server turn state every 5 seconds, show check age, distinguish pending input/completion
   from external estimates, and mark status unconfirmed after failed or stale checks.
 
 - Keep existing chat composers within the visible viewport through Fold resizing,

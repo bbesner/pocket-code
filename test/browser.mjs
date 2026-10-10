@@ -234,7 +234,10 @@ const scan=async label=>{
  scans.push({label,result:await p.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false}))});
 };
 try{
- if(process.env.POCKET_DOCS_SCREENSHOTS)await captureDocs({browser,base,rows,dir:process.env.POCKET_DOCS_SCREENSHOTS});
+ if(process.env.POCKET_DOCS_SCREENSHOTS){
+  await captureDocs({browser,base,rows,dir:process.env.POCKET_DOCS_SCREENSHOTS,conversations,settings:fixtureSettings});
+  if(process.env.POCKET_DOCS_ONLY){console.log(JSON.stringify({ok:true,docsOnly:true,dir:process.env.POCKET_DOCS_SCREENSHOTS}));process.exitCode=0;throw Object.assign(Error('docs only'),{docsOnly:true});}
+ }
  for(const width of [360,390,768,1440]){
   await p.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});
   await p.goto(base,{waitUntil:'domcontentloaded'});await p.waitForSelector('[data-id]');
@@ -675,4 +678,4 @@ try{
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));
-}catch(e){console.error('Page errors:',errors);console.error('Page URL:',p.url());throw e;}finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+}catch(e){if(e.docsOnly){}else{console.error('Page errors:',errors);console.error('Page URL:',p.url());throw e;}}finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}

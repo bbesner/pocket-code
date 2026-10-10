@@ -91,7 +91,8 @@ browser's viewer, Markdown reuses the reply typography (`.m-asst`), CSV becomes 
 header table in tabular numerals. The share sheet reuses `.opt` rows for the three
 visibilities, a mono read-only URL field with Copy, and the `.voice-field` select for
 expiry. The rail head grows a third segment, *Docs*, kept short so Sessions · Projects ·
-Docs fits the 320px rail.
+Docs fits the 320px rail. (Docs became *Files* in 1.34, and Tasks added a fourth segment in
+1.36: the switch now reads Sessions | Projects | Files | Tasks.)
 
 Rendered checks: no horizontal overflow at 390 for the library and an HTML document; axe
 clean on the library, the HTML document and the phone view; the detector reports only the
@@ -114,7 +115,7 @@ reminders, the linked sessions as session rows, a note form, history as a collap
 and the actions as chips. Sheets reuse `.opt` rows and the `.voice-field` inputs; the
 editor and the reminder picker are plain forms in a sheet.
 
-Desktop: the rail head is a two-way `role=tablist` switch, Sessions · Projects, with a
+Desktop: the rail head is a two-way `role=tablist` switch, Sessions · Projects (now a `role=group` of pressed buttons, Sessions | Projects | Files | Tasks, one segment per feature that is on), with a
 `--warn` badge for due reminders; beside it the filter toggle drops its label (icon only)
 so the head fits the 320px rail, and hides in the project list. A project view is a tab in
 the open-session strip (title; `tab-due` mark in `--warn`) and a pane target like a session,
