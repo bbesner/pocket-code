@@ -6,7 +6,7 @@ Pocket Code is a self-hosted workspace for running and following coding-agent se
 Use tabs and split conversations at your desk, then continue from your phone. The
 server owns the work: closing the browser or locking the screen does not stop a turn.
 
-This checkout documents **1.35.0 / build 79**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.36.0 / build 80**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -18,20 +18,26 @@ Screenshots use synthetic demo sessions, not private conversations.
 
 - **Work across sessions.** Search and filter the session list, pin or rename work,
   keep open-session tabs, and resume the last conversation on this browser.
-- **Track projects (optional).** Turn on Projects in Settings → Projects & files to keep a card for
+- **Track projects (optional).** Turn on Projects in Settings → Projects, files & tasks to keep a card for
   each piece of work: where you left off, the next step, remaining steps, reminders and
   the sessions that worked on it. Projects open as a tab, beside a conversation, or
   full-screen on the phone; a Scheduled view lists every reminder, due first; agents keep
   cards current with `pocket-board`. See the [workspace guide](docs/workspace-guide.md#projects).
-- **Keep files (optional).** Turn on Files in Settings → Projects & files for a library of the
+- **Keep files (optional).** Turn on Files in Settings → Projects, files & tasks for a library of the
   files that came out of the work. HTML renders sandboxed; PDFs, images, Markdown and CSV
   render natively; share a file privately, by link or publicly, all served by Pocket.
   Keep a file from a session's Results, upload one, or let agents keep deliverables with
   `pocket-docs`. See the [workspace guide](docs/workspace-guide.md#files).
-- **Agents that already know Pocket.** While Projects or Files is on, Pocket installs the
-  `pocket-projects` and `pocket-files` skills for Claude Code and Codex, so any agent on the
-  server knows how to track a project and that "my files", "documents" or "docs" mean Files.
-  See [Agent skills](docs/workspace-guide.md#agent-skills).
+- **Keep tasks (optional).** Turn on Tasks in Settings → Projects, files & tasks for to-dos
+  beside your sessions: a line of text, an optional date and time (announced once when due),
+  the session it came from and, if you ask, a short briefing on that session. Add one from
+  a conversation's **Add task** chip, from the Tasks list, or by telling an agent "create a
+  task to …"; **Start** opens a new session with the task written in, ready to send. Agents
+  use `pocket-tasks`. See the [workspace guide](docs/workspace-guide.md#tasks).
+- **Agents that already know Pocket.** While Projects, Files or Tasks is on, Pocket installs the
+  `pocket-projects`, `pocket-files` and `pocket-tasks` skills for Claude Code and Codex, so any
+  agent on the server knows how to track a project, that "my files", "documents" or "docs" mean
+  Files, and how to keep a to-do. See [Agent skills](docs/workspace-guide.md#agent-skills).
 - **Use a desktop workspace.** Open up to four conversations side by side when space
   permits, start a new session in a pane, swap it with the main conversation, and resize
   dividers. Results, Queue and read-only Git inspection can stay in a side panel.

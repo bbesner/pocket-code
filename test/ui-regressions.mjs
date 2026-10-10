@@ -1110,6 +1110,64 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await page.evaluate(()=>settingsSheet());await scan('settings-mobile');
   assert.deepEqual(errors,[]);
 
+  await check('Tasks (1.36): off by default, then the list, done, the sheet and Start, a task from a session with its briefing, the rail, split, settings and the phone',async()=>{
+   await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+   const settings=settingsState();settings.tasks=false;settings.projects=true;settings.documents=true;
+   await page.goto(base+'/#/tasks');await page.waitForSelector('#tasks-main');
+   await page.waitForFunction(()=>/Tasks is off/.test(document.querySelector('#tasks-main')?.textContent||''));
+   assert.equal(await page.$('[data-rail-view="tasks"]'),null,'no Tasks segment while off');
+   await openChat(rows[4].id);assert.equal(await page.$eval('#task-open',e=>e.hidden),true,'no Add task chip while off');
+   settings.tasks=true;await page.evaluate(()=>fetch('/api/tasks/reset',{method:'POST'}));
+   await page.goto(base+'/#/tasks');await page.waitForSelector('.task-item');
+   const list=await page.evaluate(()=>({titles:[...document.querySelectorAll('.task-item .title')].map(e=>e.textContent),groups:[...document.querySelectorAll('.project-group h2')].map(h=>h.textContent.replace(/\s+/g,' ').trim()),due:document.querySelector('.task-item.due .due-label')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent,badge:document.querySelector('[data-tasks-badge]')?.textContent,done:document.querySelector('details.project-group')?.open}));
+   assert.deepEqual(list.titles,['Send the aisle 4 recount to purchasing','Chase the revised camera quote','Read the TVT firmware notes','Book the forklift service'],'due first, then dated, then undated, finished last');
+   assert.deepEqual(list.groups,['To do 3 · 1 due','Done 1']);assert.match(list.due,/^Due /);assert.equal(list.tab,'Tasks','the list is a tab like a session');assert.equal(list.badge,'1','due count on the rail switch');assert.equal(list.done,false,'finished tasks start collapsed');
+   await scan('tasks-list-desktop');await page.screenshot({path:path.join(out,'tasks-list-desktop.png')});
+   // The sheet: facts and the briefing; Start writes the New session draft in the task's workspace.
+   await clickControl(page,'.task-item [data-task-open]');await page.waitForSelector('.task-sheet');
+   const sheet=await page.evaluate(()=>({text:document.querySelector('.task-sheet .task-text').textContent,summary:document.querySelector('.task-sheet .task-summary')?.textContent,facts:document.querySelector('.task-sheet .task-facts').textContent}));
+   assert.equal(sheet.text,'Send the aisle 4 recount to purchasing');assert.match(sheet.summary,/aisle 4 is 14 units short/);assert.match(sheet.facts,/From Warehouse stock report/);
+   await scan('task-sheet-desktop');await page.screenshot({path:path.join(out,'task-sheet-desktop.png')});
+   await clickControl(page,'.task-sheet [data-start]');await page.waitForSelector('#first');await page.waitForFunction(()=>document.querySelector('#plist .row.sel'));
+   const draft=await page.$eval('#first',e=>e.value);
+   assert.match(draft,/^Send the aisle 4 recount to purchasing\n\nContext from the earlier session:\nRecounting aisle 4/);assert.match(draft,/\(Pocket task [0-9a-f]{12}\. When it is finished, mark it done with pocket-tasks done [0-9a-f]{12}\.\)$/);
+   assert.equal(await page.$eval('#plist .row.sel',e=>e.dataset.p),rows[0].cwd,'Start picks the task\'s workspace');
+   await page.evaluate(()=>{clearDraft(NEW_KEY);localStorage.removeItem('pc-lastproj');});
+   // Done from the list clears the due badge; the task moves under Done.
+   await page.goto(base+'/#/tasks');await page.waitForSelector('.task-item');
+   await clickControl(page,'.task-item:not(.finished) [data-task-check]');await page.waitForFunction(()=>document.querySelectorAll('.task-item.finished').length===2);
+   assert.equal(await page.$eval('[data-tasks-badge]',e=>e.hidden),true,'the due task is done: no badge');
+   // From a session: the Add task chip, the editor naming the session, the briefing on by default and kept with the task.
+   await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#task-open')?.hidden===false);
+   assert.equal(await page.$eval('#task-open',e=>e.textContent),'Add task');assert.equal(await page.$eval('#task-open',e=>Boolean(e.closest('#tbar'))),true,'Add task is a chip in the message toolbar');
+   await clickControl(page,'#task-open');await page.waitForSelector('.task-form');
+   assert.equal(await page.$eval('.sheet .sheet-name',e=>e.textContent),rows[4].title);assert.equal(await page.$eval('[data-summarize]',e=>e.getAttribute('aria-pressed')),'true','the briefing is on by default from a session');
+   await page.type('.task-form [name=text]','Decide on the camera order');await scan('task-editor-desktop');await page.screenshot({path:path.join(out,'task-editor-desktop.png')});
+   await clickControl(page,'.task-form .primary');await page.waitForFunction(()=>!document.querySelector('.task-form'));
+   const made=await page.evaluate(()=>tasksSnap.tasks.find(t=>t.text==='Decide on the camera order'));
+   assert.equal(made.session,rows[4].id);assert.match(made.summary,/Reviewing the warehouse stock report/);assert.equal(made.dueAt,null);assert.equal(made.directory,rows[4].cwd);
+   // Without a helper the task is still added, without context.
+   setMode({noSummary:true});await clickControl(page,'#task-open');await page.waitForSelector('.task-form');await page.type('.task-form [name=text]','Order the junction boxes');await clickControl(page,'.task-form .primary');
+   await page.waitForFunction(()=>!document.querySelector('.task-form')&&tasksSnap.tasks.some(t=>t.text==='Order the junction boxes'));setMode({noSummary:false});
+   assert.equal(await page.evaluate(()=>tasksSnap.tasks.find(t=>t.text==='Order the junction boxes').summary),'');
+   // Session options offer it; the rail lists open tasks with Add task and All; Split view offers Tasks.
+   await clickControl(page,'#chatmore');await page.waitForSelector('#so-task');await page.keyboard.press('Escape');
+   await clickControl(page,'[data-rail-view="tasks"]');await page.waitForSelector('#rail .rail-tasks .task-item');
+   assert.deepEqual(await page.$$eval('#rail .rail-project-actions .chip',els=>els.map(e=>e.textContent.trim())),['Add task','All']);
+   assert.equal(await page.$eval('#rail-filter-toggle',e=>e.hidden),true,'session filters hide with the task list');
+   await (await page.$('aside.rail')).screenshot({path:path.join(out,'rail-tasks.png')});
+   await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
+   await clickControl(page,'#splitb');await page.waitForSelector('.sheet [data-v="tasks"]');await page.keyboard.press('Escape');
+   // Settings → Projects, files & tasks turns the feature off for the whole install.
+   await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-tasks')?.disabled===false);
+   assert.equal(await page.$eval('#s-tasks',e=>e.getAttribute('aria-pressed')),'true');
+   await clickControl(page,'#s-tasks');for(let i=0;i<30&&settings.tasks;i++)await sleep(100);assert.equal(settings.tasks,false,'the server setting changed');
+   await page.keyboard.press('Escape');
+   // The phone: a Tasks chip on the session home, the list full-screen.
+   settings.tasks=true;await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.waitForSelector('[data-tasks-home]');
+   await clickControl(page,'[data-tasks-home]');await page.waitForSelector('.task-item');await scan('tasks-list-mobile');await page.screenshot({path:path.join(out,'tasks-list-mobile.png')});
+   await page.setViewport({width:1440,height:900});settings.tasks=false;settings.projects=false;settings.documents=false; // as the Projects check expects
+  });
   await check('Projects (1.29): off by default, then the list, card, steps, reminders, finish and resume, tracking from a session, tabs, split pane, rail switch, settings and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
    const settings=settingsState();settings.projects=false;
@@ -1152,7 +1210,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    c=await card();assert.deepEqual(c.reminders,[],'resuming does not restore them');assert.deepEqual(c.actions,['Edit','Remind me','Finish project']);
    // Track a project from a session: the editor takes the session's workspace, the card links the session.
    await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#project-open')?.hidden===false);
-   assert.equal(await page.$eval('#project-open',e=>e.textContent),'Add to project','the conversation offers Add to project');
+   assert.equal(await page.$eval('#project-open',e=>e.textContent),'Add project','the conversation offers Add project (1.36 wording)');
    assert.equal(await page.$eval('#project-open',e=>Boolean(e.closest('#tbar'))),true,'1.35: Add to project is a chip in the message toolbar');
    await (await page.$('#comp')).screenshot({path:path.join(out,'composer-project-chip.png')});
    await clickControl(page,'#project-open');await page.waitForSelector('.sheet [data-v="__new"]');await page.keyboard.press('Escape');

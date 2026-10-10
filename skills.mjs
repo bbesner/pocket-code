@@ -1,4 +1,4 @@
-// Agent skills that ship with Pocket Code (1.34). skills/pocket-projects and skills/pocket-files are written into the
+// Agent skills that ship with Pocket Code (1.34). skills/pocket-projects, skills/pocket-files and (1.36) skills/pocket-tasks are written into the
 // user-level folders Claude Code (~/.claude/skills) and Codex ($CODEX_HOME/skills) read, so every agent on this server
 // (Pocket's, the terminal's, code-server's) knows how to create a project and what "save it to my files" means.
 // A skill is installed while its feature is on and removed when it is turned off. Pocket only writes or removes a
@@ -12,7 +12,9 @@ export const MARKER = '.pocket-managed';
 export const SKILLS = [
   { name: 'pocket-projects', feature: 'projects', cli: 'board' },
   { name: 'pocket-files', feature: 'documents', cli: 'docs' },
+  { name: 'pocket-tasks', feature: 'tasks', cli: 'tasks' }, // 1.36
 ];
+const BIN = { board: 'pocket-board', docs: 'pocket-docs', tasks: 'pocket-tasks' };
 const SRC = path.join(import.meta.dirname, 'skills');
 
 // Claude Code's user skills folder always; Codex's only where Codex is installed for this user.
@@ -38,7 +40,7 @@ export function syncSkills({ settings, commands, env = process.env, roots = skil
     try {
       if (settings[s.feature]) {
         if (fs.existsSync(dir) && !ours) { result.skipped.push(dir); log(`skill ${dir} exists and is not Pocket's; left alone`); continue; }
-        const bin = s.cli === 'board' ? 'pocket-board' : 'pocket-docs';
+        const bin = BIN[s.cli];
         const body = renderSkill(fs.readFileSync(path.join(src, s.name, 'SKILL.md'), 'utf8'), commands[s.cli], bin);
         const file = path.join(dir, 'SKILL.md');
         if (ours && fs.readFileSync(file, 'utf8') === body) continue;

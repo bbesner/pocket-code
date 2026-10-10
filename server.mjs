@@ -28,7 +28,7 @@ import {cacheFromTranscript,turnCacheSummary} from './cache.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import {AgentActivity,ClaudeAgentFiles} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
-import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION,summarizeAway,awayDigest,awayWorthSummary,createRetitler,retitle} from './titles.mjs';
+import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION,summarizeAway,awayDigest,awayWorthSummary,createRetitler,retitle,summarizeForTask} from './titles.mjs';
 import zlib from 'node:zlib';
 import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 import {PromptStore} from './prompts.mjs';
@@ -36,6 +36,7 @@ import {ClaudeLogin} from './claude-login.mjs';
 import {ProjectStore, projectInstructions} from './projects.mjs';
 import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
+import {TaskStore, taskInstructions} from './tasks.mjs';
 import {Thumbnailer} from './thumbnails.mjs';
 
 // ---------- config ----------
@@ -175,7 +176,7 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false }; } };
+const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, tasks: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false, tasks: false }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
 
@@ -195,10 +196,16 @@ const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'docume
 const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 const DOCS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-docs.mjs');
-const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Files is off. Turn it on in Settings → Projects & files.', code: 'documents_off' });
+const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Files is off. Turn it on in Settings → Projects, files & tasks.', code: 'documents_off' });
 setInterval(() => { try { const gone = docs.purge(); if (gone.length) log(`documents purged from trash: ${gone.length}`); } catch (e) { log('documents purge: ' + e.message); } }, 6 * 3600_000).unref();
-codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : ''].filter(Boolean).join(' '));
-const syncAgentSkills = () => syncSkills({ settings, commands: { board: BOARD_CLI, docs: DOCS_CLI }, log }); // 1.34: pocket-projects / pocket-files for every agent on the box
+// ---------- 1.36: tasks ----------
+// To-dos (tasks.mjs): <data dir>/tasks.json. Off until Settings → Projects, files & tasks turns it on. The same loopback
+// token serves pocket-tasks on /api/tasks* only; a dated task is announced once when due, like a project reminder.
+const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'));
+const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
+const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).json({ error: 'Tasks is off. Turn it on in Settings → Projects, files & tasks.', code: 'tasks_off' });
+codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null) : ''].filter(Boolean).join(' '));
+const syncAgentSkills = () => syncSkills({ settings, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks) for every agent on the box
 syncAgentSkills();
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
 const cliToken = randomBytes(32).toString('hex');
@@ -212,7 +219,7 @@ function requireBoardAuth(req, res, next) {
   if (m && direct && timingSafeEqual(Buffer.from(m[1]), Buffer.from(cliToken))) { req.boardActor = 'cli'; return next(); }
   res.status(401).json({ error: 'unauthorized' });
 }
-const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404).json({ error: 'Projects is off. Turn it on in Settings → Projects & files.', code: 'projects_off' });
+const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404).json({ error: 'Projects is off. Turn it on in Settings → Projects, files & tasks.', code: 'projects_off' });
 const REMINDER_HOOK = process.env.POCKET_REMINDER_HOOK || '';
 function runReminderHook(payload) {
   const child = spawn(REMINDER_HOOK, { shell: true, stdio: ['pipe', 'ignore', 'pipe'] });
@@ -222,6 +229,13 @@ function runReminderHook(payload) {
   child.stdin.on('error', () => { }); child.stdin.end(JSON.stringify(payload));
 }
 async function announceReminders() {
+  if (settings.tasks) for (const t of taskStore.due()) { // 1.36: a dated task, once, with a link to the list
+    taskStore.markNotified(t.task);
+    const url = '/#/tasks';
+    const devices = await pushRaw('Task due', t.text, { tag: 'task:' + t.task, url });
+    if (REMINDER_HOOK) runReminderHook({ kind: 'task', ...t, url });
+    log(`task due task=${t.task} push=${devices ?? 'off'} hook=${REMINDER_HOOK ? 'yes' : 'no'}`);
+  }
   if (!settings.projects) return;
   for (const r of board.due()) {
     board.markNotified(r.project, r.reminder); // first, so a crash mid-send never announces it twice
@@ -1079,7 +1093,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
-  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : ''].filter(Boolean).join(' ');
+  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId) : ''].filter(Boolean).join(' ');
   if (extra) args.push('--append-system-prompt', extra);
   args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
   args.push(resume ? '--resume' : '--session-id', sessionId);
@@ -1521,7 +1535,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
-app.get('/api/me', (req, res) => res.json({ ok: checkCookie(getCookie(req, 'pc_auth')), features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents) } }));
+app.get('/api/me', (req, res) => res.json({ ok: checkCookie(getCookie(req, 'pc_auth')), features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks) } }));
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -2236,9 +2250,10 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.liveTitles === 'boolean') settings.liveTitles = req.body.liveTitles;
   if (typeof req.body?.projects === 'boolean') settings.projects = req.body.projects;
   if (typeof req.body?.documents === 'boolean') settings.documents = req.body.documents;
+  if (typeof req.body?.tasks === 'boolean') settings.tasks = req.body.tasks;
   saveSettings();
-  if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean') syncAgentSkills();
-  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents}`);
+  if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean') syncAgentSkills();
+  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks}`);
   res.json({ ...settings, titles: titleSettings() });
 });
 
@@ -2427,6 +2442,37 @@ app.post('/api/board/import', requireBoardAuth, boardOn, (req, res) => {
   } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
 });
 
+// ---------- 1.36: tasks routes ----------
+app.get('/api/tasks', requireBoardAuth, tasksOn, (_req, res) => {
+  res.set('Cache-Control', 'private, no-store').json({ ...taskStore.snapshot(), push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK) });
+});
+app.post('/api/tasks/act', requireBoardAuth, tasksOn, (req, res) => {
+  const actor = req.boardActor || 'ui';
+  try {
+    const task = taskStore.act(req.body || {}, { actor });
+    log(`task ${req.body?.action} task=${task.id} by ${actor}`);
+    res.set('Cache-Control', 'private, no-store').json({ ok: true, task });
+  } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.task ? { task: e.task } : {}) }); }
+});
+// A briefing on a session for a task created from it: the whole session so far, through the titles helper model.
+app.post('/api/tasks/summary', requireAuth, tasksOn, async (req, res) => {
+  const id = String(req.body?.session || '');
+  if (!anyId(id)) return res.status(400).json({ error: 'Invalid session' });
+  refreshTitleProviders();
+  const provider = helperProvider();
+  if (!provider) return res.json({ summary: null, reason: 'unavailable' });
+  let msgs;
+  try {
+    if (isCx(id)) msgs = (await codex.readCodexThread(codex.bareId(id), 600)).msgs;
+    else { const file = await findSessionFile(id); if (!file) return res.status(404).json({ error: 'not found' }); msgs = (await readTranscript(file, 600)).msgs; }
+  } catch { return res.status(502).json({ error: 'Could not read the conversation.' }); }
+  const { digest, stats } = awayDigest(msgs);
+  if (!stats.assistant) return res.json({ summary: null, reason: 'short' });
+  const r = await summarizeForTask({ provider, claudeBin: CLAUDE_BIN, codexBin: codex.CODEX_BIN, models: TITLE_MODELS, env: spawnEnv() }, digest, String(req.body?.text || ''));
+  if (r) log(`task summary session=${id} provider=${provider} model=${r.model}`);
+  res.json(r ? { summary: r.summary, model: r.model, provider } : { summary: null, reason: 'failed' });
+});
+
 // ---------- 1.30: documents routes ----------
 // A document is sent as itself, never under the app's authority: no-store, nosniff, noindex, and for HTML a
 // sandbox policy that lets a dashboard's scripts run while denying it cookies, storage and the API. Public and
@@ -2566,9 +2612,9 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "The sidebar's Files list has Upload, Split and Tab buttons, and Settings can make the Files button open the library straight away.",
-  "New session shows the agent's model and reasoning level before you start, without opening setup.",
-  "Add to project moved into the message toolbar, and the conversation header is now a single bar with the status and session links."
+  "Tasks: to-dos beside your sessions, with an optional date, the session they came from and, if you ask, a briefing on it. Add task sits in the message toolbar; Start opens a new session with the task written in.",
+  "Agents keep tasks with the pocket-tasks command and skill, by voice or text, only when you ask.",
+  "The conversation's project chip now says Add project."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

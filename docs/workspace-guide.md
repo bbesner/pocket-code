@@ -267,7 +267,7 @@ code-server; the provider can drop a cache sooner. Codex sessions show no cache 
 ## Projects
 
 Projects (1.29) keep the work that comes out of sessions beside the sessions. The feature
-is off until **Settings → Projects & files → Projects** turns it on for the whole install.
+is off until **Settings → Projects, files & tasks → Projects** turns it on for the whole install.
 
 A project is one card: where you left off, the next step, what it is waiting for, a
 directory and a link, a checklist of remaining steps, reminders, notes, history, and the
@@ -278,9 +278,9 @@ and a new reminder on the same project or step replaces the open one (that is wh
 *Remind later* does). An edit made from a stale card is refused and the current card is
 shown.
 
-Projects are tracked only when you ask: **Track a project** on the list, the **Add to project**
-chip in a conversation's message toolbar (beside Alerts and Voice; a folder button in the working row while
-a turn runs, and the project's name once the session is linked), or **Add to project** in a session's options, which tracks a new project around the session (its
+Projects are tracked only when you ask: **Track a project** on the list, the **Add project**
+chip in a conversation's message toolbar (beside Alerts, Voice and Add task; a folder button in the working row while
+a turn runs, and the project's name once the session is linked), or **Add project** in a session's options, which tracks a new project around the session (its
 workspace becomes the directory) or links the session to an existing one. Agents keep a
 card current with the `pocket-board` command (see the README); they may track a project
 only with `--requested`, so nothing enrolls work by inference. With Projects on, agents
@@ -297,7 +297,7 @@ On the desktop the rail head switches between **Sessions** and **Projects**, wit
 count of due reminders. Pick a project from the rail and it opens as a tab in the same
 strip as sessions (pinning, closing and Alt [ / ] work the same; the tab's mark is the due
 count), beside the conversation, or in a new browser window of its own, whichever
-Settings → Projects & files says; the options sheet and the view header offer all three every time.
+Settings → Projects, files & tasks says; the options sheet and the view header offer all three every time.
 *Open beside* and *Split view* also offer Projects, Scheduled and the active projects. On
 the phone, the session home shows a **Projects** chip and views open full-screen.
 
@@ -309,7 +309,7 @@ on a phone it stays a sheet from the bottom edge.
 
 Files (1.30; called Documents before 1.34) is the library of files that came out of
 sessions: HTML reports and dashboards, PDFs, images, Markdown, text, CSV, JSON, Office files
-and video. It is off until **Settings → Projects & files → Files** turns it on for the
+and video. It is off until **Settings → Projects, files & tasks → Files** turns it on for the
 whole install.
 
 A file gets in four ways: an agent keeps it with `pocket-docs add` (agents started by
@@ -352,7 +352,7 @@ header offers it). On the phone they open full-screen. The rail head's switch re
 **Sessions | Projects | Files**, with a light divider between them; the phone's session
 home gets a Files chip. The rail's Files list has three buttons: **Upload**, **Split**
 (the library in a pane beside the current view) and **Tab** (the library as a tab).
-Settings → Projects & files → **Files button** chooses what the Files segment does: list
+Settings → Projects, files & tasks → **Files button** chooses what the Files segment does: list
 files in the sidebar (the default), or open the library straight away in a tab or in split
 view. **Open files** chooses whether a plain click on a file opens a tab, a pane or a new
 window.
@@ -367,17 +367,47 @@ The internal names are unchanged, so existing installs, links and scripts keep w
 the `/api/documents` routes, `#/documents` links, `documents.json`, `POCKET_DOCUMENTS_DIR`
 and the `pocket-docs` command.
 
+## Tasks
+
+Tasks (1.36) are to-dos kept beside your sessions, projects and files. The feature is off
+until **Settings → Projects, files & tasks → Tasks** turns it on for the whole install.
+
+A task is one line of text with an optional date and time, the session it came from and, when
+you ask for it, a short briefing on that session. The list (`#/tasks`) opens like a session: a
+tab, a split pane, a window of its own, or full-screen on the phone. Open tasks come first with
+the due ones at the top, finished ones collapse under Done, and the check button on each row
+marks it done or reopens it. A dated task is announced once when it comes due, by push with a
+link to the list and to the server's reminder hook (as `kind: "task"`); it stays due until it is
+done or given a new time. On the desktop the rail switch reads **Sessions | Projects | Files |
+Tasks** with the count of due tasks; the phone's session home gets a **Tasks** chip.
+
+**Adding one.** **Add task** on the list, the **Add task** chip in a conversation's message
+toolbar (a check-box button in the working row while a turn runs), or **Add task** in a
+session's options. From a session the editor remembers the session, and *Include a summary of
+this session*, on by default, asks the titles helper for a two-to-four-line briefing on the
+whole session so far and keeps it with the task. If no helper is available or the session is
+too short, the task is added without it and the editor says so. Agents add tasks too: say
+"create a task to …", typed or by voice, and the agent runs `pocket-tasks`, gives the task a
+time only when you name one, and writes the briefing itself when you ask for the context.
+
+**Starting one.** A task's sheet shows its facts and briefing, with **Start**: it opens New
+session in the task's workspace with the task text, the briefing and the task's id as the
+draft, editable, so one tap of Send begins the work; an agent that finishes it marks the task
+done. **Open the session** returns to the conversation the task came from.
+
 ## Agent skills
 
-Pocket Code ships two skills in `skills/`, written for any Claude Code or Codex agent:
+Pocket Code ships three skills in `skills/`, written for any Claude Code or Codex agent:
 
 - **pocket-projects**: when to create a project (only when the user asks), the steps,
   asking at most one question (which project, what it tracks, or when to remind), and
   setting reminders only when the user asks or agrees to a time.
 - **pocket-files**: every name users give the library (files, my files, documents, my
   documents, docs) maps to Files; what to keep, how to keep it, and sharing only on request.
+- **pocket-tasks** (1.36): a task only when the user asks, typed or spoken; a due time only
+  when one is named; the session briefing written by the agent when the user wants the context.
 
-While Projects or Files is on, Pocket writes the matching skill to `~/.claude/skills/` (or
+While Projects, Files or Tasks is on, Pocket writes the matching skill to `~/.claude/skills/` (or
 `$CLAUDE_CONFIG_DIR/skills/`) and, where Codex is installed, `$CODEX_HOME/skills/`, with
 this server's command filled in. Turning the feature off removes it. Pocket only touches a
 folder holding its `.pocket-managed` marker, so your own skill of the same name is left
@@ -386,7 +416,7 @@ alone. Set `POCKET_SKILLS=0` to turn installation off.
 ## Settings, notifications and compact views
 
 Settings opens a short index: **Appearance**, **Conversation**, **Agents & instance**,
-**Projects & files**, **Notifications & voice**, and **Help & updates**. Each category
+**Projects, files & tasks**, **Notifications & voice**, and **Help & updates**. Each category
 labels preferences that apply to **This device** or **This instance · all devices**.
 **All settings** returns to the index. Accounts, usage and keyboard subpages offer
 **Back to Settings**, preserving the category and scroll position; Close and Escape

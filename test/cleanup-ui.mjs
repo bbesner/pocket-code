@@ -48,7 +48,7 @@ export async function runCleanupRegressions({browser,base,rows,out}) {
   await page.waitForFunction(()=>{const b=document.querySelector('#project-open');return b&&!b.hidden&&b.getAttribute('aria-label').includes('Warehouse');});
   assert.equal(await page.$eval('#project-open',b=>Boolean(b.closest('#comp .workrow'))),true,'the project control sits with the composer, not in a header row');
   await check('Readable chat navigation and targets at '+width,async()=>{
-   const r=await page.evaluate(()=>{const p=document.querySelector('#project-open').getBoundingClientRect(),bar=document.querySelector('#chat-statebar').getBoundingClientRect(),s=document.querySelector('#session-switch').getBoundingClientRect();return {project:p.toJSON(),bar:bar.toJSON(),session:s.width,overflow:document.documentElement.scrollWidth>innerWidth,targets:[...document.querySelectorAll('.workrow button.wbell')].map(b=>{const r=b.getBoundingClientRect();return [r.width,r.height]})};});
+   const r=await page.evaluate(()=>{const p=document.querySelector('#project-open').getBoundingClientRect(),bar=document.querySelector('#chat-statebar').getBoundingClientRect(),s=document.querySelector('#session-switch').getBoundingClientRect();return {project:p.toJSON(),bar:bar.toJSON(),session:s.width,overflow:document.documentElement.scrollWidth>innerWidth,targets:[...document.querySelectorAll('.workrow button.wbell')].filter(b=>!b.hidden).map(b=>{const r=b.getBoundingClientRect();return [r.width,r.height]})};});
    assert.equal(r.overflow,false);assert.ok(r.project.top>=r.bar.bottom-1);assert.ok(r.session>=82);r.targets.forEach(([w,h])=>assert.ok(w>=44&&h>=44));
    if([390,1440].includes(width))await scan('chat-'+width);
   });
