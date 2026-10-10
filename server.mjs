@@ -2562,9 +2562,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Settings now opens a short category index, with device and instance scope labels and Back to Settings in subpages.",
-  "New sessions show workspace, agent and permissions together. Edit setup opens the remaining choices; phone conversation navigation keeps project names separate.",
-  "Projects and documents preserve their parent view on Back and offer Retry after load errors. Split view has grouped search; touch targets, keyboard navigation and table scrolling are more consistent."
+  "The sidebar header compresses with the column, keeping New session visible. At the narrowest widths, its actions wrap together onto a second row."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the

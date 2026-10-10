@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.33.1] — 2026-10-10 · build 77
+
+- The sidebar header compresses as its column narrows, keeping New session, Settings and filters reachable. Mouse controls compress with the labels; touch controls retain 44px targets. At the minimum widths, actions wrap together.
+
 ## [1.33.0] — 2026-10-09 · build 76
 
 - Settings has a six-category index, clear device/instance scope labels, reliable initial keyboard focus, and Back to Settings in subpages.

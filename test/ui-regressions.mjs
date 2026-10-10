@@ -937,7 +937,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     return {label:d.getAttribute('aria-label'),after:d.nextElementSibling?.dataset.ts,before:d.previousElementSibling?.dataset.ts,
      cardLabel:c.querySelector('#away-card-label').textContent,inLast:c.parentElement===last,beforeChoices:c.nextElementSibling?.classList.contains('choices')&&!c.nextElementSibling.hidden,
      gap:Math.round(s.scrollHeight-s.scrollTop-s.clientHeight),dividerAbove:d.getBoundingClientRect().bottom<s.getBoundingClientRect().top,anchored:Boolean(awayAnchor?.isConnected),following:awayFollow};});
-   assert.match(r.label,/^New since \d{1,2}:\d{2}/);
+   assert.match(r.label,/^New since (?:yesterday )?\d{1,2}:\d{2}/);
    assert.equal(r.after,ts(30),'the divider sits before the first message after you left');assert.equal(r.before,ts(60),'your message from before you left stays above');
    assert.ok(r.gap<40,'the view opens at the end '+JSON.stringify(r));assert.ok(r.dividerAbove,'the divider is up in the conversation, not on screen');
    assert.equal(r.cardLabel,r.label,'the card repeats the New since line');assert.ok(r.inLast&&r.beforeChoices,'the card sits in the latest reply above its suggested replies '+JSON.stringify(r));

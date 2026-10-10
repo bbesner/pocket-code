@@ -68,6 +68,29 @@ export async function runCleanupRegressions({browser,base,rows,out}) {
   assert.equal(await page.evaluate(()=>document.activeElement.dataset.railView),'projects');assert.equal(await page.$eval('[data-rail-view=projects]',e=>e.getAttribute('aria-pressed')),'true');
   assert.equal(await page.$eval('.rail-switch',e=>e.getAttribute('role')),'group');await page.keyboard.press('End');assert.equal(await page.evaluate(()=>document.activeElement.dataset.railView),'documents');await page.keyboard.press('Home');assert.equal(await page.evaluate(()=>document.activeElement.dataset.railView),'sessions');
  });
+ await check('Resizable rail keeps New session and all header controls visible',async()=>{
+  await page.addStyleTag({content:'.rail { overflow-y:scroll; scrollbar-gutter:stable; }'});
+  await page.evaluate(()=>{const b=document.querySelector('[data-projects-badge]');b.hidden=false;b.textContent='2';});
+  for(const zoom of [1,1.25,1.5,2])for(const width of [220,260,300,320,360,480]){
+   await page.evaluate(({zoom,width})=>{document.body.style.zoom=zoom;document.querySelector('.rail').style.width=width+'px';}, {zoom,width});
+   const clipped=await page.evaluate(()=>{
+    const rail=document.querySelector('.rail'),r=rail.getBoundingClientRect(),scale=r.width/rail.offsetWidth,right=r.left+rail.clientWidth*scale;
+    return [...document.querySelectorAll('.railhead button')].filter(e=>!e.hidden).filter(e=>{const b=e.getBoundingClientRect();return b.left<r.left||b.right>right+1||document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)?.closest('button')!==e;}).map(e=>e.id||e.textContent);
+   });
+   assert.deepEqual(clipped,[],`rail ${width}px at ${zoom*100}% zoom`);
+  }
+  await page.evaluate(()=>{document.body.style.zoom='';document.querySelector('.rail').style.width='320px';});
+  assert.equal(await page.evaluate(()=>document.querySelector('.rail-switch').offsetTop===document.querySelector('.rail-actions').offsetTop),true,'default rail stays in one row');
+  await scan('rail-320');
+  await page.setViewport({width:1440,height:900,hasTouch:true});
+  for(const width of [220,320,480]){
+   await page.$eval('.rail',(e,w)=>e.style.width=w+'px',width);
+   assert.ok(await page.$$eval('.rail-actions button',es=>es.filter(e=>!e.hidden).every(e=>{const b=e.getBoundingClientRect(),r=e.closest('.rail');return b.width>=44&&b.height>=44&&b.right<=r.getBoundingClientRect().left+r.clientWidth;})));
+  }
+  await page.setViewport({width:1440,height:900,hasTouch:false});
+  await page.click('#railnew');await page.waitForSelector('#first');assert.equal(new URL(page.url()).hash,'#/new');
+  await fresh('#/chat/'+rows[0].id,'#box');
+ });
  await check('Split chooser searches beyond recent items and groups results',async()=>{
   // Add a real scratch document, so this search exercises the fetched catalog.
   const r=await fetch(base+'/api/documents',{method:'POST',headers:{'x-filename':'zebra-search-target.md'},body:'# Zebra search target'});assert.equal(r.ok,true);
