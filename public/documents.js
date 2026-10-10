@@ -277,9 +277,17 @@ function railDocumentsHTML(){
  if(!docsSnap)return '<p class="sheet-help">Loading files…</p>';
  const q=railDocQuery.trim().toLowerCase();
  const rows=(q?docsSnap.documents.filter(d=>docSearchText(d).includes(q)):docsSnap.documents).slice(0,q?40:20);
- return `<div class="rail-projects rail-documents"><div class="rail-project-actions"><a class="chip" href="${viewHref('documents')}" data-view-link>All files</a><button class="chip" id="rail-doc-upload">${IC.up}Upload</button><input type="file" id="rail-doc-file" multiple hidden></div>
+ return `<div class="rail-projects rail-documents"><div class="rail-project-actions"><button class="chip" id="rail-doc-upload">${IC.up}Upload</button><span class="rail-open-library"><button class="chip desk" data-open-library="beside" aria-label="Open the file library in split view" title="Open the file library in split view">${IC.columns}Split</button><a class="chip" href="${viewHref('documents')}" data-open-library="tab" aria-label="Open the file library in a tab" title="Open the file library in a tab">${IC.tab}Tab</a></span><input type="file" id="rail-doc-file" multiple hidden></div>
   <div class="session-search rail-doc-search">${IC.search}<input type="search" id="rail-doc-query" placeholder="Search files" aria-label="Search files" value="${esc(railDocQuery)}" autocomplete="off"></div>
   <div id="rail-doc-list">${railDocListHTML(rows,q)}</div></div>`;
+}
+// 1.35: the library opens where the button says, not where a setting decides: a tab here, or a pane in split view.
+function openLibrary(where){
+ if(where==='beside'&&!PANE&&!SOLO&&isWide()&&typeof openBeside==='function'){
+  if(currentView()==='documents')return toast('The file library is already open.');
+  return openBeside('documents');
+ }
+ location.hash=viewHref('documents');
 }
 const railDocListHTML=(rows,q)=>rows.length?rows.map(docRowHTML).join(''):`<p class="sheet-help">${q?'No files match.':'No files yet.'}</p>`;
 function paintRailDocuments(){
@@ -289,6 +297,7 @@ function paintRailDocuments(){
  el.innerHTML=railDocumentsHTML();
  el.querySelector('#rail-doc-upload')?.addEventListener('click',()=>el.querySelector('#rail-doc-file').click());
  el.querySelector('#rail-doc-file')?.addEventListener('change',e=>uploadDocuments([...e.target.files]).then(paintRailDocuments));
+ el.querySelectorAll('[data-open-library]').forEach(b=>b.onclick=e=>{if(b.dataset.openLibrary==='beside'||plainClick(e)){e.preventDefault();openLibrary(b.dataset.openLibrary);}});
  el.querySelector('#rail-doc-query')?.addEventListener('input',e=>{railDocQuery=e.target.value;clearTimeout(docPaintT);docPaintT=setTimeout(paintRailDocuments,120);});
  bindDocRows(el);
  if(!docsSnap)loadDocs().then(paintRailDocuments).catch(()=>{const r=document.getElementById('rail');if(r&&railView()==='documents')r.innerHTML='<p class="sheet-help">Documents could not load.</p>';});

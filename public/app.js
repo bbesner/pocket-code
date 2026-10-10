@@ -37,6 +37,7 @@ const IC = {
   speakerOff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4zM16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>',
   more: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
   columns: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 4.5v15"/></svg>',
+  tab: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9h17M10.5 4.5V9"/></svg>',
   list: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M4.5 12h15M4.5 17h15"/></svg>',
   grid: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>',
   external: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4.5h5.5V10M19.5 4.5L11 13M18 13.5v6H4.5V6H10"/></svg>',
@@ -198,7 +199,7 @@ function renderToolbar() {
     <button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>
     <button class="chip" id="c-approval" title="Permissions for the next turn" aria-label="Permissions for the next turn: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
     ${tb.provider==='codex'?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
-    ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}`;
+    ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-project" id="project-open" hidden>Project</button>' : ''}`;
   const ar = $('#attrow');
   if (ar) {
     ar.innerHTML = tb.attachments.map((a, i) => `
@@ -217,7 +218,7 @@ function renderToolbar() {
   $('#c-eff').onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
     v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   if (loadOutbox(tb.key)) {
-    bar.querySelectorAll('button:not(#c-mute):not([data-voice-mute])').forEach(b => { b.disabled = true; });
+    bar.querySelectorAll('button:not(#c-mute):not([data-voice-mute]):not(#project-open)').forEach(b => { b.disabled = true; });
     if(att)att.disabled=true;
     ar?.querySelectorAll('button').forEach(b => { b.disabled = true; });
   }
@@ -228,6 +229,7 @@ function renderToolbar() {
   const mu = $('#c-mute');
   if (mu) mu.onclick = () => toggleMute();
   Voice.paint();                                              // the voice-mute chip reads its state from Voice
+  if (typeof paintChatProject === 'function') paintChatProject(); // 1.35: Add to project sits with the session's chips, not in a header row
   if (!bar.closest('#new-setup')) bindToolbarScroll(bar);
   updateNewSummary();
   if(focusedControl)document.getElementById(focusedControl)?.focus({preventScroll:true});
@@ -584,6 +586,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <button class="opt" id="s-projects" disabled aria-pressed="false"><span class="dot"></span><span>Projects<span class="sub" id="s-projects-state">Loading the projects setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Open projects<select id="s-projects-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
     <button class="opt" id="s-documents" disabled aria-pressed="false"><span class="dot"></span><span>Files<span class="sub" id="s-documents-state">Loading the Files setting…</span></span></button>
+    <div class="title-settings"><label class="voice-field">Files button<select id="s-files-button"><option value="rail">Lists files in the sidebar</option><option value="tab">Opens the library in a tab</option><option value="beside">Opens the library in split view</option></select></label></div>
     <div class="title-settings"><label class="voice-field">Open files<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
@@ -717,6 +720,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       document.querySelectorAll('.session-home, aside.rail').length && route();
     } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
   };
+  const filesBtnSel = sh.querySelector('#s-files-button'); filesBtnSel.value = filesButtonOpens(); filesBtnSel.onchange = () => writeLocal('pc-files-button', filesBtnSel.value);
   const openDocSel = sh.querySelector('#s-documents-open'); openDocSel.value = readLocal('pc-documents-open', 'tab'); openDocSel.onchange = () => writeLocal('pc-documents-open', openDocSel.value);
   sh.querySelector('#s-title-model').onchange = e => saveTitles({ titleProvider: e.target.value });
   sh.querySelector('#s-away').onclick = () => { if (srv?.titles) saveTitles({ awaySummaries: srv.titles.awaySummaries === false }); };
@@ -1029,7 +1033,7 @@ function paintSessionPanels() {
   const current = allSessions.find(s => s.id === chatId);
   const qb=$('#questions-open');if(qb)qb.hidden=!current?.state?.questions;
   const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals)ab.textContent=(current.state.label||'Action needs approval')+' · Review';}
-  if (current && $('#chat-state')) { $('#chat-state').textContent = sessionsStale ? 'Unconfirmed' : rowState(current).label; if (!sessionsStale) markRead(chatId, current.state); }
+  if (current && $('#chat-statebar') && !sessionsStale) markRead(chatId, current.state); // 1.35: the header's run status names the state; no second copy
   const queueButton=$('#queue-open');if(queueButton)queueButton.textContent='Queue'+(current?.state?.queued?' ('+current.state.queued+')':'');
   if(current?.state?.confirmed&&['finished','failed','stopped','ended'].includes(current.state.kind)&&!sessionsStale&&!loadOutbox(chatId)){deliveryNotices.delete(chatId);paintDelivery(chatId);}
   paintSessionFilterSummaries();
@@ -1701,6 +1705,7 @@ const isWide = () => matchMedia('(min-width: 900px)').matches;
 const railOpen = () => localStorage.getItem('pc-rail') !== 'closed';
 const railW = () => Math.min(480, Math.max(220, Number(localStorage.getItem('pc-railw')) || 320));
 // 1.29: with Projects on, the rail head switches between the session list and the project list.
+const filesButtonOpens = () => { const v = readLocal('pc-files-button', 'rail'); return ['rail', 'tab', 'beside'].includes(v) ? v : 'rail'; };
 const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return v === 'projects' && projectsOn() ? 'projects' : v === 'documents' && documentsOn() ? 'documents' : 'sessions'; };
 function railSwitchHTML() {
   if (!projectsOn() && !documentsOn()) return '<span>Sessions</span>';
@@ -1726,7 +1731,10 @@ function wireShell() {
   bindWorkspaceDensity();
   if (PANE || SOLO || !railOpen()) return;
   paintRail();
-  document.querySelectorAll('[data-rail-view]').forEach(b => b.onclick = () => { writeLocal('pc-rail-view', b.dataset.railView); document.querySelectorAll('[data-rail-view]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); paintRail(); });
+  document.querySelectorAll('[data-rail-view]').forEach(b => b.onclick = () => {
+    // 1.35: Settings → Files button can open the library straight away instead of listing files here.
+    if (b.dataset.railView === 'documents' && filesButtonOpens() !== 'rail') return openLibrary(filesButtonOpens());
+    writeLocal('pc-rail-view', b.dataset.railView); document.querySelectorAll('[data-rail-view]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); paintRail(); });
   bindRailNavigation();
   $('#railsettings').onclick=settingsSheet;
   $('#railnew').onclick = () => { location.hash = '#/new'; };
@@ -1778,6 +1786,7 @@ async function renderChat(id, { away = false } = {}) {
       <button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
       <h1><span class="one" id="ctitle">Session</span><span class="tag" id="cproj"></span></h1>
       <span id="hember"></span>
+      <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
       <button class="icon" id="chgb" aria-label="Changed files">${IC.diff}</button>
       <button class="icon" id="findb" aria-label="Find in conversation">${IC.search}</button>
       <button class="icon" id="chatmore" aria-label="Session options">${IC.more}</button>
@@ -1786,7 +1795,6 @@ async function renderChat(id, { away = false } = {}) {
       ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
     </header>
     <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
-    <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><span id="chat-state"></span><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div><button id="project-open" class="conversation-project" hidden>Project</button>
     <button id="agents-open" class="agents-open" aria-haspopup="dialog" hidden></button>
     <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>
     <button class="question-banner" id="approvals-open" hidden>Action needs approval · Review</button>
@@ -1827,7 +1835,6 @@ async function renderChat(id, { away = false } = {}) {
   markRead(id, s.state);
   $('#ctitle').textContent = s.title;
   $('#ctitle').title = s.title;
-  $('#chat-state').textContent = s.state?.label || (s.active ? 'Running' : s.ext ? 'Activity elsewhere' : 'Recent');
   $('#cproj').textContent = projName(s.cwd);
   const gitButton = $('#git-open'); if (gitButton) gitButton.hidden = s.repo === false; // 1.20.1: no Git control outside a repository
   paintChatProject(s); // 1.29: the linked project, or Add to project
@@ -2214,13 +2221,14 @@ function setComposer(working) {
   c.innerHTML = `
     ${working ? `
       <div class="workrow"><span class="ember"></span><span id="work-label">Working</span>
-        ${ctxRingHTML()}<button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>${Voice.muteButtonHTML('icon')}
+        ${ctxRingHTML()}<button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>${Voice.muteButtonHTML('icon')}<button class="icon wbell conversation-project" id="project-open" hidden></button>
         <button class="chip stopchip" id="stopb" aria-label="Stop this turn">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
     ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this turn" aria-label="After this turn">After <span class="sm-x">this </span>turn</button></div>' : ''}
     ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.cog}</button>${ctxRingHTML()}</div>` : ''}
     <textarea id="box" rows="1" placeholder="${working ? 'Steer this turn…' : 'Message this session…'}" enterkeyhint="send"></textarea>
     ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button>`;
+  if (typeof paintChatProject === 'function') paintChatProject(); // the toolbar's chip, or the working row's folder button
   if (working) {
     $('#stopb').onclick = async () => {
       try { await api(`/session/${chatId}/stop`, { method: 'POST', body: '{}' }); }

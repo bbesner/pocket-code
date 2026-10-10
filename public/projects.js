@@ -280,8 +280,9 @@ function addSessionToProject(s){
   const p=projectById(v);boardAct({action:'link-session',project:v,expected_revision:p.revision,session:s.id},'Added to '+p.name);
  });
 }
-// The conversation's Project control (1.29): the linked project's name, opening its card the way this browser
-// opens projects, or "Project" offering Add to project. Hidden while the feature is off.
+// The conversation's Project chip (1.29; in the message toolbar since 1.35): the linked project's name, opening its
+// card the way this browser opens projects, or Add to project. A running turn's working row shows it as a folder icon.
+// Hidden while the feature is off.
 let chatSessionRow=null;
 function paintChatProject(s){
  if(s)chatSessionRow=s;
@@ -289,7 +290,7 @@ function paintChatProject(s){
  if(!projectsOn()||!chatId){b.hidden=true;return;}
  b.hidden=false;
  const linked=boardSnap?.projects.find(p=>p.status!=='done'&&p.sessions.includes(chatId))||boardSnap?.projects.find(p=>p.sessions.includes(chatId))||null;
- b.innerHTML=IC.folder+'<span>'+esc(linked?linked.name:'Add to project')+'</span>';b.setAttribute('aria-label',linked?'Open project: '+linked.name:'Add session to a project');b.title=linked?'Open the project '+linked.name:'Track this session as a project, or add it to one';
+ b.innerHTML=b.classList.contains('icon')?IC.folder:IC.folder+'<span>'+esc(linked?linked.name:'Add to project')+'</span>';b.setAttribute('aria-label',linked?'Open project: '+linked.name:'Add session to a project');b.title=linked?'Open the project '+linked.name:'Track this session as a project, or add it to one';
  b.classList.toggle('linked',Boolean(linked));
  b.onclick=()=>{
   const row=chatSessionRow||allSessions.find(r=>r.id===chatId)||{id:chatId,title:chatTitle,cwd:''};

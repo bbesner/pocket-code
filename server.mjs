@@ -2566,9 +2566,9 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "Documents is now called Files, everywhere in the app and in Settings (Projects & files).",
-  "Agents know that files, my files, documents and docs all mean Files, and Pocket installs skills that teach them how to track projects and keep files.",
-  "Sessions, Projects and Files are separated by a light divider in the sidebar switch."
+  "The sidebar's Files list has Upload, Split and Tab buttons, and Settings can make the Files button open the library straight away.",
+  "New session shows the agent's model and reasoning level before you start, without opening setup.",
+  "Add to project moved into the message toolbar, and the conversation header is now a single bar with the status and session links."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
