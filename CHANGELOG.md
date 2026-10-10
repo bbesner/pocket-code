@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.34.0] — Unreleased · build 78
+## [1.34.0] — 2026-10-10 · build 78
 
 - **Documents is now Files.** The library, its rail switch, the session-home chip, Split view, Back links, sheets, empty states and toasts all say Files, and a single item is a file: File options, Rename file, Remove this file?, Keep in Files on a session's Results. The Settings category is Projects & files, with Files and Open files under Tools. `pocket-docs` messages use the same words. Requested by Brad.
 - **Agents understand every name for it.** Files, my files, documents, my documents and docs all mean Pocket's Files library, not a folder on the server or another drive unless the user names one. Pocket's per-turn instruction says so.
