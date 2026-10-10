@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.35.0] — 2026-10-10 · build 79
+
+- **Files opens where the button says.** The sidebar's Files list has three buttons: **Upload**, **Split** (the library in a pane beside the current view, desktop only) and **Tab** (the library as a tab). They replace *All files*, whose behaviour depended on a setting. Screen readers and tooltips name them in full: Open the file library in split view / in a tab. Requested by Brad.
+- **The Files button can open the library directly.** Settings → Projects & files → **Files button**: list files in the sidebar (default), open the library in a tab, or open it in split view. Arrowing across the sidebar switch only focuses a Files button set to open the library. **Open files** still decides how a single file opens. Requested by Brad.
+- **New session names the model and reasoning level.** The collapsed setup summary reads, for example, *Agent Claude Code · Opus 5.5 · High reasoning* (or *default reasoning* when neither Pocket nor the session sets one), and follows the Model and Reasoning choices. Requested by Brad.
+- **Add to project is a toolbar chip.** It moved from a full-width row under the conversation header to the message toolbar, after Alerts and Voice; a linked session shows the project's name in clay. While a turn runs, the working row carries it as a folder button. It stays usable while a message is being delivered. Requested by Brad.
+- **One conversation header.** The title bar's subtitle now carries the project, the run status in short words and the check age (*purchasing · Idle · Checked just now*), at every width. Sessions, Results, Queue and Git sit in the same bar: on the title row when the header is wide, on a second line inside it when narrow. The separate run-status strip, the session-links strip and the duplicate state label are gone; on desktop the three rows (about 125px) become one (about 60px). Phones keep the check age in the status tooltip. Requested by Brad.
+
 ## [1.34.0] — 2026-10-10 · build 78
 
 - **Documents is now Files.** The library, its rail switch, the session-home chip, Split view, Back links, sheets, empty states and toasts all say Files, and a single item is a file: File options, Rename file, Remove this file?, Keep in Files on a session's Results. The Settings category is Projects & files, with Files and Open files under Tools. `pocket-docs` messages use the same words. Requested by Brad.

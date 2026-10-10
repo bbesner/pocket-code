@@ -1066,6 +1066,8 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .badge[hidden] { display: none; }
 .project-head-actions, .rail-project-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .rail-project-actions { padding: 10px 14px 4px; }
+.rail-open-library { display: flex; flex-wrap: wrap; gap: 6px; }
+.rail-open-library .chip { padding-inline: 10px; } /* 1.35: the two Open buttons wrap together, never one alone */
 .rail-done-link { display: block; min-height: 44px; padding: 12px 18px; color: var(--dim); font-size: 13.5px; }
 .projects-view { padding-bottom: calc(24px + var(--sab)); }
 .projects-view > .sheet-help { padding-inline: 18px; }
@@ -1130,7 +1132,6 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .reminder-form { padding-top: 6px; }
 .open-session .tab-state.tab-due { background: var(--warn); }
 .sheet h2.settings-group { padding-top: 8px; }
-.chat-statebar #project-open.linked { color: var(--clay); } /* a linked project reads as the conversation's home */
 
 /* ---------- 1.30: documents ----------
    Library rows keep the session-row voice with a small mono kind tag; the viewer is a frame under Pocket's bar
@@ -1220,12 +1221,10 @@ video.doc-media { width: 100%; max-height: 70vh; background: #000; }
 .library-error { padding: 16px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 16px; }
 .library-error p { margin: 0 0 12px; color: var(--dim); }
 .library-error .chip + .chip { margin-left: 8px; }
-.conversation-project { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 16px; border: 0; border-bottom: 1px solid var(--line); background: var(--bg); color: var(--dim); text-align: left; font: inherit; font-size: 13px; }
-.conversation-project .i { width: 16px; height: 16px; flex: none; }
-.conversation-project span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conversation-project[hidden] { display: none; }
+.chip.conversation-project span { max-width: 16em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conversation-project.linked { color: var(--clay); }
-.conversation-project:hover { background: var(--surface); }
-.compact-header .conversation-project { display: none; }
+.chip.conversation-project.linked { border-color: var(--clay-deep); } /* a linked project reads as the conversation's home */
 .workrow button.wbell, .doc-filters .chip, .doc-layout .icon, .doc-card-actions .icon { min-width: 44px; min-height: 44px; }
 #new-setup { margin: 8px 0 16px; border: 1px solid var(--line); border-radius: 10px; }
 #new-setup > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 14px; cursor: pointer; list-style: none; }
@@ -1272,4 +1271,20 @@ video.doc-media { width: 100%; max-height: 70vh; background: #000; }
     min-width: clamp(32px, calc(10cqi + 2px), 44px);
     width: clamp(32px, calc(10cqi + 2px), 44px);
   }
+}
+
+/* 1.35: one conversation header. Title, then a subtitle line with project · run status · check age;
+   the session links (Sessions, Results, Queue, Git) sit in the same bar. A wide header keeps one row;
+   a narrow one wraps the links onto a second line inside the header, never a separate bordered strip. */
+.chatcol > header.bar { container: chathead / inline-size; flex-wrap: wrap; row-gap: 0; }
+header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; flex: 1 0 100%; min-width: 0; }
+.status-in-header:not(.compact-header) #run-confirmed-at { display: inline; }
+.status-in-header:not(.compact-header) #run-confirmed-at:not(:empty)::before { content: '·'; margin: 0 6px; color: var(--faint); }
+@container chathead (min-width: 720px) {
+  header.bar .chat-statebar { order: 0; flex: 0 1 auto; gap: 2px; }
+  header.bar .chat-statebar .session-switch { flex: none; padding-inline: 8px; }
+  header.bar #session-switch { flex: 0 1 auto; max-width: 13.5em; } /* the title keeps its room; the Sessions link shortens first */
+}
+@container chathead (max-width: 599px) {
+  .status-in-header:not(.compact-header) #run-confirmed-at { display: none; }
 }

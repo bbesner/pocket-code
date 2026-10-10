@@ -152,13 +152,12 @@ function bindAccentControls(container){
 let headerCollapsed=readLocal('pc-header-collapsed',false)===true;
 let composerCollapsed=readLocal('pc-composer-collapsed',false)===true;
 let railFiltersCollapsed=readLocal('pc-rail-filters-collapsed',false)===true;
-// 1.19: on phones and narrow panes the run status always sits in the title bar beside the project name,
-// as it does when the header is collapsed, instead of taking its own 28px strip above the conversation.
-const statusInHeaderQuery=matchMedia('(max-width: 600px)');
+// 1.19: the run status sits in the title bar beside the project name instead of its own 28px strip;
+// 1.35: at every width, with the session links in the same header (one header, not three rows).
 function paintWorkspaceDensity(){
  const split=document.querySelector('.split');
  split?.classList.toggle('compact-header',headerCollapsed);
- const statusInHeader=headerCollapsed||statusInHeaderQuery.matches;
+ const statusInHeader=true;
  split?.classList.toggle('status-in-header',statusInHeader);
  const header=document.getElementById('header-toggle');
  if(header){
@@ -455,7 +454,6 @@ window.addEventListener('orientationchange',syncViewport);
 window.addEventListener('pageshow',syncViewport);
 window.visualViewport?.addEventListener('resize',syncViewport);
 syncViewport();
-statusInHeaderQuery.addEventListener('change',()=>paintWorkspaceDensity());
 
 /* Shared navigation and recovery for Projects and Documents. */
 let visibleRoute = null, returningToView = false;
@@ -499,11 +497,17 @@ function showLibraryError(main,error,label,retry,hasData) {
 function bindRailNavigation() {
  const group=document.querySelector('.rail-switch');if(!group)return;
  group.onkeydown=e=>{const items=[...group.querySelectorAll('button')],i=items.indexOf(document.activeElement);if(i<0||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
-  e.preventDefault();const target=items[e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowRight'?1:-1)+items.length)%items.length];target.focus();target.click();};
+  e.preventDefault();const target=items[e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowRight'?1:-1)+items.length)%items.length];target.focus();
+  if(target.dataset.railView!=='documents'||filesButtonOpens()==='rail')target.click();}; // arrowing onto a Files button that opens the library only focuses it
+}
+// 1.35: the collapsed setup names the model and reasoning level, so you see what will run without opening it.
+function agentSummary(){
+ const model=tbLabel(modelList(),tb.prefs.model),effort=tbLabel(effortList(),tb.prefs.effort);
+ return [tb.provider==='codex'?'Codex':'Claude Code',model==='Default'?'':model,effort==='Default'?'default reasoning':effort+' reasoning'].filter(Boolean).join(' · ');
 }
 function updateNewSummary() {
  const el=document.querySelector('#task-context');if(!el||!tb)return;
- el.innerHTML=`<span><strong>Workspace</strong> ${esc(el.dataset.workspace||'Choose a workspace')}</span><span><strong>Agent</strong> ${tb.provider==='codex'?'Codex':'Claude Code'}</span><span><strong>Permissions</strong> ${esc(permissionLabel(nextApprovalMode()))}</span>`;
+ el.innerHTML=`<span><strong>Workspace</strong> ${esc(el.dataset.workspace||'Choose a workspace')}</span><span><strong>Agent</strong> ${esc(agentSummary())}</span><span><strong>Permissions</strong> ${esc(permissionLabel(nextApprovalMode()))}</span>`;
  const bar=document.querySelector('#new-setup #tbar');
  if(bar)for(const [id,label] of [['c-model','Model'],['c-eff','Reasoning'],['c-approval','Permissions'],['c-mode','Mode']]){const b=document.getElementById(id);if(b){b.setAttribute('aria-label',label+': '+b.textContent);b.dataset.settingLabel=label;}}
 }
@@ -512,7 +516,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
   ['appearance','Appearance','Text size and highlight colour', [['This device','.chat-text-settings']]],
   ['conversation','Conversation','Reading, session titles and summaries', [['This device','#s-tools,#s-times'],['This instance · all devices','#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
   ['agents','Agents & instance','Accounts and plan usage', [['This instance · all devices','#s-environment,#s-usage']]],
-  ['libraries','Projects & files','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents'],['This device','', '#s-projects-open,#s-documents-open']]],
+  ['libraries','Projects & files','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents'],['This device','', '#s-projects-open,#s-files-button,#s-documents-open']]],
   ['notifications','Notifications & voice','Chime, push and spoken replies', [['This device','#s-chime,#s-push,#s-voice']]],
   ['help','Help & updates','Keyboard shortcuts, version and feedback', [['','#s-keys,#s-about,#s-notes,#s-feedback']]],
  ];

@@ -44,7 +44,9 @@ export async function runCleanupRegressions({browser,base,rows,out}) {
  }
  for(const width of [320,360,390,768,1024,1440]){
   await page.setViewport({width,height:900});await fresh('#/chat/'+rows[0].id,'#box');
-  await page.waitForFunction(()=>!document.querySelector('#project-open').hidden&&document.querySelector('#project-open').textContent.includes('Warehouse'));
+  // 1.35: a running session's working row carries the project as a folder button, named for screen readers.
+  await page.waitForFunction(()=>{const b=document.querySelector('#project-open');return b&&!b.hidden&&b.getAttribute('aria-label').includes('Warehouse');});
+  assert.equal(await page.$eval('#project-open',b=>Boolean(b.closest('#comp .workrow'))),true,'the project control sits with the composer, not in a header row');
   await check('Readable chat navigation and targets at '+width,async()=>{
    const r=await page.evaluate(()=>{const p=document.querySelector('#project-open').getBoundingClientRect(),bar=document.querySelector('#chat-statebar').getBoundingClientRect(),s=document.querySelector('#session-switch').getBoundingClientRect();return {project:p.toJSON(),bar:bar.toJSON(),session:s.width,overflow:document.documentElement.scrollWidth>innerWidth,targets:[...document.querySelectorAll('.workrow button.wbell')].map(b=>{const r=b.getBoundingClientRect();return [r.width,r.height]})};});
    assert.equal(r.overflow,false);assert.ok(r.project.top>=r.bar.bottom-1);assert.ok(r.session>=82);r.targets.forEach(([w,h])=>assert.ok(w>=44&&h>=44));

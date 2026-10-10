@@ -6,7 +6,7 @@ This guide follows the current checkout, including the 1.33 workspace cleanup. C
 ## Start or resume work
 
 Open a session from the list or choose **New session**. Write the task, choose the
-workspace and agent in **Edit setup**, then press **Start session**. The summary names the workspace, agent and permissions before you start. Model, reasoning and permission controls wrap inside setup; closing it preserves your draft. **Choose a skill** inserts
+workspace and agent in **Edit setup**, then press **Start session**. The summary names the workspace, the agent with its model and reasoning level (for example *Claude Code · Opus 5.5 · High reasoning*) and the permissions before you start. Model, reasoning and permission controls wrap inside setup; closing it preserves your draft. **Choose a skill** inserts
 an editable instruction from that agent's installed skills; choosing it does not
 start a turn. A custom workspace path must be a directory on the server, not your phone.
 With no default workspace and nothing remembered, the most recent workspace is
@@ -236,9 +236,12 @@ operator permits it. A mode choice applies to the next turn and is captured with
 queued instruction; it does not change an active turn. See [action approvals](action-approvals.md)
 for provider-specific scope, restart handling and limitations.
 
-The run-confirmation strip stays visible when the header collapses. On phones and
-panes up to 600px wide it sits in the title bar beside the project name, in short words
-(Idle, Running, Needs your answer); hover or long-press for the detail. The check time
+The conversation has one header (1.35). Under the title, a subtitle line names the project, the
+run status in short words (Idle, Running, Needs your answer) and the age of the last server
+check; hover or long-press the status for the detail. **Sessions**, **Results**, **Queue** and
+**Git** sit in the same bar, on the title row when the header is wide and on a second line
+inside the header when it is narrow; a phone keeps the check age in the tooltip. The run
+status stays visible when the header collapses. The check time
 moves in steps (just now, 10s ago, 1m ago) so a healthy check does not tick every second. Only a fresh
 server status response confirms an owned run. Failed checks or stale proof remove
 that confirmation; a locally ticking timer is not evidence that work is progressing.
@@ -275,8 +278,9 @@ and a new reminder on the same project or step replaces the open one (that is wh
 *Remind later* does). An edit made from a stale card is refused and the current card is
 shown.
 
-Projects are tracked only when you ask: **Track a project** on the list, the **Project**
-control under a conversation's header, or **Add to project** in a session's options, which tracks a new project around the session (its
+Projects are tracked only when you ask: **Track a project** on the list, the **Add to project**
+chip in a conversation's message toolbar (beside Alerts and Voice; a folder button in the working row while
+a turn runs, and the project's name once the session is linked), or **Add to project** in a session's options, which tracks a new project around the session (its
 workspace becomes the directory) or links the session to an existing one. Agents keep a
 card current with the `pocket-board` command (see the README); they may track a project
 only with `--requested`, so nothing enrolls work by inference. With Projects on, agents
@@ -346,8 +350,12 @@ Files open three ways, like projects: as a tab in the strip, beside a conversati
 app window of its own with no session list or tab strip (every options sheet and view
 header offers it). On the phone they open full-screen. The rail head's switch reads
 **Sessions | Projects | Files**, with a light divider between them; the phone's session
-home gets a Files chip. Settings → Projects & files chooses whether a plain click on a
-file opens a tab, a pane or a new window.
+home gets a Files chip. The rail's Files list has three buttons: **Upload**, **Split**
+(the library in a pane beside the current view) and **Tab** (the library as a tab).
+Settings → Projects & files → **Files button** chooses what the Files segment does: list
+files in the sidebar (the default), or open the library straight away in a tab or in split
+view. **Open files** chooses whether a plain click on a file opens a tab, a pane or a new
+window.
 
 **Agents know what "my files" means.** Whether the user says files, my files, documents,
 my documents or docs, agents treat it as this library. Pocket tells its own agents so on

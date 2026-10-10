@@ -790,13 +790,18 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     return {inHeader:Boolean(c.closest('header.bar h1')),inControls:document.getElementById('conversation-controls').contains(c),dy:Math.abs(c.getBoundingClientRect().bottom-tag.getBoundingClientRect().bottom),
      header:document.querySelector('.chatcol > header.bar').getBoundingClientRect().height,visible:c.getClientRects().length>0,label:c.textContent};});
    assert.ok(r.inHeader&&!r.inControls&&r.visible,JSON.stringify(r));
-   assert.equal(await page.$eval('#run-confirmed-state',e=>e.textContent),'Idle','short words in the title bar');assert.ok(r.dy<6,'project and status on one line '+JSON.stringify(r));assert.ok(r.header<=60,JSON.stringify(r));
+   assert.equal(await page.$eval('#run-confirmed-state',e=>e.textContent),'Idle','short words in the title bar');assert.ok(r.dy<6,'project and status on one line '+JSON.stringify(r));assert.ok(r.header<=104,'1.35: title, status and session links fit the old title bar plus strip '+JSON.stringify(r));
+   assert.equal(await page.$eval('#chat-statebar',e=>Boolean(e.closest('header.bar'))),true,'1.35: the session links live in the header, not a strip below it');
+   assert.equal(await page.$eval('#run-confirmed-at',e=>e.getClientRects().length),0,'a phone keeps the check age in the tooltip');
    await scan('status-in-header-mobile');await page.screenshot({path:path.join(out,'status-in-header-mobile.png')});
    await page.setViewport({width:1440,height:900});
-   await page.waitForFunction(()=>document.getElementById('conversation-controls').contains(document.getElementById('run-confirmation')));
-   await page.evaluate(()=>paintRunConfirmation());assert.equal(await page.$eval('#run-confirmed-state',e=>e.textContent),'No active run here','the strip keeps the full wording');
+   // 1.35: desktop uses the same single header: status and check age under the title, session links on the title row.
+   await page.evaluate(()=>paintRunConfirmation());
+   const d=await page.evaluate(()=>{const h=document.querySelector('.chatcol > header.bar').getBoundingClientRect(),t=document.getElementById('ctitle').getBoundingClientRect(),q=document.getElementById('queue-open').getBoundingClientRect(),c=document.getElementById('run-confirmation');
+    return {header:h.height,sameRow:Math.abs((q.top+q.bottom)/2-(h.top+h.bottom)/2)<8&&q.left>t.left,inHeader:Boolean(c.closest('header.bar h1')),stamp:document.getElementById('run-confirmed-at').getClientRects().length>0};});
+   assert.ok(d.inHeader&&d.stamp&&d.sameRow&&d.header<=64,JSON.stringify(d));
+   await scan('one-header-desktop');await page.screenshot({path:path.join(out,'one-header-desktop.png')});
    await page.setViewport({width:390,height:844});
-   await page.waitForFunction(()=>Boolean(document.getElementById('run-confirmation').closest('header.bar h1')));
   });
   await check('1.19 Automated runs: one collapsed group at the end of All; search shows them normally',async()=>{
    const extra={id:'77777777-7777-4777-8777-777777777777',title:'Nightly backup check',automated:true,cwd:'/workspaces/ops',provider:'codex',mtimeMs:Date.now()-50000,state:{kind:'idle',label:'Recent'}};
@@ -1078,7 +1083,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('.starter',e=>e.getAttribute('aria-pressed')),'false','editing the text lets go of the chip');
    await clickControl(page,'.starter');
    const form=await page.evaluate(()=>({text:document.getElementById('first').value,agent:document.querySelector('#apick .row.sel')?.dataset.a,ws:document.querySelector('#plist .row.sel')?.dataset.p,ctx:document.getElementById('task-context').textContent}));
-   assert.deepEqual(form,{text:'Check stock levels and draft the reorder list',agent:'claude',ws:'/workspaces/warehouse',ctx:'Workspace warehouseAgent Claude CodePermissions Full access'});
+   assert.deepEqual(form,{text:'Check stock levels and draft the reorder list',agent:'claude',ws:'/workspaces/warehouse',ctx:'Workspace warehouseAgent Claude Code · Test agent · default reasoningPermissions Full access'});
    await scan('saved-prompts-mobile');await page.screenshot({path:path.join(out,'saved-prompts-mobile.png')});
    // Recent fills from a start made on another device (Codex, products).
    await clickControl(page,'#starters .recent-starts > summary');await clickControl(page,'[data-recent="0"]');
@@ -1148,6 +1153,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // Track a project from a session: the editor takes the session's workspace, the card links the session.
    await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#project-open')?.hidden===false);
    assert.equal(await page.$eval('#project-open',e=>e.textContent),'Add to project','the conversation offers Add to project');
+   assert.equal(await page.$eval('#project-open',e=>Boolean(e.closest('#tbar'))),true,'1.35: Add to project is a chip in the message toolbar');
+   await (await page.$('#comp')).screenshot({path:path.join(out,'composer-project-chip.png')});
    await clickControl(page,'#project-open');await page.waitForSelector('.sheet [data-v="__new"]');await page.keyboard.press('Escape');
    await clickControl(page,'#chatmore');await page.waitForSelector('#so-project');await clickControl(page,'#so-project');
    await page.waitForSelector('.sheet [data-v="__new"]');
@@ -1308,7 +1315,18 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // Rail: Docs segment lists documents; the Project control is unaffected.
    await clickControl(page,'[data-rail-view="documents"]');await page.waitForSelector('#rail .rail-documents .document-item');
    assert.equal(await page.$eval('#rail-filter-toggle',e=>e.hidden),true);
+   // 1.35: the panel says where the library opens; no setting decides behind an "All files" label.
+   assert.deepEqual(await page.$$eval('#rail .rail-documents .rail-project-actions .chip',els=>els.map(e=>e.textContent.trim())),['Upload','Split','Tab']);
+   assert.deepEqual(await page.$$eval('[data-open-library]',els=>els.map(e=>e.getAttribute('aria-label'))),['Open the file library in split view','Open the file library in a tab']);
+   await (await page.$('aside.rail')).screenshot({path:path.join(out,'rail-files-actions.png')});
+   await clickControl(page,'[data-open-library="beside"]');await page.waitForSelector('#panes iframe');assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/documents$/);
+   await page.frames().find(f=>f.url().includes('#/documents')).waitForSelector('#pane-close');await page.frames().find(f=>f.url().includes('#/documents')).click('#pane-close');await page.waitForFunction(()=>!document.querySelector('#panes iframe'));
    await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
+   // Settings → Files button: open the library in a tab straight from the Files segment.
+   await page.evaluate(()=>writeLocal('pc-files-button','tab'));const backTo=await page.evaluate(()=>location.hash);
+   await clickControl(page,'[data-rail-view="documents"]');await page.waitForFunction(()=>location.hash==='#/documents');
+   assert.equal(await page.evaluate(()=>readLocal('pc-rail-view','sessions')),'sessions','the sidebar keeps its list');
+   await page.evaluate(h=>{writeLocal('pc-files-button','rail');location.hash=h;},backTo);await page.waitForSelector('#rail .session-panel');
    // Settings → Projects & documents.
    await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-documents')?.disabled===false);
    assert.equal(await page.$eval('#s-documents',e=>e.getAttribute('aria-pressed')),'true');await page.keyboard.press('Escape');
