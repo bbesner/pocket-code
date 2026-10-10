@@ -1,6 +1,6 @@
 # Pocket Code workspace guide
 
-This guide follows the current checkout, including the 1.33 workspace cleanup. Check
+This guide follows the current checkout, through release 1.37. Check
 [CHANGELOG.md](../CHANGELOG.md) for which version has been released.
 
 ## Start or resume work
@@ -36,18 +36,29 @@ external transcript. Search matches recent session titles and workspace paths.
 A session's title is your rename, else the agent's own title, else a short title
 Pocket generates from the opening request. Clearing a rename returns to that title.
 
+**Settings → Conversation → Sync names with code-server** (off by default, for the whole server)
+shares session names with Claude Code itself. With it on, a rename made in Claude Code or code-server
+shows in Pocket, and a rename made in Pocket is written into the session as the same record Claude Code's
+own rename writes, so code-server and `claude --resume` show it too. Codex sessions get the new name as
+their thread name. With it off, Pocket names stay in Pocket, and Claude Code's own generated title still
+shows ahead of the opening request. Clearing a rename in Pocket only clears Pocket's name: a record
+already written to the session cannot be taken back.
+
 **Settings → Conversation → Generate short titles** turns generation on or off for the whole server
-(on by default), and **Title model** picks who writes them:
+(on by default), and **Model for titles and summaries** picks who writes them. The same choice writes
+the **While you were away** summaries and the briefing kept with a task made with *Include a summary
+of this session*:
 
 | Choice | Uses | Cost per title |
 |---|---|---|
-| Automatic | Claude when its CLI is installed and signed in, otherwise Codex | as below |
+| Automatic: Claude first, then Codex | Claude when its CLI is installed and signed in, otherwise Codex | as below |
 | Claude · Haiku | `claude -p --model haiku`, no tools, no saved session | about 400 tokens |
 | Codex · GPT-6-Luna | `codex exec --ephemeral`, read-only, low effort | about 25k tokens (Codex's built-in instructions) |
 
 Calls run on that CLI's own sign-in: your Claude or ChatGPT subscription, or an API key
 if the CLI uses one. Titles are kept in `session-meta.json`, never written to a
-transcript, made one at a time, and only for sessions active in the last 14 days.
+transcript, made one at a time, and only for sessions active in the last 14 days. A summary or
+briefing costs a few thousand Claude tokens, or about 25k with Codex.
 
 **Settings → Update titles as sessions progress** (on by default) keeps a title current.
 After a turn run from Pocket ends, a session that has grown enough since its last check
@@ -150,6 +161,17 @@ scroll within their own region. Tool activity appears in
 compact ledger rows; copy controls copy message text or code. The newest plan is
 expanded and older plans are collapsible.
 
+Consecutive tool calls fold behind one line that gives the count and the latest call (for
+example *12 tool calls · Edit app.js*). **Settings → Conversation → Collapse tool calls**, on by
+default, keeps them folded; turn it off to open every fold. It is a choice for this browser.
+
+**Message times (1.24).** Each message shows when it was sent: under your own messages, above each
+reply, with a divider at the first message of each day (Today, Yesterday, then the weekday and date). A message
+from an earlier day carries its date in the time. Times come from the transcript, so Claude and
+Codex sessions both have them; a message that is not in the transcript yet shows none, and Copy
+message and Find in conversation never include them. **Settings → Conversation → Show message
+times** turns the times and dividers off on this browser (on by default).
+
 **Results** collects links and report paths referenced by assistant messages. Search
 or refresh that panel to find a result. A reference does not prove that a file was
 successfully created. Existing external links retain their own access rules.
@@ -206,6 +228,18 @@ Stopping or failing a turn pauses automatic drain. A later successful turn can r
 the backlog. After a daemon restart, a queue without an owned run waits for a new
 turn or **Run next instruction**. An uncertain dispatch blocks later entries until
 its outcome is reviewed and the uncertain row is removed.
+
+**Usage limits.** When a Claude turn from Pocket fails on a usage or rate limit, Pocket does not
+leave it there. It reads the reset time from the error and schedules the session to continue five
+minutes after the reset (`POCKET_RETRY_BUFFER_MS` changes the wait; if the error gives no usable time,
+Pocket tries again in an hour, and it never waits more than 12 hours). The conversation says *Rate
+limited — auto-resume at* the time, and the session shows **Waiting for usage reset** in the list.
+At that time Pocket resumes the session with a short instruction to continue where it left off.
+Push tells you when the turn is rate limited (if you were not watching) and when it picks the work
+back up. The schedule survives a server restart. A turn you stop, a
+session with saved follow-up instructions, or a session you have already continued from another
+surface is not resumed, sending a message yourself cancels the pending resume, and Pocket gives up
+after six automatic attempts in a row. Codex turns are not resumed this way.
 
 ## Questions, permissions and status
 
@@ -281,8 +315,10 @@ shown.
 Projects are tracked only when you ask: **Track a project** on the list, the **Add project**
 chip in a conversation's message toolbar (beside Alerts, Voice and Add task; a folder button in the working row while
 a turn runs, and the project's name once the session is linked), or **Add project** in a session's options, which tracks a new project around the session (its
-workspace becomes the directory) or links the session to an existing one. Agents keep a
-card current with the `pocket-board` command (see the README); they may track a project
+workspace becomes the directory) or links the session to an existing one. Either entry opens the
+**Project for this session** sheet: **Track a new project**, or one of your open projects to add the
+session to. Agents keep a
+card current with the `pocket-board` command (see [Agent commands](../README.md#agent-commands)); they may track a project
 only with `--requested`, so nothing enrolls work by inference. With Projects on, agents
 started by Pocket are told how, and told to do it only when you ask, so "track this as a
 project" works in any session.
@@ -293,8 +329,8 @@ by push, with a link to the card, and once to the server's reminder hook if the 
 set one; the card and the Scheduled list keep showing it as due until you dismiss it or
 set a new time.
 
-On the desktop the rail head switches between **Sessions** and **Projects**, with the
-count of due reminders. Pick a project from the rail and it opens as a tab in the same
+On the desktop the rail head switches between **Sessions | Projects | Files | Tasks**
+(a segment appears when its feature is on), and Projects shows the count of due reminders. Pick a project from the rail and it opens as a tab in the same
 strip as sessions (pinning, closing and Alt [ / ] work the same; the tab's mark is the due
 count), beside the conversation, or in a new browser window of its own, whichever
 Settings → Projects, files & tasks says; the options sheet and the view header offer all three every time.
@@ -349,7 +385,7 @@ Files open three ways, like projects: as a tab in the strip, beside a conversati
 (*Open beside* and *Split view* offer the library), or **in a new window**, a browser tab or
 app window of its own with no session list or tab strip (every options sheet and view
 header offers it). On the phone they open full-screen. The rail head's switch reads
-**Sessions | Projects | Files**, with a light divider between them; the phone's session
+**Sessions | Projects | Files | Tasks**, with a light divider between them; the phone's session
 home gets a Files chip. The rail's Files list has three buttons: **Upload**, **Split**
 (the library in a pane beside the current view) and **Tab** (the library as a tab).
 Settings → Projects, files & tasks → **Files button** chooses what the Files segment does: list
@@ -457,11 +493,14 @@ sign-in. Pocket does not explicitly log out the current account first; after an
 interrupted attempt, refresh Accounts to check which login is in place. API keys,
 cloud-provider authentication, and Codex sign-in are managed through the server.
 
-Chat text size applies across this browser's conversations, from 14 to 24px (17px by
-default). Prose, headings and tables scale; tool logs and application controls keep
-their own sizes. The header chevron and composer gear independently recover reading
+**Settings → Appearance → Chat text size** applies across this browser's conversations, from 14 to 24px
+(17px by default; **Reset** returns to it). Prose, headings and tables scale; tool logs and
+application controls keep their own sizes. The header chevron and composer gear independently recover reading
 space, while status, attachment access, draft, Send and active-turn controls remain.
 Toolbar arrows reveal settings that do not fit. See [collapse behavior](session-focus.md).
+
+**Settings → Appearance → Highlight colour** is Orange (the default), Blue or Purple. It colours the
+send button, links, active markers and your own messages, and is saved on this browser.
 
 Push needs server VAPID keys, HTTPS and browser permission. A failed service-worker
 registration leaves other settings usable and presents a retry message for notifications.
@@ -551,8 +590,9 @@ explains that it is blocked and you can open Pocket Code directly.
 |---|---|
 | Open tabs, split arrangement, hidden sessions, filters | Conversation transcripts and native Codex store |
 | Drafts, reading position, attachment references, retry state | Uploaded files and delivery receipts |
-| Text size and collapse preferences, dismissed reply suggestions | Pins and their order, names, per-session mutes and name-sync setting |
-| Per-session composer choices and chime preference | Follow-up queue, approval audit, usage snapshots, runner state |
+| Text size, highlight colour, collapse preferences (header, composer, rail filters, tool calls), message times, dismissed reply suggestions | Pins and their order, names, per-session mutes, and the settings Pocket keeps for the whole install (name sync, titles and summaries, Projects, Files and Tasks on or off) |
+| Per-session composer choices and chime preference | Follow-up queue, approval audit, usage snapshots, runner state, pending usage-limit resumes |
+| How projects and files open, the Files button, the library's list or grid layout, the rail's Sessions / Projects / Files / Tasks choice | Projects (`projects.json`), the file library and its records (`documents.json`), tasks (`tasks.json`) and saved prompts (`saved-prompts.json`), the same on every device |
 | Voice preferences, voice mute and vocabulary | Voice engine install (`POCKET_VOICE_HOME`); no recordings are kept |
 
 Keep browser storage to retain local preferences. Keep the server data inventory in
@@ -581,10 +621,10 @@ from, including Files filters and list position. A direct link falls back to its
 Projects or Files library. Failed library loads offer Retry; when prior data is
 available, it remains visible with an explicit stale-data message.
 
-The desktop Sessions / Projects / Files selector is a button group. Tab reaches its
+The desktop **Sessions | Projects | Files | Tasks** selector is a button group. Tab reaches its
 buttons; Left/Right and Home/End also select a section. Split view groups destinations
 by type, shows recent items first, and searches the available session, project and
-document catalog. Its empty state explains when nothing matches.
+file lists, with the libraries (Projects, Files, Tasks) offered as destinations. Its empty state explains when nothing matches.
 
 Linked projects have a separate context row in conversations. Wide reply tables show
 when more columns are available to the side and remain keyboard-scrollable.

@@ -81,6 +81,12 @@ selects another file; an empty value skips file loading. Keep one daemon per dat
 directory. `POCKET_DATA_DIR` defaults to the checkout; `POCKET_SESSION_ROOT` changes
 Claude transcript storage only, while `CODEX_HOME` selects Codex's native store.
 
+Starting the daemon also has three side effects beyond its own state. It writes a fresh
+loopback CLI token to `cli-token` in the data directory (mode `0600`), overwriting the
+previous one. While Projects, Files or Tasks is on, it installs agent skills into the
+Claude Code and Codex skill folders. If `POCKET_REMINDER_HOOK` is set, it runs that
+command when a reminder comes due. See [Optional libraries](#optional-libraries-projects-files-and-tasks).
+
 Back up these locations privately, preserving ownership and permissions:
 
 | Location | Contents |
@@ -89,19 +95,33 @@ Back up these locations privately, preserving ownership and permissions:
 | `~/.claude/projects/` or `POCKET_SESSION_ROOT` | Claude transcripts |
 | `~/.codex/` or `CODEX_HOME` | Native Codex thread store and configuration |
 | `~/pocket-uploads/` | Uploaded files |
+| `POCKET_DOCUMENTS_DIR` (default `<data dir>/documents`) | The Files library's stored files, with its `.trash` folder. Pair it with `documents.json` |
 | `POCKET_DATA_DIR` | Pocket state described below |
 
 Pocket-owned persistent state includes:
 
 - `pocket-settings.json`, `session-meta.json`, `mutes.json`, `push-subs.json`;
+- `saved-prompts.json`, the saved prompts and recent starts on the New session screen;
 - `delivery-receipts.json`, `followup-queue.json`, `approval-decisions.jsonl`;
 - `usage-state.json`, `codex-usage-state.json`, `owned-transcripts.json`;
-- `turnlogs/` and `turnlogs-codex/`, including output and runner metadata.
+- `turnlogs/` and `turnlogs-codex/`, including output, runner metadata and any
+  `.retry.json` markers (a rate-limited turn waiting to resume automatically);
+- `projects.json`, `documents.json` and `tasks.json`, the records behind Projects, Files
+  and Tasks. Back up each one you use, including a library you have since switched off;
+- the documents folder (`POCKET_DOCUMENTS_DIR`, default `documents/`), holding the stored
+  files, a `.trash/` folder of removed files, and a `.thumbs/` cache of preview pictures;
+- `cli-token`, the loopback CLI token. It is regenerated at every start, so do not back it
+  up or copy it to another instance.
 
-Turn logs, queues and uploads may contain private task content. Do not commit them,
+Turn logs, queues, uploads, projects, tasks and kept files may contain private task content. Do not commit them,
 upload them as CI artifacts or put backups in a public web directory. A backup of
 runner metadata does not recreate a terminated OS process or make an old FIFO usable.
 For a consistent movable backup, close all session processes before copying state.
+
+`.thumbs/` is only a cache and is rebuilt on demand; leave it out of backups if size matters.
+Restore `documents.json` and the documents folder together. A file named in the records
+but missing on disk is flagged as missing rather than dropped, and a supported file placed
+in the folder without a record appears as a private file on the next listing.
 
 Do not restore an older runtime-data snapshot over new instructions, receipts or
 transcripts. Preserve the current state when reverting application code. Browser-only
@@ -158,6 +178,61 @@ Pending instructions and their options live in `followup-queue.json`. Editing pa
 an entry until saved or canceled; revisions reject stale concurrent edits. Keep this
 file across upgrades. After a restart, an unowned queue waits for a new turn or Run
 next instruction. Review and remove an uncertain entry before later entries can run.
+
+## Optional libraries: Projects, Files and Tasks
+
+Projects (1.29), Files (1.30; called Documents before 1.34) and Tasks (1.36) are off by
+default. **Settings → Projects, files & tasks** switches each one for the whole instance.
+The choices are stored as the `projects`, `documents` and `tasks` booleans in
+`pocket-settings.json`. While one is off, its API answers 404, and for Files that includes
+the public and link addresses. Switching off does not delete the records or files.
+
+Their data is in `projects.json`, `documents.json`, `tasks.json` and the documents folder
+(`POCKET_DOCUMENTS_DIR`, default `<data dir>/documents`); see
+[State and backups](#state-and-backups). Back these up with the rest of the data
+directory, and keep them across upgrades.
+
+**Reminders and due tasks.** A project reminder or a dated task is announced once when it
+comes due: by web push, and by `POCKET_REMINDER_HOOK` if set. Pocket marks the item as
+announced before sending, so a crash mid-send does not announce it twice, and a failed
+hook is logged but not retried. Due items are checked every `POCKET_REMINDER_CHECK_MS`
+(default 60000, minimum 250), with a first check a few seconds after start. A task stays
+due until it is done or re-dated.
+
+The hook is a shell command line, started with the daemon's own environment, that reads
+one JSON object on standard input. A project reminder carries `project`, `projectName`,
+`reminder`, `label`, `dueAt`, `task`, `taskText` and `url`. A task carries `kind: "task"`,
+`task`, `text`, `dueAt`, `session` and `url`. `url` is an in-app path such as
+`/#/tasks`, not a full address. A non-zero exit and its stderr are written to the daemon
+log. Test the command with sample JSON before relying on it.
+
+**Preview pictures.** The Files grid shows server-made thumbnails, cached in
+`<documents dir>/.thumbs` and keyed by file size and modification time. They use tools
+already on the host: Chrome or Chromium for HTML, `pdftoppm` for PDFs, ImageMagick's
+`convert` for images. `POCKET_CHROME`, `POCKET_PDFTOPPM` and `POCKET_CONVERT` choose a
+binary, or turn one off with an empty value. Without a tool, that kind of file shows its
+name on the card instead.
+
+**Trash.** Removing a file moves it to `.trash/` in the documents folder. The daemon
+purges files trashed more than 30 days ago, checking every six hours. Restore a file
+before then from the Files library.
+
+**Agent skills.** While a library is on, Pocket installs its matching skill
+(`pocket-projects`, `pocket-files`, `pocket-tasks`) into `~/.claude/skills`, or
+`$CLAUDE_CONFIG_DIR/skills` if that is set, and into `$CODEX_HOME/skills` when the Codex
+home exists. Terminal and code-server agents on the host see them too. Pocket rewrites
+these skills at start and removes them when the library is switched off. It only touches
+a folder that carries its `.pocket-managed` marker; a skill of the same name that you
+wrote is left alone and the daemon logs that. `POCKET_SKILLS=0` turns installation off.
+Set it for any test or second daemon so it does not write into the real skill folders.
+
+**CLI token.** `pocket-board`, `pocket-docs` and `pocket-tasks` read `cli-token` from the
+data directory and send it as a bearer token. The daemon accepts it only on the Projects,
+Files and Tasks routes, and only on a direct loopback connection with no
+`cf-connecting-ip` or `x-forwarded-for` header; a request that came through the tunnel or
+a proxy is refused. A new token is generated at every start, so the CLIs must run on the
+same host as the daemon and read the data directory of the daemon that is running. Two
+daemons sharing one data directory overwrite each other's token.
 
 ## Move data, downgrade, or uninstall
 

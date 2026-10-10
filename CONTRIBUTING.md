@@ -40,8 +40,16 @@ Voice tests use `test/fake-voice.mjs`, a stand-in engine with the same HTTP API 
 To try the real engine, run `scripts/voice-setup.sh` and point `POCKET_VOICE_HOME` at the install.
 
 For an isolated manual server, set `POCKET_ENV_FILE=''`, fresh test credentials,
-`POCKET_DATA_DIR`, `POCKET_SESSION_ROOT`, an unused `PORT`, and explicit provider
-binaries/settings. Merely changing PORT does not isolate credentials or session data.
+`POCKET_DATA_DIR`, `POCKET_SESSION_ROOT`, `POCKET_DOCUMENTS_DIR`, an unused `PORT`, and
+explicit provider binaries/settings. Also set `POCKET_SKILLS=0`: without it, a daemon with
+Projects, Files or Tasks switched on writes the Pocket agent skills into the real
+`~/.claude/skills` and `$CODEX_HOME/skills`. `npm test` sets it for you. Merely changing
+PORT does not isolate credentials or session data.
+
+The daemon overwrites `cli-token` in its data directory at every start, and
+`pocket-board`, `pocket-docs` and `pocket-tasks` read that file. So the rule of one
+daemon per data directory covers the commands too: a second daemon on the same directory
+replaces the first one's token and the commands stop working against it.
 
 ## Automated checks
 
@@ -78,6 +86,15 @@ provide descriptive alt text, and update `docs/images/README.md` with the versio
 capture method. Label historical screenshots and design records; do not present them
 as the current interface. Physical keyboards/IME, real assistive technology and OS
 notification delivery need separate device validation.
+
+When the UI shown in the README screenshots changes, regenerate them from the repository
+root with the docs-only mode, which captures the set and skips the rest of the browser suite:
+
+```bash
+POCKET_DOCS_SCREENSHOTS="$PWD/docs/images" POCKET_DOCS_ONLY=1 node test/browser.mjs
+```
+
+Inspect the images, then update the version in `docs/images/README.md`.
 
 When updating Marked or DOMPurify, run `npm run vendor`, review the vendored code and
 license changes, and rerun Markdown security and browser checks. Do not silently change

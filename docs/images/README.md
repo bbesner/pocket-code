@@ -1,19 +1,32 @@
 # Documentation image provenance
 
-The current README uses **desktop-split.png** and **mobile-workspace.png**, captured
-from the 1.7.1/build 32 frontend on 2026-10-04. They show synthetic sessions supplied
-by the browser test fixture, with no production data or model calls. Desktop capture
-is 1600×1000; phone capture is a 390×844 Chromium viewport, not a physical device.
+The README uses six current screenshots, captured from the **1.37.0 / build 81** frontend on
+2026-10-10. They show synthetic sessions, projects, files and tasks supplied by the browser
+test fixture, with no production data or model calls. Desktop captures are emulated Chromium
+viewports (1600×1000 for the split view; 1440×900 for Projects and Files, cropped to the
+content area because the hero already shows the session rail); phone captures are
+390×844 viewports, not physical devices.
 
-Reproduce the current assets from the repository root:
+| Image | Shows |
+|---|---|
+| `desktop-split.png` | The session rail (Sessions, Projects, Files, Tasks) beside two conversations in split view |
+| `mobile-workspace.png` | A conversation on a phone with the composer and message settings |
+| `projects-desktop.png` | A project card: where we left off, next step, checklist, a due reminder, its session |
+| `files-desktop.png` | The Files library as a list, with kinds, sharing state and the project a file came from |
+| `tasks-mobile.png` | Tasks on a phone, due first, one carrying context from its session |
+| `task-offer-mobile.png` | A reply ending with suggested-reply buttons, the first an agent's task offer (1.37) |
+
+Projects, Files and Tasks are switched on in the fixture for the capture only. Reproduce the
+set from the repository root:
 
 ```bash
-POCKET_DOCS_SCREENSHOTS="$PWD/docs/images" npm run test:browser
+POCKET_DOCS_SCREENSHOTS="$PWD/docs/images" POCKET_DOCS_ONLY=1 node test/browser.mjs
 ```
 
-Set `PUPPETEER_EXECUTABLE_PATH` if Chrome is not in the default location. The capture
-helper is `test/docs-screenshots.mjs`; the same command still runs the entire browser
-suite. Inspect the images before committing them and keep alt text in the Markdown.
+Drop `POCKET_DOCS_ONLY=1` (or use `npm run test:browser` with `POCKET_DOCS_SCREENSHOTS`) to
+capture and then run the entire browser suite. Set `PUPPETEER_EXECUTABLE_PATH` if Chrome is
+not in the default location. The capture helper is `test/docs-screenshots.mjs`. Inspect the
+images before committing them and keep alt text in the Markdown.
 
 Other images in this directory are older release illustrations or screenshots retained
 for historical design documents. They are not the current README screenshot set.

@@ -2,67 +2,183 @@
 
 **Your Claude Code and Codex sessions on desktop, tablet and phone.**
 
-Pocket Code is a self-hosted workspace for running and following coding-agent sessions.
-Use tabs and split conversations at your desk, then continue from your phone. The
-server owns the work: closing the browser or locking the screen does not stop a turn.
+Pocket Code is a self-hosted workspace for running and following Claude Code and Codex
+sessions. Work in tabs and split view at your desk, pick up the same sessions on your
+phone, and keep what comes out of them (projects, files and to-dos) beside the
+conversations. The server runs every turn, so closing the browser or locking the screen
+never stops the work.
 
 This checkout documents **1.37.0 / build 81**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
-![Pocket Code desktop split view: searchable session rail and two conversations with their own composers](docs/images/desktop-split.png)
-
 Screenshots use synthetic demo sessions, not private conversations.
+
+## Highlights
+
+### Every session, on every screen
+
+Run Claude Code and Codex side by side: a searchable session rail, tabs, and up to four
+conversations in split view at your desk. Install it on your phone and the same sessions
+are there, with the draft you left.
+
+![Desktop: the session rail grouped by Running, Activity elsewhere, Needs attention and Recent, beside two conversations in split view, each with its own composer](docs/images/desktop-split.png)
+
+### Projects, files and tasks beside the work
+
+Three optional libraries keep what comes out of a session from getting lost. **Projects**
+hold where you left off, the next step, a checklist and reminders. **Files** keeps the
+reports, dashboards and spreadsheets agents produce, rendered in place and shared only when
+you ask. **Tasks** are to-dos with an optional date, linked to the session they came from;
+**Start** opens a new session with the task already written in.
+
+<table>
+<tr>
+<td width="50%" valign="top"><img src="docs/images/projects-desktop.png" alt="A project card: where we left off, the next step, a two-step checklist with one done, a due reminder and the session working on it"></td>
+<td width="50%" valign="top"><img src="docs/images/files-desktop.png" alt="The Files library: a CSV count sheet, an HTML ops dashboard and a Markdown weekly summary from a session, each marked Private, with search, project and kind filters"></td>
+</tr>
+<tr>
+<td align="center"><b>Projects</b>: the next step, a checklist and reminders</td>
+<td align="center"><b>Files</b>: what the work produced, private until shared</td>
+</tr>
+</table>
+
+### On your phone, with agents that work with you
+
+When a reply ends with a decision, the options appear as buttons: one tap answers. When the
+work needs a later check, such as a report that needs weeks of data or a reply you're
+waiting on, the agent offers a task as one of those buttons. Tap it and the task is filed
+with the date and a short briefing on the session. Agents keep projects and files current
+the same way, through commands and skills that ship with Pocket.
+
+<table>
+<tr>
+<td width="33%" valign="top"><img src="docs/images/mobile-workspace.png" alt="Phone: a conversation showing an inventory report table, with the composer and message settings below"></td>
+<td width="33%" valign="top"><img src="docs/images/tasks-mobile.png" alt="Tasks on a phone: three to-dos, the first due and carrying context from the session it came from, with finished tasks collapsed under Done"></td>
+<td width="33%" valign="top"><img src="docs/images/task-offer-mobile.png" alt="A reply ending with three suggested-reply buttons; the recommended one reads Remind me Nov 7 to recheck the numbers"></td>
+</tr>
+<tr>
+<td align="center">A session on the phone</td>
+<td align="center">Tasks, due first</td>
+<td align="center">An agent offers a task</td>
+</tr>
+</table>
+
+- **Answer with a tap.** Suggested replies, native agent questions and action-approval
+  cards appear in the conversation.
+- **Steer or queue.** Redirect a running turn, or save a follow-up for after it.
+- **Choose how it runs.** Model, reasoning effort, Review actions or Full access, and
+  Codex's Plan first mode, per turn.
+- **Know where things stand.** Confirmed server work versus activity elsewhere, a context
+  ring with usage and plan limits, and push alerts when a turn finishes.
+- **Talk to it (beta).** Speak through the mic beside Send and hear a short summary back,
+  all processed on your own server.
 
 ## What you can do
 
-- **Work across sessions.** Search and filter the session list, pin or rename work,
-  keep open-session tabs, and resume the last conversation on this browser.
-- **Track projects (optional).** Turn on Projects in Settings → Projects, files & tasks to keep a card for
-  each piece of work: where you left off, the next step, remaining steps, reminders and
-  the sessions that worked on it. Projects open as a tab, beside a conversation, or
-  full-screen on the phone; a Scheduled view lists every reminder, due first; agents keep
-  cards current with `pocket-board`. See the [workspace guide](docs/workspace-guide.md#projects).
-- **Keep files (optional).** Turn on Files in Settings → Projects, files & tasks for a library of the
-  files that came out of the work. HTML renders sandboxed; PDFs, images, Markdown and CSV
-  render natively; share a file privately, by link or publicly, all served by Pocket.
-  Keep a file from a session's Results, upload one, or let agents keep deliverables with
-  `pocket-docs`. See the [workspace guide](docs/workspace-guide.md#files).
-- **Keep tasks (optional).** Turn on Tasks in Settings → Projects, files & tasks for to-dos
-  beside your sessions: a line of text, an optional date and time (announced once when due),
-  the session it came from and, if you ask, a short briefing on that session. Add one from
-  a conversation's **Add task** chip, from the Tasks list, or by telling an agent "create a
-  task to …"; **Start** opens a new session with the task written in, ready to send. Agents
-  use `pocket-tasks`, and offer a task as a suggested reply when the work needs a later
-  follow-up; an accepted offer carries the session's briefing and the agreed date. See the [workspace guide](docs/workspace-guide.md#tasks).
-- **Agents that already know Pocket.** While Projects, Files or Tasks is on, Pocket installs the
-  `pocket-projects`, `pocket-files` and `pocket-tasks` skills for Claude Code and Codex, so any
-  agent on the server knows how to track a project, that "my files", "documents" or "docs" mean
-  Files, and how to keep a to-do. See [Agent skills](docs/workspace-guide.md#agent-skills).
-- **Use a desktop workspace.** Open up to four conversations side by side when space
-  permits, start a new session in a pane, swap it with the main conversation, and resize
-  dividers. Results, Queue and read-only Git inspection can stay in a side panel.
-- **Keep working away from the desk.** Install the PWA on a phone or tablet. Collapse
-  header and message settings independently; drafts and attachments survive reloads.
-- **Guide a running agent.** Steer the active turn or save a separate follow-up with
-  After this turn. Edit, cancel or run paused instructions from Queue.
-- **Review the output.** Read streamed reports, tables, code, images and task checklists;
-  find text across a conversation; copy messages or code; open linked results. Each
-  message shows its time and a divider marks each day (Settings → Show message times).
-- **Answer and approve.** Native agent questions and action approval cards appear in
-  the session. Choose Review actions or Full access for subsequent turns.
-- **Reply with a tap.** When a reply ends by asking you to choose a next step ("Should I
-  merge and deploy?"), the options appear as buttons under it. A tap sends that option;
-  the X hides them so you can type your own answer.
-- **Choose how to run.** Set the model and reasoning effort per turn, use Codex's
-  Plan first mode, or start from an installed skill and a project directory.
-- **See status and limits.** Distinguish confirmed server work from activity elsewhere,
-  watch the context ring beside the composer fill (hover for tokens, click for the session's usage and
-  plan limits), see how long a Claude session's prompt cache stays warm, inspect this instance's accounts, and switch its Claude Code login.
-- **Get completion alerts.** Enable optional push notifications, an on-screen chime,
-  or per-session muting. Push requires HTTPS, server keys and browser permission.
-- **Talk to a session (beta, optional).** Tap the mic beside Send and speak; a short summary of
-  the reply is read back. Speech is processed on your own server. See [Voice mode](#voice-mode-beta).
+### Sessions and the desktop workspace
+
+- **Find any session.** Search titles at once and, after a short pause, inside
+  conversations too; a result opens at its match. Filter by workspace, agent and state
+  (Active, Attention, New, Pinned); pin, reorder pins, rename, hide or move work.
+  Scheduled runs sit in their own Automated group.
+- **Titles that keep up.** Untitled sessions get a generated title that follows the work as
+  it moves on. Optionally sync names with code-server.
+- **Tabs and split view.** Keep open sessions as tabs with status marks; open up to four
+  conversations side by side, start a new session in a pane, swap panes and resize them.
+  Results, Queue and read-only Git inspection can stay in a side panel.
+- **Start faster.** Choose the agent, workspace, model and reasoning on New session; start
+  from an installed skill; save a start as a **saved prompt** or repeat a **recent start**.
+  Saved prompts live on the server, so the phone and desktop share them.
+- **Read the output.** Streamed reports, tables, code, images and checklists, with tool
+  calls folded behind a one-line summary. Find text in a conversation, copy messages or
+  code, and open linked results. Message times and day dividers, text size and a highlight
+  colour (Orange, Blue or Purple) are in Settings.
+
+### On your phone
+
+- **Install it as an app.** The PWA keeps drafts and attachments through reloads and keeps
+  the composer, paperclip and Send in reach. Header and message settings collapse
+  independently.
+- **Catch up quickly.** Coming back to a session with unseen work opens at the end, with a
+  **New since** line and, for anything longer than a short exchange, a **While you were
+  away** summary of what was done and decided.
+- **Know what needs you.** Attention collects questions, approvals, failed turns and
+  replies you have not opened; **Mark as reviewed** clears one, on every device.
+- **Get alerts.** Optional push notifications, an on-screen chime and per-session muting.
+  Push needs HTTPS, server keys and browser permission.
+
+### Projects, files and tasks (optional)
+
+Each library is off until Settings → Projects, files & tasks turns it on for the install.
+
+- **Projects** keep a card for each piece of work: where you left off, the next step, a
+  checklist, reminders (announced once when due) and the sessions that worked on it. A
+  Scheduled view lists every reminder, due first. See [Projects](docs/workspace-guide.md#projects).
+- **Files** keeps the reports, dashboards and spreadsheets that came out of the work, in a
+  grid or a list. HTML renders sandboxed; PDFs, images, Markdown and CSV render in place.
+  Files are private until you share one by link or publicly; removed files wait 30 days
+  in the trash. Keep a file from a session's Results, upload one, or let agents keep
+  deliverables. See [Files](docs/workspace-guide.md#files).
+- **Tasks** are to-dos with an optional date and time, the session they came from and, if
+  you want it, a short briefing on that session. **Start** opens a new session with the
+  task written in, ready to send. See [Tasks](docs/workspace-guide.md#tasks).
+- Projects, files and tasks open as a tab, beside a conversation, in a window of their own,
+  or full-screen on the phone.
+
+### Agents that know Pocket
+
+- **Suggested replies.** When a reply ends by asking you to choose a next step, the options
+  appear as buttons, the recommended one marked. A tap sends it; the X hides them so you can
+  type your own answer.
+- **Task offers (1.37).** When the work needs a later follow-up (waiting on time, a test,
+  someone's reply, a step you put off), the agent offers a task once, as one of those
+  buttons. Nothing is added unless you accept; an accepted offer is filed with the session,
+  a briefing the agent writes and the agreed date.
+- **Skills and commands.** While a library is on, Pocket installs the `pocket-projects`,
+  `pocket-files` and `pocket-tasks` skills for Claude Code and Codex, so any agent on the
+  server, in Pocket or a terminal, knows how to keep a project, what "my files" or "docs"
+  mean, and how to add a to-do. They use the [agent commands](#agent-commands).
+
+### Answer, approve and steer
+
+- **Questions and approvals.** Native agent questions and action-approval cards appear in
+  the conversation. Choose Review actions or Full access for later turns.
+- **Steer or queue.** Redirect the running turn, or save a follow-up with After this turn;
+  edit, cancel or run paused instructions from Queue. A failed turn offers Send again and
+  Edit message, on any device.
+- **Choose how it runs.** Model and reasoning effort per turn, and Codex's Plan first mode.
+  New session names the agent, model and reasoning it will use.
+
+### Status, limits and usage
+
+- **Trust the status.** Confirmed server work is told apart from activity elsewhere, such as
+  the same session open in code-server.
+- **Watch the limits.** A context ring beside the composer fills as the session grows
+  (hover for tokens; click for the session's usage and plan limits), and shows how long a
+  Claude session's prompt cache stays warm. When a usage limit resets, an interrupted turn
+  can continue on its own.
+- **Accounts.** See this instance's accounts and switch its Claude Code login.
+
+### Voice (beta, optional)
+
+Tap the mic beside Send and speak; a short summary of the reply is read back, and
+hands-free mode keeps listening. Speech is processed on your own server. See
+[Voice mode](#voice-mode-beta).
+
+### Subagent activity
+
+When a session delegates work, a **Subagents** button shows how many agents are
+working. Tap it, then expand an agent to read its task, status and latest activity.
+Completed results remain available. **Session options → Subagents** opens the same
+view, including when no agents have been recorded yet.
+
+The view refreshes every five seconds while visible. It reads Claude and Codex
+records without starting another agent. Background shell jobs are excluded.
+Activity outside Pocket, interrupted connections and missing completion records
+can show **Status unconfirmed**. Older providers may supply fewer details.
+
+[Phone preview](docs/images/subagents-mobile.png) · [Desktop preview](docs/images/subagents-desktop.png) (synthetic demo data).
 
 [Workspace guide](docs/workspace-guide.md) · [Operations and upgrades](docs/operations.md)
 · [Action approvals](docs/action-approvals.md) · [Contributing and releases](CONTRIBUTING.md)
@@ -77,8 +193,6 @@ server processes remain intact.
 On phones, the same tools open as sheets. Common session filters remain visible;
 additional filters collapse with an applied-filter summary. Scroll buttons expose
 message settings that do not fit. The paperclip and Send remain beside the draft.
-
-![Pocket Code on a phone with a persistent composer and visible toolbar scroll controls](docs/images/mobile-workspace.png)
 
 | Action | What happens to the server session? |
 |---|---|
@@ -117,6 +231,22 @@ Both providers can survive a Pocket daemon restart when started with the supplie
 PM2 configuration. This is daemon restart recovery, not host-reboot survival. Pending
 native questions and approvals are denied on adoption so the agent can ask again;
 an input connection that cannot be recovered is shown as interrupted.
+
+## Agent commands
+
+Agents (and you, from a terminal on the server) keep projects, files and tasks with three
+commands that talk to the running server over loopback, using the token it writes to
+`<data dir>/cli-token`. Each works only while its library is on. The full usage is in the
+header of each script in `scripts/`; the shipped skills explain when to use them.
+
+| Command | Common use |
+|---|---|
+| `pocket-board` | `track --requested --name "…" --summary "…" --next "…"`, `update`, `task add\|done`, `remind --at "YYYY-MM-DDTHH:MM"`, `note`, `status [--all]`, `scheduled`, `link-session <id>` |
+| `pocket-docs` | `add <path> [--title] [--project] [--session]`, `list`, `show <id>`, `share <id>`, `set <id> --visibility private\|link\|public`, `trash <id>` |
+| `pocket-tasks` | `add "…" [--due] [--session <id>] [--summary "…"] [--dir]`, `list [--all]`, `show <id>`, `done <id>`, `edit <id>`, `remove <id>` |
+
+Create a project or task only when the user asks for one; keep files private unless the
+user asks to share. Times without an offset use `POCKET_TZ` (or the server's zone).
 
 ## Requirements
 
@@ -199,11 +329,15 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_ALLOW_FULL_ACCESS` | no | Set to `0` to reject Full access in both API and UI. |
 | `POCKET_DATA_DIR` | no | Pocket state and runner files; defaults to the checkout. Move only after all session processes are closed. |
 | `POCKET_SESSION_ROOT` | no | Override Claude transcript storage for isolated tests; does not relocate Codex. |
-| `POCKET_REMINDER_HOOK` | no | A command run when a project reminder comes due (Projects, 1.29), with the reminder as JSON on its standard input: `project`, `projectName`, `reminder`, `label`, `dueAt`, `task`, `taskText`, `url`. Each reminder is announced once. Use it for email, chat or anything else; web push happens regardless. |
+| `POCKET_REMINDER_HOOK` | no | A command run when a project reminder (Projects, 1.29) or a dated task (Tasks, 1.36) comes due, with it as JSON on its standard input. A reminder carries `project`, `projectName`, `reminder`, `label`, `dueAt`, `task`, `taskText`, `url`; a task carries `kind: "task"`, `task`, `text`, `dueAt`, `session`, `url`. It runs through the shell. Each one is announced once. Use it for email, chat or anything else; web push happens regardless. |
 | `POCKET_DOCUMENTS_DIR` | no | Where Files (1.30; Documents before 1.34) keeps files. Default `<data dir>/documents`. Files placed there appear as private files; removed files wait in its `.trash` for 30 days. |
-| `POCKET_SKILLS` | no | `0` stops Pocket installing its `pocket-projects` and `pocket-files` agent skills into `~/.claude/skills` and `$CODEX_HOME/skills` (1.34). On by default while the matching feature is on. |
+| `POCKET_SKILLS` | no | `0` stops Pocket installing its `pocket-projects`, `pocket-files` and `pocket-tasks` agent skills into `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`) and `$CODEX_HOME/skills` (1.34, tasks 1.36). Only folders carrying Pocket's `.pocket-managed` marker are touched. On by default while the matching feature is on. |
 | `POCKET_CHROME`, `POCKET_PDFTOPPM`, `POCKET_CONVERT` | no | The tools that make the library's preview pictures (1.32): a Chrome or Chromium binary for HTML reports (and images when ImageMagick is absent), `pdftoppm` from poppler for PDFs, ImageMagick's `convert` for images. Found automatically in the usual places and on `PATH`; set one to a path to choose it, or to an empty value to turn it off. Pictures are cached in `<documents dir>/.thumbs`. A kind without a tool shows its name on the card instead. |
-| `POCKET_TZ` | no | Time zone for `pocket-board` times given without an offset, e.g. `America/New_York`. Default: the server's zone. |
+| `POCKET_TZ` | no | Time zone for `pocket-board` reminder and `pocket-tasks --due` times given without an offset, e.g. `America/New_York`. Default: the server's zone. |
+| `POCKET_URL` | no | Base address the `pocket-board`, `pocket-docs` and `pocket-tasks` commands use to reach the server. Default `http://127.0.0.1:$PORT`. |
+| `POCKET_PUBLIC_URL` | no | Makes the share addresses `pocket-docs` prints absolute, e.g. `https://pocket.example.com`. |
+| `POCKET_REMINDER_CHECK_MS` | no | How often due reminders and tasks are checked. Default 60000 (one minute); mainly for tests. |
+| `POCKET_VOICE_COMMAND` | no | A JSON array that replaces the command starting the voice engine. For tests and custom engines. |
 | `POCKET_FRAME_ANCESTORS` | no | Origins allowed to embed Pocket Code in a frame (for example Mission Control), space-separated. Default: only Pocket's own origin. |
 | `POCKET_VOICE` | no | Set to `off` to disable voice mode even when it is installed. |
 | `POCKET_VOICE_HOME` | no | Where `scripts/voice-setup.sh` installed the voice engine. Default `~/.local/share/pocket-code/voice`. |
@@ -266,11 +400,12 @@ a reply was ready in under a second. Without the install, the mic button stays h
   never on unless you start it, and it hides while you have a typed draft. Each instruction is read back
   and sent only after you say "send it" or tap Send.
 - Short commands are answered without the agent: *what's it doing*, *stop*, *read it*,
-  *read it all* and *what's waiting on me*. Anything else is sent as a normal message.
-- Settings → Voice: speak replies, spoken reply length (Brief: one sentence; Normal: about two;
+  *read it all*, *what's waiting on me*, *be quiet*, and *mute* or *unmute* the voice. Anything else is
+  sent as a normal message.
+- Settings → Notifications & voice: speak replies, spoken reply length (Brief: one sentence; Normal: about two;
   Detailed: the whole reply without code, tables or links), review before sending, how long hands-free
   waits for your reply, voice and names to recognize. Approvals still need a tap.
-- **Spoken alerts.** Settings → Voice → Announce sessions says when any session finishes ("The SCK
+- **Spoken alerts.** Settings → Notifications & voice → Announce sessions says when any session finishes ("The SCK
   inventory session finished", optionally with a one-line summary) or needs your approval or answer,
   in place of the chime, while Pocket is open. Muted sessions stay quiet; push covers a closed app.
   Announcements never turn the microphone on, even during a hands-free conversation.
@@ -309,7 +444,7 @@ the workspace and operations guides describe current behavior.
 
 Pocket Code is developed in the open. Report bugs and ask for features in
 [GitHub Issues](https://github.com/bbesner/pocket-code/issues); the issue forms ask for
-the details that make a report actionable. **Settings → Bugs & feature requests** in the
+the details that make a report actionable. **Settings → Help & updates → Bugs & feature requests** in the
 app opens the same forms with your version and build already filled in.
 
 Security problems go through **Security → Report a vulnerability** on the repository, not
@@ -320,17 +455,3 @@ a public issue. See [SECURITY.md](SECURITY.md).
 Pocket Code is MIT licensed. See [LICENSE](LICENSE). It is an independent project,
 unaffiliated with Anthropic or OpenAI. Claude and Claude Code are trademarks of
 Anthropic; Codex is a trademark of OpenAI.
-
-### Subagent activity
-
-When a session delegates work, a **Subagents** button shows how many agents are
-working. Tap it, then expand an agent to read its task, status and latest activity.
-Completed results remain available. **Session options → Subagents** opens the same
-view, including when no agents have been recorded yet.
-
-The view refreshes every five seconds while visible. It reads Claude and Codex
-records without starting another agent. Background shell jobs are excluded.
-Activity outside Pocket, interrupted connections and missing completion records
-can show **Status unconfirmed**. Older providers may supply fewer details.
-
-[Phone preview](docs/images/subagents-mobile.png) · [Desktop preview](docs/images/subagents-desktop.png) (synthetic demo data).
