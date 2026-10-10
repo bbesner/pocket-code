@@ -31,7 +31,7 @@ test('DocumentStore: adopt, add, share, revoke, trash, restore, purge and import
   assert.equal(a.file,'Weekly_summary.md');assert.equal(a.title,'Weekly summary');assert.equal(a.project,'warehouse-stock-report');assert.equal(a.session,S1);assert.equal(a.url,null);assert.equal(a.share,null);
   assert.ok(fs.existsSync(path.join(docsDir,'Weekly_summary.md')));assert.equal((fs.statSync(path.join(docsDir,'Weekly_summary.md')).mode&0o777),0o600);
   const b=s.addFromPath(src,{addedBy:'cli'});assert.equal(b.file,'Weekly_summary-2.md','a name clash gets a suffix');
-  assert.throws(()=>s.addFromPath(path.join(dir,'nope.md')),/ENOENT/);assert.throws(()=>s.addFromBuffer('run.sh',Buffer.from('x')),/not kept/);assert.throws(()=>s.addFromBuffer('a.txt',Buffer.alloc(0)),/empty/);
+  assert.throws(()=>s.addFromPath(path.join(dir,'nope.md')),/ENOENT/);assert.throws(()=>s.addFromBuffer('run.sh',Buffer.from('x')),/cannot be kept/);assert.throws(()=>s.addFromBuffer('a.txt',Buffer.alloc(0)),/empty/);
   const up=s.addFromBuffer('photo.PNG',Buffer.from([1,2,3]),{addedBy:'ui'});assert.equal(up.kind,'image');assert.equal(up.size,3);
   const shared=s.update(a.id,{visibility:'link'});assert.match(shared.token,/^[A-Za-z0-9_-]{40,}$/);assert.equal(shared.share.url,'/share/'+shared.token);assert.equal(s.resolveShare(shared.token).id,a.id);
   assert.equal(s.resolveShare('short'),null);assert.equal(s.resolveShare(shared.token+'x'),null);
@@ -135,7 +135,7 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   const cli=(args,cwd=okDir)=>new Promise(r=>execFile(process.execPath,[path.join(repo,'scripts/pocket-docs.mjs'),...args],{cwd,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),POCKET_PUBLIC_URL:'https://pocket.example.test'}},(e,stdout,stderr)=>r({code:e?e.code:0,stdout,stderr})));
   let out=await cli(['list']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/Ops dashboard/);assert.match(out.stdout,/Quarterly report/);
   fs.writeFileSync(path.join(okDir,'memo.txt'),'memo');
-  out=await cli(['add','memo.txt','--title','Memo to staff','--project','warehouse-stock-report']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/Kept as document:\n[0-9a-f]{12}  private txt    Memo to staff  \[warehouse-stock-report\]/);
+  out=await cli(['add','memo.txt','--title','Memo to staff','--project','warehouse-stock-report']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/Kept in My Files:\n[0-9a-f]{12}  private txt    Memo to staff  \[warehouse-stock-report\]/);
   const memoId=/\n([0-9a-f]{12}) /.exec(out.stdout)[1];
   out=await cli(['share',memoId,'--expires','7d']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/^Share URL: https:\/\/pocket\.example\.test\/share\/[A-Za-z0-9_-]{40,}  \(expires /);
   const url=/\/share\/([A-Za-z0-9_-]+)/.exec(out.stdout)[1];assert.equal((await raw('/share/'+url)).status,200);

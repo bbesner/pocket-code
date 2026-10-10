@@ -1,7 +1,8 @@
 {
-  "version": "1.33.1",
-  "assetV": 77,
+  "version": "1.34.0",
+  "assetV": 78,
   "notes": [
-    "The sidebar header compresses with the column, keeping New session visible. At the narrowest widths, its actions wrap together onto a second row."
+    "Documents is now called My Files, everywhere in the app and in Settings (Projects & files).",
+    "Sessions, Projects and My Files are separated by a light divider in the sidebar switch."
   ]
 }

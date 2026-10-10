@@ -117,13 +117,13 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'},...Array.from({length:8},(_,index)=>({id:'gpt-fixture-'+index,label:'Fixture '+index})),{id:'gpt-6-sol',label:'GPT-6 Sol'},{id:'gpt-6-astra',label:'GPT-6 Astra'}],defaultModel:'gpt-6-sol',pocketDefault:true});
  if(url.pathname==='/api/push/key')return json({});
  if(url.pathname.startsWith('/api/board')){
-  if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects & documents.',code:'projects_off'},404);
+  if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects & files.',code:'projects_off'},404);
   if(url.pathname==='/api/board')return json({...board.snapshot({dir:url.searchParams.get('dir')||''}),push:{enabled:false},hook:false});
   if(url.pathname==='/api/board/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,project:board.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.project?{project:e.project}:{})},e.status||400);}}
   if(url.pathname==='/api/board/reset'){seedBoard();return json({ok:true});}
  }
  if(url.pathname.startsWith('/api/documents')||url.pathname.startsWith('/files/')||url.pathname.startsWith('/share/')){
-  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'Documents is off. Turn it on in Settings → Projects & documents.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
+  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'My Files is off. Turn it on in Settings → Projects & files.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
   const sendDoc=(r,framed)=>{const file=docStore.filePath(r);if(!fs.existsSync(file)){res.writeHead(404);res.end();return;}
    res.writeHead(200,{'content-type':mimeOf(r.file),'cache-control':'private, no-store','x-content-type-options':'nosniff','content-security-policy':r.kind==='html'?`sandbox allow-scripts allow-popups allow-downloads allow-forms; frame-ancestors ${framed?"'self'":"'none'"}`:`default-src 'none'; style-src 'unsafe-inline'; frame-ancestors ${framed?"'self'":"'none'"}`,'content-disposition':(url.searchParams.get('download')==='1'?'attachment':'inline')+"; filename*=UTF-8''"+encodeURIComponent(r.file)});
    res.end(fs.readFileSync(file));};

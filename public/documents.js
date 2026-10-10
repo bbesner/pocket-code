@@ -23,7 +23,7 @@ function mergeDoc(d){
 }
 async function docAct(id,body,done){
  try{const d=await api('/documents/'+encodeURIComponent(id),{method:'POST',body:JSON.stringify(body)});mergeDoc(d);if(done)toast(done);paintDocumentsView();paintRailDocuments();if(typeof paintProjectsView==='function')paintProjectsView();return d;}
- catch(e){toast(e.message||'Could not update the document');return null;}
+ catch(e){toast(e.message||'Could not update the file');return null;}
 }
 const KIND_WORD={html:'HTML',pdf:'PDF',md:'MD',txt:'TXT',image:'IMG',table:'CSV',json:'JSON',office:'DOC',video:'MP4'};
 // Library filter groups: a handful of chips, not one per extension.
@@ -35,7 +35,7 @@ const docRawUrl=(d,download)=>'/api/documents/'+encodeURIComponent(d.id)+'/raw'+
 const docShareUrl=d=>d.visibility==='public'&&d.url?location.origin+d.url:d.visibility==='link'&&d.share?.url?location.origin+d.share.url:'';
 const docAppUrl=d=>location.origin+'/#/documents/'+d.id; // the in-app address: needs the Pocket login
 const fmtSize=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B';
-const docViewTitle=id=>id==='documents'?'Documents':docById(id.slice(10))?.title||'Document';
+const docViewTitle=id=>id==='documents'?'My Files':docById(id.slice(10))?.title||'File';
 const docProjectName=d=>d.project?(typeof projectById==='function'&&projectById(d.project)?.name)||d.project:'';
 const docSessionName=d=>d.session?(typeof sessionName==='function'?sessionName(d.session):d.session):'';
 const docWhere=d=>[...new Set([docProjectName(d),docSessionName(d)].filter(Boolean))].join(' · ');
@@ -57,13 +57,13 @@ async function renderDocuments(view){
  const kind=view==='documents'?'list':'doc';
  const col=`<header class="bar">
    ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
-   <h1><span class="one" id="dtitle">${esc(docViewTitle(view))}</span><span class="tag" id="dtag">${kind==='list'?'Files from the work':'Document'}</span></h1>
-   ${kind==='doc'?`<button class="icon" id="dmore" aria-label="Document options">${IC.more}</button>`:''}
+   <h1><span class="one" id="dtitle">${esc(docViewTitle(view))}</span><span class="tag" id="dtag">${kind==='list'?'Files from the work':'File'}</span></h1>
+   ${kind==='doc'?`<button class="icon" id="dmore" aria-label="File options">${IC.more}</button>`:''}
    ${SOLO?'':`<button class="icon" id="dwin" aria-label="Open in a new window" title="Open in a new window">${IC.external}</button>`}
    ${PANE||SOLO?'':`<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
    ${PANE?`<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>`:''}
   </header>
-  <main class="scroll documents-view" id="documents-main" data-kind="${kind}" tabindex="-1"><p class="sheet-help documents-loading">Loading documents…</p></main>`;
+  <main class="scroll documents-view" id="documents-main" data-kind="${kind}" tabindex="-1"><p class="sheet-help documents-loading">Loading files…</p></main>`;
  app.innerHTML=withShell(col);
  wireShell();
  if(PANE){$('#pane-main').onclick=()=>paneSay('main',{view});$('#pane-close').onclick=()=>paneSay('close');}
@@ -72,9 +72,9 @@ async function renderDocuments(view){
  $('#dwin')?.addEventListener('click',()=>openInWindow(view));
  const tog=$('#railtog');if(tog)tog.onclick=()=>{localStorage.setItem('pc-rail',railOpen()?'closed':'open');route();};
  try{await Promise.all([loadDocs(true),typeof refreshSessions==='function'?refreshSessions().catch(()=>{}):null,typeof projectsOn==='function'&&projectsOn()&&typeof loadBoard==='function'?loadBoard().catch(()=>{}):null]);}
- catch(e){if(docView!==view)return;const main=$('#documents-main');if(!main)return;if(docsSnap)paintDocumentsView();showLibraryError(main,e,'Documents',()=>renderDocuments(view),Boolean(docsSnap));restoreViewPosition(view);return;}
+ catch(e){if(docView!==view)return;const main=$('#documents-main');if(!main)return;if(docsSnap)paintDocumentsView();showLibraryError(main,e,'My Files',()=>renderDocuments(view),Boolean(docsSnap));restoreViewPosition(view);return;}
  if(docView!==view)return;
- if(kind==='doc'&&!docById(view.slice(10))){$('#documents-main').innerHTML='<p class="sheet-help">That document does not exist. It may have been removed on another device.</p>';return;}
+ if(kind==='doc'&&!docById(view.slice(10))){$('#documents-main').innerHTML='<p class="sheet-help">That file does not exist. It may have been removed on another device.</p>';return;}
  if(PANE)paneSay('route',{id:view,title:docViewTitle(view)});else if(SOLO)document.title=docViewTitle(view)+' · Pocket Code';else rememberOpenView(view,docViewTitle(view));
  paintDocumentsView();
  restoreViewPosition(view);
@@ -113,14 +113,14 @@ function libraryHTML(){
  const filtered=docFilterProject||docFilterVis||docFilterKind||q;
  const heading=docFilterProject?projects.find(p=>p.id===docFilterProject)?.name||'Project':docFilterVis?visLong[docFilterVis]:docFilterKind?KIND_GROUPS.find(g=>g[0]===docFilterKind)[1]:q?'Matching':'All';
  const grid=gridOn();
- return `<div class="session-home-head"><h2>Documents</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span><button class="chip" id="doc-upload">${IC.up}Upload</button><input type="file" id="doc-file" multiple hidden></span></div>
-  <div class="documents-tools"><div class="session-search">${IC.search}<input type="search" id="doc-query" placeholder="Search documents" aria-label="Search documents by title, file, project or session" value="${esc(docQuery)}" autocomplete="off"></div>
+ return `<div class="session-home-head"><h2>My Files</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span><button class="chip" id="doc-upload">${IC.up}Upload</button><input type="file" id="doc-file" multiple hidden></span></div>
+  <div class="documents-tools"><div class="session-search">${IC.search}<input type="search" id="doc-query" placeholder="Search files" aria-label="Search files by title, file name, project or session" value="${esc(docQuery)}" autocomplete="off"></div>
    ${projects.length?`<label class="voice-field doc-project-filter">Project<select id="doc-project"><option value="">All projects</option>${projects.map(p=>`<option value="${esc(p.id)}" ${docFilterProject===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
    <label class="voice-field doc-kind-filter">Kind<select id="doc-kind"><option value="">All kinds</option>${KIND_GROUPS.map(([v,label])=>`<option value="${v}" ${docFilterKind===v?'selected':''}>${label}</option>`).join('')}</select></label></div>
-  <div class="doc-filters" role="group" aria-label="Show documents by visibility">${chip('','All',all.length)}${chip('private','Private',count('private'))}${chip('link','Link',count('link'))}${chip('public','Public',count('public'))}${filtered?'<button class="chip" id="doc-clear">Clear</button>':''}</div>
+  <div class="doc-filters" role="group" aria-label="Show files by visibility">${chip('','All',all.length)}${chip('private','Private',count('private'))}${chip('link','Link',count('link'))}${chip('public','Public',count('public'))}${filtered?'<button class="chip" id="doc-clear">Clear</button>':''}</div>
   ${rows.length?`<section class="session-group document-group"><h2>${esc(heading)} <span>${rows.length}${rows.length!==all.length?' of '+all.length:''}</span></h2>${grid?`<div class="doc-grid">${rows.map(docCardHTML).join('')}</div>`:rows.map(docRowHTML).join('')}</section>`
-   :`<p class="sheet-help project-empty">${filtered?'No documents match.':'No documents yet. Upload one, keep a result from a session\'s Results panel, or let an agent keep one with <code>pocket-docs add</code>. Files placed in the documents folder appear here too.'}</p>`}
-  ${docsSnap.trash.length?`<details class="session-group document-group settings-details"><summary><h2>Trash <span>${docsSnap.trash.length}</span></h2></summary><p class="sheet-help">Removed documents stay here for ${docsSnap.limits?.trashDays||30} days, then are deleted.</p>${docsSnap.trash.map(d=>`<div class="session-item document-item" data-item="${esc(d.id)}"><span class="row"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}</span><span class="meta">Removed ${esc(rel(Date.parse(d.trashedAt)))}</span></span></span><button class="chip" data-restore="${esc(d.id)}">Restore</button></div>`).join('')}</details>`:''}`;
+   :`<p class="sheet-help project-empty">${filtered?'No files match.':'No files yet. Upload one, keep a result from a session\'s Results panel, or let an agent keep one with <code>pocket-docs add</code>. Files placed in the library\'s folder on the server appear here too.'}</p>`}
+  ${docsSnap.trash.length?`<details class="session-group document-group settings-details"><summary><h2>Trash <span>${docsSnap.trash.length}</span></h2></summary><p class="sheet-help">Removed files stay here for ${docsSnap.limits?.trashDays||30} days, then are deleted.</p>${docsSnap.trash.map(d=>`<div class="session-item document-item" data-item="${esc(d.id)}"><span class="row"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}</span><span class="meta">Removed ${esc(rel(Date.parse(d.trashedAt)))}</span></span></span><button class="chip" data-restore="${esc(d.id)}">Restore</button></div>`).join('')}</details>`:''}`;
 }
 function bindDocRows(root){
  root.querySelectorAll('[data-document-more]').forEach(b=>b.onclick=()=>documentOptions(b.dataset.documentMore));
@@ -148,13 +148,13 @@ async function uploadDocuments(files){
   try{const r=await fetch('/api/documents',{method:'POST',headers:{'x-filename':f.name,'content-type':'application/octet-stream',...(docFilterProject?{'x-project':docFilterProject}:{})},body:f});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.statusText);mergeDoc(j);added++;}
   catch(e){toast(`${f.name}: ${e.message||'upload failed'}`);}
  }
- if(added){toast(added===1?'Document added':added+' documents added');paintDocumentsView();}
+ if(added){toast(added===1?'File added':added+' files added');paintDocumentsView();}
 }
 function documentHTML(d){
  const raw=docRawUrl(d),dl=docRawUrl(d,true),url=docShareUrl(d);
  const tools=`<div class="doc-tools"><a class="chip" href="${esc(raw)}" target="_blank" rel="noopener noreferrer">${IC.globe}Open in your viewer</a><a class="chip" href="${esc(dl)}" download="${esc(d.file)}">${IC.down}Download</a><button class="chip ${d.visibility!=='private'?'set':''}" data-share>${IC.share}${d.visibility==='private'?'Share':visWord[d.visibility]+' · Share'}</button>${url?`<button class="chip" data-copy-link="${esc(d.id)}">${IC.link}Copy link</button>`:''}${typeof projectsOn==='function'&&projectsOn()?`<button class="chip" data-project>${IC.folder}${d.project?esc(docProjectName(d)):'Project'}</button>`:''}${d.session?`<a class="chip" href="#/chat/${esc(d.session)}">${IC.term}Session</a>`:''}</div>`;
  let body;
- if(d.missing)body='<p class="sheet-help">The file behind this document is missing from the documents folder.</p>';
+ if(d.missing)body='<p class="sheet-help">This file is missing from the library\'s folder on the server.</p>';
  else if(!d.inline)body=`<p class="sheet-help doc-note">${d.kind==='office'?'Office files open in your own viewer.':d.kind==='video'?'Video opens in your own viewer.':'This file is too large to show here.'} Use Open in your viewer or Download.</p>${d.kind==='video'?`<video class="doc-media" controls preload="none" src="${esc(raw)}"></video>`:''}`;
  else if(d.kind==='html')body=`<iframe class="doc-frame" src="${esc(raw)}" sandbox="allow-scripts allow-popups allow-downloads allow-forms" title="${esc(d.title)}" referrerpolicy="no-referrer"></iframe>`;
  else if(d.kind==='pdf')body=`<iframe class="doc-frame" src="${esc(raw)}" title="${esc(d.title)}" referrerpolicy="no-referrer"></iframe>`;
@@ -171,7 +171,7 @@ function bindDocument(main,d){
   if(d.kind==='md')text.innerHTML=`<div class="m-asst doc-md">${md(src)}</div>`;
   else if(d.kind==='table')text.innerHTML=tableHTML(src,d.file.endsWith('.tsv')?'\t':',');
   else text.innerHTML=`<pre class="doc-pre">${esc(d.kind==='json'?prettyJson(src):src)}</pre>`;
- }).catch(e=>{if(text.isConnected)text.innerHTML=`<p class="sheet-help">Could not load the document: ${esc(e.message)}</p>`;});
+ }).catch(e=>{if(text.isConnected)text.innerHTML=`<p class="sheet-help">Could not load the file: ${esc(e.message)}</p>`;});
 }
 const prettyJson=s=>{try{return JSON.stringify(JSON.parse(s),null,2);}catch{return s;}};
 // A small CSV/TSV reader: quoted fields with doubled quotes; the first row is the header. Capped at 2,000 rows.
@@ -190,7 +190,7 @@ function documentOptions(id){
  const d=docById(id);if(!d)return;
  const here=docView==='documents/'+id,url=docShareUrl(d),shared=d.visibility!=='private';
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet document-options';
- sh.innerHTML=`<h2>Document options</h2><p class="sheet-name">${esc(d.title)}</p><p class="sheet-help">${esc([KIND_WORD[d.kind],fmtSize(d.size),d.file].join(' · '))}</p>
+ sh.innerHTML=`<h2>File options</h2><p class="sheet-name">${esc(d.title)}</p><p class="sheet-help">${esc([KIND_WORD[d.kind],fmtSize(d.size),d.file].join(' · '))}</p>
   ${d.trashedAt?`<button class="opt" data-restore>${IC.up}<span>Restore<span class="sub">Back to the library; links stay off until you share it again</span></span></button>`:
   optGroup('Open',[
    here?'':`<button class="opt" data-open>${IC.doc}<span>Open<span class="sub">${PANE?'In this pane':SOLO?'In this window':'As a tab, like a session'}</span></span></button>`,
@@ -213,8 +213,8 @@ function documentOptions(id){
  sh.querySelector('[data-copy-link]')?.addEventListener('click',()=>{close();copyLink(url);});
  sh.querySelector('[data-share]')?.addEventListener('click',()=>{close();shareSheet(id);});
  sh.querySelector('[data-project]')?.addEventListener('click',()=>{close();docProjectSheet(id);});
- sh.querySelector('[data-rename]')?.addEventListener('click',()=>{close();textSheet('Rename document',d.title,200,title=>docAct(id,{title},'Renamed'));});
- sh.querySelector('[data-trash]')?.addEventListener('click',()=>{close();confirmSheet('Remove this document?',`It moves to the trash for ${docsSnap?.limits?.trashDays||30} days and any share or public link stops working. Restore it from the library's Trash.`,'Remove',async()=>{const r=await docAct(id,{action:'trash'},'Moved to the trash');if(r&&docView==='documents/'+id)location.hash=viewHref('documents');});});
+ sh.querySelector('[data-rename]')?.addEventListener('click',()=>{close();textSheet('Rename file',d.title,200,title=>docAct(id,{title},'Renamed'));});
+ sh.querySelector('[data-trash]')?.addEventListener('click',()=>{close();confirmSheet('Remove this file?',`It moves to the trash for ${docsSnap?.limits?.trashDays||30} days and any share or public link stops working. Restore it from the library's Trash.`,'Remove',async()=>{const r=await docAct(id,{action:'trash'},'Moved to the trash');if(r&&docView==='documents/'+id)location.hash=viewHref('documents');});});
  mountSheet(scrim,sh);
 }
 function shareSheet(id){
@@ -222,7 +222,7 @@ function shareSheet(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet share-sheet';
  const url=docShareUrl(d)||docAppUrl(d);
  const expires=d.share?.expiresAt?new Date(d.share.expiresAt).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'}):'';
- const note=d.visibility==='private'?'This address opens the document in Pocket Code after signing in. Choose Anyone with the link or Public to give it to someone else.':d.visibility==='link'?(expires?'Expires '+expires+'.':'No expiry.')+' A new link stops the old one working.':'A fixed address by file name. Anyone who has it can open the document.';
+ const note=d.visibility==='private'?'This address opens the file in Pocket Code after signing in. Choose Anyone with the link or Public to give it to someone else.':d.visibility==='link'?(expires?'Expires '+expires+'.':'No expiry.')+' A new link stops the old one working.':'A fixed address by file name. Anyone who has it can open the file.';
  sh.innerHTML=`<h2>Share</h2><p class="sheet-name">${esc(d.title)}</p>
   <div role="radiogroup" aria-label="Who can open it">
   <button class="opt ${d.visibility==='private'?'sel':''}" role="radio" aria-checked="${d.visibility==='private'}" data-v="private"><span class="dot"></span><span>Private<span class="sub">Only after signing in to Pocket Code</span></span></button>
@@ -245,7 +245,7 @@ function docProjectSheet(id){
  const d=docById(id);if(!d||typeof boardSnap==='undefined')return;
  const go=()=>{const rows=[['','No project','Keep it unattached'],...boardSnap.projects.filter(p=>p.status!=='done').map(p=>[p.id,p.name,p.next||p.summary||''])];
   if(d.project)rows.splice(1,0,['__open','Open the project '+(projectById(d.project)?.name||d.project),'']);
-  sheet('Project for this document',rows,d.project||'',v=>{if(v==='__open')return void(location.hash=viewHref('projects/'+d.project));if(v===(d.project||''))return;docAct(id,{project:v},v?'Added to '+(projectById(v)?.name||v):'Removed from the project');});};
+  sheet('Project for this file',rows,d.project||'',v=>{if(v==='__open')return void(location.hash=viewHref('projects/'+d.project));if(v===(d.project||''))return;docAct(id,{project:v},v?'Added to '+(projectById(v)?.name||v):'Removed from the project');});};
  if(boardSnap)go();else loadBoard().then(go).catch(()=>toast('Projects could not load.'));
 }
 /* ---------- from a session: Keep as document ---------- */
@@ -254,18 +254,18 @@ async function keepResult(sessionId,target,button){
  try{
   const project=typeof boardSnap!=='undefined'&&boardSnap?boardSnap.projects.find(p=>p.status!=='done'&&p.sessions.includes(sessionId))?.id||'':'';
   const d=await api('/documents/keep',{method:'POST',body:JSON.stringify({session:sessionId,path:target,project})});
-  mergeDoc(d);toast('Kept as document: '+d.title);
+  mergeDoc(d);toast('Kept in My Files: '+d.title);
   if(button){button.textContent='Kept · Open';button.disabled=false;delete button.dataset.keep;button.dataset.kept=d.id;button.onclick=()=>{closeCurrentSheet?.();location.hash=viewHref('documents/'+d.id);};}
- }catch(e){toast(e.message||'Could not keep the document');if(button)button.disabled=false;}
+ }catch(e){toast(e.message||'Could not keep the file');if(button)button.disabled=false;}
 }
 const keepableResult=r=>r.kind==='file'&&/\.(html?|pdf|md|txt|png|jpe?g|gif|webp|csv|tsv|json|docx|xlsx|pptx|mp4)$/i.test(r.target);
 /* ---------- project card section, rail, home ---------- */
 function projectDocumentsHTML(projectId){
  if(!documentsOn())return '';
  const rows=docsSnap?docsSnap.documents.filter(d=>d.project===projectId):null;
- return `<section class="project-documents"><h2>Documents <span>${rows?rows.length||'':''}</span></h2>
-  ${!rows?'<p class="project-empty">Loading…</p>':rows.length?rows.slice(0,8).map(d=>`<div class="session-item linked-session document-item" data-item="${esc(d.id)}"><a class="row" href="${viewHref('documents/'+d.id)}" data-document="${esc(d.id)}"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}</span><span class="meta">${esc(rel(Date.parse(d.added)))} · ${visWord[d.visibility]}</span></span></a><button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></div>`).join('')+(rows.length>8?`<a class="rail-done-link" href="${viewHref('documents')}" data-project-docs="${esc(projectId)}">All ${rows.length} documents</a>`:'')
-  :'<p class="project-empty">No documents yet. Keep one from a session\'s Results, or an agent keeps one with <code>pocket-docs add --project '+esc(projectId)+'</code>.</p>'}</section>`;
+ return `<section class="project-documents"><h2>Files <span>${rows?rows.length||'':''}</span></h2>
+  ${!rows?'<p class="project-empty">Loading…</p>':rows.length?rows.slice(0,8).map(d=>`<div class="session-item linked-session document-item" data-item="${esc(d.id)}"><a class="row" href="${viewHref('documents/'+d.id)}" data-document="${esc(d.id)}"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}</span><span class="meta">${esc(rel(Date.parse(d.added)))} · ${visWord[d.visibility]}</span></span></a><button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></div>`).join('')+(rows.length>8?`<a class="rail-done-link" href="${viewHref('documents')}" data-project-docs="${esc(projectId)}">All ${rows.length} files</a>`:'')
+  :'<p class="project-empty">No files yet. Keep one from a session\'s Results, or an agent keeps one with <code>pocket-docs add --project '+esc(projectId)+'</code>.</p>'}</section>`;
 }
 function bindProjectDocuments(main,projectId){
  if(!documentsOn())return;
@@ -274,14 +274,14 @@ function bindProjectDocuments(main,projectId){
  if(!docsSnap)loadDocs().then(()=>{if(typeof paintProjectsView==='function')paintProjectsView();}).catch(()=>{});
 }
 function railDocumentsHTML(){
- if(!docsSnap)return '<p class="sheet-help">Loading documents…</p>';
+ if(!docsSnap)return '<p class="sheet-help">Loading files…</p>';
  const q=railDocQuery.trim().toLowerCase();
  const rows=(q?docsSnap.documents.filter(d=>docSearchText(d).includes(q)):docsSnap.documents).slice(0,q?40:20);
- return `<div class="rail-projects rail-documents"><div class="rail-project-actions"><a class="chip" href="${viewHref('documents')}" data-view-link>All documents</a><button class="chip" id="rail-doc-upload">${IC.up}Upload</button><input type="file" id="rail-doc-file" multiple hidden></div>
-  <div class="session-search rail-doc-search">${IC.search}<input type="search" id="rail-doc-query" placeholder="Search documents" aria-label="Search documents" value="${esc(railDocQuery)}" autocomplete="off"></div>
+ return `<div class="rail-projects rail-documents"><div class="rail-project-actions"><a class="chip" href="${viewHref('documents')}" data-view-link>All files</a><button class="chip" id="rail-doc-upload">${IC.up}Upload</button><input type="file" id="rail-doc-file" multiple hidden></div>
+  <div class="session-search rail-doc-search">${IC.search}<input type="search" id="rail-doc-query" placeholder="Search files" aria-label="Search files" value="${esc(railDocQuery)}" autocomplete="off"></div>
   <div id="rail-doc-list">${railDocListHTML(rows,q)}</div></div>`;
 }
-const railDocListHTML=(rows,q)=>rows.length?rows.map(docRowHTML).join(''):`<p class="sheet-help">${q?'No documents match.':'No documents yet.'}</p>`;
+const railDocListHTML=(rows,q)=>rows.length?rows.map(docRowHTML).join(''):`<p class="sheet-help">${q?'No files match.':'No files yet.'}</p>`;
 function paintRailDocuments(){
  const el=document.getElementById('rail');if(!el||railView()!=='documents')return;
  const typing=document.activeElement?.id==='rail-doc-query';

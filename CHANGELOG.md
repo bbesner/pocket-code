@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.34.0] — Unreleased · build 78
+
+- **Documents is now My Files.** The library, its rail switch, the session-home chip, Split view, Back links, sheets, empty states and toasts all say My Files, and a single item is a file: File options, Rename file, Remove this file?, Keep in My Files on a session's Results. The Settings category is Projects & files, with My Files and Open files under Tools. Agents started by Pocket are told to keep deliverables in My Files, and `pocket-docs` messages use the same words. Requested by Brad.
+- **A light divider in the rail switch.** Sessions | Projects | My Files are separated by a thin, low-contrast pipe centred in a slightly wider gap. It is decorative, so it takes no clicks and screen readers skip it. Requested by Brad.
+- When the rail is too narrow to keep its header on one row, the switch shortens My Files to Files: below about 330px of rail, or below about 390px while the Projects due badge shows. Its accessible name stays My Files, and nothing is clipped at any rail width or zoom.
+- Nothing internal is renamed, so existing installs, links and scripts keep working: the `/api/documents` routes, `#/documents` links, `documents.json`, `POCKET_DOCUMENTS_DIR`, the `documents` setting and the `pocket-docs` command are unchanged.
+
 ## [1.33.1] — 2026-10-10 · build 77
 
 - The sidebar header compresses as its column narrows, keeping New session, Settings and filters reachable. Mouse controls compress with the labels; touch controls retain 44px targets. At the minimum widths, actions wrap together.

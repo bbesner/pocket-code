@@ -480,7 +480,7 @@ function viewBackTarget(view) {
  return viewOrigins.get('#/'+view) || (view.startsWith('documents/') ? '#/documents' : view.startsWith('projects/') ? '#/projects' : '#/');
 }
 function bindViewBack(button, view) {
- const target=viewBackTarget(view),label=target==='#/documents'?'Back to Documents':target==='#/projects'?'Back to Projects':target==='#/projects/scheduled'?'Back to Scheduled':target.startsWith('#/chat/')?'Back to conversation':target==='#/'?'Back to Sessions':'Back to previous view';
+ const target=viewBackTarget(view),label=target==='#/documents'?'Back to My Files':target==='#/projects'?'Back to Projects':target==='#/projects/scheduled'?'Back to Scheduled':target.startsWith('#/chat/')?'Back to conversation':target==='#/'?'Back to Sessions':'Back to previous view';
  button.setAttribute('aria-label',label);button.title=label;
  button.onclick=()=>{returningToView=true;location.hash=target;};
 }
@@ -491,7 +491,7 @@ function restoreViewPosition(view) {
 function showLibraryError(main,error,label,retry,hasData) {
  const panel=document.createElement('div');panel.className='library-error';panel.setAttribute('role','status');
  const off=error.status===404;
- panel.innerHTML=`<p>${esc(off?label+' is off. Turn it on in Settings → Projects & documents.':label+' could not load. '+(hasData?'Showing the last loaded data.':'')+' '+(error.message||'Try again.'))}</p><button class="chip" data-library-retry>Retry</button>${off?'<button class="chip" data-library-settings>Open Settings</button>':''}`;
+ panel.innerHTML=`<p>${esc(off?label+' is off. Turn it on in Settings → Projects & files.':label+' could not load. '+(hasData?'Showing the last loaded data.':'')+' '+(error.message||'Try again.'))}</p><button class="chip" data-library-retry>Retry</button>${off?'<button class="chip" data-library-settings>Open Settings</button>':''}`;
  if(!hasData)main.replaceChildren();main.prepend(panel);
  panel.querySelector('[data-library-settings]')?.addEventListener('click',()=>settingsSheet({category:'libraries'}));
  panel.querySelector('[data-library-retry]').onclick=async e=>{e.currentTarget.disabled=true;e.currentTarget.textContent='Retrying…';await retry();const again=document.querySelector('[data-library-retry]');if(again)again.focus();else{document.getElementById(main.id)?.focus();toast(label+' loaded');}};
@@ -512,7 +512,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
   ['appearance','Appearance','Text size and highlight colour', [['This device','.chat-text-settings']]],
   ['conversation','Conversation','Reading, session titles and summaries', [['This device','#s-tools,#s-times'],['This instance · all devices','#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
   ['agents','Agents & instance','Accounts and plan usage', [['This instance · all devices','#s-environment,#s-usage']]],
-  ['libraries','Projects & documents','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents'],['This device','', '#s-projects-open,#s-documents-open']]],
+  ['libraries','Projects & files','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents'],['This device','', '#s-projects-open,#s-documents-open']]],
   ['notifications','Notifications & voice','Chime, push and spoken replies', [['This device','#s-chime,#s-push,#s-voice']]],
   ['help','Help & updates','Keyboard shortcuts, version and feedback', [['','#s-keys,#s-about,#s-notes,#s-feedback']]],
  ];

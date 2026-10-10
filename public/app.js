@@ -583,8 +583,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <h2 class="settings-group">Tools</h2>
     <button class="opt" id="s-projects" disabled aria-pressed="false"><span class="dot"></span><span>Projects<span class="sub" id="s-projects-state">Loading the projects setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Open projects<select id="s-projects-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
-    <button class="opt" id="s-documents" disabled aria-pressed="false"><span class="dot"></span><span>Documents<span class="sub" id="s-documents-state">Loading the documents setting…</span></span></button>
-    <div class="title-settings"><label class="voice-field">Open documents<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
+    <button class="opt" id="s-documents" disabled aria-pressed="false"><span class="dot"></span><span>My Files<span class="sub" id="s-documents-state">Loading the My Files setting…</span></span></button>
+    <div class="title-settings"><label class="voice-field">Open files<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
@@ -712,7 +712,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', { method: 'POST', body: JSON.stringify({ documents: !srv.documents }), signal: AbortSignal.timeout(8000) });
       window.pocketFeatures = { ...(window.pocketFeatures || {}), documents: Boolean(srv.documents) };
-      paintDocumentsSetting(); toast(srv.documents ? 'Documents is on' : 'Documents is off');
+      paintDocumentsSetting(); toast(srv.documents ? 'My Files is on' : 'My Files is off');
       if (!srv.documents && readLocal('pc-rail-view', 'sessions') === 'documents') writeLocal('pc-rail-view', 'sessions');
       document.querySelectorAll('.session-home, aside.rail').length && route();
     } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
@@ -1228,7 +1228,7 @@ async function renderList() {
   app.innerHTML = `<header class="bar"><h1>Pocket Code</h1>
     <button class="icon bell" id="bell" aria-label="Toggle turn-finished notifications">${IC.bellOff}</button>
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
-    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Documents</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
+    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">My Files</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New session">${IC.plus}</button>`;
   $('#new').onclick = () => { location.hash = '#/new'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
@@ -1301,7 +1301,7 @@ async function openResults(id) {
       if(!href)return '';
       const safeTarget=r.kind==='file'?r.target.split('/').pop().replace(/[^\w.\-]+/g,'_'):'';
       const kept=typeof docsSnap!=='undefined'&&docsSnap?docsSnap.documents.find(d=>d.session===id&&d.addedBy==='session'&&(d.file===safeTarget||d.file.replace(/-\d+(?=\.[^.]+$)/,'')===safeTarget))||null:null;
-      const keep=typeof documentsOn==='function'&&documentsOn()&&keepableResult(r)?(kept?`<button class="chip result-keep" data-kept="${esc(kept.id)}">Kept · Open</button>`:`<button class="chip result-keep" data-keep="${esc(r.target)}">Keep as document</button>`):'';
+      const keep=typeof documentsOn==='function'&&documentsOn()&&keepableResult(r)?(kept?`<button class="chip result-keep" data-kept="${esc(kept.id)}">Kept · Open</button>`:`<button class="chip result-keep" data-keep="${esc(r.target)}">Keep in My Files</button>`):'';
       return `<article class="result-row"><a href="${esc(href)}" target="_blank" rel="noopener noreferrer"><span class="result-name">${esc(r.label)}</span><span class="result-detail">${esc(r.detail)}${r.at?' · '+esc(rel(new Date(r.at).getTime())):''}${r.kind==='file'?' · Download':''}</span></a>${keep}<button class="chip result-copy" data-url="${esc(r.kind==='file'?new URL(href,location.origin).href:r.target)}" aria-label="Copy link for ${esc(r.label)}">Copy link</button></article>`;
     }).join('') || `<p class="empty">${q?'No matching results.':'No results linked yet. Ask the agent to share a report or file link.'}</p>`;
     if(data.truncated||data.limited)sh.querySelector('#result-list').insertAdjacentHTML('beforeend','<p class="sheet-help">Showing recent references. Older results may still be in the conversation.</p>');
@@ -1705,14 +1705,14 @@ const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return
 function railSwitchHTML() {
   if (!projectsOn() && !documentsOn()) return '<span>Sessions</span>';
   const v = railView();
-  return `<div class="rail-switch" role="group" aria-label="Browse sessions, projects or documents"><button data-rail-view="sessions" aria-pressed="${v === 'sessions'}">Sessions</button>${projectsOn() ? `<button data-rail-view="projects" aria-pressed="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button data-rail-view="documents" aria-pressed="${v === 'documents'}">Docs</button>` : ''}</div>`;
+  return `<div class="rail-switch" role="group" aria-label="Browse sessions, projects or files"><button data-rail-view="sessions" aria-pressed="${v === 'sessions'}">Sessions</button>${projectsOn() ? `<button data-rail-view="projects" aria-pressed="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button data-rail-view="documents" aria-pressed="${v === 'documents'}" aria-label="My Files"><span class="rail-label-long">My </span>Files</button>` : ''}</div>`;
 }
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
   const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : 'box'; // 1.29/1.30: project and document views have no composer
   if (PANE || SOLO) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs; a solo window shows one view
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div></div>`;
   return `<div class="split">
-    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to documents':'Skip to message'}</a>
+    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to files':'Skip to message'}</a>
       <div class="railhead">${railSwitchHTML()}<div class="rail-actions"><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse session filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div></div>
       <div id="rail"></div>
     </aside>
