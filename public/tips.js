@@ -19,6 +19,8 @@ const TIPS = {
  'c-approval':'Permissions for the next turn. Review actions asks first; Full access runs without asking.',
  'c-mode':'Codex mode: plan the approach first, or work normally',
  'c-mute':'Turn-finished alerts for this session',
+ 'project-open':'Give this session a project, or open the one it belongs to',
+ 'task-open':'Add a task: a to-do with an optional date, kept with this session',
  muteb:'Turn-finished alerts for this session',
  stopb:'Stop the running turn',
  send:'Send (Enter)',

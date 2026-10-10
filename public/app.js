@@ -26,6 +26,7 @@ const IC = {
   model: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 2.5v2.5M15 2.5v2.5M9 19v2.5M15 19v2.5M2.5 9h2.5M2.5 15h2.5M19 9h2.5M19 15h2.5"/></svg>',
   copy: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 6.5V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7a2 2 0 002 2h.5"/></svg>',
   tick: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
+  task: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>',
   up1: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg>',
   down1: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg>',
   diff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10.5 10.5h4M12.5 8.5v4M10.5 16h4"/></svg>',
@@ -199,7 +200,7 @@ function renderToolbar() {
     <button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>
     <button class="chip" id="c-approval" title="Permissions for the next turn" aria-label="Permissions for the next turn: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
     ${tb.provider==='codex'?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
-    ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-project" id="project-open" hidden>Project</button>' : ''}`;
+    ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-project" id="project-open" hidden>Project</button><button class="chip conversation-task" id="task-open" hidden>Add task</button>' : ''}`;
   const ar = $('#attrow');
   if (ar) {
     ar.innerHTML = tb.attachments.map((a, i) => `
@@ -218,7 +219,7 @@ function renderToolbar() {
   $('#c-eff').onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
     v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   if (loadOutbox(tb.key)) {
-    bar.querySelectorAll('button:not(#c-mute):not([data-voice-mute]):not(#project-open)').forEach(b => { b.disabled = true; });
+    bar.querySelectorAll('button:not(#c-mute):not([data-voice-mute]):not(#project-open):not(#task-open)').forEach(b => { b.disabled = true; });
     if(att)att.disabled=true;
     ar?.querySelectorAll('button').forEach(b => { b.disabled = true; });
   }
@@ -229,7 +230,8 @@ function renderToolbar() {
   const mu = $('#c-mute');
   if (mu) mu.onclick = () => toggleMute();
   Voice.paint();                                              // the voice-mute chip reads its state from Voice
-  if (typeof paintChatProject === 'function') paintChatProject(); // 1.35: Add to project sits with the session's chips, not in a header row
+  if (typeof paintChatProject === 'function') paintChatProject(); // 1.35: Add project sits with the session's chips, not in a header row
+  if (typeof paintChatTask === 'function') paintChatTask(); // 1.36: Add task beside it
   if (!bar.closest('#new-setup')) bindToolbarScroll(bar);
   updateNewSummary();
   if(focusedControl)document.getElementById(focusedControl)?.focus({preventScroll:true});
@@ -257,7 +259,8 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
       `<button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device. Clear it to go back to the automatic one</span></span></button>`,
       `<button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>`,
       `<button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>`,
-      projectsOn() ? '<button class="opt" id="so-project">'+IC.folder+'<span>Add to project<span class="sub">Track a new project around this session, or link it to one</span></span></button>' : ''])}
+      projectsOn() ? '<button class="opt" id="so-project">'+IC.folder+'<span>Add project<span class="sub">Track a new project around this session, or link it to one</span></span></button>' : '',
+      tasksOn() ? '<button class="opt" id="so-task">'+IC.task+'<span>Add task<span class="sub">A to-do with an optional date, kept with this session and its context</span></span></button>' : ''])}
     ${optGroup('Server process', [!PANE && s.id === chatId ? '<button class="opt" id="so-close">'+IC.x+'<span>Close session process<span class="sub">Release its server process. If work is running, choose whether to keep it running or stop it</span></span></button>' : ''])}
     ${optGroup('Display and version', [chatTextControlsHTML(), s.id===chatId?'<button class="opt" id="so-version">'+IC.info+'<span>Version & updates<span class="sub" id="so-version-sub">'+esc(appVersionLabel())+'</span></span></button>':''])}`;
   const close = () => closeCurrentSheet?.();
@@ -275,6 +278,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting sessions stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
   sh.querySelector('#so-project')?.addEventListener('click',()=>{close();addSessionToProject(allSessions.find(r=>r.id===s.id)||s);});
+  sh.querySelector('#so-task')?.addEventListener('click',()=>{close();addTaskFromSession(allSessions.find(r=>r.id===s.id)||s);});
   sh.querySelector('#so-reviewed')?.addEventListener('click',()=>{close();markReviewed([allSessions.find(r=>r.id===s.id)||s]);paintSessionPanels();toast('Marked as reviewed');});
   bindChatTextControls(sh);
   sh.querySelector('#so-find')?.addEventListener('click',()=>{close();findOpen(true);});
@@ -588,6 +592,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <button class="opt" id="s-documents" disabled aria-pressed="false"><span class="dot"></span><span>Files<span class="sub" id="s-documents-state">Loading the Files setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Files button<select id="s-files-button"><option value="rail">Lists files in the sidebar</option><option value="tab">Opens the library in a tab</option><option value="beside">Opens the library in split view</option></select></label></div>
     <div class="title-settings"><label class="voice-field">Open files<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
+    <button class="opt" id="s-tasks" disabled aria-pressed="false"><span class="dot"></span><span>Tasks<span class="sub" id="s-tasks-state">Loading the Tasks setting…</span></span></button>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
@@ -721,6 +726,23 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
   };
   const filesBtnSel = sh.querySelector('#s-files-button'); filesBtnSel.value = filesButtonOpens(); filesBtnSel.onchange = () => writeLocal('pc-files-button', filesBtnSel.value);
+  // 1.36: Tasks, the same way.
+  const paintTasksSetting = () => {
+    const btn = sh.querySelector('#s-tasks'); if (!btn || !srv) return;
+    const on = Boolean(srv.tasks);
+    btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
+    sh.querySelector('#s-tasks-state').textContent = on ? 'On: to-dos with an optional date and the context of the session they came from, across your devices and agents' : 'Off. Turn on to keep to-dos here and from agent sessions, with dates and session context';
+  };
+  sh.querySelector('#s-tasks').onclick = async e => {
+    const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ tasks: !srv.tasks }), signal: AbortSignal.timeout(8000) });
+      window.pocketFeatures = { ...(window.pocketFeatures || {}), tasks: Boolean(srv.tasks) };
+      paintTasksSetting(); toast(srv.tasks ? 'Tasks is on' : 'Tasks is off');
+      if (!srv.tasks && readLocal('pc-rail-view', 'sessions') === 'tasks') writeLocal('pc-rail-view', 'sessions');
+      document.querySelectorAll('.session-home, aside.rail').length && route();
+    } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
+  };
   const openDocSel = sh.querySelector('#s-documents-open'); openDocSel.value = readLocal('pc-documents-open', 'tab'); openDocSel.onchange = () => writeLocal('pc-documents-open', openDocSel.value);
   sh.querySelector('#s-title-model').onchange = e => saveTitles({ titleProvider: e.target.value });
   sh.querySelector('#s-away').onclick = () => { if (srv?.titles) saveTitles({ awaySummaries: srv.titles.awaySummaries === false }); };
@@ -731,7 +753,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintProjectsSetting(); paintDocumentsSetting();
+      paintTitles(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
@@ -1232,13 +1254,13 @@ async function renderList() {
   app.innerHTML = `<header class="bar"><h1>Pocket Code</h1>
     <button class="icon bell" id="bell" aria-label="Toggle turn-finished notifications">${IC.bellOff}</button>
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
-    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
+    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New session">${IC.plus}</button>`;
   $('#new').onclick = () => { location.hash = '#/new'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
   pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
   $('#bell').onclick = () => togglePush($('#bell'));
-  bindSessionPanel(app); if (projectsOn()) loadBoard().then(paintProjectBadges).catch(() => { }); await refreshSessions();
+  bindSessionPanel(app); if (projectsOn()) loadBoard().then(paintProjectBadges).catch(() => { }); if (tasksOn()) loadTasks().then(paintTaskBadges).catch(() => { }); await refreshSessions();
   const last=openSessions.find(s=>s.id===readLocal('pc-last-session',''));if(last&&$('#resume-last'))$('#resume-last').innerHTML=`<a class="resume-last" href="#/chat/${esc(last.id)}">Resume: ${esc(last.title)}</a>`;
 }
 function openSessionSwitcher() {
@@ -1706,18 +1728,18 @@ const railOpen = () => localStorage.getItem('pc-rail') !== 'closed';
 const railW = () => Math.min(480, Math.max(220, Number(localStorage.getItem('pc-railw')) || 320));
 // 1.29: with Projects on, the rail head switches between the session list and the project list.
 const filesButtonOpens = () => { const v = readLocal('pc-files-button', 'rail'); return ['rail', 'tab', 'beside'].includes(v) ? v : 'rail'; };
-const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return v === 'projects' && projectsOn() ? 'projects' : v === 'documents' && documentsOn() ? 'documents' : 'sessions'; };
+const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return v === 'projects' && projectsOn() ? 'projects' : v === 'documents' && documentsOn() ? 'documents' : v === 'tasks' && tasksOn() ? 'tasks' : 'sessions'; };
 function railSwitchHTML() {
-  if (!projectsOn() && !documentsOn()) return '<span>Sessions</span>';
+  if (!projectsOn() && !documentsOn() && !tasksOn()) return '<span>Sessions</span>';
   const v = railView();
-  return `<div class="rail-switch" role="group" aria-label="Browse sessions, projects or files"><button data-rail-view="sessions" aria-pressed="${v === 'sessions'}">Sessions</button>${projectsOn() ? `<button data-rail-view="projects" aria-pressed="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button data-rail-view="documents" aria-pressed="${v === 'documents'}" >Files</button>` : ''}</div>`;
+  return `<div class="rail-switch" role="group" aria-label="Browse sessions, projects, files or tasks"><button data-rail-view="sessions" aria-pressed="${v === 'sessions'}">Sessions</button>${projectsOn() ? `<button data-rail-view="projects" aria-pressed="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button data-rail-view="documents" aria-pressed="${v === 'documents'}" >Files</button>` : ''}${tasksOn() ? `<button data-rail-view="tasks" aria-pressed="${v === 'tasks'}">Tasks<span class="badge" data-tasks-badge hidden></span></button>` : ''}</div>`;
 }
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
-  const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : 'box'; // 1.29/1.30: project and document views have no composer
+  const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : colHtml.includes('id="tasks-main"') ? 'tasks-main' : 'box'; // 1.29/1.30: project and document views have no composer
   if (PANE || SOLO) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs; a solo window shows one view
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div></div>`;
   return `<div class="split">
-    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to files':'Skip to message'}</a>
+    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to files':inputId==='tasks-main'?'Skip to tasks':'Skip to message'}</a>
       <div class="railhead">${railSwitchHTML()}<div class="rail-actions"><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse session filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div></div>
       <div id="rail"></div>
     </aside>
@@ -1758,6 +1780,7 @@ async function paintRail() {
   const ft = $('#rail-filter-toggle'); if (ft) ft.hidden = railView() !== 'sessions';
   if (railView() === 'projects') { if (!el.querySelector('.rail-projects')) el.innerHTML = ''; paintRailProjects(); return; }
   if (railView() === 'documents') { if (!el.querySelector('.rail-documents')) el.innerHTML = ''; paintRailDocuments(); return; }
+  if (railView() === 'tasks') { if (!el.querySelector('.rail-tasks')) el.innerHTML = ''; paintRailTasks(); return; } // 1.36
   if (!el.querySelector('.session-panel')) { el.innerHTML = sessionPanelHTML(true); bindSessionPanel(el); }
   await refreshSessions();
 }
@@ -1837,7 +1860,7 @@ async function renderChat(id, { away = false } = {}) {
   $('#ctitle').title = s.title;
   $('#cproj').textContent = projName(s.cwd);
   const gitButton = $('#git-open'); if (gitButton) gitButton.hidden = s.repo === false; // 1.20.1: no Git control outside a repository
-  paintChatProject(s); // 1.29: the linked project, or Add to project
+  paintChatProject(s); // 1.29: the linked project, or Add project
   if (PANE) paneSay('route', { id, title: s.title }); else if (!SOLO) rememberOpenSession({...s,id}); // a solo window is not a tab of the main one
   chatTitle = s.title; chatPinned = Boolean(s.pinned);
   const h1 = $('#ctitle').closest('h1');
@@ -2221,7 +2244,7 @@ function setComposer(working) {
   c.innerHTML = `
     ${working ? `
       <div class="workrow"><span class="ember"></span><span id="work-label">Working</span>
-        ${ctxRingHTML()}<button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>${Voice.muteButtonHTML('icon')}<button class="icon wbell conversation-project" id="project-open" hidden></button>
+        ${ctxRingHTML()}<button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>${Voice.muteButtonHTML('icon')}<button class="icon wbell conversation-project" id="project-open" hidden></button><button class="icon wbell conversation-task" id="task-open" hidden></button>
         <button class="chip stopchip" id="stopb" aria-label="Stop this turn">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
     ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this turn" aria-label="After this turn">After <span class="sm-x">this </span>turn</button></div>' : ''}
@@ -2229,6 +2252,7 @@ function setComposer(working) {
     <textarea id="box" rows="1" placeholder="${working ? 'Steer this turn…' : 'Message this session…'}" enterkeyhint="send"></textarea>
     ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button>`;
   if (typeof paintChatProject === 'function') paintChatProject(); // the toolbar's chip, or the working row's folder button
+  if (typeof paintChatTask === 'function') paintChatTask();
   if (working) {
     $('#stopb').onclick = async () => {
       try { await api(`/session/${chatId}/stop`, { method: 'POST', body: '{}' }); }
@@ -2718,9 +2742,10 @@ async function route() {
   dockSurface?.remove();dockSurface=null;
   const h = location.hash;
   if (typeof boardView !== 'undefined') boardView = null;
+  if (typeof taskView !== 'undefined') taskView = null; // 1.36: a conversation opened from the task list must not count Tasks as the current view
   if (h.startsWith('#/chat/')) return renderChat(h.slice(7), { away: true });
   if (typeof docView !== 'undefined') docView = null;
-  if (isViewId(h.slice(2))) return h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30: project and document views
+  if (isViewId(h.slice(2))) return h === '#/tasks' ? renderTasks('tasks') : h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30/1.36: project, document and task views
   if (h === '#/new') return renderNew();
   return renderList();
 }

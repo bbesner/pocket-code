@@ -25,7 +25,7 @@ async function boardAct(body,done){
  catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();}toast(e.message||'Could not update the project');return null;}
 }
 const boardDueCount=()=>boardSnap?.dueCount||0;
-const viewTitle=id=>id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'Files'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
+const viewTitle=id=>id==='tasks'?'Tasks':id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'Files'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
 const fmtDue=iso=>{const d=new Date(iso),now=new Date();const sameYear=d.getFullYear()===now.getFullYear();return d.toLocaleDateString('en-US',{month:'short',day:'numeric',...(sameYear?{}:{year:'numeric'})})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
 const fmtStamp=iso=>rel(Date.parse(iso));
 const statusWord={active:'Active',waiting:'Waiting',done:'Done'};
@@ -120,7 +120,7 @@ function projectCardHTML(p){
   ${p.reminders.length?`<section class="project-reminders"><h2>Reminders</h2>${p.reminders.map(r=>`<div class="reminder ${r.due?'due':''}" data-reminder="${esc(r.id)}"><p class="reminder-title">${esc(r.label)}</p><p class="${r.due?'due-label':'project-meta'}">${r.due?'Due · ':''}${esc(fmtDue(r.dueAt))}${r.task?' · on a step':''}</p><div class="reminder-actions"><button class="chip" data-remind-later="${esc(r.id)}">Remind later</button><button class="chip" data-dismiss="${esc(r.id)}">Dismiss</button>${r.due&&p.status==='waiting'?'<button class="chip set" data-resume>Resume project</button>':''}</div></div>`).join('')}</section>`:''}
   <section class="project-sessions"><h2>Sessions <span>${p.sessions.length||''}</span></h2>
    ${p.sessions.length?p.sessions.map(id=>`<div class="session-item linked-session" data-item="${esc(id)}"><a class="row" href="#/chat/${esc(id)}"><span class="body"><span class="title">${sessionMarkHTML(id)}${esc(sessionName(id))}</span><span class="meta">${id.startsWith('cx:')?'Codex':'Claude'}${typeof tabState==='function'&&tabState(id)?' · '+esc(tabState(id).label):''}</span></span></a><button class="session-more icon" data-session-more="${esc(id)}" aria-label="Options for ${esc(sessionName(id))}">${IC.more}</button></div>`).join('')
-   :'<p class="project-empty">No sessions linked. From a session\'s options, choose Add to project.</p>'}</section>
+   :'<p class="project-empty">No sessions linked. From a session\'s toolbar or options, choose Add project.</p>'}</section>
   ${typeof projectDocumentsHTML==='function'?projectDocumentsHTML(p.id):''}
   <section class="project-notes"><form class="task-add" data-note-add><input name="text" maxlength="600" required placeholder="Add a note" aria-label="New note" autocomplete="off"><button class="chip" type="submit">Note</button></form></section>
   <details class="settings-details project-history"><summary>History<span class="summary-meta">${p.history.length}</span></summary><ul>${p.history.slice().reverse().map(h=>`<li><span class="ledger"><span class="name">${esc(fmtDue(h.at))}</span><span class="det">${esc(historyLine(h))}</span></span></li>`).join('')}</ul></details>
@@ -272,16 +272,16 @@ function reminderSheet(project,task){
 }
 // From a session's options: track a new project around this session, or add it to an existing one.
 function addSessionToProject(s){
- if(!boardSnap)return loadBoard(true).then(()=>addSessionToProject(s)).catch(e=>toast(e.status===404?'Projects is off. Turn it on in Settings → Projects & files.':e.message));
+ if(!boardSnap)return loadBoard(true).then(()=>addSessionToProject(s)).catch(e=>toast(e.status===404?'Projects is off. Turn it on in Settings → Projects, files & tasks.':e.message));
  const open=boardSnap.projects.filter(p=>p.status!=='done'&&!p.sessions.includes(s.id));
  const rows=[['__new','Track a new project','A card around this session; its workspace becomes the directory'],...open.map(p=>[p.id,p.name,p.next||p.summary||statusWord[p.status]])];
- sheet('Add to project',rows,null,v=>{
+ sheet('Project for this session',rows,null,v=>{
   if(v==='__new')return projectEditor(null,{directory:s.cwd||'',session:s.id});
   const p=projectById(v);boardAct({action:'link-session',project:v,expected_revision:p.revision,session:s.id},'Added to '+p.name);
  });
 }
 // The conversation's Project chip (1.29; in the message toolbar since 1.35): the linked project's name, opening its
-// card the way this browser opens projects, or Add to project. A running turn's working row shows it as a folder icon.
+// card the way this browser opens projects, or Add project. A running turn's working row shows it as a folder icon.
 // Hidden while the feature is off.
 let chatSessionRow=null;
 function paintChatProject(s){
@@ -290,7 +290,7 @@ function paintChatProject(s){
  if(!projectsOn()||!chatId){b.hidden=true;return;}
  b.hidden=false;
  const linked=boardSnap?.projects.find(p=>p.status!=='done'&&p.sessions.includes(chatId))||boardSnap?.projects.find(p=>p.sessions.includes(chatId))||null;
- b.innerHTML=b.classList.contains('icon')?IC.folder:IC.folder+'<span>'+esc(linked?linked.name:'Add to project')+'</span>';b.setAttribute('aria-label',linked?'Open project: '+linked.name:'Add session to a project');b.title=linked?'Open the project '+linked.name:'Track this session as a project, or add it to one';
+ b.innerHTML=b.classList.contains('icon')?IC.folder:IC.folder+'<span>'+esc(linked?linked.name:'Add project')+'</span>';b.setAttribute('aria-label',linked?'Open project: '+linked.name:'Add a project for this session');b.title=linked?'Open the project '+linked.name:'Track this session as a project, or add it to one';
  b.classList.toggle('linked',Boolean(linked));
  b.onclick=()=>{
   const row=chatSessionRow||allSessions.find(r=>r.id===chatId)||{id:chatId,title:chatTitle,cwd:''};
@@ -308,7 +308,7 @@ function rememberOpenView(id,title){
  if(openSessions.length>12)openSessions.shift();
  writeLocal('pc-open-sessions',openSessions);paintOpenSessions();
 }
-const viewTabState=id=>{if(id.startsWith('documents'))return null;if(!boardSnap)return null;const p=id==='projects'||id==='projects/scheduled'?null:projectById(id.slice(9));const due=p?p.dueCount:boardDueCount();return due?{kind:'due',label:due===1?'A reminder is due':due+' reminders are due'}:null;};
+const viewTabState=id=>{if(id==='tasks')return typeof taskTabState==='function'?taskTabState():null;if(id.startsWith('documents'))return null;if(!boardSnap)return null;const p=id==='projects'||id==='projects/scheduled'?null:projectById(id.slice(9));const due=p?p.dueCount:boardDueCount();return due?{kind:'due',label:due===1?'A reminder is due':due+' reminders are due'}:null;};
 function railProjectsHTML(){
  if(!boardSnap)return '<p class="sheet-help">Loading projects…</p>';
  const due=boardDueCount(),rows=boardSnap.projects.filter(p=>p.status!=='done');

@@ -20,7 +20,7 @@ Run `pocket-board` from the Pocket Code directory (`node scripts/pocket-board.mj
 
 Create one **only when the user asks**. Phrases that count: "track this", "make this a
 project", "start a project for …", "add this to my projects", "put this on the board",
-"keep track of this work". The Track button and *Add to project* in Pocket Code also count.
+"keep track of this work". The Track button and *Add project* in Pocket Code also count.
 
 Do not create a project because a session started, work is unfinished, you hit a blocker,
 or the work looks big. At a natural stopping point you may offer once ("Want me to track
@@ -106,5 +106,5 @@ Name a project with `-p <id>` (from `status --all`) when you are not in its dire
 ## If Projects is off
 
 `pocket-board` exits with code 3 and says so. Tell the user that Projects is turned off and
-can be turned on in Pocket Code under **Settings → Projects & files → Projects**. Do not
+can be turned on in Pocket Code under **Settings → Projects, files & tasks → Projects**. Do not
 keep a project anywhere else instead.

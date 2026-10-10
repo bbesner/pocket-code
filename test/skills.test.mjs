@@ -12,7 +12,7 @@ import {documentInstructions} from '../documents.mjs';
 
 const repo=path.resolve(import.meta.dirname,'..');
 const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-skills-'));
-const commands={board:'/srv/pocket/scripts/pocket-board.mjs',docs:'/srv/pocket/scripts/pocket-docs.mjs'};
+const commands={board:'/srv/pocket/scripts/pocket-board.mjs',docs:'/srv/pocket/scripts/pocket-docs.mjs',tasks:'/srv/pocket/scripts/pocket-tasks.mjs'};
 
 test('skills: installed while the feature is on, rewritten with this server\'s command, removed when off, never over a user\'s own skill',t=>{
   const dir=tmp();t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
@@ -30,6 +30,11 @@ test('skills: installed while the feature is on, rewritten with this server\'s c
   r=syncSkills({settings:{projects:true,documents:true},commands,env,roots});
   assert.equal(r.installed.length,2);
   assert.match(fs.readFileSync(path.join(codex,'pocket-files','SKILL.md'),'utf8'),/my documents/);
+  // 1.36: Tasks brings pocket-tasks, named for this server's command.
+  r=syncSkills({settings:{projects:true,documents:true,tasks:true},commands,env,roots});
+  assert.deepEqual(r.installed.sort(),[path.join(claude,'pocket-tasks'),path.join(codex,'pocket-tasks')].sort());
+  assert.match(fs.readFileSync(path.join(claude,'pocket-tasks','SKILL.md'),'utf8'),/run `pocket-tasks` as `node \/srv\/pocket\/scripts\/pocket-tasks\.mjs`/);
+  syncSkills({settings:{projects:true,documents:true,tasks:false},commands,env,roots});assert.equal(fs.existsSync(path.join(claude,'pocket-tasks')),false);
   // A user's own skill with the same name is left alone, both ways.
   fs.rmSync(path.join(codex,'pocket-files'),{recursive:true});fs.mkdirSync(path.join(codex,'pocket-files'));fs.writeFileSync(path.join(codex,'pocket-files','SKILL.md'),'mine');
   r=syncSkills({settings:{projects:true,documents:true},commands,env,roots});
@@ -54,9 +59,10 @@ test('skills: roots follow HOME, CLAUDE_CONFIG_DIR and CODEX_HOME; Codex only wh
 });
 
 test('skills and agent lines: every name for the library maps to Files; projects ask little and remind only on request',()=>{
-  const files=fs.readFileSync(path.join(repo,'skills','pocket-files','SKILL.md'),'utf8'),projects=fs.readFileSync(path.join(repo,'skills','pocket-projects','SKILL.md'),'utf8');
+  const files=fs.readFileSync(path.join(repo,'skills','pocket-files','SKILL.md'),'utf8'),projects=fs.readFileSync(path.join(repo,'skills','pocket-projects','SKILL.md'),'utf8'),tasks=fs.readFileSync(path.join(repo,'skills','pocket-tasks','SKILL.md'),'utf8');
+  assert.match(tasks,/only when the user asks/);assert.match(tasks,/Never invent a time/);assert.match(tasks,/--summary/);assert.match(tasks,/Settings → Projects, files & tasks → Tasks/);
   for(const phrase of ['files','my files','documents','my documents','docs'])assert.ok(files.toLowerCase().includes(phrase),phrase);
-  assert.match(files,/Settings → Projects & files → Files/);
+  assert.match(files,/Settings → Projects, files & tasks → Files/);
   assert.match(projects,/at most one short question/);assert.match(projects,/Never add a reminder by default/);assert.match(projects,/--requested/);
   assert.match(renderSkill('a\n<!-- pocket:commands -->\nold\n<!-- /pocket:commands -->\nb','/x/c.mjs','pocket-docs'),/^a\n<!-- pocket:commands -->\nOn this server, run `pocket-docs` as `node \/x\/c\.mjs`\..*\n<!-- \/pocket:commands -->\nb$/s);
   const d=documentInstructions('/x/pocket-docs.mjs','s1');
@@ -82,8 +88,8 @@ test('HTTP: turning Projects and Files on in Settings installs their skills for 
   const set=body=>fetch(`http://127.0.0.1:${port}/api/settings`,{method:'POST',headers:{'content-type':'application/json',cookie:'pc_auth='+cookie},body:JSON.stringify(body)}).then(r=>r.json());
   const has=(root,name)=>fs.existsSync(path.join(home,root,'skills',name,'SKILL.md'));
   assert.equal(has('.claude','pocket-projects'),false,'nothing while both features are off');
-  await set({projects:true,documents:true});
-  for(const root of ['.claude','.codex'])for(const name of ['pocket-projects','pocket-files'])assert.ok(has(root,name),root+'/'+name);
+  await set({projects:true,documents:true,tasks:true});
+  for(const root of ['.claude','.codex'])for(const name of ['pocket-projects','pocket-files','pocket-tasks'])assert.ok(has(root,name),root+'/'+name);
   assert.match(fs.readFileSync(path.join(home,'.claude','skills','pocket-files','SKILL.md'),'utf8'),new RegExp('node '+path.join(repo,'scripts','pocket-docs.mjs').replace(/[.*+?^${}()|[\]\\/]/g,'\\$&')));
   await set({documents:false});
   assert.equal(has('.claude','pocket-files'),false);assert.ok(has('.claude','pocket-projects'));

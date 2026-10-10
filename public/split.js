@@ -170,6 +170,7 @@ function chooseBesideNow(loading=false){
    groups[0][1].push(['projects','Projects','All tracked projects'],['projects/scheduled','Scheduled','Reminders, due first']);
    groups[2][1]=(boardSnap?.projects||[]).filter(p=>p.status!=='done').map(p=>['projects/'+p.id,p.name,p.next||p.summary||'Project']);
   }
+  if(typeof tasksOn==='function'&&tasksOn())groups[0][1].push(['tasks','Tasks','To-dos, due first']); // 1.36
   if(documentsOn()){
    groups[0][1].push(['documents','Files','The library of files from the work']);
    const docs=docsSnap?.documents||[],open=openSessions.slice().reverse().filter(t=>t.id.startsWith('documents/')).map(t=>docs.find(d=>d.id===t.id.slice(10))).filter(Boolean);
