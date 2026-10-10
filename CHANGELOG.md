@@ -3,6 +3,10 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.37.2] — 2026-10-10 · build 83
+
+- **Files keeps its previews in split view.** A split pane is a frame of its own, usually 380 to 650px wide, and the library treated anything under 700px as a phone, so in a pane it fell back to the list and hid the List/Grid buttons. A pane now gets the grid at any width, with a 160px minimum card so the narrowest pane holds two columns, and the List/Grid buttons show there; the choice is still shared with the tab. Phones keep the list. Requested by Brad.
+
 ## [1.37.1] — 2026-10-10 · build 82
 
 - **The reminder command no longer sees Pocket's secrets.** `POCKET_REMINDER_HOOK`, run when a project reminder or a dated task comes due, used to start with the daemon's whole environment, including the login password (`POCKET_PASSWORD`), the cookie-signing key (`POCKET_SECRET`) and the push private key (`VAPID_PRIVATE`). It now gets the same filtered environment as agent turns, so those three are removed; everything else (PATH, PORT and your own variables) is unchanged. Found by the 1.37 documentation audit. A test checks that the hook cannot see them.

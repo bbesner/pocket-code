@@ -2630,7 +2630,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
 const RELEASE_NOTES = [
-  "A reminder command (POCKET_REMINDER_HOOK) now runs without Pocket's own secrets in its environment, the same as agent turns."
+  "In split view, Files shows the grid of previews, the same as in a tab, with smaller cards so a narrow pane fits two columns."
 ];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
