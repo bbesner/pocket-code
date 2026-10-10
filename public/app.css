@@ -1246,3 +1246,26 @@ video.doc-media { width: 100%; max-height: 70vh; background: #000; }
  #session-switch { flex: 1; min-width: 82px; }
  .workrow { flex-wrap: wrap; }
 }
+
+/* Size the rail header against its resizable column, including scrollbar space.
+   Keep every action reachable; at the minimum width the action group wraps. */
+@media (min-width: 900px) {
+  .rail { container-type: inline-size; }
+  .railhead { flex-wrap: wrap; gap: 0 2px; padding-inline: 6px; }
+  .rail-switch { flex: 1 0 auto; gap: 2px; }
+  .rail-switch button {
+    min-height: 44px;
+    font-size: clamp(12px, calc(2cqi + 6px), 14px);
+    padding-inline: clamp(2px, calc(5cqi - 13px), 8px);
+    gap: 2px;
+  }
+  .rail-actions { display: flex; flex: none; margin-left: auto; }
+  .rail-actions > button { flex: none; min-width: 44px; min-height: 44px; }
+  .railhead .rail-actions button.icon { padding: 8px; }
+}
+@media (min-width: 900px) and (pointer: fine), (min-width: 900px) and (pointer: none) {
+  .railhead .rail-actions > button {
+    min-width: clamp(32px, calc(10cqi + 2px), 44px);
+    width: clamp(32px, calc(10cqi + 2px), 44px);
+  }
+}

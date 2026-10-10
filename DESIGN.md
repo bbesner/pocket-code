@@ -8,6 +8,13 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Sidebar header (1.33.1)
+
+The resizable rail is an inline-size container. Navigation type, padding and mouse
+actions compress with its available width, including a native scrollbar. Icon
+actions stay 44px tall (and 44px wide on touch); if the two groups cannot fit,
+Filters, Settings and New session wrap together. Never clip the New session action.
+
 ## Workspace consistency (1.33)
 
 Pinned Operate refinement: variance 3, motion 2, density 4. Preserve the warm ink,
