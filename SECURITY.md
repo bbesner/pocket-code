@@ -80,9 +80,9 @@ as that user. Don't put the data directory on a shared path.
 **Reminder hook.** `POCKET_REMINDER_HOOK`, if set, is run through a shell when a project
 reminder or task comes due, with the item as JSON on standard input. It is a command from
 the operator's own configuration, not from the browser or an agent, so keep `.env` and the
-process environment writable only by the operator. The hook is started with the daemon's
-environment as it stands, not the filtered environment agents get, so it can see
-`POCKET_PASSWORD`, `POCKET_SECRET` and `VAPID_PRIVATE`. Use a trusted command, and have it
+process environment writable only by the operator. Since 1.37.1 the hook gets the same
+filtered environment as agent processes, without `POCKET_PASSWORD`, `POCKET_SECRET` or
+`VAPID_PRIVATE` (before that it inherited them). Use a trusted command, and have it
 treat the reminder text as untrusted data, because an agent or a person can write it.
 
 **Agent skills.** While a library is on, Pocket writes a skill into the Claude Code and

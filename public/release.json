@@ -1,9 +1,7 @@
 {
-  "version": "1.37.0",
-  "assetV": 81,
+  "version": "1.37.1",
+  "assetV": 82,
   "notes": [
-    "Agents offer a task when the work needs a later follow-up, as one of the suggested-reply buttons at the end of a turn. Nothing is added unless you tap it.",
-    "An accepted offer is filed with the session, a briefing the agent writes from the conversation, and the date in the offer.",
-    "A task an agent adds from a session gets its title and workspace, so Start opens in the right folder."
+    "A reminder command (POCKET_REMINDER_HOOK) now runs without Pocket's own secrets in its environment, the same as agent turns."
   ]
 }

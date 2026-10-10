@@ -74,8 +74,9 @@ test('HTTP: tasks are off until Settings turns them on, the loopback token serve
   const secret=randomUUID(),exp=Date.now()+3600000;
   const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
   const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
-  const hookLog=path.join(dir,'hook.log'),hook=path.join(dir,'hook.mjs');
-  fs.writeFileSync(hook,`import fs from 'node:fs';let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>fs.appendFileSync(${JSON.stringify(hookLog)},d+'\\n'));`);
+  const hookLog=path.join(dir,'hook.log'),hookEnv=path.join(dir,'hook-env.json'),hook=path.join(dir,'hook.mjs');
+  // 1.37.1: the hook also records which of the daemon's secrets it can see (none) and that it still has a normal environment.
+  fs.writeFileSync(hook,`import fs from 'node:fs';fs.writeFileSync(${JSON.stringify(hookEnv)},JSON.stringify({password:'POCKET_PASSWORD' in process.env,secret:'POCKET_SECRET' in process.env,vapid:'VAPID_PRIVATE' in process.env,path:Boolean(process.env.PATH),port:process.env.PORT||null}));let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>fs.appendFileSync(${JSON.stringify(hookLog)},d+'\\n'));`);
   fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});fs.mkdirSync(path.join(dir,'data'),{recursive:true});
   let child,logs='';
   const start=async()=>{
@@ -129,6 +130,9 @@ test('HTTP: tasks are off until Settings turns them on, the loopback token serve
   for(let i=0;i<40&&!fs.existsSync(hookLog);i++)await sleep(100);
   await sleep(700);
   const lines=fs.readFileSync(hookLog,'utf8').trim().split('\n');assert.equal(lines.length,1,'announced once');
+  const seen=JSON.parse(fs.readFileSync(hookEnv,'utf8'));
+  assert.deepEqual({password:seen.password,secret:seen.secret,vapid:seen.vapid},{password:false,secret:false,vapid:false},'the hook never sees the daemon secrets');
+  assert.equal(seen.path,true,'the hook keeps a normal environment');assert.equal(seen.port,String(port));
   const payload=JSON.parse(lines[0]);assert.equal(payload.kind,'task');assert.equal(payload.text,'Overdue');assert.equal(payload.url,'/#/tasks');
   snap=await call('/tasks');assert.equal(snap.body.dueCount,1);assert.equal(snap.body.tasks[0].text,'Overdue');assert.equal(snap.body.tasks[0].due,true);
   assert.match(logs,/task due task=[0-9a-f]{12} push=off hook=yes/);
