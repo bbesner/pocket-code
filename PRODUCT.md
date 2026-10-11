@@ -35,7 +35,8 @@ in Settings → Projects, files & tasks, and a session works the same without th
 - Reading matters more than composing. Assistant text renders as a full-width document,
   not chat bubbles.
 - Type is large and high-contrast, and comfortable to read outdoors or with tired eyes.
-- Dark theme, because evening and on-the-go use is the main scenario.
+- Light, dark and system appearance for daytime, evening and on-the-go use. Preserve
+  the familiar dark workbench for existing browsers; new browsers follow the device.
 
 **Optional voice:** speak to a session and hear short spoken replies. Speech runs on the
 Pocket server; voice is an input and output method, not a separate assistant.

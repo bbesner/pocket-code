@@ -8,7 +8,7 @@ phone, and keep what comes out of them (projects, files and to-dos) beside the
 conversations. The server runs every turn, so closing the browser or locking the screen
 never stops the work.
 
-This checkout documents **1.37.2 / build 83**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.38.0 / build 84**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -71,6 +71,8 @@ the same way, through commands and skills that ship with Pocket.
   Codex's Plan first mode, per turn.
 - **Know where things stand.** Confirmed server work versus activity elsewhere, a context
   ring with usage and plan limits, and push alerts when a turn finishes.
+- **Choose your appearance.** Light, Dark or System, with orange, blue or purple
+  highlights. Saved per browser and synchronized across its Pocket windows and split panes.
 - **Talk to it (beta).** Speak through the mic beside Send and hear a short summary back,
   all processed on your own server.
 
@@ -107,6 +109,17 @@ the same way, through commands and skills that ship with Pocket.
   replies you have not opened; **Mark as reviewed** clears one, on every device.
 - **Get alerts.** Optional push notifications, an on-screen chime and per-session muting.
   Push needs HTTPS, server keys and browser permission.
+
+### Appearance
+
+Choose **Light**, **Dark** or **System** in **Settings → Appearance**. Orange, blue and
+purple highlights adapt to each mode. Your choice stays on this browser, including its
+split panes and other Pocket windows. New browsers follow the system; existing browsers
+keep dark mode until you change it.
+
+| Light | Dark |
+|---|---|
+| ![Light mode: warm paper surfaces, dark text and orange highlights in the conversation workspace](docs/images/appearance-light.png) | ![Dark mode: warm ink surfaces, light text and orange highlights in the same workspace](docs/images/appearance-dark.png) |
 
 ### Projects, files and tasks (optional)
 

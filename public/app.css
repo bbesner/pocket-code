@@ -2,11 +2,37 @@
 * { box-sizing: border-box; margin: 0; }
 :root {
   --bg: #131110; --surface: #1D1A18; --raised: #272322; --line: #2E2A27;
-  --text: #EDE7E0; --dim: #A99E93; --faint: #7A7169;
-  --clay: #D97757; --clay-deep: #3A241C; --ok: #7FB069; --err: #E2685C; --warn: #D9A94E;
+  --text: #EDE7E0; --dim: #A99E93; --faint: #aa9c91;
+  --clay: #D97757; --clay-deep: #3A241C; --ok: #7FB069; --err: #E87568; --warn: #D9A94E;
   --ice: #9FD4F0; /* 1.28.1: prompt cache gone cold */
+  color-scheme: dark;
+  --on-accent: #1A0F09; --on-warn: #1A0F09; --bubble-text: #F3E5DD;
+  --accent-hover: color-mix(in srgb, var(--clay) 86%, white);
+  --scrim: rgba(0,0,0,.55); --shadow-float: 0 6px 18px rgba(0,0,0,.45);
+  --shadow-dialog: 0 24px 64px rgba(0,0,0,.55), 0 2px 10px rgba(0,0,0,.35);
+  --shadow-menu: 0 -6px 24px rgba(0,0,0,.4); --swatch-border: rgba(255,255,255,.25);
+  --accent-orange: #D97757; --accent-blue: #709FF8; --accent-purple: #BEABFF;
   --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
 }
+/* Light is warm paper, with darker accents and status colours for readable small text.
+   Accent foregrounds and fills form pairs; a colour used for a link cannot blindly
+   reuse the same button foreground in both modes. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #FAF8F5; --surface: #F2EEE8; --raised: #E8E2DA; --line: #CFC5B9;
+  --text: #28221E; --dim: #61564D; --faint: #695E55;
+  --clay: #9B3F23; --clay-deep: #F4E3DA; --ok: #37622A; --err: #A52F26; --warn: #805B13; --ice: #1C6389;
+  --on-accent: #FFFFFF; --on-warn: #FFFFFF; --bubble-text: #38281F;
+  --accent-hover: color-mix(in srgb, var(--clay) 90%, black);
+  --scrim: rgba(32,24,18,.3); --shadow-float: 0 6px 18px rgba(32,24,18,.16);
+  --shadow-dialog: 0 24px 64px rgba(32,24,18,.18), 0 2px 10px rgba(32,24,18,.1);
+  --shadow-menu: 0 -6px 24px rgba(32,24,18,.12); --swatch-border: rgba(0,0,0,.2);
+  --accent-orange: #9B3F23; --accent-blue: #245CC0; --accent-purple: #6740AC;
+}
+:root[data-accent="blue"] { --clay: var(--accent-blue); --clay-deep: #15254A; }
+:root[data-accent="purple"] { --clay: var(--accent-purple); --clay-deep: #2B203F; }
+:root[data-theme="light"][data-accent="blue"] { --clay-deep: #DFE9FC; --bubble-text: #1D3155; }
+:root[data-theme="light"][data-accent="purple"] { --clay-deep: #EBE2F7; --bubble-text: #37244F; }
 html { height: 100%; overflow: hidden; }
 body {
   height: var(--app-height, 100%); overflow: hidden; background: var(--bg); color: var(--text);
@@ -63,9 +89,9 @@ main.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
 .fab {
   position: fixed; right: 18px; bottom: calc(22px + var(--sab)); width: 58px; height: 58px;
-  border-radius: 50%; background: var(--clay); color: #1A0F09;
+  border-radius: 50%; background: var(--clay); color: var(--on-accent);
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 6px 18px rgba(0,0,0,.45);
+  box-shadow: var(--shadow-float);
 }
 .fab svg.i { width: 26px; height: 26px; stroke-width: 2.1; }
 .fab:active { transform: scale(.94); }
@@ -79,13 +105,13 @@ body.has-panes .fab { position: absolute; }
 .m-user,.m-asst { font-size:var(--chat-text-size,17px); }
 .m-user {
   align-self: flex-end; max-width: 85%;
-  background: var(--clay-deep); color: #F3E5DD;
+  background: var(--clay-deep); color: var(--bubble-text);
   padding: 10px 14px; border-radius: 16px 16px 4px 16px;
   white-space: pre-wrap; overflow-wrap: break-word;
 }
 .m-asst { max-width: 100%; overflow-wrap: break-word; }
 .m-user.pending, .m-files.pending { opacity: .72; }
-.stale-banner { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + var(--sab)); z-index: 60; max-width: min(92vw, 560px); padding: 10px 14px; border-radius: 12px; background: var(--clay); color: #1A0F09; font-size: 14.5px; font-weight: 500; box-shadow: 0 6px 18px rgba(0,0,0,.45); text-align: left; }
+.stale-banner { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + var(--sab)); z-index: 60; max-width: min(92vw, 560px); padding: 10px 14px; border-radius: 12px; background: var(--clay); color: var(--on-accent); font-size: 14.5px; font-weight: 500; box-shadow: var(--shadow-float); text-align: left; }
 .m-asst p { margin: 0 0 10px; } .m-asst p:last-child { margin-bottom: 0; }
 .m-asst h2, .m-asst h3 { font-size: 17px; font-weight: 650; margin: 14px 0 6px; }
 .m-asst ul, .m-asst ol { margin: 0 0 10px; padding-left: 22px; }
@@ -122,10 +148,10 @@ body.has-panes .fab { position: absolute; }
 .choice:hover { background: var(--raised); }
 /* The agent's recommended pick (1.17): the app's primary-action material (clay fill, ink text, like Send) with
    a small "Recommended" tag beneath the label, so the pick reads at a glance and is announced by name. */
-.choice-rec { background: var(--clay); border-color: var(--clay); color: #1A0F09; font-weight: 600;
+.choice-rec { background: var(--clay); border-color: var(--clay); color: var(--on-accent); font-weight: 600;
   display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding-top: 7px; padding-bottom: 7px; }
-.choice-rec:hover { background: color-mix(in srgb, var(--clay) 86%, #fff); }
-.choice-rec .choice-tag { font-size: 12px; font-weight: 600; line-height: 1.3; letter-spacing: .01em; color: #1A0F09; opacity: .9; }
+.choice-rec:hover { background: var(--accent-hover); }
+.choice-rec .choice-tag { font-size: 12px; font-weight: 600; line-height: 1.3; letter-spacing: .01em; color: var(--on-accent); opacity: .9; }
 .choice-x { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 10px; color: var(--dim); }
 .choice-x:hover { color: var(--text); background: var(--raised); }
 .choice:focus-visible, .choice-x:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
@@ -142,7 +168,7 @@ body.has-panes .fab { position: absolute; }
 .copybtn.ok { color: var(--ok); border-color: var(--ok); opacity: 1; }
 /* floated, not absolute — prose wraps around it instead of being overlapped */
 .copybtn.msgcopy { position: static; float: right; margin: -2px -2px 4px 10px;
-  background: none; border-color: transparent; opacity: .45; }
+  background: none; border-color: transparent; opacity: .8; }
 .copybtn.msgcopy.ok { opacity: 1; }
 
 /* ---------- the plan, as a checklist (TodoWrite) ---------- */
@@ -175,7 +201,7 @@ details.todo li.t-in_progress .tbox { border-color: var(--clay); background: var
   font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; }
 .findbar button.icon { padding: 6px; color: var(--dim); }
 mark.fmark { background: color-mix(in srgb, var(--clay) 28%, transparent); color: inherit; border-radius: 3px; }
-mark.fmark.cur { background: var(--clay); color: #1A0F09; }
+mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
 
 /* ---------- composer ---------- */
 .composer {
@@ -191,7 +217,7 @@ mark.fmark.cur { background: var(--clay); color: #1A0F09; }
 .composer textarea:placeholder-shown { white-space: nowrap; overflow: hidden; }
 .composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer .send {
-  width: 46px; height: 46px; border-radius: 50%; background: var(--clay); color: #1A0F09;
+  width: 46px; height: 46px; border-radius: 50%; background: var(--clay); color: var(--on-accent);
   display: flex; align-items: center; justify-content: center; flex: none;
 }
 .composer .send:disabled { background: var(--raised); color: var(--faint); }
@@ -216,7 +242,7 @@ mark.fmark.cur { background: var(--clay); color: #1A0F09; }
 }
 .pane textarea { min-height: 110px; resize: vertical; }
 .primary {
-  background: var(--clay); color: #1A0F09; font-weight: 650; font-size: 17px;
+  background: var(--clay); color: var(--on-accent); font-weight: 650; font-size: 17px;
   border-radius: 14px; padding: 15px; width: 100%;
 }
 .primary:disabled { background: var(--raised); color: var(--faint); }
@@ -291,7 +317,7 @@ header.bar button.bell.on { color: var(--clay); }
   display: block; margin: 4px 0; }
 
 /* ---------- bottom sheet ---------- */
-.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 40; }
+.scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 40; }
 .sheet {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
   background: var(--surface); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0;
@@ -315,7 +341,7 @@ a.chip, a.chip:visited { text-decoration: none; }
 /* 1.31: on a desktop a sheet is a dialog in the middle of the window, not a drawer rising from the bottom edge. */
 @media (min-width: 900px) {
   .sheet { left: 50%; right: auto; top: 50%; bottom: auto; transform: translate(-50%, -50%); width: min(var(--sheet-w, 560px), calc(100vw - 48px)); max-width: none;
-    max-height: calc(100dvh - 48px); border: 1px solid var(--line); border-radius: 16px; padding-bottom: 16px; box-shadow: 0 24px 64px rgba(0, 0, 0, .55), 0 2px 10px rgba(0, 0, 0, .35); animation: dialog .16s ease-out; }
+    max-height: calc(100dvh - 48px); border: 1px solid var(--line); border-radius: 16px; padding-bottom: 16px; box-shadow: var(--shadow-dialog); animation: dialog .16s ease-out; }
   .sheet.results-sheet { --sheet-w: 760px; }
   @keyframes dialog { from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)); } to { opacity: 1; transform: translate(-50%, -50%); } }
 }
@@ -324,7 +350,7 @@ a.chip, a.chip:visited { text-decoration: none; }
 .slash {
   position: absolute; left: 10px; right: 10px; bottom: 100%; margin-bottom: 8px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
-  max-height: 42vh; overflow-y: auto; box-shadow: 0 -6px 24px rgba(0,0,0,.4); z-index: 30;
+  max-height: 42vh; overflow-y: auto; box-shadow: var(--shadow-menu); z-index: 30;
 }
 .slash button { display: block; width: 100%; text-align: left; padding: 11px 14px;
   border-bottom: 1px solid var(--line); }
@@ -373,8 +399,8 @@ details.chg .fmeta { flex: none; font-size: 12.5px; color: var(--faint); }
   padding: 8px 10px; overflow-x: auto; margin: 0;
   font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; font-size: 12.5px; line-height: 1.5; }
 .diff pre span { display: block; white-space: pre; min-width: max-content; }
-.diff .da { color: var(--ok); background: rgba(127, 176, 105, .09); }
-.diff .dd { color: var(--err); background: rgba(226, 104, 92, .09); }
+.diff .da { color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, transparent); }
+.diff .dd { color: var(--err); background: color-mix(in srgb, var(--err) 9%, transparent); }
 .diff .dx { color: var(--faint); }
 .chgnote { padding: 14px 16px; font-size: 13px; color: var(--faint); }
 
@@ -442,7 +468,7 @@ header.bar h1.tappable { cursor: pointer; }
 .whatsnew ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; line-height: 1.4; color: var(--dim); }
 
 /* Session workspace: readable state, visible actions, shared phone/desktop list. */
-:root { --faint: #aa9c91; }
+/* The shared palette owns faint text in both modes. */
 body { height: 100dvh; }
 button:disabled { cursor: default; opacity: .55; }
 .session-home { padding-bottom: calc(96px + var(--sab)); }
@@ -604,7 +630,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .chat-text-help { color:var(--dim);font-size:13px;line-height:1.5; }
 .accent-controls button { display:inline-flex;align-items:center;gap:8px; }
 .accent-controls button[aria-pressed="true"] { border-color:var(--clay);box-shadow:inset 0 0 0 1px var(--clay); }
-.accent-dot { width:16px;height:16px;border-radius:50%;border:1px solid rgba(255,255,255,.25);flex:none; }
+.accent-dot { width:16px;height:16px;border-radius:50%;border:1px solid var(--swatch-border);flex:none; }
 .approvals-sheet { max-width:880px;padding:16px; }
 .approvals-sheet h2 { padding-left:0; }
 .approvals-sheet .sheet-help { max-width:70ch; }
@@ -1028,7 +1054,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .day-divider::before, .day-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .m-asst[data-time]::before { content: attr(data-time); display: block; margin: 0 0 4px; font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; font-size: 12px; line-height: 1.3; color: var(--dim); white-space: nowrap; }
 .m-asst.live::before { content: none; }
-.m-user[data-time]::after { content: attr(data-time); display: block; margin-top: 4px; text-align: right; font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; font-size: 12px; line-height: 1.3; color: color-mix(in srgb, #F3E5DD 72%, var(--clay-deep)); white-space: nowrap; }
+.m-user[data-time]::after { content: attr(data-time); display: block; margin-top: 4px; text-align: right; font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; font-size: 12px; line-height: 1.3; color: color-mix(in srgb, var(--bubble-text) 80%, var(--clay-deep)); white-space: nowrap; }
 .msgs.times-off .day-divider, .msgs.times-off .m-asst[data-time]::before, .msgs.times-off .m-user[data-time]::after { display: none; }
 
 /* ---------- 1.28: prompt-cache warmth ----------
@@ -1062,7 +1088,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .rail-switch { gap: 4px; }
 .rail-switch button { position: relative; }
 .rail-switch button + button::before { content: ""; position: absolute; left: -2.5px; top: 50%; width: 1px; height: 14px; transform: translateY(-50%); background: color-mix(in srgb, var(--faint) 55%, transparent); pointer-events: none; }
-.badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11.5px; font-weight: 650; color: #1A0F09; background: var(--warn); }
+.badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11.5px; font-weight: 650; color: var(--on-warn); background: var(--warn); }
 .badge[hidden] { display: none; }
 .project-head-actions, .rail-project-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .rail-project-actions { padding: 10px 14px 4px; }
@@ -1315,3 +1341,10 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .task-form .task-writing { color: var(--dim); font-size: 13.5px; }
 .task-form .task-writing[hidden] { display: none; }
 .conversation-task[hidden] { display: none; }
+
+/* Accent previews show the palette belonging to the current colour mode. */
+button[data-accent="clay"] .accent-dot { background: var(--accent-orange); }
+button[data-accent="blue"] .accent-dot { background: var(--accent-blue); }
+button[data-accent="purple"] .accent-dot { background: var(--accent-purple); }
+/* Documents retain their own canvas and colour preference inside the viewer. */
+.doc-frame { color-scheme: light; }

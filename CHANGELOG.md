@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.38.0] — Unreleased · build 84
+
+- **Light, Dark and System.** Settings → Appearance adds a per-browser colour mode. System follows the device's preference and updates while Pocket is open. Existing browsers with Pocket preferences keep dark mode; new browsers start with System. Explicit choices survive reloads, and windows and split panes update without rebuilding a conversation or losing its draft.
+- **Paired palettes.** Warm paper joins the existing warm ink interface. Orange, blue and purple highlights, message text, button labels, status colours, diff tints, shadows and native controls adapt together. Dark blue and purple highlights and the error colour were adjusted for readable small text.
+- **Startup and offline.** A small same-origin script resolves appearance before the stylesheet and app load; it is included in the service-worker shell. Browser chrome follows the selected mode. Document and media canvases keep their original appearance; Pocket-rendered Markdown and tables follow the app.
+
 ## [1.37.2] — 2026-10-10 · build 83
 
 - **Files keeps its previews in split view.** A split pane is a frame of its own, usually 380 to 650px wide, and the library treated anything under 700px as a phone, so in a pane it fell back to the list and hid the List/Grid buttons. A pane now gets the grid at any width, with a 160px minimum card so the narrowest pane holds two columns, and the List/Grid buttons show there; the choice is still shared with the tab. Phones keep the list. Requested by Brad.

@@ -11,6 +11,9 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
 export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()=>({}),settingsState=()=>({}),received=[],voiceLog={transcribe:[],speak:[]},conversations=new Map(),pinOrders=[]}) {
  const context=await browser.createBrowserContext(),page=await context.newPage();
+ // Preserve the established dark-mode colour assertions. theme-browser covers
+ // every palette and live switching independently, including fresh System users.
+ await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:'dark'}]);
  page.setDefaultTimeout(8000);
  const errors=[],checks=[],scans=[];
  page.on('pageerror',e=>errors.push(e.message));

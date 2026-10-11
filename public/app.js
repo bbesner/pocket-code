@@ -569,6 +569,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   let srv = null;
   sh.innerHTML = `
     <h2>Settings</h2>
+    ${themeControlsHTML()}
     ${chatTextControlsHTML()}
     ${accentControlsHTML()}
     <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button>
@@ -614,6 +615,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   if (about) sh.querySelector('#s-about').scrollIntoView({block:'start'});
   bindChatTextControls(sh);
   bindAccentControls(sh);
+  sh.querySelector('#s-theme').onchange = e => PocketTheme.setPreference(e.target.value);
   Voice.bindSettings(sh);
   sh.querySelector('#s-environment').onclick = openEnvironment;
   sh.querySelector('#s-usage').onclick = openUsagePanel;
