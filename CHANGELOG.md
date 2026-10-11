@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.38.0] — Unreleased · build 84
+## [1.38.0] — 2026-10-11 · build 84
 
 - **Light, Dark and System.** Settings → Appearance adds a per-browser colour mode. System follows the device's preference and updates while Pocket is open. Existing browsers with Pocket preferences keep dark mode; new browsers start with System. Explicit choices survive reloads, and windows and split panes update without rebuilding a conversation or losing its draft.
 - **Paired palettes.** Warm paper joins the existing warm ink interface. Orange, blue and purple highlights, message text, button labels, status colours, diff tints, shadows and native controls adapt together. Dark blue and purple highlights and the error colour were adjusted for readable small text.
