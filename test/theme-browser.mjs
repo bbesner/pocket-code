@@ -34,6 +34,7 @@ export async function runThemeRegressions({browser,base,rows,out,settings,modes,
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,name+' viewport overflow');
  };
  try{
+  await Promise.all(['/api/documents/reset','/api/board/reset','/api/tasks/reset'].map(route=>fetch(base+route).then(r=>assert.equal(r.ok,true))));
   await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:'light'},{name:'prefers-reduced-motion',value:'reduce'}]);
   await page.setViewport({width:1440,height:900});
   await chat();assert.equal(await page.evaluate(()=>PocketTheme.preference),'system');
@@ -69,7 +70,7 @@ export async function runThemeRegressions({browser,base,rows,out,settings,modes,
 
   // Real same-origin split panes and separate windows, including changes made inside a pane.
   await page.type('#box','Keep this draft through appearance changes.');
-  await clickControl(page,'#splitb');await clickControl(page,`[data-v="${rows[0].id}"]`);
+  await clickControl(page,'#splitb');await page.waitForSelector(`[data-v="${rows[0].id}"]`);await clickControl(page,`[data-v="${rows[0].id}"]`);
   await page.waitForSelector('#panes iframe');const pane=await(await page.$('#panes iframe')).contentFrame();await pane.waitForSelector('#box');
   const other=await context.newPage();await other.goto(base+'/?solo=1#/chat/'+idle);await other.waitForSelector('#box');
   await page.evaluate(()=>settingsSheet({category:'appearance'}));await page.waitForSelector('#s-theme');
