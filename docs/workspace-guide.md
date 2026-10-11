@@ -468,6 +468,19 @@ labels preferences that apply to **This device** or **This instance · all devic
 **Back to Settings**, preserving the category and scroll position; Close and Escape
 exit Settings and return focus to its opener.
 
+**Appearance → Colour mode** offers **Light**, **Dark**, and **System**. System follows the
+operating system and changes immediately when its preference changes. The choice is saved
+on this browser, shared with its other Pocket windows and split panes; it does not change
+another device. New browsers start with System. Browsers with existing Pocket preferences
+keep dark mode until you choose otherwise. Clearing browser storage resets to System.
+
+Orange, blue and purple highlights adapt to each mode, including message bubbles and
+status colours. Switching mode preserves your draft and reading position. The app sets
+its appearance before opening, including when its cached shell opens offline. The browser
+bar follows the mode where supported; installed-app launch screens and icons may retain
+the manifest's dark background until the app opens. Files navigation, Markdown and table
+viewers follow Pocket; PDFs, images and saved HTML documents retain their own canvas.
+
 Help & updates contains keyboard help, About & updates, What's new, and Bugs & feature
 requests. Feedback links open GitHub forms with the app version and build filled in.
 Version lookup failures offer a retry instead of claiming the app is current. Frontend
@@ -591,7 +604,7 @@ explains that it is blocked and you can open Pocket Code directly.
 |---|---|
 | Open tabs, split arrangement, hidden sessions, filters | Conversation transcripts and native Codex store |
 | Drafts, reading position, attachment references, retry state | Uploaded files and delivery receipts |
-| Text size, highlight colour, collapse preferences (header, composer, rail filters, tool calls), message times, dismissed reply suggestions | Pins and their order, names, per-session mutes, and the settings Pocket keeps for the whole install (name sync, titles and summaries, Projects, Files and Tasks on or off) |
+| Colour mode, text size, highlight colour, collapse preferences (header, composer, rail filters, tool calls), message times, dismissed reply suggestions | Pins and their order, names, per-session mutes, and the settings Pocket keeps for the whole install (name sync, titles and summaries, Projects, Files and Tasks on or off) |
 | Per-session composer choices and chime preference | Follow-up queue, approval audit, usage snapshots, runner state, pending usage-limit resumes |
 | How projects and files open, the Files button, the library's list or grid layout, the rail's Sessions / Projects / Files / Tasks choice | Projects (`projects.json`), the file library and its records (`documents.json`), tasks (`tasks.json`) and saved prompts (`saved-prompts.json`), the same on every device |
 | Voice preferences, voice mute and vocabulary | Voice engine install (`POCKET_VOICE_HOME`); no recordings are kept |

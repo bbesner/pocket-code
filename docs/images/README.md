@@ -1,6 +1,6 @@
 # Documentation image provenance
 
-The README uses six current screenshots, captured from the **1.37.0 / build 81** frontend on
+The six workspace screenshots below were captured from the **1.37.0 / build 81** frontend on
 2026-10-10. They show synthetic sessions, projects, files and tasks supplied by the browser
 test fixture, with no production data or model calls. Desktop captures are emulated Chromium
 viewports (1600×1000 for the split view; 1440×900 for Projects and Files, cropped to the
@@ -39,3 +39,17 @@ tasks and the actual frontend. The phone shows a working agent; the desktop show
 its completed result. These are emulated Chromium views, not physical-device tests.
 Capture with `POCKET_SCREENSHOTS=/tmp/pocket-preview npm run test:browser` and copy
 those two images from that directory after inspecting them.
+
+## Appearance modes (1.38.0 / build 84)
+
+`appearance-light.png` and `appearance-dark.png` show the same synthetic conversation
+at 1440×900 in light and dark mode with the orange accent. Captured 2026-10-11 from
+`test/theme-browser.mjs`; no production data or model calls. Reproduce with:
+
+```bash
+POCKET_THEME_ONLY=1 POCKET_SCREENSHOTS=/tmp/pocket-themes node test/browser.mjs
+```
+
+Copy `theme-light-clay-chat-1440.png` and `theme-dark-clay-chat-1440.png` from that
+directory after inspecting them. The suite also captures phone views and blue/purple
+palettes. Emulated viewports do not replace installed-app checks on physical devices.

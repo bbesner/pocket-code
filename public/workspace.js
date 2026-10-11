@@ -116,30 +116,21 @@ function bindChatTextControls(container){
  container.querySelectorAll('[data-text-larger]').forEach(el=>{el.disabled=chatTextSize===CHAT_TEXT_MAX;el.onclick=()=>setChatTextSize(chatTextSize+1);});
  container.querySelectorAll('[data-text-reset]').forEach(el=>el.onclick=()=>setChatTextSize(CHAT_TEXT_DEFAULT));
 }
-// Accent colour (per device, like text size). The whole UI keys off --clay / --clay-deep, so swapping
-// those two variables on <html> re-themes the send button, links, active dots, user bubbles and checkboxes.
+// Appearance is bootstrapped by theme.js before CSS; palettes live in app.css.
 const ACCENTS={
- clay:{label:'Orange',accent:'#D97757',deep:'#3A241C'},
- blue:{label:'Blue',accent:'#4A83F5',deep:'#15254A'},
- purple:{label:'Purple',accent:'#BEABFF',deep:'#6246C2'}
+ clay:{label:'Orange'}, blue:{label:'Blue'}, purple:{label:'Purple'}
 };
 const ACCENT_DEFAULT='clay';
-let accentKey=readLocal('pc-accent',ACCENT_DEFAULT);
-if(!ACCENTS[accentKey])accentKey=ACCENT_DEFAULT;
+let accentKey=PocketTheme.accent;
 function applyAccent(key){
- const a=ACCENTS[key]||ACCENTS[ACCENT_DEFAULT];
- const root=document.documentElement.style;
- if(key===ACCENT_DEFAULT){root.removeProperty('--clay');root.removeProperty('--clay-deep');}
- else{root.setProperty('--clay',a.accent);root.setProperty('--clay-deep',a.deep);}
+ PocketTheme.setAccent(ACCENTS[key]?key:ACCENT_DEFAULT);
 }
-applyAccent(accentKey);
 function setAccent(key){
  if(!ACCENTS[key])return;
- accentKey=key;writeLocal('pc-accent',key);applyAccent(key);
- document.querySelectorAll('[data-accent]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.accent===key)));
+ applyAccent(key);
 }
 function accentControlsHTML(){
- const swatches=Object.entries(ACCENTS).map(([k,a])=>`<button data-accent="${k}" aria-pressed="${k===accentKey}" aria-label="${a.label}" title="${a.label}"><span class="accent-dot" style="background:${a.accent}"></span>${a.label}</button>`).join('');
+ const swatches=Object.entries(ACCENTS).map(([k,a])=>`<button data-accent="${k}" aria-pressed="${k===accentKey}" aria-label="${a.label}" title="${a.label}"><span class="accent-dot"></span>${a.label}</button>`).join('');
  return `<section class="chat-text-settings accent-settings" aria-label="Highlight colour">
   <p class="chat-text-label">Highlight colour</p>
   <div class="chat-text-controls accent-controls" role="group" aria-label="Choose highlight colour">${swatches}</div>
@@ -149,6 +140,20 @@ function accentControlsHTML(){
 function bindAccentControls(container){
  container.querySelectorAll('[data-accent]').forEach(el=>{el.onclick=()=>setAccent(el.dataset.accent);});
 }
+function themeControlsHTML(){
+ return `<section class="chat-text-settings theme-settings" aria-label="Colour mode">
+  <label class="voice-field">Colour mode<select id="s-theme">
+   ${[['system','System'],['light','Light'],['dark','Dark']].map(([key,label])=>`<option value="${key}"${PocketTheme.preference===key?' selected':''}>${label}</option>`).join('')}
+  </select></label>
+  <p class="chat-text-help">System follows your device’s appearance. Saved on this browser for all Pocket windows and split views.</p>
+ </section>`;
+}
+function syncAppearanceControls(){
+ accentKey=PocketTheme.accent;
+ document.querySelectorAll('button[data-accent]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.accent===accentKey)));
+ const select=document.getElementById('s-theme');if(select)select.value=PocketTheme.preference;
+}
+window.addEventListener('pocket-appearance-change',syncAppearanceControls);
 let headerCollapsed=readLocal('pc-header-collapsed',false)===true;
 let composerCollapsed=readLocal('pc-composer-collapsed',false)===true;
 let railFiltersCollapsed=readLocal('pc-rail-filters-collapsed',false)===true;
@@ -513,7 +518,7 @@ function updateNewSummary() {
 }
 function organizeSettings(sh, {category='',scrollTop=0}={}) {
  const groups=[
-  ['appearance','Appearance','Text size and highlight colour', [['This device','.chat-text-settings']]],
+  ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings']]],
   ['conversation','Conversation','Reading, session titles and summaries', [['This device','#s-tools,#s-times'],['This instance · all devices','#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
   ['agents','Agents & instance','Accounts and plan usage', [['This instance · all devices','#s-environment,#s-usage']]],
   ['libraries','Projects, files & tasks','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents,#s-tasks'],['This device','', '#s-projects-open,#s-files-button,#s-documents-open']]],

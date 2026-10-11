@@ -8,6 +8,27 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Appearance modes (1.38)
+
+Pinned Operate refinement: variance 3, motion 2, density 7. Preserve layouts, native type,
+control vocabulary and accent choices. Dark remains warm ink; light is warm paper
+(`#FAF8F5`) with ink text and darker accents. All palettes live in `public/app.css`.
+`data-theme` chooses the mode and `data-accent` chooses orange, blue or purple. Semantic
+foregrounds cover accent buttons, warning badges and user bubbles; shadows and diff tints
+also follow the mode. Blue and purple's dark pairs and error red are adjusted for contrast.
+
+`theme.js` runs before CSS and body scripts, with no inline script or CSP exception.
+`pc-theme` stores `system`, `light` or `dark`; `pc-accent` keeps its existing values. A new
+browser defaults to System; a browser carrying older `pc-*` preferences retains Dark.
+Storage failures fall back to an in-memory preference. Native controls use the resolved
+`color-scheme`, and browser chrome follows `--bg`. Same-origin storage events synchronize
+windows and panes in place; OS changes affect System only. Document iframes retain a
+light canvas and may still implement their own theme internally. Media is not recoloured.
+
+Settings → Appearance uses a labelled native select above text size and highlight colour.
+No theme animation or screen rebuild: drafts, focus, scroll and active streams stay in place.
+Installed launch screens and static icons remain manifest-controlled; verify them on devices.
+
 ## Sidebar header (1.33.1)
 
 The resizable rail is an inline-size container. Navigation type, padding and mouse

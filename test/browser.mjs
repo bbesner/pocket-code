@@ -218,7 +218,7 @@ const server=http.createServer(async(req,res)=>{
   if(failNext){req.socket.destroy();return;}
   return json(receipts.get(body.clientMessageId),202);
  }
- if(url.pathname==='/sw.js'){res.writeHead(200,{'content-type':'text/javascript'});res.end('// Fixture worker: no caching.');return;}
+ if(url.pathname==='/sw.js'&&!uiModes.realWorker){res.writeHead(200,{'content-type':'text/javascript'});res.end('// Fixture worker: no caching.');return;}
  const rel=url.pathname==='/'?'index.html':url.pathname.slice(1);const file=path.join(repo,'public',rel);
  if(!file.startsWith(path.join(repo,'public')+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}
  res.writeHead(200,{'content-type':rel.endsWith('.js')?'text/javascript':rel.endsWith('.css')?'text/css':rel.endsWith('.html')?'text/html':'application/octet-stream'});res.end(fs.readFileSync(file));
@@ -234,6 +234,12 @@ const scan=async label=>{
  scans.push({label,result:await p.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false}))});
 };
 try{
+ if(process.env.POCKET_THEME_ONLY){
+  const {runThemeRegressions}=await import('./theme-browser.mjs');
+  await runThemeRegressions({browser,base,rows,out,settings:fixtureSettings,modes:uiModes,setRequests:r=>{questionRequests=r.questions||[];approvalRequests=r.approvals||[];}});
+  console.log(JSON.stringify({ok:true,themesOnly:true,screenshots:out}));
+  throw Object.assign(Error('themes only'),{docsOnly:true});
+ }
  if(process.env.POCKET_DOCS_SCREENSHOTS){
   await captureDocs({browser,base,rows,dir:process.env.POCKET_DOCS_SCREENSHOTS,conversations,settings:fixtureSettings});
   if(process.env.POCKET_DOCS_ONLY){console.log(JSON.stringify({ok:true,docsOnly:true,dir:process.env.POCKET_DOCS_SCREENSHOTS}));process.exitCode=0;throw Object.assign(Error('docs only'),{docsOnly:true});}
@@ -675,6 +681,8 @@ try{
  await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),getMode:()=>uiModes,settingsState:()=>fixtureSettings,received,voiceLog,conversations,pinOrders});
  const {runCleanupRegressions}=await import('./cleanup-ui.mjs');
  await runCleanupRegressions({browser,base,rows,out});
+ const {runThemeRegressions}=await import('./theme-browser.mjs');
+ await runThemeRegressions({browser,base,rows,out,settings:fixtureSettings,modes:uiModes,setRequests:r=>{questionRequests=r.questions||[];approvalRequests=r.approvals||[];}});
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));
