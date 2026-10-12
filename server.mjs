@@ -2629,11 +2629,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = [
-  "Choose Light, Dark or System in Settings → Appearance. System follows your device; your choice is saved on this browser and updates all Pocket windows and split views immediately.",
-  "Orange, blue and purple highlights have matching light and dark palettes. Existing browsers keep dark mode; new browsers start with System.",
-  "The appearance is applied before the app opens, including offline. Files navigation follows Pocket; documents keep their own canvas."
-];
+const RELEASE_NOTES = ["An open file in Files, in a tab or a split pane, no longer reloads and jumps back to the top every 30 seconds while you read it."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

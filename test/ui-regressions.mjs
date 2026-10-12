@@ -1411,6 +1411,13 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390: '+hash);
    }
    await scan('document-html-phone');await page.screenshot({path:path.join(out,'document-html-phone.png')});
+   // The 30 s library poll repaints an open file; it must keep the same frame (a new one reloads the page and scrolls the reader to the top).
+   {const htmlId=await page.evaluate(()=>fetch('/api/documents').then(r=>r.json()).then(j=>j.documents.find(d=>d.kind==='html').id));
+    await page.goto(base+'/#/documents/'+htmlId);await page.waitForSelector('iframe.doc-frame');}
+   await page.evaluate(()=>{document.querySelector('iframe.doc-frame').dataset.keep='1';});
+   await page.evaluate(()=>loadDocs(true).then(paintDocumentsView));
+   assert.equal(await page.$eval('iframe.doc-frame',e=>e.dataset.keep),'1','a repaint keeps the open document frame');
+   await clickControl(page,'#documents-main [data-share]');await page.waitForSelector('.sheet');await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));
    await page.setViewport({width:1440,height:900});settings.documents=true;
   });
 

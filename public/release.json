@@ -1,9 +1,7 @@
 {
-  "version": "1.38.0",
-  "assetV": 84,
+  "version": "1.38.1",
+  "assetV": 85,
   "notes": [
-    "Choose Light, Dark or System in Settings → Appearance. System follows your device; your choice is saved on this browser and updates all Pocket windows and split views immediately.",
-    "Orange, blue and purple highlights have matching light and dark palettes. Existing browsers keep dark mode; new browsers start with System.",
-    "The appearance is applied before the app opens, including offline. Files navigation follows Pocket; documents keep their own canvas."
+    "An open file in Files, in a tab or a split pane, no longer reloads and jumps back to the top every 30 seconds while you read it."
   ]
 }
