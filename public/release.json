@@ -1,7 +1,7 @@
 {
-  "version": "1.39.0",
-  "assetV": 86,
+  "version": "1.39.1",
+  "assetV": 87,
   "notes": [
-    "The Vault: a fourth library for API keys, tokens and logins, encrypted on the server, that agents use by name in commands and never see. Off until Settings turns it on with POCKET_VAULT_KEY set."
+    "Vault items can carry custom named fields beside their kind's fixed ones, and a Credentials kind holds any set of named fields, such as a client ID and secret."
   ]
 }

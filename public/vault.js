@@ -15,10 +15,16 @@ const VIC={
  note:'<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 15.5h5"/></svg>',
  lock:'<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5"/></svg>',
 };
-const VAULT_KINDS=[['api_key','API key'],['token','Token'],['login','Login'],['note','Secure note']];
+const VAULT_KINDS=[['api_key','API key'],['token','Token'],['login','Login'],['credentials','Credentials'],['note','Secure note']];
 const VAULT_KIND_WORD=Object.fromEntries(VAULT_KINDS);
-const VAULT_FIELDS={api_key:['value'],token:['value'],login:['username','password'],note:['text']};
-const vaultFieldWord=(kind,f)=>f==='value'?(kind==='token'?'Token':'Key'):f==='username'?'Username':f==='password'?'Password':'Note';
+const VAULT_KIND_SUB={credentials:'Any set of named fields, such as a client ID and secret'};
+// Each kind's fixed fields. Any item may also carry up to 20 custom fields (item.custom); Credentials has only those.
+const VAULT_FIELDS={api_key:['value'],token:['value'],login:['username','password'],credentials:[],note:['text']};
+const VAULT_FIELD_RE=/^[a-z][a-z0-9_]{0,31}$/,VAULT_CUSTOM_MAX=20;
+const vaultFixedFields=kind=>VAULT_FIELDS[kind]||['value'];
+// A fixed field reads as a word; a custom field is its own name.
+const vaultFieldWord=(kind,f)=>!vaultFixedFields(kind).includes(f)?f:f==='value'?(kind==='token'?'Token':'Key'):f==='username'?'Username':f==='password'?'Password':'Note';
+const vaultKindIcon=kind=>VIC[kind==='api_key'||kind==='credentials'?'key':kind]||VIC.lock;
 const VAULT_POLICY={ask:['Agents ask','A new command needs your approval once; approved commands are remembered'],auto:['Agents may use','Any command runs and is recorded'],owner:['Only you','Agents cannot use it']};
 const VAULT_NAME_RE=/^[a-z0-9-]{1,64}$/;
 const vaultItemById=id=>vaultSnap?.items.find(i=>i.id===id)||vaultSnap?.trash.find(i=>i.id===id)||null;
@@ -116,14 +122,14 @@ function vaultFactsHTML(i){
 }
 function vaultRowHTML(i){
  return `<div class="session-item vault-item ${i.expiring||vaultExpired(i)?'due':''}" data-item="${esc(i.id)}">
-  <span class="vault-kind" aria-hidden="true">${VIC[i.kind==='api_key'?'key':i.kind]||VIC.lock}</span>
+  <span class="vault-kind" aria-hidden="true">${vaultKindIcon(i.kind)}</span>
   <button class="row" data-vault-open="${esc(i.id)}"><span class="body"><span class="title vault-name">${esc(i.name)}</span><span class="session-status">${vaultFactsHTML(i)}</span></span></button>
   <button class="session-more icon" data-vault-more="${esc(i.id)}" aria-label="Options for ${esc(i.name)}">${IC.more}</button></div>`;
 }
 function vaultTrashRowHTML(i){
  const until=i.trashedAt?vaultDate(new Date(vaultTime(i.trashedAt)+30*86400e3).toISOString()):'';
  return `<div class="session-item vault-item finished" data-item="${esc(i.id)}">
-  <span class="vault-kind" aria-hidden="true">${VIC[i.kind==='api_key'?'key':i.kind]||VIC.lock}</span>
+  <span class="vault-kind" aria-hidden="true">${vaultKindIcon(i.kind)}</span>
   <span class="row"><span class="body"><span class="title vault-name">${esc(i.name)}</span><span class="session-status"><span>${esc(VAULT_KIND_WORD[i.kind]||'Secret')}</span>${until?`<span aria-hidden="true">·</span><span>Kept until ${esc(until)}</span>`:''}</span></span></span>
   <button class="chip vault-restore" data-vault-restore="${esc(i.id)}" aria-label="Restore ${esc(i.name)}">Restore</button></div>`;
 }
@@ -201,16 +207,18 @@ function vaultSheet(id){
   i.tags?.length?`<span>Tags: ${esc(i.tags.join(', '))}</span>`:'',
   i.expiresAt?`<span class="${i.expiring||vaultExpired(i)?'due-label':''}">${vaultExpired(i)?'Expired':'Expires'} ${esc(vaultDate(i.expiresAt))}</span>`:'',
   `<span>${esc(used)}</span>`,`<span>Added ${esc(rel(vaultTime(i.created)))}${i.updated&&i.updated!==i.created?' · Changed '+esc(rel(vaultTime(i.updated))):''}</span>`].filter(Boolean).join('');
- const fields=(i.fields?.length?i.fields:VAULT_FIELDS[i.kind]||['value']);
+ const fields=i.fields?.length?i.fields:vaultFixedFields(i.kind),fixed=vaultFixedFields(i.kind);
+ // How an agent names it in a run: the item alone when it has one field, item.field for each when it has several.
+ const use=fields.length>1?fields.map(f=>`<code class="vault-path">${esc(i.name+'.'+f)}</code>`).join(' '):`<code class="vault-path">${esc(i.name)}</code>`;
  sh.innerHTML=`<h2>${esc(VAULT_KIND_WORD[i.kind]||'Secret')}</h2><p class="task-text vault-name" id="vault-sheet-name">${esc(i.name)}</p><div class="task-facts">${facts}</div>
   <section class="vault-section"><h3>${fields.length>1?'Values':'Value'}</h3>${fields.map(f=>`<div class="vault-field" data-field="${esc(f)}">
-    <span class="vault-field-label" id="vf-${esc(f)}">${esc(vaultFieldWord(i.kind,f))}</span>
+    <span class="vault-field-label${fixed.includes(f)?'':' vault-field-custom'}" id="vf-${esc(f)}">${esc(vaultFieldWord(i.kind,f))}</span>
     <span class="vault-value"><span aria-hidden="true">••••••••</span><span class="vault-sr">Hidden</span></span>
     <span class="vault-field-actions"><button class="chip" data-copy-value aria-describedby="vf-${esc(f)}" hidden>${IC.copy}Copy</button><button class="chip" data-show aria-describedby="vf-${esc(f)}">Show</button></span></div>`).join('')}</section>
-  <section class="vault-section"><h3>Agents</h3><p class="vault-policy"><strong>${esc(pol[0])}</strong>: ${esc(pol[1])}</p></section>
+  <section class="vault-section"><h3>Agents</h3><p class="vault-policy"><strong>${esc(pol[0])}</strong>: ${esc(pol[1])}</p>${i.policy==='owner'?'':`<p class="vault-use">${fields.length>1?'Each field is used by name':'Used by name'} in a command: ${use}</p>`}</section>
   ${i.policy==='owner'?'':`<section class="vault-section"><h3>Approved commands <span>${(i.recipes||[]).length||''}</span></h3><div data-recipes>${vaultRecipesHTML(i)}</div></section>`}
   ${i.notes?`<div class="task-summary"><h3>Notes</h3>${esc(i.notes)}</div>`:''}
-  <button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, values, website, tags, notes and expiry</span></span></button>
+  <button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, values, fields, website, tags, notes and expiry</span></span></button>
   <button class="opt" data-policy>${VIC.lock}<span>Change who can use it<span class="sub">${esc(pol[0])}</span></span></button>
   <button class="opt" data-remove>${IC.x}<span>Remove<span class="sub">Kept for 30 days, then deleted</span></span></button>
   <section class="vault-section vault-history-section"><h3>History</h3><div class="vault-history" data-history role="status">Loading history…</div></section>`;
@@ -266,14 +274,36 @@ function vaultPolicySheet(i){
 
 /* ---------- the editor: add or edit ---------- */
 let vaultFieldSeq=0;
+const VAULT_SECRET_ATTRS='autocomplete="off" spellcheck="false" autocapitalize="none" autocorrect="off" data-1p-ignore data-lpignore="true"';
+const vaultRevealBtn=(id,label)=>`<button type="button" class="chip vault-reveal" data-reveal="${id}" aria-pressed="false" aria-describedby="${label}">Show</button>`;
 function vaultSecretFieldsHTML(kind,editing){
- return (VAULT_FIELDS[kind]||['value']).map(f=>{
+ return vaultFixedFields(kind).map(f=>{
   const id='vs-'+(++vaultFieldSeq),label=vaultFieldWord(kind,f),ph=editing?'Unchanged':'';
-  const common=`id="${id}" name="v-${f}" autocomplete="off" spellcheck="false" autocapitalize="none" autocorrect="off" data-1p-ignore data-lpignore="true" data-secret="${f}" placeholder="${ph}"`;
+  const common=`id="${id}" name="v-${f}" ${VAULT_SECRET_ATTRS} data-secret="${f}" placeholder="${ph}"`;
   if(f==='username')return `<label class="voice-field">${label}<input type="text" ${common}></label>`;
-  if(f==='text')return `<div class="vault-secret"><label class="voice-field" for="${id}" id="${id}-l">${label}</label><div class="vault-secret-input"><textarea rows="4" class="vault-masked" ${common}></textarea><button type="button" class="chip vault-reveal" data-reveal="${id}" aria-pressed="false" aria-describedby="${id}-l">Show</button></div></div>`;
-  return `<div class="vault-secret"><label class="voice-field" for="${id}" id="${id}-l">${label}</label><div class="vault-secret-input"><input type="password" ${common}><button type="button" class="chip vault-reveal" data-reveal="${id}" aria-pressed="false" aria-describedby="${id}-l">Show</button></div></div>`;
+  if(f==='text')return `<div class="vault-secret"><label class="voice-field" for="${id}" id="${id}-l">${label}</label><div class="vault-secret-input"><textarea rows="4" class="vault-masked" ${common}></textarea>${vaultRevealBtn(id,id+'-l')}</div></div>`;
+  return `<div class="vault-secret"><label class="voice-field" for="${id}" id="${id}-l">${label}</label><div class="vault-secret-input"><input type="password" ${common}>${vaultRevealBtn(id,id+'-l')}</div></div>`;
  }).join('');
+}
+// A custom field the item already has: its name is fixed (rename = remove and add), its value is replaced only when typed.
+function vaultCustomRowHTML(name){
+ const id='vs-'+(++vaultFieldSeq);
+ return `<div class="vault-custom-row" data-custom="${esc(name)}">
+  <span class="vault-custom-name" id="${id}-l">${esc(name)}</span>
+  <div class="vault-secret-input"><input type="password" id="${id}" ${VAULT_SECRET_ATTRS} data-custom-value placeholder="Unchanged" aria-labelledby="${id}-l">${vaultRevealBtn(id,id+'-l')}</div>
+  <button type="button" class="chip vault-field-remove" data-remove-field aria-pressed="false" aria-describedby="${id}-l">Remove</button>
+  <p class="vault-hint vault-removing" hidden>Removed when you save.</p>
+ </div>`;
+}
+// A field being added: a name and a value. A row left empty is ignored on save.
+function vaultNewFieldHTML(){
+ const id='vs-'+(++vaultFieldSeq);
+ return `<div class="vault-custom-row new" data-new-field>
+  <label class="voice-field vault-custom-key">Name<input type="text" data-custom-name maxlength="32" pattern="[a-z][a-z0-9_]{0,31}" placeholder="client_id" class="vault-name-input" ${VAULT_SECRET_ATTRS} aria-describedby="vault-field-hint ${id}-e"></label>
+  <button type="button" class="icon vault-field-drop" data-drop-field aria-label="Remove this field">${IC.x}</button>
+  <div class="vault-secret"><label class="voice-field" for="${id}" id="${id}-l">Value</label><div class="vault-secret-input"><input type="password" id="${id}" ${VAULT_SECRET_ATTRS} data-custom-value aria-describedby="${id}-e">${vaultRevealBtn(id,id+'-l')}</div></div>
+  <p class="vault-field-error" id="${id}-e"></p>
+ </div>`;
 }
 // insert: after saving, put {{vault:name}} into the open message box so the message refers to the secret by name.
 function vaultEditor(t,{insert=null}={}){
@@ -281,13 +311,21 @@ function vaultEditor(t,{insert=null}={}){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet vault-editor';
  let revision=t?.revision;
  const kind=t?.kind||'api_key',expires=t?.expiresAt?(d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)(new Date(t.expiresAt)):'';
+ const existing=t?(t.custom||[]):[];
+ const customHead=k=>k==='credentials'?'Fields':'Custom fields';
  sh.innerHTML=`<h2>${t?'Edit secret':'Add to the Vault'}</h2>${t?`<p class="sheet-name vault-name">${esc(t.name)}</p>`:'<p class="sheet-help vault-editor-help">Stored encrypted on this server. Agents use it by name in commands and never see the value.</p>'}
   <form class="project-form vault-form" autocomplete="off" novalidate>
    <label class="voice-field">Name<input type="text" name="name" required maxlength="64" pattern="[a-z0-9\\-]{1,64}" value="${esc(t?.name||'')}" placeholder="zoho-books" autocomplete="off" spellcheck="false" autocapitalize="none" autocorrect="off" aria-describedby="vault-name-hint" class="vault-name-input"></label>
    <p class="vault-hint" id="vault-name-hint">Lowercase letters, numbers and hyphens. Agents use this name.</p>
-   <label class="voice-field">Kind<select name="kind" ${t?'disabled aria-describedby="vault-kind-hint"':''}>${VAULT_KINDS.map(([v,l])=>`<option value="${v}" ${v===kind?'selected':''}>${l}</option>`).join('')}</select></label>
-   ${t?'<p class="vault-hint" id="vault-kind-hint">The kind is fixed. For a different kind, add a new secret.</p>':''}
+   <label class="voice-field">Kind<select name="kind" aria-describedby="${t?'vault-kind-hint':'vault-kind-sub'}" ${t?'disabled':''}>${VAULT_KINDS.map(([v,l])=>`<option value="${v}" ${v===kind?'selected':''}>${l}</option>`).join('')}</select></label>
+   ${t?'<p class="vault-hint" id="vault-kind-hint">The kind is fixed. For a different kind, add a new secret.</p>':`<p class="vault-hint" id="vault-kind-sub" data-kind-sub>${esc(VAULT_KIND_SUB[kind]||'')}</p>`}
    <div class="vault-secrets" data-secret-fields>${vaultSecretFieldsHTML(kind,Boolean(t))}</div>
+   <div class="vault-custom" role="group" aria-labelledby="vault-custom-h">
+    <h3 class="vault-custom-head" id="vault-custom-h">${customHead(kind)}</h3>
+    <p class="vault-hint" id="vault-field-hint" hidden>Lowercase letters, digits and underscores, for example client_id</p>
+    <div class="vault-custom-rows" data-custom-rows>${existing.map(vaultCustomRowHTML).join('')}</div>
+    <button type="button" class="chip vault-add-field" data-add-field>${IC.plus}Add field</button>
+   </div>
    ${t?'<p class="vault-hint">Leave a value empty to keep it as it is.</p>':''}
    <label class="voice-field">Website (optional)<input type="text" inputmode="url" name="url" value="${esc(t?.url||'')}" placeholder="https://" autocomplete="off" spellcheck="false" autocapitalize="none"></label>
    <label class="voice-field">Tags (optional)<input type="text" name="tags" value="${esc((t?.tags||[]).join(', '))}" placeholder="billing, zoho" autocomplete="off" autocapitalize="none" aria-describedby="vault-tags-hint"></label>
@@ -300,32 +338,84 @@ function vaultEditor(t,{insert=null}={}){
    <button class="primary" type="submit">${t?'Save changes':'Save to the Vault'}</button>
   </form>`;
  const form=sh.querySelector('form'),err=sh.querySelector('.vault-form-error'),box=sh.querySelector('[data-secret-fields]');
- const bindReveal=()=>box.querySelectorAll('[data-reveal]').forEach(b=>b.onclick=()=>{
+ const rowsBox=sh.querySelector('[data-custom-rows]'),addBtn=sh.querySelector('[data-add-field]'),fieldHint=sh.querySelector('#vault-field-hint');
+ const bindReveal=root=>root.querySelectorAll('[data-reveal]').forEach(b=>b.onclick=()=>{
   const el=document.getElementById(b.dataset.reveal),on=b.getAttribute('aria-pressed')!=='true';
   if(el.tagName==='TEXTAREA')el.classList.toggle('vault-masked',!on);else el.type=on?'text':'password';
   b.setAttribute('aria-pressed',String(on));
  });
- bindReveal();
- if(!t)form.elements.kind.onchange=()=>{box.innerHTML=vaultSecretFieldsHTML(form.elements.kind.value,false);bindReveal();};
+ bindReveal(box);
+ // Custom rows: the 20-field cap counts the fields kept plus the rows being added.
+ const keptCount=()=>rowsBox.querySelectorAll('[data-custom]:not(.removing),[data-new-field]').length;
+ const syncCustom=()=>{fieldHint.hidden=!rowsBox.querySelector('[data-new-field]');addBtn.disabled=keptCount()>=VAULT_CUSTOM_MAX;};
+ const clearRowError=row=>{const e=row.querySelector('.vault-field-error');if(e)e.textContent='';row.querySelectorAll('[aria-invalid]').forEach(x=>x.removeAttribute('aria-invalid'));};
+ const fieldError=(row,msg,input)=>{row.querySelector('.vault-field-error').textContent=msg;input.setAttribute('aria-invalid','true');input.focus();};
+ const bindNewRow=row=>{
+  bindReveal(row);
+  const nIn=row.querySelector('[data-custom-name]');
+  nIn.oninput=()=>{const v=nIn.value.toLowerCase().replace(/[\s-]/g,'_');if(v!==nIn.value){const p=nIn.selectionStart;nIn.value=v;nIn.setSelectionRange(p,p);}clearRowError(row);err.textContent='';};
+  row.querySelector('[data-custom-value]').addEventListener('input',()=>{clearRowError(row);err.textContent='';});
+  row.querySelector('[data-drop-field]').onclick=()=>{row.querySelector('[data-custom-value]').value='';row.remove();syncCustom();addBtn.focus();};
+ };
+ const addRow=focus=>{rowsBox.insertAdjacentHTML('beforeend',vaultNewFieldHTML());const row=rowsBox.lastElementChild;bindNewRow(row);syncCustom();if(focus)row.querySelector('[data-custom-name]').focus();return row;};
+ rowsBox.querySelectorAll('[data-custom]').forEach(row=>{
+  bindReveal(row);
+  const rm=row.querySelector('[data-remove-field]'),val=row.querySelector('[data-custom-value]');
+  rm.onclick=()=>{
+   const on=rm.getAttribute('aria-pressed')!=='true';
+   row.classList.toggle('removing',on);rm.setAttribute('aria-pressed',String(on));rm.textContent=on?'Undo':'Remove';
+   row.querySelector('.vault-removing').hidden=!on;val.disabled=on;if(on)val.value='';
+   syncCustom();
+  };
+ });
+ addBtn.onclick=()=>addRow(true);
+ if(!t&&kind==='credentials')addRow(false);
+ syncCustom();
+ if(!t)form.elements.kind.onchange=()=>{
+  const k=form.elements.kind.value;
+  box.innerHTML=vaultSecretFieldsHTML(k,false);bindReveal(box); // the custom rows typed so far stay
+  sh.querySelector('#vault-custom-h').textContent=customHead(k);sh.querySelector('[data-kind-sub]').textContent=VAULT_KIND_SUB[k]||'';
+  if(k==='credentials'&&!rowsBox.querySelector('[data-new-field]'))addRow(false);
+ };
  const nameIn=form.elements.name;
  nameIn.oninput=()=>{const v=nameIn.value.toLowerCase().replace(/[\s_]/g,'-');if(v!==nameIn.value){const p=nameIn.selectionStart;nameIn.value=v;nameIn.setSelectionRange(p,p);}nameIn.removeAttribute('aria-invalid');err.textContent='';};
  const polHint=()=>{sh.querySelector('[data-policy-hint]').textContent=VAULT_POLICY[form.elements.policy.value][1]+'.';};
  form.elements.policy.onchange=polHint;polHint();
  sh.querySelector('[data-clear-exp]').onclick=()=>{form.elements.expires.value='';};
- const wipe=()=>form.querySelectorAll('[data-secret]').forEach(el=>{el.value='';});
+ const wipe=()=>form.querySelectorAll('[data-secret],[data-custom-value]').forEach(el=>{el.value='';});
  onSheetGone(sh,wipe); // typed values never outlive the sheet
  form.onsubmit=async e=>{
-  e.preventDefault();err.textContent='';
+  e.preventDefault();err.textContent='';rowsBox.querySelectorAll('[data-new-field]').forEach(clearRowError);
   const name=nameIn.value.trim();
   if(!VAULT_NAME_RE.test(name)){nameIn.setAttribute('aria-invalid','true');err.textContent='Name: 1 to 64 lowercase letters, numbers or hyphens.';nameIn.focus();return;}
-  const k=t?t.kind:form.elements.kind.value,values={};
-  for(const el of form.querySelectorAll('[data-secret]')){const f=el.dataset.secret,v=f==='value'||f==='username'?el.value.trim():el.value;if(v)values[f]=v;}
-  if(!t){const need=(VAULT_FIELDS[k]||['value']).find(f=>!values[f]);if(need){err.textContent=vaultFieldWord(k,need)+' is required.';form.querySelector(`[data-secret="${need}"]`)?.focus();return;}} // the server needs every field of the kind
+  const k=t?t.kind:form.elements.kind.value,fixed=vaultFixedFields(k),values={},removeFields=[];
+  for(const el of box.querySelectorAll('[data-secret]')){const f=el.dataset.secret,v=f==='value'||f==='username'?el.value.trim():el.value;if(v)values[f]=v;}
+  if(!t){const need=fixed.find(f=>!values[f]);if(need){err.textContent=vaultFieldWord(k,need)+' is required.';box.querySelector(`[data-secret="${need}"]`)?.focus();return;}} // the server needs every fixed field of the kind
+  for(const row of rowsBox.querySelectorAll('[data-custom]')){
+   if(row.classList.contains('removing')){removeFields.push(row.dataset.custom);continue;}
+   const v=row.querySelector('[data-custom-value]').value.trim();if(v)values[row.dataset.custom]=v;
+  }
+  // New fields: refused here, beside the row, before anything is sent.
+  const seen=new Set();
+  for(const row of rowsBox.querySelectorAll('[data-new-field]')){
+   const nIn=row.querySelector('[data-custom-name]'),vIn=row.querySelector('[data-custom-value]'),n=nIn.value.trim(),v=vIn.value.trim();
+   if(!n&&!v)continue;
+   const why=!n?'Give this field a name.'
+    :!VAULT_FIELD_RE.test(n)?'Start with a letter, then up to 31 lowercase letters, digits or underscores.'
+    :fixed.includes(n)?`${VAULT_KIND_WORD[k]} already has a field named ${n}.`
+    :existing.includes(n)?`This secret already has a field named ${n}.`
+    :seen.has(n)?`Two fields are named ${n}.`:'';
+   if(why)return fieldError(row,why,nIn);
+   if(!v)return fieldError(row,`Give ${n} a value, or remove this field.`,vIn);
+   seen.add(n);values[n]=v;
+  }
+  if(rowsBox.querySelectorAll('[data-custom]:not(.removing)').length+seen.size>VAULT_CUSTOM_MAX){err.textContent=`A secret can have up to ${VAULT_CUSTOM_MAX} custom fields.`;return;}
+  if(!t&&!Object.keys(values).length){err.textContent='Add at least one field with a value.';(rowsBox.querySelector('[data-new-field] [data-custom-name]')||addRow(false).querySelector('[data-custom-name]')).focus();return;}
   let url=form.elements.url.value.trim();if(url&&!/^[a-z][a-z0-9+.-]*:/i.test(url))url='https://'+url;
   const tags=[...new Set(form.elements.tags.value.split(',').map(s=>s.trim()).filter(Boolean))];
   let expiresAt=null;if(form.elements.expires.value){const d=new Date(form.elements.expires.value+'T23:59:59');if(Number.isNaN(d.getTime())){err.textContent='Pick an expiry date, or clear it.';return;}expiresAt=d.toISOString();}
   const meta={url,notes:form.elements.notes.value.trim(),tags,policy:form.elements.policy.value,expiresAt};
-  const body=t?{action:'update',item:t.id,expected_revision:revision,...(name!==t.name?{name}:{}),...(Object.keys(values).length?{values}:{}),...meta}:{action:'add',name,kind:k,values,...meta};
+  const body=t?{action:'update',item:t.id,expected_revision:revision,...(name!==t.name?{name}:{}),...(Object.keys(values).length?{values}:{}),...(removeFields.length?{removeFields}:{}),...meta}:{action:'add',name,kind:k,values,...meta};
   const btn=form.querySelector('.primary');btn.disabled=true;
   try{
    const r=await api('/vault/act',{method:'POST',body:JSON.stringify(body),cache:'no-store'});
@@ -335,8 +425,12 @@ function vaultEditor(t,{insert=null}={}){
    toast(t?'Saved '+(r.item?.name||name):'Stored in the Vault as '+(r.item?.name||name));
   }catch(e2){
    if(e2.message==='login')return;
-   if(e2.status===409&&e2.body?.item){mergeVaultItem(e2.body.item);revision=e2.body.item.revision;repaintVault();err.textContent='This secret changed on another device. Check the fields and save again.';}
-   else{err.textContent=e2.message||'Could not save.';if(/name/i.test(e2.message||'')){nameIn.setAttribute('aria-invalid','true');nameIn.focus();}}
+   const msg=e2.message||'Could not save.';
+   if(e2.status===409&&e2.body?.item){mergeVaultItem(e2.body.item);revision=e2.body.item.revision;repaintVault();err.textContent='This secret changed on another device. Check the fields and save again.';return;}
+   // A refused field name goes under the row that named it.
+   const row=[...rowsBox.querySelectorAll('[data-new-field]')].find(r=>{const n=r.querySelector('[data-custom-name]').value.trim();return n&&new RegExp('(^|[^a-z0-9_])'+n+'($|[^a-z0-9_])').test(msg);});
+   if(row)fieldError(row,msg,row.querySelector('[data-custom-name]'));
+   else{err.textContent=msg;if(/name/i.test(msg)&&!/field/i.test(msg)){nameIn.setAttribute('aria-invalid','true');nameIn.focus();}}
   }finally{if(btn.isConnected)btn.disabled=false;}
  };
  mountSheet(scrim,sh);

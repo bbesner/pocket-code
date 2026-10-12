@@ -452,7 +452,11 @@ works once the operator has set `POCKET_VAULT_KEY` (see
 
 **Items.** Each item has a name agents refer to (lowercase letters, digits and dashes, up to 64
 characters, such as `zoho-books`), a kind, and its fields: an **API key** or **token** holds one
-value, a **login** a username and a password, a **note** a block of text. You can add a URL,
+value, a **login** a username and a password, a **note** a block of text, and **credentials**
+(1.39.1) whatever named fields you give it, such as a client ID and a client secret. Any item can
+also carry custom fields beside its kind's fixed ones (an Authorize.net login with its
+`signature_key`, say): **Add field** in the editor takes a name (lowercase letters, digits and
+underscores) and a value, encrypted like the rest, and agents bind it as `name.field`. You can add a URL,
 notes, tags and an expiry date. The Vault view lists the items with their kind, policy, expiry
 and when each was last used; a value is shown only when you tap it, one field at a time, with
 **Copy** beside it, and each view is recorded. **Remove** moves an item to the trash for 30

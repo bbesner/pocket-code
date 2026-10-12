@@ -1185,7 +1185,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // The list: the waiting request above the secrets, a badge on the rail switch, the login's expiry in amber.
    await page.goto(base+'/#/vault');await page.reload();await page.waitForSelector('.vault-item');
    const list=await page.evaluate(()=>({names:[...document.querySelectorAll('#vault-main .vault-item [data-vault-open] .title')].map(e=>e.textContent),requests:[...document.querySelectorAll('#vault-main .vault-request h3 .vault-name')].map(e=>e.textContent),badge:document.querySelector('[data-vault-badge]')?.textContent,rail:Boolean(document.querySelector('[data-rail-view="vault"]')),due:document.querySelector('.vault-item.due .due-label')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent}));
-   assert.deepEqual(list.names,['bank-recovery','vendor-portal','zoho-books']);assert.deepEqual(list.requests,['zoho-books']);assert.equal(list.badge,'1');assert.equal(list.rail,true,'the rail switch shows Vault');assert.match(list.due,/^Expires /);assert.equal(list.tab,'Vault');
+   assert.deepEqual(list.names,['acme-oauth','bank-recovery','square-hooks','vendor-portal','zoho-books']);assert.deepEqual(list.requests,['zoho-books']);assert.equal(list.badge,'1');assert.equal(list.rail,true,'the rail switch shows Vault');assert.match(list.due,/^Expires /);assert.equal(list.tab,'Vault');
    await scan('vault-list-desktop');await page.screenshot({path:path.join(out,'vault-list-desktop.png')});
    // Always allow answers the request and saves the command on the item.
    await clickControl(page,'#vault-main .vault-request [data-answer="always"]');await page.waitForFunction(()=>!document.querySelector('#vault-main .vault-request'));
@@ -1229,6 +1229,73 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390');
    await scan('vault-list-mobile');await page.screenshot({path:path.join(out,'vault-list-mobile.png')});
    await page.setViewport({width:1440,height:900});settings.vault=false;
+  });
+  await check('Vault custom fields (1.39.1): Credentials and custom fields in the sheet, the editor adds them, an edit removes one, a bad name is refused inline',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState();settings.vault=true;settings.vaultReady=true;
+   await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
+   const acts=[];const onReq=r=>{if(r.url().endsWith('/api/vault/act')&&r.method()==='POST')acts.push(JSON.parse(r.postData()||'{}'));};page.on('request',onReq);
+   try{
+    await page.goto(base+'/#/vault');await page.reload();await page.waitForSelector('.vault-item');
+    const id=name=>page.evaluate(n=>(vaultSnap.items.find(i=>i.name===n)||vaultSnap.trash.find(i=>i.name===n)).id,name);
+    // The sheet lists every field, fixed first then custom; each is masked until Show, and the agent hint names item.field.
+    const acme=await id('acme-oauth');
+    assert.equal(await page.$eval(`.vault-item[data-item="${acme}"] .vault-kind`,e=>e.innerHTML),await page.$eval(`.vault-item[data-item="${await id('zoho-books')}"] .vault-kind`,e=>e.innerHTML),'Credentials use the key icon');
+    await clickControl(page,`[data-vault-open="${acme}"]`);await page.waitForSelector('.vault-sheet [data-history] ul');
+    const sheetA=await page.evaluate(()=>({kind:document.querySelector('.vault-sheet h2').textContent,labels:[...document.querySelectorAll('.vault-sheet .vault-field-label')].map(e=>e.textContent),use:[...document.querySelectorAll('.vault-sheet .vault-use code')].map(e=>e.textContent)}));
+    assert.deepEqual(sheetA,{kind:'Credentials',labels:['client_id','client_secret'],use:['acme-oauth.client_id','acme-oauth.client_secret']});
+    assert.equal((await page.content()).includes('acme-secret-fixture-4410'),false,'no value before Show');
+    await clickControl(page,'.vault-sheet [data-field="client_secret"] [data-show]');
+    await page.waitForFunction(()=>document.querySelector('.vault-sheet [data-field="client_secret"] .vault-value.shown')?.textContent==='acme-secret-fixture-4410');
+    assert.equal(await page.$eval('.vault-sheet [data-field="client_secret"] [data-copy-value]',b=>b.hidden),false,'Copy appears with the value');
+    await scan('vault-sheet-custom');await page.screenshot({path:path.join(out,'vault-sheet-custom.png')});
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-sheet'));
+    assert.equal(await page.evaluate(()=>document.documentElement.outerHTML.includes('acme-secret-fixture-4410')),false,'the value left with the sheet');
+    const sq=await id('square-hooks');await clickControl(page,`[data-vault-open="${sq}"]`);await page.waitForSelector('.vault-sheet .vault-field');
+    assert.deepEqual(await page.$$eval('.vault-sheet .vault-field-label',e=>e.map(x=>x.textContent)),['Key','signature_key'],'an API key with a custom field');
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-sheet'));
+    // The editor: a custom row typed under API key survives the switch to Credentials, which has no fixed fields.
+    await clickControl(page,'#vt-add');await page.waitForSelector('.vault-editor form');
+    await page.type('.vault-editor [name=name]','stripe-connect');
+    await clickControl(page,'.vault-editor [data-add-field]');await page.waitForSelector('.vault-editor [data-new-field]');
+    await page.type('.vault-editor [data-new-field]:nth-child(1) [data-custom-name]','Client ID');
+    await page.type('.vault-editor [data-new-field]:nth-child(1) [data-custom-value]','sc-client-fixture');
+    await page.select('.vault-editor [name=kind]','credentials');
+    const switched=await page.evaluate(()=>({fixed:document.querySelectorAll('.vault-editor [data-secret]').length,rows:[...document.querySelectorAll('.vault-editor [data-new-field] [data-custom-name]')].map(e=>e.value),head:document.querySelector('#vault-custom-h').textContent,sub:document.querySelector('[data-kind-sub]').textContent}));
+    assert.deepEqual(switched,{fixed:0,rows:['client_id'],head:'Fields',sub:'Any set of named fields, such as a client ID and secret'},'the typed row stays and the name is normalised');
+    await clickControl(page,'.vault-editor [data-add-field]');await page.type('.vault-editor [data-new-field]:nth-child(2) [data-custom-name]','client_secret');
+    await page.type('.vault-editor [data-new-field]:nth-child(2) [data-custom-value]','sc-secret-fixture-3390');
+    // A bad name and a duplicate are refused beside the row, before anything is sent.
+    await clickControl(page,'.vault-editor [data-add-field]');await page.type('.vault-editor [data-new-field]:nth-child(3) [data-custom-name]','2fa');await page.type('.vault-editor [data-new-field]:nth-child(3) [data-custom-value]','x');
+    const sent=acts.length;await clickControl(page,'.vault-editor .primary');
+    await page.waitForFunction(()=>/Start with a letter/.test(document.querySelector('.vault-editor [data-new-field]:nth-child(3) .vault-field-error')?.textContent||''));
+    assert.equal(await page.evaluate(()=>{const n=document.querySelector('.vault-editor [data-new-field]:nth-child(3) [data-custom-name]');return n===document.activeElement&&n.getAttribute('aria-invalid');}),'true','the bad name is marked and focused');
+    await scan('vault-editor-custom');await page.screenshot({path:path.join(out,'vault-editor-custom.png')});
+    await page.$eval('.vault-editor [data-new-field]:nth-child(3) [data-custom-name]',e=>{e.value='';});await page.type('.vault-editor [data-new-field]:nth-child(3) [data-custom-name]','client_id');
+    await clickControl(page,'.vault-editor .primary');
+    await page.waitForFunction(()=>/Two fields are named client_id/.test(document.querySelector('.vault-editor [data-new-field]:nth-child(3) .vault-field-error')?.textContent||''));
+    assert.equal(acts.length,sent,'nothing was sent');
+    await clickControl(page,'.vault-editor [data-new-field]:nth-child(3) [data-drop-field]');
+    assert.equal(await page.$$eval('.vault-editor [data-new-field]',e=>e.length),2);
+    await clickControl(page,'.vault-editor .primary');
+    await page.waitForFunction(()=>!document.querySelector('.vault-editor')&&vaultSnap.items.some(i=>i.name==='stripe-connect'));
+    assert.deepEqual(acts.at(-1).values,{client_id:'sc-client-fixture',client_secret:'sc-secret-fixture-3390'});assert.equal(acts.at(-1).kind,'credentials');
+    const made=await page.evaluate(()=>vaultSnap.items.find(i=>i.name==='stripe-connect'));
+    assert.deepEqual({kind:made.kind,fields:made.fields,custom:made.custom},{kind:'credentials',fields:['client_id','client_secret'],custom:['client_id','client_secret']});
+    assert.equal(await page.evaluate(()=>document.documentElement.outerHTML.includes('sc-secret-fixture-3390')||JSON.stringify(localStorage).includes('sc-secret-fixture-3390')),false,'the value went to the server only');
+    // An edit removes one custom field: Remove marks it, Save sends removeFields and no values.
+    await clickControl(page,`[data-vault-open="${made.id}"]`);await page.waitForSelector('.vault-sheet [data-edit]');await clickControl(page,'.vault-sheet [data-edit]');await page.waitForSelector('.vault-editor form');
+    assert.deepEqual(await page.$$eval('.vault-editor [data-custom] .vault-custom-name',e=>e.map(x=>x.textContent)),['client_id','client_secret']);
+    await clickControl(page,'.vault-editor [data-custom="client_secret"] [data-remove-field]');
+    assert.equal(await page.$eval('.vault-editor [data-custom="client_secret"] [data-remove-field]',b=>b.getAttribute('aria-pressed')+' '+b.textContent),'true Undo');
+    await page.setViewport({width:390,height:844});await pause(150);
+    assert.equal(await page.evaluate(()=>{const s=document.querySelector('.vault-editor');return s.scrollWidth>s.clientWidth+1||document.documentElement.scrollWidth>innerWidth;}),false,'the editor fits at 390');
+    await scan('vault-editor-custom-mobile');await page.screenshot({path:path.join(out,'vault-editor-custom-mobile.png')});
+    await page.setViewport({width:1440,height:900});
+    await clickControl(page,'.vault-editor .primary');
+    await page.waitForFunction(()=>!document.querySelector('.vault-editor')&&vaultSnap.items.find(i=>i.name==='stripe-connect')?.custom?.length===1);
+    const upd=acts.at(-1);assert.equal(upd.action,'update');assert.deepEqual(upd.removeFields,['client_secret']);assert.equal(upd.values,undefined,'blank values are left unchanged');
+    assert.deepEqual(await page.evaluate(()=>vaultSnap.items.find(i=>i.name==='stripe-connect').fields),['client_id']);
+   }finally{page.off('request',onReq);settings.vault=false;}
   });
   await check('Projects (1.29): off by default, then the list, card, steps, reminders, finish and resume, tracking from a session, tabs, split pane, rail switch, settings and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));

@@ -40,7 +40,12 @@ by name. Use that name with `run`.
 | `api_key` | `value` | `name` (means `name.value`) |
 | `token` | `value` | `name` (means `name.value`) |
 | `login` | `username`, `password` | `name.username`, `name.password`: always name the field |
+| `credentials` | none fixed; custom fields only | `name.client_id`, `name.client_secret`: always name the field |
 | `note` | `text` | `name.text` |
+
+Any item can carry **custom fields** beside its kind's fixed ones (for example a login with a
+`signature_key`). Field names are lowercase letters, digits and underscores. `show <name>` lists
+every field; when an item has more than one, always write `name.field`.
 
 ## Running a command with a secret
 
@@ -121,6 +126,7 @@ tool result), store it **at once**, use its name from then on, and tell the user
 ```bash
 pocket-vault put stripe-live --kind api_key --from-env STRIPE_SECRET_KEY
 pocket-vault put vendor-portal --kind login --from-file /tmp/creds.json --map username=user,password=pass
+printf '%s' '{"client_id":"…","client_secret":"…"}' | pocket-vault put ups-api --kind credentials --stdin   # several named fields at once
 printf '%s' "$TWILIO_AUTH" | pocket-vault put twilio-auth --kind token --stdin \
   --url https://console.twilio.com --tags twilio,sms
 ```
@@ -129,7 +135,8 @@ printf '%s' "$TWILIO_AUTH" | pocket-vault put twilio-auth --kind token --stdin \
   `zoho-books`, `stripe-live`, `vendor-portal`.
 - **The value never goes on the command line.** Take it from an environment variable
   (`--from-env`), a file (`--from-file`, with `--map field=key,…` to pick fields out of a JSON
-  file) or standard input (`--stdin`). `put` prints only the name.
+  file) or standard input (`--stdin`). A JSON object gives several fields at once: the kind's
+  fixed ones plus any custom ones, each key becoming a field. `put` prints only the name.
 - **Create only.** An existing name is refused. Pick another name or ask the owner to update
   the item in the Vault view. You cannot change, rotate or remove an item.
 - New items get policy `ask` and no approved commands.

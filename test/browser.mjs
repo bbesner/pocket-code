@@ -54,12 +54,15 @@ const seedTasks=()=>{taskStore.tasks.length=0;
  const d=taskStore.act({action:'add',text:'Book the forklift service'});taskStore.act({action:'update',task:d.id,done:true});};
 // 1.39: the vault is the real store on a scratch vault.enc under a test key: an API key that asks (one approved command),
 // a login agents may use that expires in 5 days, an owner-only note, a removed token, and one request waiting for the owner.
+// 1.39.1: Credentials with two custom fields, and an API key that carries one custom field beside its key.
 const vaultDir=path.join(out,'vault');let vaultStore=null;
 const seedVault=()=>{fs.rmSync(vaultDir,{recursive:true,force:true});fs.mkdirSync(vaultDir,{recursive:true});
  vaultStore=new VaultStore(path.join(vaultDir,'vault.enc'),{key:parseKey(newKey())});
  vaultStore.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:'zk-fixture-secret-7731'},url:'https://books.zoho.com',tags:['billing'],policy:'ask'});
  vaultStore.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'ops@example.test',password:'portal-fixture-pass'},url:'https://portal.example.test',policy:'auto',expiresAt:new Date(now+5*86400000).toISOString()});
  vaultStore.act({action:'add',name:'bank-recovery',kind:'note',values:{text:'recovery codes fixture'},policy:'owner'});
+ vaultStore.act({action:'add',name:'acme-oauth',kind:'credentials',values:{client_id:'acme-client-fixture',client_secret:'acme-secret-fixture-4410'},url:'https://auth.acme.test',policy:'ask'});
+ vaultStore.act({action:'add',name:'square-hooks',kind:'api_key',values:{value:'sq-fixture-key-2208',signature_key:'sq-signature-fixture-6631'},policy:'ask'});
  const old=vaultStore.act({action:'add',name:'old-twilio',kind:'token',values:{value:'tw-fixture-old'}});vaultStore.act({action:'remove',item:old.id});
  const ask=argv=>{const env={TOKEN:'zoho-books'},bound=vaultStore.resolveBindings(env),cmd=vaultStore.checkCommand(argv,vaultDir);return vaultStore.request({bound,cmd,need:vaultStore.decide(bound,cmd),env,session:rows[0].id,sessionTitle:rows[0].title});};
  vaultStore.answer(ask(['node','sync-invoices.mjs']).id,'always');
@@ -150,6 +153,7 @@ const server=http.createServer(async(req,res)=>{
   const body=async()=>{let raw='';for await(const c of req)raw+=c;return JSON.parse(raw||'{}');};
   const fail=e=>json({error:e.message,...(e.item?{item:e.item}:{}),...(e.code?{code:e.code}:{})},e.status||400);
   if(url.pathname==='/api/vault')return json({...vaultStore.snapshot({owner:true}),push:{enabled:false}});
+  // The whole body goes to the real store, so values (fixed and custom) and removeFields reach it unchanged.
   if(url.pathname==='/api/vault/act'){const b=await body();try{const r=vaultStore.act(b,{actor:'owner'});return json(b.action==='answer'?{ok:true,request:r}:{ok:true,item:r,...(r.removed?{removed:true}:{})});}catch(e){return fail(e);}}
   if(url.pathname==='/api/vault/field'){const b=await body();try{return json({value:vaultStore.field(String(b.item||''),String(b.field||''))});}catch(e){return fail(e);}}
   if(url.pathname==='/api/vault/audit')return json({rows:vaultStore.auditRows({item:url.searchParams.get('item')||undefined,owner:true,limit:Number(url.searchParams.get('limit'))||50})});

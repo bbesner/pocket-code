@@ -11,11 +11,14 @@ import path from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
-export const KINDS = { api_key: ['value'], token: ['value'], login: ['username', 'password'], note: ['text'] };
+// Fixed fields by kind; any item may carry custom fields beside them (1.39.1), and `credentials` has only custom ones.
+export const KINDS = { api_key: ['value'], token: ['value'], login: ['username', 'password'], credentials: [], note: ['text'] };
+export const FIELD_RE = /^[a-z][a-z0-9_]{0,31}$/;
+export const fieldNames = i => [...KINDS[i.kind], ...(i.custom || [])];
 export const POLICIES = ['ask', 'auto', 'owner'];
 export const ACTIONS = ['add', 'update', 'remove', 'restore', 'recipe-remove', 'answer'];
 export const LIMITS = { items: 500, name: 64, url: 500, notes: 2000, tags: 20, tag: 40, value: 64 * 1024, argv: 200, arg: 4096, cwd: 1024, env: 32,
-  output: 1 << 20, timeoutMax: 3600, timeoutDefault: 600, waitMax: 300, requestTtlMs: 15 * 60_000, trashDays: 30, recipes: 50, auditRows: 200, concurrent: 8 };
+  customFields: 20, output: 1 << 20, timeoutMax: 3600, timeoutDefault: 600, waitMax: 300, requestTtlMs: 15 * 60_000, trashDays: 30, recipes: 50, auditRows: 200, concurrent: 8 };
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ENV_RE = /^[A-Z_][A-Z0-9_]{0,63}$/;
 const SESSION_RE = /^(cx:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -61,7 +64,7 @@ export function vaultInstructions(cli, sessionId) {
     'This Pocket Code keeps a Vault of credentials (API keys, tokens, logins) that agents use by name and never see.',
     `Run commands that need one with \`node ${cli} run --env VAR=<name>[.field] -- <command…>\`: Pocket runs the command with the value in that variable and returns the output with the value scrubbed. Values never appear in arguments, output, files, messages or your context; never print, echo, write down or ask for one.`,
     'If the command answers `pending <id>`, the owner is being asked to allow it: say so and continue with `wait <id>` when told. If it is refused, say so and stop; do not look for another way to the value.',
-    `When you meet a secret in a file, a result or a message, store it at once with \`node ${cli} put <name> --kind <api_key|token|login|note> --stdin\` (or --from-file), tell the owner it was seen, and use the name from then on. \`list\` shows what exists. A \`{{vault:name}}\` in a message is the owner handing you a stored secret by name.`,
+    `When you meet a secret in a file, a result or a message, store it at once with \`node ${cli} put <name> --kind <api_key|token|login|credentials|note> --stdin\` (or --from-file), tell the owner it was seen, and use the name from then on. \`list\` shows what exists. A \`{{vault:name}}\` in a message is the owner handing you a stored secret by name.`,
     `The pocket-vault skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-vault', 'SKILL.md')}\`) has the procedure.${sessionId ? '' : ' Pass --cwd when the command depends on the working directory.'}`,
   ].join(' ');
 }
@@ -82,8 +85,9 @@ export class VaultStore {
   }
   normalize(i) {
     const kind = KINDS[i.kind] ? i.kind : 'note';
-    const values = {}; for (const f of KINDS[kind]) values[f] = typeof i.values?.[f] === 'string' ? i.values[f] : '';
-    return { ...i, kind, values, url: str(i.url, LIMITS.url), notes: str(i.notes, LIMITS.notes), tags: Array.isArray(i.tags) ? i.tags.map(t => str(t, LIMITS.tag)).filter(Boolean).slice(0, LIMITS.tags) : [],
+    const custom = [...new Set((Array.isArray(i.custom) ? i.custom : []).filter(f => typeof f === 'string' && FIELD_RE.test(f) && !KINDS[kind].includes(f)))].slice(0, LIMITS.customFields);
+    const values = {}; for (const f of [...KINDS[kind], ...custom]) values[f] = typeof i.values?.[f] === 'string' ? i.values[f] : '';
+    return { ...i, kind, custom, values, url: str(i.url, LIMITS.url), notes: str(i.notes, LIMITS.notes), tags: Array.isArray(i.tags) ? i.tags.map(t => str(t, LIMITS.tag)).filter(Boolean).slice(0, LIMITS.tags) : [],
       policy: POLICIES.includes(i.policy) ? i.policy : 'ask', recipes: Array.isArray(i.recipes) ? i.recipes.filter(r => r && Array.isArray(r.argv)).slice(0, LIMITS.recipes) : [],
       expiresAt: i.expiresAt && !Number.isNaN(Date.parse(i.expiresAt)) ? i.expiresAt : null, lastUsedAt: i.lastUsedAt || null, lastUsedBy: i.lastUsedBy || null,
       trashedAt: i.trashedAt || null, revision: Number.isInteger(i.revision) && i.revision > 0 ? i.revision : 1 };
@@ -117,7 +121,7 @@ export class VaultStore {
   // The item as the UI and CLI see it: never a value; notes only for the owner.
   view(i, { owner = false, now = this.now() } = {}) {
     const { values, notes, ...rest } = i;
-    return { ...rest, fields: KINDS[i.kind], policyWord: POLICY_WORDS[i.policy], ...(owner ? { notes } : {}), expiring: Boolean(i.expiresAt) && Date.parse(i.expiresAt) - now < 14 * 86400_000 };
+    return { ...rest, fields: fieldNames(i), custom: i.custom, policyWord: POLICY_WORDS[i.policy], ...(owner ? { notes } : {}), expiring: Boolean(i.expiresAt) && Date.parse(i.expiresAt) - now < 14 * 86400_000 };
   }
   requestView(r) { const { env, waiters, ...rest } = r; return { ...rest, pending: !r.answer }; }
   snapshot({ owner = false, now = this.now() } = {}) {
@@ -139,10 +143,10 @@ export class VaultStore {
       const name = str(input.name, LIMITS.name + 1).toLowerCase();
       if (!NAME_RE.test(name)) throw fail('The name must be 1 to 64 characters: lower-case letters, digits and hyphens.');
       if (this.items.some(i => i.name === name)) throw fail(owner ? 'An item with that name already exists.' : `An item named ${name} already exists; agents cannot replace it. Use another name or ask the owner.`, 409);
-      const kind = str(input.kind, 20); if (!KINDS[kind]) throw fail('The kind must be api_key, token, login or note.');
+      const kind = str(input.kind, 20); if (!KINDS[kind]) throw fail('The kind must be api_key, token, login, credentials or note.');
       if (this.items.length >= LIMITS.items) throw fail(`You can keep up to ${LIMITS.items} items.`, 409);
-      const values = this.checkValues(kind, input.values, { all: true });
-      const item = { id: shortId(), name, kind, values, url: str(input.url, LIMITS.url), notes: owner ? str(input.notes, LIMITS.notes) : '', tags: this.checkTags(input.tags),
+      const { values, custom } = this.checkValues({ kind, custom: [] }, input.values, { all: true });
+      const item = { id: shortId(), name, kind, custom, values, url: str(input.url, LIMITS.url), notes: owner ? str(input.notes, LIMITS.notes) : '', tags: this.checkTags(input.tags),
         policy: owner && POLICIES.includes(input.policy) ? input.policy : 'ask', recipes: [], expiresAt: this.checkWhen(input.expiresAt),
         created: at, updated: at, by, lastUsedAt: null, lastUsedBy: null, trashedAt: null, revision: 1 };
       this.audit({ action: 'put', item: item.id, name, by, session, sessionTitle });
@@ -168,7 +172,15 @@ export class VaultStore {
     }
     let changed = false;
     if ('name' in input) { const name = str(input.name, LIMITS.name + 1).toLowerCase(); if (!NAME_RE.test(name)) throw fail('The name must be 1 to 64 characters: lower-case letters, digits and hyphens.'); if (this.items.some(x => x !== i && x.name === name)) throw fail('An item with that name already exists.', 409); i.name = name; changed = true; }
-    if (input.values && typeof input.values === 'object') { const v = this.checkValues(i.kind, input.values, { all: false }); for (const [f, val] of Object.entries(v)) if (val !== '') { i.values[f] = val; changed = true; } }
+    if (Array.isArray(input.removeFields)) { // custom fields only; a fixed field cannot be dropped
+      for (const f of input.removeFields.map(x => str(x, 40))) { if (!i.custom.includes(f)) throw fail(`${f} is not a custom field of this item.`); i.custom = i.custom.filter(x => x !== f); delete i.values[f]; changed = true; }
+    }
+    if (input.values && typeof input.values === 'object') {
+      const { values, custom } = this.checkValues(i, input.values, { all: false });
+      for (const [f, val] of Object.entries(values)) if (val !== '') { i.values[f] = val; changed = true; }
+      for (const f of custom) if (!i.custom.includes(f)) { i.custom.push(f); changed = true; }
+      if (i.custom.length > LIMITS.customFields) throw fail(`An item can have up to ${LIMITS.customFields} custom fields.`);
+    }
     if ('url' in input) { i.url = str(input.url, LIMITS.url); changed = true; }
     if ('notes' in input) { i.notes = str(input.notes, LIMITS.notes); changed = true; }
     if ('tags' in input) { i.tags = this.checkTags(input.tags); changed = true; }
@@ -178,16 +190,22 @@ export class VaultStore {
     this.touch(i); this.audit({ action: 'update', item: i.id, name: i.name, by }); this.save();
     return this.view(i, { owner });
   }
-  checkValues(kind, values, { all }) {
-    const out = {};
-    for (const f of KINDS[kind]) {
-      const v = typeof values?.[f] === 'string' ? values[f] : '';
-      if (v.length > LIMITS.value) throw fail(`The ${f} is too long.`);
-      if (all && !v.trim()) throw fail(`The ${f} is required.`);
-      if (/\{\{vault:[a-z0-9-]+\}\}/.test(v)) throw fail(`The ${f} looks like a placeholder, not a value.`);
-      out[f] = v;
+  // Fixed fields are required on add; any other key is a custom field (named by the rule, not clashing with a fixed one).
+  checkValues(item, values, { all }) {
+    const fixed = KINDS[item.kind], out = {}, custom = [];
+    const check = (f, v) => { if (v.length > LIMITS.value) throw fail(`The ${f} is too long.`); if (/\{\{vault:[a-z0-9-]+\}\}/.test(v)) throw fail(`The ${f} looks like a placeholder, not a value.`); };
+    for (const f of fixed) { const v = typeof values?.[f] === 'string' ? values[f] : ''; check(f, v); if (all && !v.trim()) throw fail(`The ${f} is required.`); out[f] = v; }
+    for (const [f, raw] of Object.entries(values && typeof values === 'object' ? values : {})) {
+      if (fixed.includes(f)) continue;
+      if (!FIELD_RE.test(f)) throw fail(`${f} is not a field name: lowercase letters, digits and underscores, up to 32 characters, starting with a letter.`);
+      const v = typeof raw === 'string' ? raw : ''; check(f, v);
+      const exists = (item.custom || []).includes(f);
+      if (!exists && !v.trim()) { if (all) throw fail(`The ${f} field needs a value.`); continue; } // a blank new field is ignored on edit
+      out[f] = v; if (!exists) custom.push(f);
     }
-    return out;
+    if (all && !fixed.length && !custom.length) throw fail('Give at least one field, for example client_id.');
+    if ((item.custom || []).length + custom.length > LIMITS.customFields) throw fail(`An item can have up to ${LIMITS.customFields} custom fields.`);
+    return { values: out, custom };
   }
   checkTags(tags) { const list = Array.isArray(tags) ? tags : typeof tags === 'string' ? tags.split(',') : []; return [...new Set(list.map(t => str(t, LIMITS.tag).toLowerCase()).filter(Boolean))].slice(0, LIMITS.tags); }
   checkWhen(v) { if (!v) return null; const t = Date.parse(v); if (Number.isNaN(t)) throw fail('The expiry must be a date.'); return iso(t); }
@@ -195,7 +213,7 @@ export class VaultStore {
   // The owner reads one field at a time; each read is recorded.
   field(id, field) {
     const i = this.get(id);
-    if (!KINDS[i.kind].includes(field)) throw fail('That field does not exist.', 404);
+    if (!fieldNames(i).includes(field)) throw fail('That field does not exist.', 404);
     this.audit({ action: 'owner-view', item: i.id, name: i.name, by: 'owner', decision: field });
     return i.values[field];
   }
@@ -210,9 +228,9 @@ export class VaultStore {
     for (const [v, ref] of entries) {
       if (!ENV_RE.test(v)) throw fail(`${v} is not a variable name.`);
       if (/^POCKET_|^PATH$|^HOME$|^LD_|^NODE_OPTIONS$/.test(v)) throw fail(`${v} cannot be bound.`);
-      const m = /^([a-z0-9-]+)(?:\.([a-z]+))?$/.exec(String(ref || '')); if (!m) throw fail(`${ref} is not an item name.`);
+      const m = /^([a-z0-9-]+)(?:\.([a-z][a-z0-9_]*))?$/.exec(String(ref || '')); if (!m) throw fail(`${ref} is not an item name.`);
       const item = this.byName(m[1]); if (!item) throw fail(`There is no item named ${m[1]}. \`list\` shows what exists.`, 404);
-      const fields = KINDS[item.kind];
+      const fields = fieldNames(item);
       const field = m[2] || (fields.length === 1 ? fields[0] : null);
       if (!field) throw fail(`${item.name} has the fields ${fields.join(' and ')}; name one, for example ${item.name}.${fields[0]}.`);
       if (!fields.includes(field)) throw fail(`${item.name} has no field ${field}.`);

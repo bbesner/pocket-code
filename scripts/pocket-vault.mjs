@@ -8,7 +8,9 @@
 //   pocket-vault show <name> [--json]                   one item's fields and approved commands; never values
 //   pocket-vault run --env VAR=<name>[.field] [--env …] [--cwd <dir>] [--timeout <s>] [--wait <s>] -- <command…>
 //   pocket-vault wait <request-id> [--wait <s>]         continue a run the owner was asked to allow
-//   pocket-vault put <name> --kind <api_key|token|login|note> (--stdin | --from-file <path> [--map field=key,…] | --from-env VAR) [--url u] [--tags a,b]
+//   pocket-vault put <name> --kind <api_key|token|login|credentials|note> (--stdin | --from-file <path> [--map field=key,…] | --from-env VAR) [--url u] [--tags a,b]
+//     One-field kinds take the value as plain text; a JSON object on stdin or in the file gives several fields at once,
+//     fixed ones (username, password) and custom ones (client_id, signature_key …) alike.
 //   pocket-vault history [--name <name>] [--json]       this session's uses of the vault
 // Exit codes: 3 the Vault is off · 4 a request is pending (run `wait <id>`) · 5 denied or refused · the child's code after a run.
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
@@ -58,7 +60,7 @@ async function call(p, body, method) {
   return data;
 }
 const when = v => v ? new Date(v).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
-const line = i => `${i.name}  (${i.kind}${i.fields.length > 1 ? ': ' + i.fields.join(', ') : ''})  ${i.policyWord}${i.url ? '  ' + i.url : ''}${i.tags.length ? '  #' + i.tags.join(' #') : ''}${i.expiresAt ? `  expires ${when(i.expiresAt)}` : ''}`;
+const line = i => `${i.name}  (${i.kind}${i.fields.length > 1 || i.kind === 'credentials' ? ': ' + i.fields.join(', ') : ''})  ${i.policyWord}${i.url ? '  ' + i.url : ''}${i.tags.length ? '  #' + i.tags.join(' #') : ''}${i.expiresAt ? `  expires ${when(i.expiresAt)}` : ''}`;
 function card(i) {
   const lines = [line(i), `  Use: --env VAR=${i.name}${i.fields.length > 1 ? '.' + i.fields[0] : ''}${i.fields.length > 1 ? ` (fields: ${i.fields.join(', ')})` : ''}`];
   if (i.lastUsedAt) lines.push(`  Last used ${when(i.lastUsedAt)}${i.lastUsedBy?.sessionTitle ? ' in ' + i.lastUsedBy.sessionTitle : ''}`);
@@ -124,20 +126,25 @@ switch (cmd) {
   }
   case 'put': {
     const name = rest[0]; if (!name) die('put needs a name: pocket-vault put zoho-books --kind api_key --stdin');
-    const kind = opts.kind; if (!kind) die('put needs --kind api_key, token, login or note');
-    const fields = { api_key: ['value'], token: ['value'], login: ['username', 'password'], note: ['text'] }[kind]; if (!fields) die('--kind must be api_key, token, login or note');
+    const kind = opts.kind; if (!kind) die('put needs --kind api_key, token, login, credentials or note');
+    const fields = { api_key: ['value'], token: ['value'], login: ['username', 'password'], credentials: [], note: ['text'] }[kind]; if (!fields) die('--kind must be api_key, token, login, credentials or note');
     const values = {};
     const map = {}; for (const pair of String(opts.map || '').split(',').filter(Boolean)) { const [f, k] = pair.split('='); if (f && k) map[f.trim()] = k.trim(); }
+    // A JSON object names every field: the kind's fixed ones (through --map when the keys differ) plus any custom ones.
+    const fromObject = j => { for (const f of fields) values[f] = String(j[map[f] || f] ?? ''); for (const [k, v] of Object.entries(j)) if (!fields.includes(k) && !Object.values(map).includes(k) && v != null && typeof v !== 'object') values[k] = String(v); };
+    const need = `For a ${kind}, give a JSON object${fields.length ? ' with ' + fields.join(' and ') : ' naming each field, for example {"client_id":"…","client_secret":"…"}'}.`;
     if (opts.stdin) {
       const text = fs.readFileSync(0, 'utf8');
-      if (fields.length === 1) values[fields[0]] = text.replace(/\r?\n$/, '');
-      else { let j; try { j = JSON.parse(text); } catch { die(`For a ${kind}, give a JSON object on stdin with ${fields.join(' and ')}.`); } for (const f of fields) values[f] = String(j[map[f] || f] ?? ''); }
+      let j = null; if (/^\s*\{/.test(text)) { try { j = JSON.parse(text); } catch { die(need); } }
+      if (j && typeof j === 'object') fromObject(j);
+      else if (fields.length === 1) values[fields[0]] = text.replace(/\r?\n$/, '');
+      else die(need);
     } else if (opts.fromFile) {
       let text; try { text = fs.readFileSync(opts.fromFile, 'utf8'); } catch (e) { die(`Cannot read ${opts.fromFile}: ${e.message}`); }
       let j = null; try { j = JSON.parse(text); } catch { }
-      if (j && typeof j === 'object') for (const f of fields) values[f] = String(j[map[f] || f] ?? '');
+      if (j && typeof j === 'object') fromObject(j);
       else if (fields.length === 1) values[fields[0]] = text.replace(/\r?\n$/, '');
-      else die(`For a ${kind}, the file must be a JSON object with ${fields.join(' and ')} (or --map field=key).`);
+      else die(need + ' (or --map field=key)');
     } else if (opts.fromEnv) {
       if (fields.length !== 1) die(`--from-env works for one-field kinds; for a ${kind} use --stdin or --from-file.`);
       const v = process.env[opts.fromEnv]; if (v == null) die(`${opts.fromEnv} is not set in this environment.`);
