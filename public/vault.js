@@ -25,7 +25,25 @@ const vaultFixedFields=kind=>VAULT_FIELDS[kind]||['value'];
 // A fixed field reads as a word; a custom field is its own name.
 const vaultFieldWord=(kind,f)=>!vaultFixedFields(kind).includes(f)?f:f==='value'?(kind==='token'?'Token':'Key'):f==='username'?'Username':f==='password'?'Password':'Note';
 const vaultKindIcon=kind=>VIC[kind==='api_key'||kind==='credentials'?'key':kind]||VIC.lock;
-const VAULT_POLICY={ask:['Agents ask','A new command needs your approval once; approved commands are remembered'],auto:['Agents may use','Any command runs and is recorded'],owner:['Only you','Agents cannot use it']};
+// 1.41: Agent access is the install-wide dial (Settings → Vault); an item follows it ('default') or sets its own policy.
+// The server sends each item's effectivePolicy and policyWord; the fallbacks here only cover a snapshot without them.
+const VAULT_ACCESS=[['free','Free rein','Agents use any secret by name without asking. Values still never enter the conversation, and every use is recorded.'],
+ ['once','Ask once per command','A new command needs your approval once; approved commands are remembered.'],
+ ['every','Ask every time','Every use needs your approval, from the notification or in the conversation.']];
+const VAULT_ACCESS_POLICY={free:'auto',once:'ask',every:'every'};
+const VAULT_POLICY={auto:['Free rein','Agents use it without asking. Every use is recorded'],ask:['Ask once per command','A new command needs your approval once; approved commands are remembered'],
+ every:['Ask every time','Every use needs your approval, from the notification or in the conversation'],owner:['Only you','Agents cannot use it']};
+const VAULT_POLICY_WORD={auto:'Free rein',ask:'Asks once per command',every:'Asks every time',owner:'Only you'};
+let vaultAccess=null; // from /api/settings when Settings has loaded it; the snapshot's access wins once the list has loaded
+const vaultAccessNow=()=>VAULT_ACCESS_POLICY[vaultSnap?.access]?vaultSnap.access:VAULT_ACCESS_POLICY[vaultAccess]?vaultAccess:'once';
+const vaultAccessWord=a=>(VAULT_ACCESS.find(([v])=>v===a)||VAULT_ACCESS[1])[1];
+const vaultEff=i=>VAULT_POLICY[i.effectivePolicy]?i.effectivePolicy:!i.policy||i.policy==='default'?VAULT_ACCESS_POLICY[vaultAccessNow()]:VAULT_POLICY[i.policy]?i.policy:'ask';
+const vaultPolicyWord=i=>i.policyWord||VAULT_POLICY_WORD[vaultEff(i)];
+const vaultOwnPolicy=i=>Boolean(i.policy)&&i.policy!=='default';
+// The five choices for an item, the first naming what the Vault default is now.
+const vaultPolicyChoices=()=>[['default',`Vault default (currently: ${vaultAccessWord(vaultAccessNow())})`,'Follows Agent access in Settings → Vault'],...Object.entries(VAULT_POLICY).map(([v,[l,sub]])=>[v,l,sub])];
+// Settings saved a new Agent access: the items that follow it change, so reload them.
+function vaultSetAccess(a){vaultAccess=a;if(vaultSnap){vaultSnap.access=a;loadVault(true).then(repaintVault).catch(()=>{});}}
 const VAULT_NAME_RE=/^[a-z0-9-]{1,64}$/;
 const vaultItemById=id=>vaultSnap?.items.find(i=>i.id===id)||vaultSnap?.trash.find(i=>i.id===id)||null;
 const vaultTime=v=>typeof v==='number'?v:Date.parse(v);
@@ -123,7 +141,7 @@ function paintVaultView(){
  const main=$('#vault-main');if(!main||!vaultSnap||!vaultView)return;
  // The 30-second refresh must not rebuild the list under a finger or a focused button when nothing changed.
  if(vaultIsLocked()){document.querySelectorAll('.vault-field[data-shown]').forEach(vaultHideValue);vaultLoadLockInfo();} // a value shown before the lock goes
- const key=JSON.stringify([vaultSnap.ready,vaultSnap.locked,vaultIsLocked()?vaultAutoLock:0,vaultSnap.items,vaultSnap.trash,vaultRequests()]);
+ const key=JSON.stringify([vaultSnap.ready,vaultSnap.locked,vaultSnap.access,vaultIsLocked()?vaultAutoLock:0,vaultSnap.items,vaultSnap.trash,vaultRequests()]);
  if(key===vaultPainted&&main.querySelector('.vault-list-head'))return paintVaultBadges();
  const focused=document.activeElement&&main.contains(document.activeElement)?[...main.querySelectorAll('button,a,summary')].indexOf(document.activeElement):-1;
  const open=[...main.querySelectorAll('details')].map(d=>d.open);
@@ -140,7 +158,7 @@ function paintVaultView(){
 // The kind is drawn as an icon; screen readers get the word instead.
 function vaultFactsHTML(i){
  const host=vaultHost(i.url),tags=(i.tags||[]).join(', ');
- const facts=[host?`<span>${esc(host)}</span>`:'',tags?`<span>${esc(tags)}</span>`:'',`<span>${esc(VAULT_POLICY[i.policy]?.[0]||'Agents ask')}</span>`,
+ const facts=[host?`<span>${esc(host)}</span>`:'',tags?`<span>${esc(tags)}</span>`:'',`<span>${esc(vaultPolicyWord(i))}</span>`,
   i.lastUsedAt?`<span>Used ${esc(rel(vaultTime(i.lastUsedAt)))}</span>`:'',
   i.expiresAt?`<span class="${i.expiring||vaultExpired(i)?'due-label':''}">${vaultExpired(i)?'Expired':'Expires'} ${esc(vaultDate(i.expiresAt))}</span>`:''].filter(Boolean);
  return `<span class="vault-sr">${esc(VAULT_KIND_WORD[i.kind]||'Secret')}, </span>`+facts.join('<span aria-hidden="true">·</span>');
@@ -165,7 +183,7 @@ function vaultRequestHTML(r,where='main'){
   <h3 id="${esc(hid)}"><span class="vault-name">${esc(vaultRequestNames(r))}</span><span class="vault-request-when">${esc(rel(vaultTime(r.created)))}</span></h3>
   <code class="vault-cmd" tabindex="0" title="${esc(vaultCmd(r.argv))}">${esc(vaultCmd(r.argv))}</code>
   <p class="vault-request-where">${r.cwd?`<span class="vault-path">${esc(projShort(r.cwd))}</span><span aria-hidden="true">·</span>`:''}<span>${esc(who)}</span></p>
-  <div class="approval-actions vault-request-actions"><button class="chip" data-answer="deny">Deny</button><button class="chip" data-answer="always">Always allow</button><button class="chip approval-allow" data-answer="once">Allow once</button></div>
+  <div class="approval-actions vault-request-actions"><button class="chip" data-answer="deny">Deny</button>${r.allowAlways===false?'':'<button class="chip" data-answer="always">Always allow</button>'}<button class="chip approval-allow" data-answer="once">Allow once</button></div>
  </section>`;
 }
 function vaultLockedHTML(where='main'){
@@ -179,7 +197,7 @@ function vaultListHTML(){
  if(vaultSnap.ready===false)return `<div class="session-home-head vault-list-head"><h2>Vault</h2></div><p class="sheet-help project-empty">The Vault cannot be opened. Check that POCKET_VAULT_KEY in .env is the key it was saved with, then restart Pocket Code.</p>`;
  const reqs=vaultRequests(),items=vaultSnap.items,trash=vaultSnap.trash;
  return `<div class="session-home-head vault-list-head"><h2>Vault</h2><span class="project-head-actions"><button class="chip" id="vt-add">${IC.plus}Add secret</button></span></div>
-  ${reqs.length?`<section class="session-group project-group vault-requests" id="vault-requests"><h2 tabindex="-1">Requests <span>${reqs.length} waiting</span></h2><p class="sheet-help vault-requests-help">An agent wants to run a command with a secret. Always allow remembers this exact command and folder for that secret.</p>${reqs.map(r=>vaultRequestHTML(r)).join('')}</section>`:''}
+  ${reqs.length?`<section class="session-group project-group vault-requests" id="vault-requests"><h2 tabindex="-1">Requests <span>${reqs.length} waiting</span></h2><p class="sheet-help vault-requests-help">An agent wants to run a command with a secret.${reqs.some(r=>r.allowAlways!==false)?' Always allow remembers this exact command and folder for that secret.':''}</p>${reqs.map(r=>vaultRequestHTML(r)).join('')}</section>`:''}
   ${items.length?`<section class="session-group project-group"><h2>Secrets <span>${items.length}</span></h2>${items.map(vaultRowHTML).join('')}</section>`
    :'<p class="sheet-help project-empty">No secrets yet. Add one here, or from a conversation with Store in the Vault. Agents use them by name and never see the value.</p>'}
   ${trash.length?`<details class="session-group project-group settings-details"><summary><h2>Removed <span>${trash.length}</span></h2></summary><p class="sheet-help vault-requests-help">Kept for 30 days, then deleted. A removed name can't be reused until then.</p>${trash.map(vaultTrashRowHTML).join('')}</details>`:''}`;
@@ -226,14 +244,14 @@ function vaultHistoryLine(row){
  return `<li><span class="vault-history-what">${esc(parts.join(' · '))}</span>${cmd?`<code class="vault-cmd">${esc(cmd)}</code>`:''}</li>`;
 }
 function vaultRecipesHTML(i){
- const rs=i.recipes||[];
- if(!rs.length)return `<p class="project-empty">${i.policy==='ask'?'None yet. Always allow on a request adds one.':i.policy==='auto'?'Not needed: agents may run any command with it.':'Agents cannot use this secret.'}</p>`;
- return `<ul class="vault-recipes">${rs.map(r=>`<li><span class="vault-recipe-body"><code class="vault-cmd">${esc(vaultCmd(r.argv))}</code>${r.cwd?`<span class="vault-path">in ${esc(projShort(r.cwd))}</span>`:''}</span><button class="icon vault-recipe-remove" data-recipe="${esc(r.id)}" aria-label="Remove approved command: ${esc(vaultCmd(r.argv))}">${IC.x}</button></li>`).join('')}</ul>`;
+ const rs=i.recipes||[],eff=vaultEff(i);
+ if(!rs.length)return `<p class="project-empty">${eff==='ask'?'None yet. Always allow on a request adds one.':eff==='auto'?'Not needed: agents may run any command with it.':eff==='every'?'Not used: every use asks.':'Agents cannot use this secret.'}</p>`;
+ return `${eff==='auto'||eff==='every'?`<p class="project-empty">Kept, but not needed while it ${eff==='auto'?'has free rein':'asks every time'}.</p>`:''}<ul class="vault-recipes">${rs.map(r=>`<li><span class="vault-recipe-body"><code class="vault-cmd">${esc(vaultCmd(r.argv))}</code>${r.cwd?`<span class="vault-path">in ${esc(projShort(r.cwd))}</span>`:''}</span><button class="icon vault-recipe-remove" data-recipe="${esc(r.id)}" aria-label="Remove approved command: ${esc(vaultCmd(r.argv))}">${IC.x}</button></li>`).join('')}</ul>`;
 }
 function vaultSheet(id){
  const i=vaultItemById(id);if(!i||i.trashedAt)return;
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet task-sheet vault-sheet';
- const url=vaultSafeUrl(i.url),pol=VAULT_POLICY[i.policy]||VAULT_POLICY.ask;
+ const url=vaultSafeUrl(i.url),eff=vaultEff(i),word=vaultPolicyWord(i);
  const used=i.lastUsedAt?`Used ${rel(vaultTime(i.lastUsedAt))}${i.lastUsedBy?(i.lastUsedBy.kind==='owner'?' by you':i.lastUsedBy.kind==='terminal'?' from a terminal':' by an agent')+(i.lastUsedBy.sessionTitle?' · '+i.lastUsedBy.sessionTitle:''):''}`:'Not used yet';
  const facts=[url?`<span><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(vaultHost(url))}</a></span>`:i.url?`<span>${esc(i.url)}</span>`:'',
   i.tags?.length?`<span>Tags: ${esc(i.tags.join(', '))}</span>`:'',
@@ -247,11 +265,12 @@ function vaultSheet(id){
     <span class="vault-field-label${fixed.includes(f)?'':' vault-field-custom'}" id="vf-${esc(f)}">${esc(vaultFieldWord(i.kind,f))}</span>
     <span class="vault-value"><span aria-hidden="true">••••••••</span><span class="vault-sr">Hidden</span></span>
     <span class="vault-field-actions"><button class="chip" data-copy-value aria-describedby="vf-${esc(f)}" hidden>${IC.copy}Copy</button><button class="chip" data-show aria-describedby="vf-${esc(f)}">Show</button></span></div>`).join('')}</section>
-  <section class="vault-section"><h3>Agents</h3><p class="vault-policy"><strong>${esc(pol[0])}</strong>: ${esc(pol[1])}</p>${i.policy==='owner'?'':`<p class="vault-use">${fields.length>1?'Each field is used by name':'Used by name'} in a command: ${use}</p>`}</section>
-  ${i.policy==='owner'?'':`<section class="vault-section"><h3>Approved commands <span>${(i.recipes||[]).length||''}</span></h3><div data-recipes>${vaultRecipesHTML(i)}</div></section>`}
+  <section class="vault-section"><h3>Agents</h3><p class="vault-policy"><strong>${esc(word)}</strong>: ${esc(VAULT_POLICY[eff][1])}</p>
+   ${vaultOwnPolicy(i)?`<p class="vault-policy-note">Set for this item. The Vault default is ${esc(vaultAccessWord(vaultAccessNow()))}.</p>`:''}${eff==='owner'?'':`<p class="vault-use">${fields.length>1?'Each field is used by name':'Used by name'} in a command: ${use}</p>`}</section>
+  ${eff==='owner'?'':`<section class="vault-section"><h3>Approved commands <span>${(i.recipes||[]).length||''}</span></h3><div data-recipes>${vaultRecipesHTML(i)}</div></section>`}
   ${i.notes?`<div class="task-summary"><h3>Notes</h3>${esc(i.notes)}</div>`:''}
   <button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, values, fields, website, tags, notes and expiry</span></span></button>
-  <button class="opt" data-policy>${VIC.lock}<span>Change who can use it<span class="sub">${esc(pol[0])}</span></span></button>
+  <button class="opt" data-policy>${VIC.lock}<span>Change who can use it<span class="sub">${esc(word)}${vaultOwnPolicy(i)?', set for this item':''}</span></span></button>
   <button class="opt" data-remove>${IC.x}<span>Remove<span class="sub">Kept for 30 days, then deleted</span></span></button>
   <section class="vault-section vault-history-section"><h3>History</h3><div class="vault-history" data-history role="status">Loading history…</div></section>`;
  sh.querySelectorAll('.vault-field').forEach(row=>{
@@ -297,9 +316,9 @@ async function vaultHistory(sh,id){
  }catch(e){if(sh.isConnected)box.innerHTML=vaultLockedError(e)?'<p class="project-empty">The Vault is locked.</p>':`<p class="project-empty">History could not load. ${esc(e.message||'')}</p>`;}
 }
 function vaultPolicySheet(i){
- sheet('Who can use it',Object.entries(VAULT_POLICY).map(([v,[label,sub]])=>[v,label,sub]),i.policy,async v=>{
-  if(v===i.policy)return vaultSheet(i.id);
-  const r=await vaultAct({action:'update',item:i.id,expected_revision:i.revision,policy:v},VAULT_POLICY[v][0]+': '+i.name);
+ sheet('Who can use it',vaultPolicyChoices(),i.policy||'default',async v=>{
+  if(v===(i.policy||'default'))return vaultSheet(i.id);
+  const r=await vaultAct({action:'update',item:i.id,expected_revision:i.revision,policy:v},v==='default'?i.name+' follows the Vault default':VAULT_POLICY[v][0]+': '+i.name);
   if(r)vaultSheet(i.id);
  });
 }
@@ -364,7 +383,7 @@ function vaultEditor(t,{insert=null}={}){
    <label class="voice-field">Tags (optional)<input type="text" name="tags" value="${esc((t?.tags||[]).join(', '))}" placeholder="billing, zoho" autocomplete="off" autocapitalize="none" aria-describedby="vault-tags-hint"></label>
    <p class="vault-hint" id="vault-tags-hint">Separate tags with commas.</p>
    <label class="voice-field">Notes (optional)<textarea name="notes" rows="3" maxlength="4000" placeholder="Where it came from, what it's for">${esc(t?.notes||'')}</textarea></label>
-   <label class="voice-field">Who can use it<select name="policy" aria-describedby="vault-policy-hint">${Object.entries(VAULT_POLICY).map(([v,[l]])=>`<option value="${v}" ${v===(t?.policy||'ask')?'selected':''}>${l}</option>`).join('')}</select></label>
+   <label class="voice-field">Who can use it<select name="policy" aria-describedby="vault-policy-hint">${vaultPolicyChoices().map(([v,l])=>`<option value="${v}" ${v===(t?.policy||'default')?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
    <p class="vault-hint" id="vault-policy-hint" data-policy-hint></p>
    <div class="task-due-row"><label class="voice-field">Expires (optional)<input type="date" name="expires" value="${esc(expires)}"></label><button class="chip" type="button" data-clear-exp>No date</button></div>
    <p class="vault-form-error" role="alert"></p>
@@ -412,7 +431,7 @@ function vaultEditor(t,{insert=null}={}){
  };
  const nameIn=form.elements.name;
  nameIn.oninput=()=>{const v=nameIn.value.toLowerCase().replace(/[\s_]/g,'-');if(v!==nameIn.value){const p=nameIn.selectionStart;nameIn.value=v;nameIn.setSelectionRange(p,p);}nameIn.removeAttribute('aria-invalid');err.textContent='';};
- const polHint=()=>{sh.querySelector('[data-policy-hint]').textContent=VAULT_POLICY[form.elements.policy.value][1]+'.';};
+ const polHint=()=>{const c=vaultPolicyChoices().find(([v])=>v===form.elements.policy.value);sh.querySelector('[data-policy-hint]').textContent=c?c[2]+'.':'';};
  form.elements.policy.onchange=polHint;polHint();
  sh.querySelector('[data-clear-exp]').onclick=()=>{form.elements.expires.value='';};
  const wipe=()=>form.querySelectorAll('[data-secret],[data-custom-value]').forEach(el=>{el.value='';});

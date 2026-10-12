@@ -1408,6 +1408,86 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.keyboard.press('Escape');
    }finally{page.off('request',onReq);await cdp.send('Browser.setDownloadBehavior',{behavior:'default'}).catch(()=>{});await cdp.detach().catch(()=>{});await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});await page.setViewport({width:1440,height:900});settings.vault=false;}
   });
+  await check('Vault access (1.41): Agent access in Settings saves and toasts, the item policy sheet offers five choices with the current default, an override is noted, a request that asks every time has no Always allow, and the phone',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState();settings.vault=true;settings.vaultReady=true;
+   await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
+   const posts=[];const onReq=r=>{const u=new URL(r.url());if(r.method()==='POST'&&/^\/api\/(settings|vault\/act)$/.test(u.pathname))posts.push({path:u.pathname,body:JSON.parse(r.postData()||'{}')});};page.on('request',onReq);
+   const last=p=>posts.filter(x=>x.path===p).at(-1);
+   const id=name=>page.evaluate(n=>vaultSnap.items.find(i=>i.name===n).id,name);
+   // Show the Settings category that holds Agent access, as clickControl does before a click.
+   const showAccess=async()=>{await page.waitForFunction(()=>document.querySelector('#s-vault')?.disabled===false&&!document.querySelector('#s-vault-more').hidden);
+    const cat=await page.$eval('#s-vault-access',e=>e.closest('[data-settings-panel]')?.dataset.settingsPanel);
+    if(cat&&await page.$eval(`[data-settings-panel="${cat}"]`,e=>e.hidden)){if(await page.$eval('.settings-index',e=>e.hidden))await page.click('#settings-back');await page.click(`[data-settings-category="${cat}"]`);}
+    await page.$eval('#s-vault-access',e=>e.scrollIntoView({block:'center'}));};
+   const openSettings=async()=>{await clickControl(page,'#railsettings');await showAccess();};
+   try{
+    await page.goto(base+'/#/vault');await page.reload();await page.waitForSelector('#vault-main .vault-item');
+    // Settings: Agent access sits under the Vault toggle, above Protection, at the install default.
+    await openSettings();
+    const before=await page.evaluate(()=>{const sel=document.querySelector('#s-vault-access'),prot=document.querySelector('#s-vault-prot-h');
+     return {value:sel.value,label:sel.labels[0]?.textContent,options:[...sel.options].map(o=>o.textContent),note:document.querySelector('#s-vault-access-note').textContent,above:Boolean(sel.compareDocumentPosition(prot)&Node.DOCUMENT_POSITION_FOLLOWING),visible:sel.getClientRects().length>0};});
+    assert.deepEqual(before,{value:'once',label:'Agent access',options:['Free rein','Ask once per command','Ask every time'],note:'A new command needs your approval once; approved commands are remembered.',above:true,visible:true});
+    await page.select('#s-vault-access','every');for(let i=0;i<30&&settings.vaultAccess!=='every';i++)await pause(100);
+    assert.deepEqual(last('/api/settings').body,{vaultAccess:'every'});assert.equal(settings.vaultAccess,'every');
+    await page.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Agent access: Ask every time');
+    assert.equal(await page.$eval('#s-vault-access-note',e=>e.textContent),'Every use needs your approval, from the notification or in the conversation.');
+    await page.select('#s-vault-access','free');for(let i=0;i<30&&settings.vaultAccess!=='free';i++)await pause(100);
+    await page.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Agent access: Free rein');
+    assert.match(await page.$eval('#s-vault-access-note',e=>e.textContent),/^Agents use any secret by name without asking\. Values still never enter the conversation, and every use is recorded\.$/);
+    await page.$eval('#s-vault-more',e=>e.scrollIntoView({block:'center'}));
+    await scan('vault-settings-access');await page.screenshot({path:path.join(out,'vault-settings-access.png')});
+    await page.select('#s-vault-access','every');for(let i=0;i<30&&settings.vaultAccess!=='every';i++)await pause(100);
+    await page.keyboard.press('Escape');
+    // The list: an item that follows the default reads as the setting; one with its own policy keeps it.
+    const zoho=await id('zoho-books'),sq=await id('square-hooks');
+    await page.waitForFunction(z=>/Asks every time/.test(document.querySelector(`#vault-main .vault-item[data-item="${z}"] .session-status`)?.textContent||''),{},zoho);
+    assert.match(await page.$eval(`#vault-main .vault-item[data-item="${sq}"] .session-status`,e=>e.textContent),/Asks once per command/);
+    // The sheet: the effective word, no override note for an item on the default.
+    await clickControl(page,`[data-vault-open="${zoho}"]`);await page.waitForSelector('.vault-sheet [data-policy]');
+    assert.equal(await page.$eval('.vault-sheet .vault-policy strong',e=>e.textContent),'Asks every time');
+    assert.equal(await page.$('.vault-sheet .vault-policy-note'),null,'no note while it follows the default');
+    // Change who can use it: five choices, the default named with the current setting and selected.
+    await clickControl(page,'.vault-sheet [data-policy]');await page.waitForSelector('.sheet .opt[data-v="default"]');
+    const choices=await page.$$eval('.sheet .opt[data-v]',bs=>bs.map(b=>({v:b.dataset.v,label:b.querySelector('span:not(.dot)').firstChild.textContent,sub:b.querySelector('.sub').textContent,sel:b.classList.contains('sel')})));
+    assert.deepEqual(choices.map(c=>c.v),['default','auto','ask','every','owner']);
+    assert.deepEqual(choices.map(c=>c.label),['Vault default (currently: Ask every time)','Free rein','Ask once per command','Ask every time','Only you']);
+    assert.ok(choices.every(c=>c.sub.length>10),'each choice says what it does');assert.deepEqual(choices.filter(c=>c.sel).map(c=>c.v),['default']);
+    await scan('vault-policy-sheet');await page.screenshot({path:path.join(out,'vault-policy-sheet.png')});
+    // Phone width: the policy sheet fits.
+    await page.setViewport({width:390,height:844});await pause(150);
+    assert.equal(await page.evaluate(()=>{const s=document.querySelector('.sheet[role=dialog]');return s.scrollWidth>s.clientWidth+1||document.documentElement.scrollWidth>innerWidth;}),false,'the policy sheet fits at 390');
+    await scan('vault-policy-sheet-mobile');await page.setViewport({width:1440,height:900});
+    // Ask once per command overrides the default: the update carries it, the sheet notes it.
+    await clickControl(page,'.sheet .opt[data-v="ask"]');await page.waitForSelector('.vault-sheet .vault-policy-note');
+    assert.deepEqual({action:last('/api/vault/act').body.action,policy:last('/api/vault/act').body.policy},{action:'update',policy:'ask'});
+    assert.equal(await page.$eval('.vault-sheet .vault-policy-note',e=>e.textContent),'Set for this item. The Vault default is Ask every time.');
+    assert.equal(await page.$eval('.vault-sheet .vault-policy strong',e=>e.textContent),'Asks once per command');
+    // Back to the default.
+    await clickControl(page,'.vault-sheet [data-policy]');await page.waitForSelector('.sheet .opt[data-v="default"].sel, .sheet .opt[data-v="ask"].sel');
+    await clickControl(page,'.sheet .opt[data-v="default"]');await page.waitForFunction(()=>document.querySelector('.vault-sheet .vault-policy')&&!document.querySelector('.vault-sheet .vault-policy-note'));
+    assert.equal(last('/api/vault/act').body.policy,'default');await page.keyboard.press('Escape');
+    // The editor: Who can use it has the same five, Vault default selected for a new secret.
+    await clickControl(page,'#vt-add');await page.waitForSelector('.vault-editor [name=policy]');
+    assert.deepEqual(await page.$eval('.vault-editor [name=policy]',s=>({value:s.value,options:[...s.options].map(o=>o.value),first:s.options[0].textContent,hint:document.querySelector('[data-policy-hint]').textContent})),
+     {value:'default',options:['default','auto','ask','every','owner'],first:'Vault default (currently: Ask every time)',hint:'Follows Agent access in Settings → Vault.'});
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-editor'));
+    // A request on an item that asks every time: Allow once and Deny only.
+    vaultFixture.extraRequests=[{id:'fixture-every',items:['fixture'],itemNames:['payroll-api'],argv:['node','run-payroll.mjs'],cwd:'/srv/payroll',session:rows[0].id,sessionTitle:rows[0].title,created:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60000).toISOString(),answer:null,allowAlways:false}];
+    await page.reload();await page.waitForSelector('#vault-main .vault-request[data-request="fixture-every"]');
+    assert.deepEqual(await page.$$eval('#vault-main .vault-request[data-request="fixture-every"] [data-answer]',bs=>bs.map(b=>b.dataset.answer)),['deny','once']);
+    assert.ok(await page.$('#vault-main .vault-request:not([data-request="fixture-every"]) [data-answer="always"]'),'a request that may be remembered keeps Always allow');
+    await scan('vault-request-every');
+    // The phone: Settings → Vault and the requests fit at 390.
+    await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('#vault-main .vault-request[data-request="fixture-every"]');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390');
+    await page.screenshot({path:path.join(out,'vault-request-every-mobile.png')});
+    await page.goto(base+'/#/');await page.waitForSelector('#settings');
+    await clickControl(page,'#settings');await showAccess();
+    assert.equal(await page.evaluate(()=>{const s=document.querySelector('#s-vault-more').closest('.sheet');return s.scrollWidth>s.clientWidth+1||document.documentElement.scrollWidth>innerWidth;}),false,'Settings → Vault fits at 390');
+    await scan('vault-settings-access-mobile');await page.screenshot({path:path.join(out,'vault-settings-access-mobile.png')});
+    await page.keyboard.press('Escape');
+   }finally{page.off('request',onReq);vaultFixture.extraRequests=[];await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});await page.setViewport({width:1440,height:900});settings.vault=false;}
+  });
   await check('Projects (1.29): off by default, then the list, card, steps, reminders, finish and resume, tracking from a session, tabs, split pane, rail switch, settings and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
    const settings=settingsState();settings.projects=false;

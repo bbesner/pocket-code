@@ -1,7 +1,7 @@
 {
-  "version": "1.40.0",
-  "assetV": 88,
+  "version": "1.41.0",
+  "assetV": 89,
   "notes": [
-    "The Vault can be protected by a passphrase, locks after a restart, on demand or when idle, and can be exported and imported as one encrypted file."
+    "Vault Agent access: give agents free rein, approval once per command, or every time; approve from the notification's Allow button or by replying in the conversation."
   ]
 }

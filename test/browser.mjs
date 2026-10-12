@@ -33,10 +33,11 @@ const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
 const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
-let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0};
+let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once'};
 // 1.40: the passphrase the fixture checks (never sent back on /api/settings), and the last import's decoded file.
-const vaultFixture={passphrase:null,imported:null};
-const resetVaultLock=()=>{Object.assign(fixtureSettings,{vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0});vaultFixture.passphrase=null;vaultFixture.imported=null;};
+// 1.41: extraRequests are added to the snapshot's requests as they are (a request on an item that asks every time).
+const vaultFixture={passphrase:null,imported:null,extraRequests:[]};
+const resetVaultLock=()=>{Object.assign(fixtureSettings,{vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once'});vaultFixture.passphrase=null;vaultFixture.imported=null;vaultFixture.extraRequests=[];};
 // 1.30: the documents fixture is the real store on a scratch folder: an HTML dashboard whose script tries to reach
 // the parent (the sandbox must stop it), a Markdown note and a CSV.
 const docsDir=path.join(out,'documents');fs.mkdirSync(docsDir,{recursive:true});
@@ -58,13 +59,14 @@ const seedTasks=()=>{taskStore.tasks.length=0;
 // 1.39: the vault is the real store on a scratch vault.enc under a test key: an API key that asks (one approved command),
 // a login agents may use that expires in 5 days, an owner-only note, a removed token, and one request waiting for the owner.
 // 1.39.1: Credentials with two custom fields, and an API key that carries one custom field beside its key.
+// 1.41: zoho-books and acme-oauth follow the Vault default (Agent access); square-hooks sets its own (asks once per command).
 const vaultDir=path.join(out,'vault');let vaultStore=null;
 const seedVault=()=>{fs.rmSync(vaultDir,{recursive:true,force:true});fs.mkdirSync(vaultDir,{recursive:true});
- vaultStore=new VaultStore(path.join(vaultDir,'vault.enc'),{key:parseKey(newKey())});
- vaultStore.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:'zk-fixture-secret-7731'},url:'https://books.zoho.com',tags:['billing'],policy:'ask'});
+ vaultStore=new VaultStore(path.join(vaultDir,'vault.enc'),{key:parseKey(newKey())});vaultStore.access=()=>fixtureSettings.vaultAccess||'once';
+ vaultStore.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:'zk-fixture-secret-7731'},url:'https://books.zoho.com',tags:['billing']});
  vaultStore.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'ops@example.test',password:'portal-fixture-pass'},url:'https://portal.example.test',policy:'auto',expiresAt:new Date(now+5*86400000).toISOString()});
  vaultStore.act({action:'add',name:'bank-recovery',kind:'note',values:{text:'recovery codes fixture'},policy:'owner'});
- vaultStore.act({action:'add',name:'acme-oauth',kind:'credentials',values:{client_id:'acme-client-fixture',client_secret:'acme-secret-fixture-4410'},url:'https://auth.acme.test',policy:'ask'});
+ vaultStore.act({action:'add',name:'acme-oauth',kind:'credentials',values:{client_id:'acme-client-fixture',client_secret:'acme-secret-fixture-4410'},url:'https://auth.acme.test'});
  vaultStore.act({action:'add',name:'square-hooks',kind:'api_key',values:{value:'sq-fixture-key-2208',signature_key:'sq-signature-fixture-6631'},policy:'ask'});
  const old=vaultStore.act({action:'add',name:'old-twilio',kind:'token',values:{value:'tw-fixture-old'}});vaultStore.act({action:'remove',item:old.id});
  const ask=argv=>{const env={TOKEN:'zoho-books'},bound=vaultStore.resolveBindings(env),cmd=vaultStore.checkCommand(argv,vaultDir);return vaultStore.request({bound,cmd,need:vaultStore.decide(bound,cmd),env,session:rows[0].id,sessionTitle:rows[0].title});};
@@ -155,7 +157,7 @@ const server=http.createServer(async(req,res)=>{
   if(!fixtureSettings.vault)return json({error:'The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'vault_off'},404);
   const body=async()=>{let raw='';for await(const c of req)raw+=c;return JSON.parse(raw||'{}');};
   const fail=e=>json({error:e.message,...(e.item?{item:e.item}:{}),...(e.code?{code:e.code}:{})},e.status||400);
-  if(url.pathname==='/api/vault/reset'){seedVault();resetVaultLock();return json({ok:true});}
+  if(url.pathname==='/api/vault/reset'){resetVaultLock();seedVault();return json({ok:true});}
   // 1.40: passphrase mode. Unlock and the passphrase routes answer while locked; the snapshot is the locked one and
   // every other route answers 423, as the server does.
   const pass=fixtureSettings.vaultMode==='passphrase',longEnough=v=>typeof v==='string'&&v.length>=12;
@@ -170,7 +172,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/vault/export'){const b=await body();if(!longEnough(b.passphrase)||b.confirm!==b.passphrase)return json({error:'Use a passphrase of at least 12 characters, typed the same twice.'},400);
    res.writeHead(200,{'content-type':'application/octet-stream','content-disposition':'attachment; filename="pocket-vault-export-2026-10-12.pvault"'});res.end(Buffer.from('PVAULT fixture bytes'));return;}
   if(url.pathname==='/api/vault/import'){const b=await body();if(b.passphrase!=='import-fixture-pass')return json({error:'Wrong passphrase, or not a Pocket Code Vault export.'},400);vaultFixture.imported=Buffer.from(String(b.data||''),'base64').toString();return json({ok:true,added:2,skipped:['zoho-books']});}
-  if(url.pathname==='/api/vault')return json({...vaultStore.snapshot({owner:true}),push:{enabled:false}});
+  if(url.pathname==='/api/vault'){const snap=vaultStore.snapshot({owner:true});return json({...snap,requests:[...snap.requests,...vaultFixture.extraRequests],push:{enabled:false}});}
   // The whole body goes to the real store, so values (fixed and custom) and removeFields reach it unchanged.
   if(url.pathname==='/api/vault/act'){const b=await body();try{const r=vaultStore.act(b,{actor:'owner'});return json(b.action==='answer'?{ok:true,request:r}:{ok:true,item:r,...(r.removed?{removed:true}:{})});}catch(e){return fail(e);}}
   if(url.pathname==='/api/vault/field'){const b=await body();try{return json({value:vaultStore.field(String(b.item||''),String(b.field||''))});}catch(e){return fail(e);}}

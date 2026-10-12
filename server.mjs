@@ -38,7 +38,7 @@ import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
 import {Thumbnailer} from './thumbnails.mjs';
-import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS} from './vault.mjs';
+import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -181,7 +181,7 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0 }; } };
+const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once' }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
 
@@ -217,7 +217,7 @@ const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).j
 const VAULT_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-vault.mjs');
 // 1.40: a passphrase-mode store opens without the env key and starts locked; the owner unlocks it from Pocket.
 let vault = null, vaultError = '';
-try { vault = new VaultStore(path.join(DATA_DIR, 'vault.enc'), { key: VAULT_KEY_RAW ? parseKey(VAULT_KEY_RAW) : null, log }); } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); }
+try { vault = new VaultStore(path.join(DATA_DIR, 'vault.enc'), { key: VAULT_KEY_RAW ? parseKey(VAULT_KEY_RAW) : null, log }); vault.access = () => settings.vaultAccess; } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); } // 1.41: Agent access
 const vaultReady = () => Boolean(vault);
 const vaultLive = () => Boolean(settings.vault && vault);
 const vaultOn = (_req, res, next) => settings.vault ? (vault ? next() : res.status(503).json({ error: `The Vault cannot be opened: ${vaultError}`, code: 'vault_unavailable' })) : res.status(404).json({ error: 'The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'vault_off' });
@@ -370,11 +370,11 @@ async function pushNotify(sessionId, title, body) {
   if (devices != null) log(`push sent (${devices} devices) session=${sessionId}`);
 }
 // One notification to every subscribed device; returns how many received it, or null when push is off or unused.
-async function pushRaw(title, body, { tag, url }) {
+async function pushRaw(title, body, { tag, url, ...extra }) { // 1.41: extra fields (actions, vaultRequest) ride along for the service worker
   if (!pushReady) return null;
   const subs = loadSubs();
   if (!subs.length) return null;
-  const payload = JSON.stringify({ title: title.slice(0, 70), body, tag, url });
+  const payload = JSON.stringify({ title: title.slice(0, 70), body, tag, url, ...extra });
   const dead = [];
   await Promise.all(subs.map(async s => {
     try { await webpush.sendNotification(s, payload); }
@@ -2110,6 +2110,7 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
   if(!anyId(id))return res.status(400).json({error:'Invalid session'});
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
+  vaultAnswerFromMessage(id, text); // 1.41: "Allow zoho-books for this command" answers that session's pending Vault request
   const mode=req.body.mode || 'auto';
   if(!['auto','steer','queue'].includes(mode))return res.status(400).json({error:'Invalid delivery mode'});
   if(mode==='steer'&&!ownedTurn(id))return res.status(409).json({error:'The turn has ended. Review the conversation, then send a new message.'});
@@ -2288,10 +2289,11 @@ app.post('/api/settings', requireAuth, (req, res) => {
     settings.vault = req.body.vault; vaultToggled = true;
   }
   if (AUTO_LOCK_CHOICES.includes(Number(req.body?.vaultAutoLockMinutes))) settings.vaultAutoLockMinutes = Number(req.body.vaultAutoLockMinutes); // 1.40
+  if (VAULT_ACCESS.includes(req.body?.vaultAccess)) { if (settings.vaultAccess !== req.body.vaultAccess) log(`vault agent access: ${settings.vaultAccess} -> ${req.body.vaultAccess}`); settings.vaultAccess = req.body.vaultAccess; } // 1.41
   saveSettings();
   if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
-  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault}`);
+  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess}`);
   res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
 });
 
@@ -2541,6 +2543,23 @@ function vaultCaller(req) {
   return { actor: 'terminal', session: null, sessionTitle: '' };
 }
 const sessionName = id => { const m = smeta[id]; return (m && typeof m.name === 'string' && m.name) || ''; };
+// 1.41: the owner can answer a pending request in the conversation that raised it: "Allow zoho-books for this command",
+// "Always allow zoho-books for this command", "Deny zoho-books" (the suggested replies agents offer), or a bare "Allow"/"Deny"
+// when that session has exactly one pending request. Only the owner's own messages (cookie) reach here; the message is
+// still delivered, so the agent sees the answer and continues with `pocket-vault wait`.
+function vaultAnswerFromMessage(sessionId, text) {
+  if (!vault || vault.locked || !settings.vault) return null;
+  const pending = vault.pendingFor(sessionId); if (!pending.length) return null;
+  const t = String(text).trim().replace(/[.!]+$/, '');
+  const m = /^(always allow|allow|approve|deny|don't allow|do not allow)\b\s*(.*)$/i.exec(t); if (!m || t.length > 200) return null;
+  const verb = m[1].toLowerCase(), rest = m[2].toLowerCase();
+  const named = pending.filter(r => r.itemNames.some(n => new RegExp(`(^|[^a-z0-9-])${n.replace(/[-]/g, '\\-')}([^a-z0-9-]|$)`).test(rest)));
+  const target = named.length === 1 ? named[0] : (pending.length === 1 && !named.length ? pending[0] : null);
+  if (!target) return null;
+  const decision = verb === 'always allow' ? (target.allowAlways === false ? 'once' : 'always') : /^(allow|approve)$/.test(verb) ? 'once' : 'deny';
+  try { vault.answer(target.id, decision); log(`vault request=${target.id} answered ${decision} from the conversation session=${sessionId}`); return { request: target.id, decision }; }
+  catch (e) { log(`vault answer from the conversation failed: ${e.message}`); return null; }
+}
 // Cookie mutations must come from Pocket's own origin.
 function sameOrigin(req, res, next) {
   const origin = req.get('origin');
@@ -2647,7 +2666,7 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
       if (need.length) {
         reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor });
         send({ t: 'request', id: reqRow.id, items: reqRow.itemNames });
-        const devices = await pushRaw('Vault request', `${reqRow.itemNames.join(', ')}: allow \`${cmd.argv.join(' ').slice(0, 80)}\`?`, { tag: 'vault:' + reqRow.id, url: '/#/vault/requests' });
+        const devices = await pushRaw('Vault request', `${reqRow.itemNames.join(', ')}: allow \`${cmd.argv.join(' ').slice(0, 80)}\`?`, { tag: 'vault:' + reqRow.id, url: '/#/vault/requests', vaultRequest: reqRow.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
         log(`vault request=${reqRow.id} items=${reqRow.itemNames.join(',')} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
       }
     }
@@ -2818,7 +2837,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["The Vault can be protected by a passphrase, locks after a restart, on demand or when idle, and can be exported and imported as one encrypted file."];
+const RELEASE_NOTES = ["Vault Agent access: give agents free rein, approval once per command, or every time; approve from the notification's Allow button or by replying in the conversation."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

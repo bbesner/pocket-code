@@ -1388,6 +1388,7 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 @media (max-width: 460px) { .vault-field { grid-template-columns: 1fr auto; } .vault-field .vault-value { grid-column: 1 / -1; grid-row: 2; padding-bottom: 6px; } } /* a long value gets the full width under its label */
 .vault-policy { margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--dim); }
 .vault-policy strong { color: var(--text); font-weight: 600; }
+.vault-policy-note { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--dim); } /* 1.41: the item overrides Agent access */
 .vault-recipes, .vault-history-list { list-style: none; margin: 0; padding: 0; }
 .vault-recipes li { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
 .vault-recipe-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
@@ -1456,6 +1457,8 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-settings .chip[hidden], .vault-settings .voice-field[hidden], .vault-settings .title-note[hidden] { display: none; }
 .vault-settings .chip:disabled { opacity: .55; }
 .vault-settings .voice-field { margin-top: 6px; max-width: 22em; }
+/* 1.41: Agent access, first in the block: its head labels the select directly under it. */
+.vault-settings label.vault-set-head + .voice-field { margin-top: 0; }
 /* The locked Vault: the list's place, plain, with one action. */
 .vault-locked { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px 18px 28px; max-width: 60ch; }
 .vault-locked h3 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 18px; font-weight: 600; color: var(--text); }

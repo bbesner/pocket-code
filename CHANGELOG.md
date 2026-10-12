@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.41.0] — 2026-10-12 · build 89
+
+- **Agent access: approval is a dial, not a rule.** The Vault's job is to keep credentials out of conversations, transcripts and memory while agents still use them; how often you approve that use is now your choice. Settings → Vault → **Agent access**: *Free rein* (agents use any secret by name without asking; every use is still recorded and values never enter the conversation), *Ask once per command* (the 1.39 behaviour, and the default for a new install), or *Ask every time*. Each item follows that setting unless you set it otherwise: *Free rein*, *Ask once per command*, *Ask every time* or *Only you*. Items that were *Agents ask* by default now follow the setting. Requested by Brad.
+- **Approve from the notification.** A Vault request push now has **Allow** and **Deny** buttons, so a request can be answered without finding it in Pocket.
+- **Approve in the conversation.** When a run is waiting, the agent says so and ends its reply with *Allow zoho-books for this command* and *Deny zoho-books* as suggested replies; tapping or typing one in that conversation answers the request (a bare "Allow" works when only one is waiting). Only your own messages count, and only for requests raised by that session.
+- *Always allow* is not offered for an item that asks every time.
+
 ## [1.40.0] — 2026-10-12 · build 88
 
 - **A passphrase for the Vault.** Settings → Vault → **Set a passphrase** re-encrypts the store under a key derived from a passphrase you choose (12 characters or more, scrypt), held only in the daemon's memory. After a restart, or after **Lock now**, or after the idle time you pick under **Lock after** (15 minutes to 24 hours, or never), the Vault is locked: nothing on the server can open it, agents get "The Vault is locked" (exit code 3) and you get one push, and the Vault view shows **Unlock**. Wrong passphrases are limited to ten an hour. **Change passphrase** and **Remove passphrase** (back to the server key in `.env`) are there too. There is no reset: a forgotten passphrase means the store cannot be opened, so keep it in your password manager and keep an export. Requested by Brad.

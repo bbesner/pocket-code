@@ -300,6 +300,14 @@ run` works only under Full access there.
 "Vault request" (with web push configured) and waits in the Vault view. A request is answered
 once and expires after 15 minutes. A pending request lives in the daemon's memory only (a restart drops it; the agent is told the request no longer exists); the recipes an answer of *Always allow* saves are kept inside `vault.enc`.
 
+**Agent access (1.41).** `vaultAccess` in `pocket-settings.json` is `free`, `once` (default) or
+`every`; an item's `policy` is `default` (follow it), `auto`, `ask`, `every` or `owner`. The
+store schema is 2: a 1.39/1.40 store's `ask` items were the old default and load as `default`.
+A request push carries `actions` (Allow, Deny) and `vaultRequest`; the service worker answers
+with `POST /api/vault/act` under the owner's cookie. An owner message in a session with a
+pending request that reads "Allow <name> for this command", "Always allow <name> …" or
+"Deny <name>" answers it before the message is delivered.
+
 **Audit.** `<data dir>/vault-audit.jsonl` (mode `0600`) gets one line for every run, request,
 answer, owner view of a value, addition, change, removal, restore and rotation: the time, the
 item, the action, the session (or `terminal`), and the command and folder for a run.
