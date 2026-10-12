@@ -41,7 +41,7 @@
     if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t) || /^[~./]/.test(t) || /^[\w.-]+@[\w.-]+$/.test(t)) return false; // URLs, paths, addresses
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) return false; // a UUID
     if (/^[0-9a-f]{40}$/i.test(t)) return false; // a git commit
-    if (/^\{\{vault:[a-z0-9-]+\}\}$/.test(t)) return false;
+    if (/^\{\{vault:[a-z0-9-]+(?:\.[a-z][a-z0-9_]*)?\}\}$/.test(t)) return false;
     if (/^[A-Za-z]+$/.test(t) || /^\d+$/.test(t)) return false; // a word, a number
     const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter(r => r.test(t)).length;
     if (/^[0-9a-f]+$/i.test(t)) return t.length >= 32 && entropy(t) >= 3.3; // a hex key (32+ characters)

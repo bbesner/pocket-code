@@ -14,6 +14,9 @@ import { spawn } from 'node:child_process';
 // Fixed fields by kind; any item may carry custom fields beside them (1.39.1), and `credentials` has only custom ones.
 export const KINDS = { api_key: ['value'], token: ['value'], login: ['username', 'password'], credentials: [], note: ['text'] };
 export const FIELD_RE = /^[a-z][a-z0-9_]{0,31}$/;
+// A stored secret named in text: {{vault:name}} or (1.43) {{vault:name.field}}.
+export const PLACEHOLDER_RE = /\{\{vault:[a-z0-9-]+(?:\.[a-z][a-z0-9_]*)?\}\}/;
+export const PLACEHOLDER_ALL = /\{\{vault:([a-z0-9-]+(?:\.[a-z][a-z0-9_]*)?)\}\}/g;
 export const fieldNames = i => [...KINDS[i.kind], ...(i.custom || [])];
 // 1.41: how freely agents may use secrets is a dial. The install-wide Agent access setting is free (no prompts), once
 // (a new command is approved once, then remembered) or every (every use is approved); an item follows it ('default')
@@ -87,6 +90,7 @@ export function vaultInstructions(cli, sessionId) {
     'This Pocket Code keeps a Vault of credentials (API keys, tokens, logins) that agents use by name and never see.',
     `Run commands that need one with \`node ${cli} run --env VAR=<name>[.field] -- <command…>\`: Pocket runs the command with the value in that variable and returns the output with the value scrubbed. Values never appear in arguments, output, files, messages or your context; never print, echo, write down or ask for one.`,
     'If the command answers `pending <id>`, the owner is being asked to allow it (a push with Allow and Deny went to their devices): say so in one line and end your reply offering "Allow <name> for this command" and "Deny <name>" as the choices; the owner answering either way, by the notification, the Vault view or that reply, settles the request, and you then continue with `wait <id>`. If it is refused, say so and stop; do not look for another way to the value.',
+    'To type a stored value into a web page with the Playwright browser tools (a login form, say), put `{{vault:<name>.<field>}}` as the text to type or fill; Pocket fills in the real value on the way to the browser and removes it from what comes back. Never read a filled value back out of the page.',
     `When you meet a secret in a file, a result or a message, store it at once with \`node ${cli} put <name> --kind <api_key|token|login|credentials|note> --stdin\` (or --from-file), tell the owner it was seen, and use the name from then on. \`list\` shows what exists. A \`{{vault:name}}\` in a message is the owner handing you a stored secret by name.`,
     `The pocket-vault skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-vault', 'SKILL.md')}\`) has the procedure.${sessionId ? '' : ' Pass --cwd when the command depends on the working directory.'}`,
   ].join(' ');
@@ -288,7 +292,7 @@ export class VaultStore {
   // Fixed fields are required on add; any other key is a custom field (named by the rule, not clashing with a fixed one).
   checkValues(item, values, { all }) {
     const fixed = KINDS[item.kind], out = {}, custom = [];
-    const check = (f, v) => { if (v.length > LIMITS.value) throw fail(`The ${f} is too long.`); if (/\{\{vault:[a-z0-9-]+\}\}/.test(v)) throw fail(`The ${f} looks like a placeholder, not a value.`); };
+    const check = (f, v) => { if (v.length > LIMITS.value) throw fail(`The ${f} is too long.`); if (PLACEHOLDER_RE.test(v)) throw fail(`The ${f} looks like a placeholder, not a value.`); };
     for (const f of fixed) { const v = typeof values?.[f] === 'string' ? values[f] : ''; check(f, v); if (all && !v.trim()) throw fail(`The ${f} is required.`); out[f] = v; }
     for (const [f, raw] of Object.entries(values && typeof values === 'object' ? values : {})) {
       if (fixed.includes(f)) continue;
@@ -389,10 +393,11 @@ export class VaultStore {
     for (const [id, r] of this.requests) if (Date.parse(r.expiresAt) <= now || (r.answer && Date.parse(r.answer.at) + LIMITS.requestTtlMs <= now)) { if (!r.answer) { r.answer = { decision: 'expired', at: iso(now) }; for (const w of r.waiters.splice(0)) w(r); } this.requests.delete(id); }
   }
   // Values for a run that policy allows; recorded first. Returns the secrets to bind and the scrub list.
-  release(bound, cmd, { session = null, sessionTitle = '', by = 'agent', request = null } = {}) {
+  // `action` is 'run' (a command the daemon spawns) or 'fill' (1.43: a value typed into a browser tool by pocket-mcp-proxy).
+  release(bound, cmd, { session = null, sessionTitle = '', by = 'agent', request = null, action = 'run' } = {}) {
     this.open();
     const items = [...new Map(bound.map(b => [b.item.id, b.item])).values()];
-    for (const item of items) this.audit({ action: 'run', item: item.id, name: item.name, by, session, sessionTitle, argv: cmd.argv, cwd: cmd.cwd, request });
+    for (const item of items) this.audit({ action, item: item.id, name: item.name, by, session, sessionTitle, argv: cmd.argv, cwd: cmd.cwd, request });
     const at = iso(this.now());
     for (const item of items) { item.lastUsedAt = at; item.lastUsedBy = { session, sessionTitle, kind: by }; }
     this.save();

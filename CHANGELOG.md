@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.43.0] — 2026-10-12 · build 91
+
+- **Typed by Pocket: agents log into web pages without seeing the password.** `scripts/pocket-mcp-proxy.mjs` sits between an agent and a browser tool such as Playwright MCP. When a tool call names `{{vault:ovrc-brad.password}}` (or any `{{vault:name}}` / `{{vault:name.field}}`), the relay gets the value from the Vault under your Agent access setting, types it into the call on its way to the browser, and replaces it with the placeholder in everything the tool sends back: its reply, page snapshots and logs. The model's tool call and the transcript only ever hold the placeholder. A call with no placeholder passes through untouched. Requested by Brad.
+- **Same rules as a run.** Free rein fills at once; *Ask once per command* and *Ask every time* raise a Vault request (shown as "Fill into the browser tool"), answered from the push, the Vault view or the conversation, and the agent calls the tool again once allowed. *Only you* items are never filled. Each fill is recorded in the item's history as "Filled into a browser"; the value never is.
+- **Setting it up.** Point the agent's browser tool at the relay, for example `claude mcp add playwright -s user -- node <pocket>/scripts/pocket-mcp-proxy.mjs --name playwright -- npx -y @playwright/mcp --headless --no-sandbox`. See the operations guide. Why not a Claude Code hook: hook output is written into the session's transcript file, which would put the value in the record the Vault exists to keep clean.
+- Placeholders may now name a field: `{{vault:name.field}}`.
+
 ## [1.42.0] — 2026-10-12 · build 90
 
 - **Pocket catches a secret before it is sent.** Paste an API key, token, private key, card number or "password: …" into a message and Pocket holds it instead of putting it in the box: **Store in the Vault** saves it under a suggested name and puts `{{vault:name}}` in the message, so the agent uses it by name and the value never reaches the model, the transcript or MemStem; **Paste as is** and **Cancel** are there too. The pasted text is held in memory only, never in the draft. The same check runs when you send, so a key typed or dictated into a message is caught too, with **Store and send**, **Send as is** and **Edit**. Requested by Brad.

@@ -300,6 +300,24 @@ run` works only under Full access there.
 "Vault request" (with web push configured) and waits in the Vault view. A request is answered
 once and expires after 15 minutes. A pending request lives in the daemon's memory only (a restart drops it; the agent is told the request no longer exists); the recipes an answer of *Always allow* saves are kept inside `vault.enc`.
 
+**Typed by Pocket (1.43).** `scripts/pocket-mcp-proxy.mjs [--name <server>] -- <MCP server command…>` is a
+stdio MCP relay. Wrap a browser tool with it so agents can fill `{{vault:name.field}}` into web forms:
+
+```bash
+claude mcp remove playwright -s user
+claude mcp add playwright -s user -- node /path/to/pocket-code/scripts/pocket-mcp-proxy.mjs --name playwright \
+  -- npx -y @playwright/mcp --headless --no-sandbox
+```
+
+For each tool call that names a placeholder, the relay asks `POST /api/vault/release` (CLI token, plus the runner token
+from its environment, so the fill is tied to the session) under the Agent access policy, with the command recorded as
+`pocket-fill <server> <tool>`; it types the values into the call and scrubs every value it has released (all forms)
+from the server's replies, notifications and stderr for the rest of its life. `POCKET_VAULT_FILL_WAIT` (seconds,
+default 90) is how long a fill waits for an approval before telling the agent to call again. The values pass through
+the relay and the browser tool, which run as the same OS user as the agent; the model and the transcript never see
+them. A Claude Code PreToolUse hook could rewrite the call too, but Claude Code records hook output in the transcript
+file, so the relay is the only clean path.
+
 **Secret guard (1.42).** `public/secret-detect.js` is one detector for the composer and the daemon. With
 `secretGuard` (default true in `pocket-settings.json`) the daemon answers `POST /api/session/:id/message` and
 `POST /api/new` with `422 secret_detected` (kinds and character offsets, never the value) before a delivery receipt

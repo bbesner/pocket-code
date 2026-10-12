@@ -1,7 +1,7 @@
 {
-  "version": "1.42.0",
-  "assetV": 90,
+  "version": "1.43.0",
+  "assetV": 91,
   "notes": [
-    "A key or password pasted or typed into a message is held before it is sent, with one tap to store it in the Vault and send a placeholder instead."
+    "Typed by Pocket: an agent can log into a web page with a stored password through the browser tools without the password ever entering the conversation."
   ]
 }
