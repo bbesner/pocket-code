@@ -8,7 +8,7 @@
 // Design: docs/plans/1.39.0-vault.md.
 import fs from 'node:fs';
 import path from 'node:path';
-import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
 // Fixed fields by kind; any item may carry custom fields beside them (1.39.1), and `credentials` has only custom ones.
@@ -38,25 +38,42 @@ export function parseKey(raw) {
   return b;
 }
 export const newKey = () => randomBytes(32).toString('base64');
-const FORMAT = 1;
-// [version 1][iv 12][tag 16][ciphertext]; the version byte is the associated data, so a record cannot be replayed under another format.
-export function encryptStore(key, data) {
-  const iv = randomBytes(12), aad = Buffer.from([FORMAT]);
+// Two file formats, told apart by the first byte (which is also the associated data, so a record cannot be replayed
+// under the other one). 1: [1][iv 12][tag 16][ciphertext], opened by the raw key from POCKET_VAULT_KEY.
+// 2 (1.40, passphrase mode): [2][salt 16][iv 12][tag 16][ciphertext], opened by a key derived from the owner's
+// passphrase with scrypt over the salt; the daemon holds that key in memory only, so a restart locks the store.
+export const SCRYPT = { N: 1 << 15, r: 8, p: 1, maxmem: 128 * 1024 * 1024 };
+export const PASSPHRASE_MIN = 12;
+export function deriveKey(passphrase, salt) {
+  const pw = String(passphrase || ''); if (pw.length < PASSPHRASE_MIN) throw fail(`The passphrase must be at least ${PASSPHRASE_MIN} characters.`);
+  return scryptSync(pw.normalize('NFKC'), salt, 32, SCRYPT);
+}
+export function storeHeader(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 29) throw new Error('The vault file is not in a known format.');
+  if (buf[0] === 1) return { version: 1, salt: null, offset: 1 };
+  if (buf[0] === 2 && buf.length >= 45) return { version: 2, salt: buf.subarray(1, 17), offset: 17 };
+  throw new Error('The vault file is not in a known format.');
+}
+export function encryptStore(key, data, { salt = null } = {}) {
+  const iv = randomBytes(12), aad = salt ? Buffer.concat([Buffer.from([2]), salt]) : Buffer.from([1]);
   const c = createCipheriv('aes-256-gcm', key, iv); c.setAAD(aad);
   const body = Buffer.concat([c.update(Buffer.from(JSON.stringify(data), 'utf8')), c.final()]);
   return Buffer.concat([aad, iv, c.getAuthTag(), body]);
 }
+// `keys` are raw 32-byte keys (for format 2, already derived from the passphrase and the file's salt).
 export function decryptStore(keys, buf) {
-  if (!Buffer.isBuffer(buf) || buf.length < 29 || buf[0] !== FORMAT) throw new Error('The vault file is not in a known format.');
-  const iv = buf.subarray(1, 13), tag = buf.subarray(13, 29), body = buf.subarray(29);
+  const h = storeHeader(buf), o = h.offset;
+  const iv = buf.subarray(o, o + 12), tag = buf.subarray(o + 12, o + 28), body = buf.subarray(o + 28);
   for (const key of keys) {
     try {
-      const d = createDecipheriv('aes-256-gcm', key, iv); d.setAAD(buf.subarray(0, 1)); d.setAuthTag(tag);
+      const d = createDecipheriv('aes-256-gcm', key, iv); d.setAAD(buf.subarray(0, o)); d.setAuthTag(tag);
       return JSON.parse(Buffer.concat([d.update(body), d.final()]).toString('utf8'));
     } catch { /* next key */ }
   }
-  throw new Error('The vault cannot be opened with this key.');
+  throw new Error(h.version === 2 ? 'Wrong passphrase.' : 'The vault cannot be opened with this key.');
 }
+// An export is a format-2 file of its own under a passphrase the owner types for it: the same items, portable.
+export const EXPORT_FORMAT = 'pocket-vault-export';
 
 // ---------- what agents are told ----------
 export function vaultInstructions(cli, sessionId) {
@@ -71,17 +88,86 @@ export function vaultInstructions(cli, sessionId) {
 
 // ---------- the store ----------
 export class VaultStore {
-  // `key` opens the file; `oldKeys` are retired keys still accepted while a rotation is pending a restart.
-  constructor(file, { key, oldKeys = [], auditFile, now, write, log = () => {} } = {}) {
-    if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error('A 32-byte key is required.');
-    this.file = file; this.keys = [key, ...oldKeys]; this.auditFile = auditFile || path.join(path.dirname(file), 'vault-audit.jsonl');
+  // `key` (from POCKET_VAULT_KEY) opens a format-1 file; `oldKeys` are retired keys still accepted while a rotation is
+  // pending a restart. A format-2 file (passphrase mode) starts LOCKED: nothing is decrypted until unlock(passphrase).
+  constructor(file, { key = null, oldKeys = [], auditFile, now, write, log = () => {} } = {}) {
+    if (key != null && (!Buffer.isBuffer(key) || key.length !== 32)) throw new Error('A 32-byte key is required.');
+    this.file = file; this.envKey = key; this.keys = key ? [key, ...oldKeys] : []; this.salt = null;
+    this.auditFile = auditFile || path.join(path.dirname(file), 'vault-audit.jsonl');
     this.now = now || Date.now; this.log = log;
     this.write = write || ((f, buf) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, buf, { mode: 0o600 }); fs.renameSync(tmp, f); });
     this.requests = new Map(); // id -> request (pending ones live in memory only; they expire in minutes)
-    this.running = 0;
-    let data = { version: 1, items: [] };
-    if (fs.existsSync(file)) data = decryptStore(this.keys, fs.readFileSync(file)); // throws: the daemon reports "cannot be opened" and serves nothing
-    this.items = (Array.isArray(data.items) ? data.items : []).filter(i => i && typeof i.id === 'string' && NAME_RE.test(i.name || '')).map(i => this.normalize(i));
+    this.running = 0; this.items = null; this.lastActivityAt = this.now();
+    if (!fs.existsSync(file)) { if (!key) throw new Error('POCKET_VAULT_KEY is not set.'); this.items = []; return; }
+    const buf = fs.readFileSync(file), h = storeHeader(buf);
+    if (h.version === 2) { this.salt = Buffer.from(h.salt); return; } // locked until the owner unlocks it
+    if (!key) throw new Error('POCKET_VAULT_KEY is not set.');
+    this.load(decryptStore(this.keys, buf)); // throws: the daemon reports "cannot be opened" and serves nothing
+  }
+  load(data) { this.items = (Array.isArray(data.items) ? data.items : []).filter(i => i && typeof i.id === 'string' && NAME_RE.test(i.name || '')).map(i => this.normalize(i)); this.lastActivityAt = this.now(); }
+  get mode() { return this.salt ? 'passphrase' : 'key'; }
+  get locked() { return this.items === null; }
+  open() { if (this.locked) throw fail('The Vault is locked. Ask the owner to unlock it in Pocket Code.', 423, { code: 'vault_locked' }); this.lastActivityAt = this.now(); return this; }
+  // Passphrase mode: unlock derives the key from the passphrase and the file's salt and decrypts; lock forgets both the
+  // key and every item. Switching modes rewrites the file under the other key.
+  unlock(passphrase) {
+    if (!this.locked) return true;
+    const k = deriveKey(passphrase, this.salt);
+    let data; try { data = decryptStore([k], fs.readFileSync(this.file)); } catch { this.audit({ action: 'unlock-failed', by: 'owner' }); throw fail('Wrong passphrase.', 401); }
+    this.keys = [k]; this.load(data); this.audit({ action: 'unlock', by: 'owner' }); return true;
+  }
+  lock() {
+    if (this.mode !== 'passphrase') throw fail('The Vault is opened by the server key; set a passphrase to be able to lock it.');
+    if (this.locked) return;
+    this.items = null; this.keys = []; for (const r of this.requests.values()) for (const w of r.waiters.splice(0)) w(r); this.requests.clear();
+    this.audit({ action: 'lock', by: 'owner' });
+  }
+  setPassphrase(passphrase, confirm) {
+    this.open();
+    if (String(passphrase) !== String(confirm)) throw fail('The passphrases do not match.');
+    const salt = randomBytes(16), k = deriveKey(passphrase, salt);
+    this.salt = salt; this.keys = [k]; this.save(); this.audit({ action: 'passphrase-set', by: 'owner' });
+  }
+  checkPassphrase(passphrase) { if (this.mode !== 'passphrase') return false; try { decryptStore([deriveKey(passphrase, this.salt)], fs.readFileSync(this.file)); return true; } catch { return false; } }
+  removePassphrase(passphrase) {
+    this.open();
+    if (this.mode !== 'passphrase') throw fail('The Vault is not protected by a passphrase.');
+    if (!this.envKey) throw fail('POCKET_VAULT_KEY is not set, so the Vault cannot go back to the server key.', 409, { code: 'vault_no_key' });
+    try { decryptStore([deriveKey(passphrase, this.salt)], fs.readFileSync(this.file)); } catch { throw fail('Wrong passphrase.', 401); }
+    this.salt = null; this.keys = [this.envKey]; this.save(); this.audit({ action: 'passphrase-removed', by: 'owner' });
+  }
+  // Idle lock: the owner's setting, in minutes; 0 never.
+  idleLockDue(minutes, now = this.now()) { return this.mode === 'passphrase' && !this.locked && minutes > 0 && now - this.lastActivityAt >= minutes * 60_000; }
+  save() { this.open(); this.write(this.file, encryptStore(this.keys[0], { version: 1, savedAt: iso(this.now()), items: this.items }, { salt: this.salt })); }
+  // Rotation (key mode): the store is rewritten under the new key; the old one stays accepted until the daemon restarts with the new .env.
+  rotate(newKeyRaw) { this.open(); if (this.mode !== 'key') throw fail('Rotation applies to the server key; the Vault is protected by a passphrase.'); const k = parseKey(newKeyRaw); this.keys = [k, ...this.keys]; this.envKey = k; this.save(); return k; }
+  // Export: every item (values included) as a format-2 file under a passphrase of its own; import merges by name.
+  exportBundle(passphrase, confirm) {
+    this.open();
+    if (String(passphrase) !== String(confirm)) throw fail('The passphrases do not match.');
+    const salt = randomBytes(16), k = deriveKey(passphrase, salt);
+    const items = this.items.filter(i => !i.trashedAt).map(({ lastUsedAt, lastUsedBy, trashedAt, ...i }) => i);
+    this.audit({ action: 'export', by: 'owner', decision: String(items.length) });
+    return encryptStore(k, { format: EXPORT_FORMAT, version: 1, exportedAt: iso(this.now()), items }, { salt });
+  }
+  importBundle(buf, passphrase) {
+    this.open();
+    let h; try { h = storeHeader(buf); } catch { throw fail('That is not a Vault export file.'); }
+    if (h.version !== 2) throw fail('That is not a Vault export file.');
+    let data; try { data = decryptStore([deriveKey(passphrase, h.salt)], buf); } catch (e) { throw fail(e.message === 'Wrong passphrase.' ? 'Wrong passphrase.' : 'That is not a Vault export file.'); }
+    if (data?.format !== EXPORT_FORMAT || !Array.isArray(data.items)) throw fail('That is not a Vault export file.');
+    const skipped = [], added = [];
+    for (const raw of data.items) {
+      const i = this.normalize({ ...raw, id: shortId(), lastUsedAt: null, lastUsedBy: null, trashedAt: null });
+      if (!NAME_RE.test(i.name || '')) continue;
+      if (this.items.some(x => x.name === i.name)) { skipped.push(i.name); continue; }
+      if (this.items.length >= LIMITS.items) throw fail(`You can keep up to ${LIMITS.items} items.`, 409);
+      i.created = i.created || iso(this.now()); i.updated = iso(this.now()); i.revision = 1;
+      this.items.push(i); added.push(i.name);
+    }
+    if (added.length) this.save();
+    this.audit({ action: 'import', by: 'owner', decision: `${added.length} added, ${skipped.length} skipped` });
+    return { added: added.length, skipped };
   }
   normalize(i) {
     const kind = KINDS[i.kind] ? i.kind : 'note';
@@ -92,9 +178,6 @@ export class VaultStore {
       expiresAt: i.expiresAt && !Number.isNaN(Date.parse(i.expiresAt)) ? i.expiresAt : null, lastUsedAt: i.lastUsedAt || null, lastUsedBy: i.lastUsedBy || null,
       trashedAt: i.trashedAt || null, revision: Number.isInteger(i.revision) && i.revision > 0 ? i.revision : 1 };
   }
-  save() { this.write(this.file, encryptStore(this.keys[0], { version: 1, savedAt: iso(this.now()), items: this.items })); }
-  // Rotation: the store is rewritten under the new key; the old one stays accepted until the daemon restarts with the new .env.
-  rotate(newKeyRaw) { const k = parseKey(newKeyRaw); this.keys = [k, ...this.keys]; this.save(); return k; }
 
   // The audit row is written before the action is final; if it cannot be written the action fails (no unrecorded release).
   audit(record) {
@@ -116,8 +199,8 @@ export class VaultStore {
     return rows;
   }
 
-  get(id) { const i = this.items.find(x => x.id === id); if (!i) throw fail('That item does not exist.', 404); return i; }
-  byName(name) { return this.items.find(x => x.name === name && !x.trashedAt) || null; }
+  get(id) { this.open(); const i = this.items.find(x => x.id === id); if (!i) throw fail('That item does not exist.', 404); return i; }
+  byName(name) { this.open(); return this.items.find(x => x.name === name && !x.trashedAt) || null; }
   // The item as the UI and CLI see it: never a value; notes only for the owner.
   view(i, { owner = false, now = this.now() } = {}) {
     const { values, notes, ...rest } = i;
@@ -125,6 +208,7 @@ export class VaultStore {
   }
   requestView(r) { const { env, waiters, ...rest } = r; return { ...rest, pending: !r.answer }; }
   snapshot({ owner = false, now = this.now() } = {}) {
+    this.open();
     this.expireRequests(now);
     const live = this.items.filter(i => !i.trashedAt).sort((a, b) => a.name.localeCompare(b.name)).map(i => this.view(i, { owner, now }));
     const trash = owner ? this.items.filter(i => i.trashedAt).sort((a, b) => Date.parse(b.trashedAt) - Date.parse(a.trashedAt)).map(i => this.view(i, { owner, now })) : [];
@@ -135,6 +219,7 @@ export class VaultStore {
 
   // Every change goes through here. Agents may only add (create-only); everything else is the owner's.
   act(input, { actor = 'owner', session = null, sessionTitle = '' } = {}) {
+    this.open();
     const action = str(input?.action, 40);
     if (!ACTIONS.includes(action)) throw fail('Unknown action.');
     const owner = actor === 'owner', by = owner ? 'owner' : actor === 'agent' ? 'agent' : 'terminal';
@@ -212,6 +297,7 @@ export class VaultStore {
 
   // The owner reads one field at a time; each read is recorded.
   field(id, field) {
+    this.open();
     const i = this.get(id);
     if (!fieldNames(i).includes(field)) throw fail('That field does not exist.', 404);
     this.audit({ action: 'owner-view', item: i.id, name: i.name, by: 'owner', decision: field });
@@ -221,6 +307,7 @@ export class VaultStore {
   // ---------- runs ----------
   // Bindings: { VAR: 'name' | 'name.field' } → the items and the field each variable needs. Nothing is released here.
   resolveBindings(env) {
+    this.open();
     if (!env || typeof env !== 'object') throw fail('Nothing to bind: give at least one --env VAR=name.');
     const entries = Object.entries(env); if (!entries.length) throw fail('Nothing to bind: give at least one --env VAR=name.');
     if (entries.length > LIMITS.env) throw fail('Too many variables.');
@@ -290,6 +377,7 @@ export class VaultStore {
   }
   // Values for a run that policy allows; recorded first. Returns the secrets to bind and the scrub list.
   release(bound, cmd, { session = null, sessionTitle = '', by = 'agent', request = null } = {}) {
+    this.open();
     const items = [...new Map(bound.map(b => [b.item.id, b.item])).values()];
     for (const item of items) this.audit({ action: 'run', item: item.id, name: item.name, by, session, sessionTitle, argv: cmd.argv, cwd: cmd.cwd, request });
     const at = iso(this.now());
@@ -300,6 +388,7 @@ export class VaultStore {
   }
   // Removed items are purged after 30 days.
   purge(now = this.now()) {
+    if (this.locked) { this.expireRequests(now); return []; }
     const gone = this.items.filter(i => i.trashedAt && Date.parse(i.trashedAt) + LIMITS.trashDays * 86400_000 <= now);
     if (gone.length) { this.items = this.items.filter(i => !gone.includes(i)); this.save(); }
     this.expireRequests(now);

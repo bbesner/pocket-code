@@ -1447,6 +1447,39 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .title-settings[hidden] { display: none; }
 .vault-settings .chip { align-self: flex-start; }
 .vault-settings .vault-warning { color: var(--warn); }
+/* 1.40: Settings → Vault: Protection (mode, its actions, Lock after) and Export and import. */
+.vault-settings { gap: 16px; }
+.vault-set { display: flex; flex-direction: column; gap: 6px; }
+.vault-set-head { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--dim); }
+.vault-mode { margin: 0; font-size: 14.5px; color: var(--text); }
+.vault-set-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.vault-settings .chip[hidden], .vault-settings .voice-field[hidden], .vault-settings .title-note[hidden] { display: none; }
+.vault-settings .chip:disabled { opacity: .55; }
+.vault-settings .voice-field { margin-top: 6px; max-width: 22em; }
+/* The locked Vault: the list's place, plain, with one action. */
+.vault-locked { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px 18px 28px; max-width: 60ch; }
+.vault-locked h3 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 18px; font-weight: 600; color: var(--text); }
+.vault-locked h3 .vault-lock-glyph { color: var(--clay); }
+.vault-locked h3 .i { width: 20px; height: 20px; }
+.vault-locked p { margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--dim); }
+.vault-locked .primary { width: auto; min-height: 44px; margin-top: 6px; padding: 11px 28px; font-size: 15px; }
+.rail .vault-locked { padding: 14px 14px 18px; }
+.rail .vault-locked h3 { font-size: 15.5px; }
+.rail .vault-locked p { font-size: 13.5px; }
+.vault-lock-glyph { display: inline-flex; align-items: center; }
+.vault-lock-glyph .i { width: 13px; height: 13px; stroke-width: 1.9; }
+.chip .vault-lock-glyph .i { width: 13px; height: 13px; }
+[data-vault-home] .vault-lock-glyph, [data-rail-view="vault"] .vault-lock-glyph { margin-left: -2px; color: var(--dim); }
+/* Passphrase sheets: unlock, set or change, remove, export, import. */
+.vault-pass-sheet .vault-pass-help { margin: 0 14px 12px; max-width: 60ch; }
+.vault-pass-sheet .vault-secret .vault-hint { margin: 0; }
+.vault-pass-warn { margin: 0; font-size: 14px; line-height: 1.5; font-weight: 600; color: var(--warn); }
+.vault-pass-sheet input[aria-invalid="true"] { border-color: var(--err); }
+.vault-pass-result { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.vault-pass-result:empty { display: none; }
+.vault-form .vault-file { min-height: 44px; font: inherit; font-size: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; max-width: 100%; }
+.vault-form .vault-file::file-selector-button { margin-right: 10px; font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+.vault-form .vault-file:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
 
 /* Accent previews show the palette belonging to the current colour mode. */
 button[data-accent="clay"] .accent-dot { background: var(--accent-orange); }

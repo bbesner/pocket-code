@@ -598,7 +598,16 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings"><label class="voice-field">Open files<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
     <button class="opt" id="s-tasks" disabled aria-pressed="false"><span class="dot"></span><span>Tasks<span class="sub" id="s-tasks-state">Loading the Tasks setting…</span></span></button>
     <button class="opt" id="s-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault<span class="sub" id="s-vault-state">Loading the Vault setting…</span></span></button>
-    <div class="title-settings vault-settings" id="s-vault-more" hidden><p class="title-note">The key is POCKET_VAULT_KEY in .env. Rotating re-encrypts the Vault and shows the new key once.</p><p class="title-note vault-warning" id="s-vault-codex"></p><span><button class="chip" id="s-vault-rotate">Rotate key</button></span></div>
+    <div class="title-settings vault-settings" id="s-vault-more" hidden>
+      <div class="vault-set" role="group" aria-labelledby="s-vault-prot-h"><p class="vault-set-head" id="s-vault-prot-h">Protection</p>
+        <p class="vault-mode" id="s-vault-mode"></p><p class="title-note" id="s-vault-mode-note"></p>
+        <span class="vault-set-actions"><button class="chip" id="s-vault-setpass" hidden>Set a passphrase</button><button class="chip" id="s-vault-lock" hidden>${VIC.lock}Lock now</button><button class="chip" id="s-vault-unlock" hidden>Unlock…</button><button class="chip" id="s-vault-changepass" hidden>Change passphrase</button><button class="chip" id="s-vault-removepass" hidden>Remove passphrase</button><button class="chip" id="s-vault-rotate" hidden>Rotate key</button></span>
+        <label class="voice-field" id="s-vault-autolock-wrap" hidden>Lock after<select id="s-vault-autolock" aria-describedby="s-vault-autolock-note">${VAULT_LOCK_CHOICES.map(([m, l]) => `<option value="${m}">${l}</option>`).join('')}</select></label>
+        <p class="title-note" id="s-vault-autolock-note" hidden>Counted from the last time you or an agent used it. It always locks after a restart.</p></div>
+      <div class="vault-set" role="group" aria-labelledby="s-vault-backup-h"><p class="vault-set-head" id="s-vault-backup-h">Export and import</p>
+        <p class="title-note" id="s-vault-backup-note">One file with every item, encrypted with a passphrase you choose.</p>
+        <span class="vault-set-actions"><button class="chip" id="s-vault-export">Export…</button><button class="chip" id="s-vault-import">Import…</button></span></div>
+      <p class="title-note vault-warning" id="s-vault-codex"></p></div>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
@@ -760,6 +769,16 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       : srv.vaultError && !/not set/i.test(srv.vaultError) ? 'Off. The Vault cannot be opened: ' + srv.vaultError
       : 'Off. Set POCKET_VAULT_KEY in .env (see the README) and restart to turn it on';
     sh.querySelector('#s-vault-more').hidden = !on;
+    // 1.40: key mode (POCKET_VAULT_KEY opens it) or passphrase mode (held in memory; locked after a restart or idle).
+    const pass = srv.vaultMode === 'passphrase', locked = pass && Boolean(srv.vaultLocked);
+    sh.querySelector('#s-vault-mode').textContent = pass ? 'Protected by a passphrase' + (locked ? '. Locked now' : '') : 'Opened by the server key in .env';
+    sh.querySelector('#s-vault-mode-note').textContent = !pass ? 'POCKET_VAULT_KEY opens the Vault whenever Pocket Code runs. Rotating re-encrypts it and shows the new key once.'
+      : locked ? 'Agents cannot use secrets until you unlock it. Unlock it to change the passphrase, export or import.'
+      : 'Pocket holds the passphrase in memory only, so the Vault locks after a restart until you unlock it.';
+    const show = { '#s-vault-setpass': !pass, '#s-vault-rotate': !pass, '#s-vault-lock': pass && !locked, '#s-vault-unlock': locked, '#s-vault-changepass': pass && !locked, '#s-vault-removepass': pass && !locked, '#s-vault-autolock-wrap': pass, '#s-vault-autolock-note': pass };
+    for (const [sel, v] of Object.entries(show)) sh.querySelector(sel).hidden = !v;
+    sh.querySelector('#s-vault-autolock').value = String(VAULT_LOCK_CHOICES.some(([m]) => m === srv.vaultAutoLockMinutes) ? srv.vaultAutoLockMinutes : 0);
+    sh.querySelector('#s-vault-export').disabled = sh.querySelector('#s-vault-import').disabled = locked;
     sh.querySelector('#s-vault-codex').textContent = on && srv.codexInstructionsOverridden ? "Codex's config.toml sets developer_instructions, so Codex sessions don't receive the Vault's rules. Claude Code sessions do." : '';
   };
   sh.querySelector('#s-vault').onclick = async e => {
@@ -777,6 +796,27 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     }
   };
   sh.querySelector('#s-vault-rotate').onclick = () => rotateVaultKey();
+  sh.querySelector('#s-vault-setpass').onclick = () => vaultPassphraseSheet(false);
+  sh.querySelector('#s-vault-changepass').onclick = () => vaultPassphraseSheet(true);
+  sh.querySelector('#s-vault-removepass').onclick = () => vaultRemovePassphraseSheet();
+  sh.querySelector('#s-vault-unlock').onclick = () => vaultUnlockSheet();
+  sh.querySelector('#s-vault-export').onclick = () => vaultExportSheet();
+  sh.querySelector('#s-vault-import').onclick = () => vaultImportSheet();
+  sh.querySelector('#s-vault-lock').onclick = async e => {
+    const btn = e.currentTarget; btn.disabled = true;
+    const ok = await vaultLockNow(); btn.disabled = false;
+    if (!ok || !sh.isConnected) return;
+    srv = { ...srv, vaultLocked: true }; paintVaultSetting(); sh.querySelector('#s-vault-unlock').focus();
+  };
+  sh.querySelector('#s-vault-autolock').onchange = async e => {
+    const sel = e.currentTarget, minutes = Number(sel.value), was = srv?.vaultAutoLockMinutes || 0; sel.disabled = true;
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ vaultAutoLockMinutes: minutes }), signal: AbortSignal.timeout(8000) });
+      vaultAutoLock = Number(srv.vaultAutoLockMinutes) || 0;
+      toast(minutes ? 'The Vault locks after ' + VAULT_LOCK_CHOICES.find(([m]) => m === minutes)[1] + ' idle' : 'The Vault locks only after a restart');
+    } catch (err) { sel.value = String(was); if (err.message !== 'login') toast('Could not save: ' + (err.message || 'error')); }
+    finally { sel.disabled = false; }
+  };
   const openDocSel = sh.querySelector('#s-documents-open'); openDocSel.value = readLocal('pc-documents-open', 'tab'); openDocSel.onchange = () => writeLocal('pc-documents-open', openDocSel.value);
   sh.querySelector('#s-title-model').onchange = e => saveTitles({ titleProvider: e.target.value });
   sh.querySelector('#s-away').onclick = () => { if (srv?.titles) saveTitles({ awaySummaries: srv.titles.awaySummaries === false }); };

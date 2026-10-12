@@ -502,6 +502,21 @@ per-turn line does not reach Codex sessions; Settings says so.
 Settings → Vault also has **Rotate key**, which re-encrypts the store under a new key and
 shows that key once for the operator to put in `.env`.
 
+**Locking it (1.40).** Settings → Vault → **Set a passphrase** re-encrypts the store under a
+key made from a passphrase you choose (12 characters or more) that the server keeps only in
+memory. From then on the Vault is **locked** after a restart, after **Lock now**, and after
+the idle time you pick under **Lock after** (15 minutes to 24 hours, or never). While locked,
+nothing on the server can open it: agents are told the Vault is locked and you get one push;
+the Vault view shows **Unlock**. Ten wrong passphrases in an hour pause unlocking. **Change
+passphrase** and **Remove passphrase** (back to the server key) are in the same place. There
+is no reset: a forgotten passphrase means the store cannot be opened, so keep the passphrase
+in your password manager and keep an export.
+
+**Export and import (1.40).** Settings → Vault → **Export** downloads every item, values
+included, as one `.pvault` file encrypted under a passphrase you type for it. **Import** reads
+such a file into this or another Pocket Code: items with new names are added, ones that
+already exist are listed and left alone. Both are yours only, and both are recorded.
+
 **What it does not do.** Agents run as the same OS user as Pocket and could read the key and
 the store if they went looking. The Vault keeps secrets out of prompts, transcripts, memory and
 backups and makes every use visible; it is not a wall around them. A command you approve can do

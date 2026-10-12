@@ -33,7 +33,10 @@ const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
 const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
-let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true};
+let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0};
+// 1.40: the passphrase the fixture checks (never sent back on /api/settings), and the last import's decoded file.
+const vaultFixture={passphrase:null,imported:null};
+const resetVaultLock=()=>{Object.assign(fixtureSettings,{vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0});vaultFixture.passphrase=null;vaultFixture.imported=null;};
 // 1.30: the documents fixture is the real store on a scratch folder: an HTML dashboard whose script tries to reach
 // the parent (the sandbox must stop it), a Markdown note and a CSV.
 const docsDir=path.join(out,'documents');fs.mkdirSync(docsDir,{recursive:true});
@@ -152,13 +155,27 @@ const server=http.createServer(async(req,res)=>{
   if(!fixtureSettings.vault)return json({error:'The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'vault_off'},404);
   const body=async()=>{let raw='';for await(const c of req)raw+=c;return JSON.parse(raw||'{}');};
   const fail=e=>json({error:e.message,...(e.item?{item:e.item}:{}),...(e.code?{code:e.code}:{})},e.status||400);
+  if(url.pathname==='/api/vault/reset'){seedVault();resetVaultLock();return json({ok:true});}
+  // 1.40: passphrase mode. Unlock and the passphrase routes answer while locked; the snapshot is the locked one and
+  // every other route answers 423, as the server does.
+  const pass=fixtureSettings.vaultMode==='passphrase',longEnough=v=>typeof v==='string'&&v.length>=12;
+  if(url.pathname==='/api/vault/unlock'){const b=await body();if(!pass)return json({error:'The Vault has no passphrase.'},400);if(b.passphrase!==vaultFixture.passphrase)return json({error:'Wrong passphrase.'},401);fixtureSettings.vaultLocked=false;return json({ok:true});}
+  if(url.pathname==='/api/vault/passphrase'){const b=await body();
+   if(b.action==='set'){if(!longEnough(b.passphrase))return json({error:'Use a passphrase of at least 12 characters.'},400);if(b.confirm!==b.passphrase)return json({error:'The passphrases do not match.'},400);if(pass&&b.current!==vaultFixture.passphrase)return json({error:'The current passphrase is wrong.'},401);
+    vaultFixture.passphrase=b.passphrase;Object.assign(fixtureSettings,{vaultMode:'passphrase',vaultLocked:false});return json({ok:true,mode:'passphrase'});}
+   if(b.action==='remove'){if(!pass)return json({error:'The Vault has no passphrase.'},400);if(b.passphrase!==vaultFixture.passphrase)return json({error:'Wrong passphrase.'},401);vaultFixture.passphrase=null;Object.assign(fixtureSettings,{vaultMode:'key',vaultLocked:false});return json({ok:true,mode:'key'});}
+   return json({error:'Unknown action.'},400);}
+  if(fixtureSettings.vaultLocked)return url.pathname==='/api/vault'?json({version:1,ready:false,locked:true,mode:'passphrase',items:[],trash:[],requests:[],openRequests:0}):json({error:'The Vault is locked. Unlock it in Pocket Code.',code:'vault_locked'},423);
+  if(url.pathname==='/api/vault/lock'){if(!pass)return json({error:'The Vault is opened by the server key; there is nothing to lock.'},400);fixtureSettings.vaultLocked=true;return json({ok:true});}
+  if(url.pathname==='/api/vault/export'){const b=await body();if(!longEnough(b.passphrase)||b.confirm!==b.passphrase)return json({error:'Use a passphrase of at least 12 characters, typed the same twice.'},400);
+   res.writeHead(200,{'content-type':'application/octet-stream','content-disposition':'attachment; filename="pocket-vault-export-2026-10-12.pvault"'});res.end(Buffer.from('PVAULT fixture bytes'));return;}
+  if(url.pathname==='/api/vault/import'){const b=await body();if(b.passphrase!=='import-fixture-pass')return json({error:'Wrong passphrase, or not a Pocket Code Vault export.'},400);vaultFixture.imported=Buffer.from(String(b.data||''),'base64').toString();return json({ok:true,added:2,skipped:['zoho-books']});}
   if(url.pathname==='/api/vault')return json({...vaultStore.snapshot({owner:true}),push:{enabled:false}});
   // The whole body goes to the real store, so values (fixed and custom) and removeFields reach it unchanged.
   if(url.pathname==='/api/vault/act'){const b=await body();try{const r=vaultStore.act(b,{actor:'owner'});return json(b.action==='answer'?{ok:true,request:r}:{ok:true,item:r,...(r.removed?{removed:true}:{})});}catch(e){return fail(e);}}
   if(url.pathname==='/api/vault/field'){const b=await body();try{return json({value:vaultStore.field(String(b.item||''),String(b.field||''))});}catch(e){return fail(e);}}
   if(url.pathname==='/api/vault/audit')return json({rows:vaultStore.auditRows({item:url.searchParams.get('item')||undefined,owner:true,limit:Number(url.searchParams.get('limit'))||50})});
   if(url.pathname==='/api/vault/rotate'){const key=newKey();vaultStore.rotate(key);return json({key});}
-  if(url.pathname==='/api/vault/reset'){seedVault();return json({ok:true});}
  }
  if(url.pathname.startsWith('/api/board')){
   if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'projects_off'},404);
@@ -707,7 +724,7 @@ try{
  }
  const {runModelSelectionRegressions} = await import('./model-selection-browser.mjs');
  await runModelSelectionRegressions({browser,base,rows,out,received});
- await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),getMode:()=>uiModes,settingsState:()=>fixtureSettings,received,voiceLog,conversations,pinOrders});
+ await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),getMode:()=>uiModes,settingsState:()=>fixtureSettings,vaultFixture,received,voiceLog,conversations,pinOrders});
  const {runCleanupRegressions}=await import('./cleanup-ui.mjs');
  await runCleanupRegressions({browser,base,rows,out});
  const {runThemeRegressions}=await import('./theme-browser.mjs');

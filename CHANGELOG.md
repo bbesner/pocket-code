@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.40.0] — 2026-10-12 · build 88
+
+- **A passphrase for the Vault.** Settings → Vault → **Set a passphrase** re-encrypts the store under a key derived from a passphrase you choose (12 characters or more, scrypt), held only in the daemon's memory. After a restart, or after **Lock now**, or after the idle time you pick under **Lock after** (15 minutes to 24 hours, or never), the Vault is locked: nothing on the server can open it, agents get "The Vault is locked" (exit code 3) and you get one push, and the Vault view shows **Unlock**. Wrong passphrases are limited to ten an hour. **Change passphrase** and **Remove passphrase** (back to the server key in `.env`) are there too. There is no reset: a forgotten passphrase means the store cannot be opened, so keep it in your password manager and keep an export. Requested by Brad.
+- **Export and import.** Settings → Vault → **Export** downloads every item, values included, as one `.pvault` file encrypted under a passphrase you type for it; **Import** reads such a file into this or another Pocket Code, adding items whose names are new and listing the ones that already exist. Both are owner-only and recorded. A removed item is not exported; last-used stamps are not carried over.
+- The locked state, the passphrase, exports and imports are recorded in the audit log (`lock`, `unlock`, `unlock-failed`, `passphrase-set`, `passphrase-removed`, `export`, `import`). `Rotate key` applies to the server-key mode only. `vault.enc` now starts with a format byte of 2 in passphrase mode; 1.39 files keep working.
+
 ## [1.39.1] — 2026-10-12 · build 87
 
 - **Custom fields in the Vault.** Any item can carry named fields beside its kind's fixed ones: **Add field** in the editor takes a name (lowercase letters, digits and underscores, up to 32 characters) and a value, encrypted like the rest, shown masked with Show and Copy on the item sheet, and bound by agents as `name.field`. A new **Credentials** kind has no fixed fields at all, for things like a client ID and a client secret named the way the service names them. `pocket-vault put` takes several fields at once from a JSON object on standard input or in a file; `show` lists every field. Up to 20 custom fields per item; removing one is an edit, fixed fields stay. Requested by Brad, for UPS and Authorize.net.

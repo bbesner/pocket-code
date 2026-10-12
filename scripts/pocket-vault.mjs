@@ -53,7 +53,8 @@ async function call(p, body, method) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
     if (data.code === 'vault_off') die(offMessage, 3);
-    if (data.code === 'vault_locked') die('The Vault cannot be opened on this server (the key does not match the store). Tell the owner.', 3);
+    if (data.code === 'vault_locked') die('The Vault is locked. Ask the owner to unlock it in Pocket Code (the Vault view); the owner has been notified.', 3);
+    if (data.code === 'vault_unavailable') die('The Vault cannot be opened on this server. Tell the owner.', 3);
     if (data.code === 'owner_only') die(data.error, 5);
     die(data.error || `${r.status} from ${p}`, r.status === 401 ? 4 : 1);
   }
@@ -74,7 +75,7 @@ async function stream(p, body) {
   let r;
   try { r = await fetch(base + p, { method: 'POST', headers, body: JSON.stringify(body) }); }
   catch (e) { die(`Pocket Code is not reachable at ${base}: ${e.cause?.code || e.message}`); }
-  if (!r.ok) { const data = await r.json().catch(() => ({})); if (data.code === 'vault_off') die(offMessage, 3); if (data.code === 'vault_locked') die('The Vault cannot be opened on this server. Tell the owner.', 3); die(data.error || `${r.status} from ${p}`, data.code === 'owner_only' ? 5 : r.status === 401 ? 4 : 1); }
+  if (!r.ok) { const data = await r.json().catch(() => ({})); if (data.code === 'vault_off') die(offMessage, 3); if (data.code === 'vault_locked') die('The Vault is locked. Ask the owner to unlock it in Pocket Code (the Vault view); the owner has been notified.', 3); if (data.code === 'vault_unavailable') die('The Vault cannot be opened on this server. Tell the owner.', 3); die(data.error || `${r.status} from ${p}`, data.code === 'owner_only' ? 5 : r.status === 401 ? 4 : 1); }
   let rem = '';
   const handle = ev => {
     if (ev.t === 'out') process.stdout.write(ev.s);
@@ -97,6 +98,7 @@ async function stream(p, body) {
 switch (cmd) {
   case 'list': {
     const snap = await call('/api/vault');
+    if (snap.locked) die('The Vault is locked. Ask the owner to unlock it in Pocket Code (the Vault view).', 3);
     let rows = snap.items;
     if (opts.kind) rows = rows.filter(i => i.kind === opts.kind);
     if (opts.tag) rows = rows.filter(i => i.tags.includes(String(opts.tag).toLowerCase()));
@@ -107,7 +109,8 @@ switch (cmd) {
   }
   case 'show': {
     if (!rest[0]) die('show needs an item name');
-    const snap = await call('/api/vault'), i = snap.items.find(x => x.name === rest[0]);
+    const snap = await call('/api/vault'); if (snap.locked) die('The Vault is locked. Ask the owner to unlock it in Pocket Code (the Vault view).', 3);
+    const i = snap.items.find(x => x.name === rest[0]);
     if (!i) die(`No item named ${rest[0]}.`, 5);
     out(i, card(i)); break;
   }

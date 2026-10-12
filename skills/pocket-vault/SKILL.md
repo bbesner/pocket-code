@@ -158,6 +158,14 @@ pocket-vault history                   # this session's uses of the Vault
 None of these show a value or the owner's notes. "What credentials do we have" means
 `list`. If the item you need is not there, say so and ask the user to add it in the Vault view.
 
+## If the Vault is locked
+
+The owner can protect the Vault with a passphrase; after a restart, on demand or after a
+period idle it is **locked**, and `pocket-vault` exits with code 3 saying so. The owner has
+already been sent a push. Tell the user in one line that the Vault is locked and that the
+work needs it unlocked in Pocket Code (the Vault view has an Unlock button), then wait or
+move on; never ask for the passphrase and never look for the value elsewhere.
+
 ## If the Vault is off
 
 `pocket-vault` exits with code 3 and says so. Tell the user that the Vault is turned off and
