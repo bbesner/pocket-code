@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
-import {VaultStore,parseKey,newKey,encryptStore,decryptStore,scrubber,needlesFor,runWithSecrets,vaultInstructions,LIMITS} from '../vault.mjs';
+import {VaultStore,parseKey,newKey,encryptStore,decryptStore,storeHeader,deriveKey,scrubber,needlesFor,runWithSecrets,vaultInstructions,LIMITS} from '../vault.mjs';
 import {agentEnv} from '../environment.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
@@ -138,6 +138,50 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
     assert.match(vaultInstructions('/srv/pocket/scripts/pocket-vault.mjs',S1),/never print, echo, write down or ask for one/);assert.match(vaultInstructions('/srv/pocket/scripts/pocket-vault.mjs',null),/skills\/pocket-vault\/SKILL\.md/);
     fs.rmSync(dir,{recursive:true,force:true});
   });
+});
+
+test('passphrase mode (1.40): the store locks and unlocks, idles out, exports and imports; nothing opens without the passphrase',()=>{
+  const dir=tmp(),file=path.join(dir,'vault.enc'),key=parseKey(newKey());let clock=Date.parse('2026-10-12T12:00:00Z');
+  const s=new VaultStore(file,{key,now:()=>clock});
+  const a=s.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:SECRET}});
+  assert.equal(s.mode,'key');assert.throws(()=>s.lock(),/set a passphrase/);assert.equal(s.checkPassphrase('x'),false);
+  assert.throws(()=>s.setPassphrase('short','short'),/at least 12/);assert.throws(()=>s.setPassphrase('correct horse battery','correct horse staple'),/do not match/);
+  s.setPassphrase('correct horse battery','correct horse battery');
+  assert.equal(s.mode,'passphrase');assert.equal(storeHeader(fs.readFileSync(file)).version,2);
+  assert.throws(()=>decryptStore([key],fs.readFileSync(file)),/Wrong passphrase/,'the env key no longer opens the file');
+  assert.equal(s.checkPassphrase('correct horse battery'),true);assert.equal(s.checkPassphrase('correct horse staple'),false);
+  assert.throws(()=>s.rotate(newKey()),/protected by a passphrase/);
+  // A reopened store is locked: every read and write refuses with 423 until the owner unlocks it.
+  const r=new VaultStore(file,{key,now:()=>clock});assert.equal(r.locked,true);assert.equal(r.mode,'passphrase');
+  for(const f of [()=>r.snapshot(),()=>r.act({action:'add',name:'x',kind:'token',values:{value:'xxxxxxxx'}}),()=>r.field(a.id,'value'),()=>r.resolveBindings({T:'zoho-books'}),()=>r.exportBundle('x'.repeat(12),'x'.repeat(12))])assert.throws(f,e=>e.status===423&&e.code==='vault_locked');
+  assert.throws(()=>r.unlock('correct horse staple'),e=>e.status===401);
+  assert.equal(r.unlock('correct horse battery'),true);assert.equal(r.locked,false);assert.equal(r.get(a.id).values.value,SECRET);
+  assert.equal(new VaultStore(file,{now:()=>clock}).locked,true,'opens (locked) with no env key at all');
+  // Idle lock on the owner's schedule; activity resets it; lock forgets everything in memory.
+  assert.equal(r.idleLockDue(0),false);clock+=14*60_000;assert.equal(r.idleLockDue(15),false);clock+=60_000;assert.equal(r.idleLockDue(15),true);
+  r.snapshot();assert.equal(r.idleLockDue(15),false,'a read counts as activity');clock+=16*60_000;assert.equal(r.idleLockDue(15),true);
+  r.lock();assert.equal(r.locked,true);assert.equal(r.keys.length,0);assert.equal(r.items,null);assert.throws(()=>r.save(),e=>e.status===423);
+  r.unlock('correct horse battery');
+  // Export under its own passphrase; import merges by name and never a trashed or used-stamp field.
+  r.act({action:'add',name:'ups-api',kind:'credentials',values:{client_id:'id-1',client_secret:'ups-secret-value-2'},tags:['ups']});
+  const gone=r.act({action:'add',name:'old',kind:'token',values:{value:'old-secret-value'}});r.act({action:'remove',item:gone.id});
+  assert.throws(()=>r.exportBundle('a'.repeat(12),'b'.repeat(12)),/do not match/);
+  const bundle=r.exportBundle('export passphrase one','export passphrase one');
+  assert.equal(storeHeader(bundle).version,2);assert.equal(bundle.toString('latin1').includes('ups-secret'),false);
+  const t=new VaultStore(path.join(dir,'t.enc'),{key,now:()=>clock});
+  assert.throws(()=>t.importBundle(bundle,'export passphrase two'),/Wrong passphrase/);assert.throws(()=>t.importBundle(Buffer.from('junk'),'export passphrase one'),/not a Vault export/);
+  assert.throws(()=>t.importBundle(encryptStore(key,{items:[]}),'export passphrase one'),/not a Vault export/,'a format-1 store is not an export');
+  let r1=t.importBundle(bundle,'export passphrase one');assert.deepEqual(r1,{added:2,skipped:[]},'the trashed item is not exported');
+  assert.equal(t.get(t.byName('ups-api').id).values.client_secret,'ups-secret-value-2');assert.deepEqual(t.byName('ups-api').custom,['client_id','client_secret']);assert.equal(t.byName('ups-api').lastUsedAt,null);
+  r1=t.importBundle(bundle,'export passphrase one');assert.equal(r1.added,0);assert.deepEqual(r1.skipped.sort(),['ups-api','zoho-books']);
+  // Back to key mode needs the env key and the passphrase.
+  assert.throws(()=>new VaultStore(file,{now:()=>clock}).removePassphrase('correct horse battery'),e=>e.status===423);
+  const k2=new VaultStore(file,{now:()=>clock});k2.unlock('correct horse battery');assert.throws(()=>k2.removePassphrase('correct horse battery'),e=>e.code==='vault_no_key');
+  assert.throws(()=>r.removePassphrase('wrong passphrase 1'),e=>e.status===401);
+  r.removePassphrase('correct horse battery');assert.equal(r.mode,'key');assert.equal(storeHeader(fs.readFileSync(file)).version,1);assert.equal(new VaultStore(file,{key}).items.length,3);
+  const actions=fs.readFileSync(path.join(dir,'vault-audit.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l).action);
+  for(const x of ['passphrase-set','unlock-failed','unlock','lock','export','import','passphrase-removed'])assert.ok(actions.includes(x),x+' is recorded');
+  fs.rmSync(dir,{recursive:true,force:true});
 });
 
 test('scrubber: every form of a value, across chunk boundaries; short values are left alone',()=>{
@@ -304,6 +348,42 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   o=await cli(['run','--','true']);assert.equal(o.code,1);assert.match(o.stderr,/at least one --env/);
   o=await cli(['run','--env','T=zoho-books']);assert.equal(o.code,1);assert.match(o.stderr,/needs the command after --/);
   o=await cli(['history']);assert.equal(o.code,0,o.stderr);assert.match(o.stdout,/run  vendor-portal/);assert.doesNotMatch(o.stdout,/hunter2|P@ss/);
+  // 1.40: a passphrase locks the store; agents get 423 and the CLI says so; the owner unlocks, exports, imports and can go back.
+  let st2=await call('/settings');assert.equal(st2.body.vaultMode,'key');assert.equal(st2.body.vaultLocked,false);assert.equal(st2.body.vaultKeyPresent,true);assert.equal(st2.body.vaultAutoLockMinutes,0);
+  assert.equal((await call('/vault/lock',{})).status,400,'nothing to lock in key mode');
+  assert.equal((await call('/vault/passphrase',{action:'set',passphrase:'short',confirm:'short'})).status,400);
+  assert.equal((await call('/vault/passphrase',{action:'set',passphrase:'correct horse battery',confirm:'correct horse battery'},bearer)).status,401,'owner only');
+  let pp=await call('/vault/passphrase',{action:'set',passphrase:'correct horse battery',confirm:'correct horse battery'});assert.equal(pp.status,200);assert.equal(pp.body.mode,'passphrase');
+  assert.equal((await call('/settings',{vaultAutoLockMinutes:15})).body.vaultAutoLockMinutes,15);assert.equal((await call('/settings',{vaultAutoLockMinutes:7})).body.vaultAutoLockMinutes,15,'only the offered choices');
+  assert.equal((await call('/vault/rotate',{})).status,400,'no key rotation in passphrase mode');
+  assert.equal((await call('/vault/lock',{})).status,200);
+  st2=await call('/settings');assert.equal(st2.body.vaultMode,'passphrase');assert.equal(st2.body.vaultLocked,true);
+  let lockedSnap=await call('/vault',null,agent);assert.equal(lockedSnap.status,200);assert.equal(lockedSnap.body.locked,true);assert.equal(lockedSnap.body.ready,false);assert.deepEqual(lockedSnap.body.items,[]);
+  assert.equal((await call('/vault/act',{action:'add',name:'l',kind:'token',values:{value:'xxxxxxxxxx'}},agent)).status,423);
+  r=await streamCall('/vault/run',{argv:['true'],cwd:dir,env:{T:'zoho-books'}},agent);assert.equal(r.status,423);assert.equal(r.body.code,'vault_locked');
+  assert.equal((await call('/vault/field',{item:made.body.item.id,field:'value'})).status,423,'the owner cannot read a value from a locked store either');
+  assert.equal((await call('/vault/export',{passphrase:'x'.repeat(12),confirm:'x'.repeat(12)})).status,423);
+  o=await cli(['list']);assert.equal(o.code,3);assert.match(o.stderr,/The Vault is locked/);
+  o=await cli(['run','--env','T=zoho-books','--','true']);assert.equal(o.code,3);assert.match(o.stderr,/locked/);
+  assert.match(logs,/vault locked by the owner/);
+  assert.equal((await call('/vault/unlock',{passphrase:'correct horse staple'})).status,401);
+  assert.equal((await call('/vault/unlock',{passphrase:'correct horse battery'},bearer)).status,401,'the token cannot unlock');
+  assert.equal((await call('/vault/unlock',{passphrase:'correct horse battery'})).status,200);
+  assert.equal((await call('/settings')).body.vaultLocked,false);assert.equal((await call('/vault')).body.items.length>=4,true,'everything is back');
+  // Export is a binary download; import into the same store skips every name.
+  const ex=await fetch(`http://127.0.0.1:${port}/api/vault/export`,{method:'POST',headers,body:JSON.stringify({passphrase:'export passphrase one',confirm:'export passphrase one'})});
+  assert.equal(ex.status,200);assert.match(ex.headers.get('content-disposition'),/attachment; filename="pocket-vault-export-\d{4}-\d{2}-\d{2}\.pvault"/);assert.equal(ex.headers.get('content-type'),'application/octet-stream');
+  const bytes=Buffer.from(await ex.arrayBuffer());assert.equal(bytes[0],2);assert.equal(bytes.toString('latin1').includes('hunter2'),false);
+  const imp=await call('/vault/import',{data:bytes.toString('base64'),passphrase:'export passphrase one'});assert.equal(imp.status,200);assert.equal(imp.body.added,0);assert.ok(imp.body.skipped.includes('zoho-books'));
+  assert.equal((await call('/vault/import',{data:bytes.toString('base64'),passphrase:'export passphrase two'})).status,400);
+  assert.equal((await call('/vault/import',{data:'',passphrase:'x'})).status,400);
+  assert.equal((await call('/vault/passphrase',{action:'set',passphrase:'another passphrase 2',confirm:'another passphrase 2',current:'wrong one here'})).status,401);
+  assert.equal((await call('/vault/passphrase',{action:'set',passphrase:'another passphrase 2',confirm:'another passphrase 2',current:'correct horse battery'})).status,200);
+  assert.equal((await call('/vault/passphrase',{action:'remove',passphrase:'correct horse battery'})).status,401,'the old passphrase is gone');
+  pp=await call('/vault/passphrase',{action:'remove',passphrase:'another passphrase 2'});assert.equal(pp.status,200);assert.equal(pp.body.mode,'key');
+  // Ten wrong tries in an hour, then 429.
+  await call('/vault/passphrase',{action:'set',passphrase:'correct horse battery',confirm:'correct horse battery'});await call('/vault/lock',{});
+  let last=0;for(let i=0;i<11;i++)last=(await call('/vault/unlock',{passphrase:'nope nope nope nope'})).status;assert.equal(last,429);
   assert.equal((await call('/settings',{vault:false})).body.vault,false);
   o=await cli(['list']);assert.equal(o.code,3);assert.match(o.stderr,/Settings → Projects, files, tasks & vault/);
   assert.equal((await call('/vault')).status,404);

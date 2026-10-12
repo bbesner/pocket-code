@@ -273,6 +273,21 @@ shows the new key once, in the browser. Put it in `.env` as `POCKET_VAULT_KEY` a
 until then the old key keeps working. Backups taken before the rotation still need the old
 key, so keep it with them.
 
+**Passphrase mode (1.40).** When the owner sets a passphrase in Settings → Vault, the store is
+rewritten in format 2: a salt in the header and a key derived from the passphrase with scrypt
+(N 2^15, r 8, p 1). The daemon opens such a file without `POCKET_VAULT_KEY` and starts
+**locked**; it holds the derived key in memory only, from unlock until a lock (the owner's
+Lock now, the idle time in `vaultAutoLockMinutes` in `pocket-settings.json`, or a restart).
+While locked every Vault route but the snapshot and unlock answers 423 `vault_locked`, an
+agent's call sends the owner one push per ten minutes, and the idle check runs every minute
+(`POCKET_VAULT_IDLE_CHECK_MS` for tests). Removing the passphrase needs `POCKET_VAULT_KEY`
+to be set, since the store goes back to format 1 under it. There is no recovery for a
+forgotten passphrase; an export (below) is the owner's own backup.
+
+**Export and import (1.40).** An export is a format-2 file of its own (`.pvault`), under a
+passphrase typed for it, holding every live item with its values; an import adds items whose
+names are new and skips the rest. Both are owner-only, cookie routes, and recorded.
+
 **Runs.** `pocket-vault run` asks the daemon to start the command. The daemon starts it with
 the filtered agent environment plus the bound values, no terminal, output piped back through
 a filter that replaces each value (and its base64 and URL-encoded forms) with

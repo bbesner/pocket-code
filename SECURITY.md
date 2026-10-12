@@ -97,6 +97,13 @@ The Vault (1.39) keeps credentials so that agents can use them without the value
 the model provider, transcripts, turn logs, Pocket's search, MemStem or backups. It is off
 until the owner switches it on, and it can only be switched on while `POCKET_VAULT_KEY` is set.
 
+**Passphrase mode (1.40).** With a passphrase set, the store is encrypted under a key derived
+from it (scrypt) that the daemon holds in memory only while unlocked; after a restart, a lock
+or the idle time, nothing on the disk can open the store, including an agent that reads
+`.env`. While unlocked the daemon serves agents as before, so the passphrase protects a
+locked store, not a running one. Wrong passphrases are limited to ten an hour per address.
+Exports are encrypted under their own passphrase; a lost passphrase cannot be recovered.
+
 **At rest.** The store is one file, `vault.enc`, encrypted with AES-256-GCM under
 `POCKET_VAULT_KEY` (32 random bytes): items and their approved commands together, with
 no plain-text names or other metadata. A file that has been altered, or a wrong key, fails

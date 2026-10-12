@@ -1,7 +1,7 @@
 {
-  "version": "1.39.1",
-  "assetV": 87,
+  "version": "1.40.0",
+  "assetV": 88,
   "notes": [
-    "Vault items can carry custom named fields beside their kind's fixed ones, and a Credentials kind holds any set of named fields, such as a client ID and secret."
+    "The Vault can be protected by a passphrase, locks after a restart, on demand or when idle, and can be exported and imported as one encrypted file."
   ]
 }

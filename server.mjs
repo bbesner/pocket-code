@@ -181,7 +181,7 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false }; } };
+const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0 }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
 
@@ -215,11 +215,21 @@ const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).j
 // Settings turns it on, which needs the key. The same loopback token serves pocket-vault on /api/vault* only;
 // what each caller may do is decided per route (the owner's cookie, or an agent's token plus its runner token).
 const VAULT_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-vault.mjs');
-let vault = null, vaultError = VAULT_KEY_RAW ? '' : 'POCKET_VAULT_KEY is not set.';
-if (VAULT_KEY_RAW) { try { vault = new VaultStore(path.join(DATA_DIR, 'vault.enc'), { key: parseKey(VAULT_KEY_RAW), log }); } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); } }
+// 1.40: a passphrase-mode store opens without the env key and starts locked; the owner unlocks it from Pocket.
+let vault = null, vaultError = '';
+try { vault = new VaultStore(path.join(DATA_DIR, 'vault.enc'), { key: VAULT_KEY_RAW ? parseKey(VAULT_KEY_RAW) : null, log }); } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); }
 const vaultReady = () => Boolean(vault);
 const vaultLive = () => Boolean(settings.vault && vault);
-const vaultOn = (_req, res, next) => settings.vault ? (vault ? next() : res.status(503).json({ error: `The Vault cannot be opened: ${vaultError}`, code: 'vault_locked' })) : res.status(404).json({ error: 'The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'vault_off' });
+const vaultOn = (_req, res, next) => settings.vault ? (vault ? next() : res.status(503).json({ error: `The Vault cannot be opened: ${vaultError}`, code: 'vault_unavailable' })) : res.status(404).json({ error: 'The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'vault_off' });
+// Everything but the snapshot and unlock needs an open store. An agent that hits a locked Vault gets a push to the owner, at most one every ten minutes.
+let lockedPushAt = 0;
+const vaultOpen = (req, res, next) => {
+  if (!vault.locked) return next();
+  if (req.boardActor === 'cli' && Date.now() - lockedPushAt > 600_000) { lockedPushAt = Date.now(); pushRaw('The Vault is locked', 'An agent needs a secret. Unlock the Vault in Pocket Code.', { tag: 'vault:locked', url: '/#/vault' }).catch(() => {}); }
+  res.status(423).json({ error: 'The Vault is locked. Ask the owner to unlock it in Pocket Code.', code: 'vault_locked' });
+};
+const AUTO_LOCK_CHOICES = [0, 15, 60, 480, 1440];
+setInterval(() => { try { if (vault && vault.idleLockDue(settings.vaultAutoLockMinutes || 0)) { vault.lock(); log(`vault locked after ${settings.vaultAutoLockMinutes} minutes idle`); } } catch (e) { log('vault idle lock: ' + e.message); } }, Math.max(1000, Number(process.env.POCKET_VAULT_IDLE_CHECK_MS) || 60_000)).unref();
 setInterval(() => { try { if (vault) { const gone = vault.purge(); if (gone.length) log(`vault purged from trash: ${gone.length}`); } } catch (e) { log('vault purge: ' + e.message); } }, 6 * 3600_000).unref();
 codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null, { choices: process.env.POCKET_CHOICES !== '0' }) : '', vaultLive() ? vaultInstructions(VAULT_CLI, threadId ? 'cx:' + threadId : null) : ''].filter(Boolean).join(' '));
 const syncAgentSkills = () => syncSkills({ settings: { ...settings, vault: vaultLive() }, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI, vault: VAULT_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks, 1.39: pocket-vault) for every agent on the box
@@ -2261,7 +2271,7 @@ app.post('/api/session/:id/rename', requireAuth, async (req, res) => {
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
 app.get('/api/settings', requireAuth, async (_req, res) => {
   await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
@@ -2277,11 +2287,12 @@ app.post('/api/settings', requireAuth, (req, res) => {
     if (req.body.vault && !vault) return res.status(409).json({ error: `The Vault needs POCKET_VAULT_KEY in .env and a restart first. ${vaultError}`, code: 'vault_no_key' });
     settings.vault = req.body.vault; vaultToggled = true;
   }
+  if (AUTO_LOCK_CHOICES.includes(Number(req.body?.vaultAutoLockMinutes))) settings.vaultAutoLockMinutes = Number(req.body.vaultAutoLockMinutes); // 1.40
   saveSettings();
   if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
   log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault}`);
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
 });
 
 app.post('/api/session/:id/mute', requireAuth, (req, res) => {
@@ -2546,9 +2557,48 @@ function restartIdleRunners(why) {
 }
 app.get('/api/vault', requireBoardAuth, vaultOn, vaultNoStore, (req, res) => {
   const c = vaultCaller(req);
-  res.json({ ...vault.snapshot({ owner: c.actor === 'owner' }), push: { enabled: pushReady } });
+  if (vault.locked) return res.json({ version: 1, now: Date.now(), ready: false, locked: true, mode: vault.mode, items: [], trash: [], requests: [], openRequests: 0, push: { enabled: pushReady } });
+  res.json({ ...vault.snapshot({ owner: c.actor === 'owner' }), mode: vault.mode, locked: false, push: { enabled: pushReady } });
 });
-app.post('/api/vault/act', requireBoardAuth, vaultOn, sameOrigin, vaultNoStore, (req, res) => {
+// 1.40: lock, unlock, the passphrase, export and import. Owner only; a wrong passphrase is rate-limited like the login.
+const unlockAttempts = new Map();
+function tooManyUnlocks(ip) { const now = Date.now(), rec = unlockAttempts.get(ip); if (!rec || rec.resetAt < now) { unlockAttempts.set(ip, { n: 1, resetAt: now + 3600_000 }); return false; } rec.n += 1; return rec.n > 10; }
+app.post('/api/vault/unlock', requireAuth, vaultOn, sameOrigin, vaultNoStore, (req, res) => {
+  const ip = req.get('cf-connecting-ip') || req.socket.remoteAddress || '';
+  if (tooManyUnlocks(ip)) return res.status(429).json({ error: 'Too many tries. Wait an hour.' });
+  try { vault.unlock(String(req.body?.passphrase || '')); log('vault unlocked by the owner'); res.json({ ok: true }); }
+  catch (e) { if (!e.status) throw e; log(`vault unlock refused: ${e.message}`); res.status(e.status).json({ error: e.message }); }
+});
+app.post('/api/vault/lock', requireAuth, vaultOn, sameOrigin, vaultNoStore, (_req, res) => {
+  try { vault.lock(); log('vault locked by the owner'); res.json({ ok: true }); } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
+});
+app.post('/api/vault/passphrase', requireAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (req, res) => {
+  const b = req.body || {};
+  try {
+    if (b.action === 'set') {
+      if (vault.mode === 'passphrase' && !vault.checkPassphrase(String(b.current || ''))) return res.status(401).json({ error: 'The current passphrase is wrong.' });
+      vault.setPassphrase(String(b.passphrase || ''), String(b.confirm || '')); log('vault passphrase set'); return res.json({ ok: true, mode: vault.mode });
+    }
+    if (b.action === 'remove') { vault.removePassphrase(String(b.passphrase || '')); log('vault passphrase removed; back to the server key'); return res.json({ ok: true, mode: vault.mode }); }
+    res.status(400).json({ error: 'Unknown action.' });
+  } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) }); }
+});
+app.post('/api/vault/export', requireAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (req, res) => {
+  try {
+    const buf = vault.exportBundle(String(req.body?.passphrase || ''), String(req.body?.confirm || ''));
+    log('vault exported by the owner');
+    res.set({ 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="pocket-vault-export-${new Date().toISOString().slice(0, 10)}.pvault"`, 'X-Content-Type-Options': 'nosniff' }).send(buf);
+  } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
+});
+app.post('/api/vault/import', requireAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (req, res) => {
+  try {
+    const data = String(req.body?.data || ''); if (!data) return res.status(400).json({ error: 'Choose an export file.' });
+    const r = vault.importBundle(Buffer.from(data, 'base64'), String(req.body?.passphrase || ''));
+    log(`vault import: ${r.added} added, ${r.skipped.length} skipped`);
+    res.json({ ok: true, ...r });
+  } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
+});
+app.post('/api/vault/act', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (req, res) => {
   const c = vaultCaller(req), body = req.body || {};
   try {
     const out = vault.act(body, c);
@@ -2557,18 +2607,18 @@ app.post('/api/vault/act', requireBoardAuth, vaultOn, sameOrigin, vaultNoStore, 
   } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.item ? { item: e.item } : {}), ...(e.code ? { code: e.code } : {}) }); }
 });
 // One value, for the owner, on tap; recorded.
-app.post('/api/vault/field', requireAuth, vaultOn, sameOrigin, vaultNoStore, (req, res) => {
+app.post('/api/vault/field', requireAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (req, res) => {
   try { res.json({ value: vault.field(String(req.body?.item || ''), String(req.body?.field || '')) }); }
   catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
 });
-app.get('/api/vault/audit', requireBoardAuth, vaultOn, vaultNoStore, (req, res) => {
+app.get('/api/vault/audit', requireBoardAuth, vaultOn, vaultOpen, vaultNoStore, (req, res) => {
   const c = vaultCaller(req);
   let item = String(req.query.item || '');
   if (!item && req.query.name) item = vault.byName(String(req.query.name))?.id || '-';
   res.json({ rows: vault.auditRows({ item: item || undefined, session: c.session, owner: c.actor === 'owner', limit: Number(req.query.limit) || 50 }) });
 });
 // Rotation: the store is rewritten under a new key, shown once; the old key keeps working until the daemon restarts with the new .env.
-app.post('/api/vault/rotate', requireAuth, vaultOn, sameOrigin, vaultNoStore, (_req, res) => {
+app.post('/api/vault/rotate', requireAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (_req, res) => {
   const key = newVaultKey();
   vault.rotate(key); vault.audit({ action: 'rotate', by: 'owner' });
   log('vault key rotated; the new key must go into .env before the next restart');
@@ -2627,8 +2677,8 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
   }
   end();
 }
-app.post('/api/vault/run', requireBoardAuth, vaultOn, sameOrigin, (req, res) => vaultRun(req, res, { ...(req.body || {}) }));
-app.post('/api/vault/wait', requireBoardAuth, vaultOn, sameOrigin, (req, res) => vaultRun(req, res, { request: String(req.body?.request || ''), wait: req.body?.wait }));
+app.post('/api/vault/run', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (req, res) => vaultRun(req, res, { ...(req.body || {}) }));
+app.post('/api/vault/wait', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (req, res) => vaultRun(req, res, { request: String(req.body?.request || ''), wait: req.body?.wait }));
 
 // ---------- 1.30: documents routes ----------
 // A document is sent as itself, never under the app's authority: no-store, nosniff, noindex, and for HTML a
@@ -2768,7 +2818,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Vault items can carry custom named fields beside their kind's fixed ones, and a Credentials kind holds any set of named fields, such as a client ID and secret."];
+const RELEASE_NOTES = ["The Vault can be protected by a passphrase, locks after a restart, on demand or when idle, and can be exported and imported as one encrypted file."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

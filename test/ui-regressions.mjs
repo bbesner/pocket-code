@@ -9,7 +9,7 @@ const require=createRequire(import.meta.url);
 const axePath=require.resolve('axe-core/axe.min.js');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
-export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()=>({}),settingsState=()=>({}),received=[],voiceLog={transcribe:[],speak:[]},conversations=new Map(),pinOrders=[]}) {
+export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()=>({}),settingsState=()=>({}),vaultFixture={},received=[],voiceLog={transcribe:[],speak:[]},conversations=new Map(),pinOrders=[]}) {
  const context=await browser.createBrowserContext(),page=await context.newPage();
  // Preserve the established dark-mode colour assertions. theme-browser covers
  // every palette and live switching independently, including fresh System users.
@@ -25,6 +25,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
  const scan=async name=>{
   // Measure final colors, not the translucent opening frame of a sheet animation.
   await page.evaluate(()=>Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))));
+  // A toast from the previous step is transient feedback, not part of the view: dismiss it (as its own 3.2 s timer would)
+  // before measuring, so a scan does not race its fade on a slow runner. Only the toast is touched; nothing else moves.
+  const lingering=await page.evaluate(()=>{const t=document.getElementById('toast');if(!t||!t.classList.contains('show'))return '';t.classList.remove('show');return t.textContent;});
+  if(lingering){console.log(`scan ${name}: dismissed the toast "${lingering}"`);await new Promise(r=>setTimeout(r,250));
+   // The pause lets a hover tooltip (tips.js, 350 ms after pointerover) catch up with a pointer left on a control; leave the control as a pointer would.
+   await page.evaluate(()=>{for(const el of document.querySelectorAll(':hover'))el.dispatchEvent(new PointerEvent('pointerout',{bubbles:true,relatedTarget:null}));const t=document.getElementById('tip');if(t)t.hidden=true;});}
   const axeScript=await page.addScriptTag({path:axePath});await axeScript.evaluate(el=>el.remove());
   const result=await page.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','best-practice']}}));
   const record={name,violations:result.violations};
@@ -1296,6 +1302,111 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     const upd=acts.at(-1);assert.equal(upd.action,'update');assert.deepEqual(upd.removeFields,['client_secret']);assert.equal(upd.values,undefined,'blank values are left unchanged');
     assert.deepEqual(await page.evaluate(()=>vaultSnap.items.find(i=>i.name==='stripe-connect').fields),['client_id']);
    }finally{page.off('request',onReq);settings.vault=false;}
+  });
+  await check('Vault lock (1.40): Settings shows the mode, Set a passphrase, Lock after, Lock now, the locked panel and Unlock, Export and Import, Remove, and the phone',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState();settings.vault=true;settings.vaultReady=true;
+   await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
+   const PASS='correct horse battery',EXPORT_PASS='export fixture passphrase',IMPORT_PASS='import-fixture-pass';
+   // Every passphrase request, as the browser sent it.
+   const posts=[];const onReq=r=>{const u=new URL(r.url());if(r.method()==='POST'&&/^\/api\/(vault\/(unlock|lock|passphrase|export|import)|settings)$/.test(u.pathname))posts.push({path:u.pathname,url:r.url(),body:JSON.parse(r.postData()||'{}')});};page.on('request',onReq);
+   const cdp=await page.createCDPSession();await cdp.send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:path.join(out,'downloads')});
+   const last=p=>posts.filter(x=>x.path===p).at(-1);
+   const visible=sel=>page.$eval(sel,e=>!e.hidden&&e.getClientRects().length>0);
+   const openSettings=async()=>{await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-vault')?.disabled===false&&document.querySelector('#s-vault-mode')?.textContent);};
+   const fill=async(sel,v)=>{await page.$eval(sel,e=>{e.value='';});await page.type(sel,v);};
+   try{
+    await page.goto(base+'/#/vault');await page.reload();await page.waitForSelector('#vault-main .vault-item');
+    // Key mode: the mode, Set a passphrase and Rotate key; nothing to lock.
+    await openSettings();await clickControl(page,'#s-vault-setpass');
+    await page.waitForSelector('.vault-passphrase-sheet form');
+    assert.equal(await page.$eval('.sheet-back',e=>e.textContent),'Back to Settings');
+    assert.match(await page.$eval('.vault-passphrase-sheet .vault-pass-warn',e=>e.textContent),/no reset\. Keep it in your password manager/);
+    assert.deepEqual(await page.$$eval('.vault-passphrase-sheet [data-pass]',e=>e.map(x=>x.name+':'+x.autocomplete)),['passphrase:new-password','confirm:new-password']);
+    // Checked here first: too short, then different, and nothing is sent.
+    await fill('.vault-passphrase-sheet [name=passphrase]','too short');await fill('.vault-passphrase-sheet [name=confirm]','too short');
+    await clickControl(page,'.vault-passphrase-sheet .primary');await page.waitForFunction(()=>/at least 12/.test(document.querySelector('.vault-passphrase-sheet .vault-form-error')?.textContent||''));
+    await fill('.vault-passphrase-sheet [name=passphrase]',PASS);await fill('.vault-passphrase-sheet [name=confirm]',PASS+'!');
+    await clickControl(page,'.vault-passphrase-sheet .primary');await page.waitForFunction(()=>/different/.test(document.querySelector('.vault-passphrase-sheet .vault-form-error')?.textContent||''));
+    assert.equal(await page.$eval('.vault-passphrase-sheet [name=confirm]',e=>e.getAttribute('aria-invalid')),'true');
+    assert.equal(last('/api/vault/passphrase'),undefined,'nothing sent before the checks pass');
+    await scan('vault-passphrase-sheet');
+    await fill('.vault-passphrase-sheet [name=confirm]',PASS);await clickControl(page,'.vault-passphrase-sheet .primary');
+    // Back in Settings, now in passphrase mode.
+    await page.waitForFunction(()=>!document.querySelector('.vault-passphrase-sheet')&&document.querySelector('#s-vault-mode')?.textContent==='Protected by a passphrase');
+    assert.deepEqual(last('/api/vault/passphrase').body,{action:'set',passphrase:PASS,confirm:PASS});assert.equal(settings.vaultMode,'passphrase');
+    assert.match(await page.$eval('#toast',e=>e.textContent),/now protected by a passphrase/);
+    assert.deepEqual({set:await visible('#s-vault-setpass'),rotate:await visible('#s-vault-rotate'),lock:await visible('#s-vault-lock'),change:await visible('#s-vault-changepass'),remove:await visible('#s-vault-removepass'),after:await visible('#s-vault-autolock')},{set:false,rotate:false,lock:true,change:true,remove:true,after:true});
+    // Lock after saves to the server.
+    await page.select('#s-vault-autolock','15');for(let i=0;i<30&&settings.vaultAutoLockMinutes!==15;i++)await pause(100);
+    assert.deepEqual(last('/api/settings').body,{vaultAutoLockMinutes:15});assert.equal(settings.vaultAutoLockMinutes,15);
+    await page.$eval('#s-vault-more',e=>e.scrollIntoView({block:'center'}));
+    await scan('vault-settings-passphrase');await page.screenshot({path:path.join(out,'vault-settings-passphrase.png')});
+    // Lock now: Unlock takes its place and export waits for it.
+    await clickControl(page,'#s-vault-lock');await page.waitForFunction(()=>!document.querySelector('#s-vault-unlock').hidden);
+    assert.equal(settings.vaultLocked,true);assert.deepEqual(last('/api/vault/lock').body,{});
+    assert.equal(await page.$eval('#s-vault-export',e=>e.disabled),true);assert.equal(await page.evaluate(()=>document.activeElement?.id),'s-vault-unlock');
+    await page.keyboard.press('Escape');
+    // The list becomes the lock panel; the rail segment carries the lock.
+    await page.waitForSelector('#vault-main .vault-locked');
+    assert.equal(await page.$('#vault-main .vault-item'),null,'no items while locked');
+    assert.match(await page.$eval('#vault-main .vault-locked',e=>e.textContent),/The Vault is locked.*Pocket locks it after a restart, and after 15 minutes idle\./s);
+    assert.ok(await page.$('[data-rail-view="vault"] [data-vault-lock]'),'the rail segment shows the lock');
+    assert.match(await page.$eval('[data-rail-view="vault"]',e=>e.textContent),/Vault, locked/);
+    await scan('vault-locked-desktop');await page.screenshot({path:path.join(out,'vault-locked-desktop.png')});
+    // Unlock: a wrong passphrase stays in the sheet (no sign-in screen), the right one brings the list back.
+    await clickControl(page,'#vt-unlock');await page.waitForSelector('.vault-unlock-sheet form');
+    assert.equal(await page.$eval('.vault-unlock-sheet [name=passphrase]',e=>e.autocomplete+' '+(e===document.activeElement)),'current-password true');
+    await page.type('.vault-unlock-sheet [name=passphrase]','not the passphrase');await page.keyboard.press('Enter');
+    await page.waitForFunction(()=>document.querySelector('.vault-unlock-sheet .vault-form-error')?.textContent==='Wrong passphrase.');
+    assert.equal(await page.$('.login'),null,'a wrong passphrase is not a signed-out browser');
+    assert.equal(await page.$eval('.vault-unlock-sheet [name=passphrase]',e=>e.getAttribute('aria-invalid')),'true');
+    await scan('vault-unlock-sheet');await page.screenshot({path:path.join(out,'vault-unlock-sheet.png')});
+    await fill('.vault-unlock-sheet [name=passphrase]',PASS);await clickControl(page,'.vault-unlock-sheet .primary');
+    await page.waitForFunction(()=>!document.querySelector('.vault-unlock-sheet')&&document.querySelector('#vault-main .vault-item'));
+    assert.deepEqual(posts.filter(x=>x.path==='/api/vault/unlock').map(x=>x.body),[{passphrase:'not the passphrase'},{passphrase:PASS}]);
+    assert.equal(await page.$('[data-rail-view="vault"] [data-vault-lock]'),null,'the lock leaves the rail');
+    // Export: fetch with the passphrase in the body only, then a download.
+    await openSettings();await clickControl(page,'#s-vault-export');await page.waitForSelector('.vault-export-sheet form');
+    assert.match(await page.$eval('.vault-export-sheet .vault-pass-help',e=>e.textContent),/^Downloads every item in one file, encrypted with this passphrase\./);
+    await scan('vault-export-sheet');
+    await page.type('.vault-export-sheet [name=passphrase]',EXPORT_PASS);await page.type('.vault-export-sheet [name=confirm]',EXPORT_PASS);
+    await clickControl(page,'.vault-export-sheet .primary');await page.waitForFunction(()=>!document.querySelector('.vault-export-sheet'));
+    const exp=last('/api/vault/export');assert.deepEqual(exp.body,{passphrase:EXPORT_PASS,confirm:EXPORT_PASS});assert.equal(exp.url,base+'/api/vault/export','the passphrase is not in the URL');
+    assert.match(await page.$eval('#toast',e=>e.textContent),/pocket-vault-export-2026-10-12\.pvault/);
+    // Import: the count in a toast, the names that were already here in the sheet.
+    await page.waitForSelector('#s-vault-import');await clickControl(page,'#s-vault-import');await page.waitForSelector('.vault-import-sheet form');
+    const file=path.join(out,'fixture-import.pvault');fs.writeFileSync(file,'PVAULT import fixture');
+    await (await page.$('.vault-import-sheet input[type=file]')).uploadFile(file);
+    await page.type('.vault-import-sheet [name=passphrase]',IMPORT_PASS);await clickControl(page,'.vault-import-sheet .primary');
+    await page.waitForFunction(()=>document.querySelector('.vault-import-sheet .vault-pass-result')?.textContent==='Already here: zoho-books');
+    assert.equal(await page.$eval('#toast',e=>e.textContent),'Imported 2 items');
+    const imp=last('/api/vault/import');assert.equal(imp.body.passphrase,IMPORT_PASS);assert.equal(vaultFixture.imported,'PVAULT import fixture','the file went as base64');
+    assert.equal(await page.$eval('.vault-import-sheet [name=passphrase]',e=>e.value),'','the passphrase is wiped once imported');
+    assert.equal(await page.$eval('.vault-import-sheet .primary',e=>e.textContent),'Done');
+    await scan('vault-import-sheet');await page.screenshot({path:path.join(out,'vault-import-sheet.png')});
+    await clickControl(page,'.vault-import-sheet .primary');await page.waitForFunction(()=>!document.querySelector('.vault-import-sheet')&&document.querySelector('#s-vault-mode'));
+    // Nothing kept: no passphrase in storage or the page.
+    const kept=await page.evaluate(ps=>{const s=JSON.stringify(localStorage)+JSON.stringify(sessionStorage)+document.documentElement.outerHTML;return ps.filter(p=>s.includes(p));},[PASS,EXPORT_PASS,IMPORT_PASS]);
+    assert.deepEqual(kept,[],'no passphrase is kept in the browser');
+    // The phone: locked from elsewhere, the home chip shows the lock, the panel fits.
+    await page.keyboard.press('Escape');await page.evaluate(()=>fetch('/api/vault/lock',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}));
+    await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.reload();await page.waitForSelector('[data-vault-home] [data-vault-lock]');
+    assert.match(await page.$eval('[data-vault-home]',e=>e.textContent),/^Vault, locked/);
+    await clickControl(page,'[data-vault-home]');await page.waitForSelector('#vault-main .vault-locked');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390');
+    await scan('vault-locked-mobile');await page.screenshot({path:path.join(out,'vault-locked-mobile.png')});
+    await clickControl(page,'#vt-unlock');await page.waitForSelector('.vault-unlock-sheet form');
+    assert.equal(await page.evaluate(()=>{const s=document.querySelector('.vault-unlock-sheet');return s.scrollWidth>s.clientWidth+1||document.documentElement.scrollWidth>innerWidth;}),false,'the unlock sheet fits at 390');
+    await page.type('.vault-unlock-sheet [name=passphrase]',PASS);await page.keyboard.press('Enter');await page.waitForSelector('#vault-main .vault-item');
+    // Remove the passphrase: back to the server key.
+    await page.setViewport({width:1440,height:900});await page.reload();await page.waitForSelector('#vault-main .vault-item');
+    await openSettings();await clickControl(page,'#s-vault-removepass');await page.waitForSelector('.vault-passphrase-sheet form');
+    await page.type('.vault-passphrase-sheet [name=passphrase]',PASS);await clickControl(page,'.vault-passphrase-sheet .primary');
+    await page.waitForFunction(()=>document.querySelector('#s-vault-mode')?.textContent==='Opened by the server key in .env');
+    assert.deepEqual(last('/api/vault/passphrase').body,{action:'remove',passphrase:PASS});assert.equal(settings.vaultMode,'key');
+    assert.equal(await visible('#s-vault-rotate'),true,'Rotate key is back in key mode');
+    await page.keyboard.press('Escape');
+   }finally{page.off('request',onReq);await cdp.send('Browser.setDownloadBehavior',{behavior:'default'}).catch(()=>{});await cdp.detach().catch(()=>{});await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});await page.setViewport({width:1440,height:900});settings.vault=false;}
   });
   await check('Projects (1.29): off by default, then the list, card, steps, reminders, finish and resume, tracking from a session, tabs, split pane, rail switch, settings and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
