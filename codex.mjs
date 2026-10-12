@@ -18,6 +18,7 @@
 import {AgentActivity} from './subagents.mjs';
 import {agentEnv} from './environment.mjs';
 import { spawn, execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -261,6 +262,8 @@ const clip = (s, n = 140) => (s == null ? '' : String(s).replace(/\s+/g, ' ').tr
 // developer_instructions keeps them: Pocket never replaces an operator's instructions.
 let extraInstructions = () => '';
 export const setExtraInstructions = fn => { extraInstructions = fn; }; // 1.29: the server adds the projects line when that feature is on
+// 1.39: Settings says so when an operator's own developer_instructions keep Pocket's lines (projects, files, tasks, vault) from reaching Codex.
+export function instructionsOverridden() { try { return /^\s*developer_instructions\s*=/m.test(fs.readFileSync(path.join(CODEX_HOME, 'config.toml'), 'utf8')); } catch { return false; } }
 function choiceInstructions(threadId = null) {
   try { if (/^\s*developer_instructions\s*=/m.test(fs.readFileSync(path.join(CODEX_HOME, 'config.toml'), 'utf8'))) return {}; } catch { }
   const parts = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', extraInstructions(threadId)].filter(Boolean);
@@ -549,7 +552,9 @@ function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore 
   return t;
 }
 
-function spawnTransport() {
+// 1.39: each session process carries a runner token in its environment, so a pocket-vault call from inside a turn
+// can be tied to its session; the server maps the token back through codexSessions.
+function spawnTransport(extraEnv = {}) {
   fs.mkdirSync(CX_LOG_DIR, { recursive: true, mode: 0o700 });
   const key = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const files = cxFiles(key);
@@ -558,7 +563,7 @@ function spawnTransport() {
   const hold = fs.openSync(files.fifo, fs.constants.O_RDWR); // never blocks; lets the read end open
   const inFd = fs.openSync(files.fifo, 'r');
   const outFd = fs.openSync(files.out, 'a'), errFd = fs.openSync(files.err, 'a');
-  const proc = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], { stdio: [inFd, outFd, errFd], detached: true, env: agentEnv(process.env) });
+  const proc = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], { stdio: [inFd, outFd, errFd], detached: true, env: { ...agentEnv(process.env), ...extraEnv } });
   fs.closeSync(inFd); fs.closeSync(outFd); fs.closeSync(errFd);
   proc.unref();
   const keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'] });
@@ -575,7 +580,7 @@ function writeSessionMeta(s) {
   const t = s.conn?.transport, turn = s.turn;
   if (!t || !s.threadId || s.exited) return;
   const meta = {
-    threadId: s.threadId, pid: t.pid, keeperPid: t.keeperPid, key: t.key, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort,
+    threadId: s.threadId, pid: t.pid, keeperPid: t.keeperPid, key: t.key, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort, runnerToken: s.runnerToken || null,
     turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode } : null,
     waitingForInput: Boolean(turn && (turn.questions?.list().length || turn.approvals?.list().length || turn.inputUnavailable || turn.approvalUnavailable)),
     waitingForApproval: Boolean(turn?.approvals?.list().length || turn?.approvalUnavailable),
@@ -605,7 +610,7 @@ export function adoptCodexSessions(hooksFor) {
     const offset = m.turn ? Math.min(m.turn.offset || 0, size) : size;
     const t = makeTransport({ pid: m.pid, keeperPid: m.keeperPid, key: m.key, files, writer, offset, skipBefore: size });
     t.poll = setInterval(() => { if (!pidAlive(m.pid)) t.exit(null); }, 1000);
-    const s = { threadId: m.threadId, approvalMode: m.approvalMode, cwd: m.cwd, model: m.model, effort: m.effort, turn: null, hooks: hooksFor(m.threadId), lastActivityAt: Date.now() };
+    const s = { threadId: m.threadId, approvalMode: m.approvalMode, cwd: m.cwd, model: m.model, effort: m.effort, turn: null, hooks: hooksFor(m.threadId), lastActivityAt: Date.now(), runnerToken: typeof m.runnerToken === 'string' ? m.runnerToken : null };
     wireSession(s, new AppServer({ name: `codex ${m.threadId}`, transport: t, onNotify: (method, params) => onSessionNotify(s, method, params), onRequest: request => onSessionRequest(s, request) }));
     codexSessions.set(s.threadId, s);
     live.add(m.key);
@@ -652,6 +657,11 @@ function scheduleIdle(s) {
 }
 
 // Resolves once the app-server has exited, i.e. the writer lock is free again.
+// 1.39: the session a runner token belongs to, for pocket-vault calls made from inside a Codex turn.
+export function sessionForRunnerToken(token) {
+  for (const s of codexSessions.values()) if (s.runnerToken && s.runnerToken === token && !s.exited) return s;
+  return null;
+}
 export function closeCodexSession(s, why) {
   if (!s) return Promise.resolve();
   if (s.exited) return Promise.resolve();
@@ -730,9 +740,9 @@ function wireSession(s, conn) {
 }
 
 async function openCodexSession({ threadId, cwd, model, approvalMode, hooks }) {
-  const s = { threadId, approvalMode, cwd, turn: null, hooks, lastActivityAt: Date.now() };
+  const s = { threadId, approvalMode, cwd, turn: null, hooks, lastActivityAt: Date.now(), runnerToken: randomBytes(16).toString('hex') };
   const conn = new AppServer({
-    name: `codex ${threadId || 'new'}`, transport: spawnTransport(),
+    name: `codex ${threadId || 'new'}`, transport: spawnTransport({ POCKET_RUNNER_TOKEN: s.runnerToken, ...(threadId ? { POCKET_SESSION_ID: 'cx:' + threadId } : {}) }),
     onNotify: (method, params) => onSessionNotify(s, method, params),
     onRequest: request => onSessionRequest(s, request),
   });

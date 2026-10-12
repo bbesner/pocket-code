@@ -38,6 +38,7 @@ import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
 import {Thumbnailer} from './thumbnails.mjs';
+import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS} from './vault.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -46,6 +47,10 @@ for (const line of (fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8').
   const m = line.match(/^([A-Z_]+)=(.*)$/);
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
 }
+// 1.39: the vault key is read once and removed from the process environment, so no child of the daemon,
+// whatever path spawns it, can inherit it (see vault.mjs).
+const VAULT_KEY_RAW = process.env.POCKET_VAULT_KEY || '';
+delete process.env.POCKET_VAULT_KEY;
 const PROJECTS_ROOT = process.env.POCKET_SESSION_ROOT || path.join(HOME, '.claude', 'projects');
 const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -176,7 +181,7 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, tasks: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false, tasks: false }; } };
+const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
 
@@ -196,16 +201,28 @@ const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'docume
 const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 const DOCS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-docs.mjs');
-const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Files is off. Turn it on in Settings → Projects, files & tasks.', code: 'documents_off' });
+const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Files is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'documents_off' });
 setInterval(() => { try { const gone = docs.purge(); if (gone.length) log(`documents purged from trash: ${gone.length}`); } catch (e) { log('documents purge: ' + e.message); } }, 6 * 3600_000).unref();
 // ---------- 1.36: tasks ----------
-// To-dos (tasks.mjs): <data dir>/tasks.json. Off until Settings → Projects, files & tasks turns it on. The same loopback
+// To-dos (tasks.mjs): <data dir>/tasks.json. Off until Settings → Projects, files, tasks & vault turns it on. The same loopback
 // token serves pocket-tasks on /api/tasks* only; a dated task is announced once when due, like a project reminder.
 const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'));
 const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
-const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).json({ error: 'Tasks is off. Turn it on in Settings → Projects, files & tasks.', code: 'tasks_off' });
-codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null, { choices: process.env.POCKET_CHOICES !== '0' }) : ''].filter(Boolean).join(' '));
-const syncAgentSkills = () => syncSkills({ settings, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks) for every agent on the box
+const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).json({ error: 'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'tasks_off' });
+// ---------- 1.39: the vault ----------
+// Credentials agents use by name and never see (vault.mjs): <data dir>/vault.enc, one AES-256-GCM blob under
+// POCKET_VAULT_KEY, decrypted into memory here; vault-audit.jsonl records every use and never a value. Off until
+// Settings turns it on, which needs the key. The same loopback token serves pocket-vault on /api/vault* only;
+// what each caller may do is decided per route (the owner's cookie, or an agent's token plus its runner token).
+const VAULT_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-vault.mjs');
+let vault = null, vaultError = VAULT_KEY_RAW ? '' : 'POCKET_VAULT_KEY is not set.';
+if (VAULT_KEY_RAW) { try { vault = new VaultStore(path.join(DATA_DIR, 'vault.enc'), { key: parseKey(VAULT_KEY_RAW), log }); } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); } }
+const vaultReady = () => Boolean(vault);
+const vaultLive = () => Boolean(settings.vault && vault);
+const vaultOn = (_req, res, next) => settings.vault ? (vault ? next() : res.status(503).json({ error: `The Vault cannot be opened: ${vaultError}`, code: 'vault_locked' })) : res.status(404).json({ error: 'The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'vault_off' });
+setInterval(() => { try { if (vault) { const gone = vault.purge(); if (gone.length) log(`vault purged from trash: ${gone.length}`); } } catch (e) { log('vault purge: ' + e.message); } }, 6 * 3600_000).unref();
+codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null, { choices: process.env.POCKET_CHOICES !== '0' }) : '', vaultLive() ? vaultInstructions(VAULT_CLI, threadId ? 'cx:' + threadId : null) : ''].filter(Boolean).join(' '));
+const syncAgentSkills = () => syncSkills({ settings: { ...settings, vault: vaultLive() }, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI, vault: VAULT_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks, 1.39: pocket-vault) for every agent on the box
 syncAgentSkills();
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
 const cliToken = randomBytes(32).toString('hex');
@@ -219,7 +236,7 @@ function requireBoardAuth(req, res, next) {
   if (m && direct && timingSafeEqual(Buffer.from(m[1]), Buffer.from(cliToken))) { req.boardActor = 'cli'; return next(); }
   res.status(401).json({ error: 'unauthorized' });
 }
-const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404).json({ error: 'Projects is off. Turn it on in Settings → Projects, files & tasks.', code: 'projects_off' });
+const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404).json({ error: 'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'projects_off' });
 const REMINDER_HOOK = process.env.POCKET_REMINDER_HOOK || '';
 // 1.37.1: the hook gets the same environment as agent turns, without the daemon's secrets (login password,
 // cookie-signing key, push private key). It is an operator's own command, but it has no use for them.
@@ -1069,7 +1086,7 @@ function writeRunnerMeta(r) {
   const t = r.turn;
   const meta = {
     sessionId: r.sessionId, pid: r.pid, keeperPid: r.keeperPid, key: r.key, cwd: r.cwd, startedAt: r.startedAt,
-    model: r.model, effort: r.effort, approvalMode: r.approvalMode,
+    model: r.model, effort: r.effort, approvalMode: r.approvalMode, runnerToken: r.runnerToken || null,
     turn: t ? { startedAt: t.startedAt, userText: t.userText, offset: t.offset, autonomous: Boolean(t.autonomous) } : null,
     bgTasks: r.bgTasks, accountStale: Boolean(r.accountStale),
     waitingForInput: Boolean(t && (t.questions?.list().length || t.approvals?.list().length || t.inputUnavailable || t.approvalUnavailable)),
@@ -1095,7 +1112,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
-  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId, { choices: process.env.POCKET_CHOICES !== '0' }) : ''].filter(Boolean).join(' ');
+  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId, { choices: process.env.POCKET_CHOICES !== '0' }) : '', vaultLive() ? vaultInstructions(VAULT_CLI, sessionId) : ''].filter(Boolean).join(' ');
   if (extra) args.push('--append-system-prompt', extra);
   args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
   args.push(resume ? '--resume' : '--session-id', sessionId);
@@ -1107,16 +1124,18 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const hold = fs.openSync(files.fifo, fs.constants.O_RDWR);
   const inFd = fs.openSync(files.fifo, 'r');
   const outFd = fs.openSync(files.out, 'a'), errFd = fs.openSync(files.err, 'a');
-  const proc = spawn(CLAUDE_BIN, args, { cwd, env: spawnEnv(), detached: true, stdio: [inFd, outFd, errFd] });
+  // 1.39: a runner token in the process environment ties a pocket-vault call from inside this session to it.
+  const runnerToken = randomBytes(16).toString('hex');
+  const proc = spawn(CLAUDE_BIN, args, { cwd, env: { ...spawnEnv(), POCKET_SESSION_ID: sessionId, POCKET_RUNNER_TOKEN: runnerToken }, detached: true, stdio: [inFd, outFd, errFd] });
   fs.closeSync(inFd); fs.closeSync(outFd); fs.closeSync(errFd);
   proc.unref();
   // The keeper holds a write end across server restarts and exits when the CLI does.
-  const keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'] });
+  const keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'], env: agentEnv(process.env) });
   keeper.unref();
   const writer = fs.createWriteStream(null, { fd: hold });
   writer.on('error', () => { });
   const r = {
-    sessionId, key, pid: proc.pid, keeperPid: keeper.pid, writer, cwd, model, effort, approvalMode: mode, files,
+    sessionId, key, pid: proc.pid, keeperPid: keeper.pid, writer, cwd, model, effort, approvalMode: mode, files, runnerToken,
     startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: '',
   };
   runners.set(sessionId, r);
@@ -1435,7 +1454,7 @@ function adoptOrphans() {
         let size = 0; try { size = fs.statSync(files.out).size; } catch { }
         const r = {
           sessionId: m.sessionId, key: m.key, pid: m.pid, keeperPid: m.keeperPid, writer, cwd: m.cwd, model: m.model, effort: m.effort,
-          approvalMode: m.approvalMode || 'full', files, startedAt: m.startedAt || Date.now(), turn: null, bgTasks: Array.isArray(m.bgTasks) ? m.bgTasks : [], accountStale: m.accountStale === true,
+          approvalMode: m.approvalMode || 'full', files, startedAt: m.startedAt || Date.now(), turn: null, bgTasks: Array.isArray(m.bgTasks) ? m.bgTasks : [], accountStale: m.accountStale === true, runnerToken: typeof m.runnerToken === 'string' ? m.runnerToken : null,
           lastLineAt: Date.now(), tailOffset: m.turn ? Math.min(m.turn.offset || 0, size) : size, tailRem: '', adopted: true,
           skipControlBefore: size, // requests answered (or lost) before the restart can't be answered now
         };
@@ -1537,7 +1556,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
-app.get('/api/me', (req, res) => res.json({ ok: checkCookie(getCookie(req, 'pc_auth')), features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks) } }));
+app.get('/api/me', (req, res) => res.json({ ok: checkCookie(getCookie(req, 'pc_auth')), features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), vault: vaultLive() } }));
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -2242,7 +2261,7 @@ app.post('/api/session/:id/rename', requireAuth, async (req, res) => {
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
 app.get('/api/settings', requireAuth, async (_req, res) => {
   await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
-  res.json({ ...settings, titles: titleSettings() });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
@@ -2253,10 +2272,16 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.projects === 'boolean') settings.projects = req.body.projects;
   if (typeof req.body?.documents === 'boolean') settings.documents = req.body.documents;
   if (typeof req.body?.tasks === 'boolean') settings.tasks = req.body.tasks;
+  let vaultToggled = false;
+  if (typeof req.body?.vault === 'boolean' && req.body.vault !== settings.vault) { // 1.39: on needs the key; a change restarts idle runners so the rules reach them
+    if (req.body.vault && !vault) return res.status(409).json({ error: `The Vault needs POCKET_VAULT_KEY in .env and a restart first. ${vaultError}`, code: 'vault_no_key' });
+    settings.vault = req.body.vault; vaultToggled = true;
+  }
   saveSettings();
-  if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean') syncAgentSkills();
-  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks}`);
-  res.json({ ...settings, titles: titleSettings() });
+  if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
+  if (vaultToggled) restartIdleRunners('vault setting changed');
+  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault}`);
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
 });
 
 app.post('/api/session/:id/mute', requireAuth, (req, res) => {
@@ -2491,6 +2516,120 @@ app.post('/api/tasks/summary', requireAuth, tasksOn, async (req, res) => {
   res.json(r ? { summary: r.summary, model: r.model, provider } : { summary: null, reason: 'failed' });
 });
 
+// ---------- 1.39: vault routes ----------
+// Who is calling: the owner (cookie), an agent inside a Pocket session (CLI token plus the runner token Pocket put in
+// its environment), or a terminal/code-server agent (CLI token alone). Owner-only routes take the cookie only.
+function vaultCaller(req) {
+  if (req.boardActor !== 'cli') return { actor: 'owner', session: null, sessionTitle: '' };
+  const token = String(req.get('x-pocket-runner') || '');
+  if (token) {
+    for (const r of runners.values()) if (r.runnerToken && r.runnerToken === token && !r.exited) return { actor: 'agent', session: r.sessionId, sessionTitle: sessionName(r.sessionId) };
+    const cx = CODEX_ON ? codex.sessionForRunnerToken(token) : null;
+    if (cx) return { actor: 'agent', session: 'cx:' + cx.threadId, sessionTitle: sessionName('cx:' + cx.threadId) };
+  }
+  return { actor: 'terminal', session: null, sessionTitle: '' };
+}
+const sessionName = id => { const m = smeta[id]; return (m && typeof m.name === 'string' && m.name) || ''; };
+// Cookie mutations must come from Pocket's own origin.
+function sameOrigin(req, res, next) {
+  const origin = req.get('origin');
+  if (req.boardActor === 'cli' || !origin) return next();
+  let host = ''; try { host = new URL(origin).host; } catch { }
+  if (host && host === req.get('host')) return next();
+  res.status(403).json({ error: 'Cross-origin request refused.' });
+}
+const vaultNoStore = (_req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); };
+// 1.39: a changed Vault setting restarts idle runners so the new per-turn instructions reach them; running turns finish first.
+function restartIdleRunners(why) {
+  for (const r of [...runners.values()]) if (!r.turn && !r.bgTasks.length && !r.closing && !r.exited) closeRunner(r, why);
+  if (CODEX_ON) for (const s of [...codex.codexSessions.values()]) if (!s.turn && !s.closing && !s.exited) codex.closeCodexSession(s, why);
+}
+app.get('/api/vault', requireBoardAuth, vaultOn, vaultNoStore, (req, res) => {
+  const c = vaultCaller(req);
+  res.json({ ...vault.snapshot({ owner: c.actor === 'owner' }), push: { enabled: pushReady } });
+});
+app.post('/api/vault/act', requireBoardAuth, vaultOn, sameOrigin, vaultNoStore, (req, res) => {
+  const c = vaultCaller(req), body = req.body || {};
+  try {
+    const out = vault.act(body, c);
+    log(`vault ${body.action} ${out.name ? 'item=' + out.name : out.id ? 'request=' + out.id : ''} by ${c.actor}${c.session ? ' session=' + c.session : ''}`);
+    res.json(body.action === 'answer' ? { ok: true, request: out } : { ok: true, item: out, ...(out.removed ? { removed: true } : {}) });
+  } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.item ? { item: e.item } : {}), ...(e.code ? { code: e.code } : {}) }); }
+});
+// One value, for the owner, on tap; recorded.
+app.post('/api/vault/field', requireAuth, vaultOn, sameOrigin, vaultNoStore, (req, res) => {
+  try { res.json({ value: vault.field(String(req.body?.item || ''), String(req.body?.field || '')) }); }
+  catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
+});
+app.get('/api/vault/audit', requireBoardAuth, vaultOn, vaultNoStore, (req, res) => {
+  const c = vaultCaller(req);
+  let item = String(req.query.item || '');
+  if (!item && req.query.name) item = vault.byName(String(req.query.name))?.id || '-';
+  res.json({ rows: vault.auditRows({ item: item || undefined, session: c.session, owner: c.actor === 'owner', limit: Number(req.query.limit) || 50 }) });
+});
+// Rotation: the store is rewritten under a new key, shown once; the old key keeps working until the daemon restarts with the new .env.
+app.post('/api/vault/rotate', requireAuth, vaultOn, sameOrigin, vaultNoStore, (_req, res) => {
+  const key = newVaultKey();
+  vault.rotate(key); vault.audit({ action: 'rotate', by: 'owner' });
+  log('vault key rotated; the new key must go into .env before the next restart');
+  res.json({ key });
+});
+// A run: the daemon binds the values, checks policy, asks the owner when it must, spawns the child itself and streams
+// scrubbed output back as JSON lines. The CLI never receives a value.
+const vaultRuns = new Set();
+async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: existing }) {
+  const c = vaultCaller(req);
+  res.status(200).set({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'private, no-store', 'X-Accel-Buffering': 'no' });
+  const send = ev => { try { res.write(JSON.stringify(ev) + '\n'); } catch { } };
+  const beat = setInterval(() => send({ t: 'beat' }), 20_000);
+  const ac = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) ac.abort(); }); // the CLI went away: stop the child (a request's own close fires once its body is read)
+  const end = () => { clearInterval(beat); try { res.end(); } catch { } };
+  try {
+    let reqRow = null, bound, cmd;
+    if (existing) {
+      reqRow = vault.requests.get(existing); if (!reqRow) { send({ t: 'error', message: 'That request does not exist or has expired.' }); return end(); }
+      if (reqRow.consumed) { send({ t: 'error', message: 'That request was already used.' }); return end(); }
+      cmd = { argv: reqRow.argv, cwd: reqRow.cwd }; bound = vault.resolveBindings(reqRow.env);
+    } else {
+      bound = vault.resolveBindings(env); cmd = vault.checkCommand(argv, cwd);
+      const need = vault.decide(bound, cmd);
+      if (need.length) {
+        reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor });
+        send({ t: 'request', id: reqRow.id, items: reqRow.itemNames });
+        const devices = await pushRaw('Vault request', `${reqRow.itemNames.join(', ')}: allow \`${cmd.argv.join(' ').slice(0, 80)}\`?`, { tag: 'vault:' + reqRow.id, url: '/#/vault/requests' });
+        log(`vault request=${reqRow.id} items=${reqRow.itemNames.join(',')} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
+      }
+    }
+    if (reqRow) {
+      const waitMs = Math.min(VAULT_LIMITS.waitMax, Math.max(1, Number(wait) || 90)) * 1000;
+      const answered = await vault.waitAnswer(reqRow.id, waitMs);
+      if (ac.signal.aborted) return end();
+      if (!answered) { send({ t: 'pending', id: reqRow.id }); return end(); }
+      if (answered.answer.decision === 'deny' || answered.answer.decision === 'expired') { send({ t: 'denied', message: answered.answer.decision === 'deny' ? 'The owner did not allow this command.' : 'The request expired before the owner answered.' }); return end(); }
+      reqRow.consumed = true;
+    }
+    if (vaultRuns.size >= VAULT_LIMITS.concurrent) { send({ t: 'error', message: 'Too many vault runs at once; try again in a moment.' }); return end(); }
+    const secrets = vault.release(bound, cmd, { session: c.session, sessionTitle: c.sessionTitle, by: c.actor, request: reqRow?.id || null });
+    const placeholders = {}; for (const b of bound) placeholders[b.item.values[b.field]] = b.item.name;
+    send({ t: 'start' });
+    const timeoutMs = Math.min(VAULT_LIMITS.timeoutMax, Math.max(1, Number(timeout) || VAULT_LIMITS.timeoutDefault)) * 1000;
+    const key = {}; vaultRuns.add(key);
+    try {
+      const r = await runWithSecrets({ argv: cmd.argv, cwd: cmd.cwd, env: agentEnv(process.env), secrets, placeholders, timeoutMs, signal: ac.signal, onOut: s => send({ t: 'out', s }), onErr: s => send({ t: 'err', s }) });
+      if (r.error) send({ t: 'error', message: `Could not start the command: ${r.error}` });
+      else send({ t: 'exit', code: r.code, signal: r.signal, truncated: r.truncated, timedOut: r.timedOut });
+      log(`vault run argv=${JSON.stringify(cmd.argv.slice(0, 3))} by ${c.actor}${c.session ? ' session=' + c.session : ''} code=${r.code ?? r.signal ?? r.error}`);
+    } finally { vaultRuns.delete(key); }
+  } catch (e) {
+    if (!e.status) log(`vault run failed: ${e.stack || e.message}`);
+    send({ t: 'error', message: e.message, ...(e.code ? { code: e.code } : {}) });
+  }
+  end();
+}
+app.post('/api/vault/run', requireBoardAuth, vaultOn, sameOrigin, (req, res) => vaultRun(req, res, { ...(req.body || {}) }));
+app.post('/api/vault/wait', requireBoardAuth, vaultOn, sameOrigin, (req, res) => vaultRun(req, res, { request: String(req.body?.request || ''), wait: req.body?.wait }));
+
 // ---------- 1.30: documents routes ----------
 // A document is sent as itself, never under the app's authority: no-store, nosniff, noindex, and for HTML a
 // sandbox policy that lets a dashboard's scripts run while denying it cookies, storage and the API. Public and
@@ -2629,7 +2768,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["An open file in Files, in a tab or a split pane, no longer reloads and jumps back to the top every 30 seconds while you read it."];
+const RELEASE_NOTES = ["The Vault: a fourth library for API keys, tokens and logins, encrypted on the server, that agents use by name in commands and never see. Off until Settings turns it on with POCKET_VAULT_KEY set."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

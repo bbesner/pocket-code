@@ -9,6 +9,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { agentEnv } from './environment.mjs';
 
 export const THUMB = { width: 480, height: 300 };
 const CHROME_PATHS = ['/opt/google/chrome/chrome', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium'];
@@ -24,7 +25,7 @@ export function findTools(env = process.env) {
   };
 }
 const run = (bin, args, { timeout, cwd }) => new Promise((resolve, reject) => {
-  execFile(bin, args, { timeout, cwd, maxBuffer: 1 << 20, windowsHide: true }, (err, stdout, stderr) => err ? reject(Object.assign(err, { stderr: String(stderr).slice(-2000) })) : resolve());
+  execFile(bin, args, { timeout, cwd, maxBuffer: 1 << 20, windowsHide: true, env: agentEnv(process.env) }, (err, stdout, stderr) => err ? reject(Object.assign(err, { stderr: String(stderr).slice(-2000) })) : resolve());
 });
 
 export class Thumbnailer {

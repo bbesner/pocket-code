@@ -151,6 +151,6 @@ test('HTTP: tasks are off until Settings turns them on, the loopback token serve
   out=await cli(['show',id]);assert.equal(out.code,5);
   out=await cli(['add']);assert.equal(out.code,1);assert.match(out.stderr,/needs the task text/);
   assert.equal((await call('/settings',{tasks:false})).body.tasks,false);
-  out=await cli(['list']);assert.equal(out.code,3);assert.match(out.stderr,/Settings → Projects, files & tasks/);
+  out=await cli(['list']);assert.equal(out.code,3);assert.match(out.stderr,/Settings → Projects, files, tasks & vault/);
   assert.equal((await call('/tasks')).status,404);
 });

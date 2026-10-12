@@ -13,6 +13,7 @@ import {captureDocs} from './docs-screenshots.mjs';
 import {ProjectStore} from '../projects.mjs';
 import {DocumentStore,mimeOf} from '../documents.mjs';
 import {TaskStore} from '../tasks.mjs';
+import {VaultStore,newKey,parseKey} from '../vault.mjs';
 const repo=path.resolve(import.meta.dirname,'..');
 const out=process.env.POCKET_SCREENSHOTS || fs.mkdtempSync(path.join(os.tmpdir(),'pocket-browser-'));
 fs.mkdirSync(out,{recursive:true});
@@ -32,7 +33,7 @@ const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
 const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
-let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false};
+let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true};
 // 1.30: the documents fixture is the real store on a scratch folder: an HTML dashboard whose script tries to reach
 // the parent (the sandbox must stop it), a Markdown note and a CSV.
 const docsDir=path.join(out,'documents');fs.mkdirSync(docsDir,{recursive:true});
@@ -51,6 +52,19 @@ const seedTasks=()=>{taskStore.tasks.length=0;
  taskStore.act({action:'add',text:'Chase the revised camera quote',dueAt:new Date(now+3*86400000).toISOString()});
  taskStore.act({action:'add',text:'Read the TVT firmware notes'});
  const d=taskStore.act({action:'add',text:'Book the forklift service'});taskStore.act({action:'update',task:d.id,done:true});};
+// 1.39: the vault is the real store on a scratch vault.enc under a test key: an API key that asks (one approved command),
+// a login agents may use that expires in 5 days, an owner-only note, a removed token, and one request waiting for the owner.
+const vaultDir=path.join(out,'vault');let vaultStore=null;
+const seedVault=()=>{fs.rmSync(vaultDir,{recursive:true,force:true});fs.mkdirSync(vaultDir,{recursive:true});
+ vaultStore=new VaultStore(path.join(vaultDir,'vault.enc'),{key:parseKey(newKey())});
+ vaultStore.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:'zk-fixture-secret-7731'},url:'https://books.zoho.com',tags:['billing'],policy:'ask'});
+ vaultStore.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'ops@example.test',password:'portal-fixture-pass'},url:'https://portal.example.test',policy:'auto',expiresAt:new Date(now+5*86400000).toISOString()});
+ vaultStore.act({action:'add',name:'bank-recovery',kind:'note',values:{text:'recovery codes fixture'},policy:'owner'});
+ const old=vaultStore.act({action:'add',name:'old-twilio',kind:'token',values:{value:'tw-fixture-old'}});vaultStore.act({action:'remove',item:old.id});
+ const ask=argv=>{const env={TOKEN:'zoho-books'},bound=vaultStore.resolveBindings(env),cmd=vaultStore.checkCommand(argv,vaultDir);return vaultStore.request({bound,cmd,need:vaultStore.decide(bound,cmd),env,session:rows[0].id,sessionTitle:rows[0].title});};
+ vaultStore.answer(ask(['node','sync-invoices.mjs']).id,'always');
+ ask(['node','export-ledger.mjs','--month','2026-09']);};
+seedVault();
 const board=new ProjectStore(path.join(out,'projects.json'));
 const seedBoard=()=>{board.projects.length=0;
  const a=board.act({action:'track',name:'Warehouse stock report',summary:'Counts for aisles 1-3 are reconciled against MOM. Aisle 4 still shows 14 units unaccounted for.',next:'Recount aisle 4 with the Friday delivery excluded, then post the adjustment.',directory:'/workspaces/warehouse',link:'https://example.test/stock',session:rows[0].id});
@@ -97,7 +111,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/voice/transcribe'){const chunks=[];for await(const c of req)chunks.push(c);voiceLog.transcribe.push({bytes:Buffer.concat(chunks).length,vocabulary:req.headers['x-vocabulary']||''});return json({text:uiModes.voiceText});}
  if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}
  if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
- if(url.pathname==='/api/me')return json({ok:true,features:{projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks)}});
+ if(url.pathname==='/api/me')return json({ok:true,features:{projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault)}});
  if(url.pathname==='/api/approval-policy')return json({defaultMode:'review',allowFullAccess:true});
  if(url.pathname.endsWith('/approvals'))return json({requests:approvalRequests,interrupted:false,activeMode:'review',defaultMode:'review',allowFullAccess:true});
  if(/\/approvals\/[^/]+\/decision$/.test(url.pathname)){
@@ -125,20 +139,31 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'},...Array.from({length:8},(_,index)=>({id:'gpt-fixture-'+index,label:'Fixture '+index})),{id:'gpt-6-sol',label:'GPT-6 Sol'},{id:'gpt-6-astra',label:'GPT-6 Astra'}],defaultModel:'gpt-6-sol',pocketDefault:true});
  if(url.pathname==='/api/push/key')return json({});
  if(url.pathname.startsWith('/api/tasks')){ // 1.36
-  if(!fixtureSettings.tasks)return json({error:'Tasks is off. Turn it on in Settings → Projects, files & tasks.',code:'tasks_off'},404);
+  if(!fixtureSettings.tasks)return json({error:'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'tasks_off'},404);
   if(url.pathname==='/api/tasks')return json({...taskStore.snapshot(),push:{enabled:false},hook:false});
   if(url.pathname==='/api/tasks/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,task:taskStore.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.task?{task:e.task}:{})},e.status||400);}}
   if(url.pathname==='/api/tasks/summary'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');await new Promise(r=>setTimeout(r,uiModes.slowSummary?1500:50));return json(uiModes.noSummary?{summary:null,reason:'unavailable'}:{summary:'Reviewing the warehouse stock report for '+(rows.find(r=>r.id===b.session)?.title||'a session')+'.\nAisle 4 is still 14 units short after the recount.\nThe reorder list is drafted and waiting for a decision.',model:'haiku',provider:'claude'});}
   if(url.pathname==='/api/tasks/reset'){seedTasks();return json({ok:true});}
  }
+ if(url.pathname.startsWith('/api/vault')){ // 1.39
+  if(!fixtureSettings.vault)return json({error:'The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'vault_off'},404);
+  const body=async()=>{let raw='';for await(const c of req)raw+=c;return JSON.parse(raw||'{}');};
+  const fail=e=>json({error:e.message,...(e.item?{item:e.item}:{}),...(e.code?{code:e.code}:{})},e.status||400);
+  if(url.pathname==='/api/vault')return json({...vaultStore.snapshot({owner:true}),push:{enabled:false}});
+  if(url.pathname==='/api/vault/act'){const b=await body();try{const r=vaultStore.act(b,{actor:'owner'});return json(b.action==='answer'?{ok:true,request:r}:{ok:true,item:r,...(r.removed?{removed:true}:{})});}catch(e){return fail(e);}}
+  if(url.pathname==='/api/vault/field'){const b=await body();try{return json({value:vaultStore.field(String(b.item||''),String(b.field||''))});}catch(e){return fail(e);}}
+  if(url.pathname==='/api/vault/audit')return json({rows:vaultStore.auditRows({item:url.searchParams.get('item')||undefined,owner:true,limit:Number(url.searchParams.get('limit'))||50})});
+  if(url.pathname==='/api/vault/rotate'){const key=newKey();vaultStore.rotate(key);return json({key});}
+  if(url.pathname==='/api/vault/reset'){seedVault();return json({ok:true});}
+ }
  if(url.pathname.startsWith('/api/board')){
-  if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects, files & tasks.',code:'projects_off'},404);
+  if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'projects_off'},404);
   if(url.pathname==='/api/board')return json({...board.snapshot({dir:url.searchParams.get('dir')||''}),push:{enabled:false},hook:false});
   if(url.pathname==='/api/board/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,project:board.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.project?{project:e.project}:{})},e.status||400);}}
   if(url.pathname==='/api/board/reset'){seedBoard();return json({ok:true});}
  }
  if(url.pathname.startsWith('/api/documents')||url.pathname.startsWith('/files/')||url.pathname.startsWith('/share/')){
-  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'Files is off. Turn it on in Settings → Projects, files & tasks.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
+  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'Files is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
   const sendDoc=(r,framed)=>{const file=docStore.filePath(r);if(!fs.existsSync(file)){res.writeHead(404);res.end();return;}
    res.writeHead(200,{'content-type':mimeOf(r.file),'cache-control':'private, no-store','x-content-type-options':'nosniff','content-security-policy':r.kind==='html'?`sandbox allow-scripts allow-popups allow-downloads allow-forms; frame-ancestors ${framed?"'self'":"'none'"}`:`default-src 'none'; style-src 'unsafe-inline'; frame-ancestors ${framed?"'self'":"'none'"}`,'content-disposition':(url.searchParams.get('download')==='1'?'attachment':'inline')+"; filename*=UTF-8''"+encodeURIComponent(r.file)});
    res.end(fs.readFileSync(file));};

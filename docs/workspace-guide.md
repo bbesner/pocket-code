@@ -301,7 +301,7 @@ code-server; the provider can drop a cache sooner. Codex sessions show no cache 
 ## Projects
 
 Projects (1.29) keep the work that comes out of sessions beside the sessions. The feature
-is off until **Settings → Projects, files & tasks → Projects** turns it on for the whole install.
+is off until **Settings → Projects, files, tasks & vault → Projects** turns it on for the whole install.
 
 A project is one card: where you left off, the next step, what it is waiting for, a
 directory and a link, a checklist of remaining steps, reminders, notes, history, and the
@@ -333,7 +333,7 @@ On the desktop the rail head switches between **Sessions | Projects | Files | Ta
 (a segment appears when its feature is on), and Projects shows the count of due reminders. Pick a project from the rail and it opens as a tab in the same
 strip as sessions (pinning, closing and Alt [ / ] work the same; the tab's mark is the due
 count), beside the conversation, or in a new browser window of its own, whichever
-Settings → Projects, files & tasks says; the options sheet and the view header offer all three every time.
+Settings → Projects, files, tasks & vault says; the options sheet and the view header offer all three every time.
 *Open beside* and *Split view* also offer Projects, Scheduled and the active projects. On
 the phone, the session home shows a **Projects** chip and views open full-screen.
 
@@ -345,7 +345,7 @@ on a phone it stays a sheet from the bottom edge.
 
 Files (1.30; called Documents before 1.34) is the library of files that came out of
 sessions: HTML reports and dashboards, PDFs, images, Markdown, text, CSV, JSON, Office files
-and video. It is off until **Settings → Projects, files & tasks → Files** turns it on for the
+and video. It is off until **Settings → Projects, files, tasks & vault → Files** turns it on for the
 whole install.
 
 A file gets in four ways: an agent keeps it with `pocket-docs add` (agents started by
@@ -389,7 +389,7 @@ header offers it). On the phone they open full-screen. The rail head's switch re
 **Sessions | Projects | Files | Tasks**, with a light divider between them; the phone's session
 home gets a Files chip. The rail's Files list has three buttons: **Upload**, **Split**
 (the library in a pane beside the current view) and **Tab** (the library as a tab).
-Settings → Projects, files & tasks → **Files button** chooses what the Files segment does: list
+Settings → Projects, files, tasks & vault → **Files button** chooses what the Files segment does: list
 files in the sidebar (the default), or open the library straight away in a tab or in split
 view. **Open files** chooses whether a plain click on a file opens a tab, a pane or a new
 window.
@@ -407,7 +407,7 @@ and the `pocket-docs` command.
 ## Tasks
 
 Tasks (1.36) are to-dos kept beside your sessions, projects and files. The feature is off
-until **Settings → Projects, files & tasks → Tasks** turns it on for the whole install.
+until **Settings → Projects, files, tasks & vault → Tasks** turns it on for the whole install.
 
 A task is one line of text with an optional date and time, the session it came from and, when
 you ask for it, a short briefing on that session. The list (`#/tasks`) opens like a session: a
@@ -441,9 +441,72 @@ session in the task's workspace with the task text, the briefing and the task's 
 draft, editable, so one tap of Send begins the work; an agent that finishes it marks the task
 done. **Open the session** returns to the conversation the task came from.
 
+## Vault
+
+The Vault (1.39) keeps API keys, tokens, logins and secure notes on the server, encrypted, so
+agents can **use** them in commands without the values ever reaching the model, a transcript,
+Pocket's turn logs, MemStem or a backup in plain text. The feature is off until **Settings →
+Projects, files, tasks & vault → Vault** turns it on for the whole install, and that switch only
+works once the operator has set `POCKET_VAULT_KEY` (see
+[Operations](operations.md#the-vault)).
+
+**Items.** Each item has a name agents refer to (lowercase letters, digits and dashes, up to 64
+characters, such as `zoho-books`), a kind, and its fields: an **API key** or **token** holds one
+value, a **login** a username and a password, a **note** a block of text. You can add a URL,
+notes, tags and an expiry date. The Vault view lists the items with their kind, policy, expiry
+and when each was last used; a value is shown only when you tap it, one field at a time, with
+**Copy** beside it, and each view is recorded. **Remove** moves an item to the trash for 30
+days, where *Restore* brings it back.
+
+**Adding one.** **Add item** in the Vault view, or **Store in the Vault** in the composer's
+attach sheet or a session's options, opens the add sheet; what you type there never enters the
+message, the draft or the recent prompts. Use it instead of pasting a key into a conversation.
+Pocket does not detect a secret pasted into the message box in this release. An agent that meets
+a secret in a file or a reply stores it with `pocket-vault put` and tells you it was seen; an
+agent can only create a new item, never change or replace one.
+
+**How agents use them.** An agent never receives a value. It runs `pocket-vault run --env
+TOKEN=zoho-books -- <command>`, and Pocket's server starts the command with the value in its
+environment, then returns the output with each value replaced by `{{vault:zoho-books}}`. To hand
+a stored secret to an agent, write `{{vault:name}}` in your message; it means "use this item".
+Each item's **policy** decides what may run:
+
+- **Ask** (the default): a command you approved before with *Always allow* runs at once. A new
+  command files a request: your devices get a "Vault request" push naming the item and the
+  command, and the request waits in the Vault view. Answer **Allow once**, **Always allow**
+  (saves the exact command, its arguments and folder as a recipe; a changed argument asks again)
+  or **Deny**. The agent waits up to 90 seconds, then tells you it is waiting and picks up
+  your answer when it comes. A request expires after 15 minutes.
+- **Auto**: any command runs, and is recorded.
+- **Owner**: only you can use the item; an agent's `run` is refused and it is told to ask you.
+
+Under Review actions you also approve the agent's `pocket-vault run` command itself; under Full
+access the Vault request is the only check, which is why Ask is the default. A command started
+from a terminal or code-server session on the server follows the same policy and is recorded as
+`terminal`. Under Codex's Review mode the agent's sandbox cannot reach Pocket's server, so
+`pocket-vault run` works only under Full access there.
+
+**History.** Every run, request, answer, view of a value, addition, change, removal, restore
+and key rotation is recorded with the session and the command, never with a value. An item's
+sheet shows its history and its saved recipes, which you can remove.
+
+**Turning it on.** Pocket restarts idle agent processes so the Vault's rules reach them; a
+session that is running picks them up from its next turn. Agents are told on every turn to use
+secrets by name, never to print or write one, to store any secret they meet, and to stop when
+a request is denied. If Codex's `config.toml` sets `developer_instructions`, Pocket's
+per-turn line does not reach Codex sessions; Settings says so.
+Settings → Vault also has **Rotate key**, which re-encrypts the store under a new key and
+shows that key once for the operator to put in `.env`.
+
+**What it does not do.** Agents run as the same OS user as Pocket and could read the key and
+the store if they went looking. The Vault keeps secrets out of prompts, transcripts, memory and
+backups and makes every use visible; it is not a wall around them. A command you approve can do
+whatever the credential allows, and the output scrubbing cannot stop a command that writes the
+value to a file or sends it elsewhere. See [SECURITY.md](../SECURITY.md#vault).
+
 ## Agent skills
 
-Pocket Code ships three skills in `skills/`, written for any Claude Code or Codex agent:
+Pocket Code ships four skills in `skills/`, written for any Claude Code or Codex agent:
 
 - **pocket-projects**: when to create a project (only when the user asks), the steps,
   asking at most one question (which project, what it tracks, or when to remind), and
@@ -452,8 +515,11 @@ Pocket Code ships three skills in `skills/`, written for any Claude Code or Code
   documents, docs) maps to Files; what to keep, how to keep it, and sharing only on request.
 - **pocket-tasks** (1.36): a task only when the user asks, typed or spoken; a due time only
   when one is named; the session briefing written by the agent when the user wants the context.
+- **pocket-vault** (1.39): never see, print or write a secret; use it by name with
+  `pocket-vault run`; store any secret met with `put`; say so and wait on a pending request,
+  stop on a refusal; never ask the user to paste a secret into the chat.
 
-While Projects, Files or Tasks is on, Pocket writes the matching skill to `~/.claude/skills/` (or
+While Projects, Files, Tasks or the Vault is on, Pocket writes the matching skill to `~/.claude/skills/` (or
 `$CLAUDE_CONFIG_DIR/skills/`) and, where Codex is installed, `$CODEX_HOME/skills/`, with
 this server's command filled in. Turning the feature off removes it. Pocket only touches a
 folder holding its `.pocket-managed` marker, so your own skill of the same name is left
@@ -462,7 +528,7 @@ alone. Set `POCKET_SKILLS=0` to turn installation off.
 ## Settings, notifications and compact views
 
 Settings opens a short index: **Appearance**, **Conversation**, **Agents & instance**,
-**Projects, files & tasks**, **Notifications & voice**, and **Help & updates**. Each category
+**Projects, files, tasks & vault**, **Notifications & voice**, and **Help & updates**. Each category
 labels preferences that apply to **This device** or **This instance · all devices**.
 **All settings** returns to the index. Accounts, usage and keyboard subpages offer
 **Back to Settings**, preserving the category and scroll position; Close and Escape

@@ -1161,7 +1161,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await (await page.$('aside.rail')).screenshot({path:path.join(out,'rail-tasks.png')});
    await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
    await clickControl(page,'#splitb');await page.waitForSelector('.sheet [data-v="tasks"]');await page.keyboard.press('Escape');
-   // Settings → Projects, files & tasks turns the feature off for the whole install.
+   // Settings → Projects, files, tasks & vault turns the feature off for the whole install.
    await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-tasks')?.disabled===false);
    assert.equal(await page.$eval('#s-tasks',e=>e.getAttribute('aria-pressed')),'true');
    await clickControl(page,'#s-tasks');for(let i=0;i<30&&settings.tasks;i++)await sleep(100);assert.equal(settings.tasks,false,'the server setting changed');
@@ -1170,6 +1170,65 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    settings.tasks=true;await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.waitForSelector('[data-tasks-home]');
    await clickControl(page,'[data-tasks-home]');await page.waitForSelector('.task-item');await scan('tasks-list-mobile');await page.screenshot({path:path.join(out,'tasks-list-mobile.png')});
    await page.setViewport({width:1440,height:900});settings.tasks=false;settings.projects=false;settings.documents=false; // as the Projects check expects
+  });
+  await check('Vault (1.39): Settings turns it on, the rail and list, Always allow, Show and the sheet, the editor and a stale save, Remove and Restore, Store in the Vault from the composer, and the phone',async()=>{
+   await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));const SECRET='zk-fixture-secret-7731';
+   const settings=settingsState();settings.vault=false;settings.vaultReady=true;
+   await page.goto(base+'/#/vault');await page.waitForFunction(()=>/The Vault is off/.test(document.querySelector('#vault-main')?.textContent||''));
+   assert.equal(await page.$('[data-rail-view="vault"]'),null,'no Vault segment while off');
+   // Settings → Projects, files, tasks & vault turns it on for the install.
+   await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-vault')?.disabled===false);
+   assert.equal(await page.$eval('#s-vault',e=>e.getAttribute('aria-pressed')),'false');
+   await clickControl(page,'#s-vault');for(let i=0;i<30&&!settings.vault;i++)await sleep(100);assert.equal(settings.vault,true,'the server setting changed');
+   await page.keyboard.press('Escape'); // turning a library on re-renders the view, which closes Settings
+   await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
+   // The list: the waiting request above the secrets, a badge on the rail switch, the login's expiry in amber.
+   await page.goto(base+'/#/vault');await page.reload();await page.waitForSelector('.vault-item');
+   const list=await page.evaluate(()=>({names:[...document.querySelectorAll('#vault-main .vault-item [data-vault-open] .title')].map(e=>e.textContent),requests:[...document.querySelectorAll('#vault-main .vault-request h3 .vault-name')].map(e=>e.textContent),badge:document.querySelector('[data-vault-badge]')?.textContent,rail:Boolean(document.querySelector('[data-rail-view="vault"]')),due:document.querySelector('.vault-item.due .due-label')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent}));
+   assert.deepEqual(list.names,['bank-recovery','vendor-portal','zoho-books']);assert.deepEqual(list.requests,['zoho-books']);assert.equal(list.badge,'1');assert.equal(list.rail,true,'the rail switch shows Vault');assert.match(list.due,/^Expires /);assert.equal(list.tab,'Vault');
+   await scan('vault-list-desktop');await page.screenshot({path:path.join(out,'vault-list-desktop.png')});
+   // Always allow answers the request and saves the command on the item.
+   await clickControl(page,'#vault-main .vault-request [data-answer="always"]');await page.waitForFunction(()=>!document.querySelector('#vault-main .vault-request'));
+   await page.waitForFunction(()=>vaultSnap.items.find(i=>i.name==='zoho-books')?.recipes.length===2);
+   assert.equal(await page.$eval('[data-vault-badge]',e=>e.hidden),true,'no request, no badge');
+   // The sheet: a value only on Show, gone from the page once it closes, never in storage.
+   const id=name=>page.evaluate(n=>(vaultSnap.items.find(i=>i.name===n)||vaultSnap.trash.find(i=>i.name===n)).id,name);
+   const zoho=await id('zoho-books');await clickControl(page,`[data-vault-open="${zoho}"]`);await page.waitForSelector('.vault-sheet [data-history] ul');
+   assert.equal((await page.content()).includes(SECRET),false,'no value before Show');assert.equal(await page.$$eval('.vault-sheet [data-recipe]',e=>e.length),2);
+   await clickControl(page,'.vault-sheet [data-field="value"] [data-show]');await page.waitForFunction(s=>document.querySelector('.vault-value.shown')?.textContent===s,{},SECRET);
+   await scan('vault-sheet-desktop');await page.screenshot({path:path.join(out,'vault-sheet-desktop.png')});
+   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-sheet'));
+   assert.equal(await page.evaluate(s=>document.documentElement.outerHTML.includes(s)||JSON.stringify(localStorage).includes(s),SECRET),false,'the value left with the sheet');
+   // The editor adds an item; its value goes to the server and nowhere else.
+   await clickControl(page,'#vt-add');await page.waitForSelector('.vault-editor form');
+   await page.type('.vault-editor [name=name]','stripe-live');await page.type('.vault-editor [data-secret=value]','sk-fixture-stripe');
+   await scan('vault-editor-desktop');await clickControl(page,'.vault-editor .primary');
+   await page.waitForFunction(()=>!document.querySelector('.vault-editor')&&vaultSnap.items.some(i=>i.name==='stripe-live'));
+   assert.equal(await page.evaluate(()=>document.documentElement.outerHTML.includes('sk-fixture-stripe')||JSON.stringify(localStorage).includes('sk-fixture-stripe')),false);
+   // A save against a stale revision is refused and the form stays open with the reason.
+   await clickControl(page,`[data-vault-open="${zoho}"]`);await page.waitForSelector('.vault-sheet [data-edit]');await clickControl(page,'.vault-sheet [data-edit]');await page.waitForSelector('.vault-editor form');
+   await page.evaluate(id=>{const i=vaultSnap.items.find(x=>x.id===id);return fetch('/api/vault/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'update',item:id,expected_revision:i.revision,tags:['elsewhere']})});},zoho);
+   await clickControl(page,'.vault-editor .primary');await page.waitForFunction(()=>/changed on another device/.test(document.querySelector('.vault-form-error')?.textContent||''));
+   assert.ok(await page.$('.vault-editor form'),'the form stays open');await page.keyboard.press('Escape');
+   // Remove sends it to Removed; Restore brings it back.
+   const stripe=await id('stripe-live');await clickControl(page,`[data-vault-open="${stripe}"]`);await page.waitForSelector('.vault-sheet [data-remove]');
+   await clickControl(page,'.vault-sheet [data-remove]');await page.waitForSelector('.sheet [data-yes]');await clickControl(page,'.sheet [data-yes]');
+   await page.waitForFunction(()=>vaultSnap.trash.some(i=>i.name==='stripe-live'));
+   await page.$eval('#vault-main details',d=>{d.open=true;});await clickControl(page,`[data-vault-restore="${stripe}"]`);await page.waitForFunction(()=>vaultSnap.items.some(i=>i.name==='stripe-live'));
+   // The composer: Attach offers Store in the Vault; saving puts the name at the cursor, not the value.
+   await page.goto(base+'/#/new');await page.waitForSelector('#first');await page.$eval('#first',b=>{b.value='Use for the sync';b.focus();b.setSelectionRange(4,4);});
+   await clickControl(page,'#c-att');await page.waitForSelector('.sheet [data-v="vault"]');await clickControl(page,'.sheet [data-v="vault"]');await page.waitForSelector('.vault-editor form');
+   await page.type('.vault-editor [name=name]','openai-key');await page.type('.vault-editor [data-secret=value]','sk-fixture-openai');await clickControl(page,'.vault-editor .primary');
+   await page.waitForFunction(()=>!document.querySelector('.vault-editor'));
+   assert.equal(await page.$eval('#first',b=>b.value),'Use {{vault:openai-key}} for the sync');
+   assert.equal(await page.evaluate(()=>JSON.stringify(localStorage).includes('sk-fixture-openai')),false,'the value is not in the draft');
+   await page.evaluate(()=>clearDraft(NEW_KEY));
+   // The phone: a Vault chip on the session home, the list full-screen without sideways scrolling.
+   await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.waitForSelector('[data-vault-home]');
+   await clickControl(page,'[data-vault-home]');await page.waitForSelector('.vault-item');
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390');
+   await scan('vault-list-mobile');await page.screenshot({path:path.join(out,'vault-list-mobile.png')});
+   await page.setViewport({width:1440,height:900});settings.vault=false;
   });
   await check('Projects (1.29): off by default, then the list, card, steps, reminders, finish and resume, tracking from a session, tabs, split pane, rail switch, settings and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));

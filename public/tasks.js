@@ -1,4 +1,4 @@
-/* Tasks (1.36): to-dos kept beside sessions, projects and files. Off until Settings → Projects, files & tasks turns
+/* Tasks (1.36): to-dos kept beside sessions, projects and files. Off until Settings → Projects, files, tasks & vault turns
    it on (window.pocketFeatures.tasks). One view, the list (#/tasks), which opens like a session: as a tab, beside a
    conversation, in a window of its own, or full-screen on the phone. A task is a line of text with an optional due
    time, the session it came from and, when asked for, a briefing on that session; Start opens a New session with the

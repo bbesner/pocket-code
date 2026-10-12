@@ -213,7 +213,8 @@ function renderToolbar() {
   const actions=$('#composer-actions');
   if(att && $('#new-setup')) $('#new-actions').prepend(att);
   if(att&&actions){att.className='icon composer-attach';att.innerHTML=IC.clip;actions.prepend(att);}
-  if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard']],null,v=>{if(v==='file')$('#fpick')?.click();else pasteClipboardImage();});
+  if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard'],
+    ...(vaultOn() ? [['vault','Store in the Vault','Save a key or password here instead of pasting it into the message']] : [])],null,v=>{if(v==='file')$('#fpick')?.click();else if(v==='vault')addVaultItemFromComposer();else pasteClipboardImage();}); // 1.39: the Vault option
   $('#c-model').onclick = () => sheet('Model for this turn', modelList(), tb.prefs.model,
     v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   $('#c-eff').onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
@@ -260,7 +261,8 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
       `<button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>`,
       `<button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>`,
       projectsOn() ? '<button class="opt" id="so-project">'+IC.folder+'<span>Add project<span class="sub">Track a new project around this session, or link it to one</span></span></button>' : '',
-      tasksOn() ? '<button class="opt" id="so-task">'+IC.task+'<span>Add task<span class="sub">A to-do with an optional date, kept with this session and its context</span></span></button>' : ''])}
+      tasksOn() ? '<button class="opt" id="so-task">'+IC.task+'<span>Add task<span class="sub">A to-do with an optional date, kept with this session and its context</span></span></button>' : '',
+      vaultOn() ? '<button class="opt" id="so-vault">'+VIC.lock+'<span>Store in the Vault<span class="sub">Save a key or password agents use by name, instead of pasting it here</span></span></button>' : ''])}
     ${optGroup('Server process', [!PANE && s.id === chatId ? '<button class="opt" id="so-close">'+IC.x+'<span>Close session process<span class="sub">Release its server process. If work is running, choose whether to keep it running or stop it</span></span></button>' : ''])}
     ${optGroup('Display and version', [chatTextControlsHTML(), s.id===chatId?'<button class="opt" id="so-version">'+IC.info+'<span>Version & updates<span class="sub" id="so-version-sub">'+esc(appVersionLabel())+'</span></span></button>':''])}`;
   const close = () => closeCurrentSheet?.();
@@ -279,6 +281,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
   sh.querySelector('#so-project')?.addEventListener('click',()=>{close();addSessionToProject(allSessions.find(r=>r.id===s.id)||s);});
   sh.querySelector('#so-task')?.addEventListener('click',()=>{close();addTaskFromSession(allSessions.find(r=>r.id===s.id)||s);});
+  sh.querySelector('#so-vault')?.addEventListener('click',()=>{close();addVaultItemFromComposer({insert:s.id===chatId});}); // 1.39: the name goes into this conversation's message box
   sh.querySelector('#so-reviewed')?.addEventListener('click',()=>{close();markReviewed([allSessions.find(r=>r.id===s.id)||s]);paintSessionPanels();toast('Marked as reviewed');});
   bindChatTextControls(sh);
   sh.querySelector('#so-find')?.addEventListener('click',()=>{close();findOpen(true);});
@@ -594,6 +597,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings"><label class="voice-field">Files button<select id="s-files-button"><option value="rail">Lists files in the sidebar</option><option value="tab">Opens the library in a tab</option><option value="beside">Opens the library in split view</option></select></label></div>
     <div class="title-settings"><label class="voice-field">Open files<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
     <button class="opt" id="s-tasks" disabled aria-pressed="false"><span class="dot"></span><span>Tasks<span class="sub" id="s-tasks-state">Loading the Tasks setting…</span></span></button>
+    <button class="opt" id="s-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault<span class="sub" id="s-vault-state">Loading the Vault setting…</span></span></button>
+    <div class="title-settings vault-settings" id="s-vault-more" hidden><p class="title-note">The key is POCKET_VAULT_KEY in .env. Rotating re-encrypts the Vault and shows the new key once.</p><p class="title-note vault-warning" id="s-vault-codex"></p><span><button class="chip" id="s-vault-rotate">Rotate key</button></span></div>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
@@ -745,6 +750,33 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       document.querySelectorAll('.session-home, aside.rail').length && route();
     } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
   };
+  // 1.39: the Vault, the same way, but it can only turn on once POCKET_VAULT_KEY is set; Rotate key sits under it.
+  const paintVaultSetting = () => {
+    const btn = sh.querySelector('#s-vault'); if (!btn || !srv) return;
+    const on = Boolean(srv.vault), ready = srv.vaultReady !== false;
+    btn.disabled = !on && !ready; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
+    sh.querySelector('#s-vault-state').textContent = on ? 'On: keys and passwords agents use by name in commands without seeing them. Every use is recorded'
+      : ready ? 'Off. Turn on to keep keys and passwords that agents use without seeing the value'
+      : srv.vaultError && !/not set/i.test(srv.vaultError) ? 'Off. The Vault cannot be opened: ' + srv.vaultError
+      : 'Off. Set POCKET_VAULT_KEY in .env (see the README) and restart to turn it on';
+    sh.querySelector('#s-vault-more').hidden = !on;
+    sh.querySelector('#s-vault-codex').textContent = on && srv.codexInstructionsOverridden ? "Codex's config.toml sets developer_instructions, so Codex sessions don't receive the Vault's rules. Claude Code sessions do." : '';
+  };
+  sh.querySelector('#s-vault').onclick = async e => {
+    const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ vault: !srv.vault }), signal: AbortSignal.timeout(8000) });
+      window.pocketFeatures = { ...(window.pocketFeatures || {}), vault: Boolean(srv.vault) };
+      paintVaultSetting(); toast(srv.vault ? 'Vault is on. Running sessions get it from their next turn' : 'Vault is off');
+      if (!srv.vault && readLocal('pc-rail-view', 'sessions') === 'vault') writeLocal('pc-rail-view', 'sessions');
+      document.querySelectorAll('.session-home, aside.rail').length && route();
+    } catch (err) {
+      if (err.code === 'vault_no_key') { srv = { ...srv, vaultReady: false }; paintVaultSetting(); }
+      else btn.disabled = false;
+      toast('Could not save: ' + (err.message || 'error'));
+    }
+  };
+  sh.querySelector('#s-vault-rotate').onclick = () => rotateVaultKey();
   const openDocSel = sh.querySelector('#s-documents-open'); openDocSel.value = readLocal('pc-documents-open', 'tab'); openDocSel.onchange = () => writeLocal('pc-documents-open', openDocSel.value);
   sh.querySelector('#s-title-model').onchange = e => saveTitles({ titleProvider: e.target.value });
   sh.querySelector('#s-away').onclick = () => { if (srv?.titles) saveTitles({ awaySummaries: srv.titles.awaySummaries === false }); };
@@ -755,7 +787,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting();
+      paintTitles(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
@@ -1256,13 +1288,13 @@ async function renderList() {
   app.innerHTML = `<header class="bar"><h1>Pocket Code</h1>
     <button class="icon bell" id="bell" aria-label="Toggle turn-finished notifications">${IC.bellOff}</button>
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
-    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
+    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New session">${IC.plus}</button>`;
   $('#new').onclick = () => { location.hash = '#/new'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
   pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
   $('#bell').onclick = () => togglePush($('#bell'));
-  bindSessionPanel(app); if (projectsOn()) loadBoard().then(paintProjectBadges).catch(() => { }); if (tasksOn()) loadTasks().then(paintTaskBadges).catch(() => { }); await refreshSessions();
+  bindSessionPanel(app); if (projectsOn()) loadBoard().then(paintProjectBadges).catch(() => { }); if (tasksOn()) loadTasks().then(paintTaskBadges).catch(() => { }); if (vaultOn()) loadVault().then(paintVaultBadges).catch(() => { }); await refreshSessions();
   const last=openSessions.find(s=>s.id===readLocal('pc-last-session',''));if(last&&$('#resume-last'))$('#resume-last').innerHTML=`<a class="resume-last" href="#/chat/${esc(last.id)}">Resume: ${esc(last.title)}</a>`;
 }
 function openSessionSwitcher() {
@@ -1730,18 +1762,18 @@ const railOpen = () => localStorage.getItem('pc-rail') !== 'closed';
 const railW = () => Math.min(480, Math.max(220, Number(localStorage.getItem('pc-railw')) || 320));
 // 1.29: with Projects on, the rail head switches between the session list and the project list.
 const filesButtonOpens = () => { const v = readLocal('pc-files-button', 'rail'); return ['rail', 'tab', 'beside'].includes(v) ? v : 'rail'; };
-const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return v === 'projects' && projectsOn() ? 'projects' : v === 'documents' && documentsOn() ? 'documents' : v === 'tasks' && tasksOn() ? 'tasks' : 'sessions'; };
+const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return v === 'projects' && projectsOn() ? 'projects' : v === 'documents' && documentsOn() ? 'documents' : v === 'tasks' && tasksOn() ? 'tasks' : v === 'vault' && vaultOn() ? 'vault' : 'sessions'; }; // 1.39: vault
 function railSwitchHTML() {
-  if (!projectsOn() && !documentsOn() && !tasksOn()) return '<span>Sessions</span>';
+  if (!projectsOn() && !documentsOn() && !tasksOn() && !vaultOn()) return '<span>Sessions</span>';
   const v = railView();
-  return `<div class="rail-switch" role="group" aria-label="Browse sessions, projects, files or tasks"><button data-rail-view="sessions" aria-pressed="${v === 'sessions'}">Sessions</button>${projectsOn() ? `<button data-rail-view="projects" aria-pressed="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button data-rail-view="documents" aria-pressed="${v === 'documents'}" >Files</button>` : ''}${tasksOn() ? `<button data-rail-view="tasks" aria-pressed="${v === 'tasks'}">Tasks<span class="badge" data-tasks-badge hidden></span></button>` : ''}</div>`;
+  return `<div class="rail-switch" role="group" aria-label="Browse sessions, projects, files, tasks or the vault"><button data-rail-view="sessions" aria-pressed="${v === 'sessions'}">Sessions</button>${projectsOn() ? `<button data-rail-view="projects" aria-pressed="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button data-rail-view="documents" aria-pressed="${v === 'documents'}" >Files</button>` : ''}${tasksOn() ? `<button data-rail-view="tasks" aria-pressed="${v === 'tasks'}">Tasks<span class="badge" data-tasks-badge hidden></span></button>` : ''}${vaultOn() ? `<button data-rail-view="vault" aria-pressed="${v === 'vault'}">Vault<span class="badge" data-vault-badge hidden></span></button>` : ''}</div>`;
 }
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
-  const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : colHtml.includes('id="tasks-main"') ? 'tasks-main' : 'box'; // 1.29/1.30: project and document views have no composer
+  const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : colHtml.includes('id="tasks-main"') ? 'tasks-main' : colHtml.includes('id="vault-main"') ? 'vault-main' : 'box'; // 1.29/1.30: project and document views have no composer
   if (PANE || SOLO) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs; a solo window shows one view
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div></div>`;
   return `<div class="split">
-    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to files':inputId==='tasks-main'?'Skip to tasks':'Skip to message'}</a>
+    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to files':inputId==='tasks-main'?'Skip to tasks':inputId==='vault-main'?'Skip to the vault':'Skip to message'}</a>
       <div class="railhead">${railSwitchHTML()}<div class="rail-actions"><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse session filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div></div>
       <div id="rail"></div>
     </aside>
@@ -1783,6 +1815,7 @@ async function paintRail() {
   if (railView() === 'projects') { if (!el.querySelector('.rail-projects')) el.innerHTML = ''; paintRailProjects(); return; }
   if (railView() === 'documents') { if (!el.querySelector('.rail-documents')) el.innerHTML = ''; paintRailDocuments(); return; }
   if (railView() === 'tasks') { if (!el.querySelector('.rail-tasks')) el.innerHTML = ''; paintRailTasks(); return; } // 1.36
+  if (railView() === 'vault') { if (!el.querySelector('.rail-vault')) el.innerHTML = ''; paintRailVault(); return; } // 1.39
   if (!el.querySelector('.session-panel')) { el.innerHTML = sessionPanelHTML(true); bindSessionPanel(el); }
   await refreshSessions();
 }
@@ -2732,6 +2765,7 @@ async function renderNew() {
 
 /* ---------- router ---------- */
 async function route() {
+  if (location.hash === '#/vault/requests') { history.replaceState(history.state, '', '#/vault'); vaultFocusRequests = true; } // 1.39: a request push opens the list at its Requests
   rememberViewNavigation(location.hash || '#/');
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
@@ -2745,9 +2779,10 @@ async function route() {
   const h = location.hash;
   if (typeof boardView !== 'undefined') boardView = null;
   if (typeof taskView !== 'undefined') taskView = null; // 1.36: a conversation opened from the task list must not count Tasks as the current view
+  if (typeof vaultView !== 'undefined') vaultView = null; // 1.39: the same for the Vault
   if (h.startsWith('#/chat/')) return renderChat(h.slice(7), { away: true });
   if (typeof docView !== 'undefined') docView = null;
-  if (isViewId(h.slice(2))) return h === '#/tasks' ? renderTasks('tasks') : h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30/1.36: project, document and task views
+  if (isViewId(h.slice(2))) return h === '#/vault' ? renderVault('vault') : h === '#/tasks' ? renderTasks('tasks') : h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30/1.36: project, document and task views
   if (h === '#/new') return renderNew();
   return renderList();
 }

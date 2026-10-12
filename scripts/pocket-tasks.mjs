@@ -43,7 +43,7 @@ async function call(p, body) {
   catch (e) { die(`Pocket Code is not reachable at ${base}: ${e.cause?.code || e.message}`); }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
-    if (data.code === 'tasks_off') die('Tasks is off for this Pocket Code. Turn it on in Settings → Projects, files & tasks.', 3);
+    if (data.code === 'tasks_off') die('Tasks is off for this Pocket Code. Turn it on in Settings → Projects, files, tasks & vault.', 3);
     if (r.status === 409 && data.task) die(`${data.error}\n` + line(data.task), 2);
     die(data.error || `${r.status} from ${p}`, r.status === 401 ? 4 : 1);
   }

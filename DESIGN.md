@@ -8,6 +8,26 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Vault (1.39)
+
+Pinned Operate refinement: variance 3, motion 1, density 6; existing tokens, no new colour.
+Read: the Vault is a fourth library in the session-row voice, not a password manager. Rows
+carry the item's name in mono (it is what agents type), its kind, the policy in words
+(*Ask*, *Auto*, *Owner*), expiry and last use. Values are absent by default: the item sheet
+lists each field with **Show** and **Copy**, one field fetched per tap. Policy reuses `.opt`
+rows; recipes read as mono command lines; the history is a collapsed ledger like a
+project's.
+
+A pending request is the one thing that needs attention: the item, the command in mono and
+the session, with *Allow once*, *Always allow* and *Deny*, where *Always allow* says it saves
+the exact command. The add sheet is a plain form whose value never reaches the draft, local
+storage or the recent prompts. **Store in the Vault** is one more option in the composer's
+attach sheet and a session's options, not a new toolbar button. Settings → Vault states the
+key requirement in words with the generation command in mono, and shows a rotated key once.
+
+Rendered checks: no horizontal overflow at 390 for the list, an item sheet and a request;
+axe clean on each; the detector reports only the app-shell baseline.
+
 ## Appearance modes (1.38)
 
 Pinned Operate refinement: variance 3, motion 2, density 7. Preserve layouts, native type,

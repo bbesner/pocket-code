@@ -7,7 +7,7 @@ import path from 'node:path';
 export async function captureDocs({browser,base,rows,dir,conversations,settings}) {
  fs.mkdirSync(dir,{recursive:true});
  const savedSettings={...settings};
- if(settings)Object.assign(settings,{projects:true,documents:true,tasks:true});
+ if(settings)Object.assign(settings,{projects:true,documents:true,tasks:true,vault:true});
  const offerId=rows[4].id,savedConversation=conversations?.get(offerId),savedRow={title:rows[4].title,cwd:rows[4].cwd};
  const shot=async(name,{mobile=false,width=1600,height=1000,url,prep,withoutRail=false})=>{
   const context=await browser.createBrowserContext(),page=await context.newPage();
@@ -43,6 +43,8 @@ export async function captureDocs({browser,base,rows,dir,conversations,settings}
   }});
   // Tasks on a phone: due first, the one from a session carries its briefing.
   await shot('tasks-mobile.png',{mobile:true,url:'/#/tasks',prep:async page=>{await page.waitForSelector('.task-item');}});
+  // The Vault (1.39): a request waiting for the owner above the secrets, names in monospace.
+  await shot('vault-desktop.png',{withoutRail:true,width:1440,height:900,url:'/#/vault',prep:async page=>{await page.waitForSelector('.vault-item');}});
   // A reply that ends with suggested-reply buttons, one of them the agent's task offer (1.37).
   if(conversations){
    Object.assign(rows[4],{title:'Checkout page release',cwd:'/workspaces/storefront'});
