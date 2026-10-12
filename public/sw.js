@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v88';
-const SHELL = ['/theme.js?v=88', '/', '/release.json?v=88', '/app.css?v=88', '/app.js?v=88', '/workspace.js?v=88', '/projects.js?v=88', '/documents.js?v=88', '/tasks.js?v=88', '/vault.js?v=88', '/approvals.js?v=88', '/split.js?v=88', '/tips.js?v=88', '/format.js?v=88', '/voice-text.js?v=88', '/voice.js?v=88', '/voice-worklet.js?v=88', '/vendor/marked.js?v=88', '/vendor/purify.js?v=88', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v89';
+const SHELL = ['/theme.js?v=89', '/', '/release.json?v=89', '/app.css?v=89', '/app.js?v=89', '/workspace.js?v=89', '/projects.js?v=89', '/documents.js?v=89', '/tasks.js?v=89', '/vault.js?v=89', '/approvals.js?v=89', '/split.js?v=89', '/tips.js?v=89', '/format.js?v=89', '/voice-text.js?v=89', '/voice.js?v=89', '/voice-worklet.js?v=89', '/vendor/marked.js?v=89', '/vendor/purify.js?v=89', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -23,20 +23,31 @@ self.addEventListener('fetch', e => {
 
 self.addEventListener('push', e => {
   let d = {}; try { d = e.data.json(); } catch { }
-  e.waitUntil(self.registration.showNotification(d.title || 'Pocket Code', {
+  const opts = {
     body: d.body || '',
     tag: d.tag || 'pc',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    data: { url: d.url || '/' },
-  }));
+    data: { url: d.url || '/', ...(d.vaultRequest ? { vaultRequest: String(d.vaultRequest) } : {}) },
+  };
+  // 1.41: a Vault request carries Allow and Deny, answered from the notification without opening Pocket.
+  if (Array.isArray(d.actions) && d.actions.length) opts.actions = d.actions.filter(a => a && a.action && a.title).map(a => ({ action: String(a.action), title: String(a.title) }));
+  e.waitUntil(self.registration.showNotification(d.title || 'Pocket Code', opts));
 });
+const openUrl = url => clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+  // split-view panes are window clients too; open the notification in the top-level window
+  for (const c of list) if (c.frameType !== 'nested' && 'focus' in c) { c.navigate(url); return c.focus(); }
+  return clients.openWindow(url);
+});
+// Allow answers once (never Always allow from a lock screen); Deny denies. If the answer does not land (signed out,
+// expired, already answered, offline), open the Requests list instead so the owner sees what happened.
+const answerVault = (request, action, url) => fetch('/api/vault/act', {
+  method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ action: 'answer', request, decision: action === 'allow' ? 'once' : 'deny' }),
+}).then(r => { if (!r.ok) return openUrl(url); }, () => openUrl(url));
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const url = e.notification.data?.url || '/';
-  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-    // split-view panes are window clients too; open the notification in the top-level window
-    for (const c of list) if (c.frameType !== 'nested' && 'focus' in c) { c.navigate(url); return c.focus(); }
-    return clients.openWindow(url);
-  }));
+  const data = e.notification.data || {}, url = data.url || '/';
+  if ((e.action === 'allow' || e.action === 'deny') && data.vaultRequest) { e.waitUntil(answerVault(data.vaultRequest, e.action, url)); return; }
+  e.waitUntil(openUrl(url));
 });

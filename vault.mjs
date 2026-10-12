@@ -15,7 +15,13 @@ import { spawn } from 'node:child_process';
 export const KINDS = { api_key: ['value'], token: ['value'], login: ['username', 'password'], credentials: [], note: ['text'] };
 export const FIELD_RE = /^[a-z][a-z0-9_]{0,31}$/;
 export const fieldNames = i => [...KINDS[i.kind], ...(i.custom || [])];
-export const POLICIES = ['ask', 'auto', 'owner'];
+// 1.41: how freely agents may use secrets is a dial. The install-wide Agent access setting is free (no prompts), once
+// (a new command is approved once, then remembered) or every (every use is approved); an item follows it ('default')
+// or overrides it (auto = free rein, ask = once per command, every, owner = agents cannot use it).
+export const POLICIES = ['default', 'auto', 'ask', 'every', 'owner'];
+export const ACCESS = ['free', 'once', 'every'];
+const ACCESS_POLICY = { free: 'auto', once: 'ask', every: 'every' };
+const STORE_SCHEMA = 2; // 2 (1.41): 'default' exists; a version-1 store's 'ask' items are the old default and become 'default'
 export const ACTIONS = ['add', 'update', 'remove', 'restore', 'recipe-remove', 'answer'];
 export const LIMITS = { items: 500, name: 64, url: 500, notes: 2000, tags: 20, tag: 40, value: 64 * 1024, argv: 200, arg: 4096, cwd: 1024, env: 32,
   customFields: 20, output: 1 << 20, timeoutMax: 3600, timeoutDefault: 600, waitMax: 300, requestTtlMs: 15 * 60_000, trashDays: 30, recipes: 50, auditRows: 200, concurrent: 8 };
@@ -26,7 +32,7 @@ const fail = (message, status = 400, extra = {}) => Object.assign(new Error(mess
 const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
 const shortId = () => randomBytes(6).toString('hex');
 const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
-const POLICY_WORDS = { ask: 'Agents ask', auto: 'Agents may use', owner: 'Only you' };
+const POLICY_WORDS = { auto: 'Free rein', ask: 'Asks once per command', every: 'Asks every time', owner: 'Only you' };
 
 // ---------- the key and the file format ----------
 // POCKET_VAULT_KEY is 32 random bytes, base64 (`openssl rand -base64 32`).
@@ -80,7 +86,7 @@ export function vaultInstructions(cli, sessionId) {
   return [
     'This Pocket Code keeps a Vault of credentials (API keys, tokens, logins) that agents use by name and never see.',
     `Run commands that need one with \`node ${cli} run --env VAR=<name>[.field] -- <command…>\`: Pocket runs the command with the value in that variable and returns the output with the value scrubbed. Values never appear in arguments, output, files, messages or your context; never print, echo, write down or ask for one.`,
-    'If the command answers `pending <id>`, the owner is being asked to allow it: say so and continue with `wait <id>` when told. If it is refused, say so and stop; do not look for another way to the value.',
+    'If the command answers `pending <id>`, the owner is being asked to allow it (a push with Allow and Deny went to their devices): say so in one line and end your reply offering "Allow <name> for this command" and "Deny <name>" as the choices; the owner answering either way, by the notification, the Vault view or that reply, settles the request, and you then continue with `wait <id>`. If it is refused, say so and stop; do not look for another way to the value.',
     `When you meet a secret in a file, a result or a message, store it at once with \`node ${cli} put <name> --kind <api_key|token|login|credentials|note> --stdin\` (or --from-file), tell the owner it was seen, and use the name from then on. \`list\` shows what exists. A \`{{vault:name}}\` in a message is the owner handing you a stored secret by name.`,
     `The pocket-vault skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-vault', 'SKILL.md')}\`) has the procedure.${sessionId ? '' : ' Pass --cwd when the command depends on the working directory.'}`,
   ].join(' ');
@@ -98,13 +104,14 @@ export class VaultStore {
     this.write = write || ((f, buf) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, buf, { mode: 0o600 }); fs.renameSync(tmp, f); });
     this.requests = new Map(); // id -> request (pending ones live in memory only; they expire in minutes)
     this.running = 0; this.items = null; this.lastActivityAt = this.now();
+    this.access = () => 'once'; // the server points this at the Agent access setting
     if (!fs.existsSync(file)) { if (!key) throw new Error('POCKET_VAULT_KEY is not set.'); this.items = []; return; }
     const buf = fs.readFileSync(file), h = storeHeader(buf);
     if (h.version === 2) { this.salt = Buffer.from(h.salt); return; } // locked until the owner unlocks it
     if (!key) throw new Error('POCKET_VAULT_KEY is not set.');
     this.load(decryptStore(this.keys, buf)); // throws: the daemon reports "cannot be opened" and serves nothing
   }
-  load(data) { this.items = (Array.isArray(data.items) ? data.items : []).filter(i => i && typeof i.id === 'string' && NAME_RE.test(i.name || '')).map(i => this.normalize(i)); this.lastActivityAt = this.now(); }
+  load(data) { const legacy = !(data.version >= STORE_SCHEMA); this.items = (Array.isArray(data.items) ? data.items : []).filter(i => i && typeof i.id === 'string' && NAME_RE.test(i.name || '')).map(i => this.normalize(legacy && i.policy === 'ask' ? { ...i, policy: 'default' } : i)); this.lastActivityAt = this.now(); }
   get mode() { return this.salt ? 'passphrase' : 'key'; }
   get locked() { return this.items === null; }
   open() { if (this.locked) throw fail('The Vault is locked. Ask the owner to unlock it in Pocket Code.', 423, { code: 'vault_locked' }); this.lastActivityAt = this.now(); return this; }
@@ -138,7 +145,7 @@ export class VaultStore {
   }
   // Idle lock: the owner's setting, in minutes; 0 never.
   idleLockDue(minutes, now = this.now()) { return this.mode === 'passphrase' && !this.locked && minutes > 0 && now - this.lastActivityAt >= minutes * 60_000; }
-  save() { this.open(); this.write(this.file, encryptStore(this.keys[0], { version: 1, savedAt: iso(this.now()), items: this.items }, { salt: this.salt })); }
+  save() { this.open(); this.write(this.file, encryptStore(this.keys[0], { version: STORE_SCHEMA, savedAt: iso(this.now()), items: this.items }, { salt: this.salt })); }
   // Rotation (key mode): the store is rewritten under the new key; the old one stays accepted until the daemon restarts with the new .env.
   rotate(newKeyRaw) { this.open(); if (this.mode !== 'key') throw fail('Rotation applies to the server key; the Vault is protected by a passphrase.'); const k = parseKey(newKeyRaw); this.keys = [k, ...this.keys]; this.envKey = k; this.save(); return k; }
   // Export: every item (values included) as a format-2 file under a passphrase of its own; import merges by name.
@@ -148,7 +155,7 @@ export class VaultStore {
     const salt = randomBytes(16), k = deriveKey(passphrase, salt);
     const items = this.items.filter(i => !i.trashedAt).map(({ lastUsedAt, lastUsedBy, trashedAt, ...i }) => i);
     this.audit({ action: 'export', by: 'owner', decision: String(items.length) });
-    return encryptStore(k, { format: EXPORT_FORMAT, version: 1, exportedAt: iso(this.now()), items }, { salt });
+    return encryptStore(k, { format: EXPORT_FORMAT, version: STORE_SCHEMA, exportedAt: iso(this.now()), items }, { salt });
   }
   importBundle(buf, passphrase) {
     this.open();
@@ -156,9 +163,9 @@ export class VaultStore {
     if (h.version !== 2) throw fail('That is not a Vault export file.');
     let data; try { data = decryptStore([deriveKey(passphrase, h.salt)], buf); } catch (e) { throw fail(e.message === 'Wrong passphrase.' ? 'Wrong passphrase.' : 'That is not a Vault export file.'); }
     if (data?.format !== EXPORT_FORMAT || !Array.isArray(data.items)) throw fail('That is not a Vault export file.');
-    const skipped = [], added = [];
+    const skipped = [], added = [], legacy = !(data.version >= STORE_SCHEMA);
     for (const raw of data.items) {
-      const i = this.normalize({ ...raw, id: shortId(), lastUsedAt: null, lastUsedBy: null, trashedAt: null });
+      const i = this.normalize({ ...raw, ...(legacy && raw.policy === 'ask' ? { policy: 'default' } : {}), id: shortId(), lastUsedAt: null, lastUsedBy: null, trashedAt: null });
       if (!NAME_RE.test(i.name || '')) continue;
       if (this.items.some(x => x.name === i.name)) { skipped.push(i.name); continue; }
       if (this.items.length >= LIMITS.items) throw fail(`You can keep up to ${LIMITS.items} items.`, 409);
@@ -174,7 +181,7 @@ export class VaultStore {
     const custom = [...new Set((Array.isArray(i.custom) ? i.custom : []).filter(f => typeof f === 'string' && FIELD_RE.test(f) && !KINDS[kind].includes(f)))].slice(0, LIMITS.customFields);
     const values = {}; for (const f of [...KINDS[kind], ...custom]) values[f] = typeof i.values?.[f] === 'string' ? i.values[f] : '';
     return { ...i, kind, custom, values, url: str(i.url, LIMITS.url), notes: str(i.notes, LIMITS.notes), tags: Array.isArray(i.tags) ? i.tags.map(t => str(t, LIMITS.tag)).filter(Boolean).slice(0, LIMITS.tags) : [],
-      policy: POLICIES.includes(i.policy) ? i.policy : 'ask', recipes: Array.isArray(i.recipes) ? i.recipes.filter(r => r && Array.isArray(r.argv)).slice(0, LIMITS.recipes) : [],
+      policy: POLICIES.includes(i.policy) ? i.policy : 'default', recipes: Array.isArray(i.recipes) ? i.recipes.filter(r => r && Array.isArray(r.argv)).slice(0, LIMITS.recipes) : [],
       expiresAt: i.expiresAt && !Number.isNaN(Date.parse(i.expiresAt)) ? i.expiresAt : null, lastUsedAt: i.lastUsedAt || null, lastUsedBy: i.lastUsedBy || null,
       trashedAt: i.trashedAt || null, revision: Number.isInteger(i.revision) && i.revision > 0 ? i.revision : 1 };
   }
@@ -204,16 +211,19 @@ export class VaultStore {
   // The item as the UI and CLI see it: never a value; notes only for the owner.
   view(i, { owner = false, now = this.now() } = {}) {
     const { values, notes, ...rest } = i;
-    return { ...rest, fields: fieldNames(i), custom: i.custom, policyWord: POLICY_WORDS[i.policy], ...(owner ? { notes } : {}), expiring: Boolean(i.expiresAt) && Date.parse(i.expiresAt) - now < 14 * 86400_000 };
+    const eff = this.effective(i);
+    return { ...rest, fields: fieldNames(i), custom: i.custom, effectivePolicy: eff, policyWord: POLICY_WORDS[eff], ...(owner ? { notes } : {}), expiring: Boolean(i.expiresAt) && Date.parse(i.expiresAt) - now < 14 * 86400_000 };
   }
-  requestView(r) { const { env, waiters, ...rest } = r; return { ...rest, pending: !r.answer }; }
+  requestView(r) { const { env, waiters, ...rest } = r; return { ...rest, pending: !r.answer, allowAlways: r.allowAlways !== false }; }
+  // The policy that applies to an item now: its own, or the Agent access setting's when it follows the default.
+  effective(i) { if (i.policy !== 'default') return i.policy; const a = this.access(); return ACCESS_POLICY[ACCESS.includes(a) ? a : 'once']; }
   snapshot({ owner = false, now = this.now() } = {}) {
     this.open();
     this.expireRequests(now);
     const live = this.items.filter(i => !i.trashedAt).sort((a, b) => a.name.localeCompare(b.name)).map(i => this.view(i, { owner, now }));
     const trash = owner ? this.items.filter(i => i.trashedAt).sort((a, b) => Date.parse(b.trashedAt) - Date.parse(a.trashedAt)).map(i => this.view(i, { owner, now })) : [];
     const requests = [...this.requests.values()].filter(r => !r.answer).map(r => this.requestView(r));
-    return { version: 1, now, ready: true, items: live, trash, requests, openRequests: requests.length };
+    return { version: 1, now, ready: true, access: ACCESS.includes(this.access()) ? this.access() : 'once', items: live, trash, requests, openRequests: requests.length };
   }
   touch(i) { i.updated = iso(this.now()); i.revision += 1; }
 
@@ -232,7 +242,7 @@ export class VaultStore {
       if (this.items.length >= LIMITS.items) throw fail(`You can keep up to ${LIMITS.items} items.`, 409);
       const { values, custom } = this.checkValues({ kind, custom: [] }, input.values, { all: true });
       const item = { id: shortId(), name, kind, custom, values, url: str(input.url, LIMITS.url), notes: owner ? str(input.notes, LIMITS.notes) : '', tags: this.checkTags(input.tags),
-        policy: owner && POLICIES.includes(input.policy) ? input.policy : 'ask', recipes: [], expiresAt: this.checkWhen(input.expiresAt),
+        policy: owner && POLICIES.includes(input.policy) ? input.policy : 'default', recipes: [], expiresAt: this.checkWhen(input.expiresAt),
         created: at, updated: at, by, lastUsedAt: null, lastUsedBy: null, trashedAt: null, revision: 1 };
       this.audit({ action: 'put', item: item.id, name, by, session, sessionTitle });
       this.items.push(item); this.save();
@@ -269,7 +279,7 @@ export class VaultStore {
     if ('url' in input) { i.url = str(input.url, LIMITS.url); changed = true; }
     if ('notes' in input) { i.notes = str(input.notes, LIMITS.notes); changed = true; }
     if ('tags' in input) { i.tags = this.checkTags(input.tags); changed = true; }
-    if ('policy' in input) { if (!POLICIES.includes(input.policy)) throw fail('The policy must be ask, auto or owner.'); i.policy = input.policy; changed = true; }
+    if ('policy' in input) { if (!POLICIES.includes(input.policy)) throw fail('The policy must be default, auto, ask, every or owner.'); i.policy = input.policy; changed = true; }
     if ('expiresAt' in input) { i.expiresAt = this.checkWhen(input.expiresAt); changed = true; }
     if (!changed) throw fail('Nothing to change.');
     this.touch(i); this.audit({ action: 'update', item: i.id, name: i.name, by }); this.save();
@@ -339,8 +349,9 @@ export class VaultStore {
   decide(bound, cmd) {
     const need = [];
     for (const { item } of new Map(bound.map(b => [b.item.id, b])).values()) {
-      if (item.policy === 'owner') throw fail(`${item.name} is for the owner only; agents cannot use it. Ask the owner to change its policy.`, 403, { code: 'owner_only' });
-      if (item.policy === 'ask' && !item.recipes.some(r => VaultStore.sameCommand(r, cmd))) need.push(item);
+      const p = this.effective(item);
+      if (p === 'owner') throw fail(`${item.name} is for the owner only; agents cannot use it. Ask the owner to change its policy.`, 403, { code: 'owner_only' });
+      if (p === 'every' || (p === 'ask' && !item.recipes.some(r => VaultStore.sameCommand(r, cmd)))) need.push(item);
     }
     return need;
   }
@@ -348,7 +359,7 @@ export class VaultStore {
   request({ bound, cmd, need, env, session = null, sessionTitle = '', by = 'agent' }) {
     this.expireRequests();
     const now = this.now();
-    const r = { id: shortId(), items: need.map(i => i.id), itemNames: need.map(i => i.name), argv: cmd.argv, cwd: cmd.cwd, env, session, sessionTitle, by, created: iso(now), expiresAt: iso(now + LIMITS.requestTtlMs), answer: null, consumed: false, waiters: [] };
+    const r = { id: shortId(), items: need.map(i => i.id), itemNames: need.map(i => i.name), argv: cmd.argv, cwd: cmd.cwd, env, session, sessionTitle, by, created: iso(now), expiresAt: iso(now + LIMITS.requestTtlMs), answer: null, consumed: false, waiters: [], allowAlways: need.every(i => this.effective(i) !== 'every') };
     this.audit({ action: 'request', request: r.id, item: need[0].id, name: need.map(i => i.name).join(','), by, session, sessionTitle, argv: cmd.argv, cwd: cmd.cwd });
     this.requests.set(r.id, r);
     return r;
@@ -359,13 +370,15 @@ export class VaultStore {
     if (!['once', 'always', 'deny'].includes(decision)) throw fail('Answer once, always or deny.');
     r.answer = { decision, at: iso(this.now()) };
     if (decision === 'always') {
-      for (const id of r.items) { const i = this.items.find(x => x.id === id); if (!i || i.trashedAt) continue; if (!i.recipes.some(x => VaultStore.sameCommand(x, r))) { i.recipes.push({ id: shortId(), argv: r.argv, cwd: r.cwd, created: r.answer.at }); if (i.recipes.length > LIMITS.recipes) i.recipes.shift(); this.touch(i); } }
+      for (const id of r.items) { const i = this.items.find(x => x.id === id); if (!i || i.trashedAt || this.effective(i) === 'every') continue; if (!i.recipes.some(x => VaultStore.sameCommand(x, r))) { i.recipes.push({ id: shortId(), argv: r.argv, cwd: r.cwd, created: r.answer.at }); if (i.recipes.length > LIMITS.recipes) i.recipes.shift(); this.touch(i); } }
       this.save();
     }
     this.audit({ action: 'request-answered', request: r.id, item: r.items[0], name: r.itemNames.join(','), by: 'owner', decision, session: r.session, sessionTitle: r.sessionTitle, argv: r.argv, cwd: r.cwd });
     for (const w of r.waiters.splice(0)) w(r);
     return this.requestView(r);
   }
+  // The pending requests a session raised, oldest first (for answers the owner types in that conversation).
+  pendingFor(session) { this.expireRequests(); return [...this.requests.values()].filter(r => !r.answer && r.session && r.session === session); }
   // Resolves with the request once answered, or null when `ms` pass first.
   waitAnswer(id, ms) {
     const r = this.requests.get(id); if (!r) throw fail('That request does not exist or has expired.', 404);

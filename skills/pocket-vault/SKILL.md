@@ -96,20 +96,28 @@ pocket-vault run --env SSH_KEY=deploy-key.text -- sh -c 'umask 077; f=$(mktemp);
 
 ## Pending, refused and off
 
-Each item has a policy the owner sets:
+How freely you may use secrets is the owner's choice. **Agent access** in Settings applies
+to every item, and an item can override it:
 
-- **ask** (the default): a command the owner has approved before runs at once. A new one
-  waits for the owner, who gets a "Vault request" on their devices and answers *Allow once*,
-  *Always allow* or *Deny*. `run` waits up to 90 seconds; if there is no answer yet it prints
-  `pending <request id>` and exits with code 4.
-- **auto**: any command runs, and is recorded.
-- **owner**: agents cannot use the item. `run` fails and says to ask the owner.
+- **Free rein**: any command runs at once, and is recorded. Most developers who want their
+  agents to work on their own choose this.
+- **Ask once per command**: a command the owner approved before (with *Always allow*) runs at
+  once; a new one waits for the owner.
+- **Ask every time**: every run waits for the owner.
+- **Only you** (an item setting): agents cannot use the item. `run` fails and says to ask the owner.
 
-**On `pending`:** tell the user in one line that the command is waiting for their approval in
-the Vault (naming the item and the command), then run `pocket-vault wait <request id>` to
-continue. `wait` runs the command once it is allowed, or reports the denial. If it prints
-`pending` again, the owner has not answered; do not loop on it. A request expires after 15
-minutes.
+When a run must wait, the owner gets a "Vault request" push with **Allow** and **Deny**
+buttons. `run` waits up to 90 seconds; with no answer yet it prints `pending <request id>` and
+exits with code 4.
+
+**On `pending`:** say in one line that the command is waiting for the owner's approval
+(naming the item and the command), and end your reply offering two choices, written exactly
+like this so the owner can tap one: `Allow <name> for this command` and `Deny <name>` (when
+Pocket shows suggested replies, as a `choices` block). The owner may answer by that reply,
+the notification or the Vault view; any of them settles the request. Then run
+`pocket-vault wait <request id>`: it runs the command once allowed, or reports the denial. If
+it prints `pending` again, the owner has not answered; do not loop on it. A request expires
+after 15 minutes.
 
 **On a refusal** (denied, an `owner` item, an expired request): say so plainly and stop. Do
 not try another command, another item, a copy of the value from somewhere else, or any other

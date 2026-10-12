@@ -33,7 +33,7 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   const dir=tmp(),file=path.join(dir,'vault.enc'),key=parseKey(newKey());let clock=Date.parse('2026-10-12T12:00:00Z');
   const s=new VaultStore(file,{key,now:()=>clock});
   const a=s.act({action:'add',name:'Zoho-Books',kind:'api_key',values:{value:SECRET},url:'https://books.zoho.com',tags:['Zoho','finance'],notes:'Renew yearly'});
-  assert.equal(a.name,'zoho-books');assert.equal(a.policy,'ask','ask by default');assert.deepEqual(a.fields,['value']);assert.deepEqual(a.tags,['zoho','finance']);assert.equal(a.notes,'Renew yearly');
+  assert.equal(a.name,'zoho-books');assert.equal(a.policy,'default','follows the Agent access setting by default');assert.equal(a.effectivePolicy,'ask');assert.equal(a.policyWord,'Asks once per command');assert.deepEqual(a.fields,['value']);assert.deepEqual(a.tags,['zoho','finance']);assert.equal(a.notes,'Renew yearly');
   assert.equal(JSON.stringify(a).includes('hunter2'),false,'no value in a view');assert.equal('values' in a,false);
   const login=s.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'brad@example.test',password:'P@ss word "quoted"'},policy:'auto'});
   assert.equal(login.policy,'auto');assert.deepEqual(login.fields,['username','password']);
@@ -63,7 +63,7 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   assert.throws(()=>s.resolveBindings({S:'authorize-net.nope'}),/no field nope/);
   // Agents: create-only, nothing else.
   const fromAgent=s.act({action:'add',name:'twilio-auth',kind:'token',values:{value:'tw-secret-value-1234'},policy:'auto',notes:'ignored'},{actor:'agent',session:S1,sessionTitle:'Billing'});
-  assert.equal(fromAgent.policy,'ask','an agent cannot pick a policy');assert.equal('notes' in fromAgent,false,'agents never see notes');
+  assert.equal(fromAgent.policy,'default','an agent cannot pick a policy');assert.equal('notes' in fromAgent,false,'agents never see notes');
   assert.throws(()=>s.act({action:'add',name:'twilio-auth',kind:'token',values:{value:'other'}},{actor:'agent'}),/agents cannot replace it/);
   assert.throws(()=>s.act({action:'update',item:a.id,policy:'auto'},{actor:'agent'}),e=>e.status===403);
   assert.throws(()=>s.act({action:'remove',item:a.id},{actor:'terminal'}),e=>e.status===403);
@@ -73,7 +73,7 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   assert.equal(e1.revision,2);assert.equal(s.get(a.id).values.value,SECRET,'an empty value leaves the stored one');
   assert.throws(()=>s.act({action:'update',item:a.id,expected_revision:1,url:'x'}),e=>e.status===409&&e.item.revision===2);
   s.act({action:'update',item:a.id,values:{value:'sk-live-rotated-9876543210abcdef'}});assert.equal(s.get(a.id).values.value,'sk-live-rotated-9876543210abcdef');
-  assert.throws(()=>s.act({action:'update',item:a.id,policy:'maybe'}),/ask, auto or owner/);
+  assert.throws(()=>s.act({action:'update',item:a.id,policy:'maybe'}),/default, auto, ask, every or owner/);
   assert.throws(()=>s.act({action:'update',item:a.id}),/Nothing to change/);
   // Bindings and the decision.
   const cmd=s.checkCommand(['node','sync.mjs'],dir);
@@ -184,6 +184,37 @@ test('passphrase mode (1.40): the store locks and unlocks, idles out, exports an
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+test('Agent access (1.41): the install-wide dial, per-item overrides, ask-every-time, and the old store migrates',()=>{
+  const dir=tmp(),file=path.join(dir,'vault.enc'),key=parseKey(newKey());let access='once';
+  const s=new VaultStore(file,{key});s.access=()=>access;
+  const a=s.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:SECRET}});
+  const own=s.act({action:'add',name:'bank',kind:'note',values:{text:'routing 123456789'},policy:'owner'});
+  const every=s.act({action:'add',name:'stripe-live',kind:'api_key',values:{value:'sk_live_abcdefgh123'},policy:'every'});
+  const cmd=s.checkCommand(['node','sync.mjs'],dir),zb=s.resolveBindings({T:'zoho-books'});
+  assert.equal(s.decide(zb,cmd).length,1,'once: a new command asks');
+  access='free';assert.deepEqual(s.decide(zb,cmd),[],'free rein: nothing asks');assert.equal(s.view(s.get(a.id)).policyWord,'Free rein');assert.equal(s.snapshot().access,'free');
+  assert.throws(()=>s.decide(s.resolveBindings({B:'bank'}),cmd),e=>e.code==='owner_only','an Only you item stays closed under free rein');
+  assert.equal(s.decide(s.resolveBindings({S:'stripe-live'}),cmd).length,1,'an item set to ask every time still asks under free rein');
+  access='every';const need=s.decide(zb,cmd);assert.equal(need.length,1);
+  const r=s.request({bound:zb,cmd,need,env:{T:'zoho-books'}});assert.equal(s.requestView(r).allowAlways,false,'no Always allow when it asks every time');
+  s.answer(r.id,'always');assert.equal(s.get(a.id).recipes.length,0,'and Always saves no recipe');
+  access='once';const r2=s.request({bound:zb,cmd,need:s.decide(zb,cmd),env:{T:'zoho-books'}});assert.equal(s.requestView(r2).allowAlways,true);s.answer(r2.id,'always');assert.equal(s.get(a.id).recipes.length,1);
+  access='every';assert.equal(s.decide(zb,cmd).length,1,'ask every time ignores saved recipes');
+  access='bogus';assert.equal(s.view(s.get(a.id)).effectivePolicy,'ask','an unknown setting behaves as once');
+  assert.throws(()=>s.act({action:'update',item:a.id,policy:'sometimes'}),/default, auto, ask, every or owner/);
+  s.act({action:'update',item:a.id,policy:'auto'});access='every';assert.deepEqual(s.decide(zb,cmd),[],'an item set to free rein runs under any setting');
+  // Pending requests by session.
+  const S2='22222222-2222-4222-8222-222222222222';s.act({action:'update',item:a.id,policy:'default'});
+  const r3=s.request({bound:zb,cmd:s.checkCommand(['node','x.mjs'],dir),need:[s.get(a.id)],env:{T:'zoho-books'},session:S2});
+  assert.deepEqual(s.pendingFor(S2).map(x=>x.id),[r3.id]);assert.deepEqual(s.pendingFor(S1),[]);
+  // A 1.39/1.40 store: its ask items were the old default and now follow the setting; explicit auto and owner stay.
+  const old=path.join(dir,'old.enc');
+  fs.writeFileSync(old,encryptStore(key,{version:1,items:[{id:'aaaaaaaaaaaa',name:'legacy-ask',kind:'token',values:{value:'legacy-secret-1'},policy:'ask'},{id:'bbbbbbbbbbbb',name:'legacy-auto',kind:'token',values:{value:'legacy-secret-2'},policy:'auto'},{id:'cccccccccccc',name:'legacy-owner',kind:'token',values:{value:'legacy-secret-3'},policy:'owner'}]}));
+  const o=new VaultStore(old,{key});assert.deepEqual(o.items.map(i=>i.policy),['default','auto','owner']);
+  o.act({action:'update',item:'aaaaaaaaaaaa',policy:'ask'});assert.equal(new VaultStore(old,{key}).get('aaaaaaaaaaaa').policy,'ask','once saved under the new schema, an explicit ask stays ask');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
 test('scrubber: every form of a value, across chunk boundaries; short values are left alone',()=>{
   const forms=needlesFor([SECRET]);
   assert.ok(forms.includes(SECRET));assert.ok(forms.includes(Buffer.from(SECRET).toString('base64')));assert.ok(forms.includes(encodeURIComponent('a b&c')) || true);
@@ -265,12 +296,12 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   assert.equal((await call('/vault',null,{...bearer,'cf-connecting-ip':'203.0.113.5'})).status,401,'not through the tunnel');
   assert.equal((await call('/sessions',null,bearer)).status,401,'the token opens nothing else');
   const made=await call('/vault/act',{action:'add',name:'zoho-books',kind:'api_key',values:{value:SECRET},url:'https://books.zoho.com',notes:'owner note',tags:['zoho']});
-  assert.equal(made.status,200);assert.equal(made.body.item.policy,'ask');assert.equal(made.body.item.notes,'owner note');
+  assert.equal(made.status,200);assert.equal(made.body.item.policy,'default');assert.equal(made.body.item.effectivePolicy,'ask');assert.equal(made.body.item.notes,'owner note');
   const auto=await call('/vault/act',{action:'add',name:'vendor-portal',kind:'login',values:{username:'brad@example.test',password:'P@ss word "quoted"'},policy:'auto'});assert.equal(auto.status,200);
   const ownerOnly=await call('/vault/act',{action:'add',name:'bank',kind:'note',values:{text:'routing 123456789 account 9876543210'},policy:'owner'});assert.equal(ownerOnly.status,200);
   const xo=await call('/vault/act',{action:'add',name:'x',kind:'token',values:{value:'xxxxxxxx'}},{...headers,origin:'https://evil.example'});assert.equal(xo.status,403,'a cross-origin cookie request is refused');
   const viaAgent=await call('/vault/act',{action:'add',name:'twilio-auth',kind:'token',values:{value:'tw-secret-value-1234'},policy:'auto',notes:'x'},agent);
-  assert.equal(viaAgent.status,200);assert.equal(viaAgent.body.item.policy,'ask');assert.equal('notes' in viaAgent.body.item,false);
+  assert.equal(viaAgent.status,200);assert.equal(viaAgent.body.item.policy,'default');assert.equal('notes' in viaAgent.body.item,false);
   assert.equal((await call('/vault/act',{action:'add',name:'twilio-auth',kind:'token',values:{value:'again'}},agent)).status,409,'create-only');
   assert.equal((await call('/vault/act',{action:'update',item:made.body.item.id,policy:'auto'},agent)).status,403,'an agent cannot change a policy');
   assert.equal((await call('/vault/act',{action:'remove',item:made.body.item.id},agent)).status,403);
@@ -316,7 +347,7 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   // The CLI, as an agent inside the session.
   const cliEnv={...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),POCKET_RUNNER_TOKEN:runnerToken};
   const cli=(args,extra={})=>new Promise(res=>{const p=execFile(process.execPath,[path.join(repo,'scripts/pocket-vault.mjs'),...args],{cwd:dir,env:{...cliEnv,...extra.env}},(e,stdout,stderr)=>res({code:e?e.code:0,stdout,stderr}));if(extra.stdin!=null){p.stdin.end(extra.stdin);}});
-  let o=await cli(['list']);assert.equal(o.code,0,o.stderr);assert.match(o.stdout,/^bank  \(note\)  Only you/m);assert.match(o.stdout,/zoho-books  \(api_key\)  Agents ask  https:\/\/books\.zoho\.com  #zoho/);assert.doesNotMatch(o.stdout,/hunter2|P@ss/);
+  let o=await cli(['list']);assert.equal(o.code,0,o.stderr);assert.match(o.stdout,/^bank  \(note\)  Only you/m);assert.match(o.stdout,/zoho-books  \(api_key\)  Asks once per command  https:\/\/books\.zoho\.com  #zoho/);assert.doesNotMatch(o.stdout,/hunter2|P@ss/);
   o=await cli(['show','vendor-portal']);assert.match(o.stdout,/fields: username, password/);assert.match(o.stdout,/--env VAR=vendor-portal\.username/);
   o=await cli(['put','github-pat','--kind','token','--stdin','--url','https://github.com'],{stdin:'ghp_abcdefghijklmnop1234\n'});assert.equal(o.code,0,o.stderr);assert.equal(o.stdout,'github-pat\n');
   o=await cli(['put','github-pat','--kind','token','--stdin'],{stdin:'x'});assert.equal(o.code,1);assert.match(o.stderr,/already exists/);
@@ -338,6 +369,29 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   assert.equal((await call('/vault/act',{action:'update',item:upsId,removeFields:['client_secret']})).status,200);
   assert.deepEqual((await call('/vault')).body.items.find(i=>i.id===upsId).fields,['client_id']);
   assert.equal((await call('/vault/act',{action:'update',item:upsId,values:{'Bad Name':'x'}})).status,400);
+  // 1.41: the Agent access setting, and answering a request from the conversation that raised it.
+  let acc=await call('/settings');assert.equal(acc.body.vaultAccess,'once');
+  assert.equal((await call('/settings',{vaultAccess:'nonsense'})).body.vaultAccess,'once','only the three levels');
+  assert.equal((await call('/vault/act',{action:'add',name:'chat-approve',kind:'token',values:{value:'chat-approve-secret-1'}})).status,200);
+  const chatRun=streamCall('/vault/run',{argv:['sh','-c','echo "c=$C"'],cwd:dir,env:{C:'chat-approve'},wait:60},agent);
+  let cr=[];for(let i=0;i<60&&!cr.length;i++){await sleep(50);cr=(await call('/vault')).body.requests.filter(x=>x.itemNames.includes('chat-approve'));}
+  assert.equal(cr.length,1);assert.equal(cr[0].allowAlways,true);assert.equal(cr[0].session,sid);
+  const said=await call(`/session/${sid}/message`,{text:'Allow chat-approve for this command.',clientMessageId:randomUUID()});assert.ok([200,202].includes(said.status),JSON.stringify(said.body));
+  r=await chatRun;assert.equal(r.events.filter(e=>e.t==='out').map(e=>e.s).join(''),'c={{vault:chat-approve}}\n','the owner\'s reply in the conversation allowed it');
+  assert.match(logs,/answered once from the conversation session=/);
+  // A message that names nothing pending, or another session's message, answers nothing.
+  const deny=streamCall('/vault/run',{argv:['sh','-c','echo again'],cwd:dir,env:{C:'chat-approve'},wait:60},agent);
+  for(let i=0;i<60;i++){await sleep(50);if((await call('/vault')).body.requests.length)break;}
+  await call(`/session/${S1}/message`,{text:'Allow chat-approve for this command',clientMessageId:randomUUID()});
+  assert.equal((await call('/vault')).body.requests.length,1,'a message in another session does not answer it');
+  await call(`/session/${sid}/message`,{text:'Deny chat-approve',clientMessageId:randomUUID()});
+  r=await deny;assert.equal(r.events.at(-1).t,'denied');
+  // Free rein: a default item runs without any request.
+  assert.equal((await call('/settings',{vaultAccess:'free'})).body.vaultAccess,'free');assert.match(logs,/vault agent access: once -> free/);
+  r=await streamCall('/vault/run',{argv:['sh','-c','echo free'],cwd:dir,env:{C:'chat-approve'}},agent);assert.equal(r.events[0].t,'start','no request under free rein');
+  assert.equal((await call('/vault',null,agent)).body.items.find(i=>i.name==='chat-approve').policyWord,'Free rein');
+  r=await streamCall('/vault/run',{argv:['true'],cwd:dir,env:{B:'bank'}},agent);assert.equal(r.events.at(-1).code,'owner_only','Only you stays closed');
+  assert.equal((await call('/settings',{vaultAccess:'once'})).body.vaultAccess,'once');
   // github-pat has the default ask policy: the CLI waits while the owner is asked, then runs once allowed.
   const running=cli(['run','--env','GH=github-pat','--','sh','-c','echo "gh=$GH"; printf %s "$GH" | base64; exit 7']);
   let req2=[];for(let i=0;i<100&&!req2.length;i++){await sleep(50);req2=(await call('/vault')).body.requests;}

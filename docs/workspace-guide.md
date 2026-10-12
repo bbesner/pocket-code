@@ -473,16 +473,24 @@ agent can only create a new item, never change or replace one.
 TOKEN=zoho-books -- <command>`, and Pocket's server starts the command with the value in its
 environment, then returns the output with each value replaced by `{{vault:zoho-books}}`. To hand
 a stored secret to an agent, write `{{vault:name}}` in your message; it means "use this item".
-Each item's **policy** decides what may run:
+How freely agents use secrets is a dial (1.41). **Settings → Vault → Agent access** sets it for
+every item, and an item can override it in its sheet:
 
-- **Ask** (the default): a command you approved before with *Always allow* runs at once. A new
-  command files a request: your devices get a "Vault request" push naming the item and the
-  command, and the request waits in the Vault view. Answer **Allow once**, **Always allow**
-  (saves the exact command, its arguments and folder as a recipe; a changed argument asks again)
-  or **Deny**. The agent waits up to 90 seconds, then tells you it is waiting and picks up
-  your answer when it comes. A request expires after 15 minutes.
-- **Auto**: any command runs, and is recorded.
-- **Owner**: only you can use the item; an agent's `run` is refused and it is told to ask you.
+- **Free rein**: agents use any secret by name without asking. Values still never enter the
+  conversation, and every use is recorded. Choose this when you want your agents to work on
+  their own.
+- **Ask once per command** (the default for a new install): a command you approved before with
+  *Always allow* runs at once; a new one files a request. *Always allow* saves the exact
+  command, its arguments and folder; a changed argument asks again.
+- **Ask every time**: every run files a request.
+- **Only you** (an item setting): agents cannot use it; an agent's `run` is refused.
+
+A request reaches you three ways, and any one answers it: the "Vault request" push, with
+**Allow** and **Deny** buttons; the request at the top of the Vault view; and the
+conversation itself, where the agent ends its reply with *Allow zoho-books for this command*
+and *Deny zoho-books* as suggested replies (tap one, or type it). Only your own messages
+count, and only for that session's requests. The agent waits up to 90 seconds, then tells
+you it is waiting and picks up your answer when it comes. A request expires after 15 minutes.
 
 Under Review actions you also approve the agent's `pocket-vault run` command itself; under Full
 access the Vault request is the only check, which is why Ask is the default. A command started

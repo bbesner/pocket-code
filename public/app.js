@@ -599,6 +599,9 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <button class="opt" id="s-tasks" disabled aria-pressed="false"><span class="dot"></span><span>Tasks<span class="sub" id="s-tasks-state">Loading the Tasks setting…</span></span></button>
     <button class="opt" id="s-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault<span class="sub" id="s-vault-state">Loading the Vault setting…</span></span></button>
     <div class="title-settings vault-settings" id="s-vault-more" hidden>
+      <div class="vault-set"><label class="vault-set-head" for="s-vault-access">Agent access</label>
+        <span class="voice-field"><select id="s-vault-access" aria-describedby="s-vault-access-note">${VAULT_ACCESS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></span>
+        <p class="title-note" id="s-vault-access-note"></p></div>
       <div class="vault-set" role="group" aria-labelledby="s-vault-prot-h"><p class="vault-set-head" id="s-vault-prot-h">Protection</p>
         <p class="vault-mode" id="s-vault-mode"></p><p class="title-note" id="s-vault-mode-note"></p>
         <span class="vault-set-actions"><button class="chip" id="s-vault-setpass" hidden>Set a passphrase</button><button class="chip" id="s-vault-lock" hidden>${VIC.lock}Lock now</button><button class="chip" id="s-vault-unlock" hidden>Unlock…</button><button class="chip" id="s-vault-changepass" hidden>Change passphrase</button><button class="chip" id="s-vault-removepass" hidden>Remove passphrase</button><button class="chip" id="s-vault-rotate" hidden>Rotate key</button></span>
@@ -769,6 +772,10 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       : srv.vaultError && !/not set/i.test(srv.vaultError) ? 'Off. The Vault cannot be opened: ' + srv.vaultError
       : 'Off. Set POCKET_VAULT_KEY in .env (see the README) and restart to turn it on';
     sh.querySelector('#s-vault-more').hidden = !on;
+    // 1.41: Agent access, how freely agents use secrets; items set to Vault default follow it.
+    const access = VAULT_ACCESS.some(([v]) => v === srv.vaultAccess) ? srv.vaultAccess : 'once'; vaultAccess = access;
+    sh.querySelector('#s-vault-access').value = access;
+    sh.querySelector('#s-vault-access-note').textContent = VAULT_ACCESS.find(([v]) => v === access)[2];
     // 1.40: key mode (POCKET_VAULT_KEY opens it) or passphrase mode (held in memory; locked after a restart or idle).
     const pass = srv.vaultMode === 'passphrase', locked = pass && Boolean(srv.vaultLocked);
     sh.querySelector('#s-vault-mode').textContent = pass ? 'Protected by a passphrase' + (locked ? '. Locked now' : '') : 'Opened by the server key in .env';
@@ -794,6 +801,15 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       else btn.disabled = false;
       toast('Could not save: ' + (err.message || 'error'));
     }
+  };
+  sh.querySelector('#s-vault-access').onchange = async e => {
+    const access = e.currentTarget.value, was = srv?.vaultAccess || 'once';
+    sh.querySelector('#s-vault-access-note').textContent = VAULT_ACCESS.find(([v]) => v === access)[2]; // not disabled while saving: that would drop keyboard focus
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ vaultAccess: access }), signal: AbortSignal.timeout(8000) });
+      vaultSetAccess(srv.vaultAccess || access); paintVaultSetting();
+      toast('Agent access: ' + VAULT_ACCESS.find(([v]) => v === (srv.vaultAccess || access))[1]);
+    } catch (err) { srv = { ...srv, vaultAccess: was }; paintVaultSetting(); if (err.message !== 'login') toast('Could not save: ' + (err.message || 'error')); }
   };
   sh.querySelector('#s-vault-rotate').onclick = () => rotateVaultKey();
   sh.querySelector('#s-vault-setpass').onclick = () => vaultPassphraseSheet(false);
