@@ -2768,7 +2768,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["The Vault: a fourth library for API keys, tokens and logins, encrypted on the server, that agents use by name in commands and never see. Off until Settings turns it on with POCKET_VAULT_KEY set."];
+const RELEASE_NOTES = ["Vault items can carry custom named fields beside their kind's fixed ones, and a Credentials kind holds any set of named fields, such as a client ID and secret."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

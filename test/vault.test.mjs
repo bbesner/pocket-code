@@ -42,6 +42,25 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   assert.throws(()=>s.act({action:'add',name:'empty',kind:'token',values:{value:'  '}}),/required/);
   assert.throws(()=>s.act({action:'add',name:'ph',kind:'token',values:{value:'{{vault:zoho-books}}'}}),/placeholder/);
   assert.throws(()=>s.act({action:'add',name:'k',kind:'card',values:{}}),/kind must be/);
+  // 1.39.1: custom fields on any kind, and a credentials kind with only custom fields.
+  const authnet=s.act({action:'add',name:'authorize-net',kind:'login',values:{username:'login-id-123',password:'txn-key-secret-9876',signature_key:'sig-key-secret-abcdef'}});
+  assert.deepEqual(authnet.fields,['username','password','signature_key']);assert.deepEqual(authnet.custom,['signature_key']);
+  const ups=s.act({action:'add',name:'ups-api',kind:'credentials',values:{client_id:'ups-client-id-1',client_secret:'ups-client-secret-2'}});
+  assert.deepEqual(ups.fields,['client_id','client_secret']);assert.deepEqual(ups.custom,['client_id','client_secret']);
+  assert.throws(()=>s.act({action:'add',name:'c0',kind:'credentials',values:{}}),/at least one field/);
+  assert.throws(()=>s.act({action:'add',name:'c1',kind:'credentials',values:{'Client ID':'x'}}),/not a field name/);
+  assert.throws(()=>s.act({action:'add',name:'c2',kind:'credentials',values:{client_id:'  '}}),/needs a value/);
+  assert.throws(()=>s.act({action:'add',name:'c3',kind:'credentials',values:Object.fromEntries(Array.from({length:21},(_,k)=>['f'+k,'v']))}),/up to 20 custom fields/);
+  // Edits: a blank new custom field is ignored, a typed one is added, removeFields drops one, fixed fields cannot be removed.
+  s.act({action:'update',item:ups.id,values:{client_id:'',account_number:'acct-777',extra:''}});
+  assert.deepEqual(s.view(s.get(ups.id)).fields,['client_id','client_secret','account_number']);assert.equal(s.get(ups.id).values.client_id,'ups-client-id-1');
+  s.act({action:'update',item:ups.id,removeFields:['account_number']});assert.deepEqual(s.get(ups.id).custom,['client_id','client_secret']);assert.equal('account_number' in s.get(ups.id).values,false);
+  assert.throws(()=>s.act({action:'update',item:authnet.id,removeFields:['password']}),/not a custom field/);
+  assert.throws(()=>s.act({action:'update',item:authnet.id,values:{'bad-name':'x'}}),/not a field name/);
+  assert.equal(s.field(authnet.id,'signature_key'),'sig-key-secret-abcdef');
+  assert.throws(()=>s.resolveBindings({U:'ups-api'}),/name one, for example ups-api\.client_id/);
+  assert.equal(s.resolveBindings({S:'authorize-net.signature_key'})[0].field,'signature_key');
+  assert.throws(()=>s.resolveBindings({S:'authorize-net.nope'}),/no field nope/);
   // Agents: create-only, nothing else.
   const fromAgent=s.act({action:'add',name:'twilio-auth',kind:'token',values:{value:'tw-secret-value-1234'},policy:'auto',notes:'ignored'},{actor:'agent',session:S1,sessionTitle:'Billing'});
   assert.equal(fromAgent.policy,'ask','an agent cannot pick a policy');assert.equal('notes' in fromAgent,false,'agents never see notes');
@@ -102,14 +121,15 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
     s.act({action:'remove',item:fromAgent.id});clock+=LIMITS.trashDays*86400_000+1;assert.deepEqual(s.purge(),['twilio-auth']);
     // Persistence, mode, and a reopened store under a rotated key.
     assert.equal((fs.statSync(file).mode&0o777),0o600);
-    const again=new VaultStore(file,{key,now:()=>clock});assert.equal(again.get(a.id).values.value,'sk-live-rotated-9876543210abcdef');assert.equal(again.items.length,2);
+    const again=new VaultStore(file,{key,now:()=>clock});assert.equal(again.get(a.id).values.value,'sk-live-rotated-9876543210abcdef');assert.equal(again.items.length,4);
+    assert.deepEqual(again.view(again.get(ups.id)).fields,['client_id','client_secret'],'custom fields persist');assert.equal(again.get(authnet.id).values.signature_key,'sig-key-secret-abcdef');
     const fresh=newKey();s.rotate(fresh);
     assert.throws(()=>new VaultStore(file,{key,now:()=>clock}),/cannot be opened/,'the old key alone no longer opens it');
-    assert.equal(new VaultStore(file,{key:parseKey(fresh),now:()=>clock}).items.length,2);
+    assert.equal(new VaultStore(file,{key:parseKey(fresh),now:()=>clock}).items.length,4);
     // The audit log never holds a value, and an agent sees only its own session's rows.
     const audit=fs.readFileSync(path.join(dir,'vault-audit.jsonl'),'utf8');
     assert.equal((fs.statSync(path.join(dir,'vault-audit.jsonl')).mode&0o777),0o600);
-    for(const v of [SECRET,'sk-live-rotated','P@ss word','tw-secret'])assert.equal(audit.includes(v),false,'no value in the audit: '+v);
+    for(const v of [SECRET,'sk-live-rotated','P@ss word','tw-secret','txn-key-secret','ups-client-secret','sig-key-secret'])assert.equal(audit.includes(v),false,'no value in the audit: '+v);
     const actions=audit.trim().split('\n').map(l=>JSON.parse(l).action);
     for(const x of ['put','update','request','request-answered','run','owner-view','remove','restore'])assert.ok(actions.includes(x),x+' is recorded');
     assert.ok(s.auditRows({owner:true}).length>8);assert.ok(s.auditRows({session:S1}).every(r=>r.session===S1));assert.equal(s.auditRows({session:'22222222-2222-4222-8222-222222222222'}).length,0);
@@ -259,6 +279,21 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   fs.writeFileSync(path.join(dir,'creds.json'),JSON.stringify({user:'u1',pass:'p1-secret-value'}));
   o=await cli(['put','portal2','--kind','login','--from-file',path.join(dir,'creds.json'),'--map','username=user,password=pass']);assert.equal(o.code,0,o.stderr);
   o=await cli(['put','nothing','--kind','token']);assert.equal(o.code,1);assert.match(o.stderr,/never on the command line/);
+  // 1.39.1: a credentials item from a JSON object, custom fields on a login, and a run binding a custom field.
+  o=await cli(['put','ups-api','--kind','credentials','--stdin'],{stdin:JSON.stringify({client_id:'ups-id-001',client_secret:'ups-secret-value-xyz'})});assert.equal(o.code,0,o.stderr);assert.equal(o.stdout,'ups-api\n');
+  o=await cli(['put','ups-bad','--kind','credentials','--stdin'],{stdin:'plain text'});assert.equal(o.code,1);assert.match(o.stderr,/JSON object naming each field/);
+  o=await cli(['put','authnet','--kind','login','--stdin'],{stdin:JSON.stringify({username:'login-id',password:'txn-key-secret-1',signature_key:'sig-secret-value-2'})});assert.equal(o.code,0,o.stderr);
+  o=await cli(['show','ups-api']);assert.match(o.stdout,/\(credentials: client_id, client_secret\)/);assert.match(o.stdout,/--env VAR=ups-api\.client_id/);
+  o=await cli(['list']);assert.doesNotMatch(o.stdout,/ups-secret-value|sig-secret-value|txn-key-secret/);
+  const ids=(await call('/vault')).body.items;const upsId=ids.find(i=>i.name==='ups-api').id,authnetId=ids.find(i=>i.name==='authnet').id;
+  assert.deepEqual(ids.find(i=>i.name==='authnet').fields,['username','password','signature_key']);
+  assert.equal((await call('/vault/act',{action:'update',item:authnetId,policy:'auto'})).status,200);
+  r=await streamCall('/vault/run',{argv:['sh','-c','echo "sig=$SIG id=$ID"'],cwd:dir,env:{SIG:'authnet.signature_key',ID:'authnet.username'}},agent);
+  assert.equal(r.events.filter(e=>e.t==='out').map(e=>e.s).join(''),'sig={{vault:authnet}} id={{vault:authnet}}\n');
+  assert.equal((await call('/vault/field',{item:upsId,field:'client_secret'})).body.value,'ups-secret-value-xyz');
+  assert.equal((await call('/vault/act',{action:'update',item:upsId,removeFields:['client_secret']})).status,200);
+  assert.deepEqual((await call('/vault')).body.items.find(i=>i.id===upsId).fields,['client_id']);
+  assert.equal((await call('/vault/act',{action:'update',item:upsId,values:{'Bad Name':'x'}})).status,400);
   // github-pat has the default ask policy: the CLI waits while the owner is asked, then runs once allowed.
   const running=cli(['run','--env','GH=github-pat','--','sh','-c','echo "gh=$GH"; printf %s "$GH" | base64; exit 7']);
   let req2=[];for(let i=0;i<100&&!req2.length;i++){await sleep(50);req2=(await call('/vault')).body.requests;}

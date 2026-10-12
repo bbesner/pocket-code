@@ -3,6 +3,10 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.39.1] — 2026-10-12 · build 87
+
+- **Custom fields in the Vault.** Any item can carry named fields beside its kind's fixed ones: **Add field** in the editor takes a name (lowercase letters, digits and underscores, up to 32 characters) and a value, encrypted like the rest, shown masked with Show and Copy on the item sheet, and bound by agents as `name.field`. A new **Credentials** kind has no fixed fields at all, for things like a client ID and a client secret named the way the service names them. `pocket-vault put` takes several fields at once from a JSON object on standard input or in a file; `show` lists every field. Up to 20 custom fields per item; removing one is an edit, fixed fields stay. Requested by Brad, for UPS and Authorize.net.
+
 ## [1.39.0] — 2026-10-12 · build 86
 
 - **The Vault.** A fourth library beside Projects, Files and Tasks, for API keys, tokens, logins and secure notes that agents need to do real work. It is off until **Settings → Projects, files, tasks & vault → Vault** turns it on for the whole install, which needs `POCKET_VAULT_KEY` in `.env` (32 random bytes in base64: `openssl rand -base64 32`). The Settings category was *Projects, files & tasks*. Requested by Brad.

@@ -8,7 +8,7 @@ phone, and keep what comes out of them (projects, files and to-dos) beside the
 conversations. The server runs every turn, so closing the browser or locking the screen
 never stops the work.
 
-This checkout documents **1.39.0 / build 86**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.39.1 / build 87**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
