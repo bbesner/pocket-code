@@ -13,8 +13,9 @@ export const SKILLS = [
   { name: 'pocket-projects', feature: 'projects', cli: 'board' },
   { name: 'pocket-files', feature: 'documents', cli: 'docs' },
   { name: 'pocket-tasks', feature: 'tasks', cli: 'tasks' }, // 1.36
+  { name: 'pocket-vault', feature: 'vault', cli: 'vault' }, // 1.39
 ];
-const BIN = { board: 'pocket-board', docs: 'pocket-docs', tasks: 'pocket-tasks' };
+const BIN = { board: 'pocket-board', docs: 'pocket-docs', tasks: 'pocket-tasks', vault: 'pocket-vault' };
 const SRC = path.join(import.meta.dirname, 'skills');
 
 // Claude Code's user skills folder always; Codex's only where Codex is installed for this user.

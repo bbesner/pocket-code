@@ -3,6 +3,7 @@
 // install that never speaks pays nothing and an idle one gives its ~1 GB back. Nothing leaves the machine.
 // Install with scripts/voice-setup.sh; POCKET_VOICE=off disables it even when installed.
 import { spawn } from 'node:child_process';
+import { agentEnv } from './environment.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -43,7 +44,7 @@ export class VoiceService {
     this.starting = new Promise((resolve, reject) => {
       const [bin, ...args] = this.command;
       const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, VOICE_MODELS_DIR: path.join(this.home, 'models'), VOICE_PORT: '0', PYTHONUNBUFFERED: '1' } });
+        env: { ...agentEnv(process.env), VOICE_MODELS_DIR: path.join(this.home, 'models'), VOICE_PORT: '0', PYTHONUNBUFFERED: '1' } });
       let stderr = '';
       const fail = message => { clearTimeout(timer); this.lastError = message; this.starting = null; try { proc.kill(); } catch { } reject(Object.assign(new Error(message), { status: 503, code: 'voice_start_failed' })); };
       const timer = setTimeout(() => fail('The voice engine did not start in time.'), this.startTimeoutMs);

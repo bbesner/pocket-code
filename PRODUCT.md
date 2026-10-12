@@ -19,7 +19,7 @@ surface can write to it.
 4. Work across desktop conversations and inspect Results, Queue and Git without losing context.
 
 Three optional libraries add jobs beside those. They are off until the owner switches them on
-in Settings → Projects, files & tasks, and a session works the same without them:
+in Settings → Projects, files, tasks & vault, and a session works the same without them:
 
 5. Projects: keep where a piece of work stands, its next step, a checklist, reminders and the
    sessions that worked on it, so it can be picked up later.

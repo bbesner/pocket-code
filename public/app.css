@@ -1342,6 +1342,90 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .task-form .task-writing[hidden] { display: none; }
 .conversation-task[hidden] { display: none; }
 
+/* ---------- 1.39: vault ----------
+   The Tasks library's rows and sheet, with the kind drawn where a task has its check. Names and commands are
+   identifiers an agent types, so they are set in monospace; a request reads like an action approval. Tokens only. */
+.vault-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.vault-name, .vault-cmd, .vault-key, .vault-value.shown { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+.vault-item { align-items: stretch; }
+.vault-item .vault-kind { flex: none; width: 44px; min-height: 44px; display: grid; place-items: center; align-self: flex-start; margin-top: 4px; color: var(--dim); }
+.vault-item .vault-kind .i { width: 18px; height: 18px; }
+.vault-item .row { display: block; min-width: 0; flex: 1; padding: 12px 8px 14px 4px; text-align: left; font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.vault-item .row .title.vault-name { font-size: 15px; font-weight: 500; white-space: normal; overflow-wrap: anywhere; }
+.vault-item.finished .row { cursor: default; }
+.vault-item.finished .row .title { color: var(--faint); }
+.vault-item .vault-restore { flex: none; align-self: center; margin-right: 12px; }
+.rail .vault-item .row { padding-left: 2px; }
+.vault-requests-help { margin: 0 18px 8px; font-size: 13.5px; max-width: 70ch; }
+.vault-requests h2[tabindex="-1"]:focus { outline: none; } /* focused only to bring a push's reader to the requests */
+.vault-history-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.vault-request { padding: 12px 18px 14px; border-bottom: 1px solid var(--line); }
+.vault-request h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 8px; font-size: 15px; font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+.vault-request-when { font-family: inherit; font-size: 13px; font-weight: 400; color: var(--dim); }
+.vault-cmd { display: block; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.vault-request .vault-cmd { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } /* a long command stays two lines; its title carries the rest */
+.vault-request .vault-cmd:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.vault-request-where { display: flex; flex-wrap: wrap; gap: 4px 7px; margin: 8px 0 0; font-size: 13px; color: var(--dim); overflow-wrap: anywhere; }
+.vault-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.vault-request-actions { margin-top: 10px; }
+.vault-request-actions .chip { min-height: 44px; padding-inline: 16px; font-size: 14px; color: var(--text); }
+@media (max-width: 600px) { .vault-request-actions .chip { flex: 1 1 auto; justify-content: center; } } /* three answers share the row, then wrap */
+.rail .vault-request { padding-inline: 14px; }
+.rail .vault-request-actions .chip { flex: 1 1 auto; justify-content: center; padding-inline: 10px; }
+.vault-sheet .vault-name { overflow-wrap: anywhere; }
+.vault-sheet .task-facts a { color: var(--clay); text-decoration-thickness: 1px; }
+.vault-section { margin: 0 14px 14px; }
+.vault-section h3, .vault-sheet .task-summary h3 { display: flex; gap: 8px; margin: 0 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--dim); }
+.vault-section h3 span { color: var(--faint); font-weight: 400; }
+.vault-sheet .task-summary { margin-inline: 14px; }
+.vault-field { display: grid; grid-template-columns: minmax(5.5em, auto) 1fr auto; align-items: center; gap: 4px 12px; min-height: 52px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.vault-field:last-child { border-bottom: 0; }
+.vault-field-label { font-size: 14px; color: var(--dim); }
+.vault-value { min-width: 0; color: var(--faint); letter-spacing: .12em; overflow-wrap: anywhere; }
+.vault-value.shown { color: var(--text); letter-spacing: 0; user-select: all; }
+.vault-field-actions { display: flex; gap: 6px; }
+.vault-field-actions .chip[hidden] { display: none; }
+@media (max-width: 460px) { .vault-field { grid-template-columns: 1fr auto; } .vault-field .vault-value { grid-column: 1 / -1; grid-row: 2; padding-bottom: 6px; } } /* a long value gets the full width under its label */
+.vault-policy { margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--dim); }
+.vault-policy strong { color: var(--text); font-weight: 600; }
+.vault-recipes, .vault-history-list { list-style: none; margin: 0; padding: 0; }
+.vault-recipes li { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+.vault-recipe-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.vault-recipe-remove { flex: none; width: 44px; height: 44px; display: grid; place-items: center; color: var(--dim); border-radius: 10px; }
+.vault-recipe-remove:hover { color: var(--text); background: var(--raised); }
+.vault-history-list li { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.vault-history-list li:last-child { border-bottom: 0; }
+.vault-history-what { font-size: 13.5px; color: var(--dim); line-height: 1.45; overflow-wrap: anywhere; }
+.vault-history .vault-cmd { padding: 4px 8px; font-size: 12.5px; }
+.vault-history .project-empty, .vault-section .project-empty { margin: 0; }
+.vault-editor-help { margin: 0 14px 12px; }
+.vault-form .vault-hint { margin: -6px 0 0; font-size: 13px; line-height: 1.45; color: var(--dim); }
+.vault-form .vault-hint:empty { display: none; }
+.vault-form .vault-name-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.vault-form .vault-name-input[aria-invalid="true"] { border-color: var(--err); }
+.vault-form .vault-secrets { display: flex; flex-direction: column; gap: 12px; }
+.vault-form .vault-secret { display: flex; flex-direction: column; gap: 4px; }
+.vault-form .vault-secret-input { display: flex; gap: 8px; align-items: flex-start; }
+.vault-form .vault-secret-input input, .vault-form .vault-secret-input textarea { flex: 1; min-width: 0; min-height: 44px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.vault-form .vault-secret-input input:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.vault-form .vault-secret-input .chip { flex: none; }
+.vault-form .vault-masked { -webkit-text-security: disc; }
+.vault-form select:disabled { color: var(--dim); }
+.vault-reveal[aria-pressed="true"] { color: var(--clay); border-color: var(--clay-deep); }
+.vault-form .task-due-row { display: flex; gap: 8px; align-items: flex-end; }
+.vault-form .task-due-row label { flex: 1; min-width: 0; }
+.vault-form .task-due-row .chip { flex: none; }
+.vault-form-error { margin: 0; color: var(--err); font-size: 14px; }
+.vault-form-error:empty { display: none; }
+.vault-key-sheet .vault-key { display: block; margin: 0 14px 10px; padding: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; line-height: 1.5; word-break: break-all; user-select: all; }
+.vault-key-sheet .vault-key:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.vault-key-sheet .vault-hint { margin: 0 14px 14px; font-size: 13.5px; color: var(--warn); font-weight: 600; }
+.vault-key-actions { display: flex; gap: 10px; align-items: center; padding: 0 14px; }
+.vault-key-actions .primary { flex: 1; padding: 12px; font-size: 16px; }
+.title-settings[hidden] { display: none; }
+.vault-settings .chip { align-self: flex-start; }
+.vault-settings .vault-warning { color: var(--warn); }
+
 /* Accent previews show the palette belonging to the current colour mode. */
 button[data-accent="clay"] .accent-dot { background: var(--accent-orange); }
 button[data-accent="blue"] .accent-dot { background: var(--accent-blue); }

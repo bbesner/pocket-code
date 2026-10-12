@@ -1,7 +1,7 @@
 {
-  "version": "1.38.1",
-  "assetV": 85,
+  "version": "1.39.0",
+  "assetV": 86,
   "notes": [
-    "An open file in Files, in a tab or a split pane, no longer reloads and jumps back to the top every 30 seconds while you read it."
+    "The Vault: a fourth library for API keys, tokens and logins, encrypted on the server, that agents use by name in commands and never see. Off until Settings turns it on with POCKET_VAULT_KEY set."
   ]
 }

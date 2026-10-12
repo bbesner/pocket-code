@@ -86,5 +86,5 @@ pocket-docs restore <id>
 ## If Files is off
 
 `pocket-docs` exits with code 3 and says so. Tell the user that Files is turned off and can
-be turned on in Pocket Code under **Settings → Projects, files & tasks → Files**. Until then, leave
+be turned on in Pocket Code under **Settings → Projects, files, tasks & vault → Files**. Until then, leave
 the file where you wrote it and give its path.

@@ -106,5 +106,5 @@ Name a project with `-p <id>` (from `status --all`) when you are not in its dire
 ## If Projects is off
 
 `pocket-board` exits with code 3 and says so. Tell the user that Projects is turned off and
-can be turned on in Pocket Code under **Settings → Projects, files & tasks → Projects**. Do not
+can be turned on in Pocket Code under **Settings → Projects, files, tasks & vault → Projects**. Do not
 keep a project anywhere else instead.

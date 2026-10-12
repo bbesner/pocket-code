@@ -85,5 +85,5 @@ When that work is finished, mark the task done.
 ## If Tasks is off
 
 `pocket-tasks` exits with code 3 and says so. Tell the user that Tasks is turned off and can
-be turned on in Pocket Code under **Settings → Projects, files & tasks → Tasks**. Do not keep a
+be turned on in Pocket Code under **Settings → Projects, files, tasks & vault → Tasks**. Do not keep a
 to-do list anywhere else instead.

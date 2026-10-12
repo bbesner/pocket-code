@@ -83,15 +83,18 @@ Claude transcript storage only, while `CODEX_HOME` selects Codex's native store.
 
 Starting the daemon also has three side effects beyond its own state. It writes a fresh
 loopback CLI token to `cli-token` in the data directory (mode `0600`), overwriting the
-previous one. While Projects, Files or Tasks is on, it installs agent skills into the
+previous one. While Projects, Files, Tasks or the Vault is on, it installs agent skills into the
 Claude Code and Codex skill folders. If `POCKET_REMINDER_HOOK` is set, it runs that
-command when a reminder comes due. See [Optional libraries](#optional-libraries-projects-files-and-tasks).
+command when a reminder comes due. If `POCKET_VAULT_KEY` is set, it reads the key and removes
+it from its own environment, so no process it starts inherits it. See
+[Optional libraries](#optional-libraries-projects-files-tasks-and-the-vault).
 
 Back up these locations privately, preserving ownership and permissions:
 
 | Location | Contents |
 |---|---|
 | `.env` or the configured environment file | Password, cookie secret, push keys and instance configuration |
+| `POCKET_VAULT_KEY` (in `.env`) | The Vault's key. Keep a copy somewhere other than the data backups, such as a password manager, and keep each retired key with the backups it opens |
 | `~/.claude/projects/` or `POCKET_SESSION_ROOT` | Claude transcripts |
 | `~/.codex/` or `CODEX_HOME` | Native Codex thread store and configuration |
 | `~/pocket-uploads/` | Uploaded files |
@@ -108,6 +111,9 @@ Pocket-owned persistent state includes:
   `.retry.json` markers (a rate-limited turn waiting to resume automatically);
 - `projects.json`, `documents.json` and `tasks.json`, the records behind Projects, Files
   and Tasks. Back up each one you use, including a library you have since switched off;
+- `vault.enc`, the Vault's encrypted store (items and their approved commands), and
+  `vault-audit.jsonl` (mode `0600`), its append-only record of use. Back up both together;
+  neither holds a readable value, and `vault.enc` is useless without its key;
 - the documents folder (`POCKET_DOCUMENTS_DIR`, default `documents/`), holding the stored
   files, a `.trash/` folder of removed files, and a `.thumbs/` cache of preview pictures;
 - `cli-token`, the loopback CLI token. It is regenerated at every start, so do not back it
@@ -179,15 +185,17 @@ an entry until saved or canceled; revisions reject stale concurrent edits. Keep 
 file across upgrades. After a restart, an unowned queue waits for a new turn or Run
 next instruction. Review and remove an uncertain entry before later entries can run.
 
-## Optional libraries: Projects, Files and Tasks
+## Optional libraries: Projects, Files, Tasks and the Vault
 
-Projects (1.29), Files (1.30; called Documents before 1.34) and Tasks (1.36) are off by
-default. **Settings → Projects, files & tasks** switches each one for the whole instance.
-The choices are stored as the `projects`, `documents` and `tasks` booleans in
-`pocket-settings.json`. While one is off, its API answers 404, and for Files that includes
-the public and link addresses. Switching off does not delete the records or files.
+Projects (1.29), Files (1.30; called Documents before 1.34), Tasks (1.36) and the Vault
+(1.39) are off by default. **Settings → Projects, files, tasks & vault** switches each one for
+the whole instance. The choices are stored as the `projects`, `documents`, `tasks` and `vault`
+booleans in `pocket-settings.json`. While one is off, its API answers 404, and for Files that
+includes the public and link addresses. Switching off does not delete the records or files.
+The Vault can only be switched on while `POCKET_VAULT_KEY` is set; see [The Vault](#the-vault).
 
-Their data is in `projects.json`, `documents.json`, `tasks.json` and the documents folder
+Their data is in `projects.json`, `documents.json`, `tasks.json`, `vault.enc` with
+`vault-audit.jsonl`, and the documents folder
 (`POCKET_DOCUMENTS_DIR`, default `<data dir>/documents`); see
 [State and backups](#state-and-backups). Back these up with the rest of the data
 directory, and keep them across upgrades.
@@ -218,7 +226,7 @@ purges files trashed more than 30 days ago, checking every six hours. Restore a 
 before then from the Files library.
 
 **Agent skills.** While a library is on, Pocket installs its matching skill
-(`pocket-projects`, `pocket-files`, `pocket-tasks`) into `~/.claude/skills`, or
+(`pocket-projects`, `pocket-files`, `pocket-tasks`, `pocket-vault`) into `~/.claude/skills`, or
 `$CLAUDE_CONFIG_DIR/skills` if that is set, and into `$CODEX_HOME/skills` when the Codex
 home exists. Terminal and code-server agents on the host see them too. Pocket rewrites
 these skills at start and removes them when the library is switched off. It only touches
@@ -226,13 +234,72 @@ a folder that carries its `.pocket-managed` marker; a skill of the same name tha
 wrote is left alone and the daemon logs that. `POCKET_SKILLS=0` turns installation off.
 Set it for any test or second daemon so it does not write into the real skill folders.
 
-**CLI token.** `pocket-board`, `pocket-docs` and `pocket-tasks` read `cli-token` from the
-data directory and send it as a bearer token. The daemon accepts it only on the Projects,
-Files and Tasks routes, and only on a direct loopback connection with no
-`cf-connecting-ip` or `x-forwarded-for` header; a request that came through the tunnel or
-a proxy is refused. A new token is generated at every start, so the CLIs must run on the
+**CLI token.** `pocket-board`, `pocket-docs`, `pocket-tasks` and `pocket-vault` read
+`cli-token` from the data directory and send it as a bearer token. The daemon accepts it
+only on the Projects, Files, Tasks and Vault routes, and only on a direct loopback
+connection with no `cf-connecting-ip` or `x-forwarded-for` header; a request that came
+through the tunnel or a proxy is refused. On the Vault routes it allows only what agents
+may do: list, show, run, create an item and read the calling session's history; it never
+returns a value. A new token is generated at every start, so the CLIs must run on the
 same host as the daemon and read the data directory of the daemon that is running. Two
 daemons sharing one data directory overwrite each other's token.
+
+Each agent process Pocket starts also gets `POCKET_SESSION_ID` and a runner token of its own
+in its environment. `pocket-vault` sends them, and the daemon uses the runner token, not the
+session id, to record which session and turn used the Vault. A call without one, from a
+terminal or code-server session on the host, is recorded as `terminal` and is allowed under
+the same policy.
+
+### The Vault
+
+The Vault keeps credentials in one file, `<data dir>/vault.enc`, encrypted with AES-256-GCM
+as a single blob: items and their approved commands, with no plain-text
+names or other metadata on disk. A file that fails its integrity check or does not open with
+the key is not served; the Vault reports that it cannot be opened.
+
+**The key.** Set `POCKET_VAULT_KEY` in `.env` to 32 random bytes in base64, then restart:
+
+```bash
+openssl rand -base64 32
+```
+
+The daemon reads the key at start and deletes it from its own environment, so agent turns,
+helper models, the reminder hook and every other process it starts never see it. Settings →
+Vault says when the key is missing. Without the key the Vault cannot be switched on, and an
+existing store cannot be opened.
+
+**Rotation.** Settings → Vault → **Rotate key** re-encrypts the store under a new key and
+shows the new key once, in the browser. Put it in `.env` as `POCKET_VAULT_KEY` and restart;
+until then the old key keeps working. Backups taken before the rotation still need the old
+key, so keep it with them.
+
+**Runs.** `pocket-vault run` asks the daemon to start the command. The daemon starts it with
+the filtered agent environment plus the bound values, no terminal, output piped back through
+a filter that replaces each value (and its base64 and URL-encoded forms) with
+`{{vault:name}}`. Output is capped at 1 MB and a run is stopped after 10 minutes by default.
+The command runs with the daemon's permissions, outside any sandbox the agent's CLI applies.
+Under Codex's Review mode the read-only sandbox cannot reach the daemon, so `pocket-vault
+run` works only under Full access there.
+
+**Requests.** A command that needs the owner's approval is pushed to the owner's devices as a
+"Vault request" (with web push configured) and waits in the Vault view. A request is answered
+once and expires after 15 minutes. A pending request lives in the daemon's memory only (a restart drops it; the agent is told the request no longer exists); the recipes an answer of *Always allow* saves are kept inside `vault.enc`.
+
+**Audit.** `<data dir>/vault-audit.jsonl` (mode `0600`) gets one line for every run, request,
+answer, owner view of a value, addition, change, removal, restore and rotation: the time, the
+item, the action, the session (or `terminal`), and the command and folder for a run.
+It never holds a value. If the line cannot be written, the action fails. The Vault view shows
+it per item.
+
+**Backups.** Back up `vault.enc` and `vault-audit.jsonl` with the rest of the data
+directory, and keep `POCKET_VAULT_KEY` somewhere else. A backup restored without its key
+yields nothing, which is the point. A backup script that copies an allowlist of files must
+add both. Removed items wait in the store's trash for 30 days, then are purged.
+
+**Switching it on** restarts idle agent processes so the Vault's per-turn instruction and
+skill reach them; running sessions get the instruction from their next turn. When Codex's
+`config.toml` sets `developer_instructions`, Pocket's per-turn line is not delivered to Codex
+sessions, and Settings shows a warning.
 
 ## Move data, downgrade, or uninstall
 

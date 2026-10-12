@@ -12,7 +12,7 @@ import {documentInstructions} from '../documents.mjs';
 
 const repo=path.resolve(import.meta.dirname,'..');
 const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-skills-'));
-const commands={board:'/srv/pocket/scripts/pocket-board.mjs',docs:'/srv/pocket/scripts/pocket-docs.mjs',tasks:'/srv/pocket/scripts/pocket-tasks.mjs'};
+const commands={board:'/srv/pocket/scripts/pocket-board.mjs',docs:'/srv/pocket/scripts/pocket-docs.mjs',tasks:'/srv/pocket/scripts/pocket-tasks.mjs',vault:'/srv/pocket/scripts/pocket-vault.mjs'};
 
 test('skills: installed while the feature is on, rewritten with this server\'s command, removed when off, never over a user\'s own skill',t=>{
   const dir=tmp();t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
@@ -35,6 +35,11 @@ test('skills: installed while the feature is on, rewritten with this server\'s c
   assert.deepEqual(r.installed.sort(),[path.join(claude,'pocket-tasks'),path.join(codex,'pocket-tasks')].sort());
   assert.match(fs.readFileSync(path.join(claude,'pocket-tasks','SKILL.md'),'utf8'),/run `pocket-tasks` as `node \/srv\/pocket\/scripts\/pocket-tasks\.mjs`/);
   syncSkills({settings:{projects:true,documents:true,tasks:false},commands,env,roots});assert.equal(fs.existsSync(path.join(claude,'pocket-tasks')),false);
+  // 1.39: the Vault brings pocket-vault.
+  r=syncSkills({settings:{projects:true,documents:true,vault:true},commands,env,roots});
+  assert.deepEqual(r.installed.sort(),[path.join(claude,'pocket-vault'),path.join(codex,'pocket-vault')].sort());
+  assert.match(fs.readFileSync(path.join(claude,'pocket-vault','SKILL.md'),'utf8'),/run `pocket-vault` as `node \/srv\/pocket\/scripts\/pocket-vault\.mjs`/);
+  syncSkills({settings:{projects:true,documents:true,vault:false},commands,env,roots});assert.equal(fs.existsSync(path.join(claude,'pocket-vault')),false);
   // A user's own skill with the same name is left alone, both ways.
   fs.rmSync(path.join(codex,'pocket-files'),{recursive:true});fs.mkdirSync(path.join(codex,'pocket-files'));fs.writeFileSync(path.join(codex,'pocket-files','SKILL.md'),'mine');
   r=syncSkills({settings:{projects:true,documents:true},commands,env,roots});
@@ -60,9 +65,9 @@ test('skills: roots follow HOME, CLAUDE_CONFIG_DIR and CODEX_HOME; Codex only wh
 
 test('skills and agent lines: every name for the library maps to Files; projects ask little and remind only on request',()=>{
   const files=fs.readFileSync(path.join(repo,'skills','pocket-files','SKILL.md'),'utf8'),projects=fs.readFileSync(path.join(repo,'skills','pocket-projects','SKILL.md'),'utf8'),tasks=fs.readFileSync(path.join(repo,'skills','pocket-tasks','SKILL.md'),'utf8');
-  assert.match(tasks,/only when the user asks/);assert.match(tasks,/## Offering one/);assert.match(tasks,/offer \*\*once\*\*/);assert.match(tasks,/for every accepted offer/);assert.match(tasks,/Never add the task before the user says yes/);assert.match(tasks,/Never invent a time/);assert.match(tasks,/--summary/);assert.match(tasks,/Settings → Projects, files & tasks → Tasks/);
+  assert.match(tasks,/only when the user asks/);assert.match(tasks,/## Offering one/);assert.match(tasks,/offer \*\*once\*\*/);assert.match(tasks,/for every accepted offer/);assert.match(tasks,/Never add the task before the user says yes/);assert.match(tasks,/Never invent a time/);assert.match(tasks,/--summary/);assert.match(tasks,/Settings → Projects, files, tasks & vault → Tasks/);
   for(const phrase of ['files','my files','documents','my documents','docs'])assert.ok(files.toLowerCase().includes(phrase),phrase);
-  assert.match(files,/Settings → Projects, files & tasks → Files/);
+  assert.match(files,/Settings → Projects, files, tasks & vault → Files/);
   assert.match(projects,/at most one short question/);assert.match(projects,/Never add a reminder by default/);assert.match(projects,/--requested/);
   assert.match(renderSkill('a\n<!-- pocket:commands -->\nold\n<!-- /pocket:commands -->\nb','/x/c.mjs','pocket-docs'),/^a\n<!-- pocket:commands -->\nOn this server, run `pocket-docs` as `node \/x\/c\.mjs`\..*\n<!-- \/pocket:commands -->\nb$/s);
   const d=documentInstructions('/x/pocket-docs.mjs','s1');
