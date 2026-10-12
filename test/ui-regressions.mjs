@@ -25,6 +25,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
  const scan=async name=>{
   // Measure final colors, not the translucent opening frame of a sheet animation.
   await page.evaluate(()=>Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))));
+  // A toast from the previous step is transient feedback, not part of the view: dismiss it (as its own 3.2 s timer would)
+  // before measuring, so a scan does not race its fade on a slow runner. Only the toast is touched; nothing else moves.
+  const lingering=await page.evaluate(()=>{const t=document.getElementById('toast');if(!t||!t.classList.contains('show'))return '';t.classList.remove('show');return t.textContent;});
+  if(lingering){console.log(`scan ${name}: dismissed the toast "${lingering}"`);await new Promise(r=>setTimeout(r,250));
+   // The pause lets a hover tooltip (tips.js, 350 ms after pointerover) catch up with a pointer left on a control; leave the control as a pointer would.
+   await page.evaluate(()=>{for(const el of document.querySelectorAll(':hover'))el.dispatchEvent(new PointerEvent('pointerout',{bubbles:true,relatedTarget:null}));const t=document.getElementById('tip');if(t)t.hidden=true;});}
   const axeScript=await page.addScriptTag({path:axePath});await axeScript.evaluate(el=>el.remove());
   const result=await page.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','best-practice']}}));
   const record={name,violations:result.violations};
