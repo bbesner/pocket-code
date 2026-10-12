@@ -85,7 +85,12 @@ function paintDocumentsView(){
  const typing=main.contains(document.activeElement)&&document.activeElement.matches('input')?document.activeElement:null;
  if(typing&&typing.id==='doc-query')return;
  if(main.dataset.kind==='list'){main.innerHTML=libraryHTML();bindLibrary(main);}
- else{const d=docById(docView.slice(10));if(!d)return;main.innerHTML=documentHTML(d);bindDocument(main,d);const t=$('#dtitle');if(t)t.textContent=d.title;const g=$('#dtag');if(g)g.textContent=[KIND_WORD[d.kind],fmtSize(d.size),visWord[d.visibility],docProjectName(d)].filter(Boolean).join(' · ');}
+ else{const d=docById(docView.slice(10));if(!d)return;
+  // The 30 s poll repaints an open file too. Rebuilding its iframe reloads the page and scrolls the reader back to
+  // the top, so only the toolbar is redrawn unless what the body shows (file, size, kind) actually changed.
+  const key=[d.id,d.file,d.kind,d.size,d.inline,d.missing].join('|'),tools=main.querySelector('.doc-tools');
+  if(tools&&main.dataset.body===key){tools.outerHTML=docToolsHTML(d);bindDocTools(main,d);}
+  else{main.innerHTML=documentHTML(d);main.dataset.body=key;bindDocument(main,d);}const t=$('#dtitle');if(t)t.textContent=d.title;const g=$('#dtag');if(g)g.textContent=[KIND_WORD[d.kind],fmtSize(d.size),visWord[d.visibility],docProjectName(d)].filter(Boolean).join(' · ');}
  if(typeof paintOpenSessions==='function')paintOpenSessions();
 }
 function docRowHTML(d){
@@ -151,9 +156,12 @@ async function uploadDocuments(files){
  }
  if(added){toast(added===1?'File added':added+' files added');paintDocumentsView();}
 }
-function documentHTML(d){
+function docToolsHTML(d){
  const raw=docRawUrl(d),dl=docRawUrl(d,true),url=docShareUrl(d);
- const tools=`<div class="doc-tools"><a class="chip" href="${esc(raw)}" target="_blank" rel="noopener noreferrer">${IC.globe}Open in your viewer</a><a class="chip" href="${esc(dl)}" download="${esc(d.file)}">${IC.down}Download</a><button class="chip ${d.visibility!=='private'?'set':''}" data-share>${IC.share}${d.visibility==='private'?'Share':visWord[d.visibility]+' · Share'}</button>${url?`<button class="chip" data-copy-link="${esc(d.id)}">${IC.link}Copy link</button>`:''}${typeof projectsOn==='function'&&projectsOn()?`<button class="chip" data-project>${IC.folder}${d.project?esc(docProjectName(d)):'Project'}</button>`:''}${d.session?`<a class="chip" href="#/chat/${esc(d.session)}">${IC.term}Session</a>`:''}</div>`;
+ return `<div class="doc-tools"><a class="chip" href="${esc(raw)}" target="_blank" rel="noopener noreferrer">${IC.globe}Open in your viewer</a><a class="chip" href="${esc(dl)}" download="${esc(d.file)}">${IC.down}Download</a><button class="chip ${d.visibility!=='private'?'set':''}" data-share>${IC.share}${d.visibility==='private'?'Share':visWord[d.visibility]+' · Share'}</button>${url?`<button class="chip" data-copy-link="${esc(d.id)}">${IC.link}Copy link</button>`:''}${typeof projectsOn==='function'&&projectsOn()?`<button class="chip" data-project>${IC.folder}${d.project?esc(docProjectName(d)):'Project'}</button>`:''}${d.session?`<a class="chip" href="#/chat/${esc(d.session)}">${IC.term}Session</a>`:''}</div>`;
+}
+function documentHTML(d){
+ const raw=docRawUrl(d);
  let body;
  if(d.missing)body='<p class="sheet-help">This file is missing from the library\'s folder on the server.</p>';
  else if(!d.inline)body=`<p class="sheet-help doc-note">${d.kind==='office'?'Office files open in your own viewer.':d.kind==='video'?'Video opens in your own viewer.':'This file is too large to show here.'} Use Open in your viewer or Download.</p>${d.kind==='video'?`<video class="doc-media" controls preload="none" src="${esc(raw)}"></video>`:''}`;
@@ -161,12 +169,15 @@ function documentHTML(d){
  else if(d.kind==='pdf')body=`<iframe class="doc-frame" src="${esc(raw)}" title="${esc(d.title)}" referrerpolicy="no-referrer"></iframe>`;
  else if(d.kind==='image')body=`<div class="doc-media-wrap"><img class="doc-media" src="${esc(raw)}" alt="${esc(d.title)}"></div>`;
  else body=`<div class="doc-text" data-doc-text="${esc(d.kind)}"><p class="sheet-help">Loading…</p></div>`;
- return tools+body;
+ return docToolsHTML(d)+body;
 }
-function bindDocument(main,d){
+function bindDocTools(main,d){
  main.querySelector('[data-share]').onclick=()=>shareSheet(d.id);
  main.querySelector('[data-copy-link]')?.addEventListener('click',e=>copyLink(docShareUrl(d),e.currentTarget));
  main.querySelector('[data-project]')?.addEventListener('click',()=>docProjectSheet(d.id));
+}
+function bindDocument(main,d){
+ bindDocTools(main,d);
  const text=main.querySelector('[data-doc-text]');
  if(text)fetch(docRawUrl(d),{credentials:'same-origin'}).then(r=>r.ok?r.text():Promise.reject(new Error(r.statusText))).then(src=>{if(!text.isConnected)return;
   if(d.kind==='md')text.innerHTML=`<div class="m-asst doc-md">${md(src)}</div>`;

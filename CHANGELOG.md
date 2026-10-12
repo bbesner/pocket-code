@@ -3,6 +3,10 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.38.1] — 2026-10-12 · build 85
+
+- **An open file stays put while you read it.** Files re-checks the library every 30 seconds so new files, shares and project changes show up without a reload. With a file open, that check rebuilt the whole viewer, including the frame that shows an HTML report or PDF, so the document reloaded and jumped back to the top, most noticeable when a long report sat in a split pane. The check now redraws only the toolbar and the title line; the document is reloaded only if the file itself changed. A browser test checks that a repaint keeps the same frame. Reported by Brad.
+
 ## [1.38.0] — 2026-10-11 · build 84
 
 - **Light, Dark and System.** Settings → Appearance adds a per-browser colour mode. System follows the device's preference and updates while Pocket is open. Existing browsers with Pocket preferences keep dark mode; new browsers start with System. Explicit choices survive reloads, and windows and split panes update without rebuilding a conversation or losing its draft.
