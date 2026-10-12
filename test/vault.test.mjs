@@ -347,7 +347,10 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   // The CLI, as an agent inside the session.
   const cliEnv={...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),POCKET_RUNNER_TOKEN:runnerToken};
   const cli=(args,extra={})=>new Promise(res=>{const p=execFile(process.execPath,[path.join(repo,'scripts/pocket-vault.mjs'),...args],{cwd:dir,env:{...cliEnv,...extra.env}},(e,stdout,stderr)=>res({code:e?e.code:0,stdout,stderr}));if(extra.stdin!=null){p.stdin.end(extra.stdin);}});
-  let o=await cli(['list']);assert.equal(o.code,0,o.stderr);assert.match(o.stdout,/^bank  \(note\)  Only you/m);assert.match(o.stdout,/zoho-books  \(api_key\)  Asks once per command  https:\/\/books\.zoho\.com  #zoho/);assert.doesNotMatch(o.stdout,/hunter2|P@ss/);
+  // 1.43.1: the CLIs find the daemon through <data dir>/cli-url, so a PORT exported by some other app never redirects them (or the token).
+  assert.equal(fs.readFileSync(path.join(dir,'data','cli-url'),'utf8').trim(),`http://127.0.0.1:${port}`);assert.equal(fs.statSync(path.join(dir,'data','cli-url')).mode&0o777,0o600);
+  let o=await cli(['list'],{env:{PORT:'9'}});assert.equal(o.code,0,'an inherited PORT is ignored: '+o.stderr);
+  o=await cli(['list']);assert.equal(o.code,0,o.stderr);assert.match(o.stdout,/^bank  \(note\)  Only you/m);assert.match(o.stdout,/zoho-books  \(api_key\)  Asks once per command  https:\/\/books\.zoho\.com  #zoho/);assert.doesNotMatch(o.stdout,/hunter2|P@ss/);
   o=await cli(['show','vendor-portal']);assert.match(o.stdout,/fields: username, password/);assert.match(o.stdout,/--env VAR=vendor-portal\.username/);
   o=await cli(['put','github-pat','--kind','token','--stdin','--url','https://github.com'],{stdin:'ghp_abcdefghijklmnop1234\n'});assert.equal(o.code,0,o.stderr);assert.equal(o.stdout,'github-pat\n');
   o=await cli(['put','github-pat','--kind','token','--stdin'],{stdin:'x'});assert.equal(o.code,1);assert.match(o.stderr,/already exists/);

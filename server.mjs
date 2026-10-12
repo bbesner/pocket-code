@@ -238,6 +238,9 @@ syncAgentSkills();
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
 const cliToken = randomBytes(32).toString('hex');
 fs.writeFileSync(CLI_TOKEN_FILE, cliToken + '\n', { mode: 0o600 }); fs.chmodSync(CLI_TOKEN_FILE, 0o600);
+// 1.43.1: the daemon's own address beside the token, so the CLIs and pocket-mcp-proxy never follow a PORT some other app exported.
+const CLI_URL_FILE = path.join(DATA_DIR, 'cli-url');
+fs.writeFileSync(CLI_URL_FILE, `http://127.0.0.1:${PORT}\n`, { mode: 0o600 }); fs.chmodSync(CLI_URL_FILE, 0o600);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 // Cookie, or the loopback CLI token: mounted only on /api/board* and /api/documents*.
 function requireBoardAuth(req, res, next) {
@@ -2891,7 +2894,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Typed by Pocket: an agent can log into a web page with a stored password through the browser tools without the password ever entering the conversation."];
+const RELEASE_NOTES = ["Pocket's command-line tools and the browser relay find the daemon through the data directory, so a PORT exported by another app can no longer misdirect them."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
