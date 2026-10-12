@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.39.0] — Unreleased · build 86
+## [1.39.0] — 2026-10-12 · build 86
 
 - **The Vault.** A fourth library beside Projects, Files and Tasks, for API keys, tokens, logins and secure notes that agents need to do real work. It is off until **Settings → Projects, files, tasks & vault → Vault** turns it on for the whole install, which needs `POCKET_VAULT_KEY` in `.env` (32 random bytes in base64: `openssl rand -base64 32`). The Settings category was *Projects, files & tasks*. Requested by Brad.
 - **Encrypted in one file.** Items and their approved commands live in `<data dir>/vault.enc`, one AES-256-GCM blob with no plain-text names or other metadata on disk; an altered file or a wrong key fails closed. The daemon reads the key at start and removes it from its environment, so agent turns, helpers, hooks and every other process it starts never see it. **Rotate key** in Settings → Vault re-encrypts the store and shows the new key once; the old key keeps working until you put the new one in `.env` and restart. Back up `vault.enc` and `vault-audit.jsonl` with the data directory and keep the key somewhere else.
