@@ -14,6 +14,7 @@ import {ProjectStore} from '../projects.mjs';
 import {DocumentStore,mimeOf} from '../documents.mjs';
 import {TaskStore} from '../tasks.mjs';
 import {VaultStore,newKey,parseKey} from '../vault.mjs';
+import '../public/secret-detect.js'; // 1.42: globalThis.PocketSecrets, the detector the server uses
 const repo=path.resolve(import.meta.dirname,'..');
 const out=process.env.POCKET_SCREENSHOTS || fs.mkdtempSync(path.join(os.tmpdir(),'pocket-browser-'));
 fs.mkdirSync(out,{recursive:true});
@@ -33,7 +34,9 @@ const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
 const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
-let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once'};
+let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',secretGuard:true};
+// 1.42: like the server, a message that looks like it carries a secret is refused (422) before any receipt, unless allowSecrets.
+const secretRefusal=body=>{if(fixtureSettings.secretGuard===false||body.allowSecrets===true)return null;const hits=globalThis.PocketSecrets.scan(String(body.text||''),{mode:'message'});return hits.length?{error:'This message looks like it contains a secret, so it was not sent.',code:'secret_detected',matches:hits.map(({kind,label,name,vaultKind,start,end})=>({kind,label,name,vaultKind,start,end}))}:null;};
 // 1.40: the passphrase the fixture checks (never sent back on /api/settings), and the last import's decoded file.
 // 1.41: extraRequests are added to the snapshot's requests as they are (a request on an item that asks every time).
 const vaultFixture={passphrase:null,imported:null,extraRequests:[]};
@@ -224,6 +227,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname.endsWith('/events')){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache'});res.write(url.pathname.includes(rows[0].id)?': running\n\n':'data: {"type":"watch"}\n\n');const t=setInterval(()=>res.write(': keepalive\n\n'),1000);req.on('close',()=>clearInterval(t));return;}
  if(url.pathname==='/api/new'){
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
+  const held=secretRefusal(body);if(held)return json(held,422);
   if(!receipts.has(body.clientMessageId)){
    dispatches++;const id='66666666-6666-4666-8666-666666666666';
    rows.push({...idle,id,title:body.text});conversations.set(id,[{role:'user',text:body.text}]);receipts.set(body.clientMessageId,{id});
@@ -253,7 +257,7 @@ const server=http.createServer(async(req,res)=>{
   return json(fixtureSettings.awaySummaries===false?{summary:null,reason:'off'}:{summary:'Checked stock for 24 products\nThree are below their reorder level\nWaiting on you: approve the order',model:'claude-haiku-5-5',provider:'claude',messages:3});}
  if(url.pathname.endsWith('/results'))return json({results:[{kind:'link',target:'https://example.com/inventory',label:'Inventory report',detail:'example.com'},{kind:'file',target:'/home/test/reports/stock.csv',label:'Stock CSV',detail:'CSV file'}]});
  if(url.pathname.includes('/queue')){
-  if(req.method==='GET')return json({items:queueRows,active:true,external:false});
+  if(req.method==='GET'){if(uiModes.queueSeed){queueRows.push(uiModes.queueSeed);uiModes.queueSeed=null;}return json({items:queueRows,active:true,external:false});} // queueSeed: a check that needs a queued row adds one
   let raw='';for await(const chunk of req)raw+=chunk;const b=JSON.parse(raw);const id=url.pathname.split('/').at(-1),idx=queueRows.findIndex(x=>x.id===id);
   if(req.method==='PATCH'){queueRows[idx]={...queueRows[idx],...(b.editing?{status:'editing'}:{text:b.text,status:'pending'}),revision:queueRows[idx].revision+1};return json({item:queueRows[idx]});}
   if(req.method==='DELETE'){queueRows.splice(idx,1);return json({ok:true});}
@@ -262,6 +266,7 @@ const server=http.createServer(async(req,res)=>{
  if(match){const id=decodeURIComponent(match[1]),r=rows.find(x=>x.id===id);
   if(!match[2])return json({...r,active:r.state.kind==='running',ext:false,messages:conversations.get(id),total:conversations.get(id).length});
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
+  const held=secretRefusal(body);if(held)return json(held,422);
   if(!receipts.has(body.clientMessageId)){dispatches++;receipts.set(body.clientMessageId,{ok:true});conversations.get(id).push({role:'user',text:body.text});}
   if(failNext){req.socket.destroy();return;}
   return json(receipts.get(body.clientMessageId),202);

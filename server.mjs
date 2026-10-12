@@ -38,6 +38,7 @@ import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
 import {Thumbnailer} from './thumbnails.mjs';
+import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
 import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
 
 // ---------- config ----------
@@ -181,7 +182,7 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once' }; } };
+const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
 
@@ -2105,7 +2106,18 @@ function validateTurnModel(req, res, next) {
   try { validateModel(provider, req.body?.model); next(); }
   catch (error) { res.status(error.status || 400).json({ error: error.message }); }
 }
-app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validateTurnModel, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
+// 1.42: a message that looks like it carries a secret (a known key format, a private key, a card number, "password: …")
+// is refused before a delivery receipt is recorded, so the composer can offer to store it in the Vault and send a
+// placeholder instead, or the owner can send it anyway with allowSecrets. The log names kinds and counts, never text.
+function secretGuard(req, res, next) {
+  if (settings.secretGuard === false || req.body?.allowSecrets === true) return next();
+  const text = String(req.body?.text || ''); if (!text) return next();
+  let hits = []; try { hits = globalThis.PocketSecrets.scan(text, { mode: 'message' }); } catch (e) { log(`secret check failed: ${e.message}`); return next(); }
+  if (!hits.length) return next();
+  log(`message held: looks like ${hits.length} secret(s) (${[...new Set(hits.map(h => h.kind))].join(', ')})${req.params?.id ? ' session=' + req.params.id : ' new session'}`);
+  res.status(422).json({ error: 'This message looks like it contains a secret, so it was not sent.', code: 'secret_detected', matches: hits.map(({ kind, label, name, vaultKind, start, end }) => ({ kind, label, name, vaultKind, start, end })) });
+}
+app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const id = req.params.id;
   if(!anyId(id))return res.status(400).json({error:'Invalid session'});
   const text = String(req.body?.text || '').trim();
@@ -2178,7 +2190,7 @@ app.post('/api/prompts/order', requireAuth, (req, res) => { try { promptStore.or
 app.patch('/api/prompts/:id', requireAuth, (req, res) => { try { res.json({ prompt: promptStore.update(req.params.id, req.body || {}), ...promptStore.list() }); } catch (e) { promptError(res, e); } });
 app.delete('/api/prompts/:id', requireAuth, (req, res) => { try { promptStore.remove(req.params.id); res.json(promptStore.list()); } catch (e) { promptError(res, e); } });
 
-app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
+app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const cwd = String(req.body?.cwd || '').trim();
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
@@ -2289,11 +2301,12 @@ app.post('/api/settings', requireAuth, (req, res) => {
     settings.vault = req.body.vault; vaultToggled = true;
   }
   if (AUTO_LOCK_CHOICES.includes(Number(req.body?.vaultAutoLockMinutes))) settings.vaultAutoLockMinutes = Number(req.body.vaultAutoLockMinutes); // 1.40
+  if (typeof req.body?.secretGuard === 'boolean') settings.secretGuard = req.body.secretGuard; // 1.42
   if (VAULT_ACCESS.includes(req.body?.vaultAccess)) { if (settings.vaultAccess !== req.body.vaultAccess) log(`vault agent access: ${settings.vaultAccess} -> ${req.body.vaultAccess}`); settings.vaultAccess = req.body.vaultAccess; } // 1.41
   saveSettings();
   if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
-  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess}`);
+  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
   res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
 });
 
@@ -2837,7 +2850,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Vault Agent access: give agents free rein, approval once per command, or every time; approve from the notification's Allow button or by replying in the conversation."];
+const RELEASE_NOTES = ["A key or password pasted or typed into a message is held before it is sent, with one tap to store it in the Vault and send a placeholder instead."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

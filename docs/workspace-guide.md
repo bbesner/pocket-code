@@ -465,7 +465,7 @@ days, where *Restore* brings it back.
 **Adding one.** **Add item** in the Vault view, or **Store in the Vault** in the composer's
 attach sheet or a session's options, opens the add sheet; what you type there never enters the
 message, the draft or the recent prompts. Use it instead of pasting a key into a conversation.
-Pocket does not detect a secret pasted into the message box in this release. An agent that meets
+Since 1.42 Pocket also catches one pasted or typed into a message: it holds the paste (never putting it in the draft) and offers **Store in the Vault**, which saves it and leaves `{{vault:name}}` in the message, or **Paste as is**; the same check runs when you send (**Store and send**, **Send as is**, **Edit**), and the server refuses an unchecked message that carries one unless you send it anyway. Settings → Vault → **Catch secrets in messages** turns this off. It catches known key formats, private keys, card numbers and `password: …`-style text; it is a backstop, so storing a secret first is still the surest way. An agent that meets
 a secret in a file or a reply stores it with `pocket-vault put` and tells you it was seen; an
 agent can only create a new item, never change or replace one.
 

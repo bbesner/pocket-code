@@ -1490,3 +1490,21 @@ button[data-accent="blue"] .accent-dot { background: var(--accent-blue); }
 button[data-accent="purple"] .accent-dot { background: var(--accent-purple); }
 /* Documents retain their own canvas and colour preference inside the viewer. */
 .doc-frame { color-scheme: light; }
+/* 1.42: That looks like a secret. The paste and send sheets in the Vault's form voice: what was found and its length
+   (never a character of it), one Name and Kind row per secret, Store as the one primary action, and the two other
+   choices as option rows that say what they do. Over the queue editor's dialog the sheet stacks above it. */
+.secret-sheet .secret-what { margin: 0 14px 4px; font-size: 16px; line-height: 1.45; color: var(--text); max-width: 60ch; }
+.secret-sheet .secret-help { margin: 4px 14px 14px; max-width: 60ch; }
+.secret-sheet .secret-hint { margin: -6px 14px 12px; font-size: 13.5px; line-height: 1.45; color: var(--dim); }
+.secret-form .secret-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8.5em, auto); gap: 6px 10px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.secret-form .secret-row:last-of-type { padding-bottom: 0; border-bottom: 0; }
+.secret-form .secret-row-head { grid-column: 1 / -1; margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+.secret-form .secret-row .vault-field-error { grid-column: 1 / -1; }
+.secret-form .secret-stored { color: var(--ok); font-weight: 500; }
+.secret-form .secret-row.stored input, .secret-form .secret-row.stored select { opacity: .6; }
+.secret-form .vault-hint { margin: 0; }
+.secret-form .vault-name-input[aria-invalid="true"] { border-color: var(--err); }
+.secret-sheet .secret-alt { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+@media (max-width: 340px) { .secret-form .secret-row { grid-template-columns: minmax(0, 1fr); } }
+.scrim.scrim-over { z-index: 42; }
+.sheet.sheet-over { z-index: 43; }

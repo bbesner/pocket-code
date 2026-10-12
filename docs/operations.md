@@ -300,6 +300,11 @@ run` works only under Full access there.
 "Vault request" (with web push configured) and waits in the Vault view. A request is answered
 once and expires after 15 minutes. A pending request lives in the daemon's memory only (a restart drops it; the agent is told the request no longer exists); the recipes an answer of *Always allow* saves are kept inside `vault.enc`.
 
+**Secret guard (1.42).** `public/secret-detect.js` is one detector for the composer and the daemon. With
+`secretGuard` (default true in `pocket-settings.json`) the daemon answers `POST /api/session/:id/message` and
+`POST /api/new` with `422 secret_detected` (kinds and character offsets, never the value) before a delivery receipt
+is recorded, unless the body has `allowSecrets: true`. The log line names only the kinds.
+
 **Agent access (1.41).** `vaultAccess` in `pocket-settings.json` is `free`, `once` (default) or
 `every`; an item's `policy` is `default` (follow it), `auto`, `ask`, `every` or `owner`. The
 store schema is 2: a 1.39/1.40 store's `ask` items were the old default and load as `default`.

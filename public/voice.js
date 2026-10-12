@@ -284,10 +284,13 @@ const Voice = (() => {
       return;
     }
     if (inHandsFree(id)) return askToSend(id, text);       // hands-free never starts a turn without a yes
+    if (heldAsSecret(text)) { say('That sounded like a password or key, so it was not sent. Choose what to do in the sheet.', 8000); await sendMsg(text); return; }
     say(`Sent: “${text}”`, 5000);
     if (p.speak) arm(id);
     await sendMsg(text);
   }
+  // 1.42: a dictated message that sounds like it carries a key or password is held by sendMsg's sheet, so say that, not "Sent".
+  const heldAsSecret = text => typeof PocketSecrets !== 'undefined' && typeof secretGuard !== 'undefined' && secretGuard.on && PocketSecrets.scan(text, { mode: 'message' }).length > 0;
   // Hands-free: read the instruction back and wait for "send it" (or a tap) before anything reaches the agent.
   function askToSend(id, text) {
     pendingSend = { id, text }; paint();
@@ -305,6 +308,7 @@ const Voice = (() => {
     const p = pendingSend; if (!p) return;
     pendingSend = null;
     if (p.id !== chatId) { say('You switched sessions, so that wasn’t sent.'); return; }
+    if (heldAsSecret(p.text)) { say('That sounded like a password or key, so it was not sent. Choose what to do in the sheet.', 8000); await sendMsg(p.text); return; }
     say(`Sent: “${p.text}”`, 5000);
     if (prefs().speak || inHandsFree(p.id)) arm(p.id);
     await sendMsg(p.text);

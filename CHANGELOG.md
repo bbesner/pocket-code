@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.42.0] — 2026-10-12 · build 90
+
+- **Pocket catches a secret before it is sent.** Paste an API key, token, private key, card number or "password: …" into a message and Pocket holds it instead of putting it in the box: **Store in the Vault** saves it under a suggested name and puts `{{vault:name}}` in the message, so the agent uses it by name and the value never reaches the model, the transcript or MemStem; **Paste as is** and **Cancel** are there too. The pasted text is held in memory only, never in the draft. The same check runs when you send, so a key typed or dictated into a message is caught too, with **Store and send**, **Send as is** and **Edit**. Requested by Brad.
+- **The server enforces it.** A message that reaches Pocket with something secret-shaped in it is refused before anything is dispatched or receipted (`422 secret_detected`), naming what was found and where but never the value, unless it is sent anyway. The daemon log records only the kinds found.
+- **What counts.** Known formats (OpenAI, Anthropic, OpenRouter, GitHub, GitLab, AWS, Stripe, Slack, Google, Twilio, SendGrid, signed JWTs), private keys, a password inside a URL, card numbers that pass the checksum with a card issuer's prefix, and assignments like `api_key: …` whose value has a digit or symbol. A pasted lone token that looks random is also offered. Placeholders, commit hashes, UUIDs, URLs, paths and words like "required" are left alone. Detection is a backstop, not a guarantee; storing a secret in the Vault first is still the surest way.
+- Settings → Vault → **Catch secrets in messages** (on by default) turns the check off for the install. It works whether or not the Vault itself is on; with the Vault off, the sheet warns and lets you paste or cancel.
+
 ## [1.41.0] — 2026-10-12 · build 89
 
 - **Agent access: approval is a dial, not a rule.** The Vault's job is to keep credentials out of conversations, transcripts and memory while agents still use them; how often you approve that use is now your choice. Settings → Vault → **Agent access**: *Free rein* (agents use any secret by name without asking; every use is still recorded and values never enter the conversation), *Ask once per command* (the 1.39 behaviour, and the default for a new install), or *Ask every time*. Each item follows that setting unless you set it otherwise: *Free rein*, *Ask once per command*, *Ask every time* or *Only you*. Items that were *Agents ask* by default now follow the setting. Requested by Brad.

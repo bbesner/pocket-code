@@ -1,7 +1,7 @@
 {
-  "version": "1.41.0",
-  "assetV": 89,
+  "version": "1.42.0",
+  "assetV": 90,
   "notes": [
-    "Vault Agent access: give agents free rein, approval once per command, or every time; approve from the notification's Allow button or by replying in the conversation."
+    "A key or password pasted or typed into a message is held before it is sent, with one tap to store it in the Vault and send a placeholder instead."
   ]
 }
