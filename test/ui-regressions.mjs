@@ -1488,6 +1488,124 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.keyboard.press('Escape');
    }finally{page.off('request',onReq);vaultFixture.extraRequests=[];await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});await page.setViewport({width:1440,height:900});settings.vault=false;}
   });
+  await check('Secrets in the composer (1.42): a pasted key is held and stored, pasted as is or cancelled, a lone token is caught, ordinary text and a URL paste normally, a send is held with Send as is and Store and send, a server 422 opens the sheet, the queue editor, the toggle, the Vault off, and the phone',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState();settings.vault=true;settings.vaultReady=true;settings.secretGuard=true;
+   await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
+   const KEY='sk-proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7cDe0fGh2',TOKEN='Zq8vR2mX9pL4tY7wK3nB6cJ1hF5dG0sAe';
+   const posts=[];const onReq=r=>{const u=new URL(r.url());if(r.method()==='POST'&&(/\/message$/.test(u.pathname)||/^\/api\/(new|vault\/act|settings)$/.test(u.pathname)))posts.push({path:u.pathname,body:JSON.parse(r.postData()||'{}')});};page.on('request',onReq);
+   const last=re=>posts.filter(x=>re.test(x.path)).at(-1);
+   // A paste as the browser delivers it; returns whether the browser was left to paste it (a synthetic event never inserts).
+   const paste=(sel,text)=>page.$eval(sel,(el,t)=>{el.focus();const dt=new DataTransfer();dt.setData('text/plain',t);const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true});el.dispatchEvent(ev);return !ev.defaultPrevented;},text);
+   const leaked=secret=>page.evaluate(k=>document.documentElement.outerHTML.includes(k)||JSON.stringify(localStorage).includes(k)||[...document.querySelectorAll('textarea,input')].some(e=>e.value.includes(k)),secret);
+   const sheetGone=()=>page.waitForFunction(()=>!document.querySelector('.secret-sheet'));
+   const idleId=rows[4].id;
+   // A hover tip from a control the pointer rests on after a reload is not part of the sheet: leave it as a pointer would.
+   const untip=()=>page.evaluate(()=>{for(const el of document.querySelectorAll(':hover'))el.dispatchEvent(new PointerEvent('pointerout',{bubbles:true,relatedTarget:null}));const t=document.getElementById('tip');if(t)t.hidden=true;});
+   const setBox=v=>page.$eval('#box',(b,v)=>{b.value=v;b.dispatchEvent(new Event('input',{bubbles:true}));b.focus();b.setSelectionRange(v.length,v.length);},v);
+   try{
+    await openChat(idleId);await page.evaluate(id=>{saveOutbox(id,null);clearDraft(id);},idleId);await page.reload();await page.waitForFunction(()=>document.querySelector('#box')&&!document.querySelector('#box').readOnly);
+    // Paste: held before it reaches the box; the sheet names it and its length, never a character of it.
+    await setBox('Use ');
+    assert.equal(await paste('#box',KEY),false,'the paste is cancelled');await page.waitForSelector('.secret-sheet .secret-form');
+    const sheet=await page.evaluate(()=>({title:document.querySelector('.secret-sheet h2').textContent,what:document.querySelector('.secret-sheet .secret-what').textContent,name:document.querySelector('.secret-sheet [name="name-0"]').value,kind:document.querySelector('.secret-sheet [name="kind-0"]').value,kinds:[...document.querySelector('.secret-sheet [name="kind-0"]').options].map(o=>o.textContent),primary:document.querySelector('.secret-sheet .primary').textContent,alt:[...document.querySelectorAll('.secret-sheet .secret-alt .opt')].map(b=>b.firstChild.nextSibling?.firstChild?.textContent||b.textContent)}));
+    assert.deepEqual(sheet,{title:'That looks like a secret',what:`An OpenAI API key, ${KEY.length} characters.`,name:'openai-api-key',kind:'api_key',kinds:['API key','Token','Secure note'],primary:'Store in the Vault',alt:['Paste as is','Cancel']});
+    assert.equal(await page.$eval('#box',b=>b.value),'Use ');assert.equal(await leaked(KEY),false,'the key is nowhere on the page or in storage while held');
+    await untip();await scan('secret-paste-sheet');await page.screenshot({path:path.join(out,'secret-paste-sheet.png')});
+    // Store in the Vault: the item is added and the box gets the placeholder.
+    await clickControl(page,'.secret-sheet .primary');await sheetGone();
+    assert.equal(await page.$eval('#box',b=>b.value),'Use {{vault:openai-api-key}}');
+    assert.deepEqual(last(/vault\/act$/).body,{action:'add',name:'openai-api-key',kind:'api_key',values:{value:KEY}});
+    await page.waitForFunction(()=>document.querySelector('#toast').textContent==='Stored in the Vault as openai-api-key; the message has a placeholder');
+    assert.equal(await page.evaluate(()=>vaultSnap.items.some(i=>i.name==='openai-api-key')),true);assert.equal(await leaked(KEY),false,'stored, not left behind');
+    // The next suggestion is unique; Paste as is puts the text in as it was.
+    await setBox('');await paste('#box',KEY);await page.waitForSelector('.secret-sheet .secret-form');
+    assert.equal(await page.$eval('.secret-sheet [name="name-0"]',e=>e.value),'openai-api-key-2');
+    await clickControl(page,'.secret-sheet [data-as-is]');await sheetGone();assert.equal(await page.$eval('#box',b=>b.value),KEY);
+    // Cancel inserts nothing.
+    await setBox('Keep this');await paste('#box',KEY);await page.waitForSelector('.secret-sheet');
+    await clickControl(page,'.secret-sheet [data-back]');await sheetGone();assert.equal(await page.$eval('#box',b=>b.value),'Keep this');assert.equal(await leaked(KEY),false);
+    // A lone random token with no known prefix is caught on paste; ordinary text and a URL paste normally.
+    await setBox('');assert.equal(await paste('#box',TOKEN),false);await page.waitForSelector('.secret-sheet');
+    assert.equal(await page.$eval('.secret-sheet .secret-what',e=>e.textContent),`A key or token, ${TOKEN.length} characters.`);
+    await page.keyboard.press('Escape');await sheetGone();assert.equal(await page.$eval('#box',b=>b.value),'');
+    // Two secrets in one paste: a row each, with unique names.
+    await paste('#box',`OPENAI_API_KEY=${KEY}\nportal password: hunter2!`);await page.waitForSelector('.secret-sheet .secret-form');
+    assert.deepEqual(await page.evaluate(()=>({what:document.querySelector('.secret-sheet .secret-what').textContent,heads:[...document.querySelectorAll('.secret-sheet .secret-row-head')].map(e=>e.textContent),names:[...document.querySelectorAll('.secret-sheet .vault-name-input')].map(e=>e.value)})),
+     {what:`An OpenAI API key (${KEY.length} characters) and a password or secret (8 characters).`,heads:[`An OpenAI API key · ${KEY.length} characters`,'A password or secret · 8 characters'],names:['openai-api-key-2','secret']});
+    await untip();await scan('secret-paste-sheet-two');await page.screenshot({path:path.join(out,'secret-paste-sheet-two.png')});
+    await clickControl(page,'.secret-sheet [data-back]');await sheetGone();
+    assert.equal(await paste('#box','Check aisle 4 against the Friday delivery'),true,'ordinary text pastes normally');
+    assert.equal(await paste('#box','https://example.com/inventory?id=42&sort=desc'),true,'a URL pastes normally');
+    assert.equal(await page.$('.secret-sheet'),null);
+    // Send: held before the request; Send as is posts with allowSecrets.
+    const before=posts.filter(x=>/\/message$/.test(x.path)).length;
+    await setBox('The portal password: hunter2!');await clickControl(page,'#send');await page.waitForSelector('.secret-sheet .secret-form');
+    assert.equal(posts.filter(x=>/\/message$/.test(x.path)).length,before,'nothing was posted');
+    assert.deepEqual(await page.evaluate(()=>({what:document.querySelector('.secret-sheet .secret-what').textContent,primary:document.querySelector('.secret-sheet .primary').textContent,box:document.querySelector('#box').value,name:document.querySelector('.secret-sheet [name="name-0"]').value})),
+     {what:'A password or secret, 8 characters.',primary:'Store and send',box:'The portal password: hunter2!',name:'secret'});
+    await untip();await scan('secret-send-sheet');await page.screenshot({path:path.join(out,'secret-send-sheet.png')});
+    await clickControl(page,'.secret-sheet [data-as-is]');await sheetGone();
+    await page.waitForFunction(n=>document.querySelector('#delivery-status')?.textContent==='Message delivered.',{},before);
+    assert.deepEqual((({text,allowSecrets})=>({text,allowSecrets}))(last(/\/message$/).body),{text:'The portal password: hunter2!',allowSecrets:true});
+    // Store and send: the item is added, then the placeholder text goes as a new send.
+    await openChat(idleId);await setBox('The portal password: hunter2!');await clickControl(page,'#send');await page.waitForSelector('.secret-sheet .secret-form');
+    await clickControl(page,'.secret-sheet .primary');await sheetGone();
+    await page.waitForFunction(()=>document.querySelector('#delivery-status')?.textContent==='Message delivered.');
+    assert.deepEqual(last(/vault\/act$/).body,{action:'add',name:'secret',kind:'api_key',values:{value:'hunter2!'}});
+    const stored=last(/\/message$/).body;assert.equal(stored.text,'The portal password: {{vault:secret}}');assert.equal(stored.allowSecrets,undefined);
+    // A server 422 (this browser's check missed it) opens the same sheet; nothing is marked delivered or kept for retry.
+    await openChat(idleId);await page.evaluate(()=>{secretGuard.on=false;});
+    await setBox('password: hunter2!');await clickControl(page,'#send');await page.waitForSelector('.secret-sheet');
+    assert.deepEqual(await page.evaluate(id=>({outbox:loadOutbox(id),box:document.querySelector('#box').value,readOnly:document.querySelector('#box').readOnly,what:document.querySelector('.secret-sheet .secret-what').textContent,notice:document.querySelector('#delivery-status')?.textContent||''}),idleId),
+     {outbox:null,box:'password: hunter2!',readOnly:false,what:'A password or secret, 8 characters.',notice:''});
+    await clickControl(page,'.secret-sheet [data-back]');await sheetGone();assert.equal(await page.$eval('#box',b=>b.value),'password: hunter2!','Edit leaves the draft');
+    await page.evaluate(id=>{secretGuard.on=true;clearDraft(id);document.querySelector('#box').value='';},idleId);
+    // New session: the task is held the same way and Edit leaves it in the box.
+    await page.goto(base+'/#/new');await page.waitForSelector('#first');const newPosts=posts.filter(x=>x.path==='/api/new').length;
+    await page.$eval('#first',f=>{f.value='Log in with password: hunter2! and pull the invoices';f.dispatchEvent(new Event('input',{bubbles:true}));});
+    await clickControl(page,'#start');await page.waitForSelector('.secret-sheet');
+    assert.equal(posts.filter(x=>x.path==='/api/new').length,newPosts,'no start was posted');
+    await clickControl(page,'.secret-sheet [data-back]');await sheetGone();
+    assert.equal(await page.$eval('#first',f=>f.value),'Log in with password: hunter2! and pull the invoices');
+    assert.equal(await page.$eval('#start',b=>b.textContent),'Start session');
+    await page.evaluate(()=>{clearDraft(NEW_KEY);document.querySelector('#first').value='';});
+    // Settings → Vault: Catch secrets in messages, on by default; off lets a key paste through untouched.
+    await openChat(idleId);await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-secrets')?.disabled===false);
+    assert.deepEqual(await page.$eval('#s-secrets',b=>({pressed:b.getAttribute('aria-pressed'),label:b.querySelector('span:not(.dot)').firstChild.textContent,sub:b.querySelector('.sub').textContent,panel:b.closest('[data-settings-panel]')?.dataset.settingsPanel,afterVault:Boolean(document.querySelector('#s-vault-more').compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING)})),
+     {pressed:'true',label:'Catch secrets in messages',sub:'Holds a key or password pasted or typed into a message and offers to store it in the Vault first',panel:'libraries',afterVault:true});
+    await clickControl(page,'#s-secrets');for(let i=0;i<30&&settings.secretGuard!==false;i++)await pause(100);
+    assert.deepEqual(last(/settings$/).body,{secretGuard:false});await page.waitForFunction(()=>document.querySelector('#s-secrets').getAttribute('aria-pressed')==='false');
+    await untip();await scan('secret-settings');await page.keyboard.press('Escape');
+    assert.equal(await paste('#box',KEY),true,'with the guard off a key pastes normally');assert.equal(await page.$('.secret-sheet'),null);
+    settings.secretGuard=true;await page.evaluate(()=>setSecretGuard(true));
+    // The Vault off: the sheet says what pasting does and how to store it instead, with Paste as is and Cancel.
+    settings.vault=false;await page.reload();await page.waitForSelector('#box');
+    await paste('#box',KEY);await page.waitForSelector('.secret-sheet');
+    assert.deepEqual(await page.evaluate(()=>({form:Boolean(document.querySelector('.secret-sheet form')),help:document.querySelector('.secret-sheet .secret-help').textContent,hint:document.querySelector('.secret-sheet .secret-hint').textContent,alt:[...document.querySelectorAll('.secret-sheet .secret-alt .opt')].length})),
+     {form:false,help:'Pasting it sends it to the model and keeps it in the transcript.',hint:'Turn on the Vault in Settings to store secrets instead.',alt:2});
+    await untip();await scan('secret-paste-sheet-vault-off');await clickControl(page,'.secret-sheet [data-back]');await sheetGone();settings.vault=true;
+    // The phone: both sheets fit at 390, and the queue editor's paste stacks over its dialog and returns to it.
+    await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('#box');await setBox('');
+    await paste('#box',KEY);await page.waitForSelector('.secret-sheet .secret-form');
+    assert.equal(await page.evaluate(()=>{const s=document.querySelector('.secret-sheet');return s.scrollWidth>s.clientWidth+1||document.documentElement.scrollWidth>innerWidth;}),false,'the paste sheet fits at 390');
+    await untip();await scan('secret-paste-sheet-mobile');await page.screenshot({path:path.join(out,'secret-paste-sheet-mobile.png')});
+    await clickControl(page,'.secret-sheet [data-back]');await sheetGone();
+    await setBox('password: hunter2!');await clickControl(page,'#send');await page.waitForSelector('.secret-sheet .secret-form');
+    assert.equal(await page.evaluate(()=>{const s=document.querySelector('.secret-sheet');return s.scrollWidth>s.clientWidth+1||document.documentElement.scrollWidth>innerWidth;}),false,'the send sheet fits at 390');
+    await untip();await scan('secret-send-sheet-mobile');await page.screenshot({path:path.join(out,'secret-send-sheet-mobile.png')});
+    await clickControl(page,'.secret-sheet [data-back]');await sheetGone();await page.evaluate(id=>{clearDraft(id);document.querySelector('#box').value='';},idleId);
+    setMode({queueSeed:{id:'q-secret',revision:1,text:'Pull the invoices after this turn.',status:'pending'}});
+    await openChat(rows[0].id);await clickControl(page,'#queue-open');await page.waitForSelector('[data-edit]');await clickControl(page,'[data-edit]');await page.waitForSelector('.queue-editor');
+    const queued=await page.$eval('.queue-editor',e=>e.value);
+    assert.equal(await paste('.queue-editor',KEY),false);await page.waitForSelector('.secret-sheet.sheet-over');
+    assert.equal(await page.evaluate(()=>Boolean(document.querySelector('.queue-editor')?.closest('.sheet[role=dialog]')?.inert)),true,'the queue dialog waits underneath');
+    await page.keyboard.press('Escape');await sheetGone();
+    assert.deepEqual(await page.evaluate(()=>({value:document.querySelector('.queue-editor').value,focused:document.activeElement===document.querySelector('.queue-editor'),inert:document.querySelector('.queue-editor').closest('.sheet').inert})),{value:queued,focused:true,inert:false});
+    assert.equal(await leaked(KEY),false);
+    await clickControl(page,'[data-cancel]');await page.waitForFunction(()=>!document.querySelector('.queue-editor'));
+    await clickControl(page,'[data-remove]');await page.waitForFunction(()=>document.querySelector('#queue-items')?.textContent.includes('No queued instructions'));await page.keyboard.press('Escape');
+   }finally{page.off('request',onReq);await page.evaluate(()=>{try{secretGuard.on=true;}catch{}}).catch(()=>{});await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});await page.setViewport({width:1440,height:900});settings.vault=false;settings.secretGuard=true;}
+  });
   await check('Projects (1.29): off by default, then the list, card, steps, reminders, finish and resume, tracking from a session, tabs, split pane, rail switch, settings and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
    const settings=settingsState();settings.projects=false;

@@ -395,9 +395,11 @@ async function pasteClipboardImage() {
   finally{const n=(uploadsInFlight.get(target)||1)-1;if(n)uploadsInFlight.set(target,n);else uploadsInFlight.delete(target);paintUploadStatus();}
 }
 document.addEventListener('paste',event=>{
-  if(!event.target.matches?.('#box,#first'))return;
+  if(!event.target.matches?.('#box,#first,.queue-editor'))return;
   const files=[...(event.clipboardData?.items||[])].filter(i=>i.kind==='file'&&i.type.startsWith('image/')).map(i=>i.getAsFile()).filter(Boolean);
-  if(!files.length)return; // Ordinary text keeps the browser's normal paste behavior.
+  // 1.42: text that looks like a secret is held and the Vault offered; other text keeps the browser's normal paste.
+  if(!files.length){secretGuardInput(event,event.clipboardData?.getData('text/plain')||'');return;}
+  if(!event.target.matches('#box,#first'))return;
   event.preventDefault();const target=attachmentTarget();if(target)uploadFiles(files.map(clipboardFile),target);
 });
 
@@ -611,6 +613,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
         <p class="title-note" id="s-vault-backup-note">One file with every item, encrypted with a passphrase you choose.</p>
         <span class="vault-set-actions"><button class="chip" id="s-vault-export">Export…</button><button class="chip" id="s-vault-import">Import…</button></span></div>
       <p class="title-note vault-warning" id="s-vault-codex"></p></div>
+    <button class="opt" id="s-secrets" disabled aria-pressed="${secretGuard.on}"><span class="dot ${secretGuard.on ? 'on' : ''}"></span><span>Catch secrets in messages<span class="sub">Holds a key or password pasted or typed into a message and offers to store it in the Vault first</span></span></button>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
@@ -628,6 +631,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       </div>
     </details>`;
   organizeSettings(sh, {category: about ? 'help' : category, scrollTop});
+  sh.querySelector('#s-vault-more')?.after(sh.querySelector('#s-secrets')); // 1.42: under the Vault and its settings, shown whether or not the Vault is on
   mountSheet(scrim, sh);
   if (about) sh.querySelector('#s-about').scrollIntoView({block:'start'});
   bindChatTextControls(sh);
@@ -811,6 +815,19 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       toast('Agent access: ' + VAULT_ACCESS.find(([v]) => v === (srv.vaultAccess || access))[1]);
     } catch (err) { srv = { ...srv, vaultAccess: was }; paintVaultSetting(); if (err.message !== 'login') toast('Could not save: ' + (err.message || 'error')); }
   };
+  // 1.42: Catch secrets in messages, install-wide; the server checks every message the same way.
+  const paintSecretsSetting = () => {
+    const btn = sh.querySelector('#s-secrets'); if (!btn || !srv) return;
+    setSecretGuard(srv.secretGuard); const on = secretGuard.on;
+    btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
+  };
+  sh.querySelector('#s-secrets').onclick = async e => {
+    const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ secretGuard: srv.secretGuard === false }), signal: AbortSignal.timeout(8000) });
+      paintSecretsSetting(); toast(srv.secretGuard === false ? 'Secrets in messages are no longer caught' : 'Secrets in messages are caught before they are sent');
+    } catch (err) { if (err.message !== 'login') toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
+  };
   sh.querySelector('#s-vault-rotate').onclick = () => rotateVaultKey();
   sh.querySelector('#s-vault-setpass').onclick = () => vaultPassphraseSheet(false);
   sh.querySelector('#s-vault-changepass').onclick = () => vaultPassphraseSheet(true);
@@ -843,7 +860,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting();
+      paintTitles(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
@@ -2407,14 +2424,16 @@ function paintDelivery(id = chatId) {
   document.querySelectorAll('#c-att,#c-model,#c-eff,#attrow button,[data-mode]').forEach(b => { b.disabled = Boolean(pending); });
   if (send) { send.disabled = Boolean(pending); send.setAttribute('aria-label', pending ? 'Resolve pending delivery first' : 'Send'); }
 }
-async function sendMsg(text) {
+async function sendMsg(text, {allowSecrets = false, matches = null} = {}) {
   text = text.trim(); const id = chatId;
   if(uploadsInFlight.get(id)){toast('Wait for the attachment upload to finish.');return;}
   if (!text || !id || sendsInFlight.has(id) || loadOutbox(id)) return;
+  if (!allowSecrets && holdSecretSend(id, text, matches)) return; // 1.42: offer the Vault before a secret leaves
   if (liveFailure?.id === id) liveFailure = null;
   awayAnchor = null; awayFollow = false;                         // sending goes back to following the conversation
   document.getElementById('turn-failure')?.remove();
   const opts = composerWorking ? {mode:sendModes.get(id)||'steer',approvalMode:nextApprovalMode()} : turnOpts();
+  if (allowSecrets) opts.allowSecrets = true; // the owner chose Send as is; a retry of this message carries it too
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
     files: composerWorking ? [] : [...(tb?.attachments || [])], createdAt: Date.now() };
   try { saveDraft(id, text); saveOutbox(id, pending); }
@@ -2456,6 +2475,12 @@ async function submitPending(id) {
     }
     refreshSessions();
   } catch (e) {
+    if (e.code === 'secret_detected') { // 1.42: held by the server before any receipt: not delivered, never retried by itself
+      saveOutbox(id, null); ghost.forEach(n => n.remove());
+      if (chatId === id && $('#box')) $('#box').value = pending.text;
+      sendsInFlight.delete(id); holdSecretSend(id, pending.text, e.body?.matches || []);
+      return;
+    }
     const rejected = e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain';
     pending.rejected = rejected;
     pending.error = e.code === 'delivery_uncertain' ? e.message
@@ -2466,6 +2491,20 @@ async function submitPending(id) {
   } finally { sendsInFlight.delete(id); paintDelivery(id); if (chatId === id) paintChoices(); }
 }
 
+// 1.42: a message that looks like it carries a secret waits in the box while the owner chooses: store it in the Vault
+// and send a {{vault:name}} placeholder, send it as it is, or edit it. The draft stays until a send succeeds.
+function holdSecretSend(id, text, matches = null) {
+  const box = () => chatId === id ? $('#box') : null;
+  return secretHold(text, { matches, trigger: box(),
+    onAsIs: t => { if (chatId !== id) return toast('You switched sessions, so that was not sent.'); sendMsg(t, { allowSecrets: true }); },
+    onStore: t => {
+      if (chatId !== id) return toast('Stored. You switched sessions, so the message was not sent.');
+      const b = box(); if (b && !b.readOnly) { b.value = t; sizeComposerBox(); }
+      saveDraft(id, t); sendMsg(t);
+    } }) && (() => { // held: keep the words in the box (a voice message has none there yet) so Edit returns to them
+      const b = box(); if (b && !b.readOnly && b.value.trim() !== text) { b.value = text; saveDraft(id, text); sizeComposerBox(); }
+      return true; })();
+}
 let recentSends = []; // for deduping our own messages when they echo back via the mirror
 // A steered message reaches the agent at once but only enters the transcript at the
 // agent's next step; until then the canonical re-render would hide it. Keep showing it.
@@ -2790,7 +2829,7 @@ async function renderNew() {
   paintSaveButton();
   api('/prompts').then(d => { if (viewVersion !== chatRenderVersion) return; takeLists(d); paintStarters(); }).catch(() => { });
   let newPending = null;
-  $('#start').onclick = async () => {
+  const startSession = async ({ allowSecrets = false } = {}) => {
     if(uploadsInFlight.get(NEW_KEY))return toast('Wait for the attachment upload to finish.');
     const savedStart = loadOutbox(NEW_KEY);
     const cwd = savedStart?.payload.cwd || $('#cpath').value.trim() || sel;
@@ -2798,15 +2837,16 @@ async function renderNew() {
     const hint = msg => { const h = $('#start-hint'); h.textContent = msg; h.hidden = false; };
     if (!cwd) {$('#new-setup').open=true;hint('Choose a workspace below, or enter its path.');$('#new-setup').scrollIntoView({block:'start'});return;}
     if (!text) { hint('Write what you would like done first.'); $('#first').focus(); return; }
+    if (!savedStart && !allowSecrets && holdSecretStart(text)) return; // 1.42
     $('#start-hint').hidden = true;
     $('#start').disabled = true; $('#start').textContent = 'Starting…';
     try {
       const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts() };
       const saved = loadOutbox(NEW_KEY);
       if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) return toast('Retry the saved new-session request before changing it.');
-      newPending = saved || { payload, clientMessageId: crypto.randomUUID() };
+      newPending = saved || { payload, clientMessageId: crypto.randomUUID(), ...(allowSecrets ? { allowSecrets: true } : {}) };
       saveOutbox(NEW_KEY, newPending);
-      const { id } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId }) });
+      const { id } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
       setPrefs(id,{model:payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work',approvalMode:payload.approvalMode||approvalPolicy.defaultMode});
       saveOutbox(NEW_KEY, null);
       clearDraft(NEW_KEY); localStorage.removeItem('pc-attachments-'+NEW_KEY); if (tb?.key === NEW_KEY) tb.attachments = [];
@@ -2814,9 +2854,15 @@ async function renderNew() {
       location.hash = '#/chat/' + id;
     } catch (e) {
       if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NEW_KEY, null);
-      toast(e.message || 'Delivery not confirmed. Retry the same request.');
+      if (e.code === 'secret_detected') holdSecretStart(newPending?.payload.text || text, e.body?.matches || []);
+      else toast(e.message || 'Delivery not confirmed. Retry the same request.');
     } finally { const start = $('#start'); if (start) { start.disabled = false; paintNewDelivery(); } }
   };
+  // 1.42: the task waits in the box while the owner chooses Store and send, Send as is or Edit.
+  const holdSecretStart = (text, matches = null) => secretHold(text, { matches, trigger: $('#first'),
+    onAsIs: () => { if (viewVersion === chatRenderVersion) startSession({ allowSecrets: true }); },
+    onStore: t => { const f = $('#first'); if (viewVersion !== chatRenderVersion || !f) return toast('Stored. The new session was not started.'); f.value = t; saveDraft(NEW_KEY, t); paintSaveButton(); startSession(); } });
+  $('#start').onclick = () => startSession();
 }
 
 /* ---------- router ---------- */
@@ -2825,7 +2871,7 @@ async function route() {
   rememberViewNavigation(location.hash || '#/');
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { const me = await api('/me'); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } window.pocketFeatures = me.features || {}; } // 1.20.1: 200 {ok:false} when signed out
+  try { const me = await api('/me'); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } window.pocketFeatures = me.features || {}; loadSecretGuard(); } // 1.20.1: 200 {ok:false} when signed out
   catch (e) { // 401 rendered the login; anything else (offline, deploy restart) gets a retry view
     if (e.message !== 'login') renderUnreachable(e);
     reportWorkspaceChrome(); return;

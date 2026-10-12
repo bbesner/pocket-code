@@ -680,3 +680,159 @@ function paintVaultBadges(){
 }
 const vaultTabState=()=>{const n=vaultRequestCount();return n?{kind:'input',label:n===1?'A request is waiting':n+' requests are waiting'}:null;};
 setInterval(()=>{if(!vaultOn()||document.visibilityState!=='visible'||!(vaultView||railView()==='vault'||document.querySelector('[data-vault-home],[data-vault-badge]')||openSessions?.some?.(s=>s.id==='vault')))return;loadVault(true).then(()=>{repaintVault();}).catch(()=>{});},30000);
+
+/* ---------- 1.42: catching secrets in the composer ----------
+   A key or password pasted, dropped or typed into a message is held before it reaches the model, the transcript or
+   MemStem, and the owner is offered the Vault instead. The detector is the shared secret-detect.js (PocketSecrets); the
+   server runs the same check on every message and answers 422 secret_detected. Held text lives only in the closures
+   below: never in a textarea, a draft, storage, the outbox, a toast, the DOM of the sheet or the console. The sheet
+   names what was found and how long it is, never any of its characters. */
+const secretGuard={on:(()=>{try{return localStorage.getItem('pc-secret-guard')!=='off';}catch{return true;}})(),loaded:false};
+// The setting is install-wide (Settings → Vault); this device remembers the last value so a reload starts with it.
+function setSecretGuard(on){secretGuard.on=on!==false;try{localStorage.setItem('pc-secret-guard',secretGuard.on?'on':'off');}catch{}}
+const secretsOn=()=>secretGuard.on&&Boolean(window.PocketSecrets);
+function loadSecretGuard(){
+ if(secretGuard.loaded)return;secretGuard.loaded=true;
+ api('/settings',{cache:'no-store',signal:AbortSignal.timeout(12000)}).then(s=>setSecretGuard(s.secretGuard)).catch(()=>{secretGuard.loaded=false;});
+}
+const SECRET_KINDS=[['api_key','API key'],['token','Token'],['note','Secure note']];
+const secretLen=h=>{const n=h.end-h.start;return n+(n===1?' character':' characters');};
+const secretCap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+const secretList=parts=>parts.length<2?parts.join(''):parts.slice(0,-1).join(', ')+' and '+parts.at(-1);
+// "An OpenAI API key, 164 characters." or "An OpenAI API key (164 characters) and a password or secret (9 characters)."
+const secretWhat=hits=>!hits.length?'It has what looks like a key or password.':secretCap(hits.length===1?`${hits[0].label}, ${secretLen(hits[0])}`:secretList(hits.map(h=>`${h.label} (${secretLen(h)})`)))+'.';
+// Matches from the server are checked against the text they describe; anything that does not fit is dropped.
+function secretHits(text,hits){
+ const n=String(text||'').length;let end=0;
+ return (Array.isArray(hits)?hits:[]).filter(h=>h&&Number.isInteger(h.start)&&Number.isInteger(h.end)&&h.start>=end&&h.end>h.start&&h.end<=n&&(end=h.end,true))
+  .map(h=>({kind:String(h.kind||''),label:String(h.label||'a secret'),name:VAULT_NAME_RE.test(String(h.name||''))?String(h.name):'secret',vaultKind:SECRET_KINDS.some(([v])=>v===h.vaultKind)?h.vaultKind:'api_key',start:h.start,end:h.end}));
+}
+// Can the Vault take it now? off, locked, unready (no key, failed to open) or ready with every name already used.
+async function secretVaultState(){
+ if(!vaultOn())return {state:'off'};
+ try{const s=await loadVault(true);if(s.ready===false)return {state:s.locked?'locked':'unready'};return {state:'ready',names:[...(s.items||[]),...(s.trash||[])].map(i=>i.name)};}
+ catch(e){return {state:e?.status===423?'locked':'unready'};}
+}
+const SECRET_HINT={off:'Turn on the Vault in Settings to store secrets instead.',locked:'Unlock the Vault to store it.',unready:'The Vault is not ready, so it cannot store this now.'};
+// Over an open sheet (the queue editor in its dialog) the guard stacks instead of replacing it; elsewhere it is an
+// ordinary sheet. Returns the close function.
+function secretMount(scrim,sh,trigger){
+ const parent=trigger?.closest?.('.sheet[role=dialog]');
+ if(!parent)return mountSheet(scrim,sh,trigger||undefined);
+ scrim.classList.add('scrim-over');sh.classList.add('sheet-over');
+ const heading=sh.querySelector('h2');heading.id='secret-sheet-title';
+ sh.setAttribute('role','dialog');sh.setAttribute('aria-modal','true');sh.setAttribute('aria-labelledby',heading.id);sh.tabIndex=-1;
+ const x=document.createElement('button');x.className='sheet-close icon';x.setAttribute('aria-label','Close dialog');x.innerHTML=IC.x;sh.prepend(x);
+ const items=()=>[...sh.querySelectorAll('button,input,select')].filter(el=>!el.disabled&&el.getClientRects().length);
+ const keydown=e=>{
+  if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();}
+  if(e.key==='Tab'){const l=items(),f=l[0],z=l.at(-1);if(e.shiftKey&&document.activeElement===f){e.preventDefault();z.focus();}else if(!e.shiftKey&&document.activeElement===z){e.preventDefault();f.focus();}}
+ };
+ const close=()=>{sh.removeEventListener('keydown',keydown);scrim.remove();sh.remove();parent.inert=false;if(trigger?.isConnected)trigger.focus({preventScroll:true});};
+ scrim.onclick=close;x.onclick=close;sh.addEventListener('keydown',keydown);
+ parent.inert=true;document.body.append(scrim,sh);(items().find(el=>el.matches('input'))||x).focus();
+ return close;
+}
+/* The one sheet for a paste (or drop) and a send. mode 'paste' | 'send'. text is the held text; hits its spans.
+   onAsIs(): use the text unchanged. onStore(replaced): every hit is stored; replaced has a {{vault:name}} for each. */
+async function openSecretSheet({mode,text,hits,trigger,onAsIs,onStore}){
+ const vault=hits.length?await secretVaultState():{state:'none'},ready=vault.state==='ready',many=hits.length>1,paste=mode==='paste';
+ if(trigger&&!trigger.isConnected)trigger=null;
+ const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet secret-sheet';
+ const taken=[...(vault.names||[])],names=hits.map(h=>{const n=PocketSecrets.uniqueName(h.name,taken);taken.push(n);return n;});
+ const it=many?'them':'it';
+ const rows=hits.map((h,i)=>`<div class="secret-row" role="group" aria-labelledby="${many?'secret-row-'+i:'secret-what'}" data-row="${i}">
+   ${many?`<p class="secret-row-head" id="secret-row-${i}">${esc(secretCap(h.label))} · ${esc(secretLen(h))}</p>`:''}
+   <label class="voice-field secret-name">Name<input type="text" name="name-${i}" value="${esc(names[i])}" maxlength="64" required spellcheck="false" autocapitalize="none" autocorrect="off" autocomplete="off" class="vault-name-input" aria-describedby="secret-row-${i}-e secret-name-hint"></label>
+   <label class="voice-field secret-kind">Kind<select name="kind-${i}">${SECRET_KINDS.map(([v,l])=>`<option value="${v}" ${v===h.vaultKind?'selected':''}>${l}</option>`).join('')}</select></label>
+   <p class="vault-field-error" id="secret-row-${i}-e"></p></div>`).join('');
+ const asIs=paste?['Paste as is','It goes to the model and stays in the transcript']:['Send as is','It goes to the model and stays in the transcript'];
+ const back=paste?['Cancel','Nothing is pasted']:['Edit','Back to the message. Nothing is sent'];
+ sh.innerHTML=`<h2>That looks like a secret</h2>
+  <p class="secret-what" id="secret-what">${esc(secretWhat(hits))}</p>
+  ${ready?`<p class="sheet-help secret-help">${paste?`Store ${it} in the Vault and the message gets a placeholder that agents use instead.`:`Store ${it} in the Vault and send the message with a placeholder that agents use instead.`}</p>
+   <form class="project-form vault-form secret-form" autocomplete="off" novalidate>${rows}
+    <p class="vault-hint" id="secret-name-hint">Lowercase letters, numbers and hyphens. Agents use this name.</p>
+    <p class="vault-form-error" role="alert"></p>
+    <button class="primary" type="submit">${paste?'Store in the Vault':'Store and send'}</button></form>`
+  :`<p class="sheet-help secret-help">${paste?'Pasting it sends it to the model and keeps it in the transcript.':'Sending it gives it to the model and keeps it in the transcript.'}</p>
+   ${SECRET_HINT[vault.state]?`<p class="secret-hint">${esc(SECRET_HINT[vault.state])}</p>`:''}`}
+  <div class="opt-group secret-alt"><button class="opt" type="button" data-as-is>${paste?IC.doc:IC.up}<span>${asIs[0]}<span class="sub">${asIs[1]}</span></span></button>
+   <button class="opt" type="button" data-back>${paste?IC.x:IC.pen}<span>${back[0]}<span class="sub">${back[1]}</span></span></button></div>`;
+ let decided=false,held=text;
+ onSheetGone(sh,()=>{held=null;}); // closed any way at all: the text goes with the sheet
+ const close=secretMount(scrim,sh,trigger);
+ const finish=fn=>{if(decided)return;decided=true;const t=held;held=null;close();fn(t);};
+ sh.querySelector('[data-as-is]').onclick=()=>finish(t=>onAsIs(t));
+ sh.querySelector('[data-back]').onclick=()=>finish(()=>{});
+ const form=sh.querySelector('form');if(!form)return;
+ const err=form.querySelector('.vault-form-error'),btn=form.querySelector('.primary'),stored=new Map(); // row -> stored name
+ form.addEventListener('input',e=>{const el=e.target;if(el.matches('.vault-name-input')){const v=el.value.toLowerCase().replace(/[\s_]/g,'-');if(v!==el.value){const p=el.selectionStart;el.value=v;el.setSelectionRange(p,p);}el.removeAttribute('aria-invalid');el.closest('.secret-row').querySelector('.vault-field-error').textContent='';err.textContent='';}});
+ const rowFail=(i,msg)=>{const row=form.querySelector(`[data-row="${i}"]`),el=row.querySelector('input');row.querySelector('.vault-field-error').textContent=msg;el.setAttribute('aria-invalid','true');el.focus();};
+ form.onsubmit=async e=>{
+  e.preventDefault();if(btn.disabled||decided||held==null)return;err.textContent='';
+  const picks=hits.map((h,i)=>({i,name:form.elements['name-'+i].value.trim(),kind:form.elements['kind-'+i].value}));
+  const seen=new Set();
+  for(const p of picks){if(stored.has(p.i))continue;
+   if(!VAULT_NAME_RE.test(p.name))return rowFail(p.i,'Use 1 to 64 lowercase letters, numbers or hyphens.');
+   if((vault.names||[]).includes(p.name)||seen.has(p.name)||[...stored.values()].includes(p.name))return rowFail(p.i,`The Vault already has ${p.name}. Choose another name.`);
+   seen.add(p.name);}
+  btn.disabled=true;
+  try{
+   for(const p of picks){
+    if(stored.has(p.i))continue;
+    const value=held.slice(hits[p.i].start,hits[p.i].end);
+    let r;
+    try{r=await api('/vault/act',{method:'POST',body:JSON.stringify({action:'add',name:p.name,kind:p.kind,values:p.kind==='note'?{text:value}:{value}}),cache:'no-store'});}
+    catch(e2){
+     if(e2.message==='login')return;
+     if(vaultLockedError(e2)){err.textContent='The Vault locked before this was stored. Unlock it, then try again, or choose another option.';return;}
+     return rowFail(p.i,e2.message||'Could not store this.');
+    }
+    stored.set(p.i,r.item?.name||p.name);mergeVaultItem(r.item);
+    const row=form.querySelector(`[data-row="${p.i}"]`);row.classList.add('stored');row.querySelector('.secret-row-head')?.insertAdjacentHTML('beforeend',' <span class="secret-stored">· Stored</span>');row.querySelectorAll('input,select').forEach(el=>{el.disabled=true;});
+   }
+   repaintVault();
+   const final=hits.map((_,i)=>stored.get(i)),replaced=PocketSecrets.replaceSpans(held,hits,final);
+   finish(()=>onStore(replaced));
+   toast('Stored in the Vault as '+secretList(final)+(paste?'; the message has a placeholder':'; sending the message with a placeholder'));
+  }finally{if(btn.isConnected)btn.disabled=false;}
+ };
+}
+// Put text into a box at the selection it had when the paste was held. A box that was re-rendered meanwhile (the
+// composer redraws when a turn starts or ends) is found again by id; a box that is gone gets nothing.
+function secretInsert(el,sel,str){
+ const live=el?.isConnected?el:el?.id?document.getElementById(el.id):null;
+ if(!live||live.readOnly||live.disabled){toast('The message box closed, so nothing was pasted.');return;}
+ const n=live.value.length,[s,e]=live===el?[Math.min(sel[0],n),Math.min(sel[1],n)]:[live.selectionStart??n,live.selectionEnd??n];
+ live.focus({preventScroll:true});live.setSelectionRange(s,e);
+ // insertText keeps the browser's undo history; setRangeText is the fallback.
+ if(!document.execCommand?.('insertText',false,str)){live.setRangeText(str,s,e,'end');live.dispatchEvent(new Event('input',{bubbles:true}));}
+}
+const SECRET_BOXES='#box,#first,.queue-editor';
+// A paste or a text drop into a message box. Returns true when the text was held (the event is cancelled).
+function secretGuardInput(event,text){
+ const el=event.target;
+ if(!secretsOn()||!el?.matches?.(SECRET_BOXES)||el.readOnly||el.disabled||!text)return false;
+ const hits=PocketSecrets.scan(text,{mode:'paste'});if(!hits.length)return false;
+ event.preventDefault();
+ const sel=[el.selectionStart??el.value.length,el.selectionEnd??el.value.length];
+ openSecretSheet({mode:'paste',text,hits,trigger:el,onAsIs:t=>secretInsert(el,sel,t),onStore:t=>secretInsert(el,sel,t)});
+ return true;
+}
+let secretDragInside=false; // moving text within a box is not a new paste
+document.addEventListener('dragstart',e=>{secretDragInside=Boolean(e.target?.matches?.(SECRET_BOXES));});
+document.addEventListener('dragend',()=>{secretDragInside=false;});
+document.addEventListener('drop',e=>{
+ if(secretDragInside||!e.target?.matches?.(SECRET_BOXES)||e.dataTransfer?.files?.length)return;
+ secretGuardInput(e,e.dataTransfer?.getData('text/plain')||'');
+});
+/* Before a send. matches: the server's 422 spans for text; without them the text is scanned here (when the guard is on).
+   Returns true when the send is held: the sheet is open and onAsIs / onStore decide what is sent. */
+function secretHold(text,{matches=null,trigger=null,onAsIs,onStore}={}){
+ let hits=matches?secretHits(text,matches):null;
+ if(!hits||!hits.length){if(!window.PocketSecrets||(!matches&&!secretsOn()))return false;hits=PocketSecrets.scan(text,{mode:'message'});}
+ if(!hits.length&&!matches)return false; // a 422 whose spans do not fit this text still opens the sheet, without Store
+ openSecretSheet({mode:'send',text,hits,trigger,onAsIs,onStore});
+ return true;
+}

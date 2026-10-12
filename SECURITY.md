@@ -93,6 +93,12 @@ folders it created (marked `.pocket-managed`). Set `POCKET_SKILLS=0` to stop it.
 
 ### Vault
 
+**Secret guard (1.42).** Pasted or typed text that looks like a credential is held in the browser until the owner
+stores it in the Vault, pastes it anyway or cancels, and the server refuses such a message unless it is sent anyway.
+It reduces the chance of a secret reaching the model provider, the transcript or MemStem; it is pattern-based and
+cannot catch every secret.
+
+
 The Vault (1.39) keeps credentials so that agents can use them without the values reaching
 the model provider, transcripts, turn logs, Pocket's search, MemStem or backups. It is off
 until the owner switches it on, and it can only be switched on while `POCKET_VAULT_KEY` is set.
