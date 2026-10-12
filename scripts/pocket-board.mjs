@@ -26,7 +26,9 @@ const fileEnv = {};
 try { for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) { const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line); if (m && !m[1].startsWith('#')) fileEnv[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2'); } } catch { }
 const env = k => process.env[k] ?? fileEnv[k];
 const dataDir = env('POCKET_DATA_DIR') || root;
-const base = env('POCKET_URL') || `http://127.0.0.1:${Number(env('PORT')) || 3610}`;
+// The daemon writes its address to <data dir>/cli-url at start (1.43.1). Read that first, then this checkout's .env, and only
+// then an inherited PORT: an app the agent is working on may export PORT, and the CLI token must never go to it.
+const base = (() => { if (env('POCKET_URL')) return env('POCKET_URL'); try { const u = fs.readFileSync(path.join(dataDir, 'cli-url'), 'utf8').trim(); if (/^http:\/\/127\.0\.0\.1:\d+$/.test(u)) return u; } catch { } return `http://127.0.0.1:${Number(fileEnv.PORT) || Number(process.env.PORT) || 3610}`; })();
 
 const argv = process.argv.slice(2);
 const opts = { _: [] };

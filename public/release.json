@@ -1,7 +1,7 @@
 {
-  "version": "1.43.0",
-  "assetV": 91,
+  "version": "1.43.1",
+  "assetV": 92,
   "notes": [
-    "Typed by Pocket: an agent can log into a web page with a stored password through the browser tools without the password ever entering the conversation."
+    "Pocket's command-line tools and the browser relay find the daemon through the data directory, so a PORT exported by another app can no longer misdirect them."
   ]
 }

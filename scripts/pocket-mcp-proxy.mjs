@@ -23,7 +23,9 @@ const fileEnv = {};
 try { for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) { const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line); if (m && !m[1].startsWith('#')) fileEnv[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2'); } } catch { }
 const env = k => process.env[k] ?? fileEnv[k];
 const dataDir = env('POCKET_DATA_DIR') || root;
-const base = env('POCKET_URL') || `http://127.0.0.1:${Number(env('PORT')) || 3610}`;
+// The daemon writes its address to <data dir>/cli-url at start (1.43.1). Read that first, then this checkout's .env, and only
+// then an inherited PORT: an app the agent is working on may export PORT, and the CLI token must never go to it.
+const base = (() => { if (env('POCKET_URL')) return env('POCKET_URL'); try { const u = fs.readFileSync(path.join(dataDir, 'cli-url'), 'utf8').trim(); if (/^http:\/\/127\.0\.0\.1:\d+$/.test(u)) return u; } catch { } return `http://127.0.0.1:${Number(fileEnv.PORT) || Number(process.env.PORT) || 3610}`; })();
 const WAIT = Math.max(1, Number(process.env.POCKET_VAULT_FILL_WAIT) || 90);
 
 const argv = process.argv.slice(2), dash = argv.indexOf('--');
@@ -54,11 +56,20 @@ function headers() {
   return { authorization: 'Bearer ' + token, 'content-type': 'application/json', ...(process.env.POCKET_RUNNER_TOKEN ? { 'x-pocket-runner': process.env.POCKET_RUNNER_TOKEN } : {}) };
 }
 const pendingByRefs = new Map(); // a call that named the same refs again continues the request the owner was asked about
-async function release(refs, tool) {
+async function release(refs, tool, retried = false) {
   const key = tool + '\u0000' + refs.join('\u0000'), request = pendingByRefs.get(key);
-  let r, data;
-  try { r = await fetch(base + '/api/vault/release', { method: 'POST', headers: headers(), body: JSON.stringify(request ? { request, wait: WAIT } : { refs, server: serverName, tool, cwd: process.cwd(), wait: WAIT }) }); data = await r.json().catch(() => ({})); }
+  let r, data, raw = '';
+  try {
+    r = await fetch(base + '/api/vault/release', { method: 'POST', headers: headers(), body: JSON.stringify(request ? { request, wait: WAIT } : { refs, server: serverName, tool, cwd: process.cwd(), wait: WAIT }) });
+    raw = await r.text(); try { data = JSON.parse(raw); } catch { data = null; }
+  }
   catch (e) { return { error: `Pocket Code is not reachable, so the Vault could not fill ${refs.join(', ')}: ${e.cause?.code || e.message}` }; }
+  // An answer that is not the Vault's JSON (seen once, right after a daemon restart): note its shape, never its body, and try once more.
+  if (!data || typeof data !== 'object' || (r.ok && !('ok' in data) && !('pending' in data) && !('error' in data))) {
+    process.stderr.write(`pocket-mcp-proxy: unexpected answer from ${base}/api/vault/release: ${r.status} ${r.headers.get('content-type') || '-'} ${raw.length} bytes${retried ? '' : '; retrying once'}\n`);
+    if (!retried) { await new Promise(res => setTimeout(res, 1500)); return release(refs, tool, true); }
+    data = data && typeof data === 'object' ? data : {};
+  }
   if (r.status === 404 && request) { pendingByRefs.delete(key); return release(refs, tool); } // the request expired: ask again
   if (data.pending) { pendingByRefs.set(key, data.request); return { error: `The Vault is asking the owner to allow filling ${(data.items || refs).join(', ')} into ${tool} (request ${data.request}). Tell the owner, and call this tool again with the same arguments once they allow it.` }; }
   pendingByRefs.delete(key);

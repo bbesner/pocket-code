@@ -26,3 +26,10 @@ usage-state.json*
 codex-usage-state.json*
 turnlogs-codex/
 __pycache__/
+
+# Daemon runtime: loopback CLI token and address (1.43.1), the Vault's encrypted store and audit log
+cli-token
+cli-url
+vault.enc
+vault.enc.tmp
+vault-audit.jsonl

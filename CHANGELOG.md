@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.43.1] — 2026-10-12 · build 92
+
+- **Pocket's command-line tools can no longer be pointed at the wrong server by an inherited `PORT`.** `pocket-vault`, `pocket-board`, `pocket-docs`, `pocket-tasks` and the browser relay used to find the daemon from the `PORT` in their environment before Pocket's own `.env`. An agent working in a project that exports `PORT` (a dev server, say) would have sent Pocket's loopback access token to that app instead. The daemon now writes its address to `cli-url` in the data directory beside `cli-token` (mode `0600`), and the tools read it first, then this checkout's `.env`, and only then an inherited `PORT`. Found while testing Typed by Pocket live.
+- **The browser relay retries once** if the answer to a fill is not the Vault's, and notes its status and type (never its body) on its own error output.
+- `cli-token`, `cli-url`, `vault.enc` and `vault-audit.jsonl` are now in `.gitignore`, since the default data directory is the checkout.
+
 ## [1.43.0] — 2026-10-12 · build 91
 
 - **Typed by Pocket: agents log into web pages without seeing the password.** `scripts/pocket-mcp-proxy.mjs` sits between an agent and a browser tool such as Playwright MCP. When a tool call names `{{vault:ovrc-brad.password}}` (or any `{{vault:name}}` / `{{vault:name.field}}`), the relay gets the value from the Vault under your Agent access setting, types it into the call on its way to the browser, and replaces it with the placeholder in everything the tool sends back: its reply, page snapshots and logs. The model's tool call and the transcript only ever hold the placeholder. A call with no placeholder passes through untouched. Requested by Brad.
