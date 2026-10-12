@@ -498,6 +498,12 @@ from a terminal or code-server session on the server follows the same policy and
 `terminal`. Under Codex's Review mode the agent's sandbox cannot reach Pocket's server, so
 `pocket-vault run` works only under Full access there.
 
+**Logging into web pages (1.43).** With the browser tools routed through Pocket's relay (see
+[Operations](operations.md)), an agent types `{{vault:ovrc-brad.password}}` where a password goes, and
+Pocket fills the real value on its way to the browser and removes it from everything that comes back,
+so a login works without the password entering the conversation. The same Agent access rules and
+approvals apply, and each fill shows in the item's history.
+
 **History.** Every run, request, answer, view of a value, addition, change, removal, restore
 and key rotation is recorded with the session and the command, never with a value. An item's
 sheet shows its history and its saved recipes, which you can remove.

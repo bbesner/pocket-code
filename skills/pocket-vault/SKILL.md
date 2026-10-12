@@ -94,6 +94,24 @@ pocket-vault run --env SSH_KEY=deploy-key.text -- sh -c 'umask 077; f=$(mktemp);
 - `{{vault:name}}` in the output means the command printed the value. Do not try to recover
   it; if the output was meant to contain it, tell the user.
 
+## Typing a secret into a web page (1.43)
+
+With the Playwright browser tools, never type a password yourself. Put the placeholder where
+the text goes, and Pocket types the real value on its way to the browser:
+
+```
+browser_type      text: {{vault:ovrc-brad.password}}
+browser_fill_form value: {{vault:ups-developer-account.username}}
+```
+
+Use `name.field` for a login (`.username`, `.password`) or any item with more than one field.
+The tool's reply, page snapshots and logs come back with the value replaced by the placeholder.
+If the reply says the Vault is asking the owner, tell them in one line and call the same tool
+again with the same arguments once they allow it. Never read a filled value back out of the
+page (no `browser_evaluate` on the field, no screenshot meant to show it). This only works when
+the browser tool runs through Pocket's relay (`pocket-mcp-proxy`); if the placeholder comes back
+literally typed into the page, the relay is not in place: stop and tell the owner.
+
 ## Pending, refused and off
 
 How freely you may use secrets is the owner's choice. **Agent access** in Settings applies

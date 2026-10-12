@@ -2710,6 +2710,47 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
   end();
 }
 app.post('/api/vault/run', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (req, res) => vaultRun(req, res, { ...(req.body || {}) }));
+// 1.43: Typed by Pocket. pocket-mcp-proxy sits between an agent and a browser tool (Playwright MCP); when a tool call
+// names {{vault:name.field}}, it asks here for the values, under the same Agent access policy and approval flow as a
+// run (the "command" is pocket-fill <server> <tool> in the proxy's folder), types them into the tool call on its way to
+// the browser, and scrubs them from everything the tool sends back. The model and the transcript only ever hold the
+// placeholder. Answers {ok, values}, {pending, request} (the proxy retries with `request`) or {denied}.
+app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, async (req, res) => {
+  const c = vaultCaller(req), b = req.body || {};
+  const name = v => /^[\w.-]{1,64}$/.test(String(v || '')) ? String(v) : null;
+  try {
+    let reqRow = null, bound, cmd, refs;
+    if (b.request) {
+      reqRow = vault.requests.get(String(b.request));
+      if (!reqRow) return res.status(404).json({ error: 'That request does not exist or has expired.' });
+      if (reqRow.consumed) return res.status(409).json({ error: 'That request was already used.' });
+      refs = Object.keys(reqRow.env).sort((x, y) => Number(x.slice(1)) - Number(y.slice(1))).map(k => reqRow.env[k]);
+      bound = vault.resolveBindings(reqRow.env); cmd = { argv: reqRow.argv, cwd: reqRow.cwd };
+    } else {
+      refs = Array.isArray(b.refs) ? b.refs.map(String).slice(0, 32) : [];
+      const server = name(b.server), tool = name(b.tool);
+      if (!refs.length || !server || !tool) return res.status(400).json({ error: 'Give refs, server and tool.' });
+      const env = Object.fromEntries(refs.map((r, i) => ['V' + i, r]));
+      bound = vault.resolveBindings(env); cmd = vault.checkCommand(['pocket-fill', server, tool], b.cwd || HOME);
+      const need = vault.decide(bound, cmd);
+      if (need.length) {
+        reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor });
+        const devices = await pushRaw('Vault request', `${reqRow.itemNames.join(', ')}: fill into ${tool}?`, { tag: 'vault:' + reqRow.id, url: '/#/vault/requests', vaultRequest: reqRow.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
+        log(`vault fill request=${reqRow.id} items=${reqRow.itemNames.join(',')} tool=${tool} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
+      }
+    }
+    if (reqRow) {
+      const answered = await vault.waitAnswer(reqRow.id, Math.min(VAULT_LIMITS.waitMax, Math.max(1, Number(b.wait) || 90)) * 1000);
+      if (!answered) return res.json({ pending: true, request: reqRow.id, items: reqRow.itemNames });
+      if (answered.answer.decision === 'deny' || answered.answer.decision === 'expired') return res.status(403).json({ denied: true, error: answered.answer.decision === 'deny' ? 'The owner did not allow this fill.' : 'The request expired before the owner answered.' });
+      reqRow.consumed = true;
+    }
+    const secrets = vault.release(bound, cmd, { session: c.session, sessionTitle: c.sessionTitle, by: c.actor, request: reqRow?.id || null, action: 'fill' });
+    const values = {}; refs.forEach((r, i) => { values[r] = secrets['V' + i]; });
+    log(`vault fill tool=${cmd.argv[2]} items=${[...new Set(bound.map(x => x.item.name))].join(',')} by ${c.actor}${c.session ? ' session=' + c.session : ''}`);
+    res.json({ ok: true, values });
+  } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) }); }
+});
 app.post('/api/vault/wait', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (req, res) => vaultRun(req, res, { request: String(req.body?.request || ''), wait: req.body?.wait }));
 
 // ---------- 1.30: documents routes ----------
@@ -2850,7 +2891,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["A key or password pasted or typed into a message is held before it is sent, with one tap to store it in the Vault and send a placeholder instead."];
+const RELEASE_NOTES = ["Typed by Pocket: an agent can log into a web page with a stored password through the browser tools without the password ever entering the conversation."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

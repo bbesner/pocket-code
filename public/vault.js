@@ -51,7 +51,8 @@ const vaultHost=u=>{try{const x=new URL(u);return /^https?:$/.test(x.protocol)?x
 const vaultSafeUrl=u=>vaultHost(u)?u:''; // only http(s) becomes a link; anything else (javascript:, data:) stays text
 const vaultDate=iso=>{const d=new Date(iso);return d.toLocaleDateString('en-US',{month:'short',day:'numeric',...(d.getFullYear()===new Date().getFullYear()?{}:{year:'numeric'})});};
 const vaultExpired=i=>Boolean(i.expiresAt)&&Date.parse(i.expiresAt)<=Date.now();
-const vaultCmd=argv=>Array.isArray(argv)?argv.join(' '):String(argv||'');
+// 1.43: a browser fill by pocket-mcp-proxy is recorded as pocket-fill <server> <tool>; say it in words.
+const vaultCmd=argv=>Array.isArray(argv)?(argv[0]==='pocket-fill'&&argv.length===3?`Fill into the ${argv[1]} tool (${argv[2]})`:argv.join(' ')):String(argv||'');
 // A run can bind several secrets: the server lists them as itemNames (itemName is accepted too).
 const vaultRequestNames=r=>Array.isArray(r.itemNames)&&r.itemNames.length?r.itemNames.join(', '):r.itemName||'';
 const vaultRequests=()=>(vaultSnap?.requests||[]).filter(r=>!r.answer&&!(r.expiresAt&&Date.parse(r.expiresAt)<=Date.now()));
@@ -237,7 +238,7 @@ async function vaultCopy(text,btn,what){
 }
 function vaultHistoryLine(row){
  const by=row.by==='owner'?'by you':row.by==='terminal'?'from a terminal':'by an agent';
- const what={run:'Run '+by,'run-denied':'Run refused, '+by.replace(/^by /,'asked by '),request:'Asked to run '+by,'request-answered':row.decision==='deny'?'Request denied by you':row.decision==='always'?'Always allowed by you':row.decision==='once'?'Allowed once by you':'Request answered by you',
+ const what={run:'Run '+by,fill:'Filled into a browser '+by,'run-denied':'Run refused, '+by.replace(/^by /,'asked by '),request:'Asked to run '+by,'request-answered':row.decision==='deny'?'Request denied by you':row.decision==='always'?'Always allowed by you':row.decision==='once'?'Allowed once by you':'Request answered by you',
   'owner-view':'Viewed by you',put:'Stored '+by,update:row.decision==='recipe-removed'?'Approved command removed '+by:'Changed '+by,remove:'Removed '+by,restore:'Restored '+by,rotate:'Key rotated by you'}[row.action]||row.action;
  const parts=[what,row.session?(row.sessionTitle||(typeof sessionName==='function'?sessionName(row.session):'')):'',row.at?rel(vaultTime(row.at)):''].filter(Boolean);
  const cmd=row.argv&&row.argv.length?vaultCmd(row.argv):'';
