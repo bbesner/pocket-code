@@ -222,8 +222,11 @@ binary, or turn one off with an empty value. Without a tool, that kind of file s
 name on the card instead.
 
 **Trash.** Removing a file moves it to `.trash/` in the documents folder. The daemon
-purges files trashed more than 30 days ago, checking every six hours. Restore a file
-before then from the Files library.
+purges files trashed more than 30 days ago, checking a minute after start and then every six
+hours. Restore a file before then from the Files library, or free the space now with
+**Delete forever** or **Empty trash** there (1.45; owner only, the CLI token is refused).
+Deleting a file, by hand or by the purge, also removes its `.thumbs/` pictures, and each
+purge removes any picture whose file is gone.
 
 **Agent skills.** While a library is on, Pocket installs its matching skill
 (`pocket-projects`, `pocket-files`, `pocket-tasks`, `pocket-vault`) into `~/.claude/skills`, or

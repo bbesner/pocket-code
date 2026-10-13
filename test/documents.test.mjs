@@ -57,6 +57,33 @@ test('DocumentStore: adopt, add, share, revoke, trash, restore, purge and import
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+test('DocumentStore 1.45: bulk trash and restore, Delete forever, Empty trash, and thumbnails go with their files',()=>{
+  const dir=tmp(),docsDir=path.join(dir,'documents'),thumbs=path.join(docsDir,'.thumbs');let clock=Date.parse('2026-10-13T12:00:00Z');
+  const s=new DocumentStore(docsDir,path.join(dir,'documents.json'),{now:()=>clock});
+  const [a,b,c]=['a.md','b.md','c.md'].map(n=>s.addFromBuffer(n,Buffer.from('# '+n)));
+  fs.mkdirSync(thumbs,{recursive:true});for(const d of [a,b,c])fs.writeFileSync(path.join(thumbs,`${d.id}-9-1.jpg`),'x');
+  fs.writeFileSync(path.join(thumbs,'0123456789ab-1-1.jpg'),'orphan');fs.writeFileSync(path.join(thumbs,'notes.txt'),'not a thumbnail');
+  assert.throws(()=>s.bulk('shred',[a.id]),/trash, restore or delete/);assert.throws(()=>s.bulk('trash',[]),/Choose/);assert.throws(()=>s.bulk('trash','x'),/Choose/);
+  let r=s.bulk('trash',[a.id,b.id,a.id,'nope']);
+  assert.deepEqual(r.done.map(d=>d.id).sort(),[a.id,b.id].sort());assert.deepEqual(r.failed,[{id:'nope',error:'That file does not exist.'}]);
+  assert.ok(r.done.every(d=>d.trashedAt));assert.equal(s.list({trashed:true}).length,2);
+  assert.equal(new DocumentStore(docsDir,path.join(dir,'documents.json')).documents.filter(d=>d.trashedAt).length,2,'one save covers the batch');
+  assert.throws(()=>s.destroy(c.id),e=>e.status===409,'only a file in the trash can be deleted');
+  r=s.bulk('delete',[a.id,c.id]);assert.deepEqual(r.done,[{id:a.id,file:'a.md',deleted:true}]);assert.equal(r.failed[0].id,c.id);
+  assert.equal(fs.existsSync(path.join(docsDir,'.trash',a.id+'-a.md')),false,'the file is gone at once');assert.throws(()=>s.get(a.id),/does not exist/);
+  assert.deepEqual(fs.readdirSync(thumbs).sort(),[`${b.id}-9-1.jpg`,`${c.id}-9-1.jpg`,'notes.txt'].sort(),'its thumbnail and the orphan went; others stay');
+  r=s.bulk('restore',[b.id]);assert.equal(r.done[0].trashedAt,null);assert.ok(fs.existsSync(path.join(docsDir,'b.md')));
+  s.bulk('trash',[b.id,c.id]);r=s.emptyTrash();assert.deepEqual(r.done.sort(),[b.id,c.id].sort());assert.deepEqual(r.failed,[]);
+  assert.equal(s.documents.length,0);assert.deepEqual(fs.readdirSync(path.join(docsDir,'.trash')),[]);assert.deepEqual(fs.readdirSync(thumbs),['notes.txt']);
+  assert.deepEqual(s.emptyTrash(),{done:[],failed:[]});
+  assert.equal(s.list().length,0,'deleted files are not adopted back from the folder');
+  // The 30-day purge also takes thumbnails, and clears orphans even when nothing is due.
+  const d=s.addFromBuffer('d.md',Buffer.from('# d'));fs.writeFileSync(path.join(thumbs,`${d.id}-3-1.jpg`),'x');fs.writeFileSync(path.join(thumbs,'ba9876543210-1-1.png'),'orphan');
+  assert.deepEqual(s.purge(),[]);assert.deepEqual(fs.readdirSync(thumbs).sort(),[`${d.id}-3-1.jpg`,'notes.txt'].sort());
+  s.trash(d.id);assert.deepEqual(s.purge(clock+31*86400000),[d.id]);assert.deepEqual(fs.readdirSync(thumbs),['notes.txt']);
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
 test('HTTP: documents are off until Settings turns them on; raw is sandboxed; public and share paths serve only what they should; keep, import, the agent line and the CLI',async t=>{
   const dir=tmp();let port=19011;
   const secret=randomUUID(),exp=Date.now()+3600000;
@@ -126,6 +153,21 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   assert.ok((await call('/api/documents/'+sheet.id,{action:'trash'})).body.trashedAt);lib=await call('/api/documents');assert.equal(lib.body.trash.length,1);assert.equal(lib.body.documents.some(d=>d.id===sheet.id),false);
   assert.equal((await raw('/api/documents/'+sheet.id+'/raw',{cookie:'pc_auth='+cookie})).status,404);
   assert.equal((await call('/api/documents/'+sheet.id,{action:'restore'})).body.trashedAt,null);
+  // 1.45: several at once, Delete forever and Empty trash: the owner's cookie from Pocket's origin only; never the CLI token.
+  const tmpA=await fetch(base()+'/api/documents',{method:'POST',headers:{cookie:'pc_auth='+cookie,'x-filename':'scratch-a.md'},body:'# A'}).then(r=>r.json());
+  const tmpB=await fetch(base()+'/api/documents',{method:'POST',headers:{cookie:'pc_auth='+cookie,'x-filename':'scratch-b.md'},body:'# B'}).then(r=>r.json());
+  assert.equal((await call('/api/documents/bulk',{action:'trash',ids:[tmpA.id]},bearer)).status,401,'the CLI token cannot bulk-remove');
+  assert.equal((await call('/api/documents/bulk',{action:'trash',ids:[tmpA.id]},{...headers,origin:'https://evil.example'})).status,403,'cross-origin refused');
+  assert.equal((await call('/api/documents/bulk',{action:'trash',ids:[]})).status,400);
+  let bulk=await call('/api/documents/bulk',{action:'trash',ids:[tmpA.id,tmpB.id]},{...headers,origin:base()});
+  assert.equal(bulk.status,200,JSON.stringify(bulk.body));assert.equal(bulk.body.done.length,2);assert.equal((await call('/api/documents')).body.trash.length,2);
+  assert.equal((await call('/api/documents/bulk',{action:'delete',ids:[tmpA.id]},bearer)).status,401,'an agent cannot delete');
+  assert.equal((await call('/api/documents/'+tmpA.id,{action:'delete'},bearer)).status,403,'the per-file route has no delete');
+  assert.equal((await call('/api/documents/trash/empty',{},bearer)).status,401,'nor empty the trash');
+  bulk=await call('/api/documents/bulk',{action:'delete',ids:[tmpA.id]});assert.deepEqual(bulk.body.done.map(d=>d.id),[tmpA.id]);
+  assert.equal(fs.readdirSync(path.join(docsDir,'.trash')).some(f=>f.includes(tmpA.id)),false,'the file left the server');
+  const empty=await call('/api/documents/trash/empty',{});assert.deepEqual(empty.body,{done:[tmpB.id],failed:[]});assert.equal((await call('/api/documents')).body.trash.length,0);
+  assert.match(logs,/documents trash emptied: 1 deleted/);
   assert.equal((await call('/api/documents?project=warehouse-stock-report')).body.documents.length,2);assert.equal((await call('/api/documents?q=quarterly')).body.documents.length,2);
   // Import of Mission Control's metadata.
   fs.writeFileSync(path.join(docsDir,'old-public.html'),'<title>Old public</title>');fs.writeFileSync(path.join(docsDir,'old-staff.html'),'<title>Old staff</title>');

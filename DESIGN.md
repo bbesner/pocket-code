@@ -8,6 +8,23 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Files: select and delete (1.45)
+
+Pinned Operate refinement: variance 3, motion 2, density 6; existing tokens, no new colour.
+Read: cleanup, not a file manager. **Select** is a chip beside Upload (the task-square icon);
+pressed it reads **Done** in the pressed-filter clay state and Upload steps aside. In select
+mode a row or card is a `<label>` for its 20px clay checkbox, with no link or options, so a
+tap anywhere picks it: a picked row takes `--raised`, a picked card the `--clay` border, and
+a card's checkbox sits on the picture in the same 40px translucent chip as its actions. A
+bar sticks to the foot of the library (`--surface`, `--line` top hairline): the count as
+status text, then *Select all N* / *Clear* and **Remove N** chips. The selection never
+outlives what is shown. The Trash is a disclosure with ▸/▾ like the ledgers; each row has
+*Restore* and the options button, whose sheet adds **Delete forever**. **Empty trash** sits
+beside the Trash's help line. Delete forever and Empty trash are the only `--err` controls,
+the saved-prompt *Delete for good* precedent, and each confirms once in the existing sheet.
+Rendered checks: select mode in the list at 1440 and 390 (no horizontal overflow) and in the
+grid, the open Trash; axe clean on each; the detector reports only the app-shell baseline.
+
 ## Vault (1.39)
 
 Pinned Operate refinement: variance 3, motion 1, density 6; existing tokens, no new colour.

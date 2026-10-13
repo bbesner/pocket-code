@@ -1,7 +1,7 @@
 {
-  "version": "1.44.2",
-  "assetV": 95,
+  "version": "1.45.0",
+  "assetV": 96,
   "notes": [
-    "Vault: Show in Edit now loads a saved value so you can correct it in place, a value's line breaks show on the item, and an edit's history names the fields it changed."
+    "Files: Select picks several files to remove in one step, and the Trash's Delete forever and Empty trash delete files from the server now, previews included."
   ]
 }

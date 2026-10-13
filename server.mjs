@@ -206,7 +206,9 @@ const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 const DOCS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-docs.mjs');
 const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Files is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'documents_off' });
-setInterval(() => { try { const gone = docs.purge(); if (gone.length) log(`documents purged from trash: ${gone.length}`); } catch (e) { log('documents purge: ' + e.message); } }, 6 * 3600_000).unref();
+const purgeDocs = () => { try { const gone = docs.purge(); if (gone.length) log(`documents purged from trash: ${gone.length}`); } catch (e) { log('documents purge: ' + e.message); } };
+setInterval(purgeDocs, 6 * 3600_000).unref();
+setTimeout(purgeDocs, 60_000).unref(); // 1.45: also a minute after start, so a restart does not wait six hours (it clears orphaned thumbnails too)
 // ---------- 1.36: tasks ----------
 // To-dos (tasks.mjs): <data dir>/tasks.json. Off until Settings → Projects, files, tasks & vault turns it on. The same loopback
 // token serves pocket-tasks on /api/tasks* only; a dated task is announced once when due, like a project reminder.
@@ -2882,8 +2884,22 @@ app.get('/api/documents/:id/thumb', requireAuth, docsOn, async (req, res) => {
   res.setHeader('Cache-Control', 'private, max-age=86400'); res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Content-Security-Policy', "default-src 'none'");
   res.type(t.type); res.sendFile(t.path, { dotfiles: 'allow', headers: { 'Content-Type': t.type } }, err => { if (err && !res.headersSent) res.status(404).end(); });
 });
+// 1.45: the library's select mode (Remove or Restore several files) and the trash's Delete forever / Empty trash. Owner
+// only, from Pocket's own origin: the CLI token is refused, so an agent can still only move one file to the trash.
+app.post('/api/documents/bulk', requireAuth, sameOrigin, docsOn, (req, res) => {
+  const action = req.body?.action;
+  try {
+    const r = docs.bulk(action, req.body?.ids);
+    log(`documents ${action}: ${r.done.length} done${r.failed.length ? `, ${r.failed.length} failed` : ''}`); res.json(r);
+  } catch (e) { docError(res, e); }
+});
+app.post('/api/documents/trash/empty', requireAuth, sameOrigin, docsOn, (_req, res) => {
+  const r = docs.emptyTrash();
+  log(`documents trash emptied: ${r.done.length} deleted${r.failed.length ? `, ${r.failed.length} failed` : ''}`); res.json(r);
+});
 app.post('/api/documents/:id', requireBoardAuth, docsOn, (req, res) => {
   const action = req.body?.action;
+  if (action === 'delete') return res.status(403).json({ error: "Deleting is the owner's: Delete forever in the library's Trash." });
   try {
     const r = action === 'trash' ? docs.trash(req.params.id) : action === 'restore' ? docs.restore(req.params.id) : docs.update(req.params.id, req.body || {}, { actor: req.boardActor || 'ui' });
     log(`document ${action || 'updated'} ${req.params.id} by ${req.boardActor || 'ui'}`); res.json(r);
@@ -2946,7 +2962,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Vault: Show in Edit now loads a saved value so you can correct it in place, a value's line breaks show on the item, and an edit's history names the fields it changed."];
+const RELEASE_NOTES = ["Files: Select picks several files to remove in one step, and the Trash's Delete forever and Empty trash delete files from the server now, previews included."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

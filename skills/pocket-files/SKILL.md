@@ -83,6 +83,9 @@ pocket-docs trash <id>       # only when the user asks; restorable for 30 days
 pocket-docs restore <id>
 ```
 
+There is no delete. If the user wants a file gone for good, move it to the trash and tell them
+**Delete forever** (or **Empty trash**) is in Files' Trash; only they can do it.
+
 ## If Files is off
 
 `pocket-docs` exits with code 3 and says so. Tell the user that Files is turned off and can

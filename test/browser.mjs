@@ -202,6 +202,9 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/documents'&&req.method==='POST'){const chunks=[];for await(const c of req)chunks.push(c);try{return json(docStore.addFromBuffer(String(req.headers['x-filename']||''),Buffer.concat(chunks),{addedBy:'ui',project:String(req.headers['x-project']||'')}));}catch(e){return json({error:e.message},e.status||400);}}
   if(url.pathname==='/api/documents/keep'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw);const src=path.join(out,'kept-source.md');fs.writeFileSync(src,'# Kept from a session\n\nbody');try{return json(docStore.addFromPath(src,{session:b.session,project:b.project||'',addedBy:'session'}));}catch(e){return json({error:e.message},e.status||400);}}
   if(url.pathname==='/api/documents/reset'){seedDocs();return json({ok:true});}
+  // 1.45: select mode's Remove, Delete forever and Empty trash, on the real store.
+  if(url.pathname==='/api/documents/bulk'&&req.method==='POST'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');try{return json(docStore.bulk(b.action,b.ids));}catch(e){return json({error:e.message},e.status||400);}}
+  if(url.pathname==='/api/documents/trash/empty'&&req.method==='POST')return json(docStore.emptyTrash());
   // 1.32: a fixed picture for HTML documents, nothing for the other kinds (the card shows the kind).
   const th=/^\/api\/documents\/([0-9a-f]{12})\/thumb$/.exec(url.pathname);
   if(th){const r=docStore.documents.find(d=>d.id===th[1]);if(!r||r.kind!=='html'){res.writeHead(404);res.end();return;}res.writeHead(200,{'content-type':'image/png','cache-control':'private, max-age=86400'});res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGP4b2pqysBgamoKAB4zA9HwpVv4AAAAAElFTkSuQmCC','base64'));return;}

@@ -2009,6 +2009,57 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
    await clickControl(page,'.document-item [data-document-more]');await page.waitForSelector('.sheet [data-trash]');await clickControl(page,'.sheet [data-trash]');await page.waitForSelector('.sheet [data-yes]');await clickControl(page,'.sheet [data-yes]');
    await page.waitForSelector('details.document-group [data-restore]');await clickControl(page,'details.document-group summary');await clickControl(page,'[data-restore]');await page.waitForFunction(()=>!document.querySelector('[data-restore]'));
+   // 1.45: select several files and remove them in one step; Delete forever and Empty trash free the space now.
+   {const add=name=>page.evaluate(n=>fetch('/api/documents',{method:'POST',headers:{'x-filename':n},body:'# '+n.slice(0,-3).replace('-',' ')}).then(r=>r.json()),name);
+    const scratch=[await add('scratch-one.md'),await add('scratch-two.md'),await add('scratch-three.md')];
+    const names=()=>page.$$eval('.doc-pickable .title',els=>els.map(e=>[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim()));
+    const pickRow=title=>page.evaluate(t=>{const row=[...document.querySelectorAll('.doc-pickable')].find(r=>r.querySelector('.title,.doc-card-title').textContent.includes(t));row.querySelector('label').click();},title);
+    await page.goto(base+'/?bulk=1#/documents');await page.waitForSelector('.document-item');
+    await clickControl(page,'#doc-select');await page.waitForSelector('.doc-selectbar');
+    assert.equal(await page.$eval('#doc-select',e=>[e.getAttribute('aria-pressed'),e.textContent.trim()].join()),'true,Done');assert.equal(await page.$('#doc-upload'),null,'Upload steps aside while selecting');
+    assert.equal(await page.$('.doc-pickable a, .doc-pickable [data-document-more]'),null,'a picked row has no link or options');
+    assert.equal(await page.$eval('#doc-pick-remove',e=>e.disabled),true);assert.equal(await page.$eval('.doc-selectcount',e=>e.textContent),'Select files to remove');
+    await pickRow('scratch one');await pickRow('scratch two');
+    assert.equal(await page.$eval('.doc-selectcount',e=>e.textContent),'2 files selected');assert.equal(await page.$eval('#doc-pick-remove',e=>[e.disabled,e.textContent].join()),'false,Remove 2');
+    assert.equal(await page.$$eval('.doc-pickable.picked',els=>els.length),2);
+    await scan('documents-select-desktop');await page.screenshot({path:path.join(out,'documents-select-desktop.png')});
+    // A search keeps only the picks it shows; Select all takes what is shown.
+    await page.type('#doc-query','scratch t');await page.waitForFunction(()=>document.querySelector('.doc-selectcount')?.textContent==='1 file selected');
+    assert.deepEqual((await names()).sort(),['scratch three','scratch two']);
+    await clickControl(page,'#doc-pick-all');await page.waitForFunction(()=>document.querySelector('.doc-selectcount')?.textContent==='2 files selected');
+    assert.equal(await page.$eval('#doc-pick-all',e=>e.textContent),'Clear');
+    await clickControl(page,'#doc-pick-remove');await page.waitForSelector('.sheet [data-yes]');
+    assert.equal(await page.$eval('.sheet h2',e=>e.textContent),'Remove 2 files?');await clickControl(page,'.sheet [data-yes]');
+    await page.waitForFunction(()=>!document.querySelector('.doc-selectbar')&&/Trash 2/.test(document.querySelector('details.doc-trash summary')?.textContent||''));
+    assert.deepEqual((await page.evaluate(()=>fetch('/api/documents').then(r=>r.json()))).trash.map(d=>d.title).sort(),['scratch three','scratch two']);
+    await page.$eval('#doc-query',e=>{e.value='';e.dispatchEvent(new Event('input'));});await page.waitForFunction(()=>document.querySelectorAll('.document-group:not(.doc-trash) .document-item').length===docsSnap.documents.length&&docsSnap.documents.length>=3);
+    // Escape leaves select mode; the picks do not outlive it.
+    await clickControl(page,'#doc-select');await page.waitForSelector('.doc-selectbar');await pickRow('scratch one');await page.keyboard.press('Escape');
+    await page.waitForFunction(()=>!document.querySelector('.doc-selectbar'));assert.equal(await page.evaluate(()=>document.activeElement?.id),'doc-select');
+    // The Trash: Restore and options per row; Delete forever asks once, then the file is gone.
+    await clickControl(page,'details.doc-trash summary');await page.waitForSelector('#doc-empty-trash');
+    await page.evaluate(()=>loadDocs(true).then(paintDocumentsView));assert.equal(await page.$eval('details.doc-trash',e=>e.open),true,'a repaint keeps the Trash open');
+    await page.$eval('details.doc-trash',e=>e.scrollIntoView({block:'end'}));await scan('documents-trash-desktop');await page.screenshot({path:path.join(out,'documents-trash-desktop.png')});
+    await clickControl(page,'details.doc-trash [data-document-more]');await page.waitForSelector('.sheet [data-destroy]');
+    assert.equal(await page.$eval('.sheet [data-destroy]',e=>e.textContent.trim().startsWith('Delete forever')),true);await clickControl(page,'.sheet [data-destroy]');
+    await page.waitForFunction(()=>document.querySelector('.sheet h2')?.textContent==='Delete this file forever?');await clickControl(page,'.sheet [data-yes]');
+    await page.waitForFunction(()=>/Trash 1/.test(document.querySelector('details.doc-trash summary')?.textContent||''));
+    await clickControl(page,'#doc-empty-trash');await page.waitForFunction(()=>document.querySelector('.sheet h2')?.textContent==='Delete 1 file forever?');await clickControl(page,'.sheet [data-yes]');
+    await page.waitForFunction(()=>!document.querySelector('details.doc-trash'));
+    const after=await page.evaluate(()=>fetch('/api/documents').then(r=>r.json()));assert.equal(after.trash.length,0);assert.deepEqual(after.documents.map(d=>d.title).filter(t=>/scratch/.test(t)),['scratch one']);
+    // Grid: a card is a label too, with its checkbox on the picture.
+    await page.evaluate(()=>writeLocal('pc-documents-layout','grid'));await page.goto(base+'/?bulk=2#/documents');await page.waitForSelector('.doc-card');
+    await clickControl(page,'#doc-select');await page.waitForSelector('.doc-card .doc-card-pick');await pickRow('scratch one');
+    assert.equal(await page.$$eval('.doc-card.picked',els=>els.length),1);await scan('documents-select-grid');await page.screenshot({path:path.join(out,'documents-select-grid.png')});
+    await page.keyboard.press('Escape');await page.evaluate(()=>writeLocal('pc-documents-layout','list'));
+    // Phone: the bar fits at 390 and the trash header stacks.
+    await page.setViewport({width:390,height:844});await page.goto(base+'/?bulk=3#/documents');await page.waitForSelector('.document-item');
+    await clickControl(page,'#doc-select');await page.waitForSelector('.doc-selectbar');await pickRow('scratch one');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390 while selecting');
+    await scan('documents-select-phone');await page.screenshot({path:path.join(out,'documents-select-phone.png')});
+    await page.keyboard.press('Escape');
+    await page.evaluate(id=>fetch('/api/documents/bulk',{method:'POST',body:JSON.stringify({action:'trash',ids:[id]})}),scratch[0].id);await page.evaluate(()=>fetch('/api/documents/trash/empty',{method:'POST'}));
+    await page.setViewport({width:1440,height:900});}
    // Phone.
    await page.setViewport({width:390,height:844});
    await page.goto(base+'/?phone=2#/');await page.waitForSelector('a[href="#/documents"].chip');

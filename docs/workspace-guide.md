@@ -372,6 +372,16 @@ app); **Download** saves it. Office files and video always open that way.
 **Remove** moves a file to the trash for 30 days, where *Restore* brings it back; any link
 stops working at once.
 
+**Several at once (1.45).** **Select** beside Upload turns the library into checkboxes: tick
+files, or **Select all** for what the search and filters show, then **Remove** moves them all
+to the trash after one confirmation. A file a search or filter hides is dropped from the
+selection, so Remove only ever reaches files on screen. **Done** or Escape leaves select mode.
+
+**The trash.** Each removed file has *Restore* and, in its options, **Delete forever**;
+**Empty trash** deletes everything in it. Both ask once, then delete the file and its preview
+from the server at once and free the space; neither can be undone. Only you can do this: an
+agent's `pocket-docs` can move one file to the trash, never delete one.
+
 **The grid.** From 700px up the library is a grid of previews: a picture of each HTML
 report, PDF first page or image, with the title, kind, visibility and date under it, and Copy
 link and the options button on the picture. The List and Grid buttons above the library
