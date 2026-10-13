@@ -7,10 +7,12 @@ and Codex sessions. Desktop tabs, split conversations and workspace panels suppo
 long work sessions; phone and tablet views support the same workflows on the move. It's a thin window onto sessions that live and run on
 the server. The server owns every turn, so work continues when the phone screen goes dark.
 
-**Who it's for:** Developers who already run Claude Code or Codex on a server, and use a
-terminal, VS Code or code-server alongside Pocket. Every screen uses the same
-conversation stores; a process holding a Codex thread must release it before another
-surface can write to it.
+**Who it's for:** One operator running many agents at once. Developers, and anyone
+technical who already runs Claude Code or Codex on a Linux server and uses the agents for
+more than code (reports, email, accounting, operations). They keep a terminal, VS Code or
+code-server alongside Pocket. Every screen uses the same conversation stores; a process
+holding a Codex thread must release it before another surface can write to it. Not a
+hosted service and not a multi-user team product.
 
 **Jobs:**
 1. See recent sessions across all projects and open one.
