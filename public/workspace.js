@@ -551,3 +551,14 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
  Object.defineProperty(sh,'_settingsReturn',{get(){const key=current,top=sh.scrollTop;return()=>settingsSheet({category:key,scrollTop:top});}});
  select(category,true);requestAnimationFrame(()=>{if(sh.isConnected)sh.scrollTop=scrollTop;});
 }
+// 1.44.1: Projects, Files and Tasks catch up without a reload. A list registers its refresh here; it runs when this
+// window comes back into view or focus, and when a turn ends in any Pocket window on this device (a pane, a window of
+// its own, another tab), since an agent's pocket-board / pocket-docs / pocket-tasks change most often lands mid-turn.
+const listRefreshers=[];
+const listsChannel=typeof BroadcastChannel==='function'?new BroadcastChannel('pocket-lists'):null;
+function onListsStale(fn){listRefreshers.push(fn);}
+function refreshLists(){for(const fn of listRefreshers)try{fn();}catch{}}
+function announceListsStale(){refreshLists();try{listsChannel?.postMessage('stale');}catch{}}
+if(listsChannel)listsChannel.onmessage=()=>refreshLists();
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshLists();});
+addEventListener('focus',refreshLists);

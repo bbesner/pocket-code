@@ -322,7 +322,7 @@ function paintRailProjects(){
  el.querySelector('#rail-track')?.addEventListener('click',()=>projectEditor(null));
  el.querySelectorAll('[data-project-more]').forEach(b=>b.onclick=()=>projectOptions(b.dataset.projectMore));
  el.querySelectorAll('a[data-project]').forEach(a=>a.onclick=e=>{const id='projects/'+a.dataset.project;openViewPreferred(id,'pc-projects-open',e,Boolean(chatId)&&boardView!==id);});
- if(!boardSnap)loadBoard().then(()=>{paintRailProjects();paintProjectBadges();}).catch(()=>{const r=document.getElementById('rail');if(r&&railView()==='projects')r.innerHTML='<p class="sheet-help">Projects could not load.</p>';});else paintProjectBadges();
+ if(!boardSnap||Date.now()-boardAt>4000)loadBoard(true).then(()=>{paintRailProjects();paintProjectBadges();}).catch(()=>{const r=document.getElementById('rail');if(!boardSnap&&r&&railView()==='projects')r.innerHTML='<p class="sheet-help">Projects could not load.</p>';});else paintProjectBadges();
 }
 function paintProjectBadges(){
  const due=boardDueCount();
@@ -331,4 +331,5 @@ function paintProjectBadges(){
  document.querySelectorAll('[data-projects-home]').forEach(el=>{el.textContent='Projects'+(due?' · '+due+' due':'');el.classList.toggle('due',due>0);});
 }
 // Keep the due counts and an open view fresh without a reload; the list poll is cheap and private.
-setInterval(()=>{if(!projectsOn()||document.visibilityState!=='visible'||!(boardView||railView()==='projects'||document.querySelector('[data-projects-home]')))return;loadBoard(true).then(()=>{paintProjectsView();paintRailProjects();paintProjectBadges();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});},30000);
+function projectsTick(){if(!projectsOn()||document.visibilityState!=='visible'||!(boardView||railView()==='projects'||document.querySelector('[data-projects-home]')))return;loadBoard(true).then(()=>{paintProjectsView();paintRailProjects();paintProjectBadges();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
+setInterval(projectsTick,30000);onListsStale(projectsTick);

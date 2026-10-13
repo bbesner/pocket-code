@@ -2583,6 +2583,7 @@ function openES() {
       awaitingEngagement.add(streamId); // finished on screen: stays Response ready / New until you engage
       if (document.visibilityState === 'visible' && !Voice.replacesChime()) chime(); // not watching → push already notified; spoken alerts replace the chime
       Voice.onTurnEnd(streamId, d.ok, d.error);
+      announceListsStale(); // the agent may have added a project, file or task during the turn
       if (!d.ok && !/^Stopped/.test(String(d.error || ''))) paintTurnFailure({ error: String(d.error || '').slice(0, 300) });
       if (d.cost != null) {
         const secs = d.duration_ms ? Math.round(d.duration_ms / 1000) : null;

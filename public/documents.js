@@ -283,7 +283,7 @@ function bindProjectDocuments(main,projectId){
  if(!documentsOn())return;
  bindDocRows(main.querySelector('.project-documents')||main);
  main.querySelectorAll('[data-project-docs]').forEach(a=>a.onclick=()=>{docFilterProject=a.dataset.projectDocs;});
- if(!docsSnap)loadDocs().then(()=>{if(typeof paintProjectsView==='function')paintProjectsView();}).catch(()=>{});
+ if(!docsSnap||Date.now()-docsAt>4000)loadDocs(true).then(()=>{if(typeof paintProjectsView==='function')paintProjectsView();}).catch(()=>{}); // a card's files catch up with the library, not only on first load
 }
 function railDocumentsHTML(){
  if(!docsSnap)return '<p class="sheet-help">Loading files…</p>';
@@ -312,7 +312,8 @@ function paintRailDocuments(){
  el.querySelectorAll('[data-open-library]').forEach(b=>b.onclick=e=>{if(b.dataset.openLibrary==='beside'||plainClick(e)){e.preventDefault();openLibrary(b.dataset.openLibrary);}});
  el.querySelector('#rail-doc-query')?.addEventListener('input',e=>{railDocQuery=e.target.value;clearTimeout(docPaintT);docPaintT=setTimeout(paintRailDocuments,120);});
  bindDocRows(el);
- if(!docsSnap)loadDocs().then(paintRailDocuments).catch(()=>{const r=document.getElementById('rail');if(r&&railView()==='documents')r.innerHTML='<p class="sheet-help">Documents could not load.</p>';});
+ if(!docsSnap||Date.now()-docsAt>4000)loadDocs(true).then(paintRailDocuments).catch(()=>{const r=document.getElementById('rail');if(!docsSnap&&r&&railView()==='documents')r.innerHTML='<p class="sheet-help">Documents could not load.</p>';});
 }
 matchMedia('(min-width: 700px)').addEventListener('change',()=>{if(docView==='documents')paintDocumentsView();}); // a window dragged across the grid's width repaints
-setInterval(()=>{if(!documentsOn()||document.visibilityState!=='visible'||!(docView||railView()==='documents'))return;loadDocs(true).then(()=>{paintDocumentsView();paintRailDocuments();}).catch(()=>{});},30000);
+function docsTick(){if(!documentsOn()||document.visibilityState!=='visible'||!(docView||railView()==='documents'||boardView?.startsWith('projects/')))return;loadDocs(true).then(()=>{paintDocumentsView();paintRailDocuments();if(boardView?.startsWith('projects/')&&typeof paintProjectsView==='function')paintProjectsView();}).catch(()=>{});}
+setInterval(docsTick,30000);onListsStale(docsTick);

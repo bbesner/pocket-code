@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.44.1] — 2026-10-13 · build 94
+
+- **New projects, files and tasks show up without a reload.** Each list fetched its items once and then only on a 30-second poll while it was open, so something an agent added with `pocket-board`, `pocket-docs` or `pocket-tasks` could stay missing from the rail or a project card until the page was hard-refreshed. Now the lists refresh when the window comes back into view or focus, when a turn ends in any Pocket window on the device (a split pane, a window of its own or another tab, through a `BroadcastChannel`), and whenever the rail's Projects, Files or Tasks list is shown with data more than a few seconds old. Reported by Damon.
+- **A project card's Files section stays current.** It used the library loaded the first time and was never refreshed; it now reloads with the card and on the open card's poll.
+
 ## [1.44.0] — 2026-10-13 · build 93
 
 - **The Vault sets up its own key.** Switching the Vault on in Settings no longer needs anyone to generate a key and edit `.env` on the server: when there is no key and no store yet, Pocket creates the key, saves it to this install's `.env` (mode `0600`, the file backups already leave out), opens an empty Vault, and shows a one-time **Save your recovery key** sheet with Copy and Download. Requested by Brad, so Damon, Siri and Ramesh can turn it on themselves.
