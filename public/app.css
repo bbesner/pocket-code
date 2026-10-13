@@ -1515,3 +1515,34 @@ button[data-accent="purple"] .accent-dot { background: var(--accent-purple); }
 @media (max-width: 340px) { .secret-form .secret-row { grid-template-columns: minmax(0, 1fr); } }
 .scrim.scrim-over { z-index: 42; }
 .sheet.sheet-over { z-index: 43; }
+/* 1.45: select mode and deleting from the trash. A picked row takes the selected-row surface, a picked card the clay
+   border; the bar holds the count and the actions at the foot of the library while selecting. Delete forever and
+   Empty trash are the only destructive controls, in --err like a saved prompt's Delete for good. */
+#doc-select[aria-pressed="true"] { color: var(--clay); border-color: var(--clay); background: var(--clay-deep); }
+.doc-pickable .row { cursor: pointer; }
+.doc-pick-box { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--clay); cursor: pointer; }
+.document-item.picked, .document-item.picked:hover { background: var(--raised); }
+.doc-card.doc-pickable { cursor: pointer; }
+.doc-card.picked { border-color: var(--clay); }
+.doc-card-pick { position: absolute; top: 6px; left: 6px; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: color-mix(in srgb, var(--bg) 88%, transparent); border: 1px solid var(--line); }
+.doc-card-pick .doc-pick-box { margin: 0; }
+.doc-selectbar { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 12px; padding: 10px 18px calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--line); }
+.doc-selectcount { font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; }
+.doc-selectactions { display: flex; flex-wrap: wrap; gap: 8px; }
+.doc-selectbar .chip { color: var(--text); }
+.doc-selectbar .chip:disabled { color: var(--faint); cursor: default; }
+.doc-trash-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 0 18px 8px; }
+.doc-trash-head .sheet-help { margin: 0; max-width: 65ch; }
+.doc-trash-head .chip { flex: none; margin-top: 0; }
+.doc-trash .document-item { align-items: center; }
+.doc-trash .doc-restore { flex: none; margin: 0 4px 0 0; }
+.chip.doc-danger, .sheet .opt.doc-danger { color: var(--err); }
+.chip.doc-danger { border-color: color-mix(in srgb, var(--err) 55%, transparent); }
+@media (max-width: 600px) { .doc-trash-head { flex-direction: column; } }
+.doc-pickable label.row { display: flex; align-items: flex-start; gap: 14px; }
+/* The Trash opens like the other disclosures (▸/▾ beside its heading), not with a marker on a line of its own. */
+.doc-trash > summary { display: flex; align-items: baseline; gap: 8px; padding-left: 18px; list-style: none; }
+.doc-trash > summary::-webkit-details-marker { display: none; }
+.doc-trash > summary::before { content: '▸'; color: var(--faint); flex: none; }
+.doc-trash[open] > summary::before { content: '▾'; }
+.doc-trash > summary h2 { padding: 8px 18px 4px 0; }

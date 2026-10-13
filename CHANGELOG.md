@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.45.0] — 2026-10-13 · build 96
+
+- **Select several files and remove them in one step.** **Select** beside Upload turns the Files library (list or grid) into checkboxes. Tick files, or **Select all** for what the search and filters show, and **Remove** moves them to the trash after one confirmation. A search or filter that hides a picked file drops it from the selection, so Remove never reaches a file out of sight. **Done** or Escape leaves select mode. Requested by Damon.
+- **Delete forever and Empty trash.** Removed files waited 30 days in the trash with no way to free the space sooner. Each file in the Trash now has **Delete forever** in its options, and the Trash has **Empty trash**; both ask once, then delete the file and its preview from the server at once. Owner only: the routes need the Pocket login from Pocket's own page, so an agent's `pocket-docs` can still move one file to the trash and never delete one. Requested by Damon.
+- **Previews go with their files.** Deleting a file (by hand or by the 30-day purge) left its preview pictures in `.thumbs/` for good. They are deleted with the file now, and each purge clears any picture whose file is gone, which also cleans up after earlier deletions. The purge also runs a minute after the server starts instead of waiting six hours.
+- The Trash opens with a ▸/▾ beside its heading like the other collapsible sections, and stays open when the library refreshes.
+
 ## [1.44.2] — 2026-10-13 · build 95
 
 - **Edit a saved value in place.** The Vault's Edit sheet started every field empty ("Unchanged"), and its **Show** only unmasked what you typed there, so on a saved field it showed nothing and a value could only be replaced blind, never seen and corrected. Now **Show** on a saved field loads its value into the box, one field per tap and recorded in the item's history as a view, the same as Show on the item's sheet. Change it and save; a value left as loaded is not sent, and one emptied is refused with a note instead of being kept silently (a custom field is dropped with **Remove**). A login's username loads the same way. A value with a line break opens in a box that keeps it. Adding and removing fields works as before. Reported by Brad, who had pasted extra text after an API secret and could neither see it nor trim it.

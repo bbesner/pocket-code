@@ -6,6 +6,8 @@
    still run. */
 const documentsOn=()=>Boolean(window.pocketFeatures?.documents);
 let docsSnap=null,docsAt=0,docsLoading=null,docView=null,docFilterProject='',docFilterVis='',docFilterKind='',docQuery='',railDocQuery='';
+// 1.45: select mode in the library (null when off, else the picked ids) and whether the Trash group is open.
+let docPicked=null,docTrashOpen=false;
 // 1.32: the library is a grid of previews on a wide screen (remembered per browser), a list on a phone.
 // A split pane is a narrow frame on a desktop, not a phone, so it keeps the grid (with smaller cards).
 const gridOn=()=>(PANE||matchMedia('(min-width: 700px)').matches)&&readLocal('pc-documents-layout','grid')==='grid';
@@ -26,6 +28,17 @@ async function docAct(id,body,done){
  try{const d=await api('/documents/'+encodeURIComponent(id),{method:'POST',body:JSON.stringify(body)});mergeDoc(d);if(done)toast(done);paintDocumentsView();paintRailDocuments();if(typeof paintProjectsView==='function')paintProjectsView();return d;}
  catch(e){toast(e.message||'Could not update the file');return null;}
 }
+// 1.45: several files at once (trash, restore, delete) and Empty trash; owner only on the server.
+async function docBulk(path,body,said){
+ try{
+  const r=await api(path,{method:'POST',body:JSON.stringify(body)});
+  const gone=new Set(body.action==='delete'||!body.action?r.done.map(x=>x.id??x):[]);
+  if(docsSnap){if(gone.size){docsSnap.trash=docsSnap.trash.filter(x=>!gone.has(x.id));docsSnap.documents=docsSnap.documents.filter(x=>!gone.has(x.id));}else r.done.forEach(mergeDoc);}
+  toast(r.failed.length?`${said(r.done.length)}. ${r.failed.length} could not: ${r.failed[0].error}`:said(r.done.length));
+  paintDocumentsView();paintRailDocuments();if(typeof paintProjectsView==='function')paintProjectsView();return r;
+ }catch(e){toast(e.message||'Could not update the files');return null;}
+}
+const nFiles=n=>n===1?'1 file':n+' files';
 const KIND_WORD={html:'HTML',pdf:'PDF',md:'MD',txt:'TXT',image:'IMG',table:'CSV',json:'JSON',office:'DOC',video:'MP4'};
 // Library filter groups: a handful of chips, not one per extension.
 const KIND_GROUP={html:'html',pdf:'pdf',image:'image',md:'text',txt:'text',table:'data',json:'data',office:'other',video:'other'};
@@ -84,7 +97,7 @@ function paintDocumentsView(){
  const main=$('#documents-main');if(!main||!docsSnap||!docView)return;
  const typing=main.contains(document.activeElement)&&document.activeElement.matches('input')?document.activeElement:null;
  if(typing&&typing.id==='doc-query')return;
- if(main.dataset.kind==='list'){main.innerHTML=libraryHTML();bindLibrary(main);}
+ if(main.dataset.kind==='list'){const a=document.activeElement,key=main.contains(a)?(a.dataset?.pick?`[data-pick="${CSS.escape(a.dataset.pick)}"]`:a.id?'#'+CSS.escape(a.id):''):'',scroll=main.scrollTop;main.innerHTML=libraryHTML();bindLibrary(main);main.scrollTop=scroll;if(key)main.querySelector(key)?.focus({preventScroll:true});}
  else{const d=docById(docView.slice(10));if(!d)return;
   // The 30 s poll repaints an open file too. Rebuilding its iframe reloads the page and scrolls the reader back to
   // the top, so only the toolbar is redrawn unless what the body shows (file, size, kind) actually changed.
@@ -93,8 +106,14 @@ function paintDocumentsView(){
   else{main.innerHTML=documentHTML(d);main.dataset.body=key;bindDocument(main,d);}const t=$('#dtitle');if(t)t.textContent=d.title;const g=$('#dtag');if(g)g.textContent=[KIND_WORD[d.kind],fmtSize(d.size),visWord[d.visibility],docProjectName(d)].filter(Boolean).join(' · ');}
  if(typeof paintOpenSessions==='function')paintOpenSessions();
 }
-function docRowHTML(d){
- const where=docWhere(d),url=docShareUrl(d);
+// opt.pick (the library in select mode): the row is a label for its checkbox, with no links or options.
+const docPickBox=d=>`<input type="checkbox" class="doc-pick-box" data-pick="${esc(d.id)}" ${docPicked?.has(d.id)?'checked':''}>`;
+function docRowHTML(d,opt){
+ const where=docWhere(d),url=docShareUrl(d),pick=opt?.pick===true,on=pick&&docPicked.has(d.id);
+ if(pick)return `<div class="session-item document-item doc-pickable ${on?'picked':''}" data-item="${esc(d.id)}">
+  <label class="row">${docPickBox(d)}<span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}${d.missing?' <span class="due-label">(file missing)</span>':''}</span>
+   <span class="meta">${esc(where||d.file)}</span>
+   <span class="session-status"><span class="doc-vis vis-${esc(d.visibility)}">${visWord[d.visibility]}</span><span>${esc(rel(Date.parse(d.added)))}</span></span></span></label></div>`;
  return `<div class="session-item document-item ${docView==='documents/'+d.id?'cur':''}" data-item="${esc(d.id)}">
   <a class="row" href="${viewHref('documents/'+d.id)}" data-document="${esc(d.id)}"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}${d.missing?' <span class="due-label">(file missing)</span>':''}</span>
    <span class="meta">${esc(where||d.file)}</span>
@@ -102,31 +121,51 @@ function docRowHTML(d){
   ${url?`<button class="session-more icon" data-copy-link="${esc(d.id)}" aria-label="Copy the ${visWord[d.visibility].toLowerCase()} link for ${esc(d.title)}" title="Copy link">${IC.link}</button>`:''}
   <button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></div>`;
 }
-function docCardHTML(d){
- const where=docWhere(d),url=docShareUrl(d),pic=Boolean(docsSnap.thumbs?.[d.kind])&&!d.missing;
+function docCardHTML(d,opt){
+ const where=docWhere(d),url=docShareUrl(d),pic=Boolean(docsSnap.thumbs?.[d.kind])&&!d.missing,pick=opt?.pick===true;
+ if(pick)return `<div class="doc-card doc-pickable ${docPicked.has(d.id)?'picked':''}" data-item="${esc(d.id)}">
+  <label class="doc-card-link"><span class="doc-thumb" data-kind="${esc(d.kind)}">${pic?`<img src="/api/documents/${esc(d.id)}/thumb" alt="" loading="lazy" decoding="async">`:''}<span class="doc-thumb-kind"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span></span><span class="doc-card-pick">${docPickBox(d)}</span></span>
+   <span class="doc-card-body"><span class="doc-card-title">${esc(d.title)}${d.missing?' <span class="due-label">(file missing)</span>':''}</span><span class="doc-card-meta">${esc(where||d.file)}</span>
+   <span class="session-status"><span class="doc-vis vis-${esc(d.visibility)}">${visWord[d.visibility]}</span><span>${esc(rel(Date.parse(d.added)))}</span></span></span></label></div>`;
  return `<div class="doc-card ${docView==='documents/'+d.id?'cur':''}" data-item="${esc(d.id)}">
   <a class="doc-card-link" href="${viewHref('documents/'+d.id)}" data-document="${esc(d.id)}"><span class="doc-thumb" data-kind="${esc(d.kind)}">${pic?`<img src="/api/documents/${esc(d.id)}/thumb" alt="" loading="lazy" decoding="async">`:''}<span class="doc-thumb-kind"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span></span></span>
    <span class="doc-card-body"><span class="doc-card-title">${esc(d.title)}${d.missing?' <span class="due-label">(file missing)</span>':''}</span><span class="doc-card-meta">${esc(where||d.file)}</span>
    <span class="session-status"><span class="doc-vis vis-${esc(d.visibility)}">${visWord[d.visibility]}</span><span>${esc(rel(Date.parse(d.added)))}</span></span></span></a>
   <span class="doc-card-actions">${url?`<button class="session-more icon" data-copy-link="${esc(d.id)}" aria-label="Copy the ${visWord[d.visibility].toLowerCase()} link for ${esc(d.title)}" title="Copy link">${IC.link}</button>`:''}<button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></span></div>`;
 }
+const docShownRows=()=>{const q=docQuery.trim().toLowerCase();return docsSnap.documents.filter(d=>(!docFilterProject||d.project===docFilterProject)&&(!docFilterVis||d.visibility===docFilterVis)&&(!docFilterKind||KIND_GROUP[d.kind]===docFilterKind)&&(!q||docSearchText(d).includes(q)));};
+// The selection is only ever files that are shown: a filter or search drops the rest, so Remove never reaches a file out of sight.
+function docKeepShownPicks(rows){if(!docPicked)return;const shown=new Set(rows.map(d=>d.id));for(const id of docPicked)if(!shown.has(id))docPicked.delete(id);}
+function docSelectBarHTML(rows){
+ const n=docPicked.size,all=rows.length&&rows.every(d=>docPicked.has(d.id));
+ return `<div class="doc-selectbar" role="group" aria-label="Selected files"><span class="doc-selectcount" role="status">${n?nFiles(n)+' selected':'Select files to remove'}</span>
+  <span class="doc-selectactions">${rows.length?`<button class="chip" id="doc-pick-all">${all?'Clear':`Select all ${rows.length}`}</button>`:''}<button class="chip" id="doc-pick-remove" ${n?'':'disabled'}>${IC.x}Remove${n?' '+n:''}</button></span></div>`;
+}
+function docTrashHTML(){
+ const t=docsSnap.trash;if(!t.length)return '';
+ return `<details class="session-group document-group settings-details doc-trash" ${docTrashOpen?'open':''}><summary><h2>Trash <span>${t.length}</span></h2></summary>
+  <div class="doc-trash-head"><p class="sheet-help">Removed files stay here for ${docsSnap.limits?.trashDays||30} days, then are deleted. Delete forever frees the space now.</p><button class="chip doc-danger" id="doc-empty-trash">Empty trash</button></div>
+  ${t.map(d=>`<div class="session-item document-item" data-item="${esc(d.id)}"><span class="row"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}</span><span class="meta">Removed ${esc(rel(Date.parse(d.trashedAt)))} · ${esc(fmtSize(d.size))}</span></span></span><button class="chip doc-restore" data-restore="${esc(d.id)}">Restore</button><button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)} in the trash">${IC.more}</button></div>`).join('')}</details>`;
+}
 function libraryHTML(){
  const q=docQuery.trim().toLowerCase(),all=docsSnap.documents;
- const rows=all.filter(d=>(!docFilterProject||d.project===docFilterProject)&&(!docFilterVis||d.visibility===docFilterVis)&&(!docFilterKind||KIND_GROUP[d.kind]===docFilterKind)&&(!q||docSearchText(d).includes(q)));
+ const rows=docShownRows();docKeepShownPicks(rows);
+ const pick=Boolean(docPicked),opt={pick};
  const projects=typeof boardSnap!=='undefined'&&boardSnap?boardSnap.projects:[];
  const count=v=>all.filter(d=>d.visibility===v).length;
  const chip=(v,label,n)=>`<button class="chip" data-vis="${v}" aria-pressed="${docFilterVis===v}">${label} <span>${n}</span></button>`;
  const filtered=docFilterProject||docFilterVis||docFilterKind||q;
  const heading=docFilterProject?projects.find(p=>p.id===docFilterProject)?.name||'Project':docFilterVis?visLong[docFilterVis]:docFilterKind?KIND_GROUPS.find(g=>g[0]===docFilterKind)[1]:q?'Matching':'All';
  const grid=gridOn();
- return `<div class="session-home-head"><h2>Files</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span><button class="chip" id="doc-upload">${IC.up}Upload</button><input type="file" id="doc-file" multiple hidden></span></div>
+ return `<div class="session-home-head"><h2>Files</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span>${all.length||pick?`<button class="chip" id="doc-select" aria-pressed="${pick}">${pick?IC.tick+'Done':IC.task+'Select'}</button>`:''}${pick?'':`<button class="chip" id="doc-upload">${IC.up}Upload</button>`}${pick?'':'<input type="file" id="doc-file" multiple hidden>'}</span></div>
   <div class="documents-tools"><div class="session-search">${IC.search}<input type="search" id="doc-query" placeholder="Search files" aria-label="Search files by title, file name, project or session" value="${esc(docQuery)}" autocomplete="off"></div>
    ${projects.length?`<label class="voice-field doc-project-filter">Project<select id="doc-project"><option value="">All projects</option>${projects.map(p=>`<option value="${esc(p.id)}" ${docFilterProject===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
    <label class="voice-field doc-kind-filter">Kind<select id="doc-kind"><option value="">All kinds</option>${KIND_GROUPS.map(([v,label])=>`<option value="${v}" ${docFilterKind===v?'selected':''}>${label}</option>`).join('')}</select></label></div>
   <div class="doc-filters" role="group" aria-label="Show files by visibility">${chip('','All',all.length)}${chip('private','Private',count('private'))}${chip('link','Link',count('link'))}${chip('public','Public',count('public'))}${filtered?'<button class="chip" id="doc-clear">Clear</button>':''}</div>
-  ${rows.length?`<section class="session-group document-group"><h2>${esc(heading)} <span>${rows.length}${rows.length!==all.length?' of '+all.length:''}</span></h2>${grid?`<div class="doc-grid">${rows.map(docCardHTML).join('')}</div>`:rows.map(docRowHTML).join('')}</section>`
+  ${rows.length?`<section class="session-group document-group"><h2>${esc(heading)} <span>${rows.length}${rows.length!==all.length?' of '+all.length:''}</span></h2>${grid?`<div class="doc-grid">${rows.map(d=>docCardHTML(d,opt)).join('')}</div>`:rows.map(d=>docRowHTML(d,opt)).join('')}</section>`
    :`<p class="sheet-help project-empty">${filtered?'No files match.':'No files yet. Upload one, keep a result from a session\'s Results panel, or let an agent keep one with <code>pocket-docs add</code>. Files placed in the library\'s folder on the server appear here too.'}</p>`}
-  ${docsSnap.trash.length?`<details class="session-group document-group settings-details"><summary><h2>Trash <span>${docsSnap.trash.length}</span></h2></summary><p class="sheet-help">Removed files stay here for ${docsSnap.limits?.trashDays||30} days, then are deleted.</p>${docsSnap.trash.map(d=>`<div class="session-item document-item" data-item="${esc(d.id)}"><span class="row"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}</span><span class="meta">Removed ${esc(rel(Date.parse(d.trashedAt)))}</span></span></span><button class="chip" data-restore="${esc(d.id)}">Restore</button></div>`).join('')}</details>`:''}`;
+  ${pick?docSelectBarHTML(rows):''}
+  ${docTrashHTML()}`;
 }
 function bindDocRows(root){
  root.querySelectorAll('[data-document-more]').forEach(b=>b.onclick=()=>documentOptions(b.dataset.documentMore));
@@ -141,10 +180,28 @@ function bindLibrary(main){
  main.querySelector('#doc-clear')?.addEventListener('click',()=>{docFilterProject='';docFilterVis='';docFilterKind='';docQuery='';paintDocumentsView();main.querySelector('#doc-query')?.focus({preventScroll:true});});
  main.querySelectorAll('[data-layout]').forEach(b=>b.onclick=()=>{writeLocal('pc-documents-layout',b.dataset.layout);paintDocumentsView();});
  main.querySelectorAll('.doc-thumb img').forEach(img=>{const shown=()=>img.parentElement?.classList.add('loaded');img.onload=shown;img.onerror=()=>img.remove();if(img.complete&&img.naturalWidth)shown();});
- main.querySelector('#doc-upload').onclick=()=>main.querySelector('#doc-file').click();
- main.querySelector('#doc-file').onchange=e=>uploadDocuments([...e.target.files]);
+ main.querySelector('#doc-upload')?.addEventListener('click',()=>main.querySelector('#doc-file').click());
+ main.querySelector('#doc-file')?.addEventListener('change',e=>uploadDocuments([...e.target.files]));
  main.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>docAct(b.dataset.restore,{action:'restore'},'Restored'));
+ main.querySelector('#doc-select')?.addEventListener('click',()=>{docPicked=docPicked?null:new Set();paintDocumentsView();main.querySelector('#doc-select')?.focus({preventScroll:true});});
+ main.querySelectorAll('[data-pick]').forEach(b=>b.onchange=()=>{if(!docPicked)return;b.checked?docPicked.add(b.dataset.pick):docPicked.delete(b.dataset.pick);b.closest('.doc-pickable')?.classList.toggle('picked',b.checked);updateSelectBar(main);});
+ bindSelectBar(main);
+ const trash=main.querySelector('.doc-trash');if(trash)trash.ontoggle=()=>{docTrashOpen=trash.open;};
+ main.querySelector('#doc-empty-trash')?.addEventListener('click',()=>{const n=docsSnap.trash.length;confirmSheet(`Delete ${nFiles(n)} forever?`,`Everything in the trash is deleted from the server now, with its previews, and the space is freed. This cannot be undone.`,`Delete ${nFiles(n)} forever`,()=>docBulk('/documents/trash/empty',{},k=>`Deleted ${nFiles(k)} forever`));});
  bindDocRows(main);
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&docPicked&&!document.querySelector('.sheet')&&$('#documents-main')?.dataset.kind==='list'){docPicked=null;paintDocumentsView();$('#doc-select')?.focus({preventScroll:true});}});
+// A tick changes the bar in place, so its status line is announced and focus stays on the checkbox.
+function updateSelectBar(main){
+ const rows=docShownRows(),n=docPicked.size,all=rows.length&&rows.every(d=>docPicked.has(d.id));
+ const c=main.querySelector('.doc-selectcount');if(c)c.textContent=n?nFiles(n)+' selected':'Select files to remove';
+ const pa=main.querySelector('#doc-pick-all');if(pa)pa.textContent=all?'Clear':`Select all ${rows.length}`;
+ const rm=main.querySelector('#doc-pick-remove');if(rm){rm.disabled=!n;rm.innerHTML=IC.x+'Remove'+(n?' '+n:'');}
+}
+function bindSelectBar(main){
+ main.querySelector('#doc-pick-all')?.addEventListener('click',()=>{const rows=docShownRows(),all=rows.every(d=>docPicked.has(d.id));rows.forEach(d=>all?docPicked.delete(d.id):docPicked.add(d.id));paintDocumentsView();main.querySelector('#doc-pick-all')?.focus({preventScroll:true});});
+ main.querySelector('#doc-pick-remove')?.addEventListener('click',()=>{const ids=[...docPicked];if(!ids.length)return;
+  confirmSheet(`Remove ${nFiles(ids.length)}?`,`${ids.length===1?'It moves':'They move'} to the trash for ${docsSnap?.limits?.trashDays||30} days and any share or public link stops working. Restore from the library's Trash, or delete there to free the space now.`,`Remove ${nFiles(ids.length)}`,async()=>{const r=await docBulk('/documents/bulk',{action:'trash',ids},k=>`Moved ${nFiles(k)} to the trash`);if(r){docPicked=null;paintDocumentsView();}});});
 }
 let docPaintT=null;
 function paintDocumentsViewSoon(){clearTimeout(docPaintT);docPaintT=setTimeout(()=>{const main=$('#documents-main');if(!main||main.dataset.kind!=='list')return;const q=document.activeElement;const pos=q?.selectionStart;const scroll=main.scrollTop;main.innerHTML=libraryHTML();bindLibrary(main);main.scrollTop=scroll;const input=main.querySelector('#doc-query');if(input&&q?.id==='doc-query'){input.focus({preventScroll:true});try{input.setSelectionRange(pos,pos);}catch{}}},150);}
@@ -203,7 +260,7 @@ function documentOptions(id){
  const here=docView==='documents/'+id,url=docShareUrl(d),shared=d.visibility!=='private';
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet document-options';
  sh.innerHTML=`<h2>File options</h2><p class="sheet-name">${esc(d.title)}</p><p class="sheet-help">${esc([KIND_WORD[d.kind],fmtSize(d.size),d.file].join(' · '))}</p>
-  ${d.trashedAt?`<button class="opt" data-restore>${IC.up}<span>Restore<span class="sub">Back to the library; links stay off until you share it again</span></span></button>`:
+  ${d.trashedAt?`<button class="opt" data-restore>${IC.up}<span>Restore<span class="sub">Back to the library; links stay off until you share it again</span></span></button><button class="opt doc-danger" data-destroy>${IC.x}<span>Delete forever<span class="sub">Deletes the file and its preview from the server now</span></span></button>`:
   optGroup('Open',[
    here?'':`<button class="opt" data-open>${IC.doc}<span>Open<span class="sub">${PANE?'In this pane':SOLO?'In this window':'As a tab, like a session'}</span></span></button>`,
    !PANE&&!SOLO&&isWide()&&!here&&typeof openBeside==='function'?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">In a pane next to the current view</span></span></button>`:'',
@@ -222,6 +279,7 @@ function documentOptions(id){
  sh.querySelector('[data-beside]')?.addEventListener('click',()=>{close();openBeside('documents/'+id);});
  sh.querySelector('[data-window]')?.addEventListener('click',()=>{close();openInWindow('documents/'+id);});
  sh.querySelector('[data-restore]')?.addEventListener('click',()=>{close();docAct(id,{action:'restore'},'Restored');});
+ sh.querySelector('[data-destroy]')?.addEventListener('click',()=>{close();confirmSheet('Delete this file forever?','It is deleted from the server now, with its preview, and the space is freed. This cannot be undone.','Delete forever',async()=>{const r=await docBulk('/documents/bulk',{action:'delete',ids:[id]},()=>'Deleted forever');if(r?.done.length&&docView==='documents/'+id)location.hash=viewHref('documents');});});
  sh.querySelector('[data-copy-link]')?.addEventListener('click',()=>{close();copyLink(url);});
  sh.querySelector('[data-share]')?.addEventListener('click',()=>{close();shareSheet(id);});
  sh.querySelector('[data-project]')?.addEventListener('click',()=>{close();docProjectSheet(id);});

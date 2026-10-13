@@ -8,7 +8,7 @@ phone, and keep what comes out of them (projects, files and to-dos) beside the
 conversations. The server runs every turn, so closing the browser or locking the screen
 never stops the work.
 
-This checkout documents **1.44.2 / build 95**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.45.0 / build 96**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -144,7 +144,8 @@ device, and when you open them, so an item an agent adds shows up without a relo
 - **Files** keeps the reports, dashboards and spreadsheets that came out of the work, in a
   grid or a list. HTML renders sandboxed; PDFs, images, Markdown and CSV render in place.
   Files are private until you share one by link or publicly; removed files wait 30 days
-  in the trash. Keep a file from a session's Results, upload one, or let agents keep
+  in the trash, and **Select** removes several at once; **Delete forever** and **Empty trash**
+  free the space now. Keep a file from a session's Results, upload one, or let agents keep
   deliverables. See [Files](docs/workspace-guide.md#files).
 - **Tasks** are to-dos with an optional date and time, the session they came from and, if
   you want it, a short briefing on that session. **Start** opens a new session with the

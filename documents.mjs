@@ -3,8 +3,9 @@
 // atomically by the server alone. Files dropped straight into the folder are adopted as private records on
 // the next listing; the scan only ever adds. Visibility is private (login), link (an unguessable signed URL,
 // optional expiry, revocable) or public (/files/<name>, the path Mission Control's public links used).
-// Removing a document moves it to .trash for 30 days, then purges it. HTML is served sandboxed, never under
-// the app origin's authority.
+// Removing a document moves it to .trash for 30 days, then purges it; since 1.45 the owner can also delete a
+// trashed file at once (Delete forever, Empty trash), which takes its file, its thumbnails and its record. HTML is
+// served sandboxed, never under the app origin's authority.
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
@@ -137,27 +138,72 @@ export class DocumentStore {
     r.updated = at; r.updatedBy = actor; this.save();
     return { ...this.view(r), ...(token ? { token } : {}) };
   }
-  trash(id) {
+  trash(id, { save = true } = {}) {
     const r = this.get(id); if (r.trashedAt) return this.view(r);
     fs.mkdirSync(this.trashDir(), { recursive: true });
     const from = path.join(this.dir, r.file), at = iso(this.now());
     r.trashedAt = at; r.updated = at;
     try { fs.renameSync(from, this.filePath(r)); } catch (e) { if (e.code !== 'ENOENT') { r.trashedAt = null; throw e; } }
     r.share = null; r.shareHash = null; r.visibility = 'private'; // a trashed document is reachable by nobody
-    this.save(); return this.view(r);
+    if (save) this.save();
+    return this.view(r);
   }
-  restore(id) {
+  restore(id, { save = true } = {}) {
     const r = this.get(id); if (!r.trashedAt) return this.view(r);
     const from = this.filePath(r), file = this.uniqueFile(r.file, r.id);
     r.trashedAt = null; r.file = file; r.updated = iso(this.now());
     try { fs.renameSync(from, path.join(this.dir, file)); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-    this.save(); return this.view(r);
+    if (save) this.save();
+    return this.view(r);
+  }
+  // 1.45: Delete forever. Only a file already in the trash; the file, its thumbnails and the record go now.
+  destroy(id, { save = true } = {}) {
+    const r = this.get(id); if (!r.trashedAt) throw fail('Remove the file first. Only files in the trash can be deleted.', 409);
+    const [problem] = this.forget([r]); if (problem) throw fail(problem.error, 500);
+    if (save) this.save();
+    return { id: r.id, file: r.file, deleted: true };
+  }
+  // 1.45: several files in one step (the library's select mode). Each id succeeds or fails alone; one save at the end.
+  bulk(action, ids) {
+    const run = { trash: id => this.trash(id, { save: false }), restore: id => this.restore(id, { save: false }), delete: id => this.destroy(id, { save: false }) }[action];
+    if (!run) throw fail('The action must be trash, restore or delete.');
+    if (!Array.isArray(ids) || !ids.length || ids.length > LIMITS.documents || ids.some(id => typeof id !== 'string')) throw fail('Choose the files first.');
+    const done = [], failed = [];
+    for (const id of [...new Set(ids)]) { try { done.push(run(id)); } catch (e) { failed.push({ id, error: e.message }); } }
+    if (done.length) this.save();
+    return { done, failed };
+  }
+  emptyTrash() {
+    const rows = this.documents.filter(r => r.trashedAt), failed = this.forget(rows);
+    const done = rows.filter(r => !failed.some(f => f.id === r.id)).map(r => r.id);
+    if (done.length) this.save();
+    return { done, failed };
   }
   purge(now = this.now()) {
-    const cutoff = now - LIMITS.trashDays * 86400000, gone = [];
-    for (const r of this.documents) if (r.trashedAt && Date.parse(r.trashedAt) < cutoff) { try { fs.unlinkSync(this.filePath(r)); } catch { } gone.push(r.id); }
-    if (gone.length) { this.documents = this.documents.filter(r => !gone.includes(r.id)); this.save(); }
+    const cutoff = now - LIMITS.trashDays * 86400000;
+    const rows = this.documents.filter(r => r.trashedAt && Date.parse(r.trashedAt) < cutoff), failed = this.forget(rows);
+    const gone = rows.filter(r => !failed.some(f => f.id === r.id)).map(r => r.id);
+    if (gone.length) this.save();
     return gone;
+  }
+  // Unlink each file (already gone is fine) and drop its record; a file that cannot be unlinked keeps its record and is
+  // reported. Then the thumbnails nobody owns any more go too.
+  forget(rows) {
+    const failed = [];
+    for (const r of rows) {
+      try { fs.unlinkSync(this.filePath(r)); } catch (e) { if (e.code !== 'ENOENT') { failed.push({ id: r.id, error: `Could not delete ${r.file}: ${e.code || e.message}` }); continue; } }
+      this.documents = this.documents.filter(x => x !== r);
+    }
+    this.pruneThumbs();
+    return failed;
+  }
+  // Thumbnails (thumbnails.mjs) are <documents dir>/.thumbs/<id>-<size>-<mtime>.<ext>; a picture whose record is gone is removed.
+  pruneThumbs() {
+    const dir = path.join(this.dir, '.thumbs'), ids = new Set(this.documents.map(r => r.id));
+    let names = []; try { names = fs.readdirSync(dir); } catch { return 0; }
+    let n = 0;
+    for (const name of names) { const m = /^([0-9a-f]{12})-/.exec(name); if (m && !ids.has(m[1])) { try { fs.unlinkSync(path.join(dir, name)); n++; } catch { } } }
+    return n;
   }
   // Unauthenticated lookups: public by exact file name; link (or public) by token, expiry enforced.
   resolvePublic(name) { const r = this.documents.find(x => x.file === name && !x.trashedAt && x.visibility === 'public'); return r && !r.missing ? r : null; }
