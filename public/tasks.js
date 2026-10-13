@@ -176,7 +176,7 @@ function paintRailTasks(){
  el.innerHTML=railTasksHTML();
  el.querySelector('#rail-task-add')?.addEventListener('click',()=>taskEditor(null));
  bindTaskRows(el);
- if(!tasksSnap)loadTasks().then(()=>{paintRailTasks();paintTaskBadges();}).catch(()=>{const r=document.getElementById('rail');if(r&&railView()==='tasks')r.innerHTML='<p class="sheet-help">Tasks could not load.</p>';});else paintTaskBadges();
+ if(!tasksSnap||Date.now()-tasksAt>4000)loadTasks(true).then(()=>{paintRailTasks();paintTaskBadges();}).catch(()=>{const r=document.getElementById('rail');if(!tasksSnap&&r&&railView()==='tasks')r.innerHTML='<p class="sheet-help">Tasks could not load.</p>';});else paintTaskBadges();
 }
 function paintTaskBadges(){
  const due=taskDueCount();
@@ -185,4 +185,5 @@ function paintTaskBadges(){
  document.querySelectorAll('[data-tasks-home]').forEach(el=>{el.textContent='Tasks'+(due?' · '+due+' due':'');el.classList.toggle('due',due>0);});
 }
 const taskTabState=()=>{const due=taskDueCount();return due?{kind:'due',label:due===1?'A task is due':due+' tasks are due'}:null;};
-setInterval(()=>{if(!tasksOn()||document.visibilityState!=='visible'||!(taskView||railView()==='tasks'||document.querySelector('[data-tasks-home]')))return;loadTasks(true).then(()=>{paintTasksView();paintRailTasks();paintTaskBadges();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});},30000);
+function tasksTick(){if(!tasksOn()||document.visibilityState!=='visible'||!(taskView||railView()==='tasks'||document.querySelector('[data-tasks-home]')))return;loadTasks(true).then(()=>{paintTasksView();paintRailTasks();paintTaskBadges();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
+setInterval(tasksTick,30000);onListsStale(tasksTick);

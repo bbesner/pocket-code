@@ -1957,6 +1957,36 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.setViewport({width:1440,height:900});settings.documents=true;
   });
 
+  await check('Lists catch up without a reload (1.44.1): a task, file or project an agent adds outside the page shows in the open rail and on a project card when the window regains focus or a turn ends in another Pocket window',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState(),before={projects:settings.projects,documents:settings.documents,tasks:settings.tasks};Object.assign(settings,{projects:true,documents:true,tasks:true});
+   await page.evaluate(()=>Promise.all(['/api/tasks/reset','/api/board/reset','/api/documents/reset'].map(u=>fetch(u,{method:'POST'}))));
+   const agent=(url,init)=>fetch(base+url,{method:'POST',...init}).then(r=>{assert.equal(r.ok,true,url);return r.json();}); // the CLI's write, not the page's
+   const railHas=text=>page.evaluate(t=>document.getElementById('rail')?.textContent.includes(t)||false,text);
+   // Tasks rail: an added task is not shown until something says the list may be stale; focus is enough.
+   await openChat(rows[4].id);await clickControl(page,'[data-rail-view="tasks"]');await page.waitForSelector('#rail .rail-tasks .task-item');
+   await agent('/api/tasks/act',{headers:{'content-type':'application/json'},body:JSON.stringify({action:'add',text:'Added by an agent mid-turn'})});
+   await pause(300);assert.equal(await railHas('Added by an agent mid-turn'),false,'no fetch without a trigger (the 30 s poll is the fallback)');
+   await page.evaluate(()=>dispatchEvent(new Event('focus')));await page.waitForFunction(()=>document.getElementById('rail').textContent.includes('Added by an agent mid-turn'));
+   // Files rail: a turn ending in another Pocket window (a pane, a solo window, another tab) refreshes this one.
+   await clickControl(page,'[data-rail-view="documents"]');await page.waitForSelector('#rail .rail-documents .document-item');
+   await agent('/api/documents',{headers:{'x-filename':'agent-report.md','content-type':'application/octet-stream','x-project':'warehouse-stock-report'},body:'# Agent report\n'});
+   const other=await page.browserContext().newPage();await other.goto(base+'/?solo=1#/tasks');await other.waitForSelector('#tasks-main');
+   await other.evaluate(()=>announceListsStale());await other.close();
+   await page.waitForFunction(()=>/agent.report/i.test(document.getElementById('rail').textContent));
+   // Projects rail: shown again with an older snapshot, it refetches instead of painting the stale list.
+   await agent('/api/board/act',{headers:{'content-type':'application/json'},body:JSON.stringify({action:'track',name:'Tracked by an agent'})});
+   await page.evaluate(()=>{boardAt=0;});await clickControl(page,'[data-rail-view="projects"]');
+   await page.waitForFunction(()=>document.getElementById('rail').textContent.includes('Tracked by an agent'));
+   // A project card's Files section is current when the card opens, not stuck on the library from the first load.
+   await page.goto(base+'/#/projects/warehouse-stock-report');await page.waitForSelector('.project-documents .document-item');
+   await agent('/api/documents',{headers:{'x-filename':'second-agent-note.md','content-type':'application/octet-stream','x-project':'warehouse-stock-report'},body:'# Second note\n'});
+   await page.evaluate(()=>dispatchEvent(new Event('focus')));
+   await page.waitForFunction(()=>/Second note/.test(document.querySelector('.project-documents').textContent));
+   await page.evaluate(()=>Promise.all(['/api/tasks/reset','/api/board/reset','/api/documents/reset'].map(u=>fetch(u,{method:'POST'}))));
+   await clickControl(page,'[data-rail-view="sessions"]');Object.assign(settings,before); // later suites expect the features as they were
+   assert.deepEqual(errors,[]);
+  });
+
   fs.writeFileSync(path.join(out,'ui-regressions.json'),JSON.stringify({checks,scans,errors},null,2));
   console.log(JSON.stringify({uiRegressions:checks.length,accessibilityScans:scans.length,ok:true}));
  } catch(e) {

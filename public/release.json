@@ -1,7 +1,7 @@
 {
-  "version": "1.44.0",
-  "assetV": 93,
+  "version": "1.44.1",
+  "assetV": 94,
   "notes": [
-    "Turning on the Vault now creates its key for you and shows a recovery key to save; rotating and restoring the key need no server access."
+    "Projects, Files and Tasks now show new items without a reload: lists refresh when you come back to the window, when a turn ends, and when you open them, and a project card keeps its files current."
   ]
 }
