@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.44.2] — Unreleased · build 95
+## [1.44.2] — 2026-10-13 · build 95
 
 - **Edit a saved value in place.** The Vault's Edit sheet started every field empty ("Unchanged"), and its **Show** only unmasked what you typed there, so on a saved field it showed nothing and a value could only be replaced blind, never seen and corrected. Now **Show** on a saved field loads its value into the box, one field per tap and recorded in the item's history as a view, the same as Show on the item's sheet. Change it and save; a value left as loaded is not sent, and one emptied is refused with a note instead of being kept silently (a custom field is dropped with **Remove**). A login's username loads the same way. A value with a line break opens in a box that keeps it. Adding and removing fields works as before. Reported by Brad, who had pasted extra text after an API secret and could neither see it nor trim it.
 - **Line breaks show on the item.** A shown value keeps its line breaks, so text pasted on a second line is visible instead of running on.
