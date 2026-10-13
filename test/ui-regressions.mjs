@@ -32,7 +32,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // The pause lets a hover tooltip (tips.js, 350 ms after pointerover) catch up with a pointer left on a control; leave the control as a pointer would.
    await page.evaluate(()=>{for(const el of document.querySelectorAll(':hover'))el.dispatchEvent(new PointerEvent('pointerout',{bubbles:true,relatedTarget:null}));const t=document.getElementById('tip');if(t)t.hidden=true;});}
   const axeScript=await page.addScriptTag({path:axePath});await axeScript.evaluate(el=>el.remove());
-  const result=await page.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','best-practice']}}));
+  // A toast can still arrive while axe runs (a fetch from the previous step resolving late) and fail color-contrast
+  // mid-fade, the suite's one recurring flake (#toast at subagents-mobile). Keep the toast out of the measurement
+  // for the scan's duration only: it stays in the DOM with its text, so a later assertion on it is unaffected.
+  const result=await page.evaluate(async()=>{const t=document.getElementById('toast');const was=t?t.style.visibility:'';if(t)t.style.visibility='hidden';
+   try{return await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','best-practice']}});}finally{if(t)t.style.visibility=was;}});
   const record={name,violations:result.violations};
   scans.push(record);
   if(process.env.POCKET_DESIGN_SCANNER){

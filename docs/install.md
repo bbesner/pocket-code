@@ -1,0 +1,184 @@
+# Install Pocket Code
+
+This page is written so that a person, or a Claude Code or Codex session working for them, can
+take a Linux machine to a running Pocket Code and know at each step whether it worked. The
+short version is one command; the rest explains what it does, how to check it and what to do
+when a step fails.
+
+## What you need
+
+- A Linux machine you can reach over SSH, running as the user whose Claude Code sessions
+  Pocket will run. On Windows, use an Ubuntu WSL2 distribution. macOS is not yet verified
+  ([#87](https://github.com/bbesner/pocket-code/issues/87)).
+- Node.js 20.11 or newer, git and npm.
+- Claude Code installed (`npm install -g @anthropic-ai/claude-code`) and signed in on this
+  machine (`claude auth status`). Codex is optional and is picked up when `codex` is on `PATH`.
+- A way to give the server an HTTPS address: Tailscale, a Cloudflare Tunnel, or a reverse proxy
+  such as Caddy. Phones need HTTPS to install the app and receive push notifications. See
+  [HTTPS](#https) below; the installer tells you which of these it found.
+
+## One command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bbesner/pocket-code/main/install.sh | bash -s -- --yes --contact you@example.com
+```
+
+Replace the contact with the operator's email address (or an https URL); push services use it
+to reach whoever runs the server. The script:
+
+1. Checks the platform, git, Node.js and npm.
+2. Clones the newest release into `~/pocket-code` (set `POCKET_DIR` to choose another
+   directory, `POCKET_RELEASE=vX.Y.Z` or `main` to choose a version). An existing checkout
+   there is used as it is.
+3. Runs `npm ci --omit=dev`.
+4. Runs `pocket-init` with the arguments after `--`.
+
+From a checkout you already have:
+
+```bash
+cd ~/pocket-code && npm ci --omit=dev && node scripts/pocket-init.mjs --yes --contact you@example.com
+```
+
+## What pocket-init does
+
+`pocket-init` prints one line per check, `ok`, `warn`, `FAIL` or `skip`, then a summary. It is
+safe to run again: values already in `.env` are kept, a daemon already running from this
+checkout is left alone.
+
+| Check | ok means | On FAIL |
+|---|---|---|
+| Platform | Linux. macOS is a warning; Windows stops with a pointer to WSL2. | Install inside WSL2. |
+| Node.js | 20.11 or newer. | Install a newer Node.js. |
+| Dependencies | `node_modules` present, or `npm ci --omit=dev` just ran. | Run `npm ci --omit=dev` in the checkout and read its error. |
+| Claude Code | `claude` found and signed in. Not signed in is a warning: sign in with `claude` in a terminal, or later from Pocket's Settings → Accounts. | Install Claude Code, or set `CLAUDE_BIN=/path/to/claude` in `.env`. |
+| Codex | Found (optional). | Nothing; Pocket shows Codex sessions once `codex` is installed. |
+| PM2 | `pm2` on `PATH`, or installed with `npm install -g pm2` (`--yes`, or answer the prompt). | Install PM2; a global npm prefix you cannot write to needs `sudo` or a user prefix. |
+| PM2 app | No `pocket-claude` process, or one running from this checkout. | One from another directory: stop it (`pm2 delete pocket-claude`) or install there instead. One daemon per data directory. |
+| Port | `127.0.0.1:<port>` is free (default 3610). | Choose another with `--port`, or stop whatever holds it. |
+| .env | Created, or the missing lines added, with mode `0600`: `PORT`, `POCKET_PASSWORD`, `POCKET_SECRET`, `VAPID_PUBLIC`, `VAPID_PRIVATE`, `VAPID_CONTACT`. Placeholders copied from `.env.example` (`change-me`) are replaced. | Skipped when an earlier check failed; fix that and run again. |
+| Daemon | `pm2 start ecosystem.config.cjs` then `pm2 save` (or `pm2 restart` when new settings were added to a running install). | Read `pm2 logs pocket-claude --lines 50`. |
+| Health | `http://127.0.0.1:<port>/api/health` answered `{"ok":true}` within 30 seconds. | Same logs. A port mismatch between `.env` and an old process is the usual cause. |
+| Boot | A `pm2-<user>.service` exists, so saved processes return after a reboot. | Warning only: run `pm2 startup`, then the `sudo` command it prints, then `pm2 save`. |
+
+Flags: `--port N`, `--contact …`, `--yes` (install PM2 without asking), `--no-start` (write
+`.env` only), `--dry-run` (report, write and start nothing), `--json` (the report as JSON for
+a program to read; it never contains the password), `--show-password`.
+
+### The password
+
+`pocket-init` generates a long random login password and saves it as `POCKET_PASSWORD` in
+`.env`. On a terminal it prints the password once. **Run by an agent, or with output piped,
+it does not print the password**: the owner reads it themselves with
+
+```bash
+grep '^POCKET_PASSWORD=' ~/pocket-code/.env
+```
+
+so the password never lands in a transcript. To choose the password instead, set
+`POCKET_PASSWORD` in the environment of the `pocket-init` run (not on the command line, which
+other users can see in `ps`). Change it later by editing `.env` and `pm2 restart ecosystem.config.cjs`.
+
+### Running it as an agent
+
+Use `--yes` and `--contact` so nothing waits for a keyboard, and `--json` if you want to read
+the result as data. Then verify, in this order:
+
+```bash
+curl -s http://127.0.0.1:3610/api/health      # {"ok":true,...}
+pm2 describe pocket-claude | grep -E 'status|script path'
+ls -l ~/pocket-code/.env                      # -rw------- (0600)
+```
+
+Tell the owner where the password is (the `grep` above) rather than reading it to them, and
+which HTTPS option the installer found on the machine. Do not edit `.env` to add settings the
+owner did not ask for; [`.env.example`](../.env.example) documents the optional ones.
+
+## HTTPS
+
+The server listens on loopback only. Something in front of it has to terminate TLS and carry
+the hostname. Pick one:
+
+**Tailscale Serve** (private to your tailnet; simplest). With Tailscale installed and this
+machine and your phone on the same tailnet:
+
+```bash
+tailscale serve --bg 3610
+```
+
+It prints an `https://<machine>.<tailnet>.ts.net` address with a valid certificate. Nothing is
+exposed to the public internet. (`tailscale funnel` would make it public; Pocket's own login is
+the only guard then, so prefer Serve.)
+
+**Cloudflare Tunnel** (a public hostname on a domain you have on Cloudflare). With
+`cloudflared` installed and a tunnel configured, add an ingress rule ahead of the catch-all in
+`~/.cloudflared/config.yml`, route the name and restart:
+
+```yaml
+ingress:
+  - hostname: code.yourdomain.com
+    service: http://localhost:3610
+  - service: http_status:404
+```
+
+```bash
+cloudflared tunnel route dns <tunnel-name> code.yourdomain.com
+sudo systemctl restart cloudflared
+```
+
+Put Cloudflare Access in front of the hostname if you want an identity check before Pocket's
+password.
+
+**Caddy** (a public hostname with automatic certificates, on a machine with ports 80 and 443
+open):
+
+```
+code.yourdomain.com {
+    reverse_proxy 127.0.0.1:3610
+}
+```
+
+**nginx**: a TLS server block proxying to `http://127.0.0.1:3610` with `proxy_http_version 1.1`
+and the `Upgrade`/`Connection` headers passed through, so streamed replies are not buffered.
+
+Whichever you use, `POCKET_FRAME_ANCESTORS` in `.env` is only needed if another page will embed
+Pocket in a frame.
+
+## After installing
+
+1. Open the HTTPS address and sign in with the password.
+2. On a phone, choose **Add to Home screen**, then tap the bell to allow notifications.
+3. Start a session: choose the agent, the working directory and the model.
+4. Projects, Files, Tasks and the Vault are off until you switch them on in **Settings →
+   Projects, files, tasks & vault**. Voice is a separate optional install
+   (`scripts/voice-setup.sh`, see the [README](../README.md#voice-mode-beta)).
+
+## By hand
+
+Everything `pocket-init` does, as shell:
+
+```bash
+git clone https://github.com/bbesner/pocket-code.git ~/pocket-code
+cd ~/pocket-code
+git checkout --detach "$(git tag --list 'v*' --sort=-v:refname | head -n1)"
+npm ci --omit=dev
+KEYS=$(npx web-push generate-vapid-keys --json)
+cat > .env <<'ENV'
+PORT=3610
+VAPID_CONTACT=you@example.com
+ENV
+echo "POCKET_PASSWORD=$(openssl rand -base64 18)" >> .env
+echo "POCKET_SECRET=$(openssl rand -hex 32)" >> .env
+echo "VAPID_PUBLIC=$(echo "$KEYS" | node -pe 'JSON.parse(require("fs").readFileSync(0)).publicKey')" >> .env
+echo "VAPID_PRIVATE=$(echo "$KEYS" | node -pe 'JSON.parse(require("fs").readFileSync(0)).privateKey')" >> .env
+chmod 600 .env
+pm2 start ecosystem.config.cjs && pm2 save
+curl -s localhost:3610/api/health
+```
+
+## Upgrading, moving and removing
+
+Upgrades check out a reviewed release tag and restart from the ecosystem file; the
+[operations guide](operations.md#upgrade-an-existing-installation) has the steps, the state
+inventory and rollback notes. Moving the data directory, downgrading and uninstalling are in
+[the same guide](operations.md#move-data-downgrade-or-uninstall). Close all session processes
+first.

@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.45.0 / build 96**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.46.0 / build 97**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -333,7 +333,8 @@ user asks to share. Times without an offset use `POCKET_TZ` (or the server's zon
 
 ## Requirements
 
-- Linux with Claude Code installed and signed in; Codex is optional.
+- Linux with Claude Code installed and signed in; Codex is optional. On Windows, run it inside
+  WSL2. macOS is not yet verified ([#87](https://github.com/bbesner/pocket-code/issues/87)).
 - Node.js 20.11 or newer for the server; Node.js 22.12+ and Chrome/Chromium for tests.
 - PM2 using the supplied `ecosystem.config.cjs`, or a supervisor configured to preserve
   child session processes during a daemon restart.
@@ -343,41 +344,23 @@ user asks to share. Times without an offset use `POCKET_TZ` (or the server's zon
 
 ## Quick start
 
+One command on a Linux machine that has Node.js 20.11+, git and Claude Code signed in:
+
 ```bash
-git clone https://github.com/bbesner/pocket-code.git ~/pocket-code
-cd ~/pocket-code
-npm ci --omit=dev
-
-# 1. Configure: password, cookie secret and push keys
-PW=$(openssl rand -base64 18)
-KEYS=$(npx web-push generate-vapid-keys --json)
-cat > .env <<EOF
-PORT=3610
-POCKET_PASSWORD=$PW
-POCKET_SECRET=$(openssl rand -hex 32)
-VAPID_PUBLIC=$(echo "$KEYS" | node -pe 'JSON.parse(require("fs").readFileSync(0)).publicKey')
-VAPID_PRIVATE=$(echo "$KEYS" | node -pe 'JSON.parse(require("fs").readFileSync(0)).privateKey')
-VAPID_CONTACT=you@example.com
-EOF
-chmod 600 .env
-echo "Your Pocket Code password: $PW"
-
-# 2. Run it (always start from the ecosystem file; see "Operating notes")
-pm2 start ecosystem.config.cjs
-pm2 save
-
-# 3. Check it's up
-curl -s localhost:3610/api/health        # {"ok":true,...}
+curl -fsSL https://raw.githubusercontent.com/bbesner/pocket-code/main/install.sh | bash -s -- --yes --contact you@example.com
 ```
 
-Next, give it an HTTPS address. With a Cloudflare Tunnel, add an ingress rule ahead of
-the catch-all in `~/.cloudflared/config.yml`, route the DNS name to the tunnel and
-restart `cloudflared`:
+It clones the newest release into `~/pocket-code` (`POCKET_DIR` chooses another place), installs
+dependencies and runs **pocket-init**, which checks the prerequisites, writes `.env` with a
+generated password, cookie secret and push keys, starts the daemon under PM2, waits for
+`/api/health` and says how to put HTTPS in front of it, naming the tunnel or proxy it found on
+the machine. On a terminal it shows the password once; run by an agent, it leaves the password
+in `.env` for the owner to read. Run it again any time: it keeps what is there.
 
-```yaml
-- hostname: code.yourdomain.com
-  service: http://localhost:3610
-```
+From a checkout you already have: `npm ci --omit=dev && node scripts/pocket-init.mjs`.
+The step-by-step version, written so a Claude Code or Codex session can follow it for you, is
+[docs/install.md](docs/install.md); it also covers Tailscale Serve, Cloudflare Tunnel and
+Caddy for the HTTPS address.
 
 On your phone, open the address, sign in and choose **Add to Home screen**. Then tap
 the bell icon to turn on notifications.

@@ -3,6 +3,9 @@
 Pocket Code is one HTTP daemon plus separate persistent provider processes. This
 guide follows 1.7+ behavior. Read [SECURITY.md](../SECURITY.md) before exposing an instance.
 
+A new installation starts with [docs/install.md](install.md) (`pocket-init`, 1.46); this
+guide covers what happens after that.
+
 ## Process lifecycle
 
 A Claude session keeps a detached CLI process with stream input. A Codex thread keeps

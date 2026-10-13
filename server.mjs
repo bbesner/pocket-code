@@ -2962,7 +2962,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Files: Select picks several files to remove in one step, and the Trash's Delete forever and Empty trash delete files from the server now, previews included."];
+const RELEASE_NOTES = ["Setup in one command: install.sh and pocket-init check the machine, write .env, start the daemon under PM2 and say how to add HTTPS. See docs/install.md."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

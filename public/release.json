@@ -1,7 +1,7 @@
 {
-  "version": "1.45.0",
-  "assetV": 96,
+  "version": "1.46.0",
+  "assetV": 97,
   "notes": [
-    "Files: Select picks several files to remove in one step, and the Trash's Delete forever and Empty trash delete files from the server now, previews included."
+    "Setup in one command: install.sh and pocket-init check the machine, write .env, start the daemon under PM2 and say how to add HTTPS. See docs/install.md."
   ]
 }
