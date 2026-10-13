@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.47.0] — 2026-10-13 · build 98
+
+- **Runs on macOS.** The two places that read Linux's `/proc` (the stall watchdog's CPU-of-descendants figure in `proctree.mjs`, and the pid-reuse guard's command-line check in `server.mjs`) ask `ps` instead on a system without `/proc`, in the same unit (hundredths of a second), so a quiet turn that is still working is not stopped and a reattached session is still recognised. `claude` is also looked for in `/opt/homebrew/bin`. `pocket-init` and `install.sh` accept macOS, and the Boot check looks for PM2's launch agent (`~/Library/LaunchAgents/pm2.<user>.plist`) instead of a systemd unit. README and [docs/install.md](docs/install.md) say Linux or macOS, with a macOS notes section (Homebrew, PM2 at login, sleep, previews, Tailscale). Closes the code half of [#87](https://github.com/bbesner/pocket-code/issues/87); the first report from a real Mac is still wanted there.
+- **Quieter installer.** `pocket-init` runs `npm ci` and `npm install -g pm2` with `--no-fund --no-audit --loglevel=error`, so npm's own lines no longer land in the middle of the checklist.
+- Tests: `test/proctree.test.mjs` checks the `ps` TIME parsing in every shape, the table-to-tree walk, `commandLine` through `ps`, and on Linux that the `ps` backend sees the same live child tree and command line as `/proc`.
+
 ## [1.46.0] — 2026-10-13 · build 97
 
 - **One command installs Pocket Code.** `curl -fsSL …/install.sh | bash -s -- --yes --contact you@example.com` clones the newest release, installs dependencies and runs the new **`pocket-init`** (`scripts/pocket-init.mjs`, also `npm run init`). It checks the platform, Node.js, Claude Code and its sign-in, Codex, PM2 (offering to install it) and the port; writes the missing lines of `.env` (a generated password, cookie secret and push keys, mode `0600`) while keeping anything already there and replacing `.env.example` placeholders in place; starts the daemon from the ecosystem file, saves the PM2 list, waits for `/api/health`, and prints how to add HTTPS, naming the tunnel or proxy it found (`cloudflared`, Tailscale, Caddy, nginx) with the exact lines for this port. Safe to run again. `--dry-run` reports without writing; `--json` gives the report as data. ([#86](https://github.com/bbesner/pocket-code/issues/86))

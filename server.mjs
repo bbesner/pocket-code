@@ -21,7 +21,7 @@ import { FollowupQueue } from './queue.mjs';
 import {workspaceStatus,workspaceDiff} from './workspace.mjs';
 import {readClaudeIdentity,agentEnv} from './environment.mjs';
 import {QuestionInbox} from './questions.mjs';
-import {descendantCpu} from './proctree.mjs';
+import {descendantCpu, commandLine} from './proctree.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
 import {cacheFromTranscript,turnCacheSummary} from './cache.mjs';
@@ -72,7 +72,7 @@ if (!PASSWORD || !SECRET) {
   process.exit(1);
 }
 const CLAUDE_BIN = process.env.CLAUDE_BIN
-  || [path.join(HOME, '.npm-global', 'bin', 'claude'), '/usr/local/bin/claude', '/usr/bin/claude']
+  || [path.join(HOME, '.npm-global', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
     .find(p => fs.existsSync(p)) || 'claude';
 // A session's CLI process closes after this long with no turn and no background job.
 // Timer settings are milliseconds; anything else logs and keeps the default. 0 disables.
@@ -1022,7 +1022,7 @@ function spawnEnv() {
 
 const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 // pid-reuse guard: only trust a marker whose pid's cmdline still names this session
-const isTurnProc = (pid, id) => { try { return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes(id); } catch { return false; } };
+const isTurnProc = (pid, id) => commandLine(pid).includes(id); // /proc on Linux, ps on macOS (1.47)
 function signalTurn(turn, sig = 'SIGTERM') {
   try { process.kill(-turn.pid, sig); } // negative pid = whole (detached) process group
   catch { try { process.kill(turn.pid, sig); } catch { } }
@@ -2962,7 +2962,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Setup in one command: install.sh and pocket-init check the machine, write .env, start the daemon under PM2 and say how to add HTTPS. See docs/install.md."];
+const RELEASE_NOTES = ["Runs on macOS: the turn watchdog and process checks use ps where there is no /proc, the installer accepts a Mac and checks the launchd agent. The installer's npm output is quiet now."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
