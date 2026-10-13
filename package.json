@@ -1,9 +1,10 @@
 {
   "name": "pocket-code",
-  "version": "1.45.0",
+  "version": "1.46.0",
   "private": true,
   "type": "module",
   "bin": {
+    "pocket-init": "scripts/pocket-init.mjs",
     "pocket-board": "scripts/pocket-board.mjs",
     "pocket-docs": "scripts/pocket-docs.mjs",
     "pocket-tasks": "scripts/pocket-tasks.mjs",
@@ -38,6 +39,7 @@
   "main": "server.mjs",
   "scripts": {
     "start": "node server.mjs",
+    "init": "node scripts/pocket-init.mjs",
     "test": "POCKET_SKILLS=0 node --test test/*.test.mjs",
     "test:browser": "node test/browser.mjs",
     "vendor": "node scripts/vendor.mjs",

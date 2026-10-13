@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.46.0] — 2026-10-13 · build 97
+
+- **One command installs Pocket Code.** `curl -fsSL …/install.sh | bash -s -- --yes --contact you@example.com` clones the newest release, installs dependencies and runs the new **`pocket-init`** (`scripts/pocket-init.mjs`, also `npm run init`). It checks the platform, Node.js, Claude Code and its sign-in, Codex, PM2 (offering to install it) and the port; writes the missing lines of `.env` (a generated password, cookie secret and push keys, mode `0600`) while keeping anything already there and replacing `.env.example` placeholders in place; starts the daemon from the ecosystem file, saves the PM2 list, waits for `/api/health`, and prints how to add HTTPS, naming the tunnel or proxy it found (`cloudflared`, Tailscale, Caddy, nginx) with the exact lines for this port. Safe to run again. `--dry-run` reports without writing; `--json` gives the report as data. ([#86](https://github.com/bbesner/pocket-code/issues/86))
+- **The password stays out of transcripts.** On a terminal `pocket-init` shows the new password once. Run by an agent or with output piped, it does not print it and tells the owner to read the `POCKET_PASSWORD` line of `.env` themselves. `POCKET_PASSWORD` in the environment chooses the password instead of a generated one.
+- **An install guide an agent can follow.** [docs/install.md](docs/install.md): what each check means and what to do when it fails, the password rule, how an agent verifies the result, and HTTPS through Tailscale Serve, Cloudflare Tunnel, Caddy or nginx. The README quick start is the one command plus a pointer; the by-hand steps moved to the guide. Requirements name WSL2 for Windows and link the macOS issue.
+- Tests run the real `pocket-init` against a temporary `.env` with a fake `claude` and `pm2`: dry run, first run, re-run, placeholder replacement, busy port, mismatched `--port`, a daemon already running here or elsewhere, first start, JSON output and a signed-out CLI.
+
 ## [1.45.0] — 2026-10-13 · build 96
 
 - **Select several files and remove them in one step.** **Select** beside Upload turns the Files library (list or grid) into checkboxes. Tick files, or **Select all** for what the search and filters show, and **Remove** moves them to the trash after one confirmation. A search or filter that hides a picked file drops it from the selection, so Remove never reaches a file out of sight. **Done** or Escape leaves select mode. Requested by Damon.
