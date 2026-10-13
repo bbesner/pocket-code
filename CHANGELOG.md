@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.44.2] — Unreleased · build 95
+
+- **Edit a saved value in place.** The Vault's Edit sheet started every field empty ("Unchanged"), and its **Show** only unmasked what you typed there, so on a saved field it showed nothing and a value could only be replaced blind, never seen and corrected. Now **Show** on a saved field loads its value into the box, one field per tap and recorded in the item's history as a view, the same as Show on the item's sheet. Change it and save; a value left as loaded is not sent, and one emptied is refused with a note instead of being kept silently (a custom field is dropped with **Remove**). A login's username loads the same way. A value with a line break opens in a box that keeps it. Adding and removing fields works as before. Reported by Brad, who had pasted extra text after an API secret and could neither see it nor trim it.
+- **Line breaks show on the item.** A shown value keeps its line breaks, so text pasted on a second line is visible instead of running on.
+- **The history names the fields an edit changed** ("Changed api_secret by you"). The audit row records the field names, never a value.
+- Agents and terminals still cannot change or replace an item; correcting one is the owner's. Tests cover the store, the routes (owner, token, agent, cross-origin) and the browser at 390 and 1440px.
+
 ## [1.44.1] — 2026-10-13 · build 94
 
 - **New projects, files and tasks show up without a reload.** Each list fetched its items once and then only on a 30-second poll while it was open, so something an agent added with `pocket-board`, `pocket-docs` or `pocket-tasks` could stay missing from the rail or a project card until the page was hard-refreshed. Now the lists refresh when the window comes back into view or focus, when a turn ends in any Pocket window on the device (a split pane, a window of its own or another tab, through a `BroadcastChannel`), and whenever the rail's Projects, Files or Tasks list is shown with data more than a few seconds old. Reported by Damon.

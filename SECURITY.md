@@ -161,7 +161,7 @@ action does not happen.
 
 **In the browser.** Vault responses are `no-store` and kept out of the service worker's
 cache, changes are refused unless the `Origin` header is Pocket's own, and a value is fetched
-one field at a time when the owner taps it and is never stored in the browser. Notes and
+one field at a time when the owner taps it (on the item, or into the editor to correct it) and is never stored in the browser. Notes and
 command text are shown as text, never as HTML.
 
 **Limits.** These are real, and the same as for the password above:

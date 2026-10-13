@@ -240,7 +240,7 @@ async function vaultCopy(text,btn,what){
 function vaultHistoryLine(row){
  const by=row.by==='owner'?'by you':row.by==='terminal'?'from a terminal':'by an agent';
  const what={run:'Run '+by,fill:'Filled into a browser '+by,'run-denied':'Run refused, '+by.replace(/^by /,'asked by '),request:'Asked to run '+by,'request-answered':row.decision==='deny'?'Request denied by you':row.decision==='always'?'Always allowed by you':row.decision==='once'?'Allowed once by you':'Request answered by you',
-  'owner-view':'Viewed by you',put:'Stored '+by,update:row.decision==='recipe-removed'?'Approved command removed '+by:'Changed '+by,remove:'Removed '+by,restore:'Restored '+by,rotate:'Key rotated by you'}[row.action]||row.action;
+  'owner-view':'Viewed by you',put:'Stored '+by,update:row.decision==='recipe-removed'?'Approved command removed '+by:'Changed '+(Array.isArray(row.fields)&&row.fields.length?row.fields.join(', ')+' ':'')+by,remove:'Removed '+by,restore:'Restored '+by,rotate:'Key rotated by you'}[row.action]||row.action;
  const parts=[what,row.session?(row.sessionTitle||(typeof sessionName==='function'?sessionName(row.session):'')):'',row.at?rel(vaultTime(row.at)):''].filter(Boolean);
  const cmd=row.argv&&row.argv.length?vaultCmd(row.argv):'';
  return `<li><span class="vault-history-what">${esc(parts.join(' · '))}</span>${cmd?`<code class="vault-cmd">${esc(cmd)}</code>`:''}</li>`;
@@ -333,7 +333,7 @@ function vaultSecretFieldsHTML(kind,editing){
  return vaultFixedFields(kind).map(f=>{
   const id='vs-'+(++vaultFieldSeq),label=vaultFieldWord(kind,f),ph=editing?'Unchanged':'';
   const common=`id="${id}" name="v-${f}" ${VAULT_SECRET_ATTRS} data-secret="${f}" placeholder="${ph}"`;
-  if(f==='username')return `<label class="voice-field">${label}<input type="text" ${common}></label>`;
+  if(f==='username')return editing?`<div class="vault-secret"><label class="voice-field" for="${id}" id="${id}-l">${label}</label><div class="vault-secret-input"><input type="text" data-plain ${common}>${vaultRevealBtn(id,id+'-l')}</div></div>`:`<label class="voice-field">${label}<input type="text" ${common}></label>`;
   if(f==='text')return `<div class="vault-secret"><label class="voice-field" for="${id}" id="${id}-l">${label}</label><div class="vault-secret-input"><textarea rows="4" class="vault-masked" ${common}></textarea>${vaultRevealBtn(id,id+'-l')}</div></div>`;
   return `<div class="vault-secret"><label class="voice-field" for="${id}" id="${id}-l">${label}</label><div class="vault-secret-input"><input type="password" ${common}>${vaultRevealBtn(id,id+'-l')}</div></div>`;
  }).join('');
@@ -380,7 +380,7 @@ function vaultEditor(t,{insert=null}={}){
     <div class="vault-custom-rows" data-custom-rows>${existing.map(vaultCustomRowHTML).join('')}</div>
     <button type="button" class="chip vault-add-field" data-add-field>${IC.plus}Add field</button>
    </div>
-   ${t?'<p class="vault-hint">Leave a value empty to keep it as it is.</p>':''}
+   ${t?'<p class="vault-hint">Show loads a saved value so you can change it. A value left empty stays as it is.</p>':''}
    <label class="voice-field">Website (optional)<input type="text" inputmode="url" name="url" value="${esc(t?.url||'')}" placeholder="https://" autocomplete="off" spellcheck="false" autocapitalize="none"></label>
    <label class="voice-field">Tags (optional)<input type="text" name="tags" value="${esc((t?.tags||[]).join(', '))}" placeholder="billing, zoho" autocomplete="off" autocapitalize="none" aria-describedby="vault-tags-hint"></label>
    <p class="vault-hint" id="vault-tags-hint">Separate tags with commas.</p>
@@ -393,12 +393,40 @@ function vaultEditor(t,{insert=null}={}){
   </form>`;
  const form=sh.querySelector('form'),err=sh.querySelector('.vault-form-error'),box=sh.querySelector('[data-secret-fields]');
  const rowsBox=sh.querySelector('[data-custom-rows]'),addBtn=sh.querySelector('[data-add-field]'),fieldHint=sh.querySelector('#vault-field-hint');
- const bindReveal=root=>root.querySelectorAll('[data-reveal]').forEach(b=>b.onclick=()=>{
-  const el=document.getElementById(b.dataset.reveal),on=b.getAttribute('aria-pressed')!=='true';
-  if(el.tagName==='TEXTAREA')el.classList.toggle('vault-masked',!on);else el.type=on?'text':'password';
-  b.setAttribute('aria-pressed',String(on));
+ // Editing: Show on a saved field that has nothing typed in it loads the saved value into the box (one field, recorded
+ // as a view, like Show on the item's sheet), so it can be corrected in place. loaded holds what each box held as
+ // loaded, only to tell an untouched box from a changed one; it goes with the sheet. A value with a line break opens
+ // in a box that keeps it.
+ const loaded=new Map();
+ const savedField=el=>t&&!el.closest('[data-new-field]')?(el.dataset.secret||el.closest('[data-custom]')?.dataset.custom||''):'';
+ const toTextarea=el=>{const ta=document.createElement('textarea');for(const a of el.attributes)if(a.name!=='type')ta.setAttribute(a.name,a.value);el.replaceWith(ta);return ta;};
+ const mask=(el,on)=>{if(el.tagName==='TEXTAREA')el.classList.toggle('vault-masked',on);else if(!el.hasAttribute('data-plain'))el.type=on?'password':'text';};
+ const bindReveal=root=>root.querySelectorAll('[data-reveal]').forEach(b=>b.onclick=async()=>{
+  let el=document.getElementById(b.dataset.reveal);const on=b.getAttribute('aria-pressed')!=='true',f=on&&!el.value&&!loaded.has(el)?savedField(el):'';
+  if(f){
+   b.disabled=true;b.textContent='Loading…';
+   try{
+    const r=await api('/vault/field',{method:'POST',body:JSON.stringify({item:t.id,field:f}),cache:'no-store'});
+    if(!sh.isConnected||el.value)return; // closed, or typed into while it loaded: what was typed wins
+    const v=String(r.value??'');
+    if(/[\r\n]/.test(v)&&el.tagName!=='TEXTAREA')el=toTextarea(el);
+    el.value=v;el.placeholder='';loaded.set(el,el.value);
+    if(el.tagName==='TEXTAREA'){el.classList.remove('vault-masked');el.style.height='auto';el.style.height=Math.min(el.scrollHeight+2,220)+'px';} // tall enough to read it whole
+    if(el.hasAttribute('data-plain'))b.hidden=true; // a username is never masked; once loaded there is nothing to show
+   }catch(e){if(vaultLockedError(e)){err.textContent='The Vault is locked. Unlock it to see saved values.';}else if(e.message!=='login')toast(e.message||'Could not load the value');return;}
+   finally{if(b.isConnected){b.disabled=false;b.textContent='Show';}}
+  }
+  mask(el,!on);b.setAttribute('aria-pressed',String(on));
  });
+ // Hiding the app masks every value shown here again; what was typed or loaded stays until the sheet closes.
+ const onHidden=()=>{if(document.visibilityState!=='hidden')return;sh.querySelectorAll('[data-reveal][aria-pressed="true"]').forEach(b=>{const el=document.getElementById(b.dataset.reveal);if(el)mask(el,true);b.setAttribute('aria-pressed','false');});};
+ document.addEventListener('visibilitychange',onHidden);
  bindReveal(box);
+ form.addEventListener('input',e=>{
+  const el=e.target;if(!el.matches('[data-secret],[data-custom] [data-custom-value]'))return;
+  el.removeAttribute('aria-invalid');err.textContent='';
+  if(el.hasAttribute('data-plain')&&!loaded.has(el)){const b=el.parentElement.querySelector('[data-reveal]');if(b)b.hidden=Boolean(el.value);} // Show only loads a username
+ });
  // Custom rows: the 20-field cap counts the fields kept plus the rows being added.
  const keptCount=()=>rowsBox.querySelectorAll('[data-custom]:not(.removing),[data-new-field]').length;
  const syncCustom=()=>{fieldHint.hidden=!rowsBox.querySelector('[data-new-field]');addBtn.disabled=keptCount()>=VAULT_CUSTOM_MAX;};
@@ -414,11 +442,11 @@ function vaultEditor(t,{insert=null}={}){
  const addRow=focus=>{rowsBox.insertAdjacentHTML('beforeend',vaultNewFieldHTML());const row=rowsBox.lastElementChild;bindNewRow(row);syncCustom();if(focus)row.querySelector('[data-custom-name]').focus();return row;};
  rowsBox.querySelectorAll('[data-custom]').forEach(row=>{
   bindReveal(row);
-  const rm=row.querySelector('[data-remove-field]'),val=row.querySelector('[data-custom-value]');
+  const rm=row.querySelector('[data-remove-field]');
   rm.onclick=()=>{
-   const on=rm.getAttribute('aria-pressed')!=='true';
+   const on=rm.getAttribute('aria-pressed')!=='true',val=row.querySelector('[data-custom-value]');
    row.classList.toggle('removing',on);rm.setAttribute('aria-pressed',String(on));rm.textContent=on?'Undo':'Remove';
-   row.querySelector('.vault-removing').hidden=!on;val.disabled=on;if(on)val.value='';
+   row.querySelector('.vault-removing').hidden=!on;val.disabled=on;if(on){val.value='';loaded.delete(val);} // Undo leaves it empty: kept as it is
    syncCustom();
   };
  });
@@ -436,18 +464,27 @@ function vaultEditor(t,{insert=null}={}){
  const polHint=()=>{const c=vaultPolicyChoices().find(([v])=>v===form.elements.policy.value);sh.querySelector('[data-policy-hint]').textContent=c?c[2]+'.':'';};
  form.elements.policy.onchange=polHint;polHint();
  sh.querySelector('[data-clear-exp]').onclick=()=>{form.elements.expires.value='';};
- const wipe=()=>form.querySelectorAll('[data-secret],[data-custom-value]').forEach(el=>{el.value='';});
- onSheetGone(sh,wipe); // typed values never outlive the sheet
+ const wipe=()=>{form.querySelectorAll('[data-secret],[data-custom-value]').forEach(el=>{el.value='';});loaded.clear();};
+ onSheetGone(sh,()=>{wipe();document.removeEventListener('visibilitychange',onHidden);}); // typed and loaded values never outlive the sheet
+ // A loaded value left as it was is not sent; one emptied is refused, since an empty box otherwise means "keep it".
+ const untouched=el=>loaded.has(el)&&el.value===loaded.get(el);
+ const emptied=(el,msg)=>{if(!loaded.has(el)||el.value.trim())return false;err.textContent=msg;el.setAttribute('aria-invalid','true');el.focus();return true;};
  form.onsubmit=async e=>{
   e.preventDefault();err.textContent='';rowsBox.querySelectorAll('[data-new-field]').forEach(clearRowError);
   const name=nameIn.value.trim();
   if(!VAULT_NAME_RE.test(name)){nameIn.setAttribute('aria-invalid','true');err.textContent='Name: 1 to 64 lowercase letters, numbers or hyphens.';nameIn.focus();return;}
   const k=t?t.kind:form.elements.kind.value,fixed=vaultFixedFields(k),values={},removeFields=[];
-  for(const el of box.querySelectorAll('[data-secret]')){const f=el.dataset.secret,v=f==='value'||f==='username'?el.value.trim():el.value;if(v)values[f]=v;}
+  for(const el of box.querySelectorAll('[data-secret]')){
+   const f=el.dataset.secret;if(untouched(el))continue;
+   if(emptied(el,`${vaultFieldWord(k,f)} can’t be empty. Type a value, or close without saving.`))return;
+   const v=f==='value'||f==='username'?el.value.trim():el.value;if(v)values[f]=v;
+  }
   if(!t){const need=fixed.find(f=>!values[f]);if(need){err.textContent=vaultFieldWord(k,need)+' is required.';box.querySelector(`[data-secret="${need}"]`)?.focus();return;}} // the server needs every fixed field of the kind
   for(const row of rowsBox.querySelectorAll('[data-custom]')){
    if(row.classList.contains('removing')){removeFields.push(row.dataset.custom);continue;}
-   const v=row.querySelector('[data-custom-value]').value.trim();if(v)values[row.dataset.custom]=v;
+   const el=row.querySelector('[data-custom-value]');if(untouched(el))continue;
+   if(emptied(el,`${row.dataset.custom} can’t be empty. To drop the field, use Remove.`))return;
+   const v=el.value.trim();if(v)values[row.dataset.custom]=v;
   }
   // New fields: refused here, beside the row, before anything is sent.
   const seen=new Set();

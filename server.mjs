@@ -2946,7 +2946,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Projects, Files and Tasks now show new items without a reload: lists refresh when you come back to the window, when a turn ends, and when you open them, and a project card keeps its files current."];
+const RELEASE_NOTES = ["Vault: Show in Edit now loads a saved value so you can correct it in place, a value's line breaks show on the item, and an edit's history names the fields it changed."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

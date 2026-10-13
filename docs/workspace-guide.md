@@ -465,8 +465,12 @@ also carry custom fields beside its kind's fixed ones (an Authorize.net login wi
 underscores) and a value, encrypted like the rest, and agents bind it as `name.field`. You can add a URL,
 notes, tags and an expiry date. The Vault view lists the items with their kind, policy, expiry
 and when each was last used; a value is shown only when you tap it, one field at a time, with
-**Copy** beside it, and each view is recorded. **Remove** moves an item to the trash for 30
-days, where *Restore* brings it back.
+**Copy** beside it, and each view is recorded. **Edit** changes an item in place: its fields
+start empty and a field left empty keeps its value, while **Show** on a saved field (1.44.2)
+loads that value into the box, recorded like any view, so you can correct it, say trim text
+pasted after a secret, and save. Fields are added and removed there too. Only you can edit an
+item; agents can add new ones but never change or replace one. **Remove** moves an item to the
+trash for 30 days, where *Restore* brings it back.
 
 **Adding one.** **Add item** in the Vault view, or **Store in the Vault** in the composer's
 attach sheet or a session's options, opens the add sheet; what you type there never enters the

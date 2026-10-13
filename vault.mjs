@@ -270,13 +270,14 @@ export class VaultStore {
       i.recipes = i.recipes.filter(r => r.id !== id); this.touch(i); this.audit({ action: 'update', item: i.id, name: i.name, by, decision: 'recipe-removed' }); this.save(); return this.view(i, { owner });
     }
     let changed = false;
+    const touched = []; // field names an edit changed, added or removed: recorded in the audit, never a value
     if ('name' in input) { const name = str(input.name, LIMITS.name + 1).toLowerCase(); if (!NAME_RE.test(name)) throw fail('The name must be 1 to 64 characters: lower-case letters, digits and hyphens.'); if (this.items.some(x => x !== i && x.name === name)) throw fail('An item with that name already exists.', 409); i.name = name; changed = true; }
     if (Array.isArray(input.removeFields)) { // custom fields only; a fixed field cannot be dropped
-      for (const f of input.removeFields.map(x => str(x, 40))) { if (!i.custom.includes(f)) throw fail(`${f} is not a custom field of this item.`); i.custom = i.custom.filter(x => x !== f); delete i.values[f]; changed = true; }
+      for (const f of input.removeFields.map(x => str(x, 40))) { if (!i.custom.includes(f)) throw fail(`${f} is not a custom field of this item.`); i.custom = i.custom.filter(x => x !== f); delete i.values[f]; touched.push(f); changed = true; }
     }
     if (input.values && typeof input.values === 'object') {
       const { values, custom } = this.checkValues(i, input.values, { all: false });
-      for (const [f, val] of Object.entries(values)) if (val !== '') { i.values[f] = val; changed = true; }
+      for (const [f, val] of Object.entries(values)) if (val !== '') { if (val !== i.values[f]) touched.push(f); i.values[f] = val; changed = true; }
       for (const f of custom) if (!i.custom.includes(f)) { i.custom.push(f); changed = true; }
       if (i.custom.length > LIMITS.customFields) throw fail(`An item can have up to ${LIMITS.customFields} custom fields.`);
     }
@@ -286,7 +287,7 @@ export class VaultStore {
     if ('policy' in input) { if (!POLICIES.includes(input.policy)) throw fail('The policy must be default, auto, ask, every or owner.'); i.policy = input.policy; changed = true; }
     if ('expiresAt' in input) { i.expiresAt = this.checkWhen(input.expiresAt); changed = true; }
     if (!changed) throw fail('Nothing to change.');
-    this.touch(i); this.audit({ action: 'update', item: i.id, name: i.name, by }); this.save();
+    this.touch(i); this.audit({ action: 'update', item: i.id, name: i.name, by, ...(touched.length ? { fields: [...new Set(touched)] } : {}) }); this.save();
     return this.view(i, { owner });
   }
   // Fixed fields are required on add; any other key is a custom field (named by the rule, not clashing with a fixed one).
