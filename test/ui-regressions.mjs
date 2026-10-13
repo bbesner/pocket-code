@@ -1303,6 +1303,77 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.deepEqual(await page.evaluate(()=>vaultSnap.items.find(i=>i.name==='stripe-connect').fields),['client_id']);
    }finally{page.off('request',onReq);settings.vault=false;}
   });
+  await check('Vault in-place edit (1.44.2): Show reveals every field of a multi-field API key with its line break, and Edit loads a saved value to correct it, at 390 and 1440',async()=>{
+   const settings=settingsState();settings.vault=true;settings.vaultReady=true;
+   const PASTED='sinch-secret-fixture-30-chars\nAuthorization: Basic c2luY2gtZml4dHVyZQ==',CLEAN='sinch-secret-fixture-30-chars';
+   const acts=[],views=[];const onReq=r=>{const u=new URL(r.url()).pathname;if(r.method()!=='POST')return;if(u==='/api/vault/act')acts.push(JSON.parse(r.postData()||'{}'));if(u==='/api/vault/field')views.push(JSON.parse(r.postData()||'{}').field);};page.on('request',onReq);
+   const leaked=()=>page.evaluate(vs=>vs.filter(v=>document.documentElement.outerHTML.includes(v)||JSON.stringify(localStorage).includes(v)||JSON.stringify(sessionStorage).includes(v)),['sinch-secret-fixture','c2luY2gtZml4dHVyZQ','sinch-key-fixture']);
+   try{
+    for(const [w,h] of [[390,844],[1440,900]]){
+     await page.setViewport({width:w,height:h});
+     await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
+     await page.goto(base+'/#/vault');await page.reload();await page.waitForSelector('#vault-main .vault-item');
+     const id=await page.evaluate(v=>fetch('/api/vault/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'add',name:'sinch-engage',kind:'api_key',values:{value:'sinch-key-fixture-2026',base_url:'https://au.app.api.sinch.com',api_secret:v}})}).then(r=>r.json()).then(j=>j.item.id),PASTED);
+     await page.evaluate(()=>loadVault(true).then(repaintVault));await page.waitForSelector(`[data-vault-open="${id}"]`);
+     // The sheet: Show on each field shows that field, and a pasted line break shows as one.
+     await clickControl(page,`[data-vault-open="${id}"]`);await page.waitForSelector('.vault-sheet [data-history] ul');
+     assert.deepEqual(await page.$$eval('.vault-sheet .vault-field-label',e=>e.map(x=>x.textContent)),['Key','base_url','api_secret']);
+     for(const f of ['value','base_url','api_secret'])await clickControl(page,`.vault-sheet [data-field="${f}"] [data-show]`);
+     await page.waitForFunction(()=>document.querySelectorAll('.vault-sheet .vault-value.shown').length===3);
+     const shown=await page.evaluate(()=>[...document.querySelectorAll('.vault-sheet .vault-field')].map(r=>{const v=r.querySelector('.vault-value');const b=v.getBoundingClientRect();return {f:r.dataset.field,text:v.textContent,ws:getComputedStyle(v).whiteSpace,h:b.height,w:b.width};}));
+     assert.deepEqual(shown.map(x=>x.text),['sinch-key-fixture-2026','https://au.app.api.sinch.com',PASTED]);
+     assert.equal(shown[2].ws,'pre-wrap');assert.ok(shown.every(x=>x.w>100&&x.h>10),'every value is visible: '+JSON.stringify(shown));
+     assert.equal(await page.evaluate(()=>{const s=document.querySelector('.vault-sheet');return s.scrollWidth>s.clientWidth+1||document.documentElement.scrollWidth>innerWidth;}),false,'the sheet fits at '+w);
+     await scan('vault-sheet-shown-'+w);await page.screenshot({path:path.join(out,`vault-sheet-shown-${w}.png`)});
+     // Edit: the boxes start empty; Show loads the saved value, as a view, into a box that keeps the line break.
+     await clickControl(page,'.vault-sheet [data-edit]');await page.waitForSelector('.vault-editor form');
+     assert.deepEqual(await leaked(),[],'nothing from the sheet is left in the page');
+     const before=views.length;
+     const secretBox='.vault-editor [data-custom="api_secret"] [data-custom-value]';
+     assert.equal(await page.$eval(secretBox,e=>e.value+'|'+e.placeholder),'|Unchanged');
+     await clickControl(page,'.vault-editor [data-custom="api_secret"] [data-reveal]');
+     await page.waitForFunction(sel=>document.querySelector(sel)?.tagName==='TEXTAREA'&&document.querySelector(sel).value.length>0,{},secretBox);
+     const box=await page.$eval(secretBox,e=>({value:e.value,masked:e.classList.contains('vault-masked'),pressed:e.closest('.vault-custom-row').querySelector('[data-reveal]').getAttribute('aria-pressed'),label:e.getAttribute('aria-labelledby'),focusable:e.tabIndex>=0}));
+     assert.deepEqual(box,{value:PASTED,masked:false,pressed:'true',label:box.label,focusable:true});assert.ok(box.label,'the loaded box keeps its label');
+     assert.deepEqual(views.slice(before),['api_secret'],'one field fetched, through the recorded route');
+     assert.equal(await page.evaluate(()=>{const s=document.querySelector('.vault-editor');return s.scrollWidth>s.clientWidth+1||document.documentElement.scrollWidth>innerWidth;}),false,'the editor fits at '+w);
+     await scan('vault-editor-loaded-'+w);await page.screenshot({path:path.join(out,`vault-editor-loaded-${w}.png`)});
+     // Show again masks it; Show once more unmasks without another fetch.
+     await clickControl(page,'.vault-editor [data-custom="api_secret"] [data-reveal]');assert.equal(await page.$eval(secretBox,e=>e.classList.contains('vault-masked')),true);
+     await clickControl(page,'.vault-editor [data-custom="api_secret"] [data-reveal]');assert.equal(views.length,before+1,'loaded once');
+     // The Key is loaded too but left as it was; emptying a loaded value is refused, not saved as "keep".
+     await clickControl(page,'.vault-editor [data-secret="value"] ~ [data-reveal]');
+     await page.waitForFunction(()=>document.querySelector('.vault-editor [data-secret="value"]').value==='sinch-key-fixture-2026');
+     assert.equal(await page.$eval('.vault-editor [data-secret="value"]',e=>e.type),'text');
+     await page.$eval(secretBox,e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));});
+     const sent=acts.length;await clickControl(page,'.vault-editor .primary');
+     await page.waitForFunction(()=>/api_secret can’t be empty/.test(document.querySelector('.vault-form-error')?.textContent||''));
+     assert.equal(await page.$eval(secretBox,e=>e.getAttribute('aria-invalid')+' '+(e===document.activeElement)),'true true');assert.equal(acts.length,sent,'nothing was sent');
+     // Trim it to the secret and save: only that field goes to the server.
+     await page.type(secretBox,CLEAN);
+     assert.equal(await page.$eval(secretBox,e=>e.hasAttribute('aria-invalid')),false,'typing clears the mark');
+     await clickControl(page,'.vault-editor .primary');
+     await page.waitForFunction(()=>!document.querySelector('.vault-editor'));
+     const upd=acts.at(-1);assert.equal(upd.action,'update');assert.equal(upd.item,id);assert.deepEqual(upd.values,{api_secret:CLEAN},'the untouched Key and base_url are not sent');
+     const after=await page.evaluate(id=>fetch('/api/vault/field',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({item:id,field:'api_secret'})}).then(r=>r.json()),id);
+     assert.equal(after.value,CLEAN,'the store holds the trimmed value');
+     assert.deepEqual(await leaked(),[],'no value outlives the editor, in the page or in storage');
+     // The item's history names the field the edit changed.
+     await clickControl(page,`[data-vault-open="${id}"]`);await page.waitForSelector('.vault-sheet [data-history] ul');
+     assert.match(await page.$eval('.vault-sheet [data-history]',e=>e.textContent),/Changed api_secret by you/);
+     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-sheet'));
+    }
+    // A login's username: Show loads it (it is never masked), and then the Show button goes.
+    await page.goto(base+'/#/vault');await page.waitForSelector('#vault-main .vault-item');
+    const vp=await page.evaluate(()=>vaultSnap.items.find(i=>i.name==='vendor-portal').id);
+    await clickControl(page,`[data-vault-open="${vp}"]`);await page.waitForSelector('.vault-sheet [data-edit]');await clickControl(page,'.vault-sheet [data-edit]');await page.waitForSelector('.vault-editor form');
+    await clickControl(page,'.vault-editor [data-secret="username"] ~ [data-reveal]');
+    await page.waitForFunction(()=>document.querySelector('.vault-editor [data-secret="username"]').value==='ops@example.test');
+    assert.deepEqual(await page.$eval('.vault-editor [data-secret="username"]',e=>[e.type,e.parentElement.querySelector('[data-reveal]').hidden]),['text',true]);
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-editor'));
+    assert.equal(await page.evaluate(()=>document.documentElement.outerHTML.includes('ops@example.test')),false);
+   }finally{page.off('request',onReq);await page.setViewport({width:1440,height:900});settings.vault=false;}
+  });
   await check('Vault lock (1.40): Settings shows the mode, Set a passphrase, Lock after, Lock now, the locked panel and Unlock, Export and Import, Remove, and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const settings=settingsState();settings.vault=true;settings.vaultReady=true;
    await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));

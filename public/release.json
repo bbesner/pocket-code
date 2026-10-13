@@ -1,7 +1,7 @@
 {
-  "version": "1.44.1",
-  "assetV": 94,
+  "version": "1.44.2",
+  "assetV": 95,
   "notes": [
-    "Projects, Files and Tasks now show new items without a reload: lists refresh when you come back to the window, when a turn ends, and when you open them, and a project card keeps its files current."
+    "Vault: Show in Edit now loads a saved value so you can correct it in place, a value's line breaks show on the item, and an edit's history names the fields it changed."
   ]
 }

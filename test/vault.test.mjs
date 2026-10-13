@@ -446,3 +446,88 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   o=await cli(['list']);assert.equal(o.code,3);assert.match(o.stderr,/Settings → Projects, files, tasks & vault/);
   assert.equal((await call('/vault')).status,404);
 });
+
+// 1.44.2: the owner corrects a value in place. The editor's Show loads the saved value (an owner view, recorded), the
+// owner trims it and saves an update; the audit names the field, never the value. Agents and terminals still cannot
+// change an item, so an owner's mistake is the owner's to fix.
+test('in-place edit (1.44.2): the store changes one field, names it in the audit, and keeps the agent restriction',()=>{
+  const dir=tmp(),file=path.join(dir,'vault.enc'),key=parseKey(newKey());
+  const s=new VaultStore(file,{key});
+  const pasted='sinch-secret-30-characters-abc\nAuthorization: Basic c2luY2gta2V5OnNpbmNo';
+  const it=s.act({action:'add',name:'sinch-engage',kind:'api_key',values:{value:'sinch-key-1234567890',base_url:'https://au.app.api.sinch.com',api_secret:pasted}});
+  assert.deepEqual(it.fields,['value','base_url','api_secret']);
+  assert.equal(s.field(it.id,'api_secret'),pasted,'Show returns the whole value, line break included');
+  // Agents and terminals cannot replace or edit it, by update or by adding over the name.
+  for(const actor of ['agent','terminal']){
+    assert.throws(()=>s.act({action:'update',item:it.id,values:{api_secret:'x'}},{actor}),e=>e.status===403);
+    assert.throws(()=>s.act({action:'update',item:it.id,removeFields:['api_secret']},{actor}),e=>e.status===403);
+    assert.throws(()=>s.act({action:'add',name:'sinch-engage',kind:'api_key',values:{value:'x'}},{actor}),/agents cannot replace it/);
+  }
+  assert.equal(s.get(it.id).values.api_secret,pasted,'unchanged by the refused calls');
+  // The owner trims one field; the others are untouched and the change survives a reopen.
+  const rev=s.get(it.id).revision;
+  const out=s.act({action:'update',item:it.id,expected_revision:rev,values:{api_secret:'sinch-secret-30-characters-abc'}});
+  assert.equal(out.revision,rev+1);assert.equal('values' in out,false,'the answer carries no value');
+  const again=new VaultStore(file,{key});
+  assert.deepEqual(again.get(it.id).values,{value:'sinch-key-1234567890',base_url:'https://au.app.api.sinch.com',api_secret:'sinch-secret-30-characters-abc'});
+  // A fixed field edits in place too; an empty value keeps it; a stale revision is refused.
+  s.act({action:'update',item:it.id,values:{value:'sinch-key-0987654321',api_secret:''}});
+  assert.equal(s.get(it.id).values.value,'sinch-key-0987654321');assert.equal(s.get(it.id).values.api_secret,'sinch-secret-30-characters-abc');
+  assert.throws(()=>s.act({action:'update',item:it.id,expected_revision:rev,values:{value:'x'}}),e=>e.status===409&&e.item?.id===it.id);
+  // Add and remove fields in the same store, without re-creating the item.
+  s.act({action:'update',item:it.id,values:{sender:'+15619228416'},removeFields:['base_url']});
+  assert.deepEqual(s.view(s.get(it.id)).fields,['value','api_secret','sender']);assert.equal(s.get(it.id).id,it.id);
+  // The audit: each edit names the fields it changed, an untouched save names none, and no value appears anywhere.
+  s.act({action:'update',item:it.id,values:{value:'sinch-key-0987654321'},tags:['sms']});
+  const rows=s.auditRows({owner:true,item:it.id}).filter(r=>r.action==='update').reverse();
+  assert.deepEqual(rows.map(r=>r.fields||[]),[['api_secret'],['value'],['base_url','sender'],[]]);
+  assert.ok(rows.every(r=>r.by==='owner'));
+  const audit=fs.readFileSync(path.join(dir,'vault-audit.jsonl'),'utf8');
+  for(const v of ['sinch-secret','sinch-key-','Authorization','+15619228416'])assert.equal(audit.includes(v),false,'no value in the audit: '+v);
+  assert.equal(fs.readFileSync(file).toString('latin1').includes('sinch-secret'),false,'the store stays encrypted');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
+test('HTTP in-place edit (1.44.2): the owner loads and saves a field; the token and an agent cannot; nothing is logged',async t=>{
+  const dir=tmp();let port=19431;
+  const secret=randomUUID(),exp=Date.now()+3600000,key=newKey();
+  const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
+  const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
+  fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});fs.mkdirSync(path.join(dir,'data'),{recursive:true});
+  let child,logs='';
+  const start=async()=>{
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),POCKET_VAULT_KEY:key},stdio:['ignore','pipe','pipe']});
+   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=37;logs='';return start();}
+   throw Error('Test server failed: '+logs);
+  };
+  t.after(async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
+  await start();
+  assert.equal((await call('/settings',{vault:true})).status,200);
+  const token=fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim(),bearer={'content-type':'application/json',authorization:'Bearer '+token};
+  const pasted='sinch-secret-30-characters-abc\nAuthorization: Basic c2luY2gta2V5OnNpbmNo';
+  const made=await call('/vault/act',{action:'add',name:'sinch-engage',kind:'api_key',values:{value:'sinch-key-1234567890',base_url:'https://au.app.api.sinch.com',api_secret:pasted}});
+  assert.equal(made.status,200);const id=made.body.item.id;
+  // Show on each field of a multi-field API key returns that field's value to the owner.
+  for(const [f,v] of [['value','sinch-key-1234567890'],['base_url','https://au.app.api.sinch.com'],['api_secret',pasted]]){
+    const r=await call('/vault/field',{item:id,field:f});assert.equal(r.status,200,f);assert.equal(r.body.value,v,f);
+  }
+  assert.equal((await call('/vault/field',{item:id,field:'api_secret'},bearer)).status,401,'no value for the token');
+  // The token (a terminal, or an agent) cannot edit it, nor replace it by name.
+  assert.equal((await call('/vault/act',{action:'update',item:id,values:{api_secret:'x'}},bearer)).status,403);
+  const replace=await call('/vault/act',{action:'add',name:'sinch-engage',kind:'api_key',values:{value:'x'}},bearer);
+  assert.equal(replace.status,409);assert.match(replace.body.error,/agents cannot replace it/);
+  // The owner saves the trimmed value; a cross-origin save is refused.
+  assert.equal((await call('/vault/act',{action:'update',item:id,values:{api_secret:'x'}},{...headers,origin:'https://evil.example'})).status,403);
+  const saved=await call('/vault/act',{action:'update',item:id,expected_revision:made.body.item.revision,values:{api_secret:'sinch-secret-30-characters-abc'}});
+  assert.equal(saved.status,200);assert.equal(JSON.stringify(saved.body).includes('sinch-secret'),false,'the answer carries no value');
+  assert.equal((await call('/vault/field',{item:id,field:'api_secret'})).body.value,'sinch-secret-30-characters-abc');
+  assert.equal((await call('/vault/field',{item:id,field:'value'})).body.value,'sinch-key-1234567890','other fields untouched');
+  const hist=await call('/vault/audit?item='+id);
+  const update=hist.body.rows.find(r=>r.action==='update');assert.deepEqual(update.fields,['api_secret']);assert.equal(update.by,'owner');
+  assert.ok(hist.body.rows.filter(r=>r.action==='owner-view').length>=4,'every load is recorded');
+  const audit=fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8');
+  for(const v of ['sinch-secret','sinch-key-','Authorization'])assert.equal(audit.includes(v)||logs.includes(v),false,'no value in the audit or the log: '+v);
+});

@@ -1382,7 +1382,7 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-field:last-child { border-bottom: 0; }
 .vault-field-label { font-size: 14px; color: var(--dim); }
 .vault-value { min-width: 0; color: var(--faint); letter-spacing: .12em; overflow-wrap: anywhere; }
-.vault-value.shown { color: var(--text); letter-spacing: 0; user-select: all; }
+.vault-value.shown { color: var(--text); letter-spacing: 0; user-select: all; white-space: pre-wrap; } /* a pasted line break shows as one */
 .vault-field-actions { display: flex; gap: 6px; }
 .vault-field-actions .chip[hidden] { display: none; }
 @media (max-width: 460px) { .vault-field { grid-template-columns: 1fr auto; } .vault-field .vault-value { grid-column: 1 / -1; grid-row: 2; padding-bottom: 6px; } } /* a long value gets the full width under its label */
@@ -1408,11 +1408,14 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-form .vault-secret { display: flex; flex-direction: column; gap: 4px; }
 .vault-form .vault-secret-input { display: flex; gap: 8px; align-items: flex-start; }
 .vault-form .vault-secret-input input, .vault-form .vault-secret-input textarea { flex: 1; min-width: 0; min-height: 44px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-.vault-form .vault-secret-input input:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.vault-form .vault-secret-input input:focus-visible, .vault-form .vault-secret-input textarea:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.vault-form .vault-secret-input textarea { resize: vertical; line-height: 1.45; overflow-wrap: anywhere; }
+.vault-form .vault-secret-input [aria-invalid="true"] { border-color: var(--err); }
 .vault-form .vault-secret-input .chip { flex: none; }
 .vault-form .vault-masked { -webkit-text-security: disc; }
 .vault-form select:disabled { color: var(--dim); }
 .vault-reveal[aria-pressed="true"] { color: var(--clay); border-color: var(--clay-deep); }
+.vault-reveal[hidden] { display: none; }
 .vault-form .task-due-row { display: flex; gap: 8px; align-items: flex-end; }
 .vault-form .task-due-row label { flex: 1; min-width: 0; }
 .vault-form .task-due-row .chip { flex: none; }
@@ -1428,6 +1431,7 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-custom-row:first-child { padding-top: 0; }
 .vault-custom-name { grid-column: 1 / -1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; color: var(--text); overflow-wrap: anywhere; }
 .vault-custom-row .vault-secret, .vault-custom-row .vault-removing, .vault-custom-row .vault-field-error { grid-column: 1 / -1; }
+.vault-custom-row:has(textarea) { align-items: start; } /* a loaded value with a line break: Show and Remove stay at its top */
 .vault-custom-row.removing .vault-custom-name { color: var(--faint); text-decoration: line-through; }
 .vault-custom-row.removing input { opacity: .55; }
 .vault-field-remove { min-width: 5.6em; justify-content: center; }
