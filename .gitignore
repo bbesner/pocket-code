@@ -1,8 +1,8 @@
 node_modules/
 .env
+.env.tmp
 *.log
 push-subs.json
-test-chart.png
 turnlogs/
 mutes.json
 session-meta.json
@@ -33,3 +33,16 @@ cli-url
 vault.enc
 vault.enc.tmp
 vault-audit.jsonl
+
+# Projects, Files, Tasks and saved prompts (1.23-1.36): stores and the default Files folder
+projects.json*
+documents.json*
+tasks.json*
+saved-prompts.json*
+/documents/
+
+# Any store's atomic-write temp file
+*.json.tmp
+
+# Design-scanner cache from local UI work
+.impeccable/

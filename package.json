@@ -6,7 +6,8 @@
   "bin": {
     "pocket-board": "scripts/pocket-board.mjs",
     "pocket-docs": "scripts/pocket-docs.mjs",
-    "pocket-tasks": "scripts/pocket-tasks.mjs"
+    "pocket-tasks": "scripts/pocket-tasks.mjs",
+    "pocket-vault": "scripts/pocket-vault.mjs"
   },
   "description": "Self-hosted Claude Code and Codex workspace for desktop, tablet and phone, with persistent sessions, split conversations and server-side execution.",
   "keywords": [
