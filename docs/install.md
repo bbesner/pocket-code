@@ -1,15 +1,15 @@
 # Install Pocket Code
 
 This page is written so that a person, or a Claude Code or Codex session working for them, can
-take a Linux machine to a running Pocket Code and know at each step whether it worked. The
+take a Linux or macOS machine to a running Pocket Code and know at each step whether it worked. The
 short version is one command; the rest explains what it does, how to check it and what to do
 when a step fails.
 
 ## What you need
 
-- A Linux machine you can reach over SSH, running as the user whose Claude Code sessions
-  Pocket will run. On Windows, use an Ubuntu WSL2 distribution. macOS is not yet verified
-  ([#87](https://github.com/bbesner/pocket-code/issues/87)).
+- A Linux or macOS machine (macOS since 1.47) that stays on, running as the user whose Claude
+  Code sessions Pocket will run. On Windows, use an Ubuntu WSL2 distribution; native Windows is
+  not supported.
 - Node.js 20.11 or newer, git and npm.
 - Claude Code installed (`npm install -g @anthropic-ai/claude-code`) and signed in on this
   machine (`claude auth status`). Codex is optional and is picked up when `codex` is on `PATH`.
@@ -47,7 +47,7 @@ checkout is left alone.
 
 | Check | ok means | On FAIL |
 |---|---|---|
-| Platform | Linux. macOS is a warning; Windows stops with a pointer to WSL2. | Install inside WSL2. |
+| Platform | Linux or macOS. Windows stops with a pointer to WSL2. | Install inside WSL2. |
 | Node.js | 20.11 or newer. | Install a newer Node.js. |
 | Dependencies | `node_modules` present, or `npm ci --omit=dev` just ran. | Run `npm ci --omit=dev` in the checkout and read its error. |
 | Claude Code | `claude` found and signed in. Not signed in is a warning: sign in with `claude` in a terminal, or later from Pocket's Settings → Accounts. | Install Claude Code, or set `CLAUDE_BIN=/path/to/claude` in `.env`. |
@@ -58,7 +58,7 @@ checkout is left alone.
 | .env | Created, or the missing lines added, with mode `0600`: `PORT`, `POCKET_PASSWORD`, `POCKET_SECRET`, `VAPID_PUBLIC`, `VAPID_PRIVATE`, `VAPID_CONTACT`. Placeholders copied from `.env.example` (`change-me`) are replaced. | Skipped when an earlier check failed; fix that and run again. |
 | Daemon | `pm2 start ecosystem.config.cjs` then `pm2 save` (or `pm2 restart` when new settings were added to a running install). | Read `pm2 logs pocket-claude --lines 50`. |
 | Health | `http://127.0.0.1:<port>/api/health` answered `{"ok":true}` within 30 seconds. | Same logs. A port mismatch between `.env` and an old process is the usual cause. |
-| Boot | A `pm2-<user>.service` exists, so saved processes return after a reboot. | Warning only: run `pm2 startup`, then the `sudo` command it prints, then `pm2 save`. |
+| Boot | Linux: a `pm2-<user>.service` exists; macOS: a `pm2.<user>.plist` launch agent exists. Saved processes return after a reboot (Linux) or login (macOS). | Warning only: run `pm2 startup`, then the command it prints, then `pm2 save`. |
 
 Flags: `--port N`, `--contact …`, `--yes` (install PM2 without asking), `--no-start` (write
 `.env` only), `--dry-run` (report, write and start nothing), `--json` (the report as JSON for
@@ -142,6 +142,24 @@ and the `Upgrade`/`Connection` headers passed through, so streamed replies are n
 
 Whichever you use, `POCKET_FRAME_ANCESTORS` in `.env` is only needed if another page will embed
 Pocket in a frame.
+
+## macOS notes
+
+Pocket Code runs on macOS since 1.47. The differences from Linux:
+
+- Install Node.js and git with Homebrew (`brew install node git`); the one-liner then works as
+  written. `claude` is found in `/opt/homebrew/bin` as well as the usual places.
+- PM2 starts at **login**, not boot: `pm2 startup` writes a launch agent for your user. A Mac that
+  sleeps stops the sessions too; set it to stay awake (System Settings → Energy, or `caffeinate`)
+  if it is meant to run unattended.
+- File previews in Files need `brew install poppler imagemagick` (PDFs and images); HTML previews
+  use Chrome or Chromium from `/Applications`.
+- The turn watchdog reads process activity with `ps` instead of `/proc`; behavior is the same.
+- Tailscale Serve is the simplest HTTPS path on a Mac at home, since home routers rarely allow a
+  public hostname.
+
+Not yet covered on macOS: voice mode (`scripts/voice-setup.sh` is untested there) and the
+browser test suite. Report what you find in [issue #87](https://github.com/bbesner/pocket-code/issues/87).
 
 ## After installing
 

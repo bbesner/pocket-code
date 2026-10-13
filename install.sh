@@ -16,8 +16,8 @@ need() { command -v "$1" >/dev/null 2>&1 || { say "pocket-code install: '$1' is 
 
 case "$(uname -s)" in
   Linux) ;;
-  Darwin) say "macOS: Pocket Code is developed and tested on Linux; continuing, see https://github.com/bbesner/pocket-code/issues/87" ;;
-  *) say "Pocket Code runs on Linux (on Windows, inside WSL2). Unsupported: $(uname -s)"; exit 1 ;;
+  Darwin) ;;
+  *) say "Pocket Code runs on Linux and macOS (on Windows, inside WSL2). Unsupported: $(uname -s)"; exit 1 ;;
 esac
 need git "Install git first."
 need node "Install Node.js 20.11 or newer (https://nodejs.org or your distribution's packages)."

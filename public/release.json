@@ -1,7 +1,7 @@
 {
-  "version": "1.46.0",
-  "assetV": 97,
+  "version": "1.47.0",
+  "assetV": 98,
   "notes": [
-    "Setup in one command: install.sh and pocket-init check the machine, write .env, start the daemon under PM2 and say how to add HTTPS. See docs/install.md."
+    "Runs on macOS: the turn watchdog and process checks use ps where there is no /proc, the installer accepts a Mac and checks the launchd agent. The installer's npm output is quiet now."
   ]
 }

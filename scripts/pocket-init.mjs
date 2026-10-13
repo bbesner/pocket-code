@@ -55,7 +55,7 @@ if (!opts.json) console.log(`Pocket Code setup in ${root}${opts.dryRun ? ' (dry 
 
 // 1. Platform and Node
 if (process.platform === 'linux') note('Platform', 'ok', `Linux (${os.release()})`);
-else if (process.platform === 'darwin') note('Platform', 'warn', 'macOS: Pocket Code is developed and tested on Linux; see https://github.com/bbesner/pocket-code/issues/87');
+else if (process.platform === 'darwin') note('Platform', 'ok', `macOS (${os.release()}; supported since 1.47, PM2 starts at login through launchd)`);
 else if (process.platform === 'win32') note('Platform', 'fail', 'Windows: run Pocket Code inside WSL2 (Ubuntu), where Claude Code usually lives too. Native Windows is not supported.');
 else note('Platform', 'warn', `${process.platform}: untested`);
 {
@@ -68,7 +68,7 @@ else note('Platform', 'warn', `${process.platform}: untested`);
 if (fs.existsSync(path.join(root, 'node_modules', 'express')) && fs.existsSync(path.join(root, 'node_modules', 'web-push'))) note('Dependencies', 'ok', 'node_modules present');
 else if (opts.dryRun) note('Dependencies', 'fail', `node_modules missing; run: cd ${root} && npm ci --omit=dev`);
 else {
-  const r = run('npm', ['ci', '--omit=dev'], { cwd: root, stdio: opts.json ? 'pipe' : 'inherit', timeout: 600000 });
+  const r = run('npm', ['ci', '--omit=dev', '--no-fund', '--no-audit', '--loglevel=error'], { cwd: root, stdio: opts.json ? 'pipe' : 'inherit', timeout: 600000 });
   if (r.status === 0) note('Dependencies', 'ok', 'installed with npm ci --omit=dev');
   else note('Dependencies', 'fail', `npm ci failed (exit ${r.status}); run it by hand in ${root}`);
 }
@@ -86,7 +86,7 @@ if (opts.port !== null && envPort && envPort !== opts.port) note('.env', 'fail',
 const port = envPort || opts.port || 3610;
 
 // 4. Claude Code and Codex
-let claudeBin = process.env.CLAUDE_BIN || fileEnv.CLAUDE_BIN || onPath('claude') || [path.join(os.homedir(), '.npm-global', 'bin', 'claude'), '/usr/local/bin/claude', '/usr/bin/claude'].find(f => fs.existsSync(f)) || null;
+let claudeBin = process.env.CLAUDE_BIN || fileEnv.CLAUDE_BIN || onPath('claude') || [path.join(os.homedir(), '.npm-global', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude'].find(f => fs.existsSync(f)) || null;
 if (!claudeBin) note('Claude Code', 'fail', 'claude not found. Install it (npm install -g @anthropic-ai/claude-code), or set CLAUDE_BIN in .env to its path.');
 else {
   const v = run(claudeBin, ['--version'], { timeout: 15000 });
@@ -113,7 +113,7 @@ else {
   if (!go && tty) go = /^y/i.test((await ask('PM2 is not installed. Install it with npm install -g pm2? [y/N] ')) || '');
   if (!go) note('PM2', 'fail', 'pm2 not found. Install it (npm install -g pm2) or run again with --yes.');
   else {
-    const r = run('npm', ['install', '-g', 'pm2'], { stdio: opts.json ? 'pipe' : 'inherit', timeout: 600000 });
+    const r = run('npm', ['install', '-g', 'pm2', '--no-fund', '--no-audit', '--loglevel=error'], { stdio: opts.json ? 'pipe' : 'inherit', timeout: 600000 });
     pm2 = r.status === 0 ? onPath('pm2') : null;
     if (pm2) note('PM2', 'ok', `installed at ${pm2}`); else note('PM2', 'fail', 'npm install -g pm2 failed; install it by hand (it may need a prefix you can write to, or sudo)');
   }
@@ -180,10 +180,11 @@ else if (pm2) {
 
 // 9. Boot persistence and HTTPS
 const user = os.userInfo().username;
-if (pm2 && process.platform === 'linux' && !opts.dryRun) {
-  const unit = fs.existsSync(`/etc/systemd/system/pm2-${user}.service`);
-  if (unit) note('Boot', 'ok', `pm2-${user}.service exists; saved processes return after a reboot`);
-  else note('Boot', 'warn', `PM2 is not set to start at boot. Run: pm2 startup   (then the sudo command it prints), then: pm2 save`);
+if (pm2 && !opts.dryRun && (process.platform === 'linux' || process.platform === 'darwin')) {
+  const mac = process.platform === 'darwin';
+  const unit = mac ? fs.existsSync(path.join(os.homedir(), 'Library', 'LaunchAgents', `pm2.${user}.plist`)) : fs.existsSync(`/etc/systemd/system/pm2-${user}.service`);
+  if (unit) note('Boot', 'ok', mac ? `launchd agent pm2.${user}.plist exists; saved processes return after you log in` : `pm2-${user}.service exists; saved processes return after a reboot`);
+  else note('Boot', 'warn', mac ? `PM2 is not set to start at login. Run: pm2 startup   (then the command it prints), then: pm2 save` : `PM2 is not set to start at boot. Run: pm2 startup   (then the sudo command it prints), then: pm2 save`);
 }
 const cf = onPath('cloudflared'); const cfConf = path.join(os.homedir(), '.cloudflared', 'config.yml');
 if (cf) https.push({ tool: 'Cloudflare Tunnel', text: `cloudflared is installed. Add this ingress rule ahead of the catch-all in ${fs.existsSync(cfConf) ? cfConf : '~/.cloudflared/config.yml'}, route the DNS name to the tunnel (cloudflared tunnel route dns <tunnel> code.yourdomain.com) and restart cloudflared:\n      - hostname: code.yourdomain.com\n        service: http://localhost:${port}` });

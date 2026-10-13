@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.46.0 / build 97**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.47.0 / build 98**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -333,8 +333,8 @@ user asks to share. Times without an offset use `POCKET_TZ` (or the server's zon
 
 ## Requirements
 
-- Linux with Claude Code installed and signed in; Codex is optional. On Windows, run it inside
-  WSL2. macOS is not yet verified ([#87](https://github.com/bbesner/pocket-code/issues/87)).
+- Linux or macOS (macOS since 1.47) with Claude Code installed and signed in; Codex is optional.
+  On Windows, run it inside WSL2.
 - Node.js 20.11 or newer for the server; Node.js 22.12+ and Chrome/Chromium for tests.
 - PM2 using the supplied `ecosystem.config.cjs`, or a supervisor configured to preserve
   child session processes during a daemon restart.
@@ -344,7 +344,7 @@ user asks to share. Times without an offset use `POCKET_TZ` (or the server's zon
 
 ## Quick start
 
-One command on a Linux machine that has Node.js 20.11+, git and Claude Code signed in:
+One command on a Linux or macOS machine that has Node.js 20.11+, git and Claude Code signed in:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bbesner/pocket-code/main/install.sh | bash -s -- --yes --contact you@example.com
