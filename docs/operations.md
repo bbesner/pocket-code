@@ -44,7 +44,7 @@ It never writes login output or codes to turn logs, conversations, or Pocket sta
 Restarting the daemon cancels pending login; the browser can reopen the form after
 a disconnect. API-key and cloud-provider environment overrides block this flow.
 
-Start is refused while a Pocket Claude turn is active. Idle Claude runners close;
+Start is refused while a Claude turn in Pocket is active. Idle Claude runners close;
 runners with background jobs stay alive and persist an `accountStale` marker. New
 turns are blocked while sign-in is pending. After sign-in, a retained session refuses
 new requested turns until its jobs finish, then reopens with the current login on its
@@ -82,8 +82,8 @@ directory. `POCKET_DATA_DIR` defaults to the checkout; `POCKET_SESSION_ROOT` cha
 Claude transcript storage only, while `CODEX_HOME` selects Codex's native store.
 
 Starting the daemon also has three side effects beyond its own state. It writes a fresh
-loopback CLI token to `cli-token` in the data directory (mode `0600`), overwriting the
-previous one. While Projects, Files, Tasks or the Vault is on, it installs agent skills into the
+loopback CLI token to `cli-token` and its own address to `cli-url` in the data directory
+(both mode `0600`, 1.43.1), overwriting the previous ones. While Projects, Files, Tasks or the Vault is on, it installs agent skills into the
 Claude Code and Codex skill folders. If `POCKET_REMINDER_HOOK` is set, it runs that
 command when a reminder comes due. If `POCKET_VAULT_KEY` is set, it reads the key and removes
 it from its own environment, so no process it starts inherits it. See
@@ -116,8 +116,8 @@ Pocket-owned persistent state includes:
   neither holds a readable value, and `vault.enc` is useless without its key;
 - the documents folder (`POCKET_DOCUMENTS_DIR`, default `documents/`), holding the stored
   files, a `.trash/` folder of removed files, and a `.thumbs/` cache of preview pictures;
-- `cli-token`, the loopback CLI token. It is regenerated at every start, so do not back it
-  up or copy it to another instance.
+- `cli-token` and `cli-url`, the loopback CLI token and address. They are rewritten at every
+  start, so do not back them up or copy them to another instance.
 
 Turn logs, queues, uploads, projects, tasks and kept files may contain private task content. Do not commit them,
 upload them as CI artifacts or put backups in a public web directory. A backup of
@@ -192,7 +192,7 @@ Projects (1.29), Files (1.30; called Documents before 1.34), Tasks (1.36) and th
 the whole instance. The choices are stored as the `projects`, `documents`, `tasks` and `vault`
 booleans in `pocket-settings.json`. While one is off, its API answers 404, and for Files that
 includes the public and link addresses. Switching off does not delete the records or files.
-The Vault can only be switched on while `POCKET_VAULT_KEY` is set; see [The Vault](#the-vault).
+Switching the Vault on creates its key when there is none (1.44); see [The Vault](#the-vault).
 
 Their data is in `projects.json`, `documents.json`, `tasks.json`, `vault.enc` with
 `vault-audit.jsonl`, and the documents folder
@@ -207,7 +207,7 @@ hook is logged but not retried. Due items are checked every `POCKET_REMINDER_CHE
 (default 60000, minimum 250), with a first check a few seconds after start. A task stays
 due until it is done or re-dated.
 
-The hook is a shell command line, started with the daemon's own environment, that reads
+The hook is a shell command line, started with the same environment as agent turns (Pocket's own secrets removed, 1.37.1), that reads
 one JSON object on standard input. A project reminder carries `project`, `projectName`,
 `reminder`, `label`, `dueAt`, `task`, `taskText` and `url`. A task carries `kind: "task"`,
 `task`, `text`, `dueAt`, `session` and `url`. `url` is an in-app path such as
@@ -234,8 +234,10 @@ a folder that carries its `.pocket-managed` marker; a skill of the same name tha
 wrote is left alone and the daemon logs that. `POCKET_SKILLS=0` turns installation off.
 Set it for any test or second daemon so it does not write into the real skill folders.
 
-**CLI token.** `pocket-board`, `pocket-docs`, `pocket-tasks` and `pocket-vault` read
-`cli-token` from the data directory and send it as a bearer token. The daemon accepts it
+**CLI token.** `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-vault` and the browser
+relay find the daemon at the address in `cli-url` (then `PORT` from this checkout's `.env`,
+never an inherited `PORT`), read `cli-token` from the data directory and send it as a bearer
+token. The daemon accepts it
 only on the Projects, Files, Tasks and Vault routes, and only on a direct loopback
 connection with no `cf-connecting-ip` or `x-forwarded-for` header; a request that came
 through the tunnel or a proxy is refused. On the Vault routes it allows only what agents
@@ -263,15 +265,15 @@ and write an empty store; the owner is shown the key once to save. You can still
 (`openssl rand -base64 32`), and must when `POCKET_ENV_FILE` is empty. The daemon reads the key at start and deletes it
 from its own environment, so agent turns, helper models, the reminder hook and every other process it starts never
 see it. If a store exists but its key is missing, Pocket never creates a new one over it: **Restore key** in
-Settings → Vault takes the recovery key, checks it opens the store and saves it. A provisioning script that rewrites
+Settings → Projects, files, tasks & vault → Vault takes the recovery key, checks it opens the store and saves it. A provisioning script that rewrites
 its own block of `.env` must leave the `POCKET_VAULT_KEY` line alone.
 
-**Rotation.** Settings → Vault → **Rotate key** writes the new key to `.env` (with the old one beside it as
+**Rotation.** Settings → Projects, files, tasks & vault → Vault → **Rotate key** writes the new key to `.env` (with the old one beside it as
 `POCKET_VAULT_KEY_PREVIOUS`), rewrites the store under the new key, then drops the old line, so a crash in between
 still opens the store at the next start. No restart is needed. Backups taken before the rotation still need the old
 key, so keep the old recovery key with them.
 
-**Passphrase mode (1.40).** When the owner sets a passphrase in Settings → Vault, the store is
+**Passphrase mode (1.40).** When the owner sets a passphrase in Settings → Projects, files, tasks & vault → Vault, the store is
 rewritten in format 2: a salt in the header and a key derived from the passphrase with scrypt
 (N 2^15, r 8, p 1). The daemon opens such a file without `POCKET_VAULT_KEY` and starts
 **locked**; it holds the derived key in memory only, from unlock until a lock (the owner's

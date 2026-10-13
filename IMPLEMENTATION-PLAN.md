@@ -95,9 +95,12 @@ identity. Later stages may be reordered based on daily-use evidence.
 - Keep implementation, tests, documentation and synthetic screenshots in this public
   repository. Keep credentials, real transcripts and private deployment notes out.
 
-## Current stopping point
+## Stopping point when this plan closed (1.3.1)
 
-1.3.1 is live with compact desktop controls and adjustable chat text. Candidate 1.4
+This section is kept as it was written in October 2026, at 1.3.1. For what has shipped since,
+see the [changelog](CHANGELOG.md).
+
+1.3.1 was live with compact desktop controls and adjustable chat text. Candidate 1.4
 adds native action approvals for both providers and is pending release approval.
 Queue edits pause dispatch, and real staged/working Git views supplement the older
 transcript-based Session edits view. Both providers passed real native question,

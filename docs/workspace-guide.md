@@ -303,6 +303,11 @@ code-server; the provider can drop a cache sooner. Codex sessions show no cache 
 Projects (1.29) keep the work that comes out of sessions beside the sessions. The feature
 is off until **Settings → Projects, files, tasks & vault → Projects** turns it on for the whole install.
 
+Projects, Files and Tasks keep up without a reload (1.44.1): an open list or card refreshes
+when the window comes back into focus, when a turn ends in any Pocket window on the device
+(a split pane, a window of its own, another tab), and when you open it, so a project, file or
+task an agent adds mid-turn appears on its own. A list left open also checks every 30 seconds.
+
 A project is one card: where you left off, the next step, what it is waiting for, a
 directory and a link, a checklist of remaining steps, reminders, notes, history, and the
 sessions that worked on it, each with its live status mark. States are Active, Waiting and
@@ -466,7 +471,7 @@ days, where *Restore* brings it back.
 **Adding one.** **Add item** in the Vault view, or **Store in the Vault** in the composer's
 attach sheet or a session's options, opens the add sheet; what you type there never enters the
 message, the draft or the recent prompts. Use it instead of pasting a key into a conversation.
-Since 1.42 Pocket also catches one pasted or typed into a message: it holds the paste (never putting it in the draft) and offers **Store in the Vault**, which saves it and leaves `{{vault:name}}` in the message, or **Paste as is**; the same check runs when you send (**Store and send**, **Send as is**, **Edit**), and the server refuses an unchecked message that carries one unless you send it anyway. Settings → Vault → **Catch secrets in messages** turns this off. It catches known key formats, private keys, card numbers and `password: …`-style text; it is a backstop, so storing a secret first is still the surest way. An agent that meets
+Since 1.42 Pocket also catches one pasted or typed into a message: it holds the paste (never putting it in the draft) and offers **Store in the Vault**, which saves it and leaves `{{vault:name}}` in the message, or **Paste as is**; the same check runs when you send (**Store and send**, **Send as is**, **Edit**), and the server refuses an unchecked message that carries one unless you send it anyway. Settings → Projects, files, tasks & vault → Vault → **Catch secrets in messages** turns this off. It catches known key formats, private keys, card numbers and `password: …`-style text; it is a backstop, so storing a secret first is still the surest way. An agent that meets
 a secret in a file or a reply stores it with `pocket-vault put` and tells you it was seen; an
 agent can only create a new item, never change or replace one.
 
@@ -474,7 +479,7 @@ agent can only create a new item, never change or replace one.
 TOKEN=zoho-books -- <command>`, and Pocket's server starts the command with the value in its
 environment, then returns the output with each value replaced by `{{vault:zoho-books}}`. To hand
 a stored secret to an agent, write `{{vault:name}}` in your message; it means "use this item".
-How freely agents use secrets is a dial (1.41). **Settings → Vault → Agent access** sets it for
+How freely agents use secrets is a dial (1.41). **Settings → Projects, files, tasks & vault → Vault → Agent access** sets it for
 every item, and an item can override it in its sheet:
 
 - **Free rein**: agents use any secret by name without asking. Values still never enter the
@@ -514,10 +519,10 @@ session that is running picks them up from its next turn. Agents are told on eve
 secrets by name, never to print or write one, to store any secret they meet, and to stop when
 a request is denied. If Codex's `config.toml` sets `developer_instructions`, Pocket's
 per-turn line does not reach Codex sessions; Settings says so.
-Settings → Vault also has **Rotate key**, which re-encrypts the store under a new key and
-shows that key once for the operator to put in `.env`.
+The Vault's settings also have **Rotate key**, which re-encrypts the store under a new key,
+saves it to the install's `.env` itself and shows the new recovery key once (1.44).
 
-**Locking it (1.40).** Settings → Vault → **Set a passphrase** re-encrypts the store under a
+**Locking it (1.40).** Settings → Projects, files, tasks & vault → Vault → **Set a passphrase** re-encrypts the store under a
 key made from a passphrase you choose (12 characters or more) that the server keeps only in
 memory. From then on the Vault is **locked** after a restart, after **Lock now**, and after
 the idle time you pick under **Lock after** (15 minutes to 24 hours, or never). While locked,
@@ -527,7 +532,7 @@ passphrase** and **Remove passphrase** (back to the server key) are in the same 
 is no reset: a forgotten passphrase means the store cannot be opened, so keep the passphrase
 in your password manager and keep an export.
 
-**Export and import (1.40).** Settings → Vault → **Export** downloads every item, values
+**Export and import (1.40).** Settings → Projects, files, tasks & vault → Vault → **Export** downloads every item, values
 included, as one `.pvault` file encrypted under a passphrase you type for it. **Import** reads
 such a file into this or another Pocket Code: items with new names are added, ones that
 already exist are listed and left alone. Both are yours only, and both are recorded.
@@ -704,9 +709,9 @@ explains that it is blocked and you can open Pocket Code directly.
 |---|---|
 | Open tabs, split arrangement, hidden sessions, filters | Conversation transcripts and native Codex store |
 | Drafts, reading position, attachment references, retry state | Uploaded files and delivery receipts |
-| Colour mode, text size, highlight colour, collapse preferences (header, composer, rail filters, tool calls), message times, dismissed reply suggestions | Pins and their order, names, per-session mutes, and the settings Pocket keeps for the whole install (name sync, titles and summaries, Projects, Files and Tasks on or off) |
+| Colour mode, text size, highlight colour, collapse preferences (header, composer, rail filters, tool calls), message times, dismissed reply suggestions | Pins and their order, names, per-session mutes, and the settings Pocket keeps for the whole install (name sync, titles and summaries, Projects, Files, Tasks and the Vault on or off, Agent access) |
 | Per-session composer choices and chime preference | Follow-up queue, approval audit, usage snapshots, runner state, pending usage-limit resumes |
-| How projects and files open, the Files button, the library's list or grid layout, the rail's Sessions / Projects / Files / Tasks choice | Projects (`projects.json`), the file library and its records (`documents.json`), tasks (`tasks.json`) and saved prompts (`saved-prompts.json`), the same on every device |
+| How projects and files open, the Files button, the library's list or grid layout, the rail's Sessions / Projects / Files / Tasks choice | Projects (`projects.json`), the file library and its records (`documents.json`), tasks (`tasks.json`), saved prompts (`saved-prompts.json`) and the Vault (`vault.enc`, encrypted, with its audit log `vault-audit.jsonl`), the same on every device |
 | Voice preferences, voice mute and vocabulary | Voice engine install (`POCKET_VOICE_HOME`); no recordings are kept |
 
 Keep browser storage to retain local preferences. Keep the server data inventory in

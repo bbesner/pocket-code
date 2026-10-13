@@ -93,15 +93,15 @@ folders it created (marked `.pocket-managed`). Set `POCKET_SKILLS=0` to stop it.
 
 ### Vault
 
+The Vault (1.39) keeps credentials so that agents can use them without the values reaching
+the model provider, transcripts, turn logs, Pocket's search, MemStem or backups. It is off
+until the owner switches it on. Since 1.44, switching it on with no key and no store creates
+the key, saves it to the install's `.env` (mode `0600`) and shows a recovery key once.
+
 **Secret guard (1.42).** Pasted or typed text that looks like a credential is held in the browser until the owner
 stores it in the Vault, pastes it anyway or cancels, and the server refuses such a message unless it is sent anyway.
 It reduces the chance of a secret reaching the model provider, the transcript or MemStem; it is pattern-based and
 cannot catch every secret.
-
-
-The Vault (1.39) keeps credentials so that agents can use them without the values reaching
-the model provider, transcripts, turn logs, Pocket's search, MemStem or backups. It is off
-until the owner switches it on, and it can only be switched on while `POCKET_VAULT_KEY` is set.
 
 **Passphrase mode (1.40).** With a passphrase set, the store is encrypted under a key derived
 from it (scrypt) that the daemon holds in memory only while unlocked; after a restart, a lock
@@ -113,12 +113,16 @@ Exports are encrypted under their own passphrase; a lost passphrase cannot be re
 **At rest.** The store is one file, `vault.enc`, encrypted with AES-256-GCM under
 `POCKET_VAULT_KEY` (32 random bytes): items and their approved commands together, with
 no plain-text names or other metadata. A file that has been altered, or a wrong key, fails
-closed. The key is never written to the data directory or a backup; keep it apart from your
-backups, since a restore without it yields nothing. Rotating the key in Settings shows the
-new key once in the browser; nothing prints it to a terminal or a log.
+closed. The key lives in `.env`, which Pocket's backups leave out, never in the data
+directory; keep the recovery key apart from your backups, since a restore without it yields
+nothing. **Rotate key** writes the new key to `.env` before the store is rewritten, keeping
+the old one as `POCKET_VAULT_KEY_PREVIOUS` only until the rewrite finishes, so a crash in
+between still opens the store. **Restore key** accepts a recovery key only if it opens the
+existing store, and Pocket never creates a new key over an existing store. Keys are shown in
+the browser or downloaded by the owner; nothing prints them to a terminal or a log.
 
-**The key in memory.** The daemon reads `POCKET_VAULT_KEY` at start and deletes it from its
-own environment, so agent turns, helper models, hooks and every other process it starts
+**The key in memory.** The daemon reads `POCKET_VAULT_KEY` (and `POCKET_VAULT_KEY_PREVIOUS`,
+when present) at start and deletes them from its own environment, so agent turns, helper models, hooks and every other process it starts
 cannot inherit it.
 
 **What agents can do.** An agent has no way to read a value. It can list items (names,
@@ -130,13 +134,25 @@ never in arguments, and returns the output with each value and its base64 and UR
 forms replaced by `{{vault:name}}`. Reading a value, changing or removing an item, changing its
 policy or recipes, answering requests and rotating the key need the owner's login cookie.
 
-**What runs.** Each item's policy decides. *Ask*, the default, runs a command only if it
-exactly matches a recipe the owner saved with *Always allow*; otherwise the owner is asked
-and the request expires after 15 minutes. *Auto* runs any command. *Owner* refuses agents.
-Under Review actions the owner also approves the agent's `pocket-vault run` call itself;
-under Full access the Vault's request is the only check, which is why Ask is the default.
-Calls from a terminal or code-server session on the host follow the same policy and are
-recorded as `terminal`.
+**What runs.** **Agent access** in Settings (1.41) sets the default, and each item can
+override it. *Ask once per command*, the default, runs a command only if it exactly matches a
+recipe the owner saved with *Always allow*; otherwise the owner is asked and the request
+expires after 15 minutes. *Ask every time* asks for every run and offers no *Always allow*.
+*Free rein* runs any command without asking (every use is still recorded). *Only you* refuses
+agents. The owner answers from the Vault view, from the push notification's **Allow** and
+**Deny** buttons, or by replying in the conversation that raised the request; only the owner's
+own messages in that session count. Under Review actions the owner also approves the agent's
+`pocket-vault run` call itself; under Full access the Vault's request is the only check, which
+is why asking is the default. Calls from a terminal or code-server session on the host follow
+the same rules and are recorded as `terminal`.
+
+**Browser fills (1.43).** `scripts/pocket-mcp-proxy.mjs` relays an agent's browser tool and
+asks `/api/vault/release` for each `{{vault:name.field}}` it finds in a tool call, under the
+same rules; a fill is recorded as such. The value goes only into the call to the browser tool
+and is replaced by the placeholder in everything the tool sends back. A page the agent is
+driving can still read what was typed into it, so allow fills only on sites you trust with
+that login. The relay and the commands find the daemon through `<data dir>/cli-url` (1.43.1),
+never an inherited `PORT`.
 
 **Record of use.** Every run, request, answer, owner view of a value, addition, change,
 removal, restore and rotation is written to `vault-audit.jsonl` (mode `0600`, append-only)
@@ -159,6 +175,6 @@ command text are shown as text, never as HTML.
   to a file, encodes it some other way, or sends it off the box.
 - A secret pasted into a conversation, or one an agent read in a file before storing it, has
   already reached the provider and the transcript. Storing it protects later turns, not that
-  one; rotate it. Pocket does not detect pasted secrets in this release; use **Store in the
-  Vault** instead of pasting. Terminal and code-server sessions outside Pocket are guarded only
-  by the `pocket-vault` skill.
+  one; rotate it. The secret guard catches common shapes of key, token and password, not every
+  secret; use **Store in the Vault** instead of pasting. Terminal and code-server sessions
+  outside Pocket are guarded only by the `pocket-vault` skill.

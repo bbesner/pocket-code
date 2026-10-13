@@ -7,7 +7,7 @@ The [workspace guide](docs/workspace-guide.md) describes current behavior; the
 ## Bugs, feature requests and security problems
 
 Open bugs and feature requests in [GitHub Issues](https://github.com/bbesner/pocket-code/issues)
-using the issue forms; the app's **Settings → Bugs & feature requests** section opens them
+using the issue forms; the app's **Settings → Help & updates → Bugs & feature requests** section opens them
 with the version filled in. Search existing issues first. For a change larger than a fix,
 open an issue before the pull request so the scope can be agreed. Security problems go
 through **Security → Report a vulnerability**, never a public issue ([SECURITY.md](SECURITY.md)).
@@ -42,12 +42,12 @@ To try the real engine, run `scripts/voice-setup.sh` and point `POCKET_VOICE_HOM
 For an isolated manual server, set `POCKET_ENV_FILE=''`, fresh test credentials,
 `POCKET_DATA_DIR`, `POCKET_SESSION_ROOT`, `POCKET_DOCUMENTS_DIR`, an unused `PORT`, and
 explicit provider binaries/settings. Also set `POCKET_SKILLS=0`: without it, a daemon with
-Projects, Files or Tasks switched on writes the Pocket agent skills into the real
+Projects, Files, Tasks or the Vault switched on writes the Pocket agent skills into the real
 `~/.claude/skills` and `$CODEX_HOME/skills`. `npm test` sets it for you. Merely changing
 PORT does not isolate credentials or session data.
 
-The daemon overwrites `cli-token` in its data directory at every start, and
-`pocket-board`, `pocket-docs` and `pocket-tasks` read that file. So the rule of one
+The daemon overwrites `cli-token` and `cli-url` in its data directory at every start, and
+`pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-vault` and the browser relay read them. So the rule of one
 daemon per data directory covers the commands too: a second daemon on the same directory
 replaces the first one's token and the commands stop working against it.
 

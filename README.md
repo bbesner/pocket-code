@@ -31,8 +31,10 @@ hold where you left off, the next step, a checklist and reminders. **Files** kee
 reports, dashboards and spreadsheets agents produce, rendered in place and shared only when
 you ask. **Tasks** are to-dos with an optional date, linked to the session they came from;
 **Start** opens a new session with the task already written in. The **Vault** keeps API keys,
-tokens and logins encrypted on the server; agents use them by name in commands and never see
-the values, and you approve each new command and see every use.
+tokens and logins encrypted on the server; agents use them by name, in commands or typed into
+a web page's login form, and never see the values. You decide how much they may do without
+asking, and every use is recorded. Lists keep up on their own: something an agent adds
+mid-turn shows up without a reload.
 
 <table>
 <tr>
@@ -42,6 +44,12 @@ the values, and you approve each new command and see every use.
 <tr>
 <td align="center"><b>Projects</b>: the next step, a checklist and reminders</td>
 <td align="center"><b>Files</b>: what the work produced, private until shared</td>
+</tr>
+<tr>
+<td colspan="2" valign="top"><img src="docs/images/vault-desktop.png" alt="The Vault: a waiting request from an agent to run a command with the zoho-books secret, with Deny, Always allow and Allow once, above five secrets showing their kind, site and how much agents may do with each"></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><b>Vault</b>: agents ask before they use a secret, and never see its value</td>
 </tr>
 </table>
 
@@ -123,9 +131,12 @@ keep dark mode until you change it.
 |---|---|
 | ![Light mode: warm paper surfaces, dark text and orange highlights in the conversation workspace](docs/images/appearance-light.png) | ![Dark mode: warm ink surfaces, light text and orange highlights in the same workspace](docs/images/appearance-dark.png) |
 
-### Projects, files and tasks (optional)
+### Projects, files, tasks and the Vault (optional)
 
-Each library is off until Settings → Projects, files, tasks & vault turns it on for the install.
+Each is off until **Settings → Projects, files, tasks & vault** turns it on for the install. On
+the desktop the rail head switches between Sessions, Projects, Files and Tasks. Open lists
+refresh when the window comes back into focus, when a turn ends in any Pocket window on the
+device, and when you open them, so an item an agent adds shows up without a reload.
 
 - **Projects** keep a card for each piece of work: where you left off, the next step, a
   checklist, reminders (announced once when due) and the sessions that worked on it. A
@@ -138,13 +149,30 @@ Each library is off until Settings → Projects, files, tasks & vault turns it o
 - **Tasks** are to-dos with an optional date and time, the session they came from and, if
   you want it, a short briefing on that session. **Start** opens a new session with the
   task written in, ready to send. See [Tasks](docs/workspace-guide.md#tasks).
-- **Vault** (1.39) keeps credentials encrypted in one file, under a key you set in `.env`.
-  Agents run commands with a secret in the command's environment and get the output back
-  with the value replaced; a new command waits for your *Allow once*, *Always allow* or
-  *Deny*, and every use is recorded. Add a secret in the Vault view or with **Store in the
-  Vault** from the composer, so it never enters a message. See [Vault](docs/workspace-guide.md#vault).
-- Projects, files and tasks open as a tab, beside a conversation, in a window of their own,
-  or full-screen on the phone.
+- **Vault** (1.39) keeps API keys, tokens, logins and notes encrypted in one file on the
+  server. See [Vault](docs/workspace-guide.md#vault).
+  - **Set up in one switch.** Turning it on creates the key, saves it to the install's
+    `.env` and shows a **recovery key** to save once (1.44). Settings can download the
+    recovery key again, rotate the key, or restore a lost one from the recovery key.
+  - **Used by name, never seen.** An agent runs `pocket-vault run --env TOKEN=zoho-books --
+    <command>`: the command gets the value in its environment and the agent gets the output
+    with the value replaced. Values never appear in arguments, transcripts or MemStem.
+  - **You set how much agents may do.** **Agent access** is Free rein, Ask once per command
+    (the default) or Ask every time; any item can be *Only you*. A request is answered from the
+    push notification's Allow and Deny buttons, the Vault view, or a reply in the conversation,
+    and every use is in the item's history.
+  - **Typed by Pocket (1.43).** Agents log into web pages without seeing the password: a
+    browser-tool call names `{{vault:name.field}}`, and Pocket's relay
+    (`scripts/pocket-mcp-proxy.mjs`) types the value in on the way to the browser and removes
+    it from everything that comes back.
+  - **Secrets caught before they are sent (1.42).** A key or password pasted or typed into a
+    message is held, with **Store in the Vault** putting `{{vault:name}}` in its place. The
+    server refuses a secret-shaped message unless you choose to send it anyway (**Catch
+    secrets in messages**).
+  - Optional passphrase with **Lock now** and **Lock after**, custom fields, a **Credentials**
+    kind, and encrypted export and import between installs.
+- Projects, files, tasks and the Vault open as a tab, beside a conversation, in a window of
+  their own, or full-screen on the phone.
 
 ### Agents that know Pocket
 
@@ -155,10 +183,11 @@ Each library is off until Settings → Projects, files, tasks & vault turns it o
   someone's reply, a step you put off), the agent offers a task once, as one of those
   buttons. Nothing is added unless you accept; an accepted offer is filed with the session,
   a briefing the agent writes and the agreed date.
-- **Skills and commands.** While a library is on, Pocket installs the `pocket-projects`,
-  `pocket-files` and `pocket-tasks` skills for Claude Code and Codex, so any agent on the
-  server, in Pocket or a terminal, knows how to keep a project, what "my files" or "docs"
-  mean, and how to add a to-do. They use the [agent commands](#agent-commands).
+- **Skills and commands.** While a feature is on, Pocket installs its skill
+  (`pocket-projects`, `pocket-files`, `pocket-tasks`, `pocket-vault`) for Claude Code and
+  Codex, so any agent on the server, in Pocket or a terminal, knows how to keep a project,
+  what "my files" or "docs" mean, how to add a to-do, and how to use a credential by name
+  (and store one it meets). They use the [agent commands](#agent-commands).
 
 ### Answer, approve and steer
 
@@ -255,16 +284,25 @@ an input connection that cannot be recovered is shown as interrupted.
 ## Agent commands
 
 Agents (and you, from a terminal on the server) keep projects, files and tasks, and use the
-Vault, with four commands that talk to the running server over loopback, using the token it writes to
-`<data dir>/cli-token`. Each works only while its library is on. The full usage is in the
+Vault, with four commands that talk to the running server over loopback. The daemon writes its
+address to `<data dir>/cli-url` and a token to `<data dir>/cli-token` (both mode `0600`) at
+every start, and the commands read those first, so an inherited `PORT` cannot point them at
+another program (1.43.1). Each works only while its feature is on. Run them as
+`node scripts/<name>.mjs` or `npx <name>` from the Pocket directory. The full usage is in the
 header of each script in `scripts/`; the shipped skills explain when to use them.
 
 | Command | Common use |
 |---|---|
-| `pocket-board` | `track --requested --name "…" --summary "…" --next "…"`, `update`, `task add\|done`, `remind --at "YYYY-MM-DDTHH:MM"`, `note`, `status [--all]`, `scheduled`, `link-session <id>` |
-| `pocket-docs` | `add <path> [--title] [--project] [--session]`, `list`, `show <id>`, `share <id>`, `set <id> --visibility private\|link\|public`, `trash <id>` |
-| `pocket-tasks` | `add "…" [--due] [--session <id>] [--summary "…"] [--dir]`, `list [--all]`, `show <id>`, `done <id>`, `edit <id>`, `remove <id>` |
-| `pocket-vault` | `run --env VAR=name[.field] [--cwd] [--timeout] -- <command…>`, `wait <request id>`, `put <name> --kind k (--from-env VAR\|--from-file path\|--stdin)`, `list`, `show <name>`, `history`. Never prints a value |
+| `pocket-board` | `track --requested --name "…" --summary "…" --next "…"`, `update`, `edit`, `task add\|done`, `remind --at "YYYY-MM-DDTHH:MM"`, `dismiss`, `note`, `status [--all]`, `scheduled`, `link-session <id>`, `unlink-session <id>`, `reopen` |
+| `pocket-docs` | `add <path> [--title] [--project] [--session] [--visibility]`, `list [--q]`, `show <id>`, `share <id> [--expires 7d\|30d\|none]`, `set <id> --visibility private\|link\|public`, `trash <id>`, `restore <id>` |
+| `pocket-tasks` | `add "…" [--due] [--session <id>] [--summary "…"] [--dir]`, `list [--all]`, `show <id>`, `done <id>`, `reopen <id>`, `edit <id> [--clear-due]`, `remove <id>` |
+| `pocket-vault` | `run --env VAR=name[.field] [--cwd] [--timeout] -- <command…>`, `wait <request id>`, `put <name> --kind api_key\|token\|login\|credentials\|note (--from-env VAR\|--from-file path\|--stdin)`, `list`, `show <name>`, `history`. Never prints a value; exits 4 while a request waits for you and 5 when it is refused |
+
+For browser logins, `scripts/pocket-mcp-proxy.mjs` (**Typed by Pocket**, 1.43) sits between an
+agent and a browser tool such as Playwright MCP and fills `{{vault:name.field}}` placeholders
+under the same Agent access rules, for example
+`claude mcp add playwright -s user -- node <pocket>/scripts/pocket-mcp-proxy.mjs --name playwright -- npx -y @playwright/mcp --headless --no-sandbox`.
+See the [operations guide](docs/operations.md).
 
 Create a project or task only when the user asks for one; keep files private unless the
 user asks to share. Times without an offset use `POCKET_TZ` (or the server's zone).
@@ -353,10 +391,11 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_REMINDER_HOOK` | no | A command run when a project reminder (Projects, 1.29) or a dated task (Tasks, 1.36) comes due, with it as JSON on its standard input. A reminder carries `project`, `projectName`, `reminder`, `label`, `dueAt`, `task`, `taskText`, `url`; a task carries `kind: "task"`, `task`, `text`, `dueAt`, `session`, `url`. It runs through the shell, with the same environment as agent turns: Pocket's own secrets are removed (1.37.1). Each one is announced once. Use it for email, chat or anything else; web push happens regardless. |
 | `POCKET_DOCUMENTS_DIR` | no | Where Files (1.30; Documents before 1.34) keeps files. Default `<data dir>/documents`. Files placed there appear as private files; removed files wait in its `.trash` for 30 days. |
 | `POCKET_SKILLS` | no | `0` stops Pocket installing its `pocket-projects`, `pocket-files`, `pocket-tasks` and `pocket-vault` agent skills into `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`) and `$CODEX_HOME/skills` (1.34, tasks 1.36, vault 1.39). Only folders carrying Pocket's `.pocket-managed` marker are touched. On by default while the matching feature is on. |
-| `POCKET_VAULT_KEY` | for the Vault | The Vault's encryption key (1.39): 32 random bytes in base64, `openssl rand -base64 32`. The Vault can only be switched on while it is set. Pocket reads it at start and removes it from its environment, so no agent or other process it starts sees it. Keep a copy apart from your data backups: without it `vault.enc` cannot be opened. Settings → Vault → Rotate key shows a replacement once. |
+| `POCKET_VAULT_KEY` | no | The Vault's encryption key (1.39). Since 1.44 you don't set it: switching the Vault on creates it, saves it to this install's `.env` (mode `0600`) and shows a recovery key to keep; **Rotate key** and **Restore key** in Settings write it there too. Set it by hand (`openssl rand -base64 32`) only when there is no `.env` to write (`POCKET_ENV_FILE` empty). Pocket reads it at start and removes it, and `POCKET_VAULT_KEY_PREVIOUS` (present only for the moment of a rotation), from its environment, so no agent or other process it starts sees them. Keep the recovery key apart from your data backups: without it `vault.enc` cannot be opened. |
 | `POCKET_CHROME`, `POCKET_PDFTOPPM`, `POCKET_CONVERT` | no | The tools that make the library's preview pictures (1.32): a Chrome or Chromium binary for HTML reports (and images when ImageMagick is absent), `pdftoppm` from poppler for PDFs, ImageMagick's `convert` for images. Found automatically in the usual places and on `PATH`; set one to a path to choose it, or to an empty value to turn it off. Pictures are cached in `<documents dir>/.thumbs`. A kind without a tool shows its name on the card instead. |
 | `POCKET_TZ` | no | Time zone for `pocket-board` reminder and `pocket-tasks --due` times given without an offset, e.g. `America/New_York`. Default: the server's zone. |
-| `POCKET_URL` | no | Base address the `pocket-board`, `pocket-docs`, `pocket-tasks` and `pocket-vault` commands use to reach the server. Default `http://127.0.0.1:$PORT`. |
+| `POCKET_URL` | no | Base address the `pocket-board`, `pocket-docs`, `pocket-tasks` and `pocket-vault` commands and the browser relay use to reach the server. Default: the address the daemon writes to `<data dir>/cli-url`, then `PORT` from this checkout's `.env`. |
+| `POCKET_VAULT_FILL_WAIT` | no | Seconds the browser relay (`scripts/pocket-mcp-proxy.mjs`) waits for your answer to a fill request before telling the agent to try again. Default `90`. |
 | `POCKET_PUBLIC_URL` | no | Makes the share addresses `pocket-docs` prints absolute, e.g. `https://pocket.example.com`. |
 | `POCKET_REMINDER_CHECK_MS` | no | How often due reminders and tasks are checked. Default 60000 (one minute); mainly for tests. |
 | `POCKET_VOICE_COMMAND` | no | A JSON array that replaces the command starting the voice engine. For tests and custom engines. |

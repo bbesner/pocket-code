@@ -1,9 +1,10 @@
 # Documentation image provenance
 
-The six workspace screenshots below were captured from the **1.37.0 / build 81** frontend on
-2026-10-10. They show synthetic sessions, projects, files and tasks supplied by the browser
+The seven workspace screenshots below were captured from the **1.37.0 / build 81** frontend on
+2026-10-10, except `vault-desktop.png`, captured from **1.44.1 / build 94** on 2026-10-13. They
+show synthetic sessions, projects, files, tasks and Vault items supplied by the browser
 test fixture, with no production data or model calls. Desktop captures are emulated Chromium
-viewports (1600×1000 for the split view; 1440×900 for Projects and Files, cropped to the
+viewports (1600×1000 for the split view; 1440×900 for Projects, Files and the Vault, cropped to the
 content area because the hero already shows the session rail); phone captures are
 390×844 viewports, not physical devices.
 
@@ -15,8 +16,9 @@ content area because the hero already shows the session rail); phone captures ar
 | `files-desktop.png` | The Files library as a list, with kinds, sharing state and the project a file came from |
 | `tasks-mobile.png` | Tasks on a phone, due first, one carrying context from its session |
 | `task-offer-mobile.png` | A reply ending with suggested-reply buttons, the first an agent's task offer (1.37) |
+| `vault-desktop.png` | The Vault: an agent's waiting request with Deny, Always allow and Allow once, above five items with their kind, site and Agent access |
 
-Projects, Files and Tasks are switched on in the fixture for the capture only. Reproduce the
+Projects, Files, Tasks and the Vault are switched on in the fixture for the capture only. Reproduce the
 set from the repository root:
 
 ```bash

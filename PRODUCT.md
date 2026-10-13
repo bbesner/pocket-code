@@ -18,7 +18,7 @@ surface can write to it.
 3. Start a new session in a chosen project directory.
 4. Work across desktop conversations and inspect Results, Queue and Git without losing context.
 
-Three optional libraries add jobs beside those. They are off until the owner switches them on
+Four optional features add jobs beside those. They are off until the owner switches them on
 in Settings → Projects, files, tasks & vault, and a session works the same without them:
 
 5. Projects: keep where a piece of work stands, its next step, a checklist, reminders and the
@@ -26,10 +26,13 @@ in Settings → Projects, files, tasks & vault, and a session works the same wit
 6. Files: keep the outputs worth finding again (reports, PDFs, images) and share one only when
    the owner decides to.
 7. Tasks: keep a to-do, with a time if one is given, and start a session from it.
+8. Vault: let agents use credentials by name, in commands and browser logins, without the
+   values reaching the model, the transcript or memory, with the owner deciding how much
+   they may do without asking.
 
 **Principles:**
 - Bare essentials: sessions, chat, new session. A clean screen, simple navigation, and as
-  much room as possible for the conversation. Projects, Files and Tasks are
+  much room as possible for the conversation. Projects, Files, Tasks and the Vault are
   off by default and sit beside sessions rather than in front of them.
 - Everything round-trips with the CLIs and editor extensions. No private history.
 - Reading matters more than composing. Assistant text renders as a full-width document,
