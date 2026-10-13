@@ -1,12 +1,15 @@
 # Pocket Code
 
-**Your Claude Code and Codex sessions on desktop, tablet and phone.**
+**Run ten Claude Code and Codex sessions at once, and always know which one needs you.**
 
-Pocket Code is a self-hosted workspace for running and following Claude Code and Codex
-sessions. Work in tabs and split view at your desk, pick up the same sessions on your
-phone, and keep what comes out of them (projects, files and to-dos) beside the
-conversations. The server runs every turn, so closing the browser or locking the screen
-never stops the work.
+Pocket Code is a self-hosted workspace for people who use Claude Code or Codex for more
+than one thing at a time. Sessions run on your server, so closing the browser, locking the
+phone or restarting the app changes nothing. A session rail sorts what is running, what is
+waiting on you and what just finished. Saved prompts start recurring work in a tap. Agents
+answer with buttons, offer a to-do when work needs a later check, keep the reports they
+produce in Files, and use credentials from an encrypted Vault without ever seeing them.
+At your desk it is tabs and four-way split view. On your phone it is the same workspace,
+installed as an app.
 
 This checkout documents **1.45.0 / build 96**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
@@ -85,6 +88,26 @@ the same way, through commands and skills that ship with Pocket.
   highlights. Saved per browser and synchronized across its Pocket windows and split panes.
 - **Talk to it (beta).** Speak through the mic beside Send and hear a short summary back,
   all processed on your own server.
+
+## Who it's for
+
+- **One person running many agents.** Pocket Code has a single login and is built around one
+  operator keeping several sessions moving without losing track of any of them.
+- **Developers, and anyone technical who uses coding agents for other work too.** The author
+  runs inventory reports, email, accounting and server operations through it, not just code.
+- **People who already run Claude Code or Codex on a Linux machine** and want to run more of
+  it, from more places, with less babysitting.
+
+It is not a hosted service, not a terminal or editor replacement, and not a multi-user team
+product. Projects, Files, Tasks and the Vault are off by default; a session works the same
+without them.
+
+## Why it exists
+
+I built Pocket Code because one Claude Code session at a time was the bottleneck. With it I
+run ten, see at a glance which ones are waiting on me, start the routine ones from saved
+prompts, and let the agents file the to-dos, keep the files and use the credentials. It
+roughly doubled what I get done with AI in a day, and it did that without adding clutter.
 
 ## What you can do
 
