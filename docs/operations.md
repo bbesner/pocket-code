@@ -257,21 +257,19 @@ as a single blob: items and their approved commands, with no plain-text
 names or other metadata on disk. A file that fails its integrity check or does not open with
 the key is not served; the Vault reports that it cannot be opened.
 
-**The key.** Set `POCKET_VAULT_KEY` in `.env` to 32 random bytes in base64, then restart:
+**The key (1.44).** Switching the Vault on with no key and no store makes Pocket create one (32 random bytes,
+base64), save it as `POCKET_VAULT_KEY` in this install's `.env` (rewritten atomically, mode `0600`, other lines kept)
+and write an empty store; the owner is shown the key once to save. You can still set `POCKET_VAULT_KEY` yourself
+(`openssl rand -base64 32`), and must when `POCKET_ENV_FILE` is empty. The daemon reads the key at start and deletes it
+from its own environment, so agent turns, helper models, the reminder hook and every other process it starts never
+see it. If a store exists but its key is missing, Pocket never creates a new one over it: **Restore key** in
+Settings → Vault takes the recovery key, checks it opens the store and saves it. A provisioning script that rewrites
+its own block of `.env` must leave the `POCKET_VAULT_KEY` line alone.
 
-```bash
-openssl rand -base64 32
-```
-
-The daemon reads the key at start and deletes it from its own environment, so agent turns,
-helper models, the reminder hook and every other process it starts never see it. Settings →
-Vault says when the key is missing. Without the key the Vault cannot be switched on, and an
-existing store cannot be opened.
-
-**Rotation.** Settings → Vault → **Rotate key** re-encrypts the store under a new key and
-shows the new key once, in the browser. Put it in `.env` as `POCKET_VAULT_KEY` and restart;
-until then the old key keeps working. Backups taken before the rotation still need the old
-key, so keep it with them.
+**Rotation.** Settings → Vault → **Rotate key** writes the new key to `.env` (with the old one beside it as
+`POCKET_VAULT_KEY_PREVIOUS`), rewrites the store under the new key, then drops the old line, so a crash in between
+still opens the store at the next start. No restart is needed. Backups taken before the rotation still need the old
+key, so keep the old recovery key with them.
 
 **Passphrase mode (1.40).** When the owner sets a passphrase in Settings → Vault, the store is
 rewritten in format 2: a salt in the header and a key derived from the passphrase with scrypt

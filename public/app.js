@@ -600,13 +600,14 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings"><label class="voice-field">Open files<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation</option><option value="window">In a new browser window</option></select></label></div>
     <button class="opt" id="s-tasks" disabled aria-pressed="false"><span class="dot"></span><span>Tasks<span class="sub" id="s-tasks-state">Loading the Tasks setting…</span></span></button>
     <button class="opt" id="s-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault<span class="sub" id="s-vault-state">Loading the Vault setting…</span></span></button>
+    <div class="title-settings vault-settings" id="s-vault-restore-wrap" hidden><span class="vault-set-actions"><button class="chip" id="s-vault-restore">${VIC.key}Restore key…</button></span></div>
     <div class="title-settings vault-settings" id="s-vault-more" hidden>
       <div class="vault-set"><label class="vault-set-head" for="s-vault-access">Agent access</label>
         <span class="voice-field"><select id="s-vault-access" aria-describedby="s-vault-access-note">${VAULT_ACCESS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></span>
         <p class="title-note" id="s-vault-access-note"></p></div>
       <div class="vault-set" role="group" aria-labelledby="s-vault-prot-h"><p class="vault-set-head" id="s-vault-prot-h">Protection</p>
         <p class="vault-mode" id="s-vault-mode"></p><p class="title-note" id="s-vault-mode-note"></p>
-        <span class="vault-set-actions"><button class="chip" id="s-vault-setpass" hidden>Set a passphrase</button><button class="chip" id="s-vault-lock" hidden>${VIC.lock}Lock now</button><button class="chip" id="s-vault-unlock" hidden>Unlock…</button><button class="chip" id="s-vault-changepass" hidden>Change passphrase</button><button class="chip" id="s-vault-removepass" hidden>Remove passphrase</button><button class="chip" id="s-vault-rotate" hidden>Rotate key</button></span>
+        <span class="vault-set-actions"><button class="chip" id="s-vault-setpass" hidden>Set a passphrase</button><button class="chip" id="s-vault-lock" hidden>${VIC.lock}Lock now</button><button class="chip" id="s-vault-unlock" hidden>Unlock…</button><button class="chip" id="s-vault-changepass" hidden>Change passphrase</button><button class="chip" id="s-vault-removepass" hidden>Remove passphrase</button><button class="chip" id="s-vault-recovery" hidden>${VIC.download}Download recovery key</button><button class="chip" id="s-vault-rotate" hidden>Rotate key</button></span>
         <label class="voice-field" id="s-vault-autolock-wrap" hidden>Lock after<select id="s-vault-autolock" aria-describedby="s-vault-autolock-note">${VAULT_LOCK_CHOICES.map(([m, l]) => `<option value="${m}">${l}</option>`).join('')}</select></label>
         <p class="title-note" id="s-vault-autolock-note" hidden>Counted from the last time you or an agent used it. It always locks after a restart.</p></div>
       <div class="vault-set" role="group" aria-labelledby="s-vault-backup-h"><p class="vault-set-head" id="s-vault-backup-h">Export and import</p>
@@ -632,6 +633,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     </details>`;
   organizeSettings(sh, {category: about ? 'help' : category, scrollTop});
   sh.querySelector('#s-vault-more')?.after(sh.querySelector('#s-secrets')); // 1.42: under the Vault and its settings, shown whether or not the Vault is on
+  sh.querySelector('#s-vault')?.after(sh.querySelector('#s-vault-restore-wrap')); // 1.44: Restore key sits right under the Vault switch
   mountSheet(scrim, sh);
   if (about) sh.querySelector('#s-about').scrollIntoView({block:'start'});
   bindChatTextControls(sh);
@@ -766,16 +768,20 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       document.querySelectorAll('.session-home, aside.rail').length && route();
     } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
   };
-  // 1.39: the Vault, the same way, but it can only turn on once POCKET_VAULT_KEY is set; Rotate key sits under it.
+  // 1.39: the Vault, the same way. 1.44: switching it on with no key yet makes one (and shows the recovery key);
+  // a Vault whose key is missing here is restored from the recovery key, never recreated.
   const paintVaultSetting = () => {
     const btn = sh.querySelector('#s-vault'); if (!btn || !srv) return;
-    const on = Boolean(srv.vault), ready = srv.vaultReady !== false;
-    btn.disabled = !on && !ready; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-vault-state').textContent = on ? 'On: keys and passwords agents use by name in commands without seeing them. Every use is recorded'
+    const on = Boolean(srv.vault), ready = srv.vaultReady !== false, create = srv.vaultCanCreateKey === true, needsKey = srv.vaultNeedsKey === true;
+    btn.disabled = !on && (needsKey || (!ready && !create)); btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
+    sh.querySelector('#s-vault-state').textContent = needsKey ? "This Vault's key is missing on this server. Restore it from your recovery key."
+      : on ? 'On: keys and passwords agents use by name in commands without seeing them. Every use is recorded'
+      : create ? "Off. Turning it on creates this install's encryption key; you'll be shown a recovery key to save."
       : ready ? 'Off. Turn on to keep keys and passwords that agents use without seeing the value'
       : srv.vaultError && !/not set/i.test(srv.vaultError) ? 'Off. The Vault cannot be opened: ' + srv.vaultError
       : 'Off. Set POCKET_VAULT_KEY in .env (see the README) and restart to turn it on';
-    sh.querySelector('#s-vault-more').hidden = !on;
+    sh.querySelector('#s-vault-restore-wrap').hidden = !needsKey;
+    sh.querySelector('#s-vault-more').hidden = !on || needsKey;
     // 1.41: Agent access, how freely agents use secrets; items set to Vault default follow it.
     const access = VAULT_ACCESS.some(([v]) => v === srv.vaultAccess) ? srv.vaultAccess : 'once'; vaultAccess = access;
     sh.querySelector('#s-vault-access').value = access;
@@ -783,10 +789,10 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     // 1.40: key mode (POCKET_VAULT_KEY opens it) or passphrase mode (held in memory; locked after a restart or idle).
     const pass = srv.vaultMode === 'passphrase', locked = pass && Boolean(srv.vaultLocked);
     sh.querySelector('#s-vault-mode').textContent = pass ? 'Protected by a passphrase' + (locked ? '. Locked now' : '') : 'Opened by the server key in .env';
-    sh.querySelector('#s-vault-mode-note').textContent = !pass ? 'POCKET_VAULT_KEY opens the Vault whenever Pocket Code runs. Rotating re-encrypts it and shows the new key once.'
+    sh.querySelector('#s-vault-mode-note').textContent = !pass ? 'The key saved on this server opens the Vault whenever Pocket Code runs. Keep the recovery key in your password manager; rotating replaces it.'
       : locked ? 'Agents cannot use secrets until you unlock it. Unlock it to change the passphrase, export or import.'
       : 'Pocket holds the passphrase in memory only, so the Vault locks after a restart until you unlock it.';
-    const show = { '#s-vault-setpass': !pass, '#s-vault-rotate': !pass, '#s-vault-lock': pass && !locked, '#s-vault-unlock': locked, '#s-vault-changepass': pass && !locked, '#s-vault-removepass': pass && !locked, '#s-vault-autolock-wrap': pass, '#s-vault-autolock-note': pass };
+    const show = { '#s-vault-setpass': !pass, '#s-vault-recovery': !pass, '#s-vault-rotate': !pass, '#s-vault-lock': pass && !locked, '#s-vault-unlock': locked, '#s-vault-changepass': pass && !locked, '#s-vault-removepass': pass && !locked, '#s-vault-autolock-wrap': pass, '#s-vault-autolock-note': pass };
     for (const [sel, v] of Object.entries(show)) sh.querySelector(sel).hidden = !v;
     sh.querySelector('#s-vault-autolock').value = String(VAULT_LOCK_CHOICES.some(([m]) => m === srv.vaultAutoLockMinutes) ? srv.vaultAutoLockMinutes : 0);
     sh.querySelector('#s-vault-export').disabled = sh.querySelector('#s-vault-import').disabled = locked;
@@ -795,13 +801,17 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   sh.querySelector('#s-vault').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
     try {
-      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ vault: !srv.vault }), signal: AbortSignal.timeout(8000) });
+      // 1.44: the first switch-on answers with the new key once; it goes to the recovery sheet and is not kept in srv.
+      const { recoveryKey, ...next } = await api('/settings', { method: 'POST', body: JSON.stringify({ vault: !srv.vault }), signal: AbortSignal.timeout(8000) });
+      srv = next;
       window.pocketFeatures = { ...(window.pocketFeatures || {}), vault: Boolean(srv.vault) };
       paintVaultSetting(); toast(srv.vault ? 'Vault is on. Running sessions get it from their next turn' : 'Vault is off');
       if (!srv.vault && readLocal('pc-rail-view', 'sessions') === 'vault') writeLocal('pc-rail-view', 'sessions');
-      document.querySelectorAll('.session-home, aside.rail').length && route();
+      document.querySelectorAll('.session-home, aside.rail').length && route(); // closes Settings at once, so the sheet below opens on top
+      if (recoveryKey) vaultRecoverySheet(recoveryKey);
     } catch (err) {
       if (err.code === 'vault_no_key') { srv = { ...srv, vaultReady: false }; paintVaultSetting(); }
+      else if (err.code === 'vault_needs_key') { srv = { ...srv, vaultNeedsKey: true, vaultCanCreateKey: false }; paintVaultSetting(); }
       else btn.disabled = false;
       toast('Could not save: ' + (err.message || 'error'));
     }
@@ -829,6 +839,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     } catch (err) { if (err.message !== 'login') toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
   };
   sh.querySelector('#s-vault-rotate').onclick = () => rotateVaultKey();
+  sh.querySelector('#s-vault-recovery').onclick = () => vaultShowRecoveryKey();
+  sh.querySelector('#s-vault-restore').onclick = () => vaultRestoreKeySheet();
   sh.querySelector('#s-vault-setpass').onclick = () => vaultPassphraseSheet(false);
   sh.querySelector('#s-vault-changepass').onclick = () => vaultPassphraseSheet(true);
   sh.querySelector('#s-vault-removepass').onclick = () => vaultRemovePassphraseSheet();

@@ -34,13 +34,13 @@ const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
 const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
-let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',secretGuard:true};
+let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultCanCreateKey:false,vaultNeedsKey:false,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',secretGuard:true};
 // 1.42: like the server, a message that looks like it carries a secret is refused (422) before any receipt, unless allowSecrets.
 const secretRefusal=body=>{if(fixtureSettings.secretGuard===false||body.allowSecrets===true)return null;const hits=globalThis.PocketSecrets.scan(String(body.text||''),{mode:'message'});return hits.length?{error:'This message looks like it contains a secret, so it was not sent.',code:'secret_detected',matches:hits.map(({kind,label,name,vaultKind,start,end})=>({kind,label,name,vaultKind,start,end}))}:null;};
 // 1.40: the passphrase the fixture checks (never sent back on /api/settings), and the last import's decoded file.
 // 1.41: extraRequests are added to the snapshot's requests as they are (a request on an item that asks every time).
-const vaultFixture={passphrase:null,imported:null,extraRequests:[]};
-const resetVaultLock=()=>{Object.assign(fixtureSettings,{vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once'});vaultFixture.passphrase=null;vaultFixture.imported=null;vaultFixture.extraRequests=[];};
+const vaultFixture={passphrase:null,imported:null,extraRequests:[],key:null}; // 1.44: key is the fixture store's key, the recovery key the routes hand out
+const resetVaultLock=()=>{Object.assign(fixtureSettings,{vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',vaultCanCreateKey:false,vaultNeedsKey:false});vaultFixture.passphrase=null;vaultFixture.imported=null;vaultFixture.extraRequests=[];};
 // 1.30: the documents fixture is the real store on a scratch folder: an HTML dashboard whose script tries to reach
 // the parent (the sandbox must stop it), a Markdown note and a CSV.
 const docsDir=path.join(out,'documents');fs.mkdirSync(docsDir,{recursive:true});
@@ -65,7 +65,7 @@ const seedTasks=()=>{taskStore.tasks.length=0;
 // 1.41: zoho-books and acme-oauth follow the Vault default (Agent access); square-hooks sets its own (asks once per command).
 const vaultDir=path.join(out,'vault');let vaultStore=null;
 const seedVault=()=>{fs.rmSync(vaultDir,{recursive:true,force:true});fs.mkdirSync(vaultDir,{recursive:true});
- vaultStore=new VaultStore(path.join(vaultDir,'vault.enc'),{key:parseKey(newKey())});vaultStore.access=()=>fixtureSettings.vaultAccess||'once';
+ vaultFixture.key=newKey();vaultStore=new VaultStore(path.join(vaultDir,'vault.enc'),{key:parseKey(vaultFixture.key)});vaultStore.access=()=>fixtureSettings.vaultAccess||'once';
  vaultStore.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:'zk-fixture-secret-7731'},url:'https://books.zoho.com',tags:['billing']});
  vaultStore.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'ops@example.test',password:'portal-fixture-pass'},url:'https://portal.example.test',policy:'auto',expiresAt:new Date(now+5*86400000).toISOString()});
  vaultStore.act({action:'add',name:'bank-recovery',kind:'note',values:{text:'recovery codes fixture'},policy:'owner'});
@@ -156,6 +156,8 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/tasks/summary'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');await new Promise(r=>setTimeout(r,uiModes.slowSummary?1500:50));return json(uiModes.noSummary?{summary:null,reason:'unavailable'}:{summary:'Reviewing the warehouse stock report for '+(rows.find(r=>r.id===b.session)?.title||'a session')+'.\nAisle 4 is still 14 units short after the recount.\nThe reorder list is drafted and waiting for a decision.',model:'haiku',provider:'claude'});}
   if(url.pathname==='/api/tasks/reset'){seedTasks();return json({ok:true});}
  }
+ if(url.pathname==='/api/vault/restore-key'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}'); // 1.44: usable while the key is missing, on or off
+  if(b.key!==vaultFixture.key)return json({error:'That key does not open this Vault.'},400);Object.assign(fixtureSettings,{vaultNeedsKey:false,vaultReady:true});return json({ok:true});}
  if(url.pathname.startsWith('/api/vault')){ // 1.39
   if(!fixtureSettings.vault)return json({error:'The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'vault_off'},404);
   const body=async()=>{let raw='';for await(const c of req)raw+=c;return JSON.parse(raw||'{}');};
@@ -180,7 +182,8 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/vault/act'){const b=await body();try{const r=vaultStore.act(b,{actor:'owner'});return json(b.action==='answer'?{ok:true,request:r}:{ok:true,item:r,...(r.removed?{removed:true}:{})});}catch(e){return fail(e);}}
   if(url.pathname==='/api/vault/field'){const b=await body();try{return json({value:vaultStore.field(String(b.item||''),String(b.field||''))});}catch(e){return fail(e);}}
   if(url.pathname==='/api/vault/audit')return json({rows:vaultStore.auditRows({item:url.searchParams.get('item')||undefined,owner:true,limit:Number(url.searchParams.get('limit'))||50})});
-  if(url.pathname==='/api/vault/rotate'){const key=newKey();vaultStore.rotate(key);return json({key});}
+  if(url.pathname==='/api/vault/rotate'){const key=newKey();vaultStore.rotate(key);vaultFixture.key=key;return json({key,saved:true});}
+  if(url.pathname==='/api/vault/recovery-key'){if(pass)return json({error:'The Vault is protected by a passphrase; there is no recovery key.'},400);return json({key:vaultFixture.key});}
  }
  if(url.pathname.startsWith('/api/board')){
   if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'projects_off'},404);
@@ -206,7 +209,11 @@ const server=http.createServer(async(req,res)=>{
   if(m&&m[2]){let r;try{r=docStore.get(m[1]);}catch{res.writeHead(404);res.end();return;}return sendDoc(r,true);}
   if(m&&req.method==='POST'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');try{return json(b.action==='trash'?docStore.trash(m[1]):b.action==='restore'?docStore.restore(m[1]):docStore.update(m[1],b,{actor:'ui'}));}catch(e){return json({error:e.message},e.status||400);}}
  }
- if(url.pathname==='/api/settings'){if(req.method==='POST'){let raw='';for await(const c of req)raw+=c;Object.assign(fixtureSettings,JSON.parse(raw));}return json({...fixtureSettings,titles:fixtureTitles()});}
+ if(url.pathname==='/api/settings'){let extra={};if(req.method==='POST'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw);
+  // 1.44: switching on with no key makes one and answers with it once; a Vault whose key is missing must be restored.
+  if(b.vault===true&&!fixtureSettings.vault&&fixtureSettings.vaultNeedsKey)return json({error:"This Vault's key is missing on this server. Restore it from your recovery key.",code:'vault_needs_key'},409);
+  if(b.vault===true&&!fixtureSettings.vault&&fixtureSettings.vaultCanCreateKey){Object.assign(fixtureSettings,{vaultCanCreateKey:false,vaultReady:true});extra={recoveryKey:vaultFixture.key};}
+  Object.assign(fixtureSettings,b);}return json({...fixtureSettings,titles:fixtureTitles(),...extra});}
  if(url.pathname==='/api/about')return uiModes.aboutFailed?json({error:'Version unavailable'},503):json({...JSON.parse(fs.readFileSync(path.join(repo,'public/release.json'),'utf8')),cli:'test',host:'preview'});
  if(url.pathname==='/api/environment')return json({host:'test-instance',checkedAt:Date.now(),providers:[{provider:'claude',email:'owner@example.test',plan:'max',method:'claude.ai',signedIn:true},{provider:'codex',email:'coder@example.test',plan:'pro',method:'chatgpt',signedIn:true}],accountManagement:'Sign-ins follow this instance.',permissions:'Unattended server permissions',capabilities:{claudeLogin:true}});
  if(url.pathname==='/api/claude/login')return uiModes.loginOffline?json({error:'Offline'},503):json(loginState);

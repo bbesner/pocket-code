@@ -1,7 +1,7 @@
 {
-  "version": "1.43.1",
-  "assetV": 92,
+  "version": "1.44.0",
+  "assetV": 93,
   "notes": [
-    "Pocket's command-line tools and the browser relay find the daemon through the data directory, so a PORT exported by another app can no longer misdirect them."
+    "Turning on the Vault now creates its key for you and shows a recovery key to save; rotating and restoring the key need no server access."
   ]
 }
