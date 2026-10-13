@@ -1488,6 +1488,107 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.keyboard.press('Escape');
    }finally{page.off('request',onReq);vaultFixture.extraRequests=[];await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});await page.setViewport({width:1440,height:900});settings.vault=false;}
   });
+  await check('Vault key (1.44): switching on with no key shows the recovery key (Copy, Download, gone after Done, never stored), Download recovery key, Rotate saves and shows the new key, a missing key is restored from the key or its file and a wrong key errors inline, and the phone',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState();
+   settings.vault=true;await page.goto(base+'/#/vault');await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
+   const KEY=vaultFixture.key;Object.assign(settings,{vault:false,vaultReady:false,vaultCanCreateKey:true,vaultNeedsKey:false});
+   const HELP='This key opens your Vault. Pocket keeps it on this server, but if the server or its settings are lost, a backup of the Vault can only be opened with it. Keep it in your password manager.';
+   const posts=[];const onReq=r=>{const u=new URL(r.url());if(r.method()==='POST'&&/^\/api\/(settings|vault\/(recovery-key|rotate|restore-key))$/.test(u.pathname))posts.push({path:u.pathname,body:JSON.parse(r.postData()||'{}')});};page.on('request',onReq);
+   const last=p=>posts.filter(x=>x.path===p).at(-1);
+   const dl=path.join(out,'recovery-files');fs.rmSync(dl,{recursive:true,force:true});fs.mkdirSync(dl,{recursive:true});
+   // A blob download as the browser would save it: the link's name and the blob's text (headless Chrome saves nothing).
+   const catchDownload=()=>page.evaluate(()=>{const click=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(!this.download||!this.href.startsWith('blob:'))return click.call(this);HTMLAnchorElement.prototype.click=click;const d=window.__download={name:this.download};fetch(this.href).then(r=>r.text()).then(t=>{d.text=t;});};});
+   const takeDownload=async()=>{await page.waitForFunction(()=>typeof window.__download?.text==='string');return page.evaluate(()=>{const d=window.__download;delete window.__download;return d;});};
+   // The key anywhere it must not be: the markup, storage, any field still on the page.
+   const leaked=k=>page.evaluate(k=>document.documentElement.outerHTML.includes(k)||JSON.stringify(localStorage).includes(k)||JSON.stringify(sessionStorage).includes(k)||[...document.querySelectorAll('textarea,input')].some(e=>e.value.includes(k)),k);
+   const openSettings=async()=>{await clickControl(page,'#railsettings');await page.waitForFunction(()=>{const s=document.querySelector('#s-vault-state');return s&&!/^Loading/.test(s.textContent);});};
+   const toggle=()=>page.$eval('#s-vault',b=>({disabled:b.disabled,sub:b.querySelector('.sub').textContent}));
+   const fits=sel=>page.evaluate(sel=>{const s=document.querySelector(sel).closest('.sheet');return s.scrollWidth>s.clientWidth+1||document.documentElement.scrollWidth>innerWidth;},sel);
+   try{
+    await page.reload();await page.waitForFunction(()=>/The Vault is off/.test(document.querySelector('#vault-main')?.textContent||''));
+    // No key and no Vault yet: the switch is on offer and says what turning it on does.
+    await openSettings();
+    assert.deepEqual(await toggle(),{disabled:false,sub:"Off. Turning it on creates this install's encryption key; you'll be shown a recovery key to save."});
+    assert.equal(await page.$eval('#s-vault-restore-wrap',e=>e.hidden),true,'nothing to restore');
+    await page.evaluate(()=>{navigator.clipboard.writeText=t=>{window.__copied=t;return Promise.resolve();};});
+    await clickControl(page,'#s-vault');await page.waitForSelector('.vault-key-sheet .vault-key');
+    assert.deepEqual(last('/api/settings').body,{vault:true});assert.equal(settings.vault,true,'the server setting changed');
+    assert.deepEqual(await page.$eval('.vault-key-sheet',s=>{const f=s.querySelector('.vault-key');return {title:s.querySelector('h2').textContent,help:s.querySelector('.sheet-help').textContent,key:f.value,readOnly:f.readOnly,label:f.labels[0]?.textContent,buttons:[...s.querySelectorAll('.vault-key-actions button')].map(b=>b.textContent.trim()),note:Boolean(s.querySelector('.vault-key-note'))};}),
+     {title:'Save your recovery key',help:HELP,key:KEY,readOnly:true,label:'Recovery key',buttons:['Copy','Download','Done'],note:false});
+    assert.equal(await page.evaluate(k=>document.documentElement.outerHTML.includes(k)||JSON.stringify(localStorage).includes(k),KEY),false,'the key is the field value only, never markup or storage');
+    await scan('vault-recovery-sheet');await page.screenshot({path:path.join(out,'vault-recovery-sheet.png')});
+    await clickControl(page,'.vault-key-sheet [data-copy-key]');await page.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Recovery key copied');
+    assert.equal(await page.evaluate(()=>{const t=window.__copied;delete window.__copied;return t;}),KEY);
+    await catchDownload();await clickControl(page,'.vault-key-sheet [data-download-key]');const file=await takeDownload();
+    assert.match(file.name,new RegExp(`^pocket-vault-recovery-key-${new URL(base).hostname.replaceAll('.','\\.')}-\\d{4}-\\d{2}-\\d{2}\\.txt$`));
+    const lines=file.text.trimEnd().split('\n');
+    assert.equal(lines.length,3);assert.ok(lines[0].startsWith('# ')&&lines[1].startsWith('# '),'a two-line header');assert.equal(lines[2],'POCKET_VAULT_KEY='+KEY);
+    await page.waitForFunction(n=>document.querySelector('#toast')?.textContent==='Saved '+n,{},file.name);
+    fs.writeFileSync(path.join(dl,file.name),file.text);
+    // The phone: the sheet fits at 390.
+    await page.setViewport({width:390,height:844});await pause(150);
+    assert.equal(await fits('.vault-key-sheet'),false,'the recovery sheet fits at 390');
+    await scan('vault-recovery-sheet-mobile');await page.screenshot({path:path.join(out,'vault-recovery-sheet-mobile.png')});
+    await page.setViewport({width:1440,height:900});
+    await clickControl(page,'.vault-key-sheet [data-done]');await page.waitForFunction(()=>!document.querySelector('.vault-key-sheet'));
+    assert.equal(await leaked(KEY),false,'the key left with the sheet');
+    // Download recovery key: in key mode, under Protection; Done goes back to Settings.
+    await openSettings();await page.waitForFunction(()=>!document.querySelector('#s-vault-recovery').hidden);
+    await clickControl(page,'#s-vault-recovery');await page.waitForSelector('.vault-key-sheet .vault-key');
+    assert.deepEqual(last('/api/vault/recovery-key').body,{});
+    assert.equal(await page.$eval('.vault-key-sheet .vault-key',e=>e.value),KEY);assert.ok(await page.$('.vault-key-sheet .sheet-back'),'Back to Settings');
+    await clickControl(page,'.vault-key-sheet [data-done]');await page.waitForFunction(()=>!document.querySelector('.vault-key-sheet')&&document.querySelector('.settings-sheet #s-vault-rotate'));
+    assert.equal(await leaked(KEY),false,'the key left with the sheet');
+    // Rotate: the server saves the new key; the sheet says so and shows it.
+    await clickControl(page,'#s-vault-rotate');await page.waitForSelector('.sheet [data-yes]');
+    await clickControl(page,'.sheet [data-yes]');await page.waitForSelector('.vault-key-sheet .vault-key-note');
+    const NEW=vaultFixture.key;assert.notEqual(NEW,KEY);assert.deepEqual(last('/api/vault/rotate').body,{});
+    assert.deepEqual(await page.$eval('.vault-key-sheet',s=>({note:s.querySelector('.vault-key-note').textContent,key:s.querySelector('.vault-key').value})),
+     {note:'New key saved on the server. Save the new recovery key; backups made before now still need the old one.',key:NEW});
+    await scan('vault-rotate-sheet');
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-key-sheet'));
+    assert.equal(await leaked(NEW),false,'the new key left with the sheet');
+    // The key is missing on this server: no switch, Restore key instead.
+    Object.assign(settings,{vault:false,vaultReady:false,vaultNeedsKey:true});
+    await page.reload();await page.waitForFunction(()=>/The Vault is off/.test(document.querySelector('#vault-main')?.textContent||''));
+    await openSettings();
+    assert.deepEqual(await toggle(),{disabled:true,sub:"This Vault's key is missing on this server. Restore it from your recovery key."});
+    if(await page.$eval('[data-settings-panel="libraries"]',e=>e.hidden)){if(await page.$eval('.settings-index',e=>e.hidden))await page.click('#settings-back');await page.click('[data-settings-category="libraries"]');}
+    assert.deepEqual(await page.$eval('#s-vault-restore-wrap',e=>({shown:!e.hidden&&e.getClientRects().length>0,panel:e.closest('[data-settings-panel]')?.dataset.settingsPanel,underSwitch:e.previousElementSibling?.id,more:document.querySelector('#s-vault-more').hidden})),{shown:true,panel:'libraries',underSwitch:'s-vault',more:true});
+    await page.$eval('#s-vault-restore',e=>e.scrollIntoView({block:'center'}));await scan('vault-needs-key-settings');
+    await clickControl(page,'#s-vault-restore');await page.waitForSelector('.vault-restore-sheet form');
+    assert.equal(await page.$eval('.vault-restore-sheet [name=key]',e=>e.type),'password');
+    // A wrong key: the reason inline, the field marked; not a signed-out browser.
+    await page.type('.vault-restore-sheet [name=key]','not-the-key');await clickControl(page,'.vault-restore-sheet .primary');
+    await page.waitForFunction(()=>document.querySelector('.vault-restore-sheet .vault-form-error')?.textContent==='That key does not open this Vault.');
+    assert.equal(await page.$eval('.vault-restore-sheet [name=key]',e=>e.getAttribute('aria-invalid')),'true');assert.equal(await page.$('.login'),null);
+    await scan('vault-restore-sheet');await page.screenshot({path:path.join(out,'vault-restore-sheet.png')});
+    // A file without the key line says so.
+    fs.writeFileSync(path.join(dl,'notes.txt'),'just some notes\n');
+    await (await page.$('.vault-restore-sheet [name=file]')).uploadFile(path.join(dl,'notes.txt'));
+    await page.waitForFunction(()=>/no POCKET_VAULT_KEY line/.test(document.querySelector('.vault-restore-sheet .vault-form-error')?.textContent||''));
+    await page.setViewport({width:390,height:844});await pause(150);
+    assert.equal(await fits('.vault-restore-sheet'),false,'the restore sheet fits at 390');await scan('vault-restore-sheet-mobile');
+    await page.setViewport({width:1440,height:900});
+    // The file saved before the rotation: its key is read in, and refused, inline.
+    await (await page.$('.vault-restore-sheet [name=file]')).uploadFile(path.join(dl,file.name));
+    await page.waitForFunction(k=>document.querySelector('.vault-restore-sheet [name=key]').value===k,{},KEY);
+    await clickControl(page,'.vault-restore-sheet .primary');
+    await page.waitForFunction(()=>document.querySelector('.vault-restore-sheet .vault-form-error')?.textContent==='That key does not open this Vault.');
+    // The saved recovery file: its POCKET_VAULT_KEY line fills the field; Restore opens the Vault.
+    fs.writeFileSync(path.join(dl,'pocket-vault-recovery-key-new.txt'),`# Pocket Code Vault recovery key\n# Keep it private.\nPOCKET_VAULT_KEY=${NEW}\n`);
+    await (await page.$('.vault-restore-sheet [name=file]')).uploadFile(path.join(dl,'pocket-vault-recovery-key-new.txt'));
+    await page.waitForFunction(k=>document.querySelector('.vault-restore-sheet [name=key]').value===k&&!document.querySelector('.vault-restore-sheet .vault-form-error').textContent,{},NEW);
+    await clickControl(page,'.vault-restore-sheet .primary');await page.waitForFunction(()=>!document.querySelector('.vault-restore-sheet'));
+    await page.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Vault restored');
+    assert.deepEqual(posts.filter(x=>x.path==='/api/vault/restore-key').map(x=>x.body),[{key:'not-the-key'},{key:KEY},{key:NEW}]);
+    // Back in Settings, repainted: the switch is on offer again and Restore key is gone.
+    await page.waitForFunction(()=>document.querySelector('#s-vault')?.disabled===false&&document.querySelector('#s-vault-restore-wrap')?.hidden);
+    assert.equal(await leaked(NEW),false,'the key left with the restore sheet');
+    await page.keyboard.press('Escape');
+   }finally{page.off('request',onReq);
+    settings.vault=true;await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});await page.setViewport({width:1440,height:900});Object.assign(settings,{vault:false,vaultReady:true,vaultCanCreateKey:false,vaultNeedsKey:false});}
+  });
   await check('Secrets in the composer (1.42): a pasted key is held and stored, pasted as is or cancelled, a lone token is caught, ordinary text and a URL paste normally, a send is held with Send as is and Store and send, a server 422 opens the sheet, the queue editor, the toggle, the Vault off, and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const settings=settingsState();settings.vault=true;settings.vaultReady=true;settings.secretGuard=true;
    await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));

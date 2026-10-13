@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.44.0] — 2026-10-13 · build 93
+
+- **The Vault sets up its own key.** Switching the Vault on in Settings no longer needs anyone to generate a key and edit `.env` on the server: when there is no key and no store yet, Pocket creates the key, saves it to this install's `.env` (mode `0600`, the file backups already leave out), opens an empty Vault, and shows a one-time **Save your recovery key** sheet with Copy and Download. Requested by Brad, so Damon, Siri and Ramesh can turn it on themselves.
+- **Download recovery key** in Settings → Vault gives the owner a copy at any time (recorded in the audit).
+- **Rotate key saves the new key itself.** The new key is written to `.env` before the store is rewritten, with the old one kept beside it as `POCKET_VAULT_KEY_PREVIOUS` only until the rewrite finishes, so a crash in between still opens the Vault. No restart or manual edit.
+- **Restore a missing key.** If a store exists but its key is gone (a lost `.env`, a rebuilt server), Pocket never creates a new key over it; Settings → Vault offers **Restore key**, which takes the recovery key (pasted, or the downloaded file), checks it opens the store, and saves it.
+- An install with no `.env` file to write to (`POCKET_ENV_FILE` empty) still needs `POCKET_VAULT_KEY` set by hand. `POCKET_VAULT_KEY_PREVIOUS` is removed from every child's environment like the key itself.
+
 ## [1.43.1] — 2026-10-12 · build 92
 
 - **Pocket's command-line tools can no longer be pointed at the wrong server by an inherited `PORT`.** `pocket-vault`, `pocket-board`, `pocket-docs`, `pocket-tasks` and the browser relay used to find the daemon from the `PORT` in their environment before Pocket's own `.env`. An agent working in a project that exports `PORT` (a dev server, say) would have sent Pocket's loopback access token to that app instead. The daemon now writes its address to `cli-url` in the data directory beside `cli-token` (mode `0600`), and the tools read it first, then this checkout's `.env`, and only then an inherited `PORT`. Found while testing Typed by Pocket live.

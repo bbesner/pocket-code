@@ -340,10 +340,11 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   let rows=(await call('/vault/audit',null,agent)).body.rows;assert.ok(rows.length>=3);assert.ok(rows.every(x=>x.session===sid));
   rows=(await call('/vault/audit',null,bearer)).body.rows;assert.equal(rows.length,0,'a terminal caller has no session rows');
   rows=(await call('/vault/audit?item='+made.body.item.id)).body.rows;assert.ok(rows.length>=3);assert.ok(rows.every(x=>x.item===made.body.item.id));
-  // Rotation: the key is returned once; the store reopens with it.
-  const rot=await call('/vault/rotate',{});assert.equal(rot.status,200);assert.equal(parseKey(rot.body.key).length,32);
+  // Rotation (1.44) saves the new key to .env before rewriting the store; with no .env to write (this server runs with
+  // POCKET_ENV_FILE empty) it refuses rather than leave a key nobody saved. The saved path is in vault-key.test.mjs.
+  const rot=await call('/vault/rotate',{});assert.equal(rot.status,409);assert.match(rot.body.error,/no \.env file/);
   assert.equal((await call('/vault/rotate',{},bearer)).status,401);
-  assert.equal(new VaultStore(path.join(dir,'data','vault.enc'),{key:parseKey(rot.body.key)}).items.length,4);
+  assert.equal((await call('/vault')).body.items.length,4,'the store is untouched');
   // The CLI, as an agent inside the session.
   const cliEnv={...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),POCKET_RUNNER_TOKEN:runnerToken};
   const cli=(args,extra={})=>new Promise(res=>{const p=execFile(process.execPath,[path.join(repo,'scripts/pocket-vault.mjs'),...args],{cwd:dir,env:{...cliEnv,...extra.env}},(e,stdout,stderr)=>res({code:e?e.code:0,stdout,stderr}));if(extra.stdin!=null){p.stdin.end(extra.stdin);}});

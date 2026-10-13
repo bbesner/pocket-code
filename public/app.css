@@ -1440,11 +1440,14 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-field-label.vault-field-custom { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow-wrap: anywhere; }
 .vault-use { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin: 8px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--dim); }
 .vault-use .vault-path { color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
-.vault-key-sheet .vault-key { display: block; margin: 0 14px 10px; padding: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; line-height: 1.5; word-break: break-all; user-select: all; }
+/* 1.44: the recovery key sheet. The key sits in a read-only field, selected whole on focus. */
+.vault-key-sheet .sheet-help { margin-inline: 14px; }
+.vault-key-sheet .vault-key-note { margin: 0 14px 10px; font-size: 14px; line-height: 1.5; color: var(--warn); font-weight: 600; }
+.vault-key-sheet .vault-key-label { display: block; margin: 4px 14px 6px; font-size: 13px; font-weight: 600; color: var(--dim); }
+.vault-key-sheet .vault-key { display: block; box-sizing: border-box; width: calc(100% - 28px); margin: 0 14px 14px; padding: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; line-height: 1.5; word-break: break-all; resize: none; field-sizing: content; }
 .vault-key-sheet .vault-key:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
-.vault-key-sheet .vault-hint { margin: 0 14px 14px; font-size: 13.5px; color: var(--warn); font-weight: 600; }
-.vault-key-actions { display: flex; gap: 10px; align-items: center; padding: 0 14px; }
-.vault-key-actions .primary { flex: 1; padding: 12px; font-size: 16px; }
+.vault-key-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 0 14px; }
+.vault-key-actions .primary { flex: 1 1 8em; padding: 12px; font-size: 16px; }
 .title-settings[hidden] { display: none; }
 .vault-settings .chip { align-self: flex-start; }
 .vault-settings .vault-warning { color: var(--warn); }

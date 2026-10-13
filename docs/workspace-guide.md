@@ -446,9 +446,10 @@ done. **Open the session** returns to the conversation the task came from.
 The Vault (1.39) keeps API keys, tokens, logins and secure notes on the server, encrypted, so
 agents can **use** them in commands without the values ever reaching the model, a transcript,
 Pocket's turn logs, MemStem or a backup in plain text. The feature is off until **Settings →
-Projects, files, tasks & vault → Vault** turns it on for the whole install, and that switch only
-works once the operator has set `POCKET_VAULT_KEY` (see
-[Operations](operations.md#the-vault)).
+Projects, files, tasks & vault → Vault** turns it on for the whole install. The first time, Pocket creates the
+Vault's encryption key itself, keeps it on the server and shows you a **recovery key** to save in your
+password manager (1.44); **Download recovery key** gives you another copy later, and **Restore key** puts it back
+if the server ever loses it (see [Operations](operations.md#the-vault)).
 
 **Items.** Each item has a name agents refer to (lowercase letters, digits and dashes, up to 64
 characters, such as `zoho-books`), a kind, and its fields: an **API key** or **token** holds one

@@ -50,8 +50,11 @@ for (const line of (fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8').
 }
 // 1.39: the vault key is read once and removed from the process environment, so no child of the daemon,
 // whatever path spawns it, can inherit it (see vault.mjs).
-const VAULT_KEY_RAW = process.env.POCKET_VAULT_KEY || '';
+let VAULT_KEY_RAW = process.env.POCKET_VAULT_KEY || '';
 delete process.env.POCKET_VAULT_KEY;
+// 1.44: the key a rotation is replacing, kept only for the moment between saving the new key and rewriting the store.
+const VAULT_KEY_PREVIOUS = process.env.POCKET_VAULT_KEY_PREVIOUS || '';
+delete process.env.POCKET_VAULT_KEY_PREVIOUS;
 const PROJECTS_ROOT = process.env.POCKET_SESSION_ROOT || path.join(HOME, '.claude', 'projects');
 const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -218,7 +221,26 @@ const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).j
 const VAULT_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-vault.mjs');
 // 1.40: a passphrase-mode store opens without the env key and starts locked; the owner unlocks it from Pocket.
 let vault = null, vaultError = '';
-try { vault = new VaultStore(path.join(DATA_DIR, 'vault.enc'), { key: VAULT_KEY_RAW ? parseKey(VAULT_KEY_RAW) : null, log }); vault.access = () => settings.vaultAccess; } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); } // 1.41: Agent access
+const VAULT_FILE = path.join(DATA_DIR, 'vault.enc');
+const openVault = (keyRaw, oldRaw = '') => { const v = new VaultStore(VAULT_FILE, { key: keyRaw ? parseKey(keyRaw) : null, oldKeys: oldRaw ? [parseKey(oldRaw)] : [], log }); v.access = () => settings.vaultAccess; return v; }; // 1.41: Agent access
+try { vault = openVault(VAULT_KEY_RAW, VAULT_KEY_PREVIOUS); } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); }
+// 1.44: Pocket keeps the key itself. Switching the Vault on with no key and no store creates one and saves it to this
+// install's .env (mode 0600, the file backups already leave out); a store whose key went missing is restored from the
+// owner's recovery key, never recreated. Rotation saves the new key the same way, with the previous one kept beside it
+// only until the store has been rewritten, so a crash in between can still open it.
+const vaultCanCreateKey = () => !vault && !VAULT_KEY_RAW && !fs.existsSync(VAULT_FILE);
+const vaultNeedsKey = () => !vault && !VAULT_KEY_RAW && fs.existsSync(VAULT_FILE);
+function saveVaultKeyToEnv(key, { previous = '' } = {}) {
+  if (!ENV_FILE) throw Object.assign(new Error('This install has no .env file to keep the Vault key in (POCKET_ENV_FILE is empty). Set POCKET_VAULT_KEY yourself.'), { status: 409, code: 'vault_no_key' });
+  let text = ''; try { text = fs.readFileSync(ENV_FILE, 'utf8'); } catch { }
+  const lines = text.split('\n').filter(l => !/^\s*POCKET_VAULT_KEY_PREVIOUS\s*=/.test(l));
+  let at = lines.findIndex(l => /^\s*POCKET_VAULT_KEY\s*=/.test(l));
+  if (at === -1) { while (lines.length && lines[lines.length - 1] === '') lines.pop(); lines.push(`# The Vault's encryption key, kept by Pocket Code. Save a copy (Settings → Vault → Download recovery key): a backup of vault.enc opens only with it.`, `POCKET_VAULT_KEY=${key}`, ''); at = lines.length - 2; }
+  else lines[at] = `POCKET_VAULT_KEY=${key}`;
+  if (previous) lines.splice(at + 1, 0, `POCKET_VAULT_KEY_PREVIOUS=${previous}`);
+  const tmp = ENV_FILE + '.tmp'; fs.writeFileSync(tmp, lines.join('\n'), { mode: 0o600 }); fs.renameSync(tmp, ENV_FILE); fs.chmodSync(ENV_FILE, 0o600);
+}
+const normalKey = raw => parseKey(String(raw).trim().replace(/^POCKET_VAULT_KEY\s*=\s*/, '')).toString('base64');
 const vaultReady = () => Boolean(vault);
 const vaultLive = () => Boolean(settings.vault && vault);
 const vaultOn = (_req, res, next) => settings.vault ? (vault ? next() : res.status(503).json({ error: `The Vault cannot be opened: ${vaultError}`, code: 'vault_unavailable' })) : res.status(404).json({ error: 'The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'vault_off' });
@@ -2287,7 +2309,7 @@ app.post('/api/session/:id/rename', requireAuth, async (req, res) => {
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
 app.get('/api/settings', requireAuth, async (_req, res) => {
   await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
@@ -2298,9 +2320,17 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.projects === 'boolean') settings.projects = req.body.projects;
   if (typeof req.body?.documents === 'boolean') settings.documents = req.body.documents;
   if (typeof req.body?.tasks === 'boolean') settings.tasks = req.body.tasks;
-  let vaultToggled = false;
+  let vaultToggled = false, createdVaultKey = '';
   if (typeof req.body?.vault === 'boolean' && req.body.vault !== settings.vault) { // 1.39: on needs the key; a change restarts idle runners so the rules reach them
-    if (req.body.vault && !vault) return res.status(409).json({ error: `The Vault needs POCKET_VAULT_KEY in .env and a restart first. ${vaultError}`, code: 'vault_no_key' });
+    if (req.body.vault && !vault) {
+      if (vaultNeedsKey()) return res.status(409).json({ error: 'This Vault exists but its key is missing on this server. Restore it from your recovery key.', code: 'vault_needs_key' });
+      if (!vaultCanCreateKey()) return res.status(409).json({ error: `The Vault cannot be opened: ${vaultError}`, code: 'vault_no_key' });
+      try { // 1.44: create this install's key, keep it in .env, open an empty store and save it
+        const k = newVaultKey(); saveVaultKeyToEnv(k); const v = openVault(k); v.save();
+        vault = v; VAULT_KEY_RAW = k; vaultError = ''; createdVaultKey = k; vault.audit({ action: 'key-created', by: 'owner' });
+        log('vault key created and saved to .env');
+      } catch (e) { log(`vault key creation failed: ${e.message}`); return res.status(e.status || 500).json({ error: e.message, code: e.code || 'vault_key_failed' }); }
+    }
     settings.vault = req.body.vault; vaultToggled = true;
   }
   if (AUTO_LOCK_CHOICES.includes(Number(req.body?.vaultAutoLockMinutes))) settings.vaultAutoLockMinutes = Number(req.body.vaultAutoLockMinutes); // 1.40
@@ -2310,7 +2340,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
   log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
 });
 
 app.post('/api/session/:id/mute', requireAuth, (req, res) => {
@@ -2654,10 +2684,32 @@ app.get('/api/vault/audit', requireBoardAuth, vaultOn, vaultOpen, vaultNoStore, 
 });
 // Rotation: the store is rewritten under a new key, shown once; the old key keeps working until the daemon restarts with the new .env.
 app.post('/api/vault/rotate', requireAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (_req, res) => {
-  const key = newVaultKey();
-  vault.rotate(key); vault.audit({ action: 'rotate', by: 'owner' });
-  log('vault key rotated; the new key must go into .env before the next restart');
-  res.json({ key });
+  if (vault.mode !== 'key') return res.status(400).json({ error: 'Rotation applies to the server key; the Vault is protected by a passphrase.' });
+  const key = newVaultKey(), old = VAULT_KEY_RAW;
+  try {
+    saveVaultKeyToEnv(key, { previous: old }); // both keys saved before the store changes, so a crash between still opens it
+    vault.rotate(key); VAULT_KEY_RAW = key;
+    saveVaultKeyToEnv(key);                   // the store is rewritten: the old key goes
+  } catch (e) { log(`vault key rotation failed: ${e.message}`); return res.status(e.status || 500).json({ error: e.message }); }
+  vault.audit({ action: 'rotate', by: 'owner' });
+  log('vault key rotated and saved to .env');
+  res.json({ key, saved: true });
+});
+// 1.44: the owner can take a copy of the key at any time (recorded); and restore a missing one from that copy.
+app.post('/api/vault/recovery-key', requireAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (_req, res) => {
+  if (vault.mode !== 'key' || !VAULT_KEY_RAW) return res.status(400).json({ error: 'The Vault is protected by a passphrase; there is no server key to save.' });
+  vault.audit({ action: 'recovery-key-view', by: 'owner' });
+  res.json({ key: normalKey(VAULT_KEY_RAW) });
+});
+app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, res) => {
+  const ip = req.get('cf-connecting-ip') || req.socket.remoteAddress || '';
+  if (tooManyUnlocks(ip)) return res.status(429).json({ error: 'Too many tries. Wait an hour.' });
+  if (!vaultNeedsKey()) return res.status(409).json({ error: 'The Vault does not need its key restored.' });
+  let k, v; try { k = normalKey(req.body?.key || ''); v = openVault(k); } catch { log('vault key restore refused: the key does not open the store'); return res.status(400).json({ error: 'That key does not open this Vault.' }); }
+  try { saveVaultKeyToEnv(k); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+  vault = v; VAULT_KEY_RAW = k; vaultError = ''; vault.audit({ action: 'key-restored', by: 'owner' });
+  log('vault key restored from the recovery key and saved to .env');
+  res.json({ ok: true });
 });
 // A run: the daemon binds the values, checks policy, asks the owner when it must, spawns the child itself and streams
 // scrubbed output back as JSON lines. The CLI never receives a value.
@@ -2894,7 +2946,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Pocket's command-line tools and the browser relay find the daemon through the data directory, so a PORT exported by another app can no longer misdirect them."];
+const RELEASE_NOTES = ["Turning on the Vault now creates its key for you and shows a recovery key to save; rotating and restoring the key need no server access."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

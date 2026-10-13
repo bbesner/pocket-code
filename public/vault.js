@@ -14,6 +14,7 @@ const VIC={
  login:'<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/></svg>',
  note:'<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 15.5h5"/></svg>',
  lock:'<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5"/></svg>',
+ download:'<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></svg>',
 };
 const VAULT_KINDS=[['api_key','API key'],['token','Token'],['login','Login'],['credentials','Credentials'],['note','Secure note']];
 const VAULT_KIND_WORD=Object.fromEntries(VAULT_KINDS);
@@ -500,24 +501,71 @@ function addVaultItemFromComposer({insert=true}={}){
  }:null});
 }
 
-/* ---------- Settings: rotate the key, shown once ---------- */
+/* ---------- Settings: the recovery key (1.44: the server makes and saves the key itself) ---------- */
+const vaultToday=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 function rotateVaultKey(){
- confirmSheet('Rotate the Vault key?','Pocket re-encrypts the Vault under a new key and shows that key once. Backups made before now still need the old key, so keep it with them.','Rotate key',async()=>{
-  try{const r=await api('/vault/rotate',{method:'POST',body:'{}',cache:'no-store'});vaultKeySheet(r.key);}
-  catch(e){if(e.message!=='login')toast(e.message||'Could not rotate the key');}
+ confirmSheet('Rotate the Vault key?','Pocket re-encrypts the Vault under a new key, saves it on this server and shows you the new recovery key. Backups made before now still need the old key, so keep it with them.','Rotate key',async()=>{
+  try{const r=await vaultPost('/vault/rotate',{});vaultRecoverySheet(r.key,{note:'New key saved on the server. Save the new recovery key; backups made before now still need the old one.'});}
+  catch(e){if(e.message==='login')return;if(!vaultLockedError(e))toast(e.message||'Could not rotate the key');else toast('The Vault is locked. Unlock it, then rotate the key.');}
  });
 }
-function vaultKeySheet(key){
+// Settings → Download recovery key: the server's current key, recorded in the Vault history as a view.
+async function vaultShowRecoveryKey(){
+ try{const r=await vaultPost('/vault/recovery-key',{});vaultRecoverySheet(r.key);}
+ catch(e){if(e.message==='login')return;if(!vaultLockedError(e))toast(e.message||'Could not get the recovery key');else toast('The Vault is locked. Unlock it, then download the key.');}
+}
+// One sheet for the first switch-on, Download recovery key and Rotate. The key lives in this sheet's field and
+// nowhere else: not in storage, a toast or the console, and the field is emptied however the sheet closes.
+function vaultRecoverySheet(key,{note=''}={}){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet vault-key-sheet';
- sh.innerHTML=`<h2>New Vault key</h2><p class="sheet-help">Put this in .env as POCKET_VAULT_KEY and restart Pocket Code. Until then the old key still works.</p>
-  <code class="vault-key" tabindex="0" aria-label="New Vault key"></code>
-  <p class="vault-hint">This is the only time it is shown.</p>
-  <div class="vault-key-actions"><button class="chip" data-copy-key>${IC.copy}Copy</button><button class="primary" data-done>Done</button></div>`;
- const code=sh.querySelector('.vault-key');code.textContent=key||'';
- sh.querySelector('[data-copy-key]').onclick=e=>vaultCopy(code.textContent,e.currentTarget,'Key');
- sh.querySelector('[data-done]').onclick=()=>closeCurrentSheet?.();
- onSheetGone(sh,()=>{code.textContent='';});
+ const fid='vk-'+(++vaultFieldSeq);
+ sh.innerHTML=`<h2>Save your recovery key</h2>${note?`<p class="vault-key-note">${esc(note)}</p>`:''}
+  <p class="sheet-help">This key opens your Vault. Pocket keeps it on this server, but if the server or its settings are lost, a backup of the Vault can only be opened with it. Keep it in your password manager.</p>
+  <label class="vault-key-label" for="${fid}">Recovery key</label>
+  <textarea class="vault-key" id="${fid}" readonly rows="2" spellcheck="false" autocapitalize="none" autocorrect="off" autocomplete="off"></textarea>
+  <div class="vault-key-actions"><button class="chip" data-copy-key>${IC.copy}Copy</button><button class="chip" data-download-key>${VIC.download}Download</button><button class="primary" data-done>Done</button></div>`;
+ const field=sh.querySelector('.vault-key');field.value=String(key||'');key=null;
+ field.addEventListener('focus',()=>field.select());
+ sh.querySelector('[data-copy-key]').onclick=e=>vaultCopy(field.value,e.currentTarget,'Recovery key');
+ sh.querySelector('[data-download-key]').onclick=()=>{
+  const day=vaultToday(),host=(location.hostname||'pocket').replace(/[^a-z0-9.-]+/gi,'-'),name=`pocket-vault-recovery-key-${host}-${day}.txt`;
+  const text=`# Pocket Code Vault recovery key for ${location.host||host}, saved ${day}.\n# It opens this Vault and its backups. Keep it private, in your password manager.\nPOCKET_VAULT_KEY=${field.value}\n`;
+  const url=URL.createObjectURL(new Blob([text],{type:'text/plain'})),a=document.createElement('a');a.href=url;a.download=name;a.hidden=true;document.body.append(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  toast('Saved '+name);
+ };
+ // Done: back to Settings when it was opened from there, otherwise closed.
+ sh.querySelector('[data-done]').onclick=()=>{field.value='';const back=sh._settingsParent;if(back)back();else closeCurrentSheet?.();};
+ onSheetGone(sh,()=>{field.value='';});
  mountSheet(scrim,sh);
+}
+// The key is missing on this server but the Vault is still here: paste the recovery key or open the saved file.
+const vaultKeyFromText=t=>String(t||'').trim().replace(/^POCKET_VAULT_KEY\s*=\s*/,'').replace(/^(["'])(.*)\1$/,'$2').trim();
+function vaultRestoreKeySheet(){
+ const fid='vp-'+(++vaultFieldSeq);
+ const ctx=vaultPassSheet({title:'Restore the Vault key',cls:'vault-restore-sheet',
+  help:'Paste the recovery key you saved when the Vault was turned on or its key was rotated. Pocket saves it on this server and opens the Vault.',
+  fields:[['key','Recovery key','off']],
+  after:`<div class="vault-secret"><label class="voice-field" for="${fid}">Or open the saved file</label><input type="file" id="${fid}" name="file" accept=".txt,text/plain" class="vault-file" aria-describedby="${fid}-h"><p class="vault-hint" id="${fid}-h">The .txt from Download recovery key. Pocket reads its POCKET_VAULT_KEY line.</p></div>`,
+  submit:'Restore',
+  onSubmit:async(v,ctx)=>{
+   const key=vaultKeyFromText(v('key'));
+   if(!key)return ctx.fail('Paste the recovery key, or open the saved file.','key');
+   try{await vaultPost('/vault/restore-key',{key});}
+   catch(e){if(e.status===400)return ctx.fail(e.message||'That key does not open this Vault.','key');throw e;}
+   ctx.wipe();if(typeof vaultOn==='function'&&vaultOn())vaultAfterModeChange();
+   ctx.done('Vault restored');
+  }});
+ const file=ctx.form.elements.file;
+ file.onchange=async()=>{
+  const f=file.files?.[0];if(!f)return;
+  let text='';try{text=await f.text();}catch{return ctx.fail('Could not read the file.','file');}
+  const line=/^\s*POCKET_VAULT_KEY\s*=\s*(\S+)\s*$/m.exec(text);text='';
+  if(!line)return ctx.fail('That file has no POCKET_VAULT_KEY line. Choose the recovery key file, or paste the key.','file');
+  const input=ctx.form.elements.key;input.value=vaultKeyFromText(line[1]);input.dispatchEvent(new Event('input',{bubbles:true}));
+  ctx.result.textContent='Key read from '+f.name+'.';
+ };
+ onSheetGone(ctx.sh,()=>{file.value='';});
 }
 
 /* ---------- 1.40: the passphrase, the lock, export and import ---------- */
@@ -530,10 +578,10 @@ function vaultPassFieldHTML([name,label,ac,hint]){
   <div class="vault-secret-input"><input type="password" id="${id}" name="${name}" data-pass autocomplete="${ac}" spellcheck="false" autocapitalize="none" autocorrect="off" ${hint?`aria-describedby="${id}-h"`:''}>${vaultRevealBtn(id,id+'-l')}</div>
   ${hint?`<p class="vault-hint" id="${id}-h">${esc(hint)}</p>`:''}</div>`;
 }
-function vaultPassSheet({title,help,fields,warn,submit,cls='',before='',onSubmit}){
+function vaultPassSheet({title,help,fields,warn,submit,cls='',before='',after='',onSubmit}){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className=('sheet vault-pass-sheet '+cls).trim();
  sh.innerHTML=`<h2>${esc(title)}</h2>${help?`<p class="sheet-help vault-pass-help">${esc(help)}</p>`:''}
-  <form class="project-form vault-form" novalidate>${before}${fields.map(vaultPassFieldHTML).join('')}
+  <form class="project-form vault-form" novalidate>${before}${fields.map(vaultPassFieldHTML).join('')}${after}
    ${warn?`<p class="vault-pass-warn">${esc(warn)}</p>`:''}
    <p class="vault-form-error" role="alert"></p><p class="vault-pass-result" role="status"></p>
    <button class="primary" type="submit">${esc(submit)}</button></form>`;
