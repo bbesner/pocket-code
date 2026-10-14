@@ -72,7 +72,7 @@ test('ProjectStore: directory match, snapshot order, due reminders announced onc
 const snapshotFixture=()=>({version:2,generated_at:'2026-10-09T12:00:00+00:00',timezone:'America/New_York',projects:[
   {id:'nvr-review',name:'NVR review',summary:'Chunk 7 drafted',next_step:'Review RTSP redirect',waiting_for:'',status:'active',directory:'/home/u/nvr',link:'https://github.com/x/y/pull/1',created:'2026-09-30T20:00:00+00:00',updated:'2026-10-08T03:28:04+00:00',verified:'2026-10-08T03:28:04+00:00',revision:14,enrollment:'explicit-user-request',
    tasks:[{id:'06f35f99ed42',project:'nvr-review',text:'Decide retention',done:0,created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00'},{id:'aa11',project:'nvr-review',text:'Old step',done:1,created:'2026-10-01T00:00:00+00:00',updated:'2026-10-02T00:00:00+00:00'}],
-   reminders:[{id:'bc0d81efc253',project:'nvr-review',task:null,label:'Check-in',due_at:'2026-10-14T13:00:00+00:00',state:'open',version:2,notified_at:null,digest_date:null,updated:'2026-10-08T00:00:00+00:00'},{id:'dead',project:'nvr-review',task:'missing-task',label:'Orphan',due_at:'2026-10-14T13:00:00+00:00',state:'open',updated:'2026-10-08T00:00:00+00:00'}],
+   reminders:[{id:'bc0d81efc253',project:'nvr-review',task:null,label:'Check-in',due_at:'2037-10-14T13:00:00+00:00',state:'open',version:2,notified_at:null,digest_date:null,updated:'2026-10-08T00:00:00+00:00'},{id:'dead',project:'nvr-review',task:'missing-task',label:'Orphan',due_at:'2037-10-14T13:00:00+00:00',state:'open',updated:'2026-10-08T00:00:00+00:00'}],
    due_count:0,history:[{id:1,project:'nvr-review',at:'2026-09-30T20:00:00+00:00',actor:'agent',action:'tracked',detail:'{"name": "NVR review"}'},{id:2,project:'nvr-review',at:'2026-10-08T03:28:04+00:00',actor:'agent',action:'updated',detail:{summary:'x'}}]},
   {id:'blog',name:'SCK blog cleanup',summary:'',next_step:'',waiting_for:'Brad to review',status:'waiting',directory:'',link:'',created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00',verified:'2026-10-01T00:00:00+00:00',revision:3,enrollment:'explicit-user-request',tasks:[],reminders:[],due_count:0,history:[]},
   {id:'',name:'',status:'active',tasks:[],reminders:[],history:[]}],due_count:0,reminder_health:{},programs:[],alarms:[],events:[],unboarded:[],total_asks:0,blocked_brad:0});
@@ -84,7 +84,7 @@ test('ProjectStore: a Mission Control snapshot imports once, field for field',()
   const p=s.view(s.get('nvr-review'));
   assert.equal(p.next,'Review RTSP redirect');assert.equal(p.revision,14);assert.equal(p.enrollment,'requested');assert.equal(p.link,'https://github.com/x/y/pull/1');assert.equal(p.created,'2026-09-30T20:00:00Z');
   assert.deepEqual(p.tasks.map(t=>[t.id,t.done]),[['06f35f99ed42',false],['aa11',true]]);
-  assert.deepEqual(p.reminders.map(x=>[x.id,x.dueAt,x.state,x.due]),[['bc0d81efc253','2026-10-14T13:00:00Z','open',false]],'a reminder on a missing step is dropped');
+  assert.deepEqual(p.reminders.map(x=>[x.id,x.dueAt,x.state,x.due]),[['bc0d81efc253','2037-10-14T13:00:00Z','open',false]],'a reminder on a missing step is dropped');
   assert.equal(p.history.length,3);assert.equal(p.history[1].detail,'{"summary":"x"}');assert.equal(p.history.at(-1).action,'imported');
   assert.equal(s.get('blog').waitingFor,'Brad to review');assert.equal(s.get('blog').status,'waiting');
   const again=s.importSnapshot(snapshotFixture());assert.deepEqual(again.added,[]);assert.equal(again.skipped.filter(x=>x.reason==='already here').length,2);
