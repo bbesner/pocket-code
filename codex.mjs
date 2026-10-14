@@ -27,6 +27,7 @@ import {ApprovalInbox,codexApproval,codexPermissionSettings} from './approvals.m
 import {estimateWindow} from './usage.mjs';
 import {descendantCpu} from './proctree.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
+import { rolloutState, contextUsed, cachedTokens, TTL_CODEX, TTL_CODEX_NOTE } from './codex-rollout.mjs';
 
 const HOME = os.homedir();
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex');
@@ -399,7 +400,9 @@ export async function listCodexSessions(limit = 60) {
   const r = await threadList({ limit: Math.min(limit, 200), archived: false, sortKey: 'updated_at' }, 30_000);
   const rows = (r?.data || []).filter(t => t && t.id && !t.ephemeral);
   // subagent threads (spawned by a parent) are machinery, not sessions the user started
-  return rows.filter(t => !t.parentThreadId).map(threadToSession);
+  const sessions = rows.filter(t => !t.parentThreadId).map(threadToSession);
+  await attachCache(sessions);
+  return sessions;
 }
 
 export async function searchCodexSessions(term, limit = 40) {
@@ -889,12 +892,18 @@ function onTurnNotify(turn, method, params) {
         // "last" is this call's breakdown — the context fed into the model, same idea
         // as Claude's input + cache_read + cache_creation on the latest assistant line.
         const last = tu.last || tu.total || {};
-        const used = (last.inputTokens || 0) + (last.cachedInputTokens || 0);
+        // 1.48: Codex's inputTokens already includes cachedInputTokens (a subset, unlike Claude's
+        // separate cache_read figure), so the context is the input alone. Adding the two counted
+        // nearly the whole context twice and pinned the meter at 100% from about 55% real
+        // (Damon, 2026-10-14, Ramesh's session: 153k input / 152k cached shown as 118%).
+        const used = contextUsed(last), cached = cachedTokens(last);
         const window = tu.modelContextWindow || null;
         codexUsage.context[turn.threadId] = {
-          used, window: window || estimateWindow(turn.effectiveModel, used),
+          used, cached, window: window || estimateWindow(turn.effectiveModel, used),
           estimated: !window, model: turn.effectiveModel || null, lastAt: Date.now(),
         };
+        // the turn's first call shows whether it resumed warm or cold (the Claude side's cacheFirst)
+        if (turn.cacheFirst === undefined && used > 0) turn.cacheFirst = { hit: cached / used, read: cached, written: used - cached };
         saveCodexUsage();
       }
       break;
@@ -909,6 +918,7 @@ function onTurnNotify(turn, method, params) {
         error:turn.stalled?`Stopped: no activity for ${Math.round(STALL_MS / 60_000)} minutes`:turn.stopped?'Stopped by you':params?.turn?.error?.message,
         duration_ms: Date.now() - turn.startedAt,
         tokens: u.totalTokens ?? u.total_tokens ?? undefined,
+        cache: turn.cacheFirst || null,
       });
       break;
     }
@@ -1069,14 +1079,33 @@ function mergeCodexRateLimits(snap) {
   saveCodexUsage();
 }
 
-// Per-session context meter for the UI: same {used,window,pct,estimated,model} shape the
-// Claude side exposes. Only populated for threads this daemon has actually run a turn on
-// and received a tokenUsage/updated notification for — Codex gives us no transcript-based
-// fallback the way Claude's assistant-line usage does.
-export function getCodexContext(threadId) {
-  const c = codexUsage.context[threadId];
-  if (!c) return null;
-  return { used: c.used, window: c.window, pct: c.window ? Math.min(1, c.used / c.window) : 0, estimated: Boolean(c.estimated), model: c.model || null, lastAt: c.lastAt || null };
+// Per-session context meter and prompt-cache warmth for the UI: the same {used,window,pct,
+// estimated,model} and {at,ttlMs,cached,lastTurn} shapes the Claude side exposes. 1.48: read
+// from the thread's rollout file first (codex-rollout.mjs), which covers threads run outside
+// Pocket and corrects figures saved by the double-counting builds; the tokenUsage/updated
+// figure kept in memory is the fallback when no rollout can be read.
+export async function codexContextAndCache(threadId) {
+  const live = codexUsage.context[threadId] || null;
+  const r = await rolloutState(threadId).catch(() => null);
+  const c = r?.context ? { ...r.context, model: r.context.model || live?.model || null, lastAt: r.context.at } : live;
+  if (!c) return { context: null, cache: null };
+  const window = c.window || estimateWindow(c.model, c.used);
+  const context = { used: c.used, window, pct: window ? Math.min(1, c.used / window) : 0, estimated: !c.window, model: c.model || null, lastAt: c.lastAt || null };
+  const cache = r?.cache || (live?.lastAt && live.used > 0
+    ? { at: live.lastAt, ttlMs: TTL_CODEX, ttlKnown: false, ttlNote: TTL_CODEX_NOTE, cached: live.used, lastTurn: null } : null);
+  return { context, cache };
+}
+
+// 1.48: prompt-cache warmth for the tab marks, from the tail of each thread's rollout, 8 at a time.
+async function attachCache(sessions) {
+  let next = 0;
+  await Promise.all(Array.from({ length: 8 }, async () => {
+    while (next < sessions.length) {
+      const s = sessions[next++];
+      const r = await rolloutState(bareId(s.id), { maxBytes: 256 * 1024 }).catch(() => null);
+      if (r?.cache) s.cache = { at: r.cache.at, ttlMs: r.cache.ttlMs, cached: r.cache.cached };
+    }
+  }));
 }
 
 // Best-effort account rate limits: try a live read on the shared reader connection (this

@@ -1931,7 +1931,7 @@ app.get('/api/session/:id/context', requireAuth, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid session' });
   try {
-    if (isCx(req.params.id)) return res.json({ context: codex.getCodexContext(codex.bareId(req.params.id)) });
+    if (isCx(req.params.id)) return res.json({ ...(await codex.codexContextAndCache(codex.bareId(req.params.id))), serverNow: Date.now() });
     const file = await findSessionFile(req.params.id);
     const context = await getSessionContext(usage, req.params.id, { transcriptFile: file, fsp, modelHint: runners.get(req.params.id)?.model });
     // 1.28: prompt-cache warmth, estimated from the transcript's last request. serverNow lets the
@@ -2962,7 +2962,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Runs on macOS: the turn watchdog and process checks use ps where there is no /proc, the installer accepts a Mac and checks the launchd agent. The installer's npm output is quiet now."];
+const RELEASE_NOTES = ["Codex sessions: the context ring no longer counts cached tokens twice, and it shows prompt-cache warmth the way Claude sessions do, with a two-hour lifetime measured on real sessions."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

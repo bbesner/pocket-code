@@ -2205,8 +2205,9 @@ async function paintContextMeter(id) {
 
 /* ---------- prompt-cache warmth (1.28) ---------- */
 // The server estimates it from the transcript's last request: when it ran (at) and the cache lifetime it
-// used (ttlMs, one hour or five minutes). Each request restarts the lifetime; after it, the next turn writes
-// the whole context to cache again instead of reading it. An estimate: the provider can evict sooner.
+// used (ttlMs: one hour or five minutes for Claude; two hours for Codex, measured, since 1.48). Each request
+// restarts the lifetime; after it, the next turn writes the whole context to cache again instead of reading
+// it. An estimate: the provider can evict sooner.
 const cacheData = new Map(); // sessionId -> { at, ttlMs, ttlKnown, cached, lastTurn }
 const CACHE_MARK_MIN = 100_000; // tabs flag only sessions big enough for a cold start to cost real usage
 function cacheStatus(c, now = Date.now() + serverSkew) {
@@ -2238,14 +2239,14 @@ setInterval(() => { if (document.visibilityState === 'visible' && chatId && cach
 function cacheBlockHTML(c) {
   const st = cacheStatus(c); if (!st) return '';
   const head = st.kind === 'cold' ? 'Cold' : `${st.kind === 'cooling' ? 'Cooling' : 'Warm'} · ${cacheLeftLong(st.left)} left`;
-  const life = c.ttlMs >= 3_600_000 ? '1 hour' : Math.round(c.ttlMs / 60_000) + ' minutes';
+  const hours = c.ttlMs / 3_600_000, life = hours >= 1 ? (hours === 1 ? '1 hour' : Math.round(hours) + ' hours') : Math.round(c.ttlMs / 60_000) + ' minutes';
   const t = c.lastTurn, pct = t && t.hit != null ? Math.floor(t.hit * 100) : null;
   // dated, so a warm start shown beside "Cold" reads as history rather than a contradiction
   const last = pct == null ? '' : `The last turn, at ${fmtAsOfET(t.at)}, started ` + (t.hit >= 0.5 ? `${pct}% from cache.` : `cold: ${fmtTokens(t.written)} tokens written to cache.`);
   const next = st.kind === 'cold' ? 'The next turn writes the context to cache again, which uses more of your plan than reading it.' : 'A turn before then reads the context from cache at a fraction of the cost.';
   return `<div class="usage-block cache-block"><h3>Prompt cache</h3>
     <div class="usage-row-head"><span>Status</span><span class="cache-state" data-cache="${st.kind}">${esc(head)}</span></div>
-    <dl class="ctx-facts"><div><dt>${st.kind === 'cold' ? 'Expired' : 'Expires'}</dt><dd>${esc(fmtAsOfET(st.expiresAt))}</dd></div><div><dt>Cached</dt><dd>${esc(fmtTokens(c.cached))} tokens</dd></div><div><dt>Lifetime</dt><dd>${esc(life)}${c.ttlKnown ? '' : ' (assumed)'}</dd></div></dl>
+    <dl class="ctx-facts"><div><dt>${st.kind === 'cold' ? 'Expired' : 'Expires'}</dt><dd>${esc(fmtAsOfET(st.expiresAt))}</dd></div><div><dt>Cached</dt><dd>${esc(fmtTokens(c.cached))} tokens</dd></div><div><dt>Lifetime</dt><dd>${esc(life)}${c.ttlKnown ? '' : ' (' + esc(c.ttlNote || 'assumed') + ')'}</dd></div></dl>
     ${last ? `<p class="usage-reset">${esc(last)}</p>` : ''}
     <p class="usage-asof">${esc(next)} Estimated from the last request at ${esc(fmtAsOfET(c.at))}; each request restarts the lifetime, and the provider can drop a cache sooner.</p></div>`;
 }
@@ -2585,11 +2586,13 @@ function openES() {
       Voice.onTurnEnd(streamId, d.ok, d.error);
       announceListsStale(); // the agent may have added a project, file or task during the turn
       if (!d.ok && !/^Stopped/.test(String(d.error || ''))) paintTurnFailure({ error: String(d.error || '').slice(0, 300) });
-      if (d.cost != null) {
+      // 1.48: a Codex turn has no cost line, but its time and cache start show the same way
+      if (d.cost != null || (d.cache && Number.isFinite(d.cache.hit))) {
         const secs = d.duration_ms ? Math.round(d.duration_ms / 1000) : null;
         // 1.28: whether the turn resumed from a warm prompt cache or wrote it again
-        const cached = d.cache && Number.isFinite(d.cache.hit) ? (d.cache.hit >= 0.5 ? ` · ${Math.floor(d.cache.hit * 100)}% cached` : ' · cold start') : '';
-        lastMeta = { id: chatId, html: `<div class="turnmeta">$${d.cost.toFixed(2)}${secs ? ` · ${secs >= 90 ? Math.round(secs / 60) + 'm' : secs + 's'}` : ''}${cached}</div>` };
+        const cached = d.cache && Number.isFinite(d.cache.hit) ? (d.cache.hit >= 0.5 ? `${Math.floor(d.cache.hit * 100)}% cached` : 'cold start') : '';
+        const parts = [d.cost != null ? `$${d.cost.toFixed(2)}` : '', secs ? (secs >= 90 ? Math.round(secs / 60) + 'm' : secs + 's') : '', cached].filter(Boolean);
+        lastMeta = { id: chatId, html: `<div class="turnmeta">${parts.join(' · ')}</div>` };
         msgs.insertAdjacentHTML('beforeend', lastMeta.html);
       }
       scrollBottom();

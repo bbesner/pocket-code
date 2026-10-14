@@ -1,7 +1,7 @@
 {
-  "version": "1.47.0",
-  "assetV": 98,
+  "version": "1.48.0",
+  "assetV": 99,
   "notes": [
-    "Runs on macOS: the turn watchdog and process checks use ps where there is no /proc, the installer accepts a Mac and checks the launchd agent. The installer's npm output is quiet now."
+    "Codex sessions: the context ring no longer counts cached tokens twice, and it shows prompt-cache warmth the way Claude sessions do, with a two-hour lifetime measured on real sessions."
   ]
 }
