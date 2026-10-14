@@ -51,6 +51,13 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       fs.appendFileSync(calls+'.codex',JSON.stringify({threadId:p.threadId,pid:process.pid,text,model:p.model,collaborationModel:p.collaborationMode?.settings?.model})+'\n');
       reply(m.id,{turn:{id:turnId}});
       notify('turn/started',{turnId});
+      // __LATEUSER__: like Pocket's reader process, the history has the user message only a moment after turn/start
+      // returns. __ATTACHNOTE__: stored with the note Codex keeps after the text when files are attached.
+      if(text.includes('__LATEUSER__'))setTimeout(()=>{
+        const f=path.join(root,p.threadId+'.items.json');let items=[];try{items=JSON.parse(fs.readFileSync(f,'utf8'));}catch{}
+        const stored=text.includes('__ATTACHNOTE__')?text+'\n\n[Attached file — read as needed:\n/tmp/a.png\n]':text;
+        fs.writeFileSync(f,JSON.stringify([...items,{turnId,item:{type:'userMessage',id:randomUUID(),content:[{type:'text',text:stored}]}}]));
+      },900);
       if(text.includes('__HANG__'))return;
       if(text.includes('__AGENTS__')){
         const item={id:'agent-spawn',type:'collabAgentToolCall',tool:'spawnAgent',status:'completed',receiverThreadIds:['child-agent'],agentsStates:{'child-agent':{status:'running'}},prompt:'Check parser failures',model:'gpt-test'};

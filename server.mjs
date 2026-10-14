@@ -1714,12 +1714,15 @@ app.get('/api/projects', requireAuth, async (_req, res) => {
 // that gap (it does, right after the send is acknowledged) would lose the message just sent until the turn
 // ends. Show the turn's own text as pending until the transcript has it. Match the text among user lines
 // written since the turn started, not "the last user line": a steered or queued message can land after it.
-// (Reported, with a first patch, by Damon Delcoro 2026-10-05.)
+// (Reported, with a first patch, by Damon Delcoro 2026-10-05.) 1.48.1: Codex sessions too. Pocket reads a Codex
+// thread through a separate reader process, which has the new user message only a few hundred ms after
+// turn/start returns, so the same re-render dropped it there. Codex stores attachments as a note after the text.
 function withPendingUser(messages, turn) {
   const text = String(turn?.userText || '').trim();
   if (!text || turn.autonomous) return messages;
   const since = (turn.startedAt || 0) - 5000;
-  const landed = messages.some(m => m.role === 'user' && (m.text || '').trim() === text && (!m.ts || Date.parse(m.ts) >= since));
+  const same = t => t === text || t.startsWith(text + '\n\n[Attached file');
+  const landed = messages.some(m => m.role === 'user' && same((m.text || '').trim()) && (!m.ts || Date.parse(m.ts) >= since));
   return landed ? messages : [...messages, { role: 'user', text, pending: true }];
 }
 
@@ -1735,6 +1738,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       if (turn?.userText) { messages = [{ role: 'user', text: turn.userText }]; total = 1; }
       else return res.status(502).json({ error: String(e.message) });
     }
+    messages = withPendingUser(messages, turn);
     return sendJson(req, res, {
       id: req.params.id, provider: 'codex',
       title: smeta[req.params.id]?.name || (meta ? finishTitle({ ...meta, untitled: meta.untitled }).title : turn?.userText?.slice(0, 120)) || 'New session',
@@ -2962,7 +2966,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Codex sessions: the context ring no longer counts cached tokens twice, and it shows prompt-cache warmth the way Claude sessions do, with a two-hour lifetime measured on real sessions."];
+const RELEASE_NOTES = ["Codex sessions: a message you just sent stays on screen while the turn starts, instead of vanishing until you reopen the session."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
