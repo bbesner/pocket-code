@@ -165,3 +165,18 @@ test('Codex subagent projection survives reconnect and never resumes a child thr
  const connections=fs.readFileSync(path.join(f.dir,'calls.threads'),'utf8').trim().split('\n').map(JSON.parse);
  assert.equal(connections.length,1,'activity reads never start/resume an extra thread');
 });
+
+test('a just-sent Codex message shows as pending until the reader has it, and never twice',async t=>{
+ const f=await fixture(t,18781);
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('setup')})).body.id;
+ assert.ok(await f.until(()=>f.idle(id)));
+ const users=async()=>(await f.call(`/session/${id}`)).body.messages.filter(m=>m.role==='user');
+ for(const text of ['__SLOW__ __LATEUSER__ please check the logs','__SLOW__ __LATEUSER__ __ATTACHNOTE__ what is in this photo']){
+  assert.equal((await f.call(`/session/${id}/message`,msg(text))).status,202);
+  assert.deepEqual((await users()).at(-1),{role:'user',text,pending:true},'shown right away, marked pending');
+  assert.ok(await f.until(async()=>{const x=await users();return x.at(-1).text.startsWith(text)&&!x.at(-1).pending;}),'replaced by the history item once the reader has it');
+  assert.equal((await users()).filter(m=>m.text.startsWith(text)).length,1,'never twice, attachment note or not');
+  assert.ok(await f.until(()=>f.idle(id)));
+  assert.equal((await users()).some(m=>m.pending),false,'nothing pending once the turn ends');
+ }
+});

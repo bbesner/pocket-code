@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.48.1] — 2026-10-14 · build 100
+
+- **A just-sent Codex message no longer vanishes.** Pocket reads a Codex thread's history through a separate reader process, and that process has the new user message only a few hundred milliseconds after `turn/start` returns (measured against codex-cli 0.156.1). The client re-renders the conversation the moment the send is acknowledged, so it landed in that gap and dropped the optimistic bubble; the live stream then resumed after the turn's own `user` event, so the message stayed missing until the session was reopened. Claude sessions have been covered since 1.11.2; `/api/session/:id` now applies the same pending-message rule to Codex sessions, and the match allows for the "[Attached files…]" note Codex stores after the text when files are attached, so a message with attachments is not shown twice. Reported by Brad.
+- Tests: `test/codex-session.test.mjs` sends a message the fake app-server writes to history 900 ms late, with and without the attachment note: shown at once as pending, replaced by the history item, never twice, nothing pending after the turn (fails on 1.48.0).
+
 ## [1.48.0] — 2026-10-14 · build 99
 
 - **Codex context meter corrected.** Codex reports cached input tokens as part of its input tokens, not beside them the way Claude reports cache reads, and Pocket was adding the two. On a long session the ring read nearly double and sat at 100% from about 55% real (Ramesh's session: 153k input, 152k cached, window 258k, shown as 118%). The context is the input alone now. Found, verified against every call in that session's rollout, and patched in place on Ramesh's and Siri's boxes by Damon; this release carries the fix into the repository.
