@@ -214,6 +214,10 @@ ahead, marked `ahead: true` for the hook, for items that were set at least a day
 Due items are checked every `POCKET_REMINDER_CHECK_MS` (default 60000, minimum 250), with
 a first check a few seconds after start. A task stays due until it is done or re-dated.
 
+**Push priority.** Due tasks, reminders and Vault requests go out with `Urgency: high`
+(1.50.2), so Android delivers them while the phone is idle; a finished turn goes at normal
+priority and may wait until the phone wakes.
+
 **Push preferences.** Each device's choices (which kinds, the icon count) are kept with its
 subscription in `push-subs.json` and changed through `/api/push/prefs`. A reminder push
 carries the count of due items (`badge`) only to devices that show it. The notification's

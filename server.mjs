@@ -453,15 +453,19 @@ async function pushNotify(sessionId, title, body) {
 // One notification to every subscribed device that wants this kind (1.50: turns, reminders or vault; a device's
 // choice in Settings → Notifications); returns how many received it, or null when push is off or no device wants it.
 // `badge` is the count of due items for the app icon, sent only to devices that show it.
+// 1.50.2: a due task or reminder and a Vault request are sent as urgent, so Android delivers them while the phone is idle
+// (a normal-priority push waits until the phone wakes, which is how the 1.50.0 reminder pushes went missing on Brad's phone);
+// a finished turn stays normal priority, so a busy session does not keep waking the phone.
 async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra }) { // 1.41: extra fields (actions, vaultRequest) ride along for the service worker
   if (!pushReady) return null;
   const subs = loadSubs().filter(s => pushPrefsOf(s).kinds[kind] !== false);
   if (!subs.length) return null;
   const base = { title: title.slice(0, 70), body, tag, url, ...extra };
+  const options = kind === 'turns' ? {} : { urgency: 'high' };
   const dead = [];
   await Promise.all(subs.map(async s => {
     const payload = JSON.stringify(typeof badge === 'number' && pushPrefsOf(s).badge ? { ...base, badge } : base);
-    try { await webpush.sendNotification(s, payload); }
+    try { await webpush.sendNotification(s, payload, options); }
     catch (e) { if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint); }
   }));
   if (dead.length) saveSubs(loadSubs().filter(s => !dead.includes(s.endpoint)));
@@ -3058,7 +3062,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Settings has a gear icon (it looked like a sun, so it read as a light or brightness control), and the composer's message-settings toggle and Permissions use a sliders icon, so app settings and per-message settings no longer share one symbol."];
+const RELEASE_NOTES = ["Due tasks, reminders and Vault requests are pushed as urgent, so a phone that is idle shows them at once; finished turns stay normal priority.", "The icon count is set after the notification is shown, so a browser that refuses it never loses the notification."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

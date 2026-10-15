@@ -1,7 +1,8 @@
 {
-  "version": "1.50.1",
-  "assetV": 103,
+  "version": "1.50.2",
+  "assetV": 104,
   "notes": [
-    "Settings has a gear icon (it looked like a sun, so it read as a light or brightness control), and the composer's message-settings toggle and Permissions use a sliders icon, so app settings and per-message settings no longer share one symbol."
+    "Due tasks, reminders and Vault requests are pushed as urgent, so a phone that is idle shows them at once; finished turns stay normal priority.",
+    "The icon count is set after the notification is shown, so a browser that refuses it never loses the notification."
   ]
 }
