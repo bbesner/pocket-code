@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v103';
-const SHELL = ['/theme.js?v=103', '/', '/release.json?v=103', '/app.css?v=103', '/app.js?v=103', '/workspace.js?v=103', '/projects.js?v=103', '/documents.js?v=103', '/tasks.js?v=103', '/vault.js?v=103', '/secret-detect.js?v=103', '/approvals.js?v=103', '/split.js?v=103', '/tips.js?v=103', '/format.js?v=103', '/voice-text.js?v=103', '/voice.js?v=103', '/voice-worklet.js?v=103', '/vendor/marked.js?v=103', '/vendor/purify.js?v=103', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v104';
+const SHELL = ['/theme.js?v=104', '/', '/release.json?v=104', '/app.css?v=104', '/app.js?v=104', '/workspace.js?v=104', '/projects.js?v=104', '/documents.js?v=104', '/tasks.js?v=104', '/vault.js?v=104', '/secret-detect.js?v=104', '/approvals.js?v=104', '/split.js?v=104', '/tips.js?v=104', '/format.js?v=104', '/voice-text.js?v=104', '/voice.js?v=104', '/voice-worklet.js?v=104', '/vendor/marked.js?v=104', '/vendor/purify.js?v=104', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -33,10 +33,10 @@ self.addEventListener('push', e => {
   // 1.41: a Vault request carries Allow and Deny, answered from the notification without opening Pocket.
   // 1.50: a due task or reminder carries Tomorrow (and Done for a task), answered the same way.
   if (Array.isArray(d.actions) && d.actions.length) opts.actions = d.actions.filter(a => a && a.action && a.title).map(a => ({ action: String(a.action), title: String(a.title) }));
-  const jobs = [self.registration.showNotification(d.title || 'Pocket Code', opts)];
   // 1.50: the count of due items on the app icon, when this device asked for it (the server sends it only then).
-  if (typeof d.badge === 'number' && 'setAppBadge' in self.navigator) jobs.push((d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge()).catch(() => {}));
-  e.waitUntil(Promise.all(jobs));
+  // 1.50.2: set after the notification is shown and guarded, so a browser that refuses the badge never costs the notification.
+  const setBadge = () => { if (typeof d.badge !== 'number' || !('setAppBadge' in self.navigator)) return; try { const p = d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge(); return p && p.catch(() => {}); } catch { } };
+  e.waitUntil(self.registration.showNotification(d.title || 'Pocket Code', opts).then(setBadge, setBadge));
 });
 const openUrl = url => clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
   // split-view panes are window clients too; open the notification in the top-level window

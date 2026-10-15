@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.50.2] — 2026-10-15 · build 104
+
+- **Reminder pushes reach an idle phone.** A due task, a due reminder and a Vault request were sent at the push service's normal priority, which Android holds back while the phone is idle, so the 1.50.0 test reminders never showed on Brad's phone while the same pushes marked urgent arrived at once. Those three kinds are now sent with `Urgency: high`; a finished turn stays normal priority so a busy session does not keep waking the phone. Found with Brad.
+- **The icon count can never cost a notification.** The service worker sets the app icon's count after the notification is shown, guarded, so a browser that refuses the badge still shows the notification.
+- The browser suite's resizable-rail check waits for the shell after a viewport change that toggles touch emulation (Puppeteer reloads the page then); it was the suite's recurring flake on CI and locally.
+
 ## [1.50.1] — 2026-10-15 · build 103
 
 - **Settings looks like settings.** The Settings button in the header and the rail drew a small circle with eight short rays, which reads as a sun (a brightness or light control), not a gear; Damon raised it more than once. It is now an eight-toothed gear in the same 1.8px stroke, which also marks tool calls without a more specific icon. The composer's **Hide/Show message settings** toggle and **Permissions for the next turn** in a session's options use a new sliders icon, since they adjust one turn rather than open the app's Settings. No other change. Reported by Damon, via Brad.

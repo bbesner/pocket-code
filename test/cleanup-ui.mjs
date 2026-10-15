@@ -84,12 +84,12 @@ export async function runCleanupRegressions({browser,base,rows,out}) {
   await page.evaluate(()=>{document.body.style.zoom='';document.querySelector('.rail').style.width='320px';});
   assert.equal(await page.evaluate(()=>document.querySelector('.rail-switch').offsetTop===document.querySelector('.rail-actions').offsetTop),true,'default rail stays in one row');
   await scan('rail-320');
-  await page.setViewport({width:1440,height:900,hasTouch:true});
+  await page.setViewport({width:1440,height:900,hasTouch:true});await page.waitForSelector('.rail #railnew'); // changing hasTouch reloads the page; wait for the shell
   for(const width of [220,320,480]){
    await page.$eval('.rail',(e,w)=>e.style.width=w+'px',width);
    assert.ok(await page.$$eval('.rail-actions button',es=>es.filter(e=>!e.hidden).every(e=>{const b=e.getBoundingClientRect(),r=e.closest('.rail');return b.width>=44&&b.height>=44&&b.right<=r.getBoundingClientRect().left+r.clientWidth;})));
   }
-  await page.setViewport({width:1440,height:900,hasTouch:false});
+  await page.setViewport({width:1440,height:900,hasTouch:false});await page.waitForSelector('.rail #railnew');
   await page.click('#railnew');await page.waitForSelector('#first');assert.equal(new URL(page.url()).hash,'#/new');
   await fresh('#/chat/'+rows[0].id,'#box');
  });
