@@ -312,7 +312,8 @@ ledger lines enter with a single 180ms ease-out rise (6px). Nothing else moves.
 - **Login:** centered, one field, one button.
 
 Icons: authored inline SVG, 1.8px stroke, round caps — chevron-left, plus, arrow-up, folder,
-terminal, doc, globe, cog. No emoji as UI.
+terminal, doc, globe, gear (app settings, and the fallback tool icon), sliders (message settings,
+permissions). No emoji as UI.
 
 ## Session workspace refinement (1.1)
 

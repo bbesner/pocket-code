@@ -1,9 +1,7 @@
 {
-  "version": "1.50.0",
-  "assetV": 102,
+  "version": "1.50.1",
+  "assetV": 103,
   "notes": [
-    "Tasks is the one due list: with Projects on, open project reminders sit among the dated tasks, due first, and the Tasks badge and the app icon count both.",
-    "Settings \u2192 Notifications & voice: choose which notifications this device gets (finished turns, due tasks and reminders, Vault requests), the count on the app icon, a notice a day before, and an email address for due items when the server has POCKET_SMTP_URL.",
-    "A due notification offers Tomorrow (and Done for a task); Remind later on a task picks a new time."
+    "Settings has a gear icon (it looked like a sun, so it read as a light or brightness control), and the composer's message-settings toggle and Permissions use a sliders icon, so app settings and per-message settings no longer share one symbol."
   ]
 }

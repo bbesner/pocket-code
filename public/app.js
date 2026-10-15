@@ -12,7 +12,8 @@ const IC = {
   term: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7l4 5-4 5M12 17h7"/></svg>',
   doc: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4"/></svg>',
   globe: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c-5 5.7-5 11.3 0 17 5-5.7 5-11.3 0-17z"/></svg>',
-  cog: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 4v2.4M12 17.6V20M4 12h2.4M17.6 12H20M6.3 6.3l1.7 1.7M16 16l1.7 1.7M17.7 6.3L16 8M8 16l-1.7 1.7"/></svg>',
+  cog: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.98 5.4L10.24 2.97L13.76 2.97L14.02 5.4L15.24 5.91L17.14 4.37L19.63 6.86L18.09 8.76L18.6 9.98L21.03 10.24L21.03 13.76L18.6 14.02L18.09 15.24L19.63 17.14L17.14 19.63L15.24 18.09L14.02 18.6L13.76 21.03L10.24 21.03L9.98 18.6L8.76 18.09L6.86 19.63L4.37 17.14L5.91 15.24L5.4 14.02L2.97 13.76L2.97 10.24L5.4 9.98L5.91 8.76L4.37 6.86L6.86 4.37L8.76 5.91z"/><circle cx="12" cy="12" r="3"/></svg>',
+  sliders: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h8.5M16.5 7H20M4 12h2.5M10.5 12H20M4 17h10.5M18.5 17H20"/><circle cx="14.5" cy="7" r="2"/><circle cx="8.5" cy="12" r="2"/><circle cx="16.5" cy="17" r="2"/></svg>',
   folder: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2.5h9v10h-17z"/></svg>',
   clip: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5l-8.3 8.3a5 5 0 01-7-7L13 4.5a3.4 3.4 0 014.8 4.8L9.7 17.4a1.8 1.8 0 01-2.5-2.5L15 7.2"/></svg>',
   stop: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
@@ -259,7 +260,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
       s.pinned && pinnedIds().indexOf(s.id) >= 0 && pinnedIds().indexOf(s.id) < pinnedIds().length - 1 ? '<button class="opt" id="so-pin-down">'+IC.down+'<span>Move pin down<span class="sub">Later among pinned sessions, in the list and the tabs, on every device</span></span></button>' : '',
       `<button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device. Clear it to go back to the automatic one</span></span></button>`,
       `<button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>`,
-      `<button class="opt" id="so-permissions">${IC.cog}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>`,
+      `<button class="opt" id="so-permissions">${IC.sliders}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>`,
       projectsOn() ? '<button class="opt" id="so-project">'+IC.folder+'<span>Add project<span class="sub">Track a new project around this session, or link it to one</span></span></button>' : '',
       tasksOn() ? '<button class="opt" id="so-task">'+IC.task+'<span>Add task<span class="sub">A to-do with an optional date, kept with this session and its context</span></span></button>' : '',
       vaultOn() ? '<button class="opt" id="so-vault">'+VIC.lock+'<span>Store in the Vault<span class="sub">Save a key or password agents use by name, instead of pasting it here</span></span></button>' : ''])}
@@ -2443,7 +2444,7 @@ function setComposer(working) {
         <button class="chip stopchip" id="stopb" aria-label="Stop this turn">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
     ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this turn" aria-label="After this turn">After <span class="sm-x">this </span>turn</button></div>' : ''}
-    ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.cog}</button>${ctxRingHTML()}</div>` : ''}
+    ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button>${ctxRingHTML()}</div>` : ''}
     <textarea id="box" rows="1" placeholder="${working ? 'Steer this turn…' : 'Message this session…'}" enterkeyhint="send"></textarea>
     ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button>`;
   if (typeof paintChatProject === 'function') paintChatProject(); // the toolbar's chip, or the working row's folder button
