@@ -170,6 +170,24 @@ browser test suite. Report what you find in [issue #87](https://github.com/bbesn
    Projects, files, tasks & vault**. Voice is a separate optional install
    (`scripts/voice-setup.sh`, see the [README](../README.md#voice-mode-beta)).
 
+### Limiting the Claude models
+
+To provision a computer whose users should only run some models, set the list in `.env`
+before the first start and restart after a change:
+
+```bash
+echo 'POCKET_CLAUDE_MODELS=claude-sonnet-5-5,claude-haiku-5-5' >> ~/pocket-code/.env
+echo 'POCKET_CLAUDE_MODEL=claude-sonnet-5-5' >> ~/pocket-code/.env   # optional: what Default runs
+```
+
+The owner can change the list later in **Settings → Agents & instance → Claude models in the
+picker**; once saved there, that choice wins over `.env` (**Use the server's list** goes back).
+To make a limit binding, put it in Claude Code's managed settings
+(`/etc/claude-code/managed-settings.json` on Linux, `availableModels` and `deniedModels`): Pocket
+reads the same file, never offers a model it blocks, marks such models in Settings, and never
+passes one to the CLI. Without that, a blocked pick would run silently on the account's default
+model. Details: [workspace guide](workspace-guide.md#claude-models-in-the-picker).
+
 ## By hand
 
 Everything `pocket-init` does, as shell:

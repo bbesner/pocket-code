@@ -14,6 +14,7 @@ import {ProjectStore} from '../projects.mjs';
 import {DocumentStore,mimeOf} from '../documents.mjs';
 import {TaskStore} from '../tasks.mjs';
 import {VaultStore,newKey,parseKey} from '../vault.mjs';
+import {resolveOffer} from '../models.mjs';
 import '../public/secret-detect.js'; // 1.42: globalThis.PocketSecrets, the detector the server uses
 const repo=path.resolve(import.meta.dirname,'..');
 const out=process.env.POCKET_SCREENSHOTS || fs.mkdtempSync(path.join(os.tmpdir(),'pocket-browser-'));
@@ -35,6 +36,11 @@ const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // t
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
 let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultCanCreateKey:false,vaultNeedsKey:false,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',secretGuard:true,remindAhead:0,notifyEmail:''};
+// 1.52: the picker's models. The fixture's Claude Code policy blocks Fable; a saved choice also drives /api/claude/models.
+const fixturePolicy={availableModels:null,deniedModels:['fable'],availableModelsMatch:'prefix'};
+const fixtureOffer=saved=>resolveOffer({saved:Array.isArray(saved)?saved:null,envList:null,policy:fixturePolicy});
+const fixtureClaudeModels=()=>({...fixtureOffer(fixtureSettings.offeredClaudeModels),env:null,saved:Array.isArray(fixtureSettings.offeredClaudeModels),
+ policy:{dir:'/etc/claude-code',files:['/etc/claude-code/managed-settings.json'],limits:true,error:null},pocketDefault:{configured:null,used:null,label:'Test agent'}});
 // 1.50: the fixture server has mail set up (so Settings shows the address field) and records test messages.
 const fixtureEmail=()=>({configured:true,from:'pocket@example.test',to:fixtureSettings.notifyEmail||'',on:Boolean(fixtureSettings.notifyEmail),hook:false,error:null,base:'http://localhost'});
 // 1.42: like the server, a message that looks like it carries a secret is refused (422) before any receipt, unless allowSecrets.
@@ -148,7 +154,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/pins/order'){let raw='';for await(const c of req)raw+=c;const ids=JSON.parse(raw||'{}').ids||[];pinOrders.push(ids);ids.forEach((id,i)=>{const r=rows.find(x=>x.id===id);if(r?.pinned)r.pinOrder=i;});return json({ok:true,order:ids});}
  if(url.pathname==='/api/projects')return json({projects:['/workspaces/warehouse','/workspaces/products']});
  if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}]});
- if(url.pathname==='/api/claude/models')return json({models:[{id:'test',label:'Test agent'},{id:'claude-opus-5-5[1m]',label:'Opus 5.5'}],defaultLabel:'Test agent'});
+ if(url.pathname==='/api/claude/models')return json(Array.isArray(fixtureSettings.offeredClaudeModels)?{models:fixtureOffer(fixtureSettings.offeredClaudeModels).models.filter(m=>m.offered).map(({id,label,sub})=>({id,label,sub})),defaultLabel:'Test agent',limited:true}:{models:[{id:'test',label:'Test agent'},{id:'claude-opus-5-5[1m]',label:'Opus 5.5'}],defaultLabel:'Test agent'});
  if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'},...Array.from({length:8},(_,index)=>({id:'gpt-fixture-'+index,label:'Fixture '+index})),{id:'gpt-6-sol',label:'GPT-6 Sol'},{id:'gpt-6-astra',label:'GPT-6 Astra'}],defaultModel:'gpt-6-sol',pocketDefault:true});
  if(url.pathname==='/api/push/key')return json({});
  if(url.pathname==='/api/push/prefs')return json({error:'This device is not subscribed.',code:'not_subscribed'},404); // push is off in the fixture
@@ -221,7 +227,8 @@ const server=http.createServer(async(req,res)=>{
   if(b.vault===true&&!fixtureSettings.vault&&fixtureSettings.vaultNeedsKey)return json({error:"This Vault's key is missing on this server. Restore it from your recovery key.",code:'vault_needs_key'},409);
   if(b.vault===true&&!fixtureSettings.vault&&fixtureSettings.vaultCanCreateKey){Object.assign(fixtureSettings,{vaultCanCreateKey:false,vaultReady:true});extra={recoveryKey:vaultFixture.key};}
   if(typeof b.notifyEmail==='string'&&b.notifyEmail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.notifyEmail))return json({error:'That does not look like an email address.',code:'bad_email'},400);
-  Object.assign(fixtureSettings,b);}return json({...fixtureSettings,titles:fixtureTitles(),email:fixtureEmail(),...extra});}
+  if(Array.isArray(b.offeredClaudeModels)&&!fixtureOffer(b.offeredClaudeModels).offered.length)return json({error:'Keep at least one model on.',code:'no_models'},400);
+  Object.assign(fixtureSettings,b);}return json({...fixtureSettings,titles:fixtureTitles(),email:fixtureEmail(),claudeModels:fixtureClaudeModels(),...extra});}
  if(url.pathname==='/api/about')return uiModes.aboutFailed?json({error:'Version unavailable'},503):json({...JSON.parse(fs.readFileSync(path.join(repo,'public/release.json'),'utf8')),cli:'test',host:'preview'});
  if(url.pathname==='/api/environment')return json({host:'test-instance',checkedAt:Date.now(),providers:[{provider:'claude',email:'owner@example.test',plan:'max',method:'claude.ai',signedIn:true},{provider:'codex',email:'coder@example.test',plan:'pro',method:'chatgpt',signedIn:true}],claudeActive:uiModes.claudeActive||0,accountManagement:'Sign-ins follow this instance.',permissions:'Unattended server permissions',capabilities:{claudeLogin:true}});
  if(url.pathname==='/api/claude/activity')return json({active:uiModes.claudeActive||0});

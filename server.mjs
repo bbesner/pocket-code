@@ -34,6 +34,7 @@ import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 import {PromptStore} from './prompts.mjs';
 import {ClaudeLogin} from './claude-login.mjs';
 import {ProjectStore, projectInstructions} from './projects.mjs';
+import {CLAUDE_MODELS, CATALOG_IDS, managedDir, readManagedPolicy, policyAllows, parseSelection, resolveOffer, helperModel} from './models.mjs';
 import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
 import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
@@ -101,27 +102,43 @@ const CODEX_ON = process.env.POCKET_CODEX !== '0' && codex.codexAvailable();
 const isCx = codex.isCodexId;
 const anyId = id => isCx(id) ? UUID_RE.test(codex.bareId(id)) : UUID_RE.test(id);
 const UPLOAD_DIR = path.join(HOME, 'pocket-uploads');
-// Claude model picker — the one list; the client fetches it from /api/claude/models.
-// Each id verified with `claude -p --model <id>` on CLI 2.1.281 (2026-09-25). Fable and
-// Opus use their [1m] ids so picking one on a long resumed session can't overflow the
-// 200k window. 'default' = no --model flag, i.e. the box's ~/.claude/settings.json.
+// Claude model picker. The catalog (models.mjs CLAUDE_MODELS) is every model Pocket knows; the picker
+// offers the ones the owner chose (Settings → Agents & instance, else POCKET_CLAUDE_MODELS, else all)
+// that this computer's Claude Code managed policy allows. 'default' = no --model flag, i.e. the
+// CLI's own default (managed or ~/.claude/settings.json `model`, else the account's).
 // Effort maps to settings.effortLevel.
-const CLAUDE_MODELS = [
-  { id: 'claude-fable-5-1[1m]', label: 'Fable 5.1', sub: 'Top tier · 1M context', alias: 'fable' },
-  { id: 'claude-opus-5-5[1m]', label: 'Opus 5.5', sub: 'Strong + cheaper than Fable · 1M', alias: 'opus' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', sub: 'Fast, near-Opus on coding', alias: 'sonnet' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', sub: 'Fastest, light tasks', alias: 'haiku' },
-];
-const MODELS = new Set(CLAUDE_MODELS.map(m => m.id));
-// Human label for whatever the global settings pin ('opus[1m]', 'claude-fable-5-1', …).
-// Read per request so a settings change shows without a restart.
+const MODELS = CATALOG_IDS;
+const MANAGED_DIR = managedDir();
+// The policy files are small; re-read at most every few seconds so an admin's change shows without a restart.
+let policyCache = { at: 0, value: null };
+function managedPolicy() {
+  if (Date.now() - policyCache.at > 3000) policyCache = { at: Date.now(), value: readManagedPolicy(MANAGED_DIR) };
+  return policyCache.value;
+}
+// The policy that limits models, or null when there is none (no file, or no model keys in it).
+const modelPolicy = () => { const p = managedPolicy(); return p.availableModels || p.deniedModels?.length ? p : null; };
+const ENV_CLAUDE_MODELS = (() => {
+  const raw = (process.env.POCKET_CLAUDE_MODELS || '').trim();
+  if (!raw) return null;
+  const { ids, unknown } = parseSelection(raw);
+  if (unknown.length) console.warn(`POCKET_CLAUDE_MODELS: ${unknown.join(', ')} ${unknown.length > 1 ? 'are' : 'is'} not in the model catalog; ignored`);
+  if (!ids.length) { console.warn('POCKET_CLAUDE_MODELS names no known model; offering every model'); return null; }
+  return ids;
+})();
+const claudeOffer = () => resolveOffer({ saved: settings.offeredClaudeModels, envList: ENV_CLAUDE_MODELS, policy: modelPolicy() });
+const isOffered = id => claudeOffer().offered.includes(id);
+// POCKET_CLAUDE_MODEL counts only while it is offered; otherwise Default is the CLI's own default.
+const claudePocketModel = () => POCKET_DEFAULTS.claude.model && isOffered(POCKET_DEFAULTS.claude.model) ? POCKET_DEFAULTS.claude.model : undefined;
+// Human label for whatever the CLI's own default is ('opus[1m]', 'claude-fable-5-1', …): a managed
+// `model` outranks ~/.claude/settings.json. Read per request so a settings change shows without a restart.
 function claudeDefaultLabel() {
-  if (POCKET_DEFAULTS.claude.model) return CLAUDE_MODELS.find(m => m.id === POCKET_DEFAULTS.claude.model).label;
-  let raw;
-  try { raw = JSON.parse(fs.readFileSync(path.join(HOME, '.claude', 'settings.json'), 'utf8')).model; } catch { }
+  const pocket = claudePocketModel();
+  if (pocket) return CLAUDE_MODELS.find(m => m.id === pocket).label;
+  let raw = managedPolicy().model;
+  if (!raw) try { raw = JSON.parse(fs.readFileSync(path.join(HOME, '.claude', 'settings.json'), 'utf8')).model; } catch { }
   if (!raw) return 'CLI default';
   const base = raw.replace(/\[1m\]$/i, ''), big = base !== raw ? ' · 1M' : '';
-  const hit = CLAUDE_MODELS.find(m => m.alias === base || m.id.replace(/\[1m\]$/, '') === base);
+  const hit = CLAUDE_MODELS.find(m => m.id.replace(/\[1m\]$/, '') === base) || CLAUDE_MODELS.find(m => m.alias === base);
   return hit ? hit.label + big : raw;
 }
 const EFFORTS = new Set(['max', 'xhigh', 'high', 'medium', 'low']);
@@ -143,11 +160,26 @@ function validateModel(provider, model) {
     : /^(?:gpt-|codex(?:$|-)|o\d(?:$|-))/i.test(model));
   if (incompatible) throw Object.assign(new Error(`Choose a ${provider === 'codex' ? 'Codex' : 'Claude'} model from the model menu, then send again.`), { status: 400, code: 400 });
 }
+// A Claude model the picker does not offer (unchosen, blocked by the managed policy, unknown) is never
+// passed to the CLI: the turn runs on the default instead and `modelFallback` says so.
 const withDefaults = (provider, opts) => {
+  if (provider === 'claude') {
+    const asked = opts.model && opts.model !== 'default' ? opts.model : null;
+    validateModel(provider, asked);
+    let model = asked, modelFallback = null;
+    if (asked && !isOffered(asked)) {
+      model = claudePocketModel();
+      const known = CLAUDE_MODELS.find(m => m.id === asked);
+      modelFallback = { requested: asked, label: known?.label || asked, used: model || 'default', usedLabel: claudeDefaultLabel(),
+        reason: !known ? 'unknown' : !policyAllows(asked, modelPolicy()) ? 'policy' : 'not-offered' };
+    } else if (!asked) model = claudePocketModel();
+    return { ...opts, model, effort: opts.effort || POCKET_DEFAULTS[provider].effort, modelFallback };
+  }
   const model = opts.model && opts.model !== 'default' ? opts.model : POCKET_DEFAULTS[provider].model;
   validateModel(provider, model);
   return { ...opts, model, effort: opts.effort || POCKET_DEFAULTS[provider].effort };
 };
+const fallbackText = f => `${f.label} is ${f.reason === 'policy' ? "blocked by this computer's Claude Code policy" : f.reason === 'unknown' ? 'not a model Pocket knows' : 'not offered in Settings'}, so this turn uses ${f.used === 'default' ? 'the default model' : f.usedLabel}${f.used === 'default' ? ` (${f.usedLabel})` : ''}.`;
 // Workspace the New session screen preselects; unset = wherever you last started one.
 const DEFAULT_CWD = envPick('POCKET_DEFAULT_CWD', v => path.isAbsolute(v) && fs.existsSync(v) && fs.statSync(v).isDirectory());
 
@@ -190,10 +222,11 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '' }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail
+const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default)
 const loadSettings = () => { try { return { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { ...SETTINGS_DEFAULTS }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
+if (POCKET_DEFAULTS.claude.model && !isOffered(POCKET_DEFAULTS.claude.model)) console.warn(`POCKET_CLAUDE_MODEL=${POCKET_DEFAULTS.claude.model} is not offered (Settings, POCKET_CLAUDE_MODELS or this computer's Claude Code policy); Default uses the CLI's own default`);
 
 // ---------- 1.29: projects ----------
 // The tracked-project board (projects.mjs), off until Settings → Projects & documents turns it on. Agents reach it with the
@@ -377,6 +410,10 @@ if (!['auto', 'claude', 'codex'].includes(settings.titleProvider)) settings.titl
 if (typeof settings.awaySummaries !== 'boolean') settings.awaySummaries = true; // 1.21: "While you were away" summaries
 if (typeof settings.liveTitles !== 'boolean') settings.liveTitles = true; // 1.29.1: titles follow the session
 const TITLE_MODELS = { claude: (process.env.POCKET_TITLE_CLAUDE_MODEL || 'haiku').trim(), codex: (process.env.POCKET_TITLE_CODEX_MODEL || 'gpt-6-luna').trim() };
+// 1.52: a helper call never names a Claude model the managed policy blocks (the CLI would run its default,
+// often the most expensive model, instead); it takes the cheapest offered model the policy allows.
+const helperModels = () => ({ claude: helperModel(TITLE_MODELS.claude, { policy: modelPolicy(), offered: claudeOffer().offered }), codex: TITLE_MODELS.codex });
+const helperLabel = id => CLAUDE_MODELS.find(m => m.id === id)?.label || ({ haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' })[id] || id;
 // Whether each CLI can make titles: installed, signed in, and (Codex) offering the title model. Refreshed at
 // most every 10 minutes, or when Settings opens. null = not known yet; a call is tried and backs off on failure.
 const titleProviders = { checkedAt: 0, checking: null, claude: { available: null, reason: '' }, codex: { available: null, reason: '', label: null }, last: null };
@@ -416,7 +453,7 @@ const titler = createTitler({ getMeta: id => smeta[id], setMeta: setSmeta, log,
   attempt: () => TITLE_VERSION + ':' + titleProvider(),
   generate: text => titleProvider() === 'codex'
     ? generateCodexTitle(codex.CODEX_BIN, text, { model: TITLE_MODELS.codex, env: spawnEnv() })
-    : generateTitle(CLAUDE_BIN, text, { model: TITLE_MODELS.claude, env: spawnEnv() }),
+    : generateTitle(CLAUDE_BIN, text, { model: helperModels().claude, env: spawnEnv() }),
   onTitled: r => { titleProviders.last = { provider: titleProvider(), model: r.model, at: Date.now() }; } });
 // 1.29.1: living titles. After a turn run from Pocket ends, a session that has grown enough since its last check
 // (four owner turns or 8k characters, at least ten minutes apart) is shown to the helper model with its current
@@ -436,11 +473,11 @@ const retitler = createRetitler({ getMeta: id => smeta[id], setMeta: setSmeta, l
     const m = file && await sessionMeta(file, id);
     return m && !m.noise && !automation(m.title).automated ? m.title : null;
   },
-  generate: (digest, current) => retitle({ provider: helperProvider(), claudeBin: CLAUDE_BIN, codexBin: codex.CODEX_BIN, models: TITLE_MODELS, env: spawnEnv() }, digest, current),
+  generate: (digest, current) => retitle({ provider: helperProvider(), claudeBin: CLAUDE_BIN, codexBin: codex.CODEX_BIN, models: helperModels(), env: spawnEnv() }, digest, current),
   onTitled: r => { titleProviders.lastLive = { provider: helperProvider(), model: r.model, at: Date.now(), title: r.title, from: r.from }; },
   gapMs: msSetting('POCKET_LIVE_TITLE_GAP_MS', 10 * 60_000) }); // tests shorten the gap between checks
 function titleSettings() {
-  return { enabled: settings.autoTitles, choice: settings.titleProvider, using: titleProvider(), helper: helperProvider(), awaySummaries: settings.awaySummaries, models: TITLE_MODELS,
+  return { enabled: settings.autoTitles, choice: settings.titleProvider, using: titleProvider(), helper: helperProvider(), awaySummaries: settings.awaySummaries, models: helperModels(), configuredModels: TITLE_MODELS, claudeModelLabel: helperLabel(helperModels().claude),
     live: settings.liveTitles, liveUsing: liveTitlesOn() ? helperProvider() : null, lastLive: titleProviders.lastLive || null,
     claude: titleProviders.claude, codex: titleProviders.codex, last: titleProviders.last, checkedAt: titleProviders.checkedAt };
 }
@@ -1507,7 +1544,9 @@ function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, r
   if (claudeLogin.active) throw Object.assign(new Error('Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.'), {code:409});
   if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   cancelRetry(sessionId); // a manually-started turn supersedes any pending auto-resume
-  ({ model, effort } = withDefaults('claude', { model, effort }));
+  let modelFallback;
+  ({ model, effort, modelFallback } = withDefaults('claude', { model, effort }));
+  if (modelFallback) log(`model fallback session=${sessionId} requested=${modelFallback.requested} reason=${modelFallback.reason} using=${modelFallback.used}`);
   const mode=approvalMode(requestedMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);
   let r = runners.get(sessionId);
   if (r) {
@@ -1523,6 +1562,7 @@ function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, r
   const reused = Boolean(r);
   if (!r) r = spawnRunner({ sessionId, cwd, resume, model, effort, mode });
   const turn = beginTurn(r, { userText: text, retryAttempt });
+  if (modelFallback) { turn.modelFallback = { ...modelFallback, message: fallbackText(modelFallback) }; broadcast(turn, { type: 'note', text: turn.modelFallback.message }); }
   try { r.writer.write(userJSON(promptText(text, attachments))); } catch { }
   log(`turn start session=${sessionId} process=${reused ? 'reused' : 'new'} pid=${r.pid} cwd=${cwd}`);
   return turn;
@@ -1951,7 +1991,7 @@ app.post('/api/session/:id/away', requireAuth, async (req, res) => {
   if (!awayWorthSummary(stats)) return res.json({ summary: null, reason: 'short' });
   const key = `${id}|${since}|${after.at(-1)?.ts}|${provider}`;
   if (awayCache.has(key)) return res.json(awayCache.get(key));
-  if (!awayInFlight.has(key)) awayInFlight.set(key, summarizeAway({ provider, claudeBin: CLAUDE_BIN, codexBin: codex.CODEX_BIN, models: TITLE_MODELS, env: spawnEnv() }, digest)
+  if (!awayInFlight.has(key)) awayInFlight.set(key, summarizeAway({ provider, claudeBin: CLAUDE_BIN, codexBin: codex.CODEX_BIN, models: helperModels(), env: spawnEnv() }, digest)
     .finally(() => awayInFlight.delete(key)));
   const r = await awayInFlight.get(key);
   const body = r ? { summary: r.summary, model: r.model, provider, messages: after.length } : { summary: null, reason: 'failed' };
@@ -2265,8 +2305,8 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
 
   }
   try {
-    startTurn({ sessionId: id, cwd, text, resume: true, ...turnOpts(req.body) });
-    res.status(202).json({ ok: true });
+    const turn = startTurn({ sessionId: id, cwd, text, resume: true, ...turnOpts(req.body) });
+    res.status(202).json({ ok: true, ...(turn.modelFallback ? { modelFallback: turn.modelFallback } : {}) });
   } catch (e) {
     res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) });
   }
@@ -2306,10 +2346,10 @@ app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secre
   }
   const id = randomUUID();
   try {
-    startTurn({ sessionId: id, cwd, text, resume: false, ...turnOpts(req.body) });
+    const turn = startTurn({ sessionId: id, cwd, text, resume: false, ...turnOpts(req.body) });
     if (!req.body?.project) try { promptStore.recordRecent({ text, cwd, provider: 'claude' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
     linkStartedSession(req.body?.project, id);
-    res.status(202).json({ id });
+    res.status(202).json({ id, ...(turn.modelFallback ? { modelFallback: turn.modelFallback } : {}) });
   } catch (e) {
     res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) });
   }
@@ -2381,10 +2421,17 @@ app.post('/api/session/:id/rename', requireAuth, async (req, res) => {
   res.json({ ok: true, name: name || null });
 });
 
+// 1.52: Settings → Agents & instance → Claude models in the picker.
+function claudeModelSettings() {
+  const p = managedPolicy(), offer = claudeOffer();
+  return { ...offer, env: ENV_CLAUDE_MODELS, saved: Array.isArray(settings.offeredClaudeModels),
+    policy: { dir: MANAGED_DIR, files: p.files, limits: Boolean(modelPolicy()), error: p.error },
+    pocketDefault: { configured: POCKET_DEFAULTS.claude.model || null, used: claudePocketModel() || null, label: claudeDefaultLabel() } };
+}
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
 app.get('/api/settings', requireAuth, async (_req, res) => {
   await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings() });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
@@ -2397,6 +2444,17 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.tasks === 'boolean') settings.tasks = req.body.tasks;
   if (req.body?.remindAhead === 0 || req.body?.remindAhead === 24) settings.remindAhead = req.body.remindAhead; // 1.50: the day-before notice
   if (typeof req.body?.notifyEmail === 'string') { const to = req.body.notifyEmail.trim(); if (to && !looksLikeEmail(to)) return res.status(400).json({ error: 'That does not look like an email address.', code: 'bad_email' }); settings.notifyEmail = to; }
+  if (req.body && 'offeredClaudeModels' in req.body) { // 1.52: null = back to POCKET_CLAUDE_MODELS (or every model)
+    const v = req.body.offeredClaudeModels;
+    if (v === null) settings.offeredClaudeModels = null;
+    else {
+      if (!Array.isArray(v) || v.length > 50 || v.some(x => typeof x !== 'string' || !CATALOG_IDS.has(x))) return res.status(400).json({ error: 'Choose models from the list.', code: 'bad_models' });
+      const ids = [...new Set(v)], offer = resolveOffer({ saved: ids, policy: modelPolicy() });
+      if (!offer.offered.length && offer.models.some(m => !m.blocked)) return res.status(400).json({ error: 'Keep at least one model on.', code: 'no_models' });
+      settings.offeredClaudeModels = CLAUDE_MODELS.map(m => m.id).filter(id => ids.includes(id));
+    }
+    log(`claude models offered: ${claudeOffer().offered.join(',') || '(none)'} (${claudeOffer().source})`);
+  }
   let vaultToggled = false, createdVaultKey = '';
   if (typeof req.body?.vault === 'boolean' && req.body.vault !== settings.vault) { // 1.39: on needs the key; a change restarts idle runners so the rules reach them
     if (req.body.vault && !vault) {
@@ -2417,7 +2475,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
   log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
 });
 
 app.post('/api/session/:id/mute', requireAuth, (req, res) => {
@@ -2647,7 +2705,7 @@ app.post('/api/tasks/summary', requireAuth, tasksOn, async (req, res) => {
   } catch { return res.status(502).json({ error: 'Could not read the conversation.' }); }
   const { digest, stats } = awayDigest(msgs);
   if (!stats.assistant) return res.json({ summary: null, reason: 'short' });
-  const r = await summarizeForTask({ provider, claudeBin: CLAUDE_BIN, codexBin: codex.CODEX_BIN, models: TITLE_MODELS, env: spawnEnv() }, digest, String(req.body?.text || ''));
+  const r = await summarizeForTask({ provider, claudeBin: CLAUDE_BIN, codexBin: codex.CODEX_BIN, models: helperModels(), env: spawnEnv() }, digest, String(req.body?.text || ''));
   if (r) log(`task summary session=${id} provider=${provider} model=${r.model}`);
   res.json(r ? { summary: r.summary, model: r.model, provider } : { summary: null, reason: 'failed' });
 });
@@ -3047,12 +3105,13 @@ app.get('/api/health', (_req, res) => res.json({
 }));
 
 // model picker options — Claude's from CLAUDE_MODELS, Codex's straight from its app-server
-app.get('/api/claude/models', requireAuth, (_req, res) => res.json({
-  models: CLAUDE_MODELS.map(({ id, label, sub }) => ({ id, label, sub })),
+app.get('/api/claude/models', requireAuth, (_req, res) => { const offer = claudeOffer(); res.json({
+  models: offer.models.filter(m => m.offered).map(({ id, label, sub }) => ({ id, label, sub })),
   defaultLabel: claudeDefaultLabel(),
   defaultEffort: POCKET_DEFAULTS.claude.effort || null,
-  pocketDefault: Boolean(POCKET_DEFAULTS.claude.model || POCKET_DEFAULTS.claude.effort),
-}));
+  pocketDefault: Boolean(claudePocketModel() || POCKET_DEFAULTS.claude.effort),
+  limited: offer.offered.length < CLAUDE_MODELS.length,
+}); });
 app.get('/api/codex/models', requireAuth, async (_req, res) => {
   const { model, effort } = POCKET_DEFAULTS.codex;
   const defaults = { defaultModel: model || null, defaultEffort: effort || null, pocketDefault: Boolean(model || effort) };
@@ -3062,7 +3121,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Accounts & instance shows active Claude turns and a confirmed Stop all Claude turns control. It stops turns waiting on approvals too, so the shared Claude account can be switched without opening each session. Saved conversations and Codex turns remain."];
+const RELEASE_NOTES = ["Settings → Agents & instance chooses which Claude models the picker offers, and POCKET_CLAUDE_MODELS sets the list at install. Models blocked by this computer's Claude Code policy are marked there and never offered; a turn sent with one runs on the default model and says so. Sonnet 5.5 and Haiku 5.5 join the list."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

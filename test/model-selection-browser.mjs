@@ -88,6 +88,13 @@ export async function runModelSelectionRegressions({browser, base, rows, out, re
    assert.equal(await page.evaluate(() => tb.prefs.model), 'default', 'repair an already affected session');
    assert.equal(await page.evaluate(() => turnOpts().model), undefined);
   }
+  // 1.52: a Claude model the picker does not offer is never sent; the session goes back to Default.
+  await page.evaluate(() => { tb.prefs.model = 'custom-model-not-in-menu'; renderToolbar(); });
+  assert.equal(await page.$eval('#c-model', element => element.textContent), 'Test agent');
+  assert.equal(await page.evaluate(() => turnOpts().model), undefined);
+  // Codex models come from Codex itself, so an id the menu does not list is still passed through.
+  await page.goto(base + '/#/chat/' + codexId);
+  await page.waitForFunction(id => tb?.key === id && document.querySelector('#box'), {}, codexId);
   await page.evaluate(() => { tb.prefs.model = 'custom-model-not-in-menu'; renderToolbar(); });
   assert.equal(await page.$eval('#c-model', element => element.textContent), 'custom-model-not-in-menu');
   assert.equal(await page.evaluate(() => turnOpts().model), 'custom-model-not-in-menu');

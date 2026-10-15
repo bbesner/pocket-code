@@ -8,6 +8,21 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Claude models in the picker (1.52)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5;
+existing tokens, no new colour. Read: a checklist for the whole install, explained where it
+says no. **Settings → Agents & instance** gains a *Claude models in the picker* block under
+Plan usage: the Vault's uppercase set head, then the catalog as the notification kinds' option
+rows (15.5px, 10px padding, the clay dot for on), a `.title-note` status line saying where the
+list comes from, and a *Use the server's list* chip once a choice is saved. A model this
+computer's Claude Code policy blocks keeps its row: dashed ring, `--dim` label, the reason in
+place of its description, `aria-disabled` so it stays focusable and explains itself in a toast.
+The rows are drawn from the client's catalog before `/api/settings` answers, so the centered
+desktop dialog does not grow under the pointer; the dashed ring is reserved for blocked rows,
+not loading. Rendered checks at 1440 and 390: axe clean; the detector reports only the existing
+sheet shadow and system font.
+
 ## Claude account switch control (1.51)
 
 Pinned Operate refinement: variance 3, motion 1, density 5. The Claude Code account row

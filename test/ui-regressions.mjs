@@ -1218,6 +1218,57 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await clickControl(page,'[data-tasks-home]');await page.waitForSelector('.task-item');await scan('tasks-list-mobile');await page.screenshot({path:path.join(out,'tasks-list-mobile.png')});
    await page.setViewport({width:1440,height:900});settings.tasks=false;settings.projects=false;settings.documents=false; // as the Projects check expects
   });
+  await check('Offered models (1.52): Settings → Agents & instance lists the catalog, a policy-blocked model is marked and cannot be turned on, a change saves and narrows the picker, the last model stays on, the server list comes back, at 1440 and 390',async()=>{
+   const settings=settingsState();delete settings.offeredClaudeModels;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+   const rows=()=>page.$$eval('#s-models-list .opt',bs=>bs.map(b=>({id:b.dataset.offerModel,on:b.getAttribute('aria-pressed'),blocked:b.getAttribute('aria-disabled')==='true',sub:b.querySelector('.sub').textContent})));
+   const open=async()=>{await page.evaluate(()=>settingsSheet({category:'agents'}));assert.equal(await page.$$eval('#s-models-list .opt',e=>e.length),6,'the rows are drawn before the server answers');await page.waitForFunction(()=>!document.querySelector('#s-models-list').hasAttribute('aria-busy'));};
+   for(const width of [1440,390]){
+    await page.setViewport({width,height:900});await page.goto(base+'/#/');await page.waitForSelector('.rail,.list,main');
+    await open();
+    assert.equal(await page.$eval('.settings-sheet h2',e=>e.textContent),'Agents & instance');
+    let r=await rows();
+    assert.deepEqual(r.map(x=>x.id),['claude-fable-5-1[1m]','claude-opus-5-5[1m]','claude-sonnet-5-5','claude-sonnet-5','claude-haiku-5-5','claude-haiku-4-5']);
+    assert.deepEqual(r.map(x=>[x.on,x.blocked]),[['false',true],['true',false],['true',false],['true',false],['true',false],['true',false]]);
+    assert.equal(r[0].sub,"Blocked by this computer's Claude Code policy");
+    assert.match(await page.$eval('#s-models-note',e=>e.textContent),/The picker offers every model\. .*policy blocks one, so it is never offered/);
+    assert.equal(await page.$eval('#s-models-reset',e=>e.hidden),true);
+    // The blocked row explains itself and changes nothing.
+    await clickControl(page,'[data-offer-model="claude-fable-5-1[1m]"]');
+    await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes("Fable 5.1: Blocked by this computer's Claude Code policy"));
+    assert.equal(settings.offeredClaudeModels,undefined);
+    // Turn Haiku 4.5 off: saved for the instance, the row and note follow, the picker narrows.
+    await clickControl(page,'[data-offer-model="claude-haiku-4-5"]');
+    for(let i=0;i<30&&!Array.isArray(settings.offeredClaudeModels);i++)await sleep(100);
+    assert.deepEqual(settings.offeredClaudeModels,['claude-fable-5-1[1m]','claude-opus-5-5[1m]','claude-sonnet-5-5','claude-sonnet-5','claude-haiku-5-5'],'a blocked model keeps its place in the choice, for when the policy allows it');
+    await page.waitForFunction(()=>document.querySelector('[data-offer-model="claude-haiku-4-5"]')?.getAttribute('aria-pressed')==='false');
+    assert.match(await page.$eval('#s-models-note',e=>e.textContent),/Chosen here: the picker offers 4 of 6 models\./);
+    assert.equal(await page.$eval('#s-models-reset',e=>e.hidden),false);
+    await page.waitForFunction(()=>claudeModelsLoaded&&!MODELS.some(m=>m[0]==='claude-haiku-4-5'));
+    assert.deepEqual(await page.evaluate(()=>MODELS.map(m=>m[0])),['default','claude-opus-5-5[1m]','claude-sonnet-5-5','claude-sonnet-5','claude-haiku-5-5']);
+    await scan('settings-models-'+width);await page.screenshot({path:path.join(out,'settings-models-'+width+'.png')});
+    // Use the server's list: every allowed model again.
+    await clickControl(page,'#s-models-reset');for(let i=0;i<30&&settings.offeredClaudeModels!==null;i++)await sleep(100);
+    assert.equal(settings.offeredClaudeModels,null);
+    await page.waitForFunction(()=>document.querySelector('[data-offer-model="claude-haiku-4-5"]')?.getAttribute('aria-pressed')==='true'&&document.querySelector('#s-models-reset').hidden);
+    await page.keyboard.press('Escape');
+    // The last offered model stays on.
+    settings.offeredClaudeModels=['claude-sonnet-5'];await open();
+    r=await rows();assert.deepEqual(r.filter(x=>x.on==='true').map(x=>x.id),['claude-sonnet-5']);
+    await clickControl(page,'[data-offer-model="claude-sonnet-5"]');
+    await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('Keep at least one model on'));
+    assert.deepEqual(settings.offeredClaudeModels,['claude-sonnet-5']);
+    await page.keyboard.press('Escape');delete settings.offeredClaudeModels;
+   }
+   // A picked model the picker no longer offers goes back to Default instead of being sent.
+   settings.offeredClaudeModels=['claude-sonnet-5-5'];
+   await page.goto(base+'/#/');await page.evaluate(()=>{localStorage.setItem('pc-provider','claude');localStorage.setItem('pc-prefs-'+NEW_KEY,JSON.stringify({model:'claude-opus-5-5[1m]',effort:'default'}));});
+   await page.goto(base+'/#/new');await page.reload();await page.waitForSelector('#first'); // a fresh load fetches the narrowed list
+   await page.waitForFunction(()=>claudeModelsLoaded&&tb&&tb.prefs.model==='default');
+   assert.deepEqual(await page.evaluate(()=>MODELS.map(m=>m[0])),['default','claude-sonnet-5-5']);
+   assert.equal(await page.evaluate(()=>turnOpts().model),undefined);
+   delete settings.offeredClaudeModels;await page.evaluate(()=>{localStorage.removeItem('pc-prefs-'+NEW_KEY);localStorage.removeItem('pc-provider');claudeModelsLoaded=false;});
+   await page.setViewport({width:1440,height:900});
+  });
   await check('Vault (1.39): Settings turns it on, the rail and list, Always allow, Show and the sheet, the editor and a stale save, Remove and Restore, Store in the Vault from the composer, and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));const SECRET='zk-fixture-secret-7731';
    const settings=settingsState();settings.vault=false;settings.vaultReady=true;

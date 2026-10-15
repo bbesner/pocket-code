@@ -25,10 +25,11 @@ Model and reasoning selectors affect subsequent turns. Codex also offers **Plan 
 and **Work normally**; Plan first is guidance, not a security sandbox.
 
 Switching agents resets an incompatible model choice to Default. Opening an existing
-session also repairs a saved choice from the other agent. Valid choices stay saved;
-the model button shows an unrecognized model by its ID instead of labelling it as
-the default. Older tabs that send a model for the wrong agent receive a message to
-choose a model and send again; Pocket does not start or queue that request.
+session also repairs a saved choice from the other agent. Valid choices stay saved.
+A Claude choice the picker no longer offers (see **Claude models in the picker** below)
+goes back to Default; a Codex model the menu does not list is shown by its ID and still
+sent, since Codex reports its own models. Older tabs that send a model for the wrong agent
+receive a message to choose a model and send again; Pocket does not start or queue that request.
 
 The session list distinguishes confirmed Pocket-owned runs from activity seen in an
 external transcript. Search matches recent session titles and workspace paths.
@@ -52,7 +53,7 @@ of this session*:
 | Choice | Uses | Cost per title |
 |---|---|---|
 | Automatic: Claude first, then Codex | Claude when its CLI is installed and signed in, otherwise Codex | as below |
-| Claude · Haiku | `claude -p --model haiku`, no tools, no saved session | about 400 tokens |
+| Claude · Haiku | `claude -p --model haiku`, no tools, no saved session (another allowed model when this computer's Claude Code policy blocks Haiku) | about 400 tokens |
 | Codex · GPT-6-Luna | `codex exec --ephemeral`, read-only, low effort | about 25k tokens (Codex's built-in instructions) |
 
 Calls run on that CLI's own sign-in: your Claude or ChatGPT subscription, or an API key
@@ -626,6 +627,43 @@ requests. Feedback links open GitHub forms with the app version and build filled
 Version lookup failures offer a retry instead of claiming the app is current. Frontend
 and server build numbers can differ until the daemon restarts during an upgrade.
 
+### Claude models in the picker
+
+**Settings → Agents & instance → Claude models in the picker** lists every Claude model Pocket
+knows (Fable 5.1, Opus 5.5, Sonnet 5.5, Sonnet 5, Haiku 5.5, Haiku 4.5). Tap a row to offer or stop
+offering it in the model menu of every device; at least one stays on. The choice is kept for the
+whole install in `pocket-settings.json`, outside the checkout, so an update leaves it alone.
+**Use the server's list** forgets it.
+
+Which list applies, highest first:
+
+1. The list chosen in Settings, once one has been saved.
+2. `POCKET_CLAUDE_MODELS` in `.env`, for provisioning: comma-separated catalog ids, e.g.
+   `POCKET_CLAUDE_MODELS=claude-sonnet-5-5,claude-opus-5-5[1m]`. An id without `[1m]` and a family
+   alias (`sonnet`, `haiku`, …) work too; an unknown id is logged and ignored.
+3. Every model, when neither is set. Existing installs see no change.
+
+**This computer's Claude Code policy always applies on top.** When Claude Code's managed settings
+(`/etc/claude-code/managed-settings.json` and `managed-settings.d/*.json` on Linux and WSL,
+`/Library/Application Support/ClaudeCode/` on macOS) set `availableModels` or `deniedModels`,
+Pocket never offers a model the CLI would block, whichever list is chosen. Such a model keeps its
+row in Settings, marked *Blocked by this computer's Claude Code policy*, and cannot be turned on.
+Pocket reads the files the way Claude Code does: drop-ins merge after the base file in name order;
+family aliases cover the family; a version id without a minor version (`claude-opus-5`) covers later
+minors unless `availableModelsMatch` is `exact`; a specific version in `availableModels` turns off
+its family's alias; `deniedModels` wins; `[1m]`, dated and provider-prefixed spellings are the same
+model. A change to the files shows within a few seconds, without a restart. Policy delivered by an
+MDM profile or from the claude.ai admin console is not visible to Pocket; the CLI still enforces it.
+
+Pocket enforces the list on the server too. A turn sent with a model the picker does not offer (an
+older tab, a saved prompt, a queued message) is not passed to the CLI: it runs on Default and the
+conversation and a toast say so, e.g. *Opus 5.5 is blocked by this computer's Claude Code policy, so
+this turn uses the default model (Sonnet 5.5).* Default is `POCKET_CLAUDE_MODEL` when that model is
+offered, otherwise the CLI's own default (a managed `model`, then `~/.claude/settings.json`, then
+the account's). Titles, summaries and task briefings use `POCKET_TITLE_CLAUDE_MODEL` (default
+`haiku`); when the policy blocks it, they use the cheapest offered model the policy allows instead
+of letting the CLI fall back to its default.
+
 Accounts & instance shows provider identity and plan metadata. Under Claude Code,
 choose **Switch account** (or **Sign in**), then **Get sign-in link**. Open the link,
 select the account you want in Claude’s browser page, and authorize Claude Code.
@@ -762,7 +800,7 @@ explains that it is blocked and you can open Pocket Code directly.
 |---|---|
 | Open tabs, split arrangement, hidden sessions, filters | Conversation transcripts and native Codex store |
 | Drafts, reading position, attachment references, retry state | Uploaded files and delivery receipts |
-| Colour mode, text size, highlight colour, collapse preferences (header, composer, rail filters, tool calls), message times, dismissed reply suggestions | Pins and their order, names, per-session mutes, and the settings Pocket keeps for the whole install (name sync, titles and summaries, Projects, Files, Tasks and the Vault on or off, Agent access) |
+| Colour mode, text size, highlight colour, collapse preferences (header, composer, rail filters, tool calls), message times, dismissed reply suggestions | Pins and their order, names, per-session mutes, and the settings Pocket keeps for the whole install (name sync, titles and summaries, the Claude models in the picker, Projects, Files, Tasks and the Vault on or off, Agent access) |
 | Per-session composer choices and chime preference | Follow-up queue, approval audit, usage snapshots, runner state, pending usage-limit resumes |
 | How projects and files open, the Files button, the library's list or grid layout, the rail's Sessions / Projects / Files / Tasks choice | Projects (`projects.json`), the file library and its records (`documents.json`), tasks (`tasks.json`), saved prompts (`saved-prompts.json`) and the Vault (`vault.enc`, encrypted, with its audit log `vault-audit.jsonl`), the same on every device |
 | Voice preferences, voice mute and vocabulary | Voice engine install (`POCKET_VOICE_HOME`); no recordings are kept |
