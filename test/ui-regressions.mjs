@@ -1171,6 +1171,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('[data-tasks-badge]',e=>e.textContent),'1','the due task is done: the due reminder is what remains');
    // From a session: the Add task chip, the editor naming the session, the briefing on by default and kept with the task.
    await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#task-open')?.hidden===false);
+   // 1.50: the rail switch shows the due count on every view, here a conversation with the rail on Sessions (reported by Brad).
+   await page.waitForFunction(()=>document.querySelector('[data-rail-view="sessions"]')?.getAttribute('aria-pressed')==='true'&&document.querySelector('[data-tasks-badge]')?.textContent==='1');
+   assert.equal(await page.$eval('[data-tasks-badge]',e=>e.hidden),false,'the Tasks count shows without opening the Tasks list');
    assert.equal(await page.$eval('#task-open',e=>e.textContent),'Add task');assert.equal(await page.$eval('#task-open',e=>Boolean(e.closest('#tbar'))),true,'Add task is a chip in the message toolbar');
    await clickControl(page,'#task-open');await page.waitForSelector('.task-form');
    assert.equal(await page.$eval('.sheet .sheet-name',e=>e.textContent),rows[4].title);assert.equal(await page.$eval('[data-summarize]',e=>e.getAttribute('aria-pressed')),'true','the briefing is on by default from a session');

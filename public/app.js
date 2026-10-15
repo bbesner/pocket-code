@@ -1937,6 +1937,7 @@ function wireShell() {
   bindWorkspaceDensity();
   if (PANE || SOLO || !railOpen()) return;
   paintRail();
+  paintRailBadges();
   document.querySelectorAll('[data-rail-view]').forEach(b => b.onclick = () => {
     // 1.35: Settings → Files button can open the library straight away instead of listing files here.
     if (b.dataset.railView === 'documents' && filesButtonOpens() !== 'rail') return openLibrary(filesButtonOpens());
@@ -1959,6 +1960,14 @@ function wireShell() {
   };
 }
 let railCache = { at: 0, sessions: [] };
+// 1.50: the counts on the rail switch (due tasks and reminders, Vault requests) show on every view, not only after a
+// segment has been opened: paint from what is cached at once, then from a fresh list. Reported by Brad.
+function paintRailBadges() {
+  if (!document.querySelector('.rail-switch')) return;
+  if (projectsOn()) { if (boardSnap) paintProjectBadges(); loadBoard().then(paintProjectBadges).catch(() => { }); }
+  if (tasksOn()) { if (tasksSnap) paintTaskBadges(); loadTasks().then(paintTaskBadges).catch(() => { }); }
+  if (vaultOn()) { if (typeof vaultSnap !== 'undefined' && vaultSnap) paintVaultBadges(); loadVault().then(paintVaultBadges).catch(() => { }); }
+}
 async function paintRail() {
   const el = $('#rail'); if (!el) return;
   const ft = $('#rail-filter-toggle'); if (ft) ft.hidden = railView() !== 'sessions';

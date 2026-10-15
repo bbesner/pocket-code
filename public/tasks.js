@@ -215,11 +215,15 @@ function railTasksHTML(){
   ${rows.length?rows.slice(0,40).join(''):'<p class="sheet-help">Nothing to do. Add a task, or ask an agent to create one.</p>'}
   ${done?`<a class="rail-done-link" href="${viewHref('tasks')}" data-view-link>${done} done</a>`:''}</div>`;
 }
+let railTasksPainted='';
 function paintRailTasks(){
  const el=document.getElementById('rail');if(!el||railView()!=='tasks')return;
- el.innerHTML=railTasksHTML();
- el.querySelector('#rail-task-add')?.addEventListener('click',()=>taskEditor(null));
- bindTaskRows(el);
+ const html=railTasksHTML();
+ if(html!==railTasksPainted||!el.querySelector('.rail-tasks')){ // 1.50: a refresh that changes nothing leaves the rows alone
+  railTasksPainted=html;el.innerHTML=html;
+  el.querySelector('#rail-task-add')?.addEventListener('click',()=>taskEditor(null));
+  bindTaskRows(el);
+ }
  if(!tasksSnap||Date.now()-tasksAt>4000)loadTasks(true).then(()=>{paintRailTasks();paintTaskBadges();}).catch(()=>{const r=document.getElementById('rail');if(!tasksSnap&&r&&railView()==='tasks')r.innerHTML='<p class="sheet-help">Tasks could not load.</p>';});else paintTaskBadges();
 }
 function paintTaskBadges(){
@@ -231,5 +235,5 @@ function paintTaskBadges(){
 }
 const dueWords=n=>n===1?'One item is due':n+' items are due';
 const taskTabState=()=>{const due=dueTotal();return due?{kind:'due',label:dueReminders().length?dueWords(due):due===1?'A task is due':due+' tasks are due'}:null;};
-function tasksTick(){if(!tasksOn()||document.visibilityState!=='visible'||!(taskView||railView()==='tasks'||document.querySelector('[data-tasks-home]')))return;loadTasks(true).then(()=>{paintTasksView();paintRailTasks();paintTaskBadges();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
+function tasksTick(){if(!tasksOn()||document.visibilityState!=='visible'||!(taskView||railView()==='tasks'||document.querySelector('[data-tasks-home],[data-tasks-badge]')))return;loadTasks(true).then(()=>{paintTasksView();paintRailTasks();paintTaskBadges();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
 setInterval(tasksTick,30000);onListsStale(tasksTick);

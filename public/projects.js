@@ -349,12 +349,16 @@ function railProjectsHTML(){
   ${rows.length?rows.map(projectRowHTML).join(''):'<p class="sheet-help">No active projects. Track one to keep a card for it.</p>'}
   ${boardSnap.projects.some(p=>p.status==='done')?`<a class="rail-done-link" href="${viewHref('projects')}" data-view-link>${boardSnap.projects.filter(p=>p.status==='done').length} finished</a>`:''}</div>`;
 }
+let railProjectsPainted='';
 function paintRailProjects(){
  const el=document.getElementById('rail');if(!el||railView()!=='projects')return;
- el.innerHTML=railProjectsHTML();
- el.querySelector('#rail-track')?.addEventListener('click',()=>projectEditor(null));
- el.querySelectorAll('[data-project-more]').forEach(b=>b.onclick=()=>projectOptions(b.dataset.projectMore));
- el.querySelectorAll('a[data-project]').forEach(a=>a.onclick=e=>{const id='projects/'+a.dataset.project;openViewPreferred(id,'pc-projects-open',e,Boolean(chatId)&&boardView!==id);});
+ const html=railProjectsHTML();
+ if(html!==railProjectsPainted||!el.querySelector('.rail-projects')){ // 1.50: a refresh that changes nothing leaves the rows (and a tap on one) alone
+  railProjectsPainted=html;el.innerHTML=html;
+  el.querySelector('#rail-track')?.addEventListener('click',()=>projectEditor(null));
+  el.querySelectorAll('[data-project-more]').forEach(b=>b.onclick=()=>projectOptions(b.dataset.projectMore));
+  el.querySelectorAll('a[data-project]').forEach(a=>a.onclick=e=>{const id='projects/'+a.dataset.project;openViewPreferred(id,'pc-projects-open',e,Boolean(chatId)&&boardView!==id);});
+ }
  if(!boardSnap||Date.now()-boardAt>4000)loadBoard(true).then(()=>{paintRailProjects();paintProjectBadges();}).catch(()=>{const r=document.getElementById('rail');if(!boardSnap&&r&&railView()==='projects')r.innerHTML='<p class="sheet-help">Projects could not load.</p>';});else paintProjectBadges();
 }
 function paintProjectBadges(){
@@ -365,5 +369,5 @@ function paintProjectBadges(){
  if(typeof paintTaskBadges==='function'&&dueListView()==='tasks')paintTaskBadges();else if(typeof paintAppBadge==='function')paintAppBadge();
 }
 // Keep the due counts and an open view fresh without a reload; the list poll is cheap and private.
-function projectsTick(){if(!projectsOn()||document.visibilityState!=='visible'||!(boardView||railView()==='projects'||document.querySelector('[data-projects-home]')||(typeof taskView!=='undefined'&&taskView)||railView()==='tasks'))return;loadBoard(true).then(()=>{paintProjectsView();paintRailProjects();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
+function projectsTick(){if(!projectsOn()||document.visibilityState!=='visible'||!(boardView||railView()==='projects'||document.querySelector('[data-projects-home],[data-projects-badge]')||(typeof taskView!=='undefined'&&taskView)||railView()==='tasks'))return;loadBoard(true).then(()=>{paintProjectsView();paintRailProjects();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
 setInterval(projectsTick,30000);onListsStale(projectsTick);
