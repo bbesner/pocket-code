@@ -34,7 +34,9 @@ const voiceLog={transcribe:[],speak:[]};const pinOrders=[];
 const pinKey=s=>s.pinned?(Number.isFinite(s.pinOrder)?s.pinOrder:1e9):1e10; // the live server lists pins first, in their chosen order
 // 0.2 s of silence at 24 kHz: a valid reply for the speak fixture.
 const silentWav=(()=>{const n=4800,b=Buffer.alloc(44+n*2);b.write('RIFF',0);b.writeUInt32LE(36+n*2,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(24000,24);b.writeUInt32LE(48000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);return b;})();
-let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultCanCreateKey:false,vaultNeedsKey:false,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',secretGuard:true};
+let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultCanCreateKey:false,vaultNeedsKey:false,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',secretGuard:true,remindAhead:0,notifyEmail:''};
+// 1.50: the fixture server has mail set up (so Settings shows the address field) and records test messages.
+const fixtureEmail=()=>({configured:true,from:'pocket@example.test',to:fixtureSettings.notifyEmail||'',on:Boolean(fixtureSettings.notifyEmail),hook:false,error:null,base:'http://localhost'});
 // 1.42: like the server, a message that looks like it carries a secret is refused (422) before any receipt, unless allowSecrets.
 const secretRefusal=body=>{if(fixtureSettings.secretGuard===false||body.allowSecrets===true)return null;const hits=globalThis.PocketSecrets.scan(String(body.text||''),{mode:'message'});return hits.length?{error:'This message looks like it contains a secret, so it was not sent.',code:'secret_detected',matches:hits.map(({kind,label,name,vaultKind,start,end})=>({kind,label,name,vaultKind,start,end}))}:null;};
 // 1.40: the passphrase the fixture checks (never sent back on /api/settings), and the last import's decoded file.
@@ -149,9 +151,11 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/claude/models')return json({models:[{id:'test',label:'Test agent'},{id:'claude-opus-5-5[1m]',label:'Opus 5.5'}],defaultLabel:'Test agent'});
  if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'},...Array.from({length:8},(_,index)=>({id:'gpt-fixture-'+index,label:'Fixture '+index})),{id:'gpt-6-sol',label:'GPT-6 Sol'},{id:'gpt-6-astra',label:'GPT-6 Astra'}],defaultModel:'gpt-6-sol',pocketDefault:true});
  if(url.pathname==='/api/push/key')return json({});
+ if(url.pathname==='/api/push/prefs')return json({error:'This device is not subscribed.',code:'not_subscribed'},404); // push is off in the fixture
+ if(url.pathname==='/api/notify/test-email'){if(!fixtureSettings.notifyEmail)return json({error:'Save an email address first.',code:'no_address'},400);(uiModes.mailLog??=[]).push({to:fixtureSettings.notifyEmail,subject:'[Pocket Code] Test: reminders will arrive like this'});return json({ok:true,to:fixtureSettings.notifyEmail});}
  if(url.pathname.startsWith('/api/tasks')){ // 1.36
   if(!fixtureSettings.tasks)return json({error:'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'tasks_off'},404);
-  if(url.pathname==='/api/tasks')return json({...taskStore.snapshot(),push:{enabled:false},hook:false});
+  if(url.pathname==='/api/tasks')return json({...taskStore.snapshot(),push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail)});
   if(url.pathname==='/api/tasks/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,task:taskStore.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.task?{task:e.task}:{})},e.status||400);}}
   if(url.pathname==='/api/tasks/summary'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');await new Promise(r=>setTimeout(r,uiModes.slowSummary?1500:50));return json(uiModes.noSummary?{summary:null,reason:'unavailable'}:{summary:'Reviewing the warehouse stock report for '+(rows.find(r=>r.id===b.session)?.title||'a session')+'.\nAisle 4 is still 14 units short after the recount.\nThe reorder list is drafted and waiting for a decision.',model:'haiku',provider:'claude'});}
   if(url.pathname==='/api/tasks/reset'){seedTasks();return json({ok:true});}
@@ -187,7 +191,7 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname.startsWith('/api/board')){
   if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'projects_off'},404);
-  if(url.pathname==='/api/board')return json({...board.snapshot({dir:url.searchParams.get('dir')||''}),push:{enabled:false},hook:false});
+  if(url.pathname==='/api/board')return json({...board.snapshot({dir:url.searchParams.get('dir')||''}),push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail)});
   if(url.pathname==='/api/board/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,project:board.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.project?{project:e.project}:{})},e.status||400);}}
   if(url.pathname==='/api/board/reset'){seedBoard();return json({ok:true});}
  }
@@ -216,7 +220,8 @@ const server=http.createServer(async(req,res)=>{
   // 1.44: switching on with no key makes one and answers with it once; a Vault whose key is missing must be restored.
   if(b.vault===true&&!fixtureSettings.vault&&fixtureSettings.vaultNeedsKey)return json({error:"This Vault's key is missing on this server. Restore it from your recovery key.",code:'vault_needs_key'},409);
   if(b.vault===true&&!fixtureSettings.vault&&fixtureSettings.vaultCanCreateKey){Object.assign(fixtureSettings,{vaultCanCreateKey:false,vaultReady:true});extra={recoveryKey:vaultFixture.key};}
-  Object.assign(fixtureSettings,b);}return json({...fixtureSettings,titles:fixtureTitles(),...extra});}
+  if(typeof b.notifyEmail==='string'&&b.notifyEmail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.notifyEmail))return json({error:'That does not look like an email address.',code:'bad_email'},400);
+  Object.assign(fixtureSettings,b);}return json({...fixtureSettings,titles:fixtureTitles(),email:fixtureEmail(),...extra});}
  if(url.pathname==='/api/about')return uiModes.aboutFailed?json({error:'Version unavailable'},503):json({...JSON.parse(fs.readFileSync(path.join(repo,'public/release.json'),'utf8')),cli:'test',host:'preview'});
  if(url.pathname==='/api/environment')return json({host:'test-instance',checkedAt:Date.now(),providers:[{provider:'claude',email:'owner@example.test',plan:'max',method:'claude.ai',signedIn:true},{provider:'codex',email:'coder@example.test',plan:'pro',method:'chatgpt',signedIn:true}],accountManagement:'Sign-ins follow this instance.',permissions:'Unattended server permissions',capabilities:{claudeLogin:true}});
  if(url.pathname==='/api/claude/login')return uiModes.loginOffline?json({error:'Offline'},503):json(loginState);

@@ -47,7 +47,7 @@ export class TaskStore {
   normalize(t) {
     return { ...t, dueAt: t.dueAt && !Number.isNaN(Date.parse(t.dueAt)) ? t.dueAt : null, done: Boolean(t.done), doneAt: t.done ? t.doneAt || t.updated : null,
       session: SESSION_RE.test(t.session || '') ? t.session : null, sessionTitle: str(t.sessionTitle, LIMITS.title), directory: t.directory || '', summary: str(t.summary, LIMITS.summary),
-      notifiedAt: t.notifiedAt || null, revision: Number.isInteger(t.revision) && t.revision > 0 ? t.revision : 1 };
+      notifiedAt: t.notifiedAt || null, aheadNotifiedAt: t.aheadNotifiedAt || null, dueSetAt: t.dueSetAt || t.created || null, revision: Number.isInteger(t.revision) && t.revision > 0 ? t.revision : 1 };
   }
   save() { this.write(this.file, { version: 1, tasks: this.tasks }); }
   get(id) { const t = this.tasks.find(x => x.id === id); if (!t) throw fail('That task does not exist.', 404); return t; }
@@ -73,7 +73,7 @@ export class TaskStore {
       if (this.tasks.length >= LIMITS.tasks) throw fail(`You can keep up to ${LIMITS.tasks} tasks. Remove some finished ones first.`, 409);
       const t = { id: shortId(), text, dueAt: input.dueAt ? parseWhen(input.dueAt) : null, done: false, doneAt: null,
         session: input.session ? checkSession(input.session) : null, sessionTitle: str(input.sessionTitle, LIMITS.title), directory: checkDirectory(str(input.directory, 1024)),
-        summary: str(input.summary, LIMITS.summary), by: actor, created: at, updated: at, notifiedAt: null, revision: 1 };
+        summary: str(input.summary, LIMITS.summary), by: actor, created: at, updated: at, notifiedAt: null, aheadNotifiedAt: null, dueSetAt: at, revision: 1 };
       this.tasks.push(t); this.save();
       return this.view(t);
     }
@@ -82,7 +82,7 @@ export class TaskStore {
     if (action === 'remove') { this.tasks = this.tasks.filter(x => x !== t); this.save(); return { ...this.view(t), removed: true }; }
     let changed = false;
     if ('text' in input) { const text = str(input.text, LIMITS.text).replace(/\s+/g, ' '); if (!text) throw fail('The task needs some text.'); t.text = text; changed = true; }
-    if ('dueAt' in input) { const dueAt = input.dueAt ? parseWhen(input.dueAt) : null; if (dueAt !== t.dueAt) { t.dueAt = dueAt; t.notifiedAt = null; } changed = true; } // a new time is announced again
+    if ('dueAt' in input) { const dueAt = input.dueAt ? parseWhen(input.dueAt) : null; if (dueAt !== t.dueAt) { t.dueAt = dueAt; t.notifiedAt = null; t.aheadNotifiedAt = null; t.dueSetAt = at; } changed = true; } // a new time is announced again
     if ('summary' in input) { t.summary = str(input.summary, LIMITS.summary); changed = true; }
     if ('session' in input) { t.session = input.session ? checkSession(input.session) : null; t.sessionTitle = str(input.sessionTitle, LIMITS.title); changed = true; }
     if ('directory' in input) { t.directory = checkDirectory(str(input.directory, 1024)); changed = true; }
@@ -97,4 +97,11 @@ export class TaskStore {
     return this.tasks.filter(t => !t.done && t.dueAt && !t.notifiedAt && Date.parse(t.dueAt) <= now).map(t => ({ task: t.id, text: t.text, dueAt: t.dueAt, session: t.session }));
   }
   markNotified(id, now = this.now()) { const t = this.get(id); t.notifiedAt = iso(now); this.save(); }
+  // 1.50: the day-before notice. Dated tasks within `aheadMs` of their time, not yet due, not yet given the notice.
+  // A task whose time was set less than `aheadMs` ahead gets no notice: the due announcement is enough.
+  dueAhead(aheadMs, now = this.now()) {
+    return this.tasks.filter(t => !t.done && t.dueAt && !t.aheadNotifiedAt && Date.parse(t.dueAt) > now && Date.parse(t.dueAt) - aheadMs <= now && Date.parse(t.dueSetAt || t.created) <= Date.parse(t.dueAt) - aheadMs)
+      .map(t => ({ task: t.id, text: t.text, dueAt: t.dueAt, session: t.session }));
+  }
+  markAheadNotified(id, now = this.now()) { const t = this.get(id); t.aheadNotifiedAt = iso(now); this.save(); }
 }

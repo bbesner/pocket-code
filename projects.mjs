@@ -76,7 +76,7 @@ export class ProjectStore {
       enrollment: p.enrollment === 'suggested' ? 'suggested' : 'requested',
       sessions: arr(p.sessions, LIMITS.sessions).filter(s => SESSION_RE.test(s)),
       tasks: arr(p.tasks, LIMITS.tasks).filter(t => t && t.id && typeof t.text === 'string'),
-      reminders: arr(p.reminders, LIMITS.reminders).filter(r => r && r.id && r.dueAt),
+      reminders: arr(p.reminders, LIMITS.reminders).filter(r => r && r.id && r.dueAt).map(r => ({ ...r, aheadNotifiedAt: r.aheadNotifiedAt || null })),
       history: arr(p.history, LIMITS.history) };
   }
   save() { this.write(this.file, { version: 1, projects: this.projects }); }
@@ -165,7 +165,7 @@ export class ProjectStore {
         const label = str(input.text, LIMITS.text) || (task ? p.tasks.find(x => x.id === task).text : `Revisit ${p.name}`);
         // One open reminder per project or per step: a new one replaces it (that is how "Remind later" works).
         for (const r of p.reminders) if (r.state === 'open' && (r.task || null) === task) { r.state = 'replaced'; r.updated = at; }
-        p.reminders.push({ id: shortId(), task, label, dueAt, state: 'open', notifiedAt: null, created: at, updated: at });
+        p.reminders.push({ id: shortId(), task, label, dueAt, state: 'open', notifiedAt: null, aheadNotifiedAt: null, created: at, updated: at });
         if (p.reminders.length > LIMITS.reminders) p.reminders = p.reminders.filter(r => r.state === 'open').concat(p.reminders.filter(r => r.state !== 'open').slice(-10));
         this.history(p, actor, 'reminder-set', { at: dueAt, label }, at); this.touch(p, at, { verified: false }); break;
       }
@@ -212,6 +212,17 @@ export class ProjectStore {
     const r = this.get(projectId).reminders.find(x => x.id === reminderId); if (!r) return;
     r.notifiedAt = iso(now); this.save();
   }
+  // 1.50: the day-before notice for open reminders within `aheadMs` of their time and not yet due. A reminder set
+  // less than `aheadMs` ahead gets no notice; the due announcement covers it.
+  dueAhead(aheadMs, now = this.now()) {
+    return this.projects.flatMap(p => p.reminders.filter(r => r.state === 'open' && !r.aheadNotifiedAt && Date.parse(r.dueAt) > now && Date.parse(r.dueAt) - aheadMs <= now && Date.parse(r.created) <= Date.parse(r.dueAt) - aheadMs)
+      .map(r => ({ project: p.id, projectName: p.name, reminder: r.id, label: r.label, dueAt: r.dueAt, task: r.task, taskText: r.task ? p.tasks.find(t => t.id === r.task)?.text || '' : '' })));
+  }
+  markAheadNotified(projectId, reminderId, now = this.now()) {
+    const r = this.get(projectId).reminders.find(x => x.id === reminderId); if (!r) return;
+    r.aheadNotifiedAt = iso(now); this.save();
+  }
+
 
   // One-time import of a Mission Control board snapshot (`board snapshot` JSON, version 2). Existing ids are skipped.
   importSnapshot(snap, { actor = 'import' } = {}) {

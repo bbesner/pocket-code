@@ -34,6 +34,7 @@ import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 import {PromptStore} from './prompts.mjs';
 import {ClaudeLogin} from './claude-login.mjs';
 import {ProjectStore, projectInstructions} from './projects.mjs';
+import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
 import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
@@ -167,6 +168,10 @@ if (pushReady) webpush.setVapidDetails(vapidSubject, process.env.VAPID_PUBLIC, p
 else log('push disabled: VAPID keys not set');
 const loadSubs = () => { try { return JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8')); } catch { return []; } };
 const saveSubs = s => atomicWrite(SUBS_FILE, s);
+// 1.50: what each device wants. A subscription saved by an earlier build has no prefs and gets everything, as before.
+const PUSH_KINDS = ['turns', 'reminders', 'vault'];
+const pushPrefsOf = s => ({ kinds: Object.fromEntries(PUSH_KINDS.map(k => [k, s.kinds?.[k] !== false])), badge: s.badge !== false });
+const cleanPushPrefs = p => { const out = {}; if (p?.kinds && typeof p.kinds === 'object') out.kinds = Object.fromEntries(PUSH_KINDS.filter(k => typeof p.kinds[k] === 'boolean').map(k => [k, p.kinds[k]])); if (typeof p?.badge === 'boolean') out.badge = p.badge; return out; };
 // per-session mute: a chatty background session shouldn't buzz the phone every turn
 const MUTES_FILE = path.join(DATA_DIR, 'mutes.json');
 const loadMutes = () => { try { return new Set(JSON.parse(fs.readFileSync(MUTES_FILE, 'utf8'))); } catch { return new Set(); } };
@@ -185,7 +190,8 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const loadSettings = () => { try { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true }; } };
+const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '' }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail
+const loadSettings = () => { try { return { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { ...SETTINGS_DEFAULTS }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
 
@@ -250,7 +256,7 @@ const vaultOn = (_req, res, next) => settings.vault ? (vault ? next() : res.stat
 let lockedPushAt = 0;
 const vaultOpen = (req, res, next) => {
   if (!vault.locked) return next();
-  if (req.boardActor === 'cli' && Date.now() - lockedPushAt > 600_000) { lockedPushAt = Date.now(); pushRaw('The Vault is locked', 'An agent needs a secret. Unlock the Vault in Pocket Code.', { tag: 'vault:locked', url: '/#/vault' }).catch(() => {}); }
+  if (req.boardActor === 'cli' && Date.now() - lockedPushAt > 600_000) { lockedPushAt = Date.now(); pushRaw('The Vault is locked', 'An agent needs a secret. Unlock the Vault in Pocket Code.', { tag: 'vault:locked', url: '/#/vault', kind: 'vault' }).catch(() => {}); }
   res.status(423).json({ error: 'The Vault is locked. Ask the owner to unlock it in Pocket Code.', code: 'vault_locked' });
 };
 const AUTO_LOCK_CHOICES = [0, 15, 60, 480, 1440];
@@ -276,6 +282,27 @@ function requireBoardAuth(req, res, next) {
 }
 const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404).json({ error: 'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'projects_off' });
 const REMINDER_HOOK = process.env.POCKET_REMINDER_HOOK || '';
+// 1.50: email for due reminders and tasks, when the operator set POCKET_SMTP_URL and the owner named an address in
+// Settings → Notifications. Links in the mail use POCKET_PUBLIC_URL, or the address the owner last signed in from.
+const mailer = (() => { try { return createMailer(process.env.POCKET_SMTP_URL, { from: process.env.POCKET_SMTP_FROM, log }); } catch (e) { log(`mail: ${e.message}`); return { configured: false, error: e.message, from: '', describe: () => e.message, send: async () => { throw e; } }; } })();
+if (mailer.configured) log(`mail: ${mailer.describe()}`);
+const emailOn = () => mailer.configured && looksLikeEmail(settings.notifyEmail);
+const publicBase = () => (process.env.POCKET_PUBLIC_URL || settings.publicUrl || '').replace(/\/$/, '');
+const LOOPBACK_HOSTS = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+function learnPublicUrl(req) { // the owner's own address, from a signed-in request that came through the tunnel or proxy
+  if (process.env.POCKET_PUBLIC_URL) return;
+  const host = req.get('x-forwarded-host') || req.get('host') || '';
+  if (!host || LOOPBACK_HOSTS.test(host)) return;
+  const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+  const url = `${proto}://${host.split(',')[0].trim()}`;
+  if (url !== settings.publicUrl) { settings.publicUrl = url; saveSettings(); }
+}
+const emailSettings = () => ({ configured: mailer.configured, from: mailer.from || '', to: settings.notifyEmail || '', on: emailOn(), hook: Boolean(REMINDER_HOOK), error: mailer.error || null, base: publicBase() });
+async function mailDue(item, { ahead = false } = {}) {
+  if (!emailOn()) return false;
+  try { await mailer.send({ to: settings.notifyEmail, ...dueMessage(item, { ahead, base: publicBase(), tz: process.env.POCKET_TZ || '' }) }); return true; }
+  catch (e) { log(`mail failed: ${e.message}`); return false; }
+}
 // 1.37.1: the hook gets the same environment as agent turns, without the daemon's secrets (login password,
 // cookie-signing key, push private key). It is an operator's own command, but it has no use for them.
 function runReminderHook(payload) {
@@ -285,21 +312,47 @@ function runReminderHook(payload) {
   child.on('error', e => log(`reminder hook failed: ${e.message}`));
   child.stdin.on('error', () => { }); child.stdin.end(JSON.stringify(payload));
 }
+// The count a device's app icon shows: due tasks and due project reminders together (1.50).
+const dueTotal = () => (settings.tasks ? taskStore.snapshot().dueCount : 0) + (settings.projects ? board.snapshot().dueCount : 0);
+const AHEAD_MS = () => (Number(settings.remindAhead) === 24 ? 24 : 0) * 3600_000;
+// One announcement per due item: push (with Tomorrow / Done actions the service worker answers), the hook, email.
+// With "a day before" on, a second, earlier notice goes out 24 hours ahead, marked `ahead`.
 async function announceReminders() {
-  if (settings.tasks) for (const t of taskStore.due()) { // 1.36: a dated task, once, with a link to the list
-    taskStore.markNotified(t.task);
-    const url = '/#/tasks';
-    const devices = await pushRaw('Task due', t.text, { tag: 'task:' + t.task, url });
-    if (REMINDER_HOOK) runReminderHook({ kind: 'task', ...t, url });
-    log(`task due task=${t.task} push=${devices ?? 'off'} hook=${REMINDER_HOOK ? 'yes' : 'no'}`);
+  const ahead = AHEAD_MS();
+  if (settings.tasks) {
+    for (const t of taskStore.due()) { // 1.36: a dated task, once, with a link to the list
+      taskStore.markNotified(t.task);
+      const url = '/#/tasks', payload = { kind: 'task', ...t, url };
+      const devices = await pushRaw('Task due', t.text, { tag: 'task:' + t.task, url, kind: 'reminders', badge: dueTotal(), snooze: { task: t.task }, actions: [{ action: 'later', title: 'Tomorrow' }, { action: 'done', title: 'Done' }] });
+      if (REMINDER_HOOK) runReminderHook(payload);
+      const mailed = await mailDue(payload);
+      log(`task due task=${t.task} push=${devices ?? 'off'} hook=${REMINDER_HOOK ? 'yes' : 'no'} mail=${mailed ? 'yes' : 'no'}`);
+    }
+    if (ahead) for (const t of taskStore.dueAhead(ahead)) {
+      taskStore.markAheadNotified(t.task);
+      const url = '/#/tasks', payload = { kind: 'task', ...t, url, ahead: true };
+      const devices = await pushRaw('Task due tomorrow', t.text, { tag: 'task-ahead:' + t.task, url, kind: 'reminders' });
+      if (REMINDER_HOOK) runReminderHook(payload);
+      const mailed = await mailDue(payload, { ahead: true });
+      log(`task due tomorrow task=${t.task} push=${devices ?? 'off'} hook=${REMINDER_HOOK ? 'yes' : 'no'} mail=${mailed ? 'yes' : 'no'}`);
+    }
   }
   if (!settings.projects) return;
   for (const r of board.due()) {
     board.markNotified(r.project, r.reminder); // first, so a crash mid-send never announces it twice
-    const url = '/#/projects/' + r.project;
-    const devices = await pushRaw(`Reminder: ${r.projectName}`, r.label, { tag: 'reminder:' + r.reminder, url });
-    if (REMINDER_HOOK) runReminderHook({ ...r, url });
-    log(`reminder due project=${r.project} reminder=${r.reminder} push=${devices ?? 'off'} hook=${REMINDER_HOOK ? 'yes' : 'no'}`);
+    const url = '/#/projects/' + r.project, payload = { ...r, url };
+    const devices = await pushRaw(`Reminder: ${r.projectName}`, r.label, { tag: 'reminder:' + r.reminder, url, kind: 'reminders', badge: dueTotal(), snooze: { project: r.project, reminder: r.reminder, task: r.task || null, label: r.label }, actions: [{ action: 'later', title: 'Tomorrow' }] });
+    if (REMINDER_HOOK) runReminderHook(payload);
+    const mailed = await mailDue(payload);
+    log(`reminder due project=${r.project} reminder=${r.reminder} push=${devices ?? 'off'} hook=${REMINDER_HOOK ? 'yes' : 'no'} mail=${mailed ? 'yes' : 'no'}`);
+  }
+  if (ahead) for (const r of board.dueAhead(ahead)) {
+    board.markAheadNotified(r.project, r.reminder);
+    const url = '/#/projects/' + r.project, payload = { ...r, url, ahead: true };
+    const devices = await pushRaw(`Reminder tomorrow: ${r.projectName}`, r.label, { tag: 'reminder-ahead:' + r.reminder, url, kind: 'reminders' });
+    if (REMINDER_HOOK) runReminderHook(payload);
+    const mailed = await mailDue(payload, { ahead: true });
+    log(`reminder due tomorrow project=${r.project} reminder=${r.reminder} push=${devices ?? 'off'} hook=${REMINDER_HOOK ? 'yes' : 'no'} mail=${mailed ? 'yes' : 'no'}`);
   }
 }
 const REMINDER_CHECK_MS = Math.max(250, Number(process.env.POCKET_REMINDER_CHECK_MS) || 60_000);
@@ -394,17 +447,20 @@ function titleSettings() {
 async function pushNotify(sessionId, title, body) {
   if (!pushReady) return;
   if (mutes.has(sessionId)) return log(`push muted session=${sessionId}`);
-  const devices = await pushRaw(title, body, { tag: sessionId, url: '/#/chat/' + sessionId });
+  const devices = await pushRaw(title, body, { tag: sessionId, url: '/#/chat/' + sessionId, kind: 'turns' });
   if (devices != null) log(`push sent (${devices} devices) session=${sessionId}`);
 }
-// One notification to every subscribed device; returns how many received it, or null when push is off or unused.
-async function pushRaw(title, body, { tag, url, ...extra }) { // 1.41: extra fields (actions, vaultRequest) ride along for the service worker
+// One notification to every subscribed device that wants this kind (1.50: turns, reminders or vault; a device's
+// choice in Settings → Notifications); returns how many received it, or null when push is off or no device wants it.
+// `badge` is the count of due items for the app icon, sent only to devices that show it.
+async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra }) { // 1.41: extra fields (actions, vaultRequest) ride along for the service worker
   if (!pushReady) return null;
-  const subs = loadSubs();
+  const subs = loadSubs().filter(s => pushPrefsOf(s).kinds[kind] !== false);
   if (!subs.length) return null;
-  const payload = JSON.stringify({ title: title.slice(0, 70), body, tag, url, ...extra });
+  const base = { title: title.slice(0, 70), body, tag, url, ...extra };
   const dead = [];
   await Promise.all(subs.map(async s => {
+    const payload = JSON.stringify(typeof badge === 'number' && pushPrefsOf(s).badge ? { ...base, badge } : base);
     try { await webpush.sendNotification(s, payload); }
     catch (e) { if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint); }
   }));
@@ -1594,7 +1650,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
-app.get('/api/me', (req, res) => res.json({ ok: checkCookie(getCookie(req, 'pc_auth')), features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), vault: vaultLive() } }));
+app.get('/api/me', (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')); if (ok) learnPublicUrl(req); return res.json({ ok, features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), vault: vaultLive() } }); });
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -2324,7 +2380,7 @@ app.post('/api/session/:id/rename', requireAuth, async (req, res) => {
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
 app.get('/api/settings', requireAuth, async (_req, res) => {
   await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings() });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
@@ -2335,6 +2391,8 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.projects === 'boolean') settings.projects = req.body.projects;
   if (typeof req.body?.documents === 'boolean') settings.documents = req.body.documents;
   if (typeof req.body?.tasks === 'boolean') settings.tasks = req.body.tasks;
+  if (req.body?.remindAhead === 0 || req.body?.remindAhead === 24) settings.remindAhead = req.body.remindAhead; // 1.50: the day-before notice
+  if (typeof req.body?.notifyEmail === 'string') { const to = req.body.notifyEmail.trim(); if (to && !looksLikeEmail(to)) return res.status(400).json({ error: 'That does not look like an email address.', code: 'bad_email' }); settings.notifyEmail = to; }
   let vaultToggled = false, createdVaultKey = '';
   if (typeof req.body?.vault === 'boolean' && req.body.vault !== settings.vault) { // 1.39: on needs the key; a change restarts idle runners so the rules reach them
     if (req.body.vault && !vault) {
@@ -2355,7 +2413,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
   log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
 });
 
 app.post('/api/session/:id/mute', requireAuth, (req, res) => {
@@ -2524,7 +2582,7 @@ app.get('/api/board', requireBoardAuth, boardOn, (req, res) => {
   const dir = typeof req.query.dir === 'string' ? req.query.dir : '';
   let snap;
   try { snap = board.snapshot({ dir }); } catch (e) { if (!e.status) throw e; return res.status(e.status).json({ error: e.message }); }
-  res.set('Cache-Control', 'private, no-store').json({ ...snap, push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK) });
+  res.set('Cache-Control', 'private, no-store').json({ ...snap, push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK), email: emailOn() });
 });
 app.post('/api/board/act', requireBoardAuth, boardOn, (req, res) => {
   const actor = req.boardActor || 'ui';
@@ -2545,7 +2603,7 @@ app.post('/api/board/import', requireBoardAuth, boardOn, (req, res) => {
 
 // ---------- 1.36: tasks routes ----------
 app.get('/api/tasks', requireBoardAuth, tasksOn, (_req, res) => {
-  res.set('Cache-Control', 'private, no-store').json({ ...taskStore.snapshot(), push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK) });
+  res.set('Cache-Control', 'private, no-store').json({ ...taskStore.snapshot(), push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK), email: emailOn() });
 });
 // 1.37: a task an agent adds from a session (pocket-tasks add --session) gets that session's title and
 // workspace, as the Add task button does, so the list names where it came from and Start opens in the right place.
@@ -2749,7 +2807,7 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
       if (need.length) {
         reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor });
         send({ t: 'request', id: reqRow.id, items: reqRow.itemNames });
-        const devices = await pushRaw('Vault request', `${reqRow.itemNames.join(', ')}: allow \`${cmd.argv.join(' ').slice(0, 80)}\`?`, { tag: 'vault:' + reqRow.id, url: '/#/vault/requests', vaultRequest: reqRow.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
+        const devices = await pushRaw('Vault request', `${reqRow.itemNames.join(', ')}: allow \`${cmd.argv.join(' ').slice(0, 80)}\`?`, { tag: 'vault:' + reqRow.id, url: '/#/vault/requests', kind: 'vault', vaultRequest: reqRow.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
         log(`vault request=${reqRow.id} items=${reqRow.itemNames.join(',')} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
       }
     }
@@ -2805,7 +2863,7 @@ app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin,
       const need = vault.decide(bound, cmd);
       if (need.length) {
         reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor });
-        const devices = await pushRaw('Vault request', `${reqRow.itemNames.join(', ')}: fill into ${tool}?`, { tag: 'vault:' + reqRow.id, url: '/#/vault/requests', vaultRequest: reqRow.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
+        const devices = await pushRaw('Vault request', `${reqRow.itemNames.join(', ')}: fill into ${tool}?`, { tag: 'vault:' + reqRow.id, url: '/#/vault/requests', kind: 'vault', vaultRequest: reqRow.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
         log(`vault fill request=${reqRow.id} items=${reqRow.itemNames.join(',')} tool=${tool} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
       }
     }
@@ -2936,10 +2994,35 @@ app.post('/api/push/subscribe', requireAuth, (req, res) => {
   const sub = req.body?.subscription;
   if (!sub?.endpoint) return res.status(400).json({ error: 'bad subscription' });
   const subs = loadSubs().filter(s => s.endpoint !== sub.endpoint);
-  subs.push(sub);
+  const row = { ...sub, ...cleanPushPrefs(req.body.prefs) }; // 1.50: what this device wants rides with its subscription
+  subs.push(row);
   saveSubs(subs);
   log(`push subscribed (${subs.length} devices)`);
-  res.json({ ok: true });
+  res.json({ ok: true, prefs: pushPrefsOf(row) });
+});
+// 1.50: a device's notification choices (which kinds, the icon badge), read and changed by that device.
+app.get('/api/push/prefs', requireAuth, (req, res) => {
+  const s = loadSubs().find(x => x.endpoint === req.query.endpoint);
+  if (!s) return res.status(404).json({ error: 'This device is not subscribed.', code: 'not_subscribed' });
+  res.set('Cache-Control', 'private, no-store').json({ ok: true, prefs: pushPrefsOf(s) });
+});
+app.post('/api/push/prefs', requireAuth, (req, res) => {
+  const subs = loadSubs(), s = subs.find(x => x.endpoint === req.body?.endpoint);
+  if (!s) return res.status(404).json({ error: 'This device is not subscribed.', code: 'not_subscribed' });
+  const clean = cleanPushPrefs(req.body);
+  if (clean.kinds) s.kinds = { ...pushPrefsOf(s).kinds, ...clean.kinds };
+  if ('badge' in clean) s.badge = clean.badge;
+  saveSubs(subs);
+  res.json({ ok: true, prefs: pushPrefsOf(s) });
+});
+// 1.50: a test message to the address in Settings, so the owner can see the mail path works before relying on it.
+app.post('/api/notify/test-email', requireAuth, async (_req, res) => {
+  if (!mailer.configured) return res.status(409).json({ error: mailer.error || 'Email is not set up on this server. Set POCKET_SMTP_URL in .env.', code: 'mail_off' });
+  if (!looksLikeEmail(settings.notifyEmail)) return res.status(400).json({ error: 'Save an email address first.', code: 'no_address' });
+  try {
+    await mailer.send({ to: settings.notifyEmail, subject: '[Pocket Code] Test: reminders will arrive like this', text: `Pocket Code on ${os.hostname()} can email you. Due tasks and project reminders will arrive at this address.${publicBase() ? '\n\n' + publicBase() : ''}`, html: `<p>Pocket Code on <strong>${os.hostname()}</strong> can email you. Due tasks and project reminders will arrive at this address.</p>${publicBase() ? `<p><a href="${publicBase()}">${publicBase()}</a></p>` : ''}` });
+    res.json({ ok: true, to: settings.notifyEmail });
+  } catch (e) { log(`mail test failed: ${e.message}`); res.status(502).json({ error: 'The test message could not be sent: ' + e.message, code: 'mail_failed' }); }
 });
 app.post('/api/push/unsubscribe', requireAuth, (req, res) => {
   saveSubs(loadSubs().filter(s => s.endpoint !== req.body?.endpoint));
@@ -2975,7 +3058,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Projects: Start session on a project card opens a new session briefed on where the project stands (where you left off, the next step, open steps, recent notes) and links it to the project."];
+const RELEASE_NOTES = ["Tasks is the one due list: with Projects on, open project reminders sit among the dated tasks, due first, and the Tasks badge and the app icon count both.", "Settings → Notifications & voice: choose which notifications this device gets (finished turns, due tasks and reminders, Vault requests), the count on the app icon, a notice a day before, and an email address for due items when the server has POCKET_SMTP_URL.", "A due notification offers Tomorrow (and Done for a task); Remind later on a task picks a new time."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

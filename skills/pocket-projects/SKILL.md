@@ -83,8 +83,10 @@ pocket-board scheduled          # every open reminder, due first
 
 - A time without an offset is in the server's time zone (`POCKET_TZ`).
 - One open reminder per project, and one per step: a new one replaces the old.
-- Pocket announces a due reminder once, by push to the user's devices and the server's
-  reminder hook if one is set. Do not create cron jobs, calendar events or extra messages.
+- Pocket announces a due reminder once, by push to the user's devices, by email when the
+  owner set an address, and to the server's reminder hook if one is set. Do not create cron
+  jobs, calendar events or extra messages. With Tasks on, the user sees reminders in the
+  Tasks list beside their tasks.
 - Finishing a step or the project stops its reminders. Resuming does not bring them back.
 
 ## Keeping a card current

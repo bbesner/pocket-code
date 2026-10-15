@@ -69,6 +69,24 @@ test('TaskStore: a dated task is announced once, again after a new time, and nev
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+test('TaskStore: the day-before notice (1.50) goes once to tasks set at least a day ahead, and never to one set later than that',()=>{
+  const dir=tmp(),file=path.join(dir,'tasks.json');let clock=Date.parse('2026-10-10T12:00:00Z');const DAY=86400000;
+  const s=new TaskStore(file,{now:()=>clock});
+  const far=s.act({action:'add',text:'Set well ahead',dueAt:'2026-10-13T12:00:00Z'});
+  clock=Date.parse('2026-10-12T11:00:00Z');const late=s.act({action:'add',text:'Set a day before',dueAt:'2026-10-13T10:00:00Z'});s.act({action:'add',text:'Undated'});
+  assert.deepEqual(s.dueAhead(DAY).map(t=>t.text),[],'nothing within a day yet');
+  clock=Date.parse('2026-10-12T12:30:00Z');
+  assert.deepEqual(s.dueAhead(DAY).map(t=>t.text),['Set well ahead'],'within a day of its time, set more than a day ahead; the late one is skipped');
+  s.markAheadNotified(far.id);assert.equal(s.dueAhead(DAY).length,0,'once');assert.equal(new TaskStore(file,{now:()=>clock}).dueAhead(DAY).length,0,'persisted');
+  assert.equal(s.due().length,0,'not due yet');
+  s.act({action:'update',task:far.id,dueAt:'2026-10-13T12:00:00Z'});assert.deepEqual(s.dueAhead(DAY).map(t=>t.text),[],'a time set less than a day ahead gets no notice, even on a task made long ago');
+  clock=Date.parse('2026-10-12T13:00:00Z');s.act({action:'update',task:far.id,dueAt:'2026-10-13T14:00:00Z'});assert.equal(s.dueAhead(DAY).length,0);
+  clock=Date.parse('2026-10-12T14:30:00Z');assert.deepEqual(s.dueAhead(DAY).map(t=>t.text),['Set well ahead'],'a new time set a day ahead earns a new notice');
+  s.act({action:'update',task:far.id,done:true});assert.equal(s.dueAhead(DAY).length,0,'never once done');
+  clock=Date.parse('2026-10-13T10:30:00Z');assert.deepEqual(s.due().map(t=>t.text),['Set a day before'],'the late one is still announced when due');assert.equal(s.dueAhead(DAY).length,0,'and gets no notice once due');
+  void late;fs.rmSync(dir,{recursive:true,force:true});
+});
+
 test('HTTP: tasks are off until Settings turns them on, the loopback token serves the CLI, a due task fires the hook once, agents are told, and the CLI works',async t=>{
   const dir=tmp();let port=18971;
   const secret=randomUUID(),exp=Date.now()+3600000;

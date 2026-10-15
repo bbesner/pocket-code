@@ -21,10 +21,18 @@ function mergeProject(p){
  boardSnap.dueCount=boardSnap.scheduled.filter(r=>r.due).length;
 }
 async function boardAct(body,done){
- try{const r=await api('/board/act',{method:'POST',body:JSON.stringify(body)});mergeProject(r.project);if(done)toast(done);paintProjectsView();paintProjectBadges();return r.project;}
+ try{const r=await api('/board/act',{method:'POST',body:JSON.stringify(body)});mergeProject(r.project);if(done)toast(done);paintProjectsView();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();return r.project;}
  catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();}toast(e.message||'Could not update the project');return null;}
 }
 const boardDueCount=()=>boardSnap?.dueCount||0;
+// 1.50: while Tasks is on, the Tasks list is where reminders are listed and counted; Scheduled stays for installs without it.
+const dueListView=()=>typeof tasksOn==='function'&&tasksOn()?'tasks':'projects/scheduled';
+// Quick times for a reminder or a task (1.50 shared): this device's zone; sent to the server as exact instants.
+function quickPicks(){
+ const at=(days,hour)=>{const d=new Date();d.setDate(d.getDate()+days);d.setHours(hour,0,0,0);return d;};
+ const nextMonday=()=>at(((8-new Date().getDay())%7)||7,9);
+ return [['tomorrow','Tomorrow morning',at(1,9)],['three','In three days',at(3,9)],['monday','Next Monday',nextMonday()],['week','In a week',at(7,9)]];
+}
 const viewTitle=id=>id==='vault'?'Vault':id==='tasks'?'Tasks':id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'Files'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
 const fmtDue=iso=>{const d=new Date(iso),now=new Date();const sameYear=d.getFullYear()===now.getFullYear();return d.toLocaleDateString('en-US',{month:'short',day:'numeric',...(sameYear?{}:{year:'numeric'})})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
 const fmtStamp=iso=>rel(Date.parse(iso));
@@ -92,13 +100,13 @@ function projectListHTML(){
  const body=groups.map(([k,label,rows])=>!rows.length?'':k==='done'
   ?`<details class="session-group project-group settings-details"><summary><h2>${label} <span>${rows.length}</span></h2></summary>${rows.map(projectRowHTML).join('')}</details>`
   :`<section class="session-group project-group"><h2>${label} <span>${rows.length}</span></h2>${rows.map(projectRowHTML).join('')}</section>`).join('');
- return `<div class="session-home-head"><h2>Projects</h2><span class="project-head-actions"><a class="chip ${due?'due':''}" href="${viewHref('projects/scheduled')}" data-view-link>Scheduled${due?' · '+due+' due':''}</a><button class="chip" id="pj-track">Track a project</button></span></div>
+ return `<div class="session-home-head"><h2>Projects</h2><span class="project-head-actions"><a class="chip ${due?'due':''}" href="${viewHref(dueListView())}" data-view-link>${dueListView()==='tasks'?'Reminders':'Scheduled'}${due?' · '+due+' due':''}</a><button class="chip" id="pj-track">Track a project</button></span></div>
   ${boardSnap.projects.length?body:`<p class="sheet-help project-empty">No tracked projects yet. Track one here, or from a session's options, when there is work you want to keep a card for. Agents can keep a card current with <code>pocket-board</code>.</p>`}`;
 }
 function scheduledHTML(){
  const rows=boardSnap.scheduled;
  return `<div class="session-home-head"><h2>Scheduled</h2><a class="chip" href="${viewHref('projects')}" data-view-link>All projects</a></div>
-  <p class="sheet-help">Every open reminder across your projects, due first. Only reminders Pocket Code itself keeps appear here${boardSnap.push?.enabled?'; each is sent to your devices once when it comes due':''}${boardSnap.hook?', and to this server\'s reminder hook':''}.</p>
+  <p class="sheet-help">Every open reminder across your projects, due first. Only reminders Pocket Code itself keeps appear here${boardSnap.push?.enabled?'; each is sent to your devices once when it comes due':''}${boardSnap.email?', by email':''}${boardSnap.hook?', and to this server\'s reminder hook':''}.</p>
   ${rows.length?rows.map(r=>`<div class="session-item reminder-item ${r.due?'due':''}" data-item="${esc(r.id)}">
    <a class="row" href="${viewHref('projects/'+r.project)}" data-project="${esc(r.project)}"><span class="body"><span class="title">${esc(r.label)}</span><span class="meta">${esc(r.projectName)}${r.taskText&&r.taskText!==r.label?' · '+esc(r.taskText):''}</span>
     <span class="session-status">${r.due?'<span class="due-label">Due</span>':''}<span>${esc(fmtDue(r.dueAt))}</span></span></span></a>
@@ -284,9 +292,7 @@ function projectEditor(p,{directory='',session=null,onDone}={}){
 // time goes to the server as an exact instant, so the install's zone never changes it.
 function reminderSheet(project,task){
  const p=projectById(project);if(!p)return;
- const at=(days,hour)=>{const d=new Date();d.setDate(d.getDate()+days);d.setHours(hour,0,0,0);return d;};
- const nextMonday=()=>{const d=at(((8-new Date().getDay())%7)||7,9);return d;};
- const picks=[['tomorrow','Tomorrow morning',at(1,9)],['three','In three days',at(3,9)],['monday','Next Monday',nextMonday()],['week','In a week',at(7,9)]];
+ const picks=quickPicks();
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
  const t=task?p.tasks.find(x=>x.id===task):null;
  sh.innerHTML=`<h2>Remind me</h2><p class="sheet-name">${esc(t?t.text:p.name)}</p>
@@ -335,28 +341,33 @@ function rememberOpenView(id,title){
  if(openSessions.length>12)openSessions.shift();
  writeLocal('pc-open-sessions',openSessions);paintOpenSessions();
 }
-const viewTabState=id=>{if(id==='vault')return typeof vaultTabState==='function'?vaultTabState():null;if(id==='tasks')return typeof taskTabState==='function'?taskTabState():null;if(id.startsWith('documents'))return null;if(!boardSnap)return null;const p=id==='projects'||id==='projects/scheduled'?null:projectById(id.slice(9));const due=p?p.dueCount:boardDueCount();return due?{kind:'due',label:due===1?'A reminder is due':due+' reminders are due'}:null;};
+const viewTabState=id=>{if(id==='vault')return typeof vaultTabState==='function'?vaultTabState():null;if(id==='tasks')return typeof taskTabState==='function'?taskTabState():null;if(id.startsWith('documents'))return null;if(!boardSnap)return null;const p=id==='projects'||id==='projects/scheduled'?null:projectById(id.slice(9));if(!p&&dueListView()==='tasks')return null;const due=p?p.dueCount:boardDueCount();return due?{kind:'due',label:due===1?'A reminder is due':due+' reminders are due'}:null;};
 function railProjectsHTML(){
  if(!boardSnap)return '<p class="sheet-help">Loading projects…</p>';
  const due=boardDueCount(),rows=boardSnap.projects.filter(p=>p.status!=='done');
- return `<div class="rail-projects"><div class="rail-project-actions"><a class="chip ${due?'due':''}" href="${viewHref('projects/scheduled')}" data-view-link>Scheduled${due?' · '+due:''}</a><button class="chip" id="rail-track">Track</button><a class="chip" href="${viewHref('projects')}" data-view-link>All</a></div>
+ return `<div class="rail-projects"><div class="rail-project-actions"><a class="chip ${due?'due':''}" href="${viewHref(dueListView())}" data-view-link>${dueListView()==='tasks'?'Reminders':'Scheduled'}${due?' · '+due:''}</a><button class="chip" id="rail-track">Track</button><a class="chip" href="${viewHref('projects')}" data-view-link>All</a></div>
   ${rows.length?rows.map(projectRowHTML).join(''):'<p class="sheet-help">No active projects. Track one to keep a card for it.</p>'}
   ${boardSnap.projects.some(p=>p.status==='done')?`<a class="rail-done-link" href="${viewHref('projects')}" data-view-link>${boardSnap.projects.filter(p=>p.status==='done').length} finished</a>`:''}</div>`;
 }
+let railProjectsPainted='';
 function paintRailProjects(){
  const el=document.getElementById('rail');if(!el||railView()!=='projects')return;
- el.innerHTML=railProjectsHTML();
- el.querySelector('#rail-track')?.addEventListener('click',()=>projectEditor(null));
- el.querySelectorAll('[data-project-more]').forEach(b=>b.onclick=()=>projectOptions(b.dataset.projectMore));
- el.querySelectorAll('a[data-project]').forEach(a=>a.onclick=e=>{const id='projects/'+a.dataset.project;openViewPreferred(id,'pc-projects-open',e,Boolean(chatId)&&boardView!==id);});
+ const html=railProjectsHTML();
+ if(html!==railProjectsPainted||!el.querySelector('.rail-projects')){ // 1.50: a refresh that changes nothing leaves the rows (and a tap on one) alone
+  railProjectsPainted=html;el.innerHTML=html;
+  el.querySelector('#rail-track')?.addEventListener('click',()=>projectEditor(null));
+  el.querySelectorAll('[data-project-more]').forEach(b=>b.onclick=()=>projectOptions(b.dataset.projectMore));
+  el.querySelectorAll('a[data-project]').forEach(a=>a.onclick=e=>{const id='projects/'+a.dataset.project;openViewPreferred(id,'pc-projects-open',e,Boolean(chatId)&&boardView!==id);});
+ }
  if(!boardSnap||Date.now()-boardAt>4000)loadBoard(true).then(()=>{paintRailProjects();paintProjectBadges();}).catch(()=>{const r=document.getElementById('rail');if(!boardSnap&&r&&railView()==='projects')r.innerHTML='<p class="sheet-help">Projects could not load.</p>';});else paintProjectBadges();
 }
 function paintProjectBadges(){
- const due=boardDueCount();
+ const due=dueListView()==='tasks'?0:boardDueCount(); // 1.50: with Tasks on, its badge carries the reminders; the project cards and their tabs still mark their own
  paintChatProject();
  document.querySelectorAll('[data-projects-badge]').forEach(el=>{el.textContent=due?String(due):'';el.hidden=!due;});
  document.querySelectorAll('[data-projects-home]').forEach(el=>{el.textContent='Projects'+(due?' · '+due+' due':'');el.classList.toggle('due',due>0);});
+ if(typeof paintTaskBadges==='function'&&dueListView()==='tasks')paintTaskBadges();else if(typeof paintAppBadge==='function')paintAppBadge();
 }
 // Keep the due counts and an open view fresh without a reload; the list poll is cheap and private.
-function projectsTick(){if(!projectsOn()||document.visibilityState!=='visible'||!(boardView||railView()==='projects'||document.querySelector('[data-projects-home]')))return;loadBoard(true).then(()=>{paintProjectsView();paintRailProjects();paintProjectBadges();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
+function projectsTick(){if(!projectsOn()||document.visibilityState!=='visible'||!(boardView||railView()==='projects'||document.querySelector('[data-projects-home],[data-projects-badge]')||(typeof taskView!=='undefined'&&taskView)||railView()==='tasks'))return;loadBoard(true).then(()=>{paintProjectsView();paintRailProjects();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
 setInterval(projectsTick,30000);onListsStale(projectsTick);

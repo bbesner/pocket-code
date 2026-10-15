@@ -1317,6 +1317,19 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
   .status-in-header:not(.compact-header) #run-confirmed-at { display: none; }
 }
 
+/* ---------- 1.50: the due list and notification settings ----------
+   A project reminder in the Tasks list keeps the task row: the hourglass takes the check's 44px slot and opens the reminder's
+   options; the row is a link to the card. The notification kinds sit under their switch as ordinary option rows, indented
+   like a setting's field; the email form reuses the Vault's field-and-chips arrangement. No new colour. */
+.task-item.reminder-item .row { text-decoration: none; padding-left: 4px; }
+.task-item.reminder-item .task-check .i { width: 18px; height: 18px; }
+.push-kinds { gap: 0; padding: 0 0 6px 24px; }
+.push-kinds .opt { margin: 0; padding: 10px 14px; font-size: 15.5px; }
+.push-kinds .opt:disabled { opacity: .55; cursor: default; }
+.email-form { display: flex; flex-direction: column; gap: 8px; }
+.email-form .voice-field { margin: 0; }
+.settings-sheet #s-ahead:disabled, .settings-sheet #s-badge:disabled { opacity: .55; cursor: default; }
+
 /* ---------- 1.36: tasks ----------
    Rows keep the session-row voice; the check is a 44px target on the left; a due task reads amber like a due reminder. */
 .task-item { align-items: stretch; }

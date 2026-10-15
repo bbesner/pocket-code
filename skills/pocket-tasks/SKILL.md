@@ -8,8 +8,9 @@ description: Keep the user's to-dos in Pocket Code's Tasks. Use when the user as
 Pocket Code keeps **Tasks** on its own server: to-dos the user wants to come back to. Each task
 is one line of text, an optional due date and time, the session it was created in and, when
 the user wants the context, a short briefing on that session. The user sees them under Tasks
-in Pocket Code on every device, can start a new session from one, and is told once when a
-dated task comes due. You manage tasks with the `pocket-tasks` command.
+in Pocket Code on every device (with Projects on, project reminders are listed there too), can
+start a new session from one, and is told once when a dated task comes due (push, email when
+set up, the server's reminder hook). You manage tasks with the `pocket-tasks` command.
 
 <!-- pocket:commands -->
 Run `pocket-tasks` from the Pocket Code directory (`node scripts/pocket-tasks.mjs`, or

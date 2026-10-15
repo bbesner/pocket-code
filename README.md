@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.49.0 / build 101**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.50.0 / build 102**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -68,7 +68,7 @@ the same way, through commands and skills that ship with Pocket.
 <table>
 <tr>
 <td width="33%" valign="top"><img src="docs/images/mobile-workspace.png" alt="Phone: a conversation showing an inventory report table, with the composer and message settings below"></td>
-<td width="33%" valign="top"><img src="docs/images/tasks-mobile.png" alt="Tasks on a phone: three to-dos, the first due and carrying context from the session it came from, with finished tasks collapsed under Done"></td>
+<td width="33%" valign="top"><img src="docs/images/tasks-mobile.png" alt="Tasks on a phone: three to-dos and two project reminders in one list, soonest first, the first two due; a reminder row shows an hourglass and names its project, and finished tasks are collapsed under Done"></td>
 <td width="33%" valign="top"><img src="docs/images/task-offer-mobile.png" alt="A reply ending with three suggested-reply buttons; the recommended one reads Remind me Nov 7 to recheck the numbers"></td>
 </tr>
 <tr>
@@ -141,8 +141,10 @@ roughly doubled what I get done with AI in a day, and it did that without adding
   away** summary of what was done and decided.
 - **Know what needs you.** Attention collects questions, approvals, failed turns and
   replies you have not opened; **Mark as reviewed** clears one, on every device.
-- **Get alerts.** Optional push notifications, an on-screen chime and per-session muting.
-  Push needs HTTPS, server keys and browser permission.
+- **Get alerts.** Optional push notifications, chosen by kind per device (finished turns, due
+  tasks and reminders, Vault requests), a count of due items on the app icon, an on-screen chime
+  and per-session muting. Push needs HTTPS, server keys and browser permission. Due tasks and
+  reminders can also go by email when the server has an SMTP address.
 
 ### Appearance
 
@@ -165,7 +167,8 @@ device, and when you open them, so an item an agent adds shows up without a relo
 - **Projects** keep a card for each piece of work: where you left off, the next step, a
   checklist, reminders (announced once when due) and the sessions that worked on it.
   **Start session** opens a new session in the project's directory, briefed on the card and
-  linked to it. A Scheduled view lists every reminder, due first. See [Projects](docs/workspace-guide.md#projects).
+  linked to it. With Tasks on, open reminders are listed with the tasks, due first; without it,
+  a Scheduled view lists them. See [Projects](docs/workspace-guide.md#projects).
 - **Files** keeps the reports, dashboards and spreadsheets that came out of the work, in a
   grid or a list. HTML renders sandboxed; PDFs, images, Markdown and CSV render in place.
   Files are private until you share one by link or publicly; removed files wait 30 days
@@ -365,7 +368,8 @@ The step-by-step version, written so a Claude Code or Codex session can follow i
 Caddy for the HTTPS address.
 
 On your phone, open the address, sign in and choose **Add to Home screen**. Then tap
-the bell icon to turn on notifications.
+the bell icon to turn on notifications; **Settings → Notifications & voice** chooses which
+kinds this device gets and whether the icon shows the count of due tasks and reminders.
 
 ## Configuration
 
@@ -397,7 +401,9 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_ALLOW_FULL_ACCESS` | no | Set to `0` to reject Full access in both API and UI. |
 | `POCKET_DATA_DIR` | no | Pocket state and runner files; defaults to the checkout. Move only after all session processes are closed. |
 | `POCKET_SESSION_ROOT` | no | Override Claude transcript storage for isolated tests; does not relocate Codex. |
-| `POCKET_REMINDER_HOOK` | no | A command run when a project reminder (Projects, 1.29) or a dated task (Tasks, 1.36) comes due, with it as JSON on its standard input. A reminder carries `project`, `projectName`, `reminder`, `label`, `dueAt`, `task`, `taskText`, `url`; a task carries `kind: "task"`, `task`, `text`, `dueAt`, `session`, `url`. It runs through the shell, with the same environment as agent turns: Pocket's own secrets are removed (1.37.1). Each one is announced once. Use it for email, chat or anything else; web push happens regardless. |
+| `POCKET_REMINDER_HOOK` | no | A command run when a project reminder (Projects, 1.29) or a dated task (Tasks, 1.36) comes due, with it as JSON on its standard input. A reminder carries `project`, `projectName`, `reminder`, `label`, `dueAt`, `task`, `taskText`, `url`; a task carries `kind: "task"`, `task`, `text`, `dueAt`, `session`, `url`; the day-before notice (1.50, when Settings turns it on) carries the same with `ahead: true`. It runs through the shell, with the same environment as agent turns: Pocket's own secrets are removed (1.37.1). Each one is announced once. Use it for chat or anything else; web push and email happen regardless. |
+| `POCKET_SMTP_URL`, `POCKET_SMTP_FROM` | no | Email for due tasks and reminders (1.50): an SMTP address such as `smtps://user:app-password@smtp.gmail.com:465` (or `smtp://…:587` with STARTTLS) and the address to send from (defaults to the URL's user when it is an address). The address to send *to* is set in **Settings → Notifications & voice**, with a test button. Nothing else is emailed. |
+| `POCKET_PUBLIC_URL` | no | Pocket's public address (`https://pocket.example.com`), used for links in reminder emails. Without it, Pocket uses the address the owner last signed in from through the tunnel or proxy. |
 | `POCKET_DOCUMENTS_DIR` | no | Where Files (1.30; Documents before 1.34) keeps files. Default `<data dir>/documents`. Files placed there appear as private files; removed files wait in its `.trash` for 30 days. |
 | `POCKET_SKILLS` | no | `0` stops Pocket installing its `pocket-projects`, `pocket-files`, `pocket-tasks` and `pocket-vault` agent skills into `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`) and `$CODEX_HOME/skills` (1.34, tasks 1.36, vault 1.39). Only folders carrying Pocket's `.pocket-managed` marker are touched. On by default while the matching feature is on. |
 | `POCKET_VAULT_KEY` | no | The Vault's encryption key (1.39). Since 1.44 you don't set it: switching the Vault on creates it, saves it to this install's `.env` (mode `0600`) and shows a recovery key to keep; **Rotate key** and **Restore key** in Settings write it there too. Set it by hand (`openssl rand -base64 32`) only when there is no `.env` to write (`POCKET_ENV_FILE` empty). Pocket reads it at start and removes it, and `POCKET_VAULT_KEY_PREVIOUS` (present only for the moment of a rotation), from its environment, so no agent or other process it starts sees them. Keep the recovery key apart from your data backups: without it `vault.enc` cannot be opened. |
