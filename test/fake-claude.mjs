@@ -11,6 +11,8 @@ if (process.argv[2]==='auth'&&process.argv[3]==='login') {
 if (process.argv[2]==='auth'&&process.argv[3]==='status') { console.log(JSON.stringify({loggedIn:process.env.FAKE_CLAUDE_SIGNED_OUT!=='1',authMethod:'claude.ai',email:'owner@example.test',subscriptionType:'max'})); process.exit(0); }
 // Session titles (titles.mjs): a one-shot -p call with no saved session. Answer like the real CLI's json output.
 if (process.argv.includes('--no-session-persistence')) {
+  // 1.52: which --model each helper call named (titles, summaries), one per line.
+  if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.helper-models',(process.argv.includes('--model')?process.argv[process.argv.indexOf('--model')+1]:'')+'\n');
   let input=''; process.stdin.on('data',c=>input+=c); process.stdin.on('end',()=>{
     const tr=input.match(/<transcript>\n([\s\S]*?)\n<\/transcript>/);
     // Living titles (titles.mjs retitle): a digest of the whole session plus its current title. KEEPTITLE in the

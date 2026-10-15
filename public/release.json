@@ -1,7 +1,7 @@
 {
-  "version": "1.51.0",
-  "assetV": 105,
+  "version": "1.52.0",
+  "assetV": 106,
   "notes": [
-    "Accounts & instance shows active Claude turns and a confirmed Stop all Claude turns control. It stops turns waiting on approvals too, so the shared Claude account can be switched without opening each session. Saved conversations and Codex turns remain."
+    "Settings → Agents & instance chooses which Claude models the picker offers, and POCKET_CLAUDE_MODELS sets the list at install. Models blocked by this computer's Claude Code policy are marked there and never offered; a turn sent with one runs on the default model and says so. Sonnet 5.5 and Haiku 5.5 join the list."
   ]
 }

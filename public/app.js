@@ -52,19 +52,22 @@ const IC = {
 /* ---------- per-turn options: model / effort / attachments ---------- */
 // Claude's list lives on the server (server.mjs CLAUDE_MODELS) so a new model is a
 // one-line server change; this copy is only the offline fallback until it loads.
-let MODELS = [
-  ['default', 'Default', 'Your global setting'],
+// CLAUDE_CATALOG also lets Settings draw the model rows before the server's answer, so the panel keeps its height.
+const CLAUDE_CATALOG = [
   ['claude-fable-5-1[1m]', 'Fable 5.1', 'Top tier · 1M context'],
   ['claude-opus-5-5[1m]', 'Opus 5.5', 'Strong + cheaper than Fable · 1M'],
+  ['claude-sonnet-5-5', 'Sonnet 5.5', 'Fast, strong all-rounder · 1M'],
   ['claude-sonnet-5', 'Sonnet 5', 'Fast, near-Opus on coding'],
+  ['claude-haiku-5-5', 'Haiku 5.5', 'Fastest current model · 1M'],
   ['claude-haiku-4-5', 'Haiku 4.5', 'Fastest, light tasks'],
 ];
+let MODELS = [['default', 'Default', 'Your global setting'], ...CLAUDE_CATALOG];
 let claudeModelsLoaded = false;
 async function loadClaudeModels() {
   if (claudeModelsLoaded) return MODELS;
   try {
     const { models, defaultLabel, defaultEffort, pocketDefault } = await api('/claude/models');
-    if (models?.length) {
+    if (Array.isArray(models)) { // 1.52: only the offered models; none offered leaves Default alone
       // 4th field = chip text, so Default shows the model it actually runs
       MODELS = [['default', 'Default', `${defaultLabel || 'Global'} · ${pocketDefault ? 'Pocket default' : 'your global setting'}`, defaultLabel || 'Default'],
         ...models.map(m => [m.id, m.label || m.id, m.sub || ''])];
@@ -175,6 +178,14 @@ function sheet(title, options, current, onPick) {
   mountSheet(scrim, sh);
 }
 
+// 1.52: the server ran a turn on the default because the picked model is not offered. Say so, refresh the
+// picker (Settings or the policy changed since it loaded) and put this session's pick back to Default.
+function modelFellBack(id, f) {
+  toast(f.message || 'That model is not offered, so this turn uses the default model.');
+  claudeModelsLoaded = false;
+  if (id) { const p = getPrefs(id); if (p.model === f.requested) setPrefs(id, { ...p, model: 'default' }); }
+  loadClaudeModels().then(() => renderToolbar());
+}
 /* Toolbar state shared by chat + new views */
 let tb = null; // {key, prefs, attachments:[{path,name}], allowAttach}
 function normalizeModelPick() {
@@ -183,7 +194,9 @@ function normalizeModelPick() {
   const incompatible = tb.provider === 'codex'
     ? /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[))/i.test(model)
     : /^(?:gpt-|codex(?:$|-)|o\d(?:$|-))/i.test(model);
-  if (incompatible) {
+  // 1.52: a pick the picker no longer offers (Settings or this computer's Claude Code policy) goes back to Default.
+  const unoffered = tb.provider !== 'codex' && claudeModelsLoaded && model !== 'default' && !MODELS.some(m => m[0] === model);
+  if (incompatible || unoffered) {
     tb.prefs.model = 'default';
     setPrefs(tb.key, tb.prefs);
   }
@@ -581,6 +594,11 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     ${accentControlsHTML()}
     <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button>
     <button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>
+    <div class="title-settings model-offer" id="s-models" role="group" aria-labelledby="s-models-h">
+      <p class="vault-set-head" id="s-models-h">Claude models in the picker</p>
+      <div class="model-offer-list" id="s-models-list" aria-busy="true">${CLAUDE_CATALOG.map(([id, label, sub]) => `<button class="opt" data-offer-model="${esc(id)}" aria-pressed="false" aria-disabled="true"><span class="dot"></span><span>${esc(label)}<span class="sub">${esc(sub)}</span></span></button>`).join('')}</div>
+      <p class="title-note" id="s-models-note" role="status">Loading the model list…</p>
+      <span class="vault-set-actions"><button class="chip" id="s-models-reset" hidden>Use the server's list</button></span></div>
     <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button>
     <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
     <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse tool calls<span class="sub">Fold Bash, Edit and other actions behind a one-line summary</span></span></button>
@@ -740,12 +758,49 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     catch (err) { toast(err.message || 'The test message could not be sent'); }
     finally { paintNotifySettings(); }
   };
+  // 1.52: which Claude models the picker offers (instance-wide). A model this computer's Claude Code policy
+  // blocks stays listed, marked and not offered, so the owner sees why it is missing from the picker.
+  const paintModelOffer = () => {
+    const cm = srv?.claudeModels, list = sh.querySelector('#s-models-list'), note = sh.querySelector('#s-models-note');
+    if (!cm || !list) return;
+    list.removeAttribute('aria-busy');
+    const focused = document.activeElement?.dataset?.offerModel;
+    list.innerHTML = cm.models.map(m => `<button class="opt" data-offer-model="${esc(m.id)}" aria-pressed="${m.offered}"${m.blocked ? ' aria-disabled="true"' : ''}><span class="dot${m.offered ? ' on' : ''}"></span><span>${esc(m.label)}<span class="sub">${esc(m.blocked ? m.reason : m.sub)}</span></span></button>`).join('');
+    if (focused) list.querySelector(`[data-offer-model="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+    const total = cm.models.length, on = cm.offered.length, blocked = cm.models.filter(m => m.blocked).length;
+    note.textContent = [
+      cm.source === 'settings' ? `Chosen here: the picker offers ${on} of ${total} models.` : cm.source === 'env' ? `From POCKET_CLAUDE_MODELS on this server: the picker offers ${on} of ${total} models. A change here replaces it.` : 'The picker offers every model. Turn off the ones this instance should not offer.',
+      blocked ? `This computer's Claude Code policy blocks ${blocked === 1 ? 'one' : blocked}, so ${blocked === 1 ? 'it is' : 'they are'} never offered.` : '',
+      cm.policy?.error ? `Claude Code's managed settings could not be read (${cm.policy.error}).` : '',
+      !on ? 'No model can be offered, so the picker shows only Default.' : '',
+      cm.pocketDefault?.configured && !cm.pocketDefault.used ? `The server's default model is not offered, so Default uses Claude Code's own (${cm.pocketDefault.label}).` : '',
+    ].filter(Boolean).join(' ');
+    sh.querySelector('#s-models-reset').hidden = !cm.saved;
+  };
+  const saveModelOffer = async (value, done) => {
+    const list = sh.querySelector('#s-models-list'); list.setAttribute('aria-busy', 'true');
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ offeredClaudeModels: value }), signal: AbortSignal.timeout(8000) });
+      claudeModelsLoaded = false; loadClaudeModels().then(() => renderToolbar());
+      toast(done);
+    } catch (err) { toast(err.message || 'Could not save the model list'); }
+    finally { list.removeAttribute('aria-busy'); if (sh.isConnected) paintModelOffer(); }
+  };
+  sh.querySelector('#s-models-list').onclick = e => {
+    const btn = e.target.closest('[data-offer-model]'), cm = srv?.claudeModels; if (!btn || !cm) return;
+    const m = cm.models.find(x => x.id === btn.dataset.offerModel); if (!m) return;
+    if (m.blocked) return toast(m.label + ': ' + m.reason);
+    if (m.offered && cm.offered.length === 1) return toast('Keep at least one model on');
+    const next = cm.models.filter(x => x.id === m.id ? !m.offered : x.selected).map(x => x.id);
+    saveModelOffer(next, m.offered ? m.label + ' is no longer offered' : m.label + ' is offered');
+  };
+  sh.querySelector('#s-models-reset').onclick = () => saveModelOffer(null, srv?.claudeModels?.env ? 'Back to the list in POCKET_CLAUDE_MODELS' : 'Every model is offered again');
   // 1.20: generated session titles. Server-wide like name sync: on/off and which CLI makes them.
   const paintTitles = () => {
     const t = srv?.titles, btn = sh.querySelector('#s-titles'), sel = sh.querySelector('#s-title-model'), state = sh.querySelector('#s-titles-state'), note = sh.querySelector('#s-title-note');
     if (!t || !btn) return;
     btn.disabled = false; btn.setAttribute('aria-pressed', String(t.enabled)); btn.querySelector('.dot').classList.toggle('on', t.enabled);
-    const name = p => p === 'codex' ? 'Codex · ' + (t.codex.label || t.models.codex) : 'Claude · Haiku';
+    const name = p => p === 'codex' ? 'Codex · ' + (t.codex.label || t.models.codex) : 'Claude · ' + (t.claudeModelLabel || 'Haiku');
     state.textContent = !t.enabled ? 'Off. Sessions named only by their first message show that message.'
       : t.using ? 'On, using ' + name(t.using) + '. A rename always comes first.'
       : 'On, but no signed-in Claude Code or Codex on this server can make titles.';
@@ -938,12 +993,12 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintNotifySettings(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
+      paintTitles(); paintNotifySettings(); paintModelOffer(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
     } catch {
-      if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-titles-state').textContent = 'Could not load this setting.'; retry.hidden = false; }
+      if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-titles-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-models-note').textContent = 'Could not load the model list.'; retry.hidden = false; }
     }
   };
   sh.querySelector('#s-sync-retry').onclick = loadSettings;
@@ -2557,6 +2612,7 @@ async function submitPending(id) {
     if (pending.files.length) localStorage.removeItem('pc-attachments-' + id);
     if (result.steered) steeredEchoes.set(id, [...(steeredEchoes.get(id) || []), { text: pending.text.trim(), at: Date.now() }]);
     deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current turn.' : result.steered ? 'Sent to the running turn.' : 'Message delivered.');
+    if (result.modelFallback) modelFellBack(id, result.modelFallback);
     if (chatId === id) {
       if (tb?.key === id && pending.files.length) tb.attachments = [];
       const box = $('#box'); if (box) box.value = '';
@@ -2673,6 +2729,10 @@ function openES() {
         lastMeta = { id: chatId, html: `<div class="turnmeta">${parts.join(' · ')}</div>` };
         msgs.insertAdjacentHTML('beforeend', lastMeta.html);
       }
+      scrollBottom();
+    }
+    else if (d.type === 'note') { // 1.52: e.g. the picked model is not offered, so the turn runs on the default
+      msgs.insertAdjacentHTML('beforeend', `<div class="turnmeta" role="status">${esc(d.text)}</div>`);
       scrollBottom();
     }
     else if (d.type === 'retry') { // rate limited — the server scheduled its own resume
@@ -2952,13 +3012,14 @@ async function renderNew() {
       if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) return toast('Retry the saved new-session request before changing it.');
       newPending = saved || { payload, clientMessageId: crypto.randomUUID(), ...(allowSecrets ? { allowSecrets: true } : {}) };
       saveOutbox(NEW_KEY, newPending);
-      const { id } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
-      setPrefs(id,{model:payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work',approvalMode:payload.approvalMode||approvalPolicy.defaultMode});
+      const { id, modelFallback } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
+      setPrefs(id,{model:modelFallback?'default':payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work',approvalMode:payload.approvalMode||approvalPolicy.defaultMode});
       saveOutbox(NEW_KEY, null);
       clearDraft(NEW_KEY); localStorage.removeItem('pc-attachments-'+NEW_KEY); localStorage.removeItem('pc-new-start'); if (tb?.key === NEW_KEY) tb.attachments = [];
       try { localStorage.setItem('pc-lastproj', cwd); } catch { }
       if (payload.project && typeof loadBoard === 'function') loadBoard(true).catch(() => { }); // the card now lists the session
       location.hash = '#/chat/' + id;
+      if (modelFallback) modelFellBack(null, modelFallback);
     } catch (e) {
       if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NEW_KEY, null);
       if (e.code === 'secret_detected') holdSecretStart(newPending?.payload.text || text, e.body?.matches || []);

@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.51.0 / build 105**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.52.0 / build 106**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -391,7 +391,9 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_MEMSTEM_URL` | no | MemStem daemon for searching inside conversations. Default `http://127.0.0.1:7821`; without a healthy MemStem, Pocket searches recent conversations itself. `POCKET_MEMSTEM=0` turns MemStem search off. |
 | `CODEX_BIN`, `CODEX_HOME` | no | Path to `codex` and its home directory, if not the defaults. |
 | `POCKET_RETRY_BUFFER_MS` | no | Wait after a usage-limit reset before auto-continuing. Default 5 minutes. |
-| `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | no | Pocket-only Claude default for turns left on Default, e.g. `claude-opus-5-5[1m]` and `high`. Model must be one of the picker ids. |
+| `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | no | Pocket-only Claude default for turns left on Default, e.g. `claude-opus-5-5[1m]` and `high`. The model must be one the picker offers; otherwise Default is the CLI's own default. |
+| `POCKET_CLAUDE_MODELS` | no | Claude models the picker offers until one is chosen in **Settings → Agents & instance → Claude models in the picker** (the Settings choice wins once saved). Comma-separated catalog ids, e.g. `claude-sonnet-5-5,claude-opus-5-5[1m]`. Default: every model. Models blocked by Claude Code's managed settings (`availableModels`/`deniedModels`) are never offered either way; see the [workspace guide](docs/workspace-guide.md#claude-models-in-the-picker). |
+| `POCKET_CLAUDE_MANAGED_DIR` | no | Where to read Claude Code's managed settings from, if not the system directory (`/etc/claude-code`, or `/Library/Application Support/ClaudeCode` on macOS). Used by the tests. |
 | `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | no | Pocket-only Codex default, e.g. `gpt-6-sol` and `medium`. |
 | `POCKET_DEFAULT_CWD` | no | Workspace the New session screen preselects, e.g. your home directory. Default: wherever you last started a session. |
 | `POCKET_IDLE_CLOSE_MS` | no | How long a session's process (Claude Code or Codex) stays up with no turn and no background job, in milliseconds. Default `3600000` (1 hour); `0` keeps processes until Pocket closes them for another reason. |
