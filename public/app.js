@@ -1003,7 +1003,7 @@ let sessionProofReceivedAt=0,sessionProofReceivedWallAt=0;
 // every device agrees; this browser keeps a copy so the list is right before the server answers or offline.
 // Unsent changes wait in seenPending (only moves forward) and seenRestore (Undo, exact) until a save succeeds.
 const serverSeen = new Map(), seenPending = new Map(), seenRestore = new Map();
-let seenFlushT = null, seenFlushing = null;
+let seenFlushT = null, seenFlushing = null, seenFlushAgain = false;
 const localSeen = id => { try { return Number(localStorage.getItem('pc-seen-' + id)) || 0; } catch { return 0; } };
 const seenAt = id => Math.max(localSeen(id), serverSeen.get(id) || 0);
 function setSeen(id, at) {
@@ -1012,7 +1012,7 @@ function setSeen(id, at) {
   seenRestore.delete(id); seenPending.set(id, at); clearTimeout(seenFlushT); seenFlushT = setTimeout(flushSeen, 250);
 }
 async function flushSeen() {
-  if (seenFlushing) return seenFlushing;
+  if (seenFlushing) { seenFlushAgain = true; return seenFlushing; }
   if (!seenPending.size && !seenRestore.size) return;
   const seen = Object.fromEntries(seenPending), restore = Object.fromEntries(seenRestore);
   seenFlushing = (async () => {
@@ -1022,7 +1022,10 @@ async function flushSeen() {
       for (const [id, at] of Object.entries(restore)) if (seenRestore.get(id) === at) seenRestore.delete(id);
       for (const [id, at] of Object.entries(r.seen || {})) if (!seenRestore.has(id)) serverSeen.set(id, at);
     } catch { } // kept for the next session refresh
-    finally { seenFlushing = null; }
+    finally {
+      seenFlushing = null;
+      if (seenFlushAgain) { seenFlushAgain = false; setTimeout(flushSeen, 0); }
+    }
   })();
   return seenFlushing;
 }

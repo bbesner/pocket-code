@@ -8,6 +8,18 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Claude account switch control (1.51)
+
+Pinned Operate refinement: variance 3, motion 1, density 5. The Claude Code account row
+shows the active turn count with **Stop all Claude turns** beside **Switch account**; the
+stop chip uses the existing error colour and stays disabled at zero. An inline second
+step names the live count and the effect on child processes before any stop request.
+After confirmation, the row reports progress until the count reaches zero, then directs
+the owner to switch accounts. Codex stays a separate row. Phone and desktop checks cover
+cancel, confirm, the zero state and accessibility without a new modal or visual language.
+The rendered detector pass at 390 and 1440 found only the existing sheet's flat type scale
+and wide dialog shadow; the new disabled stop chip's contrast finding was fixed.
+
 ## The due list and notification settings (1.50)
 
 Pinned Operate refinement (design-studio → impeccable): variance 3, motion 2, density 5;

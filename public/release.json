@@ -1,8 +1,7 @@
 {
-  "version": "1.50.2",
-  "assetV": 104,
+  "version": "1.51.0",
+  "assetV": 105,
   "notes": [
-    "Due tasks, reminders and Vault requests are pushed as urgent, so a phone that is idle shows them at once; finished turns stay normal priority.",
-    "The icon count is set after the notification is shown, so a browser that refuses it never loses the notification."
+    "Accounts & instance shows active Claude turns and a confirmed Stop all Claude turns control. It stops turns waiting on approvals too, so the shared Claude account can be switched without opening each session. Saved conversations and Codex turns remain."
   ]
 }

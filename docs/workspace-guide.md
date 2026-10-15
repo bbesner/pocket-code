@@ -633,6 +633,13 @@ Return to Pocket, paste the code including any `#` suffix, and choose **Finish s
 Pocket shows the verified account when the CLI finishes. Paste codes only in this
 form, not in a conversation.
 
+If Claude turns are still active, Accounts & instance shows their count and **Stop all
+Claude turns** beside **Switch account**. The confirmation states how many turns will
+stop. It includes turns waiting on approvals, and subprocesses of those turns may stop
+too. Saved conversations remain; Codex turns and idle Claude background jobs continue.
+When the count reaches zero, start the account switch. If more turns started after you
+opened the confirmation, refresh the count and confirm again.
+
 This changes the shared Claude login on this server, including code-server when it
 uses the same configuration. Finish Pocket’s current Claude turns first. Background
 jobs keep running and may keep their earlier login. Idle Claude processes close and

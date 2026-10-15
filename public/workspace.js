@@ -382,7 +382,51 @@ async function openQuestions(id){
 }
 async function openEnvironment(){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';sh.innerHTML='<h2>Accounts & instance</h2><div data-environment role="status">Checking provider sign-ins…</div>';mountSheet(scrim,sh);
- try{const d=await api('/environment');if(!sh.isConnected)return;sh.querySelector('[data-environment]').innerHTML=`<p class="sheet-help">${esc(d.host)} · Checked ${esc(new Date(d.checkedAt).toLocaleTimeString())}</p>${d.providers.map(p=>`<section class="provider-account"><h3>${p.provider==='codex'?'Codex':'Claude Code'}</h3><p>${esc(p.email||p.method)}</p><p class="sheet-help">${esc([p.plan,p.method].filter(Boolean).join(' · '))}${p.signedIn===false?' · Not signed in':p.signedIn===null?' · Could not verify':''}</p>${p.provider==='claude'&&d.capabilities?.claudeLogin?`<button class="chip" data-claude-login>${p.signedIn?'Switch account':'Sign in'}</button>`:''}</section>`).join('')}<p class="sheet-help">${esc(d.accountManagement)}</p><h3>Session controls</h3><p class="sheet-help">${esc(d.permissions)}. Codex Plan first can show native agent questions. Plan mode guides behavior; it does not change server permissions. Claude can show native questions during owned turns.</p><p class="sheet-help">MemStem and other tools follow each agent’s server configuration.</p><button class="chip" data-env-refresh>Refresh status</button>`;sh.querySelector('[data-env-refresh]').onclick=openEnvironment;sh.querySelector('[data-claude-login]')?.addEventListener('click',openClaudeLogin);}
+ try{
+  const d=await api('/environment');if(!sh.isConnected)return;
+  const count=Number.isInteger(d.claudeActive)?d.claudeActive:0;
+  sh.querySelector('[data-environment]').innerHTML=`<p class="sheet-help">${esc(d.host)} · Checked ${esc(new Date(d.checkedAt).toLocaleTimeString())}</p>${d.providers.map(p=>`<section class="provider-account"><h3>${p.provider==='codex'?'Codex':'Claude Code'}</h3><p>${esc(p.email||p.method)}</p><p class="sheet-help">${esc([p.plan,p.method].filter(Boolean).join(' · '))}${p.signedIn===false?' · Not signed in':p.signedIn===null?' · Could not verify':''}</p>${p.provider==='claude'?`<div class="provider-actions">${d.capabilities?.claudeLogin?`<button class="chip" data-claude-login>${p.signedIn?'Switch account':'Sign in'}</button>`:''}<button class="chip claude-stop" data-claude-stop ${count?'':'disabled'}>Stop all Claude turns</button></div><p class="sheet-help" data-claude-count aria-live="polite">${count} active Claude ${count===1?'turn':'turns'}</p><div class="claude-stop-confirm" data-claude-confirm hidden><p data-claude-stop-copy></p><div class="provider-actions"><button class="chip claude-stop" data-claude-stop-yes>Stop turns</button><button class="chip" data-claude-stop-no>Keep running</button></div></div><p class="question-error" data-claude-stop-error role="alert"></p>`:''}</section>`).join('')}<p class="sheet-help">${esc(d.accountManagement)}</p><h3>Session controls</h3><p class="sheet-help">${esc(d.permissions)}. Codex Plan first can show native agent questions. Plan mode guides behavior; it does not change server permissions. Claude can show native questions during owned turns.</p><p class="sheet-help">MemStem and other tools follow each agent’s server configuration.</p><button class="chip" data-env-refresh>Refresh status</button>`;
+  sh.querySelector('[data-env-refresh]').onclick=openEnvironment;
+  sh.querySelector('[data-claude-login]')?.addEventListener('click',openClaudeLogin);
+  const stop=sh.querySelector('[data-claude-stop]'),confirm=sh.querySelector('[data-claude-confirm]');
+  if(!stop)return;
+  const countLine=sh.querySelector('[data-claude-count]'),error=sh.querySelector('[data-claude-stop-error]');
+  let expected=count,stopping=false;
+  const showCount=n=>{countLine.textContent=`${n} active Claude ${n===1?'turn':'turns'}`;stop.disabled=stopping||n===0;};
+  stop.onclick=async()=>{
+   stop.disabled=true;error.textContent='';
+   try{
+    const {active}=await api('/claude/activity');if(!sh.isConnected)return;
+    expected=active;showCount(active);
+    if(!active)return;
+    confirm.hidden=false;stop.disabled=true;
+    confirm.querySelector('[data-claude-stop-copy]').textContent=`Stop ${active} active Claude ${active===1?'turn':'turns'}? Work in those turns and their child processes will stop. Saved conversations remain. Codex turns and idle background jobs continue.`;
+    const yes=confirm.querySelector('[data-claude-stop-yes]');yes.textContent=`Stop ${active} ${active===1?'turn':'turns'}`;yes.focus();
+   }catch(problem){if(sh.isConnected){error.textContent=problem.message;stop.disabled=false;}}
+  };
+  confirm.querySelector('[data-claude-stop-no]').onclick=()=>{confirm.hidden=true;stop.disabled=false;stop.focus();};
+  confirm.querySelector('[data-claude-stop-yes]').onclick=async()=>{
+   const yes=confirm.querySelector('[data-claude-stop-yes]');yes.disabled=true;error.textContent='';
+   try{
+    const {stopping:requested}=await api('/claude/stop-all',{method:'POST',body:JSON.stringify({expected})});
+    if(!sh.isConnected)return;
+    confirm.hidden=true;stopping=true;stop.disabled=true;countLine.textContent=`Stopping ${requested} Claude ${requested===1?'turn':'turns'}…`;
+    const poll=async()=>{
+     if(!sh.isConnected)return;
+     try{const {active}=await api('/claude/activity');if(!sh.isConnected)return;
+      if(active){countLine.textContent=`Waiting for ${active} Claude ${active===1?'turn':'turns'} to stop…`;setTimeout(poll,750);}
+      else{stopping=false;showCount(0);countLine.textContent='All Claude turns stopped. You can switch accounts now.';}
+     }catch(problem){stopping=false;error.textContent=problem.message;stop.disabled=false;}
+    };
+    poll();
+   }catch(problem){if(sh.isConnected){
+    confirm.hidden=true;error.textContent=problem.message;
+    try{const {active}=await api('/claude/activity');if(sh.isConnected){expected=active;showCount(active);}}
+    catch{stop.disabled=false;}
+   }}
+   finally{yes.disabled=false;}
+  };
+ }
  catch(e){if(sh.isConnected)sh.querySelector('[data-environment]').textContent=e.message;}
 }
 
