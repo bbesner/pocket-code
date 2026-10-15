@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.50.0] — Unreleased · build 102
+## [1.50.0] — 2026-10-15 · build 102
 
 - **Tasks is the one due list.** With Projects on, every open project reminder appears in the Tasks list and the rail's Tasks list among the dated tasks, soonest first, so the due ones lead: the row names the reminder, its project and the step, opens the project card, and its hourglass (or options) offers Remind later and Dismiss. The Tasks badge on the rail switch, the phone's Tasks chip and the tab mark count due tasks and due reminders together, and the Projects segment stops counting while Tasks is on (a project's own card and tab still mark its due reminders). **Scheduled** (`#/projects/scheduled`) opens the Tasks list on such an install; the Projects list's chip reads **Reminders** and points there. Installs with Projects on and Tasks off keep Scheduled as it was. Asked for by Brad after Damon found tasks and project reminders hard to tell apart.
 - **A count on the app icon.** The installed app's icon shows how many tasks and reminders are due, on browsers that support it (Android, iOS 16.4 and later, Windows, macOS), updated whenever Pocket repaints its badges and, when a due item is announced, by the push itself, so a phone that has not opened Pocket shows the right number. **Settings → Notifications & voice → Count on the app icon** turns it off for a device.
