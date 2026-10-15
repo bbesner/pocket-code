@@ -336,14 +336,18 @@ current. Edit it if you like, then Start. The new session is linked to the proje
 the card lists it; the project's chip beside Choose a skill shows which project it will join, and
 tapping it removes the link before you start. The agent is the one that last worked on the project.
 
+**Where reminders are listed.** With Tasks on (1.50), every open reminder appears in the
+[Tasks](#tasks) list among the dated tasks, soonest first, each opening its card; the Projects
+list's **Reminders** chip goes there, and `#/projects/scheduled` opens it. Without Tasks,
 **Scheduled** lists every open reminder across projects, due first. Only reminders Pocket
-Code itself keeps appear there. When a reminder comes due it is sent once to your devices
-by push, with a link to the card, and once to the server's reminder hook if the operator
-set one; the card and the Scheduled list keep showing it as due until you dismiss it or
-set a new time.
+Code itself keeps appear in either. When a reminder comes due it is sent once to your devices
+by push, with a link to the card and a **Tomorrow** action that moves it to 9 AM the next
+day, once to the server's reminder hook if the operator set one, and by email when
+[Settings → Notifications & voice](#settings-notifications-and-compact-views) has an address;
+the card and the list keep showing it as due until you dismiss it or set a new time.
 
 On the desktop the rail head switches between **Sessions | Projects | Files | Tasks**
-(a segment appears when its feature is on), and Projects shows the count of due reminders. Pick a project from the rail and it opens as a tab in the same
+(a segment appears when its feature is on), and Projects shows the count of due reminders while Tasks is off; with Tasks on, the Tasks segment counts tasks and reminders together. Pick a project from the rail and it opens as a tab in the same
 strip as sessions (pinning, closing and Alt [ / ] work the same; the tab's mark is the due
 count), beside the conversation, or in a new browser window of its own, whichever
 Settings → Projects, files, tasks & vault says; the options sheet and the view header offer all three every time.
@@ -437,9 +441,18 @@ you ask for it, a short briefing on that session. The list (`#/tasks`) opens lik
 tab, a split pane, a window of its own, or full-screen on the phone. Open tasks come first with
 the due ones at the top, finished ones collapse under Done, and the check button on each row
 marks it done or reopens it. A dated task is announced once when it comes due, by push with a
-link to the list and to the server's reminder hook (as `kind: "task"`); it stays due until it is
-done or given a new time. On the desktop the rail switch reads **Sessions | Projects | Files |
-Tasks** with the count of due tasks; the phone's session home gets a **Tasks** chip.
+link to the list and **Tomorrow** and **Done** actions (Tomorrow moves it to 9 AM the next day
+in the device's zone), to the server's reminder hook (as `kind: "task"`) and by email when an
+address is set; it stays due until it is done or given a new time. **Remind later** on a dated
+task's sheet picks a new time. On the desktop the rail switch reads **Sessions | Projects |
+Files | Tasks** with the count of due items; the phone's session home gets a **Tasks** chip.
+
+**One due list (1.50).** With Projects on as well, the open project reminders appear in the
+list among the dated tasks, soonest first, so whatever is due leads. A reminder row names the
+reminder, its project and the step it belongs to; the row opens the project card, and the
+hourglass (or the options button) offers **Remind later** and **Dismiss**. The Tasks badge, the
+phone chip and the tab mark count due tasks and due reminders together, and the Projects
+segment stops counting. The count also appears on the installed app's icon (see Settings).
 
 **Adding one.** **Add task** on the list, the **Add task** chip in a conversation's message
 toolbar (a check-box button in the working row while a turn runs), or **Add task** in a
@@ -643,10 +656,21 @@ Toolbar arrows reveal settings that do not fit. See [collapse behavior](session-
 **Settings → Appearance → Highlight colour** is Orange (the default), Blue or Purple. It colours the
 send button, links, active markers and your own messages, and is saved on this browser.
 
+**Notifications & voice (1.50).** **Push to this device** turns web push on or off for this
+browser; under it, **Finished turns**, **Due tasks and reminders** and **Vault requests** choose
+which kinds this device gets (kept with its subscription on the server, so each device
+chooses for itself). **Count on the app icon** shows how many tasks and reminders are due on
+the installed app's icon, where the browser supports it; a due announcement updates the count
+even before Pocket is opened. **Notice a day before** (instance-wide) sends a second
+announcement 24 hours ahead of a dated task or reminder. **Email due tasks and reminders to**
+takes an address when the server has `POCKET_SMTP_URL`; **Send a test** checks the path. A
+due notification offers **Tomorrow** (and **Done** for a task) and answers without opening
+Pocket; if the answer cannot land, Pocket opens instead.
+
 Push needs server VAPID keys, HTTPS and browser permission. A failed service-worker
 registration leaves other settings usable and presents a retry message for notifications.
 The completion chime and per-session mute are separate preferences. Installed-phone
-background delivery and audio behavior need a real-device check.
+background delivery, the icon count and audio behavior need a real-device check.
 
 ## Keyboard shortcuts
 

@@ -27,7 +27,8 @@ in Settings → Projects, files, tasks & vault, and a session works the same wit
    sessions that worked on it, so it can be picked up later.
 6. Files: keep the outputs worth finding again (reports, PDFs, images) and share one only when
    the owner decides to.
-7. Tasks: keep a to-do, with a time if one is given, and start a session from it.
+7. Tasks: keep a to-do, with a time if one is given, and start a session from it. With
+   Projects on, the list is the one place for everything with a time, reminders included.
 8. Vault: let agents use credentials by name, in commands and browser logins, without the
    values reaching the model, the transcript or memory, with the owner deciding how much
    they may do without asking.

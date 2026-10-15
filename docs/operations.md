@@ -204,11 +204,28 @@ Their data is in `projects.json`, `documents.json`, `tasks.json`, `vault.enc` wi
 directory, and keep them across upgrades.
 
 **Reminders and due tasks.** A project reminder or a dated task is announced once when it
-comes due: by web push, and by `POCKET_REMINDER_HOOK` if set. Pocket marks the item as
+comes due: by web push to the devices that chose *Due tasks and reminders* (every device,
+for subscriptions saved before 1.50), by `POCKET_REMINDER_HOOK` if set, and by email when
+`POCKET_SMTP_URL` is set and Settings names an address. Pocket marks the item as
 announced before sending, so a crash mid-send does not announce it twice, and a failed
-hook is logged but not retried. Due items are checked every `POCKET_REMINDER_CHECK_MS`
-(default 60000, minimum 250), with a first check a few seconds after start. A task stays
-due until it is done or re-dated.
+hook or mail is logged but not retried. With **Notice a day before** on in Settings
+(`remindAhead: 24` in `pocket-settings.json`), a second announcement goes out 24 hours
+ahead, marked `ahead: true` for the hook, for items that were set at least a day ahead.
+Due items are checked every `POCKET_REMINDER_CHECK_MS` (default 60000, minimum 250), with
+a first check a few seconds after start. A task stays due until it is done or re-dated.
+
+**Push preferences.** Each device's choices (which kinds, the icon count) are kept with its
+subscription in `push-subs.json` and changed through `/api/push/prefs`. A reminder push
+carries the count of due items (`badge`) only to devices that show it. The notification's
+**Tomorrow** and **Done** actions post to `/api/tasks/act` and `/api/board/act` from the
+service worker with the signed-in cookie.
+
+**Email.** `POCKET_SMTP_URL` is an `smtp://` or `smtps://` address (nodemailer's URL form);
+`POCKET_SMTP_FROM` is the sender, defaulting to the URL's user when it is an address. Links
+in the mail use `POCKET_PUBLIC_URL`, or the address the owner last signed in from
+(`publicUrl` in `pocket-settings.json`). `POCKET_SMTP_URL=file:/path` appends each message
+as a JSON line instead of sending; the tests use it. `/api/notify/test-email` sends a test
+message to the saved address.
 
 The hook is a shell command line, started with the same environment as agent turns (Pocket's own secrets removed, 1.37.1), that reads
 one JSON object on standard input. A project reminder carries `project`, `projectName`,

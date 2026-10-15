@@ -1133,9 +1133,28 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    settings.tasks=true;await page.evaluate(()=>fetch('/api/tasks/reset',{method:'POST'}));
    await page.goto(base+'/#/tasks');await page.waitForSelector('.task-item');
    const list=await page.evaluate(()=>({titles:[...document.querySelectorAll('.task-item .title')].map(e=>e.textContent),groups:[...document.querySelectorAll('.project-group h2')].map(h=>h.textContent.replace(/\s+/g,' ').trim()),due:document.querySelector('.task-item.due .due-label')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent,badge:document.querySelector('[data-tasks-badge]')?.textContent,done:document.querySelector('details.project-group')?.open}));
-   assert.deepEqual(list.titles,['Send the aisle 4 recount to purchasing','Chase the revised camera quote','Read the TVT firmware notes','Book the forklift service'],'due first, then dated, then undated, finished last');
-   assert.deepEqual(list.groups,['To do 3 · 1 due','Done 1']);assert.match(list.due,/^Due /);assert.equal(list.tab,'Tasks','the list is a tab like a session');assert.equal(list.badge,'1','due count on the rail switch');assert.equal(list.done,false,'finished tasks start collapsed');
+   // 1.50: with Projects on, the open project reminders sit among the dated tasks, soonest first; the Tasks badge counts both.
+   assert.deepEqual(list.titles,['Send the aisle 4 recount to purchasing','Recount aisle 4 excluding Friday delivery','Chase the revised camera quote','Chase the revised quote','Read the TVT firmware notes','Book the forklift service'],'due first (task, then reminder), then dated by time, then undated, finished last');
+   assert.deepEqual(list.groups,['To do 5 · 2 due','Done 1']);assert.match(list.due,/^Due /);assert.equal(list.tab,'Tasks','the list is a tab like a session');assert.equal(list.badge,'2','due tasks and reminders on the rail switch');assert.equal(list.done,false,'finished tasks start collapsed');
+   const rem=await page.evaluate(()=>{const r=document.querySelector('.reminder-item');return {due:r.classList.contains('due'),facts:r.querySelector('.session-status').textContent,href:r.querySelector('a.row').getAttribute('href'),icon:r.querySelector('.task-check').getAttribute('aria-label'),projectsBadge:document.querySelector('[data-projects-badge]')?.hidden,tabMark:document.querySelector('.open-session.current .tab-state')?.getAttribute('aria-label')};});
+   assert.equal(rem.due,true);assert.match(rem.facts,/^Due .*Warehouse stock report/);assert.match(rem.href,/^#\/projects\/warehouse-stock-report/);assert.match(rem.icon,/^Reminder options: Recount aisle 4/);
+   assert.equal(rem.projectsBadge,true,'the Projects segment stops counting while Tasks is on');assert.equal(rem.tabMark,'2 items are due');
    await scan('tasks-list-desktop');await page.screenshot({path:path.join(out,'tasks-list-desktop.png')});
+   // The reminder's hourglass opens its options; its row opens the project card; Scheduled now opens the Tasks list.
+   await clickControl(page,'.reminder-item .task-check');await page.waitForSelector('.sheet [data-later]');
+   assert.deepEqual(await page.$$eval('.sheet .opt',els=>els.map(e=>Object.keys(e.dataset)[0])),['open','later','dismiss'],'Open project, Remind later, Dismiss');
+   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.sheet'));
+   await clickControl(page,'.reminder-item a.row');await page.waitForSelector('.project-card');assert.match(await page.evaluate(()=>location.hash),/^#\/projects\/warehouse-stock-report/);
+   await page.goto(base+'/#/projects');await page.waitForSelector('#pj-track');
+   assert.match(await page.$eval('.session-home-head .chip.due',e=>e.textContent),/^Reminders · 1 due$/,'the Projects list counts its own due reminders and points at the one due list');assert.equal(await page.$eval('.session-home-head .chip.due',e=>e.getAttribute('href')),'#/tasks');
+   await page.goto(base+'/#/projects/scheduled');await page.waitForSelector('#tasks-main');assert.equal(await page.evaluate(()=>location.hash),'#/tasks','Scheduled opens the Tasks list while Tasks is on');
+   await page.waitForSelector('.task-item');
+   // Remind later on a dated task: the project reminder's quick picks, the task re-dated.
+   const later=await page.evaluate(()=>{const t=tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote');taskSheet(t.id);return t.dueAt;});
+   await page.waitForSelector('.task-sheet [data-later]');await clickControl(page,'.task-sheet [data-later]');await page.waitForSelector('.sheet [data-pick="week"]');
+   assert.deepEqual(await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.dataset.pick)),['tomorrow','three','monday','week']);
+   await clickControl(page,'.sheet [data-pick="week"]');await page.waitForFunction(prev=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt!==prev,{},later);
+   const moved=new Date(await page.evaluate(()=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt));assert.equal(moved.getHours(),9,'9 AM in the device zone');assert.ok(moved.getTime()-Date.now()>6*86400000,'a week out');
    // The sheet: facts and the briefing; Start writes the New session draft in the task's workspace.
    await clickControl(page,'.task-item [data-task-open]');await page.waitForSelector('.task-sheet');
    const sheet=await page.evaluate(()=>({text:document.querySelector('.task-sheet .task-text').textContent,summary:document.querySelector('.task-sheet .task-summary')?.textContent,facts:document.querySelector('.task-sheet .task-facts').textContent}));
@@ -1149,7 +1168,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // Done from the list clears the due badge; the task moves under Done.
    await page.goto(base+'/#/tasks');await page.waitForSelector('.task-item');
    await clickControl(page,'.task-item:not(.finished) [data-task-check]');await page.waitForFunction(()=>document.querySelectorAll('.task-item.finished').length===2);
-   assert.equal(await page.$eval('[data-tasks-badge]',e=>e.hidden),true,'the due task is done: no badge');
+   assert.equal(await page.$eval('[data-tasks-badge]',e=>e.textContent),'1','the due task is done: the due reminder is what remains');
    // From a session: the Add task chip, the editor naming the session, the briefing on by default and kept with the task.
    await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#task-open')?.hidden===false);
    assert.equal(await page.$eval('#task-open',e=>e.textContent),'Add task');assert.equal(await page.$eval('#task-open',e=>Boolean(e.closest('#tbar'))),true,'Add task is a chip in the message toolbar');
@@ -1176,8 +1195,21 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('#s-tasks',e=>e.getAttribute('aria-pressed')),'true');
    await clickControl(page,'#s-tasks');for(let i=0;i<30&&settings.tasks;i++)await sleep(100);assert.equal(settings.tasks,false,'the server setting changed');
    await page.keyboard.press('Escape');
+   // Settings → Notifications & voice (1.50): push by kind (off here, so the kinds wait), the icon count, the day-before notice and the email address.
+   settings.tasks=true;await page.goto(base+'/#/tasks');await page.waitForSelector('.task-item');
+   await page.evaluate(()=>settingsSheet({category:'notifications'}));await page.waitForFunction(()=>document.querySelector('#s-ahead')?.disabled===false);
+   const notify=await page.evaluate(()=>({heading:document.querySelector('.settings-sheet h2').textContent,push:document.querySelector('#s-push > span:last-child').firstChild.textContent,kindsDisabled:[...document.querySelectorAll('.push-kinds .opt')].map(b=>b.disabled),badge:Boolean(document.querySelector('#s-badge')),scopes:[...document.querySelectorAll('[data-settings-panel="notifications"] .settings-scope')].map(e=>e.textContent),ahead:document.querySelector('#s-ahead').getAttribute('aria-pressed'),email:document.querySelector('#s-email').disabled,note:document.querySelector('#s-email-note').textContent}));
+   assert.equal(notify.heading,'Notifications & voice');assert.equal(notify.push,'Push to this device');assert.deepEqual(notify.kindsDisabled,[true,true,true],'the kinds wait for a subscription');assert.equal(notify.badge,true);
+   assert.deepEqual(notify.scopes,['This device','This instance · all devices']);assert.equal(notify.ahead,'false');assert.equal(notify.email,false,'the fixture server has mail set up');assert.match(notify.note,/Enter the address/);
+   await clickControl(page,'#s-ahead');for(let i=0;i<30&&settings.remindAhead!==24;i++)await sleep(100);assert.equal(settings.remindAhead,24,'the notice is instance-wide');
+   await page.waitForFunction(()=>document.querySelector('#s-ahead')?.getAttribute('aria-pressed')==='true');
+   await page.type('#s-email','owner@example.test');await clickControl(page,'#s-email-save');for(let i=0;i<30&&settings.notifyEmail!=='owner@example.test';i++)await sleep(100);assert.equal(settings.notifyEmail,'owner@example.test');
+   await page.waitForFunction(()=>document.querySelector('#s-email-test')?.disabled===false);await clickControl(page,'#s-email-test');for(let i=0;i<30&&!(getMode().mailLog||[]).length;i++)await sleep(100);
+   assert.equal((getMode().mailLog||[]).length,1,'Send a test asked the server for a message');
+   await scan('settings-notifications');await page.screenshot({path:path.join(out,'settings-notifications.png')});
+   await page.keyboard.press('Escape');settings.remindAhead=0;settings.notifyEmail='';
    // The phone: a Tasks chip on the session home, the list full-screen.
-   settings.tasks=true;await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.waitForSelector('[data-tasks-home]');
+   await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.waitForSelector('[data-tasks-home]');
    await clickControl(page,'[data-tasks-home]');await page.waitForSelector('.task-item');await scan('tasks-list-mobile');await page.screenshot({path:path.join(out,'tasks-list-mobile.png')});
    await page.setViewport({width:1440,height:900});settings.tasks=false;settings.projects=false;settings.documents=false; // as the Projects check expects
   });

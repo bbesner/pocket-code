@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v101';
-const SHELL = ['/theme.js?v=101', '/', '/release.json?v=101', '/app.css?v=101', '/app.js?v=101', '/workspace.js?v=101', '/projects.js?v=101', '/documents.js?v=101', '/tasks.js?v=101', '/vault.js?v=101', '/secret-detect.js?v=101', '/approvals.js?v=101', '/split.js?v=101', '/tips.js?v=101', '/format.js?v=101', '/voice-text.js?v=101', '/voice.js?v=101', '/voice-worklet.js?v=101', '/vendor/marked.js?v=101', '/vendor/purify.js?v=101', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v102';
+const SHELL = ['/theme.js?v=102', '/', '/release.json?v=102', '/app.css?v=102', '/app.js?v=102', '/workspace.js?v=102', '/projects.js?v=102', '/documents.js?v=102', '/tasks.js?v=102', '/vault.js?v=102', '/secret-detect.js?v=102', '/approvals.js?v=102', '/split.js?v=102', '/tips.js?v=102', '/format.js?v=102', '/voice-text.js?v=102', '/voice.js?v=102', '/voice-worklet.js?v=102', '/vendor/marked.js?v=102', '/vendor/purify.js?v=102', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -28,11 +28,15 @@ self.addEventListener('push', e => {
     tag: d.tag || 'pc',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    data: { url: d.url || '/', ...(d.vaultRequest ? { vaultRequest: String(d.vaultRequest) } : {}) },
+    data: { url: d.url || '/', ...(d.vaultRequest ? { vaultRequest: String(d.vaultRequest) } : {}), ...(d.snooze && typeof d.snooze === 'object' ? { snooze: d.snooze } : {}) },
   };
   // 1.41: a Vault request carries Allow and Deny, answered from the notification without opening Pocket.
+  // 1.50: a due task or reminder carries Tomorrow (and Done for a task), answered the same way.
   if (Array.isArray(d.actions) && d.actions.length) opts.actions = d.actions.filter(a => a && a.action && a.title).map(a => ({ action: String(a.action), title: String(a.title) }));
-  e.waitUntil(self.registration.showNotification(d.title || 'Pocket Code', opts));
+  const jobs = [self.registration.showNotification(d.title || 'Pocket Code', opts)];
+  // 1.50: the count of due items on the app icon, when this device asked for it (the server sends it only then).
+  if (typeof d.badge === 'number' && 'setAppBadge' in self.navigator) jobs.push((d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge()).catch(() => {}));
+  e.waitUntil(Promise.all(jobs));
 });
 const openUrl = url => clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
   // split-view panes are window clients too; open the notification in the top-level window
@@ -45,9 +49,20 @@ const answerVault = (request, action, url) => fetch('/api/vault/act', {
   method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ action: 'answer', request, decision: action === 'allow' ? 'once' : 'deny' }),
 }).then(r => { if (!r.ok) return openUrl(url); }, () => openUrl(url));
+// 1.50: Tomorrow moves a due task or project reminder to 9 AM tomorrow in this device's zone; Done finishes a task.
+// Both go through the ordinary routes with the signed-in cookie; if the answer does not land, Pocket opens instead.
+const tomorrowNine = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d.toISOString(); };
+const post = (path, body) => fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+const answerDue = (snooze, action, url) => {
+  const req = snooze.task && !snooze.project
+    ? post('/api/tasks/act', action === 'done' ? { action: 'update', task: snooze.task, done: true } : { action: 'update', task: snooze.task, dueAt: tomorrowNine() })
+    : post('/api/board/act', { action: 'remind', project: snooze.project, at: tomorrowNine(), task: snooze.task || undefined, text: snooze.label || '' });
+  return req.then(r => { if (!r.ok) return openUrl(url); }, () => openUrl(url));
+};
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const data = e.notification.data || {}, url = data.url || '/';
   if ((e.action === 'allow' || e.action === 'deny') && data.vaultRequest) { e.waitUntil(answerVault(data.vaultRequest, e.action, url)); return; }
+  if ((e.action === 'later' || e.action === 'done') && data.snooze) { e.waitUntil(answerDue(data.snooze, e.action, url)); return; }
   e.waitUntil(openUrl(url));
 });

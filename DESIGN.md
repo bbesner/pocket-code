@@ -8,6 +8,23 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## The due list and notification settings (1.50)
+
+Pinned Operate refinement (design-studio → impeccable): variance 3, motion 2, density 5;
+existing tokens, no new colour. Read: one place for everything with a time, and one place to
+say how it reaches you. A project reminder in the Tasks list is a task row: the hourglass takes
+the check's 44px slot and opens the reminder's options, the row is a link to the card, and the
+status line reads due/date · project · step in the `--warn` due voice. Due items sort by time,
+tasks and reminders together, so the list needs no second group. The badge moves, it does not
+multiply: with Tasks on, the Tasks segment, chip, tab mark and the app icon carry the one
+count, and the Projects segment goes quiet (a card and its tab still mark their own). Settings →
+Notifications & voice keeps the `.opt` rows: *Push to this device*, then the three kinds as
+indented rows (`.push-kinds`, 24px in, 15.5px), *Count on the app icon*, *Notice a day before*,
+and the email address as a `.voice-field` with Save / Send a test chips in the Vault's
+field-and-chips arrangement; the instance-wide rows sit under their own scope heading.
+Rendered checks: the list at 1440 and 390 (no horizontal overflow), the Notifications panel;
+axe clean on each; the detector reports only the app-shell baseline.
+
 ## Files: select and delete (1.45)
 
 Pinned Operate refinement: variance 3, motion 2, density 6; existing tokens, no new colour.

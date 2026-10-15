@@ -1,7 +1,9 @@
 {
-  "version": "1.49.0",
-  "assetV": 101,
+  "version": "1.50.0",
+  "assetV": 102,
   "notes": [
-    "Projects: Start session on a project card opens a new session briefed on where the project stands (where you left off, the next step, open steps, recent notes) and links it to the project."
+    "Tasks is the one due list: with Projects on, open project reminders sit among the dated tasks, due first, and the Tasks badge and the app icon count both.",
+    "Settings \u2192 Notifications & voice: choose which notifications this device gets (finished turns, due tasks and reminders, Vault requests), the count on the app icon, a notice a day before, and an email address for due items when the server has POCKET_SMTP_URL.",
+    "A due notification offers Tomorrow (and Done for a task); Remind later on a task picks a new time."
   ]
 }

@@ -531,15 +531,16 @@ async function togglePush(btn) {
     if (sub) {
       await api('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) });
       await sub.unsubscribe();
-      toast('Turn-finished notifications off');
+      toast('Notifications off for this device');
     } else {
       const perm = await Notification.requestPermission();
       if (perm !== 'granted') return toast('Notifications blocked. Allow notifications in this site’s browser settings.');
       const { key } = await api('/push/key');
       if (!key) return toast('Push not configured on server');
       sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(key) });
-      await api('/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON() }) });
-      toast('You’ll get a notification when a turn finishes');
+      // 1.50: this device's choices travel with the subscription: every kind on, the icon count as set here.
+      await api('/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON(), prefs: { kinds: { turns: true, reminders: true, vault: true }, badge: typeof iconBadgeOn === 'function' ? iconBadgeOn() : true } }) });
+      toast('This device will get notifications');
     }
     const now = await pushState();
     if (btn?.id === 'bell') { btn.innerHTML = now ? IC.bell : IC.bellOff; btn.classList.toggle('on', Boolean(now)); }
@@ -583,7 +584,17 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
     <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse tool calls<span class="sub">Fold Bash, Edit and other actions behind a one-line summary</span></span></button>
     <button class="opt" id="s-times" aria-pressed="${showTimes()}"><span class="dot ${showTimes() ? 'on' : ''}"></span><span>Show message times<span class="sub">A time on each message and a divider for each day</span></span></button>
-    <button class="opt" id="s-push" aria-pressed="false"><span class="dot"></span><span>Turn notifications<span class="sub" id="s-push-state">Checking notification support…</span></span></button>
+    <button class="opt" id="s-push" aria-pressed="false"><span class="dot"></span><span>Push to this device<span class="sub" id="s-push-state">Checking notification support…</span></span></button>
+    <div class="title-settings push-kinds" id="s-push-kinds" role="group" aria-label="Which notifications this device gets">
+      <button class="opt" id="s-push-turns" disabled aria-pressed="false"><span class="dot"></span><span>Finished turns<span class="sub">When a session finishes a turn, unless that session is muted</span></span></button>
+      <button class="opt" id="s-push-reminders" disabled aria-pressed="false"><span class="dot"></span><span>Due tasks and reminders<span class="sub">Once when each comes due. Tomorrow and Done on the notification answer without opening Pocket</span></span></button>
+      <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">When an agent needs a secret you have to allow</span></span></button>
+    </div>
+    <button class="opt" id="s-badge" aria-pressed="false"><span class="dot"></span><span>Count on the app icon<span class="sub" id="s-badge-state">How many tasks and reminders are due, on the installed app's icon</span></span></button>
+    <button class="opt" id="s-ahead" disabled aria-pressed="false"><span class="dot"></span><span>Notice a day before<span class="sub" id="s-ahead-state">Loading the reminder setting…</span></span></button>
+    <div class="title-settings" id="s-email-wrap"><form class="email-form" id="s-email-form"><label class="voice-field">Email due tasks and reminders to<input type="email" name="to" id="s-email" placeholder="you@example.com" maxlength="200" autocomplete="email" disabled></label>
+      <span class="vault-set-actions"><button class="chip" type="submit" id="s-email-save" disabled>Save</button><button class="chip" type="button" id="s-email-test" disabled>Send a test</button></span>
+      <p class="title-note" id="s-email-note" role="status">Loading the email setting…</p></form></div>
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
     <button class="opt" id="s-titles" disabled aria-pressed="false"><span class="dot"></span><span>Generate short titles<span class="sub" id="s-titles-state">Loading the title setting…</span></span></button>
@@ -663,17 +674,71 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     e.currentTarget.setAttribute('aria-pressed', String(on));
     e.currentTarget.querySelector('.dot').classList.toggle('on', on);
   };
+  // 1.50: push by kind and the icon count are this device's choices, kept with its subscription on the server.
+  let pushSub = null, pushPrefs = null;
+  const PUSH_KINDS = ['turns', 'reminders', 'vault'];
+  const paintPushKinds = () => {
+    for (const k of PUSH_KINDS) { const b = sh.querySelector('#s-push-' + k); if (!b) continue; const on = Boolean(pushSub) && pushPrefs?.kinds?.[k] !== false; b.disabled = !pushSub; b.setAttribute('aria-pressed', String(on)); b.querySelector('.dot').classList.toggle('on', on); }
+  };
   const refreshPush = async () => {
     const reg = await pushRegistration();
     let sub = null;
     try { if (reg) sub = await reg.pushManager.getSubscription(); } catch { }
     if (!sh.isConnected) return;
+    pushSub = sub; pushPrefs = null;
     const btn = sh.querySelector('#s-push');
     btn.setAttribute('aria-pressed', String(Boolean(sub)));
     btn.querySelector('.dot').classList.toggle('on', Boolean(sub));
-    sh.querySelector('#s-push-state').textContent = reg ? 'Push to this device when a turn finishes' : 'Unavailable. Reload the app or tap to retry.';
+    sh.querySelector('#s-push-state').textContent = !reg ? 'Unavailable. Reload the app or tap to retry.' : sub ? 'On. Notifications reach this device even when Pocket is closed; choose which below' : 'Off. Turn on for finished turns, due tasks and reminders, and Vault requests on this device';
+    if (sub) { try { pushPrefs = (await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) })).prefs; } catch { pushPrefs = { kinds: { turns: true, reminders: true, vault: true }, badge: true }; } }
+    if (sh.isConnected) paintPushKinds();
   };
   sh.querySelector('#s-push').onclick = async e => { await togglePush(e.currentTarget); await refreshPush(); };
+  for (const k of PUSH_KINDS) sh.querySelector('#s-push-' + k).onclick = async e => {
+    if (!pushSub) return; const btn = e.currentTarget, on = btn.getAttribute('aria-pressed') !== 'true'; btn.disabled = true;
+    try { pushPrefs = (await api('/push/prefs', { method: 'POST', body: JSON.stringify({ endpoint: pushSub.endpoint, kinds: { [k]: on } }), signal: AbortSignal.timeout(8000) })).prefs; toast(({ turns: 'Finished turns', reminders: 'Due tasks and reminders', vault: 'Vault requests' })[k] + (on ? ' on for this device' : ' off for this device')); }
+    catch (err) { toast('Could not save: ' + (err.message || 'error')); }
+    finally { if (sh.isConnected) paintPushKinds(); }
+  };
+  // The icon count: supported in installed apps on most platforms; the server sends it with a reminder only to devices that want it.
+  const badgeBtn = sh.querySelector('#s-badge'), badgeAble = 'setAppBadge' in navigator;
+  const paintBadgeSetting = () => { const on = badgeAble && (typeof iconBadgeOn === 'function' ? iconBadgeOn() : true); badgeBtn.disabled = !badgeAble; badgeBtn.setAttribute('aria-pressed', String(on)); badgeBtn.querySelector('.dot').classList.toggle('on', on); sh.querySelector('#s-badge-state').textContent = !badgeAble ? 'Not available in this browser. Installed apps on Android, iOS 16.4+, Windows and macOS show it' : on ? 'How many tasks and reminders are due, on the installed app\'s icon' : 'Off. The icon shows no count'; };
+  paintBadgeSetting();
+  badgeBtn.onclick = async () => {
+    const on = !(typeof iconBadgeOn === 'function' ? iconBadgeOn() : true); writeLocal('pc-icon-badge', on); paintBadgeSetting(); if (typeof paintAppBadge === 'function') paintAppBadge();
+    if (pushSub) { try { pushPrefs = (await api('/push/prefs', { method: 'POST', body: JSON.stringify({ endpoint: pushSub.endpoint, badge: on }), signal: AbortSignal.timeout(8000) })).prefs; } catch { } }
+    toast(on ? 'The app icon will show the due count' : 'No count on the app icon');
+  };
+  // Instance-wide: the day-before notice and the email address (needs POCKET_SMTP_URL on the server).
+  const paintNotifySettings = () => {
+    if (!srv) return;
+    const ahead = sh.querySelector('#s-ahead'), on = Number(srv.remindAhead) === 24;
+    ahead.disabled = false; ahead.setAttribute('aria-pressed', String(on)); ahead.querySelector('.dot').classList.toggle('on', on);
+    sh.querySelector('#s-ahead-state').textContent = on ? 'A second notice 24 hours before a dated task or reminder comes due, the same way as the due one' : 'Off. Each task or reminder is announced once, when it comes due';
+    const em = srv.email || {}, input = sh.querySelector('#s-email'), save = sh.querySelector('#s-email-save'), test = sh.querySelector('#s-email-test'), note = sh.querySelector('#s-email-note');
+    input.disabled = save.disabled = !em.configured; test.disabled = !em.configured || !em.to;
+    if (document.activeElement !== input) input.value = em.to || '';
+    note.textContent = !em.configured ? (em.error ? 'Email cannot be set up: ' + em.error : 'Not set up on this server. Set POCKET_SMTP_URL (and POCKET_SMTP_FROM) in .env and restart to email due tasks and reminders.') + (em.hook ? ' This server runs its own reminder command as well.' : '')
+      : (em.to ? 'Due tasks and reminders are emailed to ' + em.to + ', from ' + em.from + '.' : 'Enter the address to send to; messages come from ' + em.from + '.') + (em.base ? '' : ' Links in the mail need POCKET_PUBLIC_URL, or one sign-in from your own address.') + (em.hook ? ' This server runs its own reminder command as well.' : '');
+  };
+  sh.querySelector('#s-ahead').onclick = async e => {
+    const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
+    try { srv = await api('/settings', { method: 'POST', body: JSON.stringify({ remindAhead: Number(srv.remindAhead) === 24 ? 0 : 24 }), signal: AbortSignal.timeout(8000) }); toast(Number(srv.remindAhead) === 24 ? 'A notice goes out a day before' : 'Announced once, when due'); }
+    catch (err) { toast('Could not save: ' + (err.message || 'error')); }
+    finally { paintNotifySettings(); }
+  };
+  sh.querySelector('#s-email-form').onsubmit = async e => {
+    e.preventDefault(); if (!srv) return; const to = sh.querySelector('#s-email').value.trim(), save = sh.querySelector('#s-email-save'); save.disabled = true;
+    try { srv = await api('/settings', { method: 'POST', body: JSON.stringify({ notifyEmail: to }), signal: AbortSignal.timeout(8000) }); toast(to ? 'Reminders will be emailed to ' + to : 'Email reminders off'); }
+    catch (err) { toast(err.message || 'Could not save the address'); }
+    finally { paintNotifySettings(); }
+  };
+  sh.querySelector('#s-email-test').onclick = async e => {
+    const btn = e.currentTarget; btn.disabled = true; sh.querySelector('#s-email-note').textContent = 'Sending a test message…';
+    try { const r = await api('/notify/test-email', { method: 'POST', body: '{}', signal: AbortSignal.timeout(30000) }); toast('Test message sent to ' + r.to); }
+    catch (err) { toast(err.message || 'The test message could not be sent'); }
+    finally { paintNotifySettings(); }
+  };
   // 1.20: generated session titles. Server-wide like name sync: on/off and which CLI makes them.
   const paintTitles = () => {
     const t = srv?.titles, btn = sh.querySelector('#s-titles'), sel = sh.querySelector('#s-title-model'), state = sh.querySelector('#s-titles-state'), note = sh.querySelector('#s-title-note');
@@ -872,7 +937,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
+      paintTitles(); paintNotifySettings(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
@@ -1371,7 +1436,7 @@ function bindSessionPanel(container) {
 async function renderList() {
   Voice.onLeave();
   app.innerHTML = `<header class="bar"><h1>Pocket Code</h1>
-    <button class="icon bell" id="bell" aria-label="Toggle turn-finished notifications">${IC.bellOff}</button>
+    <button class="icon bell" id="bell" aria-label="Toggle notifications for this device">${IC.bellOff}</button>
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
     <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New session">${IC.plus}</button>`;
@@ -2913,6 +2978,7 @@ async function route() {
   if (typeof vaultView !== 'undefined') vaultView = null; // 1.39: the same for the Vault
   if (h.startsWith('#/chat/')) return renderChat(h.slice(7), { away: true });
   if (typeof docView !== 'undefined') docView = null;
+  if (h === '#/projects/scheduled' && tasksOn()) { location.replace('#/tasks'); return; } // 1.50: with Tasks on, reminders are listed there
   if (isViewId(h.slice(2))) return h === '#/vault' ? renderVault('vault') : h === '#/tasks' ? renderTasks('tasks') : h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30/1.36: project, document and task views
   if (h === '#/new') return renderNew();
   return renderList();

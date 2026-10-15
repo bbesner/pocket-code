@@ -1,6 +1,6 @@
 {
   "name": "pocket-code",
-  "version": "1.49.0",
+  "version": "1.50.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -49,6 +49,7 @@
     "dompurify": "3.4.16",
     "express": "^4.19.0",
     "marked": "18.0.14",
+    "nodemailer": "^7.0.13",
     "web-push": "^3.6.7"
   },
   "devDependencies": {

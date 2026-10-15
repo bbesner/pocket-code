@@ -2,7 +2,9 @@
    it on (window.pocketFeatures.tasks). One view, the list (#/tasks), which opens like a session: as a tab, beside a
    conversation, in a window of its own, or full-screen on the phone. A task is a line of text with an optional due
    time, the session it came from and, when asked for, a briefing on that session; Start opens a New session with the
-   task as its first message, ready to send. Data comes from /api/tasks; every change goes through /api/tasks/act. */
+   task as its first message, ready to send. Data comes from /api/tasks; every change goes through /api/tasks/act.
+   1.50: while Projects is on too, the list is the one place for everything with a time: open project reminders sit
+   among the dated tasks, due first, each opening its card; the Tasks badge counts both, and the app icon shows it. */
 const tasksOn=()=>Boolean(window.pocketFeatures?.tasks);
 let tasksSnap=null,tasksAt=0,tasksLoading=null,taskView=null;
 const taskById=id=>tasksSnap?.tasks.find(t=>t.id===id)||null;
@@ -27,8 +29,18 @@ async function taskAct(body,done){
  catch(e){const cur=e.body?.task;if(e.status===409&&cur){mergeTask(cur);paintTasksView();paintRailTasks();}toast(e.message||'Could not update the task');return null;}
 }
 const taskDueCount=()=>tasksSnap?.dueCount||0;
+// 1.50: the project reminders that belong in the list (open ones on projects that are not done), and the combined due count.
+const dueReminders=()=>typeof projectsOn==='function'&&projectsOn()&&typeof boardSnap!=='undefined'&&boardSnap?boardSnap.scheduled.filter(r=>r.projectStatus!=='done'):[];
+const dueTotal=()=>taskDueCount()+(tasksOn()?dueReminders().filter(r=>r.due).length:0);
 const taskViewTitle=()=>'Tasks';
 const taskWhen=t=>t.dueAt?(t.due?'Due ':'')+fmtDue(t.dueAt):'';
+// The app icon's count (1.50): due tasks and reminders together, on browsers that support it, unless this device turned it off.
+const iconBadgeOn=()=>readLocal('pc-icon-badge',true)!==false;
+function paintAppBadge(){
+ if(!('setAppBadge' in navigator))return;
+ const n=iconBadgeOn()?(tasksOn()?dueTotal():typeof boardDueCount==='function'&&typeof projectsOn==='function'&&projectsOn()?boardDueCount():0):0;
+ try{(n>0?navigator.setAppBadge(n):navigator.clearAppBadge())?.catch?.(()=>{});}catch{}
+}
 
 /* ---------- the list view ---------- */
 async function renderTasks(view){
@@ -48,7 +60,7 @@ async function renderTasks(view){
  else if(!SOLO){bindViewBack($('#back'),view);$('#splitb').onclick=chooseBeside;}
  $('#kwin')?.addEventListener('click',()=>openInWindow(view));
  const tog=$('#railtog');if(tog)tog.onclick=()=>{localStorage.setItem('pc-rail',railOpen()?'closed':'open');route();};
- try{await Promise.all([loadTasks(true),typeof refreshSessions==='function'?refreshSessions().catch(()=>{}):null]);} // session names for the rows
+ try{await Promise.all([loadTasks(true),typeof refreshSessions==='function'?refreshSessions().catch(()=>{}):null,typeof projectsOn==='function'&&projectsOn()&&typeof loadBoard==='function'?loadBoard().catch(()=>{}):null]);} // session names for the rows; the board for its reminders (1.50)
  catch(e){if(taskView!==view)return;const main=$('#tasks-main');if(!main)return;if(tasksSnap)paintTasksView();showLibraryError(main,e,'Tasks',()=>renderTasks(view),Boolean(tasksSnap));restoreViewPosition(view);return;}
  if(taskView!==view)return;
  if(PANE)paneSay('route',{id:view,title:'Tasks'});else if(SOLO)document.title='Tasks · Pocket Code';else rememberOpenView(view,'Tasks');
@@ -71,18 +83,36 @@ function taskRowHTML(t){
   <button class="row" data-task-open="${esc(t.id)}"><span class="body"><span class="title">${esc(t.text)}</span>${facts?`<span class="session-status">${facts}</span>`:''}</span></button>
   <button class="session-more icon" data-task-more="${esc(t.id)}" aria-label="Options for ${esc(t.text)}">${IC.more}</button></div>`;
 }
+// A project reminder in the list (1.50): the hourglass opens its options (Remind later, Dismiss), the row opens the card.
+function reminderRowHTML(r){
+ const facts=[`<span class="${r.due?'due-label':''}">${r.due?'Due ':''}${esc(fmtDue(r.dueAt))}</span>`,`<span>${esc(r.projectName)}</span>`,r.taskText&&r.taskText!==r.label?`<span>${esc(r.taskText)}</span>`:''].filter(Boolean).join('<span aria-hidden="true">·</span>');
+ return `<div class="session-item task-item reminder-item ${r.due?'due':''}" data-item="${esc(r.id)}">
+  <button class="task-check" data-reminder-more="${esc(r.project)}/${esc(r.id)}" aria-label="Reminder options: ${esc(r.label)}">${IC.hourglass}</button>
+  <a class="row" href="${viewHref('projects/'+r.project)}" data-reminder-open="${esc(r.project)}"><span class="body"><span class="title">${esc(r.label)}</span><span class="session-status">${facts}</span></span></a>
+  <button class="session-more icon" data-reminder-more="${esc(r.project)}/${esc(r.id)}" aria-label="Options for reminder ${esc(r.label)}">${IC.more}</button></div>`;
+}
+// Open tasks and project reminders in one order: everything with a time, soonest first (so the due ones lead), then the undated tasks.
+function openRows(){
+ const open=tasksSnap.tasks.filter(t=>!t.done),dated=open.filter(t=>t.dueAt).map(t=>({at:Date.parse(t.dueAt),html:taskRowHTML(t)})),rems=dueReminders().map(r=>({at:Date.parse(r.dueAt),html:reminderRowHTML(r)}));
+ return [...dated,...rems].sort((a,b)=>a.at-b.at).map(x=>x.html).concat(open.filter(t=>!t.dueAt).map(taskRowHTML));
+}
 function taskListHTML(){
- const open=tasksSnap.tasks.filter(t=>!t.done),done=tasksSnap.tasks.filter(t=>t.done),due=taskDueCount();
+ const open=tasksSnap.tasks.filter(t=>!t.done),done=tasksSnap.tasks.filter(t=>t.done),rems=dueReminders(),due=dueTotal(),count=open.length+rems.length;
+ const withProjects=typeof projectsOn==='function'&&projectsOn();
  return `<div class="session-home-head"><h2>Tasks</h2><span class="project-head-actions"><button class="chip" id="tk-add">${IC.plus}Add task</button></span></div>
-  ${tasksSnap.tasks.length?`${open.length?`<section class="session-group project-group"><h2>To do <span>${open.length}${due?` · ${due} due`:''}</span></h2>${open.map(taskRowHTML).join('')}</section>`:'<p class="sheet-help project-empty">Nothing to do. Add a task here, or from a session with Add task.</p>'}
+  ${count||done.length?`${count?`<section class="session-group project-group"><h2>To do <span>${count}${due?` · ${due} due`:''}</span></h2>${openRows().join('')}</section>`:'<p class="sheet-help project-empty">Nothing to do. Add a task here, or from a session with Add task.</p>'}
    ${done.length?`<details class="session-group project-group settings-details"><summary><h2>Done <span>${done.length}</span></h2></summary>${done.map(taskRowHTML).join('')}</details>`:''}`
-  :`<p class="sheet-help project-empty">No tasks yet. Add one here, from a session's Add task chip, or by telling an agent "create a task to …". A task can carry a date and the context of the session it came from, and Start opens a new session with it.</p>`}`;
+  :`<p class="sheet-help project-empty">No tasks yet. Add one here, from a session's Add task chip, or by telling an agent "create a task to …". A task can carry a date and the context of the session it came from, and Start opens a new session with it.${withProjects?' Project reminders appear here too, when a project has one.':''}</p>`}`;
 }
 function bindTaskRows(root){
  root.querySelectorAll('[data-task-check]').forEach(b=>b.onclick=()=>{const t=taskById(b.dataset.taskCheck);if(t)taskAct({action:'update',task:t.id,expected_revision:t.revision,done:!t.done},t.done?'Task reopened':'Task done');});
  root.querySelectorAll('[data-task-open]').forEach(b=>b.onclick=()=>taskSheet(b.dataset.taskOpen));
  root.querySelectorAll('[data-task-more]').forEach(b=>b.onclick=()=>taskMenu(b.dataset.taskMore));
+ root.querySelectorAll('[data-reminder-more]').forEach(b=>b.onclick=()=>{const [project,id]=b.dataset.reminderMore.split('/');if(typeof reminderOptions==='function')reminderOptions(project,id);});
+ root.querySelectorAll('a[data-reminder-open]').forEach(a=>a.onclick=e=>{const id='projects/'+a.dataset.reminderOpen;if(typeof openViewPreferred==='function')openViewPreferred(id,'pc-projects-open',e,isWide()&&typeof boardView!=='undefined'&&boardView!==id);});
 }
+// Repaint whatever shows tasks after the board changed (a reminder set, replaced or dismissed), from projects.js.
+function repaintDue(){paintTasksView();paintRailTasks();paintTaskBadges();}
 
 /* ---------- one task: the sheet, options, editor, start ---------- */
 function taskSheet(id){
@@ -94,16 +124,30 @@ function taskSheet(id){
   ${t.done?'':`<button class="opt" data-start>${IC.plus}<span>Start<span class="sub">A new session with this task as its first message, ready to send</span></span></button>`}
   ${t.session?`<button class="opt" data-session>${IC.term}<span>Open the session<span class="sub">${esc(t.sessionTitle||sessionName(t.session))}</span></span></button>`:''}
   <button class="opt" data-done>${t.done?IC.swap:IC.tick}<span>${t.done?'Reopen':'Mark done'}</span></button>
+  ${t.done||!t.dueAt?'':`<button class="opt" data-later>${IC.hourglass}<span>Remind later<span class="sub">Pick a new time; it is announced again then</span></span></button>`}
   <button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Text, date and context</span></span></button>
   <button class="opt" data-remove>${IC.x}<span>Remove</span></button>`;
  sh.querySelector('[data-start]')?.addEventListener('click',()=>{closeCurrentSheet?.();startTask(t);});
  sh.querySelector('[data-session]')?.addEventListener('click',()=>{closeCurrentSheet?.();location.hash='#/chat/'+t.session;});
  sh.querySelector('[data-done]').onclick=()=>{closeCurrentSheet?.();taskAct({action:'update',task:t.id,expected_revision:t.revision,done:!t.done},t.done?'Task reopened':'Task done');};
+ sh.querySelector('[data-later]')?.addEventListener('click',()=>{closeCurrentSheet?.();taskLaterSheet(t);});
  sh.querySelector('[data-edit]').onclick=()=>{closeCurrentSheet?.();taskEditor(t);};
  sh.querySelector('[data-remove]').onclick=()=>{closeCurrentSheet?.();confirmSheet('Remove this task?',t.text,'Remove it',()=>taskAct({action:'remove',task:t.id},'Task removed'));};
  mountSheet(scrim,sh);
 }
 const taskMenu=taskSheet;
+// Remind later (1.50): the same quick picks as a project reminder, in this device's zone; the task keeps its text and context.
+function taskLaterSheet(t){
+ const picks=typeof quickPicks==='function'?quickPicks():[];
+ const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
+ sh.innerHTML=`<h2>Remind later</h2><p class="sheet-name">${esc(t.text)}</p>
+  ${picks.map(([k,label,d])=>`<button class="opt" data-pick="${k}"><span class="dot"></span><span>${label}<span class="sub">${esc(fmtDue(d.toISOString()))}</span></span></button>`).join('')}
+  <form class="project-form reminder-form"><label class="voice-field">Another time<input type="datetime-local" name="when" required></label><button class="primary" type="submit">Set the time</button></form>`;
+ const send=d=>{closeCurrentSheet?.();taskAct({action:'update',task:t.id,expected_revision:t.revision,dueAt:d.toISOString()},'Task moved to '+fmtDue(d.toISOString()));};
+ sh.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>send(picks.find(x=>x[0]===b.dataset.pick)[2]));
+ sh.querySelector('form').onsubmit=e=>{e.preventDefault();const d=new Date(e.target.elements.when.value);if(Number.isNaN(d.getTime()))return toast('Pick a date and time.');if(d.getTime()<Date.now()-60000)return toast('That time has passed.');send(d);};
+ mountSheet(scrim,sh);
+}
 // Start: a New session in the task's workspace with the task as the draft, so one tap of Send begins the work.
 function startTask(t){
  const lines=[t.text];
@@ -166,9 +210,9 @@ function paintChatTask(){
 /* ---------- rail, home chip, badges, tabs ---------- */
 function railTasksHTML(){
  if(!tasksSnap)return '<p class="sheet-help">Loading tasks…</p>';
- const open=tasksSnap.tasks.filter(t=>!t.done),done=tasksSnap.tasks.length-open.length;
+ const open=tasksSnap.tasks.filter(t=>!t.done),done=tasksSnap.tasks.length-open.length,rows=openRows();
  return `<div class="rail-projects rail-tasks"><div class="rail-project-actions"><button class="chip" id="rail-task-add">${IC.plus}Add task</button><a class="chip" href="${viewHref('tasks')}" data-view-link>All</a></div>
-  ${open.length?open.slice(0,40).map(taskRowHTML).join(''):'<p class="sheet-help">Nothing to do. Add a task, or ask an agent to create one.</p>'}
+  ${rows.length?rows.slice(0,40).join(''):'<p class="sheet-help">Nothing to do. Add a task, or ask an agent to create one.</p>'}
   ${done?`<a class="rail-done-link" href="${viewHref('tasks')}" data-view-link>${done} done</a>`:''}</div>`;
 }
 function paintRailTasks(){
@@ -179,11 +223,13 @@ function paintRailTasks(){
  if(!tasksSnap||Date.now()-tasksAt>4000)loadTasks(true).then(()=>{paintRailTasks();paintTaskBadges();}).catch(()=>{const r=document.getElementById('rail');if(!tasksSnap&&r&&railView()==='tasks')r.innerHTML='<p class="sheet-help">Tasks could not load.</p>';});else paintTaskBadges();
 }
 function paintTaskBadges(){
- const due=taskDueCount();
+ const due=dueTotal(); // 1.50: tasks and project reminders together; the Projects segment stops counting while Tasks is on
  paintChatTask();
  document.querySelectorAll('[data-tasks-badge]').forEach(el=>{el.textContent=due?String(due):'';el.hidden=!due;});
  document.querySelectorAll('[data-tasks-home]').forEach(el=>{el.textContent='Tasks'+(due?' · '+due+' due':'');el.classList.toggle('due',due>0);});
+ paintAppBadge();
 }
-const taskTabState=()=>{const due=taskDueCount();return due?{kind:'due',label:due===1?'A task is due':due+' tasks are due'}:null;};
+const dueWords=n=>n===1?'One item is due':n+' items are due';
+const taskTabState=()=>{const due=dueTotal();return due?{kind:'due',label:dueReminders().length?dueWords(due):due===1?'A task is due':due+' tasks are due'}:null;};
 function tasksTick(){if(!tasksOn()||document.visibilityState!=='visible'||!(taskView||railView()==='tasks'||document.querySelector('[data-tasks-home]')))return;loadTasks(true).then(()=>{paintTasksView();paintRailTasks();paintTaskBadges();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
 setInterval(tasksTick,30000);onListsStale(tasksTick);
