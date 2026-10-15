@@ -3058,7 +3058,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Tasks is the one due list: with Projects on, open project reminders sit among the dated tasks, due first, and the Tasks badge and the app icon count both.", "Settings → Notifications & voice: choose which notifications this device gets (finished turns, due tasks and reminders, Vault requests), the count on the app icon, a notice a day before, and an email address for due items when the server has POCKET_SMTP_URL.", "A due notification offers Tomorrow (and Done for a task); Remind later on a task picks a new time."];
+const RELEASE_NOTES = ["Settings has a gear icon (it looked like a sun, so it read as a light or brightness control), and the composer's message-settings toggle and Permissions use a sliders icon, so app settings and per-message settings no longer share one symbol."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

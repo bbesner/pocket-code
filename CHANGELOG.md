@@ -3,6 +3,10 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.50.1] — Unreleased · build 103
+
+- **Settings looks like settings.** The Settings button in the header and the rail drew a small circle with eight short rays, which reads as a sun (a brightness or light control), not a gear; Damon raised it more than once. It is now an eight-toothed gear in the same 1.8px stroke, which also marks tool calls without a more specific icon. The composer's **Hide/Show message settings** toggle and **Permissions for the next turn** in a session's options use a new sliders icon, since they adjust one turn rather than open the app's Settings. No other change. Reported by Damon, via Brad.
+
 ## [1.50.0] — 2026-10-15 · build 102
 
 - **Tasks is the one due list.** With Projects on, every open project reminder appears in the Tasks list and the rail's Tasks list among the dated tasks, soonest first, so the due ones lead: the row names the reminder, its project and the step, opens the project card, and its hourglass (or options) offers Remind later and Dismiss. The Tasks badge on the rail switch, the phone's Tasks chip and the tab mark count due tasks and due reminders together, and the Projects segment stops counting while Tasks is on (a project's own card and tab still mark its due reminders). **Scheduled** (`#/projects/scheduled`) opens the Tasks list on such an install; the Projects list's chip reads **Reminders** and points there. Installs with Projects on and Tasks off keep Scheduled as it was. Asked for by Brad after Damon found tasks and project reminders hard to tell apart.
