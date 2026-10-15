@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.51.0] — 2026-10-15 · build 105
+
+- **Stop all Claude turns before switching accounts.** Accounts & instance shows the active Claude turn count beside the Claude sign-in control. **Stop all Claude turns** requires a second tap that states how many turns will stop and what happens to their subprocesses. It handles turns waiting on approval as well as turns still producing output. Saved conversations remain; Codex turns and idle Claude background jobs keep running. If more Claude turns start after the confirmation, Pocket asks for a fresh review instead of stopping unseen work.
+- The authenticated, same-origin `/api/claude/stop-all` endpoint checks the confirmed count, stops only Pocket-owned Claude turns and reports progress; `/api/claude/activity` supplies the live count. Added HTTP coverage for approval waits, authentication, CSRF, stale counts and saved transcripts, plus phone and desktop browser checks for cancel, confirm and the completed state.
+- Claude runner recovery markers are now written atomically. A concurrent reader could previously see partial JSON while a turn or background job changed state; that caused an intermittent sign-in test failure and could prevent adoption after a daemon restart.
+- A reviewed marker changed during an in-flight save is now flushed after that save completes. This covers Undo while another marker request is pending; the browser check waits for the server record instead of assuming a fixed network delay.
+
 ## [1.50.2] — 2026-10-15 · build 104
 
 - **Reminder pushes reach an idle phone.** A due task, a due reminder and a Vault request were sent at the push service's normal priority, which Android holds back while the phone is idle, so the 1.50.0 test reminders never showed on Brad's phone while the same pushes marked urgent arrived at once. Those three kinds are now sent with `Urgency: high`; a finished turn stays normal priority so a busy session does not keep waking the phone. Found with Brad.

@@ -1190,7 +1190,7 @@ function writeRunnerMeta(r) {
     waitingForInput: Boolean(t && (t.questions?.list().length || t.approvals?.list().length || t.inputUnavailable || t.approvalUnavailable)),
     waitingForApproval: Boolean(t?.approvals?.list().length || t?.approvalUnavailable),
   };
-  try { fs.writeFileSync(r.files.meta, JSON.stringify(meta), { mode: 0o600 }); } catch { }
+  try { atomicWrite(r.files.meta, meta); } catch { }
 }
 
 // Keep the number of live CLI processes under MAX_PROCESSES by closing the longest-idle
@@ -3062,7 +3062,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Due tasks, reminders and Vault requests are pushed as urgent, so a phone that is idle shows them at once; finished turns stay normal priority.", "The icon count is set after the notification is shown, so a browser that refuses it never loses the notification."];
+const RELEASE_NOTES = ["Accounts & instance shows active Claude turns and a confirmed Stop all Claude turns control. It stops turns waiting on approvals too, so the shared Claude account can be switched without opening each session. Saved conversations and Codex turns remain."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
@@ -3096,7 +3096,27 @@ function binVersion(bin) {
 app.get('/api/environment',requireAuth,async(_req,res)=>{
   res.setHeader('Cache-Control','private, no-store');
   const [claude,cx]=await Promise.all([readClaudeIdentity(CLAUDE_BIN,spawnEnv()),CODEX_ON?codex.accountSummary().catch(()=>({provider:'codex',signedIn:null,method:'Status unavailable'})):Promise.resolve({provider:'codex',signedIn:false,method:'Not installed'})]);
-  res.json({host:os.hostname(),checkedAt:Date.now(),providers:[claude,cx],permissions:'Selectable native tool approvals; not employee isolation',accountManagement:'Claude sign-in changes the shared login on this server, including code-server using the same configuration. Other open Claude processes may need reopening. Codex sign-in is managed by its installed CLI.',capabilities:{claudeQuestions:true,codexQuestions:CODEX_ON,approvalControls:true,claudeLogin:true}});
+  res.json({host:os.hostname(),checkedAt:Date.now(),providers:[claude,cx],claudeActive:turns.size,permissions:'Selectable native tool approvals; not employee isolation',accountManagement:'Claude sign-in changes the shared login on this server, including code-server using the same configuration. Other open Claude processes may need reopening. Codex sign-in is managed by its installed CLI.',capabilities:{claudeQuestions:true,codexQuestions:CODEX_ON,approvalControls:true,claudeLogin:true}});
+});
+app.get('/api/claude/activity',requireAuth,(_req,res)=>{
+  res.setHeader('Cache-Control','private, no-store');
+  res.json({active:turns.size});
+});
+app.post('/api/claude/stop-all',requireAuth,(req,res)=>{
+  res.setHeader('Cache-Control','private, no-store');
+  if (!req.is('application/json') || req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({error:'Open this control from Pocket Code.'});
+  const expected=req.body?.expected;
+  if (!Number.isSafeInteger(expected) || expected<0 || expected>1000) return res.status(400).json({error:'Refresh Claude activity and try again.'});
+  if (turns.size>expected) return res.status(409).json({error:'More Claude turns started since you confirmed. Review the new count before stopping them.',active:turns.size});
+  let stopping=0;
+  for (const [id,turn] of turns) {
+    if (turn.stopped || turn.finalized) continue;
+    turn.stopped=true;
+    signalTurn(turn);
+    stopping++;
+    log(`stop requested (account switch) session=${id}`);
+  }
+  res.json({stopping,active:turns.size});
 });
 app.get('/api/claude/login',requireAuth,(_req,res)=>{
   res.setHeader('Cache-Control','private, no-store');

@@ -557,8 +557,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForSelector('[data-mark-all-reviewed]');await page.screenshot({path:path.join(out,'review-bar.png')});
    await clickControl(page,'[data-mark-all-reviewed]');await pause(200);await page.screenshot({path:path.join(out,'review-bar-undo.png')});
    assert.equal(await listed(),false,'bulk mark leaves Attention');
-   await pause(400);assert.equal(done.seenAt,at,'saved on the server for other devices');
-   await clickControl(page,'[data-undo-reviewed]');await pause(400);
+   for(let attempt=0;attempt<100&&done.seenAt!==at;attempt++)await pause(50);
+   assert.equal(done.seenAt,at,'saved on the server for other devices');
+   await clickControl(page,'[data-undo-reviewed]');
+   for(let attempt=0;attempt<100&&done.seenAt!==undefined;attempt++)await pause(50);
    assert.equal(await listed(),true,'Undo brings it back');
    assert.equal(done.seenAt,undefined,'Undo also clears it on the server');
    await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,at]);

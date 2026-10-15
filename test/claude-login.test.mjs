@@ -45,7 +45,7 @@ test('one flow handles split output, passes codes only over stdin and verifies i
 });
 
 test('busy work is preserved, cancellation invalidates old codes and expiry kills the child',async()=>{
-  const busy=fixture({busy:()=>true});assert.throws(()=>busy.login.start(),/still working/);assert.equal(busy.calls.length,0);
+  const busy=fixture({busy:()=>true});assert.throws(()=>busy.login.start(),/active turns/);assert.equal(busy.calls.length,0);
   const {login,child,calls}=fixture({timeoutMs:20});const started=login.start();child.stdout.write(url+'\n');
   login.cancel(started.id);assert.equal(login.active,false);assert.equal(login.snapshot().url,null);assert.ok(calls.includes('SIGTERM'));
   assert.throws(()=>login.submit(started.id,'code'),/no longer/);
@@ -121,4 +121,48 @@ test('authenticated HTTP login: CSRF, privacy, reconnect, turn gate, completion 
   const cancel=await (await request('claude/login/cancel',{id:next.id})).json();assert.equal(cancel.status,'cancelled');
   assert.equal((await request('session/'+background.id+'/release',{stop:true})).status,200);
   assert.doesNotMatch(logs,/test-code|private-test-code|code_challenge/);
+});
+
+test('stop all Claude turns clears the sign-in gate, including approval waits',async context=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-stop-all-test-'));
+  const repo=path.resolve(import.meta.dirname,'..'),secret=randomUUID(),expires=Date.now()+3600000;
+  const cookie='pc_auth='+expires+'.'+createHmac('sha256',secret).update(String(expires)).digest('hex');
+  const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('POCKET_')&&!key.startsWith('VAPID_')&&!key.startsWith('ANTHROPIC_')&&!key.startsWith('CLAUDE_')));
+  let child,startup='';
+  child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...env,PORT:'0',POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_AUTO_TITLES:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_CONFIG_DIR:path.join(dir,'config'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
+  child.stdout.on('data',data=>startup+=data);child.stderr.on('data',data=>startup+=data);
+  context.after(async()=>{child.kill('SIGTERM');if(child.exitCode===null&&child.signalCode===null)await once(child,'exit');fs.rmSync(dir,{recursive:true,force:true,maxRetries:10});});
+  for(let attempt=0;attempt<150&&!startup.includes('listening on');attempt++)await new Promise(resolve=>setTimeout(resolve,40));
+  const port=startup.match(/listening on 127\.0\.0\.1:(\d+)/)?.[1];assert.ok(port,startup);
+  const base='http://127.0.0.1:'+port;
+  const request=(route,body,headers={})=>fetch(base+'/api/'+route,{method:body===undefined?'GET':'POST',headers:{cookie,'content-type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body)});
+  const first=await (await request('new',{cwd:dir,text:'__APPROVAL__'})).json();
+  const second=await (await request('new',{cwd:dir,text:'__HANG__'})).json();
+  assert.ok(first.id&&second.id);
+  const saved=id=>path.join(dir,'sessions','test-workspace',id+'.jsonl');
+  for(let attempt=0;attempt<100;attempt++){
+    const activity=await (await request('claude/activity')).json();
+    const approvals=await (await request('session/'+first.id+'/approvals')).json();
+    if(activity.active===2&&approvals.requests.length&&fs.existsSync(saved(first.id))&&fs.existsSync(saved(second.id)))break;
+    await new Promise(resolve=>setTimeout(resolve,30));
+  }
+  assert.equal((await (await request('claude/activity')).json()).active,2);
+  assert.equal((await (await request('session/'+first.id+'/approvals')).json()).requests.length,1);
+  assert.ok(fs.existsSync(saved(first.id))&&fs.existsSync(saved(second.id)));
+  assert.equal((await request('claude/login/start',{})).status,409);
+  assert.equal((await fetch(base+'/api/claude/activity')).status,401);
+  assert.equal((await request('claude/stop-all',{expected:2},{cookie:''})).status,401);
+  assert.equal((await request('claude/stop-all',{expected:2},{'sec-fetch-site':'cross-site'})).status,403);
+  assert.equal((await request('claude/stop-all',{expected:2},{'content-type':'text/plain'})).status,403);
+  assert.equal((await request('claude/stop-all',{expected:1})).status,409);
+  assert.equal((await request('claude/stop-all',{expected:-1})).status,400);
+  const stopped=await (await request('claude/stop-all',{expected:2})).json();assert.equal(stopped.stopping,2);
+  for(let attempt=0;attempt<150;attempt++){const activity=await (await request('claude/activity')).json();if(activity.active===0)break;await new Promise(resolve=>setTimeout(resolve,40));}
+  assert.equal((await (await request('claude/activity')).json()).active,0);
+  assert.equal((await (await request('claude/stop-all',{expected:0})).json()).stopping,0);
+  for(const id of [first.id,second.id]){
+    assert.ok(fs.existsSync(saved(id)),'saved transcript remains for '+id);
+  }
+  const started=await (await request('claude/login/start',{})).json();assert.ok(started.id);
+  assert.equal((await request('claude/login/cancel',{id:started.id})).status,200);
 });
