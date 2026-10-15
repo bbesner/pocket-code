@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.48.1 / build 100**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.49.0 / build 101**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -30,7 +30,8 @@ are there, with the draft you left.
 ### Projects, files and tasks beside the work
 
 Four optional libraries keep what comes out of a session from getting lost. **Projects**
-hold where you left off, the next step, a checklist and reminders. **Files** keeps the
+hold where you left off, the next step, a checklist and reminders; **Start session** opens a new
+session briefed on where the project stands and linked to it. **Files** keeps the
 reports, dashboards and spreadsheets agents produce, rendered in place and shared only when
 you ask. **Tasks** are to-dos with an optional date, linked to the session they came from;
 **Start** opens a new session with the task already written in. The **Vault** keeps API keys,
@@ -162,8 +163,9 @@ refresh when the window comes back into focus, when a turn ends in any Pocket wi
 device, and when you open them, so an item an agent adds shows up without a reload.
 
 - **Projects** keep a card for each piece of work: where you left off, the next step, a
-  checklist, reminders (announced once when due) and the sessions that worked on it. A
-  Scheduled view lists every reminder, due first. See [Projects](docs/workspace-guide.md#projects).
+  checklist, reminders (announced once when due) and the sessions that worked on it.
+  **Start session** opens a new session in the project's directory, briefed on the card and
+  linked to it. A Scheduled view lists every reminder, due first. See [Projects](docs/workspace-guide.md#projects).
 - **Files** keeps the reports, dashboards and spreadsheets that came out of the work, in a
   grid or a list. HTML renders sandboxed; PDFs, images, Markdown and CSV render in place.
   Files are private until you share one by link or publicly; removed files wait 30 days

@@ -241,6 +241,7 @@ const server=http.createServer(async(req,res)=>{
   if(!receipts.has(body.clientMessageId)){
    dispatches++;const id='66666666-6666-4666-8666-666666666666';
    rows.push({...idle,id,title:body.text});conversations.set(id,[{role:'user',text:body.text}]);receipts.set(body.clientMessageId,{id});
+   if(body.project)try{board.act({action:'link-session',project:body.project,session:id},{actor:'ui'});}catch{} // 1.49, as the server does
   }
   if(failNext){req.socket.destroy();return;}return json(receipts.get(body.clientMessageId),202);
  }

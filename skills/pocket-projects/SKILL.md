@@ -103,6 +103,10 @@ not approval to deploy, spend money or contact anyone; those still need the user
 
 Name a project with `-p <id>` (from `status --all`) when you are not in its directory.
 
+A session started with **Start session** on a project card is already linked to the project,
+and its first message is a briefing that names the project id and its open step ids. Pick up
+from the next step; do not link the session again or track a duplicate.
+
 ## If Projects is off
 
 `pocket-board` exits with code 3 and says so. Tell the user that Projects is turned off and
