@@ -1821,7 +1821,33 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Done');
    c=await card();assert.deepEqual(c.reminders,[],'finishing stops the reminders');assert.deepEqual(c.actions,['Resume project']);assert.equal(await page.$('[data-task-add]'),null,'a finished card takes no new steps');
    await clickControl(page,'[data-resume]');await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Active');
-   c=await card();assert.deepEqual(c.reminders,[],'resuming does not restore them');assert.deepEqual(c.actions,['Edit','Remind me','Finish project']);
+   c=await card();assert.deepEqual(c.reminders,[],'resuming does not restore them');assert.deepEqual(c.actions,['Start session','Edit','Remind me','Finish project']);
+   // 1.49 Start session: a New session in the project's directory, briefed on the card and linked to the project when it starts.
+   await page.evaluate(async()=>{const act=b=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:'warehouse-stock-report',...b})});await act({action:'note',text:'MOM shows the Friday delivery twice.'});await act({action:'remind',at:new Date(Date.now()+86400000).toISOString(),text:'Revisit Warehouse stock report'});});
+   await page.reload();await page.waitForSelector('.project-card [data-start]');
+   await clickControl(page,'.project-card [data-start]');await page.waitForSelector('#first');await page.waitForFunction(()=>document.querySelector('#plist .row.sel')&&!document.querySelector('#new-project').hidden);
+   const brief=await page.$eval('#first',e=>e.value);
+   assert.match(brief,/^Pick up the project "Warehouse stock report" where it left off\.\n\nWhere we left off: Counts for aisles 1-3/);
+   assert.match(brief,/\nNext step: Recount aisle 4 with the Friday delivery excluded/);
+   assert.match(brief,/\nRemaining steps \(2 of 3 done\):\n- Post the inventory adjustment \(step [0-9a-f]{12}\)\n/);
+   assert.match(brief,/\nRecent notes:\n- .+: MOM shows the Friday delivery twice\.\n/);assert.match(brief,/\nReminders:\n- Revisit Warehouse stock report/);
+   assert.match(brief,new RegExp('Earlier sessions on this project, newest last:\\n- Warehouse stock report \\(Claude session '+rows[0].id+'\\)'));
+   assert.match(brief,/\(Pocket project warehouse-stock-report; this session is linked to it\..*pocket-board update -p warehouse-stock-report/);
+   assert.equal(await page.$eval('#plist .row.sel',e=>e.dataset.p),'/workspaces/warehouse','Start picks the project\'s directory');
+   assert.equal(await page.$eval('#new-project',e=>e.textContent),'Warehouse stock report','the New session names the project it will join');
+   await scan('project-start-desktop');await page.screenshot({path:path.join(out,'project-start-desktop.png')});
+   const sentBefore=received.length;await clickControl(page,'#start');await page.waitForFunction(()=>location.hash.startsWith('#/chat/'));
+   assert.equal(received.length,sentBefore+1);assert.equal(received.at(-1).project,'warehouse-stock-report','the start carries the project');assert.equal(received.at(-1).cwd,'/workspaces/warehouse');
+   const newId=await page.evaluate(()=>location.hash.slice(7));
+   assert.equal(await page.evaluate(()=>localStorage.getItem('pc-new-start')),null,'the link is used once');
+   await page.goto(base+'/#/projects/warehouse-stock-report');await page.waitForSelector('.project-card');
+   assert.ok((await page.evaluate(()=>projectById('warehouse-stock-report').sessions)).includes(newId),'the card lists the new session');
+   // The link can be removed before starting; then the start carries no project.
+   await clickControl(page,'.project-card [data-start]');await page.waitForSelector('#new-project:not([hidden])');
+   await clickControl(page,'#new-project');await page.waitForSelector('.sheet [data-yes]');await clickControl(page,'.sheet [data-yes]');
+   await page.waitForFunction(()=>document.querySelector('#new-project').hidden);assert.equal(await page.evaluate(()=>localStorage.getItem('pc-new-start')),null);
+   await page.evaluate(()=>{clearDraft(NEW_KEY);localStorage.removeItem('pc-lastproj');});
+   await page.goto(base+'/#/projects/warehouse-stock-report');await page.waitForSelector('.project-card');
    // Track a project from a session: the editor takes the session's workspace, the card links the session.
    await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#project-open')?.hidden===false);
    assert.equal(await page.$eval('#project-open',e=>e.textContent),'Add project','the conversation offers Add project (1.36 wording)');

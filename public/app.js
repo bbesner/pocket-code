@@ -2648,7 +2648,7 @@ async function renderNew() {
     <div id="new-delivery" class="delivery-status" role="status" hidden></div>
     <main class="scroll"><div class="pane task-pane">
       <div><label class="task-heading" for="first">What would you like done?</label><div class="starters" id="starters" hidden></div><textarea id="first" placeholder="Describe the task, or choose a skill below."></textarea></div>
-      <div class="task-actions" id="new-actions"><button class="chip" id="choose-skill">Choose a skill</button><button class="chip" id="save-prompt" disabled>Save as prompt</button></div>
+      <div class="task-actions" id="new-actions"><button class="chip" id="choose-skill">Choose a skill</button><button class="chip" id="save-prompt" disabled>Save as prompt</button><button class="chip conversation-project linked" id="new-project" hidden></button></div>
       <details id="new-setup"><summary id="choose-workspace"><span class="task-context" id="task-context"></span><span class="setup-edit">Edit setup</span></summary><div class="setup-fields">
       <div><span class="h">Model, reasoning and permissions</span><div class="toolbar" id="tbar"></div></div>
       <div><span class="h" id="agenth">Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth">
@@ -2669,6 +2669,18 @@ async function renderNew() {
   // which agent runs this session — remembered, since most days you stay on one
   let provider = pendingNew?.payload.provider || (localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude');
   let sel = null;
+  // 1.49: Start session on a project card leaves its id here; the session is linked to the project when it starts.
+  let startFrom = pendingNew?.payload.project ? { project: pendingNew.payload.project, projectName: pendingNew.payload.projectName || '' } : readLocal('pc-new-start', null);
+  const paintNewProject = () => {
+    const b = $('#new-project'); if (!b) return;
+    b.hidden = !startFrom?.project;
+    if (!startFrom?.project) return;
+    const name = startFrom.projectName || startFrom.project;
+    b.innerHTML = IC.folder + '<span>' + esc(name) + '</span>'; b.title = 'This session will be linked to the project ' + name;
+    b.setAttribute('aria-label', 'Linked to the project ' + name + '. Options');
+    b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.'); confirmSheet('Start without the project?', 'The new session will not be linked to ' + name + '. The briefing stays in the message; edit it if you no longer want it.', 'Remove the link', () => { startFrom = null; try { localStorage.removeItem('pc-new-start'); } catch { } paintNewProject(); }); };
+  };
+  paintNewProject();
   const context = () => {const cwd=$('#cpath')?.value.trim()||sel;const el=$('#task-context');if(el)el.dataset.workspace=cwd?projName(cwd):'Choose a workspace';updateNewSummary();};
   $('#new-setup').ontoggle=()=>{ $('#new-setup .setup-edit').textContent=$('#new-setup').open?'Close setup':'Edit setup'; };
   $('#cpath').oninput=context;
@@ -2710,11 +2722,11 @@ async function renderNew() {
     };
     pl.querySelectorAll('.row').forEach(r => r.onclick = () => pick(r));
     // preselect the instance's default workspace, else where you last started a session
-    const last = defaultCwd || localStorage.getItem('pc-lastproj');
+    const last = startFrom?.cwd || defaultCwd || localStorage.getItem('pc-lastproj');
     const lastRow = last && pl.querySelector(`.row[data-p="${CSS.escape(last)}"]`);
     // 1.19: with no default and nothing remembered, start in the most recent workspace (shown above Start).
     const firstRow = pl.querySelector('.row');
-    if (lastRow) pick(lastRow); else if (firstRow && !$('#cpath').value.trim()) pick(firstRow);
+    if (lastRow) pick(lastRow); else if (startFrom?.cwd && !pendingNew) { $('#cpath').value = startFrom.cwd; context(); } else if (firstRow && !$('#cpath').value.trim()) pick(firstRow);
     bindRadioGroup(pl);
   } catch { }
   if(viewVersion!==chatRenderVersion)return;
@@ -2724,7 +2736,7 @@ async function renderNew() {
     if (!note) return;
     note.hidden = !pending;
     note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><button class="chip" id="discard-new">Discard retry</button>' : '';
-    const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NEW_KEY, null); clearDraft(NEW_KEY); renderNew(); };
+    const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NEW_KEY, null); clearDraft(NEW_KEY); localStorage.removeItem('pc-new-start'); renderNew(); };
     app.querySelectorAll('.pane input,.pane textarea,.pane button:not(#start)').forEach(el => { el.disabled = Boolean(pending); });
     $('#start').textContent = pending ? 'Retry start' : 'Start session';
   };
@@ -2857,7 +2869,7 @@ async function renderNew() {
     $('#start-hint').hidden = true;
     $('#start').disabled = true; $('#start').textContent = 'Starting…';
     try {
-      const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts() };
+      const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts(), ...(startFrom?.project ? { project: startFrom.project, projectName: startFrom.projectName || '' } : {}) };
       const saved = loadOutbox(NEW_KEY);
       if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) return toast('Retry the saved new-session request before changing it.');
       newPending = saved || { payload, clientMessageId: crypto.randomUUID(), ...(allowSecrets ? { allowSecrets: true } : {}) };
@@ -2865,8 +2877,9 @@ async function renderNew() {
       const { id } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
       setPrefs(id,{model:payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work',approvalMode:payload.approvalMode||approvalPolicy.defaultMode});
       saveOutbox(NEW_KEY, null);
-      clearDraft(NEW_KEY); localStorage.removeItem('pc-attachments-'+NEW_KEY); if (tb?.key === NEW_KEY) tb.attachments = [];
+      clearDraft(NEW_KEY); localStorage.removeItem('pc-attachments-'+NEW_KEY); localStorage.removeItem('pc-new-start'); if (tb?.key === NEW_KEY) tb.attachments = [];
       try { localStorage.setItem('pc-lastproj', cwd); } catch { }
+      if (payload.project && typeof loadBoard === 'function') loadBoard(true).catch(() => { }); // the card now lists the session
       location.hash = '#/chat/' + id;
     } catch (e) {
       if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NEW_KEY, null);

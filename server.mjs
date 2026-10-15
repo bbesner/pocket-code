@@ -2221,6 +2221,13 @@ app.post('/api/prompts/order', requireAuth, (req, res) => { try { promptStore.or
 app.patch('/api/prompts/:id', requireAuth, (req, res) => { try { res.json({ prompt: promptStore.update(req.params.id, req.body || {}), ...promptStore.list() }); } catch (e) { promptError(res, e); } });
 app.delete('/api/prompts/:id', requireAuth, (req, res) => { try { promptStore.remove(req.params.id); res.json(promptStore.list()); } catch (e) { promptError(res, e); } });
 
+// 1.49: a session started from a project card is linked to that project. A missing, finished or switched-off project
+// never blocks the start; the session simply starts unlinked.
+function linkStartedSession(project, id) {
+  if (!project || !settings.projects) return;
+  try { board.act({ action: 'link-session', project: String(project).slice(0, 80), session: id }, { actor: 'ui' }); log(`board link-session project=${project} session=${id} (started from the card)`); }
+  catch (e) { log(`project link skipped project=${project} session=${id}: ${e.message}`); }
+}
 app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const cwd = String(req.body?.cwd || '').trim();
   const text = String(req.body?.text || '').trim();
@@ -2232,14 +2239,16 @@ app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secre
     if (!CODEX_ON) return res.status(400).json({ error: 'codex not available on this box' });
     try { // Codex mints the thread id, so the client learns it from the response
       const turn = await startCodexFromApi({ threadId: null, cwd, text, body: req.body });
-      try { promptStore.recordRecent({ text, cwd, provider: 'codex' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
+      if (!req.body?.project) try { promptStore.recordRecent({ text, cwd, provider: 'codex' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
+      linkStartedSession(req.body?.project, codex.CX + turn.threadId);
       return res.status(202).json({ id: codex.CX + turn.threadId });
     } catch (e) { return res.status(500).json({ error: String(e.message) }); }
   }
   const id = randomUUID();
   try {
     startTurn({ sessionId: id, cwd, text, resume: false, ...turnOpts(req.body) });
-    try { promptStore.recordRecent({ text, cwd, provider: 'claude' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
+    if (!req.body?.project) try { promptStore.recordRecent({ text, cwd, provider: 'claude' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
+    linkStartedSession(req.body?.project, id);
     res.status(202).json({ id });
   } catch (e) {
     res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) });
@@ -2966,7 +2975,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Codex sessions: a message you just sent stays on screen while the turn starts, instead of vanishing until you reopen the session."];
+const RELEASE_NOTES = ["Projects: Start session on a project card opens a new session briefed on where the project stands (where you left off, the next step, open steps, recent notes) and links it to the project."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

@@ -124,7 +124,7 @@ function projectCardHTML(p){
   ${typeof projectDocumentsHTML==='function'?projectDocumentsHTML(p.id):''}
   <section class="project-notes"><form class="task-add" data-note-add><input name="text" maxlength="600" required placeholder="Add a note" aria-label="New note" autocomplete="off"><button class="chip" type="submit">Note</button></form></section>
   <details class="settings-details project-history"><summary>History<span class="summary-meta">${p.history.length}</span></summary><ul>${p.history.slice().reverse().map(h=>`<li><span class="ledger"><span class="name">${esc(fmtDue(h.at))}</span><span class="det">${esc(historyLine(h))}</span></span></li>`).join('')}</ul></details>
-  <div class="project-actions">${done?'<button class="chip set" data-resume>Resume project</button>':`<button class="chip" data-edit>Edit</button><button class="chip" data-remind>Remind me</button><button class="chip" data-finish>Finish project</button>`}</div>
+  <div class="project-actions">${done?'<button class="chip set" data-resume>Resume project</button>':`<button class="chip set" data-start>Start session</button><button class="chip" data-edit>Edit</button><button class="chip" data-remind>Remind me</button><button class="chip" data-finish>Finish project</button>`}</div>
  </article>`;
 }
 function historyLine(h){
@@ -147,6 +147,7 @@ function bindProjectsView(main){
  main.querySelectorAll('[data-remind-later]').forEach(b=>b.onclick=()=>reminderSheet(id,p.reminders.find(r=>r.id===b.dataset.remindLater)?.task||null));
  main.querySelectorAll('[data-dismiss]').forEach(b=>b.onclick=()=>confirmSheet('Dismiss this reminder?','Dismissing stops it. The project and its steps stay as they are.','Dismiss reminder',()=>act({action:'reminder-dismiss',reminder:b.dataset.dismiss},'Reminder dismissed')));
  main.querySelectorAll('[data-resume]').forEach(b=>b.onclick=()=>act({action:'update',status:'active'},'Project resumed'));
+ main.querySelector('[data-start]')?.addEventListener('click',()=>startProject(p));
  main.querySelector('[data-edit]')?.addEventListener('click',()=>projectEditor(p));
  main.querySelector('[data-remind]')?.addEventListener('click',()=>reminderSheet(id,null));
  main.querySelector('[data-finish]')?.addEventListener('click',()=>confirmSheet('Finish this project?','It moves to Done and its reminders stop. Unchecked steps stay in its history; Resume brings it back without them.','Finish project',()=>act({action:'update',status:'done'},'Project finished')));
@@ -169,6 +170,7 @@ function projectOptions(id){
    here?'':`<button class="opt" data-open>${IC.folder}<span>Open<span class="sub">${PANE?'In this pane':SOLO?'In this window':'As a tab, like a session'}</span></span></button>`,
    !PANE&&!SOLO&&isWide()&&!here&&typeof openBeside==='function'?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">In a pane next to the current view</span></span></button>`:'',
    `<button class="opt" data-window>${IC.external}<span>Open in a new window<span class="sub">A browser tab or app window of its own</span></span></button>`])}
+  ${p.status==='done'?'':optGroup('Work on it',[`<button class="opt" data-start>${IC.plus}<span>Start a session<span class="sub">A new session briefed on where the project stands, linked to it</span></span></button>`])}
   ${optGroup('Project',[p.status==='done'?`<button class="opt" data-resume>${IC.up}<span>Resume project<span class="sub">Back to Active, without its old reminders</span></span></button>`:`<button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, summary, next step, waiting for, directory, link</span></span></button>
   <button class="opt" data-remind>${IC.hourglass}<span>Remind me<span class="sub">A reminder for the project, sent once when due</span></span></button>
   ${p.status==='waiting'?`<button class="opt" data-active>${IC.tick}<span>Mark active<span class="sub">No longer waiting on anyone</span></span></button>`:`<button class="opt" data-waiting>${IC.hourglass}<span>Mark waiting<span class="sub">Waiting on someone or something; say who in Edit</span></span></button>`}
@@ -178,6 +180,7 @@ function projectOptions(id){
  sh.querySelector('[data-open]')?.addEventListener('click',()=>{close();location.hash=viewHref('projects/'+id);});
  sh.querySelector('[data-beside]')?.addEventListener('click',()=>{close();openBeside('projects/'+id);});
  sh.querySelector('[data-window]')?.addEventListener('click',()=>{close();openInWindow('projects/'+id);});
+ sh.querySelector('[data-start]')?.addEventListener('click',()=>{close();startProject(p);});
  sh.querySelector('[data-edit]')?.addEventListener('click',()=>{close();projectEditor(p);});
  sh.querySelector('[data-remind]')?.addEventListener('click',()=>{close();reminderSheet(id,null);});
  sh.querySelector('[data-active]')?.addEventListener('click',()=>{close();act({action:'update',status:'active'},'Project active');});
@@ -185,6 +188,30 @@ function projectOptions(id){
  sh.querySelector('[data-resume]')?.addEventListener('click',()=>{close();act({action:'update',status:'active'},'Project resumed');});
  sh.querySelector('[data-finish]')?.addEventListener('click',()=>{close();confirmSheet('Finish this project?','It moves to Done and its reminders stop. Unchecked steps stay in its history.','Finish project',()=>act({action:'update',status:'done'},'Project finished'));});
  mountSheet(scrim,sh);
+}
+// Start session (1.49): a New session in the project's directory whose first message briefs the agent on the card (where
+// it left off, the next step, open steps, recent notes, reminders, earlier sessions), ready to send. The new session is
+// linked to the project when it starts (pc-new-start carries the id to /api/new), so the card lists it.
+function projectBriefing(p){
+ const open=p.tasks.filter(t=>!t.done),shown=open.slice(0,20),notes=p.history.filter(h=>h.action==='note').slice(-3),sessions=p.sessions.slice(-3);
+ const lines=[`Pick up the project "${p.name}" where it left off.`,''];
+ if(p.summary)lines.push('Where we left off: '+p.summary);
+ if(p.next)lines.push('Next step: '+p.next);
+ if(p.waitingFor)lines.push('Waiting for: '+p.waitingFor);
+ if(open.length)lines.push('',`Remaining steps (${p.tasks.length-open.length} of ${p.tasks.length} done):`,...shown.map(t=>`- ${t.text} (step ${t.id})`),...(open.length>shown.length?[`- and ${open.length-shown.length} more on the card`]:[]));
+ if(notes.length)lines.push('','Recent notes:',...notes.map(h=>`- ${fmtDue(h.at)}: ${h.detail}`));
+ if(p.reminders.length)lines.push('','Reminders:',...p.reminders.map(r=>`- ${r.label} (${r.due?'due ':''}${fmtDue(r.dueAt)})`));
+ if(p.link)lines.push('','Link: '+p.link);
+ if(sessions.length)lines.push('','Earlier sessions on this project, newest last:',...sessions.map(id=>`- ${sessionName(id)} (${id.startsWith('cx:')?'Codex':'Claude'} session ${id})`));
+ lines.push('',`(Pocket project ${p.id}; this session is linked to it. When the work reaches a stopping point, keep the card current: pocket-board update -p ${p.id} --summary "…" --next "…", pocket-board task done <step> -p ${p.id}, pocket-board note "…" -p ${p.id}.)`);
+ return lines.join('\n');
+}
+function startProject(p){
+ saveDraft(NEW_KEY,projectBriefing(p));
+ writeLocal('pc-new-start',{project:p.id,projectName:p.name,cwd:p.directory||''});
+ const last=p.sessions[p.sessions.length-1];
+ try{if(p.directory)localStorage.setItem('pc-lastproj',p.directory);if(last)localStorage.setItem('pc-provider',last.startsWith('cx:')?'codex':'claude');}catch{}
+ location.hash='#/new';
 }
 function reminderOptions(project,id){
  const p=projectById(project),r=p?.reminders.find(x=>x.id===id);if(!r)return;

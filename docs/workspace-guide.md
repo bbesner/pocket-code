@@ -328,6 +328,14 @@ only with `--requested`, so nothing enrolls work by inference. With Projects on,
 started by Pocket are told how, and told to do it only when you ask, so "track this as a
 project" works in any session.
 
+**Start session** (1.49; on the card, and first in the project's options) opens a New session in the
+project's directory with a briefing already written as the first message: where you left off, the
+next step, what it is waiting for, the open steps with their ids, the last three notes, open
+reminders, the link and the last three sessions that worked on it, plus how to keep the card
+current. Edit it if you like, then Start. The new session is linked to the project as it starts, so
+the card lists it; the project's chip beside Choose a skill shows which project it will join, and
+tapping it removes the link before you start. The agent is the one that last worked on the project.
+
 **Scheduled** lists every open reminder across projects, due first. Only reminders Pocket
 Code itself keeps appear there. When a reminder comes due it is sent once to your devices
 by push, with a link to the card, and once to the server's reminder hook if the operator

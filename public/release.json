@@ -1,7 +1,7 @@
 {
-  "version": "1.48.1",
-  "assetV": 100,
+  "version": "1.49.0",
+  "assetV": 101,
   "notes": [
-    "Codex sessions: a message you just sent stays on screen while the turn starts, instead of vanishing until you reopen the session."
+    "Projects: Start session on a project card opens a new session briefed on where the project stands (where you left off, the next step, open steps, recent notes) and links it to the project."
   ]
 }

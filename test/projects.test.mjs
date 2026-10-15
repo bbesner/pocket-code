@@ -141,6 +141,11 @@ test('HTTP: the board is off until Settings turns it on, the loopback token serv
   assert.equal((await call('/board/act',{action:'remind',project:made.body.project.id,at:'2027-07-04T09:00',text:'Later'})).body.project.reminders[0].dueAt,'2027-07-04T13:00:00Z','server-side time zone');
   assert.equal((await call('/board/act',{action:'nope',project:made.body.project.id})).status,400);
   assert.match((await call('/board?dir=relative')).body.error,/full path/);
+  // 1.49: a session started from a project card is linked to it; an unknown project never blocks the start.
+  const started=await call('/new',{cwd:repo,text:'Pick up the project',provider:'claude',project:made.body.project.id,clientMessageId:randomUUID()});assert.equal(started.status,202);
+  assert.ok((await call('/board')).body.projects.find(p=>p.id===made.body.project.id).sessions.includes(started.body.id),'the card lists the new session');
+  const recent=(await call('/prompts')).body.recent.map(r=>r.text);assert.ok(recent.includes('After'));assert.equal(recent.includes('Pick up the project'),false,'a project briefing is not kept as a recent start');
+  assert.equal((await call('/new',{cwd:repo,text:'No such project',provider:'claude',project:'nope',clientMessageId:randomUUID()})).status,202);assert.match(logs,/project link skipped project=nope/);
   const imp=await call('/board/import',snapshotFixture());assert.deepEqual(imp.body.added,['nvr-review','blog']);
   // A reminder already due is announced once: the hook gets it as JSON, the board still shows it due, and it is not sent again.
   const due=await call('/board/act',{action:'remind',project:'blog',at:new Date(Date.now()-60000).toISOString(),text:'Overdue'});assert.equal(due.status,200);
