@@ -22,8 +22,8 @@ export function approvalAudit(file){
  };
 }
 export class ApprovalInbox {
- constructor({sessionId,turnId,write,audit=()=>{},onChange=()=>{}}){
-  this.sessionId=sessionId;this.turnId=turnId;this.write=write;this.audit=audit;this.onChange=onChange;this.pending=new Map();this.answered=new Map();this.closed=false;
+ constructor({sessionId,turnId,write,audit=()=>{},onChange=()=>{},onAutoError=()=>{}}){
+  this.onAutoError=onAutoError;this.autoAnswered=new Set();this.sessionId=sessionId;this.turnId=turnId;this.write=write;this.audit=audit;this.onChange=onChange;this.pending=new Map();this.answered=new Map();this.closed=false;
  }
  receive({nativeId,turnId,kind,title,details,allow,deny,canAllow=true}){
   if(this.closed||nativeId==null||!turnId||turnId!==this.turnId()||this.pending.size>=20)return false;
@@ -35,6 +35,24 @@ export class ApprovalInbox {
   const row={id:randomUUID(),nativeId,turnId,kind,title,details:text,allow,deny,canAllow,fingerprint,createdAt:Date.now(),status:'pending'};
   try{this.audit({event:'requested',sessionId:this.sessionId(),turnId,requestId:row.id,kind,fingerprint});}catch{return false;}
   this.pending.set(row.id,row);this.onChange();return true;
+ }
+ // 1.55: a request matching one of the owner's trusted rules (trusted.mjs) is answered Allow without a
+ // card. Same guarantees as a tapped Allow: bound to this live turn, recorded before the pipe is written.
+ // Returns false (show the card instead) whenever it cannot do that: closed or old turn, an oversized
+ // request, a card already open for it, or an audit that cannot be written.
+ autoAllow({nativeId,turnId,kind,title,details,allow,deny,rule,tool}){
+  if(this.closed||nativeId==null||!turnId||turnId!==this.turnId()||!rule)return false;
+  if(this.autoAnswered.has(nativeId))return true;
+  if([...this.pending.values()].some(r=>r.nativeId===nativeId))return false;
+  const text=JSON.stringify(details,null,2);
+  if(!text||text.length>200000)return false;
+  const fingerprint=createHash('sha256').update(JSON.stringify({kind,title,details,allow,deny})).digest('hex');
+  try{this.audit({event:'auto-allowed',sessionId:this.sessionId(),turnId,requestId:randomUUID(),kind,tool,fingerprint,decision:'allow',source:'auto-trusted',rule});}catch{return false;}
+  this.autoAnswered.add(nativeId);
+  if(this.autoAnswered.size>500)this.autoAnswered.delete(this.autoAnswered.values().next().value);
+  // A failed write means the turn's input pipe is gone; nothing else can be sent on it either.
+  Promise.resolve().then(()=>this.write(nativeId,allow)).catch(e=>this.onAutoError(e,{tool,rule}));
+  return true;
  }
  list(){return [...this.pending.values()].map(({nativeId,allow,deny,fingerprint,...r})=>r);}
  async decide(id,decision){

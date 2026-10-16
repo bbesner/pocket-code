@@ -600,6 +600,18 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       <div class="model-offer-list" id="s-models-list" aria-busy="true">${CLAUDE_CATALOG.map(([id, label, sub]) => `<button class="opt" data-offer-model="${esc(id)}" aria-pressed="false" aria-disabled="true"><span class="dot"></span><span>${esc(label)}<span class="sub">${esc(sub)}</span></span></button>`).join('')}</div>
       <p class="title-note" id="s-models-note" role="status">Loading the model list…</p>
       <span class="vault-set-actions"><button class="chip" id="s-models-reset" hidden>Use the server's list</button></span></div>
+    <div class="title-settings model-offer trusted-actions" id="s-trusted" role="group" aria-labelledby="s-trusted-h" aria-describedby="s-trusted-lead">
+      <p class="vault-set-head" id="s-trusted-h">Actions that run without asking</p>
+      <p class="title-note" id="s-trusted-lead">In Review actions, Claude runs the read-only actions listed here without an approval card. Everything else still asks.</p>
+      <ul class="trusted-list" id="s-trusted-list" aria-labelledby="s-trusted-h" aria-busy="true"></ul>
+      <form class="trusted-add" id="s-trusted-form" novalidate>
+        <label class="trusted-label" for="s-trusted-input">Add an action</label>
+        <span class="trusted-add-row"><input id="s-trusted-input" type="text" maxlength="300" placeholder="Bash(command:*)" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="s-trusted-error s-trusted-hint" disabled><button class="chip" type="submit" id="s-trusted-add" disabled>Add</button></span>
+        <p class="vault-field-error" id="s-trusted-error" role="alert"></p>
+        <p class="title-note" id="s-trusted-hint">Bash(command:*), Bash(exact command), mcp__server__tool, mcp__server__* or WebSearch. A listed command runs with any arguments, so list only ones that cannot change anything. Edit and Write always ask; Codex is not covered.</p>
+      </form>
+      <p class="title-note" id="s-trusted-note" role="status">Loading the list…</p>
+      <span class="vault-set-actions"><button class="chip" id="s-trusted-reset" hidden>Use the server's list</button></span></div>
     <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button>
     <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
     <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse tool calls<span class="sub">Fold Bash, Edit and other actions behind a one-line summary</span></span></button>
@@ -797,6 +809,54 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     saveModelOffer(next, m.offered ? m.label + ' is no longer offered' : m.label + ' is offered');
   };
   sh.querySelector('#s-models-reset').onclick = () => saveModelOffer(null, srv?.claudeModels?.env ? 'Back to the list in POCKET_CLAUDE_MODELS' : 'Every model is offered again');
+  // 1.55: read-only actions Claude runs without a card in Review actions (instance-wide). The server checks every
+  // rule; its reason shows under the field. A list saved here replaces POCKET_TRUSTED_ACTIONS until Use the server's list.
+  const trustedInput = sh.querySelector('#s-trusted-input'), trustedError = sh.querySelector('#s-trusted-error');
+  let trustedSaving = false;
+  const clearTrustedError = () => { trustedError.textContent = ''; trustedInput.removeAttribute('aria-invalid'); };
+  const paintTrusted = () => {
+    const tr = srv?.trusted, list = sh.querySelector('#s-trusted-list'), note = sh.querySelector('#s-trusted-note');
+    if (!tr || !list) return;
+    list.removeAttribute('aria-busy');
+    list.innerHTML = tr.rules.length ? tr.rules.map((r, i) => `<li class="trusted-row"><code>${esc(r)}</code><button class="chip" type="button" data-trusted-remove="${i}" aria-label="Remove ${esc(r)}"${trustedSaving ? ' disabled' : ''}>Remove</button></li>`).join('')
+      : '<li class="trusted-empty">None. Every action shows the approval card.</li>';
+    trustedInput.disabled = trustedSaving; sh.querySelector('#s-trusted-add').disabled = trustedSaving || !trustedInput.value.trim();
+    const n = tr.rules.length, rules = n === 1 ? 'one action' : n + ' actions', ignored = tr.envIgnored?.length || 0;
+    note.textContent = [
+      tr.source === 'settings' ? (n ? `Chosen here: ${rules} run without asking.` : 'Chosen here: every action asks.') + (tr.env?.length ? ' This replaces the server\'s list.' : '')
+        : tr.source === 'env' ? `From POCKET_TRUSTED_ACTIONS on this server: ${rules} run without asking. A change here replaces it.` : '',
+      tr.source !== 'settings' && ignored ? `The server's list skips ${ignored === 1 ? 'one rule' : ignored + ' rules'} it cannot use: ${tr.envIgnored.map(x => x.rule).join(', ')}.` : '',
+    ].filter(Boolean).join(' ');
+    sh.querySelector('#s-trusted-reset').hidden = !tr.saved;
+  };
+  const saveTrusted = async (value, done, { focus } = {}) => {
+    trustedSaving = true; paintTrusted();
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ trustedActions: value }), signal: AbortSignal.timeout(8000) });
+      toast(typeof done === 'function' ? done() : done); return true;
+    } catch (err) {
+      if (err.code === 'bad_trusted_action') { trustedError.textContent = err.message; trustedInput.setAttribute('aria-invalid', 'true'); }
+      else if (err.message !== 'login') toast(err.message || 'Could not save the list');
+      return false;
+    } finally {
+      trustedSaving = false;
+      if (sh.isConnected) { paintTrusted(); (focus?.() || trustedInput).focus({ preventScroll: true }); }
+    }
+  };
+  trustedInput.oninput = () => { clearTrustedError(); sh.querySelector('#s-trusted-add').disabled = trustedSaving || !trustedInput.value.trim(); };
+  sh.querySelector('#s-trusted-form').onsubmit = async e => {
+    e.preventDefault(); const tr = srv?.trusted, rule = trustedInput.value.trim(); if (!tr || !rule || trustedSaving) return;
+    clearTrustedError();
+    if (await saveTrusted([...tr.rules, rule], () => (srv.trusted?.rules.length || 0) > tr.rules.length ? 'Runs without asking: ' + srv.trusted.rules.at(-1) : 'Already on the list')) { trustedInput.value = ''; paintTrusted(); }
+  };
+  sh.querySelector('#s-trusted-list').onclick = e => {
+    const btn = e.target.closest('[data-trusted-remove]'), tr = srv?.trusted; if (!btn || !tr || trustedSaving) return;
+    const i = Number(btn.dataset.trustedRemove), rule = tr.rules[i]; if (rule == null) return;
+    clearTrustedError();
+    // Focus moves to the row that takes this one's place, else the one before, else the field.
+    saveTrusted(tr.rules.filter((_, j) => j !== i), rule + ' asks again', { focus: () => { const b = sh.querySelectorAll('[data-trusted-remove]'); return b[Math.min(i, b.length - 1)]; } });
+  };
+  sh.querySelector('#s-trusted-reset').onclick = () => { clearTrustedError(); saveTrusted(null, srv?.trusted?.env?.length ? 'Back to the list in POCKET_TRUSTED_ACTIONS' : 'Every action asks again'); };
   // 1.20: generated session titles. Server-wide like name sync: on/off and which CLI makes them.
   const paintTitles = () => {
     const t = srv?.titles, btn = sh.querySelector('#s-titles'), sel = sh.querySelector('#s-title-model'), state = sh.querySelector('#s-titles-state'), note = sh.querySelector('#s-title-note');
@@ -995,12 +1055,12 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintNotifySettings(); paintModelOffer(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
+      paintTitles(); paintNotifySettings(); paintModelOffer(); paintTrusted(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
     } catch {
-      if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-titles-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-models-note').textContent = 'Could not load the model list.'; retry.hidden = false; }
+      if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-titles-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-models-note').textContent = 'Could not load the model list.'; sh.querySelector('#s-trusted-note').textContent = 'Could not load the list.'; retry.hidden = false; }
     }
   };
   sh.querySelector('#s-sync-retry').onclick = loadSettings;

@@ -269,7 +269,9 @@ closing a dialog or losing the browser connection does not approve it.
 **Review actions** is the default. **Full access** allows unattended execution if the
 operator permits it. A mode choice applies to the next turn and is captured with a
 queued instruction; it does not change an active turn. See [action approvals](action-approvals.md)
-for provider-specific scope, restart handling and limitations.
+for provider-specific scope, restart handling and limitations. Read-only Claude actions the owner
+lists in Settings run without a card in Review actions; see
+[Actions that run without asking](#actions-that-run-without-asking).
 
 The conversation has one header (1.35). Under the title, a subtitle line names the project, the
 run status in short words (Idle, Running, Needs your answer) and the age of the last server
@@ -667,6 +669,18 @@ offered, otherwise the CLI's own default (a managed `model`, then `~/.claude/set
 the account's). Titles, summaries and task briefings use `POCKET_TITLE_CLAUDE_MODEL` (default
 `haiku`); when the policy blocks it, they use the cheapest offered model the policy allows instead
 of letting the CLI fall back to its default.
+
+### Actions that run without asking
+
+**Settings → Agents & instance → Actions that run without asking** lists read-only actions that
+Claude runs without an approval card in Review actions, such as `Bash(techpro-lookup:*)` or
+`mcp__memstem__*`. Type a rule and press **Add**; **Remove** takes one off. Pocket refuses rules
+that change files (Edit, Write, NotebookEdit) or that would cover everything, and says why under
+the field. Until a list is saved here, the server's `POCKET_TRUSTED_ACTIONS` applies, and the note
+says so; **Use the server's list** goes back to it. A matching Bash command must be one plain
+command: anything chained, piped, substituted or redirected still shows the card. It is a
+convenience, not a security boundary, and it covers Claude only, not Codex or Full access. Syntax,
+matching rules and the audit record: [action approvals](action-approvals.md#actions-that-run-without-asking).
 
 ### Connectors: Gmail, Google Calendar and Google Drive
 
