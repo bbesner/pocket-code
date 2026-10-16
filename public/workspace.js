@@ -19,6 +19,9 @@ function openViewPreferred(id,prefKey,e,canBeside){
  if(!plainClick(e))return false;
  const pref=readLocal(prefKey,'tab');
  if(pref==='window'){e.preventDefault();openInWindow(id);return true;}
+ // 1.53.3: inside a split pane, "beside" asks the window around it for a new pane to this pane's left, so the
+ // list the view was chosen from stays in sight. (The pane's own width is not what decides; the window checks room.)
+ if(pref==='beside'&&PANE&&id!==currentView()&&typeof paneSay==='function'){e.preventDefault();paneSay('beside',{id});return true;}
  if(pref==='beside'&&canBeside&&!PANE&&!SOLO&&typeof openBeside==='function'){e.preventDefault();openBeside(id);return true;}
  return false;
 }

@@ -26,7 +26,12 @@ function paintSplit(){
    section=document.createElement('section');section.className='split-pane';section.dataset.key=p.key;section.id='pane-'+p.key;
    grip.setAttribute('aria-controls',section.id);grip.setAttribute('aria-valuemin',String(SPLIT_MIN));grip.setAttribute('aria-valuenow',String(SPLIT_MIN));grip.setAttribute('aria-valuemax',String(SPLIT_MIN));
    const frame=document.createElement('iframe');frame.src=paneSrc(p.key,p.id);
-   section.append(frame);host.append(grip,section);bindPaneGrip(grip,section);
+   section.append(frame);
+   // 1.53.3: a pane opened from another pane sits to its left. Insert before the next pane that already has a
+   // frame so the DOM follows splitPanes without moving (and so reloading) any existing frame.
+   const next=splitPanes.slice(splitPanes.indexOf(p)+1).map(q=>host.querySelector(`.split-pane[data-key="${CSS.escape(q.key)}"]`)).find(Boolean);
+   if(next)next.previousElementSibling.before(grip,section);else host.append(grip,section);
+   bindPaneGrip(grip,section);
   }
   section.querySelector('iframe').title='Session beside: '+sessionTitle(p.id);
   section.style.flex=p.w?`0 1 ${p.w}px`:'';
@@ -92,7 +97,8 @@ function bindPaneGrip(grip,section){
   grip.onpointerup=grip.onpointercancel=()=>{grip.onpointermove=grip.onpointerup=grip.onpointercancel=null;document.body.classList.remove('pane-resizing');};
  };
 }
-function openBeside(id){
+// before: the key of an existing pane; the new pane goes to its left (1.53.3, for a view chosen inside that pane).
+function openBeside(id,before){
  if(PANE)return;
  if(id&&id===chatId)return toast('That session is already the main conversation.');
  if(splitPanes.some(p=>p.id===id))return toast(id?'That session is already open beside.':'A new session is already waiting beside. Start it or close it first.');
@@ -100,7 +106,9 @@ function openBeside(id){
  if(!splitHasRoom())return toast('Not enough room for another pane. Hide the session list, close a pane or widen the window.');
  // a new group shares the width equally, like an editor split
  for(const p of splitPanes)p.w=null;
- splitPanes.push({key:crypto.randomUUID(),id,w:null});saveSplit();paintSplit();
+ const pane={key:crypto.randomUUID(),id,w:null},at=before?splitPanes.findIndex(p=>p.key===before):-1;
+ if(at>=0)splitPanes.splice(at,0,pane);else splitPanes.push(pane);
+ saveSplit();paintSplit();
 }
 function closePane(key){
  splitPanes=splitPanes.filter(p=>p.key!==key);saveSplit();paintSplit();
@@ -200,6 +208,8 @@ if(PANE){
   const {pocketPane:type,id,title}=e.data;
   if(type==='route'&&typeof id==='string'&&validPane({key:p.key,id})){p.id=id;saveSplit();frame.title='Session beside: '+(typeof title==='string'?title:sessionTitle(id));}
   if(type==='close')closePane(p.key);
+  // 1.53.3: a file or project chosen inside a pane (Settings: open beside) gets a pane of its own, to that pane's left.
+  if(type==='beside'&&typeof id==='string'&&validPane({key:p.key,id}))openBeside(id,p.key);
   if(type==='main'&&p.id){
    const mainId=chatId||currentView();location.hash=tabHref(p.id);
    if(mainId&&mainId!==p.id){p.id=mainId;saveSplit();frame.title='Session beside: '+sessionTitle(mainId);frame.contentWindow.location.hash=tabHref(mainId);}else closePane(p.key);

@@ -176,7 +176,7 @@ function projectOptions(id){
  sh.innerHTML=`<h2>Project options</h2><p class="sheet-name">${esc(p.name)}</p>
   ${optGroup('Open',[
    here?'':`<button class="opt" data-open>${IC.folder}<span>Open<span class="sub">${PANE?'In this pane':SOLO?'In this window':'As a tab, like a session'}</span></span></button>`,
-   !PANE&&!SOLO&&isWide()&&!here&&typeof openBeside==='function'?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">In a pane next to the current view</span></span></button>`:'',
+   !here&&(PANE?typeof paneSay==='function':!SOLO&&isWide()&&typeof openBeside==='function')?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">${PANE?'In a new pane to the left of this one':'In a pane next to the current view'}</span></span></button>`:'',
    `<button class="opt" data-window>${IC.external}<span>Open in a new window<span class="sub">A browser tab or app window of its own</span></span></button>`])}
   ${p.status==='done'?'':optGroup('Work on it',[`<button class="opt" data-start>${IC.plus}<span>Start a session<span class="sub">A new session briefed on where the project stands, linked to it</span></span></button>`])}
   ${optGroup('Project',[p.status==='done'?`<button class="opt" data-resume>${IC.up}<span>Resume project<span class="sub">Back to Active, without its old reminders</span></span></button>`:`<button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, summary, next step, waiting for, directory, link</span></span></button>
@@ -186,7 +186,7 @@ function projectOptions(id){
  const close=()=>closeCurrentSheet?.();
  const act=(body,msg)=>boardAct({...body,project:id,expected_revision:p.revision},msg);
  sh.querySelector('[data-open]')?.addEventListener('click',()=>{close();location.hash=viewHref('projects/'+id);});
- sh.querySelector('[data-beside]')?.addEventListener('click',()=>{close();openBeside('projects/'+id);});
+ sh.querySelector('[data-beside]')?.addEventListener('click',()=>{close();if(PANE)paneSay('beside',{id:'projects/'+id});else openBeside('projects/'+id);});
  sh.querySelector('[data-window]')?.addEventListener('click',()=>{close();openInWindow('projects/'+id);});
  sh.querySelector('[data-start]')?.addEventListener('click',()=>{close();startProject(p);});
  sh.querySelector('[data-edit]')?.addEventListener('click',()=>{close();projectEditor(p);});
@@ -250,11 +250,11 @@ function linkedSessionOptions(project,sessionId){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
  sh.innerHTML=`<h2>Linked session</h2><p class="sheet-name">${esc(sessionName(sessionId))}</p>
   <button class="opt" data-open>${IC.folder}<span>Open session</span></button>
-  ${!PANE&&!SOLO&&isWide()&&typeof openBeside==='function'?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">Show it next to this card</span></span></button>`:''}
+  ${(PANE?typeof paneSay==='function':!SOLO&&isWide()&&typeof openBeside==='function')?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">${PANE?'In a new pane to the left of this card':'Show it next to this card'}</span></span></button>`:''}
   <button class="opt" data-unlink>${IC.x}<span>Unlink from this project<span class="sub">The session and its history are untouched</span></span></button>`;
  const close=()=>closeCurrentSheet?.();
  sh.querySelector('[data-open]').onclick=()=>{close();location.hash='#/chat/'+sessionId;};
- sh.querySelector('[data-beside]')?.addEventListener('click',()=>{close();openBeside(sessionId);});
+ sh.querySelector('[data-beside]')?.addEventListener('click',()=>{close();if(PANE)paneSay('beside',{id:sessionId});else openBeside(sessionId);});
  sh.querySelector('[data-unlink]').onclick=()=>{close();boardAct({action:'unlink-session',project,expected_revision:p.revision,session:sessionId},'Session unlinked');};
  mountSheet(scrim,sh);
 }
