@@ -41,7 +41,6 @@ import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
 import {Thumbnailer} from './thumbnails.mjs';
-import {createFrameProbe, probeTarget} from './links.mjs'; // 1.54: may a linked page show inside Pocket's frame?
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
 import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
 
@@ -1673,10 +1672,6 @@ app.use((_req, res, next) => {
   res.setHeader('Content-Security-Policy', [
     "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data:",
     "connect-src 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
-    // 1.54: a link in a conversation can open in a pane or tab, as a frame of the linked page (cross-origin, so
-    // isolated from the app; a same-origin file is framed with the viewer's sandbox). The page's own policy still
-    // decides whether it will show.
-    "frame-src 'self' https: http:",
     `frame-ancestors 'self'${FRAME_ANCESTORS.length ? ' ' + FRAME_ANCESTORS.join(' ') : ''}`,
   ].join('; '));
   next();
@@ -3107,19 +3102,6 @@ app.get('/api/file', requireAuth, (req, res) => {
   res.sendFile(real);
 });
 
-// 1.54: can this address be shown inside Pocket (a pane or tab)? The browser cannot read another site's framing
-// headers, so the daemon fetches them once an hour per address. frameable: true, false, or null when nothing says
-// (the app then tries the frame). Only public hosts are fetched; see links.mjs.
-const frameProbe = createFrameProbe();
-app.get('/api/link/frameable', requireAuth, async (req, res) => {
-  res.setHeader('Cache-Control', 'private, max-age=3600');
-  const target = probeTarget(req.query.url);
-  if (!target) return res.status(400).json({ error: 'Only http and https links can be checked.' });
-  const origin = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host || ''}`;
-  try { const r = await frameProbe(target.href, { origin }); res.json({ frameable: r.frameable, reason: r.reason }); }
-  catch { res.json({ frameable: null, reason: 'error' }); }
-});
-
 app.get('/api/health', (_req, res) => res.json({
   ok: true, active: turns.size + codex.codexTurns.size, codexActive: codex.codexTurns.size, processes: runners.size, codexProcesses: codex.codexSessions.size, uptime: process.uptime(),
 }));
@@ -3141,7 +3123,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["A link in a conversation opens the way files do. Settings → Open files and links decides: a tab, a pane beside the conversation, or a new browser window. A Pocket address opens that view, a share link to one of your files opens the file, a download stays a download, and any other page shows in a link view; a site that does not allow showing inside another app gets a view that says so and offers the browser."];
+const RELEASE_NOTES = ["Only links to this Pocket's own things follow Open files and links: a file, a project, a session, a share link to one of your files, or an image or file served by Pocket. A link to an outside website opens in your browser again, as before 1.54.0; the framing check that tried to show other sites inside Pocket is gone."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

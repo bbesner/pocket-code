@@ -105,6 +105,8 @@ const fixtureTitles=()=>{const using=!fixtureSettings.autoTitles?null:fixtureSet
 let questionRequests=[];let questionAnswers=null;
 let approvalRequests=[],approvalDecisions=[],approvalFail=false;
 const queueRows=[{id:'q1',revision:1,text:'Check incoming quantities before placing an order.',status:'pending'}];
+// 1.54.1: with Files on, the first session's conversation ends with a link to one of the kept files (the link test clicks it).
+const messagesOf=id=>{const m=conversations.get(id);if(id!==rows[0].id||!fixtureSettings.documents)return m;const d=docStore.documents.find(x=>x.file==='weekly-summary.md');return d?[...m,{role:'assistant',blocks:[{t:'text',text:'Kept in Files: [Weekly summary]('+base+'/#/documents/'+d.id+').'}]}]:m;};
 const report='## Inventory review\n\n| Product | On hand | Incoming | Supplier reference |\n|---|---:|---:|---|\n| Outdoor camera | 24 | 12 | WAREHOUSE-LONG-REFERENCE-001 |\n| Recorder | 8 | 4 | PURCHASE-ORDER-2026-10-03 |\n\n> Incoming stock is separate from the on-hand count.\n\n1. Review stock\n   - Exclude discontinued products\n   - Check expected delivery dates\n2. Confirm the order\n\n[Open the report](https://example.com/inventory)';
 const conversations=new Map(rows.map(r=>[r.id,[{role:'user',text:'Review the stock report.'},{role:'assistant',blocks:[{t:'text',text:report}]}]]));
 const server=http.createServer(async(req,res)=>{
@@ -156,7 +158,6 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}]});
  if(url.pathname==='/api/claude/models')return json(Array.isArray(fixtureSettings.offeredClaudeModels)?{models:fixtureOffer(fixtureSettings.offeredClaudeModels).models.filter(m=>m.offered).map(({id,label,sub})=>({id,label,sub})),defaultLabel:'Test agent',limited:true}:{models:[{id:'test',label:'Test agent'},{id:'claude-opus-5-5[1m]',label:'Opus 5.5'}],defaultLabel:'Test agent'});
  if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'},...Array.from({length:8},(_,index)=>({id:'gpt-fixture-'+index,label:'Fixture '+index})),{id:'gpt-6-sol',label:'GPT-6 Sol'},{id:'gpt-6-astra',label:'GPT-6 Astra'}],defaultModel:'gpt-6-sol',pocketDefault:true});
- if(url.pathname==='/api/link/frameable')return json({frameable:url.searchParams.get('url')?.startsWith('https://example.com/')?false:null,reason:null}); // 1.54: example.com forbids framing
  if(url.pathname==='/api/push/key')return json({});
  if(url.pathname==='/api/push/prefs')return json({error:'This device is not subscribed.',code:'not_subscribed'},404); // push is off in the fixture
  if(url.pathname==='/api/notify/test-email'){if(!fixtureSettings.notifyEmail)return json({error:'Save an email address first.',code:'no_address'},400);(uiModes.mailLog??=[]).push({to:fixtureSettings.notifyEmail,subject:'[Pocket Code] Test: reminders will arrive like this'});return json({ok:true,to:fixtureSettings.notifyEmail});}
@@ -295,7 +296,7 @@ const server=http.createServer(async(req,res)=>{
  }
  const match=url.pathname.match(/^\/api\/session\/([^/]+)(\/message)?$/);
  if(match){const id=decodeURIComponent(match[1]),r=rows.find(x=>x.id===id);
-  if(!match[2])return json({...r,active:r.state.kind==='running',ext:false,messages:conversations.get(id),total:conversations.get(id).length});
+  if(!match[2]){const messages=messagesOf(id);return json({...r,active:r.state.kind==='running',ext:false,messages,total:messages.length});}
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   const held=secretRefusal(body);if(held)return json(held,422);
   if(!receipts.has(body.clientMessageId)){dispatches++;receipts.set(body.clientMessageId,{ok:true});conversations.get(id).push({role:'user',text:body.text});}
