@@ -1,7 +1,7 @@
 {
-  "version": "1.53.1",
-  "assetV": 108,
+  "version": "1.53.2",
+  "assetV": 109,
   "notes": [
-    "A Claude Code install that is not signed in now shows as Not signed in, with a Sign in button, instead of Could not verify; Connectors asks you to sign in to Claude Code first."
+    "Connectors says what went wrong when an agent cannot list its connectors, including when chatgpt.com turns this server away with a bot check, and Refresh tries again straight away."
   ]
 }

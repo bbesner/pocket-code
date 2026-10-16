@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
-import {parseClaudeMcpList,claudeConnectorsOff,claudeConnectors,codexConnectors,codexConnectorRows,GOOGLE_CONNECTORS,CLAUDE_MANAGE_URL,CODEX_MANAGE_URL} from '../connectors.mjs';
+import {connectorError,parseClaudeMcpList,claudeConnectorsOff,claudeConnectors,codexConnectors,codexConnectorRows,GOOGLE_CONNECTORS,CLAUDE_MANAGE_URL,CODEX_MANAGE_URL} from '../connectors.mjs';
 const LIST=`Checking MCP server health…
 
 claude.ai Claude Docs: https://api.anthropic.com/v1/pages/mcp - ✔ Connected
@@ -57,6 +57,14 @@ test('Codex explains API-key, signed-out and failed listings',async()=>{
  assert.match((await codexConnectors({rpc:never,account:{signedIn:true,method:'apiKey'}})).reason,/ChatGPT sign-in/);
  assert.match((await codexConnectors({rpc:never,account:{signedIn:false}})).reason,/Sign in to Codex/);
  const failed=await codexConnectors({rpc:async()=>{throw Error('boom');},account:{signedIn:true,method:'chatgpt'}});
- assert.equal(failed.available,false);assert.deepEqual(failed.items.map(i=>i.status),['unavailable','unavailable','unavailable']);
+ assert.equal(failed.available,false);assert.equal(failed.transient,true);assert.equal(failed.error,'boom');assert.doesNotMatch(failed.reason,/signed in/,'a failed read does not blame the sign-in');assert.deepEqual(failed.items.map(i=>i.status),['unavailable','unavailable','unavailable']);
  assert.deepEqual(codexConnectorRows({apps:[]}).map(i=>i.status),['unavailable','unavailable','unavailable'],'an app missing from the catalog is unavailable');
+});
+test('a Cloudflare bot check from chatgpt.com is named, never dumped; timeouts read as timeouts',async()=>{
+ const page='<!DOCTYPE html><html><head><title>Just a moment...</title></head><body><script>window._cf_chl_opt={cType:"managed"}</script></body></html>';
+ const r=await codexConnectors({rpc:async()=>{throw Error('connectors/directory/list failed: 403 '+page);},account:{signedIn:true,method:'chatgpt'}});
+ assert.match(r.reason,/bot check/);assert.equal(r.error,'chatgpt.com answered with a Cloudflare bot check');assert.doesNotMatch(JSON.stringify(r),/<html|cf_chl/);
+ assert.match((await codexConnectors({rpc:async()=>{throw Error('app/list timed out');},account:{signedIn:true,method:'chatgpt'}})).reason,/too long/);
+ assert.deepEqual(connectorError(Error('<b>bad</b>   gateway')),{challenge:false,timeout:false,detail:'bad gateway'});
+ assert.equal(connectorError(Object.assign(Error('x'),{killed:true})).timeout,true);
 });

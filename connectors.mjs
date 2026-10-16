@@ -43,6 +43,17 @@ export function claudeConnectorsOff({ home, managedDir, env = process.env }) {
   return null;
 }
 
+// 1.53.2: a failed read says why and is marked `transient`, so the server logs it and does not keep it.
+// chatgpt.com sometimes answers a server's connector-directory request with a Cloudflare bot check
+// (an HTML page) instead of the list; seen from AWS on 2026-10-16. Returns a short, HTML-free detail.
+export function connectorError(e) {
+  const raw = String(e?.message || e || '');
+  const challenge = /cf_chl|challenge-platform|Just a moment|<html|<!DOCTYPE/i.test(raw);
+  const timeout = e?.killed || /timed out|timeout/i.test(raw);
+  const detail = challenge ? 'chatgpt.com answered with a Cloudflare bot check' : raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  return { challenge, timeout, detail };
+}
+
 // status: connected | needs-auth | not-connected | failed | off | unavailable
 export async function claudeConnectors({ bin, env, cwd, identity, home, managedDir, run = exec }) {
   const base = { provider: 'claude', manageUrl: CLAUDE_MANAGE_URL };
@@ -53,7 +64,7 @@ export async function claudeConnectors({ bin, env, cwd, identity, home, managedD
   if (identity?.signedIn && identity.method !== 'claude.ai') return { ...base, available: false, reason: 'Connectors need a Claude subscription sign-in. This server uses API or cloud-provider credentials.', items: rows('unavailable') };
   let found;
   try { found = parseClaudeMcpList((await run(bin, ['mcp', 'list'], { env, cwd, timeout: 90_000, maxBuffer: 1 << 20 })).stdout); }
-  catch (e) { return { ...base, available: false, reason: e.killed ? 'Claude Code took too long to report its connectors. Try again.' : 'Claude Code could not list its connectors.', items: rows('unavailable') }; }
+  catch (e) { const err = connectorError(e); return { ...base, available: false, transient: true, error: err.detail, reason: err.timeout ? 'Claude Code took too long to report its connectors. Try again.' : 'Claude Code could not list its connectors. Try again.', items: rows('unavailable') }; }
   return { ...base, available: true, items: rows(c => found.get(c.claude) || 'not-connected') };
 }
 
@@ -94,5 +105,11 @@ export async function codexConnectors({ rpc, account, refresh = false }) {
     }
     const read = await rpc('app/read', { appIds: GOOGLE_CONNECTORS.map(c => c.codex), includeTools: true }, 30_000);
     return { ...base, available: true, items: codexConnectorRows({ apps: read?.apps || [], accessible, disabled }) };
-  } catch { return { ...base, available: false, reason: 'Codex could not list its apps. Check that it is signed in with ChatGPT, then try again.', items: rows('unavailable') }; }
+  } catch (e) {
+    const err = connectorError(e);
+    const reason = err.challenge ? "chatgpt.com turned away this server's request with a bot check. This happens now and then from cloud servers; try again in a minute."
+      : err.timeout ? 'Codex took too long to list its apps. Try again.'
+      : 'Codex could not list its apps. Try again.';
+    return { ...base, available: false, transient: true, error: err.detail, reason, items: rows('unavailable') };
+  }
 }

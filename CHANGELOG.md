@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.53.2] — 2026-10-16 · build 109
+
+- **Connectors names the real problem when a read fails.** On Siri's and Ramesh's servers, where Codex is signed in with ChatGPT and Gmail, Calendar and Drive are already connected, the sheet said *Codex could not list its apps. Check that it is signed in with ChatGPT*. The real cause: chatgpt.com sometimes answers a cloud server's connector-directory request with a Cloudflare bot check (an HTML page) instead of the list. The sheet now says *chatgpt.com turned away this server's request with a bot check … try again in a minute*. Timeouts and other failures read as such instead of blaming the sign-in, and the same goes for Claude Code.
+- **A failed read is not kept.** 1.53.0 kept every result for a minute, failures included, so Refresh showed the same error. Failures are now logged on the server (`connectors: codex read failed: …`, a short detail, never the HTML page) and the next open or Refresh tries again.
+- Tests: `test/connectors.test.mjs` covers the bot-check page (named, never shown), timeouts, HTML stripped from other errors, and that a failed read no longer blames the sign-in.
+
 ## [1.53.1] — 2026-10-16 · build 108
 
 - **A signed-out Claude Code reads as signed out.** `claude auth status --json` exits 1 when nobody is signed in, though it still prints its status; Pocket treated the exit as a failed check. Accounts & instance said *Could not verify* (with **Switch account**) instead of *Not signed in* (with **Sign in**), and the 1.53.0 Connectors sheet listed Gmail, Calendar and Drive as *Not connected* instead of asking for a Claude sign-in first. Pocket now reads the printed status whatever the exit code; output it cannot read still counts as unknown. Found on the four TechPro agent seats right after the 1.53.0 rollout.
