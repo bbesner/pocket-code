@@ -188,6 +188,20 @@ reads the same file, never offers a model it blocks, marks such models in Settin
 passes one to the CLI. Without that, a blocked pick would run silently on the account's default
 model. Details: [workspace guide](workspace-guide.md#claude-models-in-the-picker).
 
+### Read-only actions that skip the approval card
+
+Review actions shows a card for every Claude command and tool call. To let users' lookups and
+memory searches run straight through, list them before the first start (restart after a change):
+
+```bash
+echo 'POCKET_TRUSTED_ACTIONS=Bash(techpro-lookup:*),mcp__memstem__*' >> ~/pocket-code/.env
+```
+
+The owner can change the list later in **Settings → Agents & instance → Actions that run without
+asking**; a list saved there wins over `.env`. List only commands that cannot change anything,
+whatever their arguments. Writes always ask. Syntax and matching:
+[action approvals](action-approvals.md#actions-that-run-without-asking).
+
 ## By hand
 
 Everything `pocket-init` does, as shell:

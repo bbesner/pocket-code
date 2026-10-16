@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.55.0 / build 115**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.56.0 / build 116**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -223,7 +223,9 @@ device, and when you open them, so an item an agent adds shows up without a relo
 ### Answer, approve and steer
 
 - **Questions and approvals.** Native agent questions and action-approval cards appear in
-  the conversation. Choose Review actions or Full access for later turns.
+  the conversation. Choose Review actions or Full access for later turns. In Review actions,
+  read-only actions the owner lists in Settings (a lookup command, a memory search) run
+  without a card.
 - **Steer or queue.** Redirect the running turn, or save a follow-up with After this turn;
   edit, cancel or run paused instructions from Queue. A failed turn offers Send again and
   Edit message, on any device.
@@ -403,6 +405,7 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_STALL_MS` | no | A turn with no output, no background job, nothing waiting on you and no CPU use by programs it started for this long is stopped. Milliseconds; default `1800000` (30 minutes); `0` disables the watchdog. A value that is not a number is logged and ignored. |
 | `POCKET_MAX_PROCESSES` | no | Soft target for live CLI processes (Claude Code and Codex together) kept at once. Starting one past the cap closes the longest-idle process that has no turn and no background job. Default `8`; `0` means no cap. Active work is never evicted to meet this target, so the count can exceed it. CLI and MCP processes add memory beyond the Pocket daemon. |
 | `POCKET_APPROVAL_MODE` | no | Default permissions for new turns: `review` (default) or `full`. |
+| `POCKET_TRUSTED_ACTIONS` | no | Read-only actions Claude runs without an approval card in Review actions, until a list is saved in **Settings → Agents & instance → Actions that run without asking** (the Settings list wins once saved, even when empty). One rule per line, or comma-separated: `Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`, `WebFetch`, e.g. `Bash(techpro-lookup:*),mcp__memstem__*`. Edit/Write/NotebookEdit cannot be listed; a rule Pocket cannot use is logged and skipped. Default: none, every action asks. Claude only; a convenience, not a security boundary. See [action approvals](docs/action-approvals.md#actions-that-run-without-asking). |
 | `POCKET_ALLOW_FULL_ACCESS` | no | Set to `0` to reject Full access in both API and UI. |
 | `POCKET_DATA_DIR` | no | Pocket state and runner files; defaults to the checkout. Move only after all session processes are closed. |
 | `POCKET_SESSION_ROOT` | no | Override Claude transcript storage for isolated tests; does not relocate Codex. |

@@ -25,7 +25,9 @@ not evidence of successful execution; check the conversation for the result.
 - Claude uses `default` permission mode with ask rules for Bash, PowerShell, Edit,
   Write, NotebookEdit, Agent/Task, WebFetch/WebSearch and MCP tools. AskUserQuestion
   remains a separate native question. Deny rules and organization requirements still
-  apply. Full access uses the previous bypassPermissions behavior.
+  apply. Full access uses the previous bypassPermissions behavior. Actions the owner lists
+  under [Actions that run without asking](#actions-that-run-without-asking) are answered Allow
+  by Pocket instead of showing a card; the ask rules stay in place.
 - Codex uses a read-only sandbox with the `untrusted` approval policy and the user
   reviewer. It can perform safe reads and actions allowed by existing provider tool
   rules without prompting. Command and file-change approvals use the native `accept`
@@ -49,6 +51,68 @@ Protocol references: [Claude permissions](https://code.claude.com/docs/en/permis
 checked against the installed runtimes; no permissive fallback is used when a request
 is malformed or unsupported.
 
+## Actions that run without asking
+
+Under Review actions every Bash command, MCP tool call and web lookup shows a card, including
+harmless reads. **Settings → Agents & instance → Actions that run without asking** lists
+read-only actions that Pocket approves itself in Review actions: when Claude asks to run a listed
+action, Pocket answers Allow without a card and records it; everything else shows the card as
+before. The list is empty by default, which is the behavior before 1.56.
+
+This is a convenience, not a security boundary. A listed command runs with whatever arguments
+the agent gives it, so list only commands that cannot change anything whatever they are given:
+`Bash(git:*)` would also allow `git push`, and `Bash(curl:*)` can send data anywhere. It covers
+Claude turns in Review actions only. Full access already runs everything without asking; Codex
+turns are not covered and keep their own approvals.
+
+Rules are a subset of [Claude Code's permission rules](https://code.claude.com/docs/en/permissions):
+
+| Rule | Runs without asking |
+|---|---|
+| `Bash(techpro-lookup:*)` | `techpro-lookup` alone or followed by arguments. `Bash(techpro-lookup *)` means the same. |
+| `Bash(sck-site product:*)` | `sck-site product` and `sck-site product list`, not `sck-site productx` or `sck-site orders` |
+| `Bash(status-report today)` | exactly `status-report today` |
+| `mcp__memstem__memstem_search` | that one MCP tool |
+| `mcp__memstem__*` | every tool from the `memstem` MCP server (not `mcp__memstemx__…`) |
+| `WebSearch`, `WebFetch` | those tools, whatever they look up. WebFetch sends the URL, and anything in it, out. |
+
+Edit, Write, NotebookEdit, Agent/Task and PowerShell cannot be listed; a blanket `Bash`, `Bash(*)`
+or `mcp__*` cannot either. Settings explains why under the field when a rule is refused.
+
+A Bash command runs without asking only when it is one plain command whose first words are the
+listed ones, compared as written. Pocket shows the card instead when the command:
+
+- contains any of `;` `&` `|` `` ` `` `$` `(` `)` `<` `>` `{` `}` `\`, a line break or another
+  control character, so chained commands, pipes, substitution, redirection and here-documents
+  always ask (inside quotes too);
+- has an unquoted `*`, `?` or `[` (a glob could expand into an option) or an unclosed quote;
+- starts with a `VAR=value` setting, or names the command differently: `/usr/local/bin/techpro-lookup`,
+  `./techpro-lookup`, `sudo techpro-lookup` or `"techpro-lookup"` do not match `Bash(techpro-lookup:*)`.
+  Paths and aliases are not resolved;
+- carries a Bash option other than its description, timeout or background flag.
+
+Quoted arguments are fine: `techpro-lookup quote "Acme Corp"` matches. Agents that start a command
+with `cd somewhere &&` get the card; the agent can run the command on its own instead.
+
+Which list applies, highest first:
+
+1. The list saved in Settings (`trustedActions` in `pocket-settings.json`, outside the checkout).
+   A saved empty list means every action asks, even when the server has a default.
+2. `POCKET_TRUSTED_ACTIONS` in `.env`, for provisioning: one rule per line, or several separated
+   by commas outside parentheses. A rule Pocket cannot use is logged at start, shown in Settings
+   and skipped. Restart after changing it.
+3. No list: every action asks.
+
+Settings says where the list comes from. **Use the server's list** forgets the saved list. A change
+applies to the next request, including one from a turn that is already running.
+
+Each automatic approval is recorded in `approval-decisions.jsonl` before Pocket answers the CLI,
+as `"event":"auto-allowed"`, `"decision":"allow"`, `"source":"auto-trusted"`, the tool name and
+the rule that matched, with the same identifiers and hash as a card and no command or arguments.
+If the record cannot be written, nothing is approved automatically: Pocket falls back to the card,
+and denies the request if the card cannot be recorded either. A request that arrives while
+its own card is already open stays on the card.
+
 ## Recovery and audit
 
 Each request belongs to one session, native request and live turn. Replies are
@@ -59,7 +123,8 @@ cannot be written, nothing is approved. An uncertain pipe write cannot be retrie
 stop the turn and inspect the result before starting again.
 
 `approval-decisions.jsonl` in the instance data directory records request identifiers,
-turn IDs, kinds, hashes, timestamps and decisions. It excludes commands, arguments,
+turn IDs, kinds, hashes, timestamps and decisions, including automatic approvals with the rule
+that matched. It excludes commands, arguments,
 file contents and credentials. Keep it with instance backups. Full request details
 remain in the live inbox, private Claude turn logs and provider transcript, not
 browser storage or notifications. Approval HTTP responses use `Cache-Control: no-store`.

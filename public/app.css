@@ -1356,6 +1356,27 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .model-offer-list .opt[aria-disabled="true"] .sub { color: var(--dim); }
 .model-offer-list[aria-busy="true"] { pointer-events: none; }
 .model-offer-list[aria-busy="true"] .opt .dot { border-style: solid; } /* loading, not blocked */
+/* 1.56: Settings → Agents & instance → Actions that run without asking. The models block's head, notes and chips;
+   each rule a row of its own text (monospace: it is a command) with Remove, then the field-and-chip of the email
+   setting. The server's reason for a refused rule sits under the field in the error colour. No new colour. */
+.trusted-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; }
+.trusted-list[aria-busy="true"] { min-height: 52px; }
+.trusted-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 4px 14px; }
+.trusted-row + .trusted-row { border-top: 1px solid var(--line); }
+.trusted-row code { flex: 1; min-width: 0; font: 14px/1.45 ui-monospace, "Cascadia Mono", Menlo, monospace; color: var(--text); overflow-wrap: anywhere; }
+.trusted-row .chip { flex: none; min-height: 44px; }
+.trusted-row .chip:disabled, .trusted-add .chip:disabled { opacity: .55; cursor: default; }
+.trusted-empty { padding: 10px 14px; font-size: 14.5px; color: var(--dim); }
+.trusted-add { display: flex; flex-direction: column; gap: 6px; margin: 10px 14px 4px; }
+.trusted-label { font-size: 13px; color: var(--dim); }
+.trusted-add-row { display: flex; gap: 8px; align-items: center; }
+.trusted-add-row input { flex: 1; min-width: 0; min-height: 44px; font: 14px/1.4 ui-monospace, "Cascadia Mono", Menlo, monospace; color: var(--text);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.trusted-add-row input::placeholder { color: var(--dim); }
+.trusted-add-row input:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.trusted-add-row input[aria-invalid="true"] { border-color: var(--err); }
+.trusted-add-row .chip { flex: none; min-height: 44px; padding-inline: 16px; }
+.trusted-add .title-note, .trusted-add .vault-field-error { margin: 0; }
 
 /* ---------- 1.36: tasks ----------
    Rows keep the session-row voice; the check is a 44px target on the left; a due task reads amber like a due reminder. */

@@ -23,6 +23,7 @@ import {readClaudeIdentity,agentEnv} from './environment.mjs';
 import {QuestionInbox} from './questions.mjs';
 import {descendantCpu, commandLine} from './proctree.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
+import {parseRuleList, validateRules, matchTrusted} from './trusted.mjs';
 import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
 import {cacheFromTranscript,turnCacheSummary} from './cache.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
@@ -227,10 +228,17 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default)
+const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null, trustedActions: null }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default); 1.56: trustedActions (null = the server default)
 const loadSettings = () => { try { return { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { ...SETTINGS_DEFAULTS }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
+// 1.56: read-only actions Claude may run without a card in Review actions (trusted.mjs). A list saved in
+// Settings → Agents & instance wins; until one is saved, POCKET_TRUSTED_ACTIONS; else none (every action asks).
+const ENV_TRUSTED = parseRuleList(process.env.POCKET_TRUSTED_ACTIONS || '');
+for (const x of ENV_TRUSTED.ignored) console.warn(`POCKET_TRUSTED_ACTIONS: ignored ${JSON.stringify(x.rule)}: ${x.error}`);
+const trustedRules = () => Array.isArray(settings.trustedActions) ? settings.trustedActions : ENV_TRUSTED.rules;
+const trustedSettings = () => ({ rules: trustedRules(), source: Array.isArray(settings.trustedActions) ? 'settings' : ENV_TRUSTED.rules.length ? 'env' : 'none',
+  saved: Array.isArray(settings.trustedActions), env: ENV_TRUSTED.rules, envIgnored: ENV_TRUSTED.ignored });
 if (POCKET_DEFAULTS.claude.model && !isOffered(POCKET_DEFAULTS.claude.model)) console.warn(`POCKET_CLAUDE_MODEL=${POCKET_DEFAULTS.claude.model} is not offered (Settings, POCKET_CLAUDE_MODELS or this computer's Claude Code policy); Default uses the CLI's own default`);
 
 // ---------- 1.29: projects ----------
@@ -1154,7 +1162,7 @@ function attachClaudeQuestions(turn,sessionId){
     broadcast(turn,{type:'approvals'});
     const id=requests.at(-1)?.id;
     if(id&&turn.approvalNotified!==id&&!mutes.has(sessionId)){turn.approvalNotified=id;pushNotify(sessionId,'Action needs approval','Open Pocket Code to review the pending action.').catch(()=>{});}
-  }});
+  },onAutoError:(e,{tool})=>log(`trusted action reply not delivered session=${sessionId} tool=${tool}: ${e.message}`)});
 }
 function handleTurnLine(turn, line) {
   let o; try { o = JSON.parse(line); } catch { return; }
@@ -1171,6 +1179,9 @@ function handleTurnLine(turn, line) {
     }
     if(o.request?.subtype==='can_use_tool'&&o.request.tool_name!=='AskUserQuestion'&&typeof o.request.tool_name==='string'&&o.request.input&&typeof o.request.input==='object'&&turn.approvals){
       const tool=o.request.tool_name;
+      // 1.56: in Review actions only, a request matching a trusted rule is answered Allow and audited, no card.
+      const rule=turn.approvalMode==='review'?matchTrusted(trustedRules(),tool,o.request.input):null;
+      if(rule&&turn.approvals.autoAllow({nativeId:o.request_id,turnId:String(turn.startedAt),kind:'tool',title:'Allow '+tool+'?',details:{tool,cwd:turn.cwd,input:o.request.input},allow:{behavior:'allow',updatedInput:o.request.input},deny:{behavior:'deny',message:'The user denied this action. Do not run it through another tool.'},rule,tool})){log(`trusted action allowed session=${turn.sessionId} tool=${tool} rule=${JSON.stringify(rule)}`);return;}
       if(turn.approvals.receive({nativeId:o.request_id,turnId:String(turn.startedAt),kind:'tool',title:'Allow '+tool+'?',details:{tool,cwd:turn.cwd,input:o.request.input},allow:{behavior:'allow',updatedInput:o.request.input},deny:{behavior:'deny',message:'The user denied this action. Do not run it through another tool.'}}))return;
     }
     if(turn.stdin&&!turn.stdin.destroyed)turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:o.request_id,response:{behavior:'deny',message:'This interactive request is not supported in Pocket Code.'}}})+'\n');
@@ -2439,7 +2450,7 @@ function claudeModelSettings() {
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
 app.get('/api/settings', requireAuth, async (_req, res) => {
   await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings() });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
@@ -2463,6 +2474,16 @@ app.post('/api/settings', requireAuth, (req, res) => {
     }
     log(`claude models offered: ${claudeOffer().offered.join(',') || '(none)'} (${claudeOffer().source})`);
   }
+  if (req.body && 'trustedActions' in req.body) { // 1.56: null = back to POCKET_TRUSTED_ACTIONS (or none)
+    const v = req.body.trustedActions;
+    if (v === null) settings.trustedActions = null;
+    else {
+      const checked = validateRules(v);
+      if (checked.error) return res.status(400).json({ error: checked.error, code: 'bad_trusted_action', rule: checked.rule ?? null, index: checked.index ?? null });
+      settings.trustedActions = checked.rules;
+    }
+    log(`trusted actions: ${trustedRules().length} rule(s) (${trustedSettings().source})`);
+  }
   let vaultToggled = false, createdVaultKey = '';
   if (typeof req.body?.vault === 'boolean' && req.body.vault !== settings.vault) { // 1.39: on needs the key; a change restarts idle runners so the rules reach them
     if (req.body.vault && !vault) {
@@ -2483,7 +2504,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
   log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
+  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
 });
 
 app.post('/api/session/:id/mute', requireAuth, (req, res) => {
@@ -3129,7 +3150,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["A Pocket can be locked to one workspace. With POCKET_LOCK_CWD=1 beside POCKET_DEFAULT_CWD, the New session screen shows that folder with nothing to choose and every session starts there, whatever a client sends. Made for the TechPro seats, whose users should never have to think about folders."];
+const RELEASE_NOTES = ["Read-only actions can run without asking. Settings → Agents & instance → Actions that run without asking lists commands and tools, such as Bash(techpro-lookup:*) or mcp__memstem__*, that Claude runs in Review actions without an approval card; everything else, and anything chained, piped or redirected, still asks. Writes cannot be listed. Each automatic approval is recorded. POCKET_TRUSTED_ACTIONS sets the server's list."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

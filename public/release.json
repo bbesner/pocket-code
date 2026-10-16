@@ -1,7 +1,7 @@
 {
-  "version": "1.55.0",
-  "assetV": 115,
+  "version": "1.56.0",
+  "assetV": 116,
   "notes": [
-    "A Pocket can be locked to one workspace. With POCKET_LOCK_CWD=1 beside POCKET_DEFAULT_CWD, the New session screen shows that folder with nothing to choose and every session starts there, whatever a client sends. Made for the TechPro seats, whose users should never have to think about folders."
+    "Read-only actions can run without asking. Settings → Agents & instance → Actions that run without asking lists commands and tools, such as Bash(techpro-lookup:*) or mcp__memstem__*, that Claude runs in Review actions without an approval card; everything else, and anything chained, piped or redirected, still asks. Writes cannot be listed. Each automatic approval is recorded. POCKET_TRUSTED_ACTIONS sets the server's list."
   ]
 }

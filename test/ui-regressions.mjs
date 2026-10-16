@@ -1283,6 +1283,51 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    delete settings.offeredClaudeModels;await page.evaluate(()=>{localStorage.removeItem('pc-prefs-'+NEW_KEY);localStorage.removeItem('pc-provider');claudeModelsLoaded=false;});
    await page.setViewport({width:1440,height:900});
   });
+  await check('Trusted actions (1.56): Settings → Agents & instance shows the server default, adds a rule, explains a refused one under the field, removes one with focus kept, and goes back to the server list, at 1440 and 390',async()=>{
+   const settings=settingsState();delete settings.trustedActions;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+   const rules=()=>page.$$eval('#s-trusted-list .trusted-row code',e=>e.map(x=>x.textContent));
+   for(const width of [1440,390]){
+    await page.setViewport({width,height:900});await page.goto(base+'/#/');await page.waitForSelector('.rail,.list,main');
+    await page.evaluate(()=>settingsSheet({category:'agents'}));await page.waitForFunction(()=>!document.querySelector('#s-trusted-list').hasAttribute('aria-busy'));
+    // The server default, said so, with the rule it skipped.
+    assert.deepEqual(await rules(),['Bash(techpro-lookup:*)']);
+    assert.match(await page.$eval('#s-trusted-note',e=>e.textContent),/^From POCKET_TRUSTED_ACTIONS on this server: one action run without asking\. A change here replaces it\. The server's list skips one rule it cannot use: Edit\.$/);
+    assert.equal(await page.$eval('#s-trusted-reset',e=>e.hidden),true);
+    assert.equal(await page.$eval('#s-trusted-add',e=>e.disabled),true,'nothing to add yet');
+    // A write is refused, the reason sits under the field, tied to it, and the text stays for fixing.
+    await page.type('#s-trusted-input','Write(/etc/hosts)');await clickControl(page,'#s-trusted-add');
+    await page.waitForFunction(()=>document.querySelector('#s-trusted-error').textContent.length>0);
+    const refused=await page.evaluate(()=>{const i=document.querySelector('#s-trusted-input');return {error:document.querySelector('#s-trusted-error').textContent,invalid:i.getAttribute('aria-invalid'),value:i.value,described:i.getAttribute('aria-describedby'),focused:document.activeElement===i};});
+    assert.deepEqual(refused,{error:'Write changes files, so it always asks.',invalid:'true',value:'Write(/etc/hosts)',described:'s-trusted-error s-trusted-hint',focused:true});
+    assert.equal(settings.trustedActions,undefined,'nothing was saved');
+    await scan('settings-trusted-error-'+width);
+    // Typing clears the error; a good rule is saved for the instance, normalised, and the field empties.
+    await page.evaluate(()=>{const i=document.querySelector('#s-trusted-input');i.value='';});await page.type('#s-trusted-input','Bash(sck-site product :*)');
+    assert.equal(await page.$eval('#s-trusted-error',e=>e.textContent),'');
+    await page.keyboard.press('Enter');for(let i=0;i<30&&!Array.isArray(settings.trustedActions);i++)await sleep(100);
+    assert.deepEqual(settings.trustedActions,['Bash(techpro-lookup:*)','Bash(sck-site product:*)']);
+    await page.waitForFunction(()=>document.querySelectorAll('#s-trusted-list .trusted-row').length===2&&document.querySelector('#s-trusted-input').value==='');
+    assert.match(await page.$eval('#s-trusted-note',e=>e.textContent),/^Chosen here: 2 actions run without asking\. This replaces the server's list\.$/);
+    assert.equal(await page.$eval('#s-trusted-reset',e=>e.hidden),false);
+    const overflow=await page.evaluate(()=>{const s=document.querySelector('.settings-sheet');return s.scrollWidth-s.clientWidth;});assert.ok(overflow<=1,'no horizontal overflow at '+width);
+    await scan('settings-trusted-'+width);await page.screenshot({path:path.join(out,'settings-trusted-'+width+'.png')});
+    // Remove the first: saved, and focus goes to the row that took its place.
+    assert.equal(await page.$eval('[data-trusted-remove="0"]',e=>e.getAttribute('aria-label')),'Remove Bash(techpro-lookup:*)');
+    await clickControl(page,'[data-trusted-remove="0"]');for(let i=0;i<30&&settings.trustedActions.length!==1;i++)await sleep(100);
+    assert.deepEqual(settings.trustedActions,['Bash(sck-site product:*)']);
+    await page.waitForFunction(()=>document.activeElement?.dataset?.trustedRemove==='0'&&document.activeElement.getAttribute('aria-label')==='Remove Bash(sck-site product:*)');
+    // Remove the last: the list says every action asks; focus falls back to the field.
+    await clickControl(page,'[data-trusted-remove="0"]');for(let i=0;i<30&&settings.trustedActions.length;i++)await sleep(100);
+    await page.waitForFunction(()=>/Every action shows the approval card/.test(document.querySelector('#s-trusted-list').textContent)&&document.activeElement?.id==='s-trusted-input');
+    assert.match(await page.$eval('#s-trusted-note',e=>e.textContent),/^Chosen here: every action asks\./);
+    // Use the server's list.
+    await clickControl(page,'#s-trusted-reset');for(let i=0;i<30&&settings.trustedActions!==null;i++)await sleep(100);
+    assert.equal(settings.trustedActions,null);
+    await page.waitForFunction(()=>document.querySelector('#s-trusted-reset').hidden&&document.querySelectorAll('#s-trusted-list .trusted-row').length===1);
+    await page.keyboard.press('Escape');delete settings.trustedActions;
+   }
+   await page.setViewport({width:1440,height:900});
+  });
   await check('Vault (1.39): Settings turns it on, the rail and list, Always allow, Show and the sheet, the editor and a stale save, Remove and Restore, Store in the Vault from the composer, and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));const SECRET='zk-fixture-secret-7731';
    const settings=settingsState();settings.vault=false;settings.vaultReady=true;

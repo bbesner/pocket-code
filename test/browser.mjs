@@ -15,6 +15,7 @@ import {DocumentStore,mimeOf} from '../documents.mjs';
 import {TaskStore} from '../tasks.mjs';
 import {VaultStore,newKey,parseKey} from '../vault.mjs';
 import {resolveOffer} from '../models.mjs';
+import {validateRules} from '../trusted.mjs';
 import '../public/secret-detect.js'; // 1.42: globalThis.PocketSecrets, the detector the server uses
 const repo=path.resolve(import.meta.dirname,'..');
 const out=process.env.POCKET_SCREENSHOTS || fs.mkdtempSync(path.join(os.tmpdir(),'pocket-browser-'));
@@ -41,6 +42,9 @@ const fixturePolicy={availableModels:null,deniedModels:['fable'],availableModels
 const fixtureOffer=saved=>resolveOffer({saved:Array.isArray(saved)?saved:null,envList:null,policy:fixturePolicy});
 const fixtureClaudeModels=()=>({...fixtureOffer(fixtureSettings.offeredClaudeModels),env:null,saved:Array.isArray(fixtureSettings.offeredClaudeModels),
  policy:{dir:'/etc/claude-code',files:['/etc/claude-code/managed-settings.json'],limits:true,error:null},pocketDefault:{configured:null,used:null,label:'Test agent'}});
+// 1.56: actions that run without asking. The fixture server's POCKET_TRUSTED_ACTIONS names one rule and skips one.
+const fixtureTrustedEnv=['Bash(techpro-lookup:*)'];
+const fixtureTrusted=()=>{const saved=Array.isArray(fixtureSettings.trustedActions);return {rules:saved?fixtureSettings.trustedActions:fixtureTrustedEnv,source:saved?'settings':'env',saved,env:fixtureTrustedEnv,envIgnored:[{rule:'Edit',error:'Edit changes files, so it always asks.'}]};};
 // 1.50: the fixture server has mail set up (so Settings shows the address field) and records test messages.
 const fixtureEmail=()=>({configured:true,from:'pocket@example.test',to:fixtureSettings.notifyEmail||'',on:Boolean(fixtureSettings.notifyEmail),hook:false,error:null,base:'http://localhost'});
 // 1.42: like the server, a message that looks like it carries a secret is refused (422) before any receipt, unless allowSecrets.
@@ -230,7 +234,8 @@ const server=http.createServer(async(req,res)=>{
   if(b.vault===true&&!fixtureSettings.vault&&fixtureSettings.vaultCanCreateKey){Object.assign(fixtureSettings,{vaultCanCreateKey:false,vaultReady:true});extra={recoveryKey:vaultFixture.key};}
   if(typeof b.notifyEmail==='string'&&b.notifyEmail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.notifyEmail))return json({error:'That does not look like an email address.',code:'bad_email'},400);
   if(Array.isArray(b.offeredClaudeModels)&&!fixtureOffer(b.offeredClaudeModels).offered.length)return json({error:'Keep at least one model on.',code:'no_models'},400);
-  Object.assign(fixtureSettings,b);}return json({...fixtureSettings,titles:fixtureTitles(),email:fixtureEmail(),claudeModels:fixtureClaudeModels(),...extra});}
+  if(b.trustedActions!=null){const v=validateRules(b.trustedActions);if(v.error)return json({error:v.error,code:'bad_trusted_action',rule:v.rule??null,index:v.index??null},400);b.trustedActions=v.rules;}
+  Object.assign(fixtureSettings,b);}return json({...fixtureSettings,titles:fixtureTitles(),email:fixtureEmail(),claudeModels:fixtureClaudeModels(),trusted:fixtureTrusted(),...extra});}
  if(url.pathname==='/api/about')return uiModes.aboutFailed?json({error:'Version unavailable'},503):json({...JSON.parse(fs.readFileSync(path.join(repo,'public/release.json'),'utf8')),cli:'test',host:'preview'});
  if(url.pathname==='/api/connectors'){uiModes.connectorCalls=(uiModes.connectorCalls||[]).concat(url.search);return json({providers:[{provider:'claude',available:true,manageUrl:'https://claude.ai/customize/connectors',items:[{key:'gmail',label:'Gmail',status:url.search?'connected':'needs-auth'},{key:'calendar',label:'Google Calendar',status:'not-connected'},{key:'drive',label:'Google Drive',status:'connected'}]},{provider:'codex',available:false,reason:'Apps need a ChatGPT sign-in. This Codex uses an API key.',manageUrl:'https://chatgpt.com/apps',items:[]}]});}
  if(url.pathname==='/api/environment')return json({host:'test-instance',checkedAt:Date.now(),providers:[{provider:'claude',email:'owner@example.test',plan:'max',method:'claude.ai',signedIn:true},{provider:'codex',email:'coder@example.test',plan:'pro',method:'chatgpt',signedIn:true}],claudeActive:uiModes.claudeActive||0,accountManagement:'Sign-ins follow this instance.',permissions:'Unattended server permissions',capabilities:{claudeLogin:true}});
