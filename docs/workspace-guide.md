@@ -420,12 +420,11 @@ home gets a Files chip. The rail's Files list has three buttons: **Upload**, **S
 Settings → Projects, files, tasks & vault → **Files button** chooses what the Files segment does: list
 files in the sidebar (the default), or open the library straight away in a tab or in split
 view. **Open files and links** chooses whether a plain click on a file opens a tab, a pane or a new
-window. Since 1.54 a link in a conversation (or in the Results panel) opens the same way: a
-Pocket address opens that view, a share link to one of your files opens the file, a download
-stays a download, and any other page shows in a link view with **Open in browser** and
-**Copy link** above it. A site that does not allow showing inside another app (GitHub, Google
-Drive, most sign-in pages) gets a view that says so and offers the browser; on a phone an
-outside site opens in the browser.
+window. Since 1.54 a link in a conversation (or in the Results panel) to one of this Pocket's
+own things opens the same way: a Pocket address opens that view, a share link to one of your
+files opens the file, and an image or file served by Pocket shows in a small link view with
+**Open in browser** and **Copy link** above it. A download stays a download, and a link to an
+outside website opens in your browser (1.54.1).
 
 **Agents know what "my files" means.** Whether the user says files, my files, documents,
 my documents or docs, agents treat it as this library. Pocket tells its own agents so on

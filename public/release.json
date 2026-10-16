@@ -1,7 +1,7 @@
 {
-  "version": "1.54.0",
-  "assetV": 113,
+  "version": "1.54.1",
+  "assetV": 114,
   "notes": [
-    "A link in a conversation opens the way files do. Settings → Open files and links decides: a tab, a pane beside the conversation, or a new browser window. A Pocket address opens that view, a share link to one of your files opens the file, a download stays a download, and any other page shows in a link view; a site that does not allow showing inside another app gets a view that says so and offers the browser."
+    "Only links to this Pocket's own things follow Open files and links: a file, a project, a session, a share link to one of your files, or an image or file served by Pocket. A link to an outside website opens in your browser again, as before 1.54.0; the framing check that tried to show other sites inside Pocket is gone."
   ]
 }

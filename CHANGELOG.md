@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.54.1] — 2026-10-16 · build 114
+
+- **Only links to this Pocket's own things follow the setting.** 1.54.0 sent every link in a conversation through **Open files and links**, including outside websites, which it tried to show inside a pane or tab; a site that forbids that got a note instead of the page. Brad, on meeting the note for an outside site: "I really only meant for links that are to our own internal documents." Now a link to a file, a project, a session, a share or public link to one of your own files, or an image or file served by this Pocket opens the way the setting says; a link to any outside website opens in your browser, as before 1.54.0. The link view (`#/link/<address>`) stays for Pocket's own images and files only.
+- **Removed:** the framing check (`GET /api/link/frameable` and `links.mjs`), the app's `frame-src https:` policy (back to `'self'`), and the refused-frame note. Nothing to migrate; the check kept no state.
+- Tests: the browser suite now clicks a link to a kept file beside (a pane showing the file, the conversation staying put) and as a tab (Back to the conversation), and checks that an outside link is left to the browser under every setting. The fixture's first conversation ends with a link to a kept file when Files is on.
+
 ## [1.54.0] — 2026-10-16 · build 113
 
 - **A link in a conversation opens the way files do.** Every link in a conversation used to open a new browser tab, whatever **Settings → Open files** said. The setting is now **Open files and links**, and a plain click on a link in a message (or in the Results panel) follows it: *as a tab* shows the page in this column with a tab in the strip, named by the link's text; *beside the conversation* opens it in a split pane (from a pane, a new pane to its left, as files do since 1.53.3); *in a new browser window* leaves the browser to it, as before. A Pocket address (`#/documents/…`, `#/projects/…`, a session) opens that view, following the projects setting for a project; a share or public link to one of your own files opens the file itself; a download link stays a download. Modified clicks (middle, Ctrl, Shift) keep the browser's behaviour. Asked for by Brad.
