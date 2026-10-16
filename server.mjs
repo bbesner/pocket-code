@@ -3150,7 +3150,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Read-only actions can run without asking. Settings → Agents & instance → Actions that run without asking lists commands and tools, such as Bash(techpro-lookup:*) or mcp__memstem__*, that Claude runs in Review actions without an approval card; everything else, and anything chained, piped or redirected, still asks. Writes cannot be listed. Each automatic approval is recorded. POCKET_TRUSTED_ACTIONS sets the server's list."];
+const RELEASE_NOTES = ["A restart no longer takes the agents' PATH away. The ecosystem file now adds the user's own bin directories (~/.local/bin, ~/.npm-global/bin, ~/bin and the node directory) when a restart over ssh or from an agent's shell left them off, so MCP servers and CLIs installed there, such as memstem, keep working in every session Pocket starts."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

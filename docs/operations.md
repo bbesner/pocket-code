@@ -153,6 +153,14 @@ drafts and preferences need browser storage; they are not included in a server b
    pm2 restart ecosystem.config.cjs
    ```
 
+   A restart through the ecosystem file gives the daemon the environment of the shell that
+   ran it (PM2 applies `--update-env` to ecosystem restarts), and every Claude Code or Codex
+   session Pocket starts inherits that PATH. Since 1.56.1 the file appends the user's own bin
+   directories (`~/.local/bin`, `~/.npm-global/bin`, `~/bin` and the node directory) when they
+   exist and are missing, so a restart over ssh or from an agent's shell no longer loses MCP
+   servers or CLIs installed there. On an older checkout run the restart from a login shell
+   (`bash -lc 'cd … && pm2 restart ecosystem.config.cjs'`) or put those directories on PATH first.
+
 4. Check health and PM2, then open the app over its HTTPS URL. Verify the app version,
    server build and expected release notes. Use the browser refresh/update control if
    the old shell remains open. Verify an existing conversation, a saved draft and any
