@@ -82,8 +82,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       // Pages like the real app-server: newest first on request, `limit` rows; every call is recorded.
       fs.appendFileSync(calls+'.items',JSON.stringify({threadId:p.threadId,limit:p.limit??null,desc:p.sortDirection==='desc',cursor:p.cursor??null})+'\n');
       if(p.sortDirection==='desc')data=data.slice().reverse();
-      if(Number.isInteger(p.limit))data=data.slice(0,p.limit);
-      return reply(m.id,{data,nextCursor:null});
+      let from=0;if(p.cursor){try{from=JSON.parse(p.cursor).o|0;}catch{return fail(m.id,'bad cursor');}}
+      const limit=Number.isInteger(p.limit)?Math.min(p.limit,100):100; // the real app-server caps a page at 100
+      const page=data.slice(from,from+limit),end=from+page.length;
+      return reply(m.id,{data:page,nextCursor:end<data.length?JSON.stringify({o:end,desc:p.sortDirection==='desc'}):null});
     }
     case 'thread/list':case 'model/list':case 'skills/list':return reply(m.id,{data:[],nextCursor:null});
     case 'thread/read':return reply(m.id,{thread:{id:p.threadId,turns:[],preview:'',cwd:process.cwd()}});

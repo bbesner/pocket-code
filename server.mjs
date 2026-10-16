@@ -2228,6 +2228,7 @@ async function startCodexFromApi({ id, threadId, cwd, text, body }) {
   return codex.startCodexTurn({ threadId, cwd, text, ...opts, ...codexHooks(id) });
 }
 if (CODEX_ON) codex.adoptCodexSessions(threadId => codexHooks(codex.CX + threadId));
+if (CODEX_ON) codex.pruneTranscriptCache(); // 1.53.5: the on-disk transcript cache keeps its newest files only
 
 function validateApprovalMode(req,res,next){
   try{approvalMode(req.body?.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);next();}
@@ -3122,7 +3123,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Opening a tab no longer waits seconds behind the server. The Codex app-server's replies are framed in linear time, and a conversation's agent-activity poll keeps the thread's agent items instead of rereading the whole thread every 5 seconds."];
+const RELEASE_NOTES = ["Codex conversations open fast. A thread is read newest-first in small pages and only as far back as the view needs, the transcript is kept per thread in memory and on disk so a later open fetches one page, and generated-image payloads Pocket never shows are dropped as soon as they are parsed."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
