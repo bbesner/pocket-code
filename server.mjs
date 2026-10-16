@@ -3167,7 +3167,7 @@ async function readConnectors(kind, refresh) {
   if (!refresh && connectorFresh(connectorCache[kind])) return connectorCache[kind].value;
   const value = kind === 'claude'
     ? await claudeConnectors({ bin: CLAUDE_BIN, env: spawnEnv(), cwd: HOME, home: HOME, managedDir: MANAGED_DIR, identity: await readClaudeIdentity(CLAUDE_BIN, spawnEnv()) })
-    : !CODEX_ON ? { provider: 'codex', available: false, reason: 'Codex is not installed on this server.', items: [] }
+    : !CODEX_ON ? { provider: 'codex', available: false, reason: 'Codex is turned off or not installed in Pocket on this server.', items: [] }
     : await codexConnectors({ rpc: codex.appRpc, refresh, account: await codex.accountSummary().catch(() => null) });
   connectorCache[kind] = { at: Date.now(), value: { ...value, checkedAt: Date.now() } };
   return connectorCache[kind].value;
