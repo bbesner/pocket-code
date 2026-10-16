@@ -1,7 +1,7 @@
 {
-  "version": "1.53.5",
-  "assetV": 112,
+  "version": "1.54.0",
+  "assetV": 113,
   "notes": [
-    "Codex conversations open fast. A thread is read newest-first in small pages and only as far back as the view needs, the transcript is kept per thread in memory and on disk so a later open fetches one page, and generated-image payloads Pocket never shows are dropped as soon as they are parsed."
+    "A link in a conversation opens the way files do. Settings → Open files and links decides: a tab, a pane beside the conversation, or a new browser window. A Pocket address opens that view, a share link to one of your files opens the file, a download stays a download, and any other page shows in a link view; a site that does not allow showing inside another app gets a view that says so and offers the browser."
   ]
 }
