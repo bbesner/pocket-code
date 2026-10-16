@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.53.3] — 2026-10-16 · build 110
+
+- **A file opened from a split pane gets a pane of its own, to the left.** With **Settings → Open files** (or **Open projects**) set to *Beside the conversation*, choosing a file inside the file library open in a split pane used to load the file in that same pane, over the library. The pane now asks the window around it for a new pane, placed to the pane's left (between the conversation and the library), so the list stays in view and the next file opens the same way. The same goes for a project chosen in a pane, a session chosen from a project card in a pane, and **Open beside** in a pane's file and project option sheets, which now say *In a new pane to the left of this one*. From the main conversation nothing changes: a new pane still goes to the right. The window still decides whether there is room (up to four views, each at least 380px wide) and says so when there is not. Asked for by Brad.
+- Panes are inserted without moving existing frames, so the library's scroll position, search and selection survive, as before.
+- Tests: the browser suite opens the library beside a conversation, picks a file in it, and checks that the file's pane appears to the left while the library pane keeps its frame and route.
+
 ## [1.53.2] — 2026-10-16 · build 109
 
 - **Connectors names the real problem when a read fails.** On Siri's and Ramesh's servers, where Codex is signed in with ChatGPT and Gmail, Calendar and Drive are already connected, the sheet said *Codex could not list its apps. Check that it is signed in with ChatGPT*. The real cause: chatgpt.com sometimes answers a cloud server's connector-directory request with a Cloudflare bot check (an HTML page) instead of the list. The sheet now says *chatgpt.com turned away this server's request with a bot check … try again in a minute*. Timeouts and other failures read as such instead of blaming the sign-in, and the same goes for Claude Code.

@@ -1,7 +1,7 @@
 {
-  "version": "1.53.2",
-  "assetV": 109,
+  "version": "1.53.3",
+  "assetV": 110,
   "notes": [
-    "Connectors says what went wrong when an agent cannot list its connectors, including when chatgpt.com turns this server away with a bot check, and Refresh tries again straight away."
+    "A file or project chosen inside a split pane opens in a new pane to that pane's left when Settings has it open beside the conversation, so the library stays in view instead of being replaced."
   ]
 }

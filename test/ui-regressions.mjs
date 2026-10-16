@@ -2113,6 +2113,28 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.ok(g.w<700,'the pane is narrower than the phone breakpoint: '+g.w);assert.ok(g.cols>=2,'two or more columns of previews in the pane: '+JSON.stringify(g));assert.notEqual(g.toggle,'none','the layout switch shows in a pane');
     await page.screenshot({path:path.join(out,'documents-grid-pane.png')});}
    await page.evaluate(()=>writeLocal('pc-documents-layout','list'));
+   // 1.53.3: with files set to open beside, a file chosen inside the library pane gets a new pane to the pane's left; the library stays.
+   await check('A file opened from the library pane gets its own pane to the left',async()=>{
+    const vp=page.viewport();await page.setViewport({width:2560,height:900});await pause(150);
+    await page.evaluate(()=>writeLocal('pc-documents-open','beside'));
+    const lib=page.frames().find(f=>f.url().includes('#/documents'));await lib.waitForSelector('a[data-document]');
+    const libKey=await page.$eval('#panes .split-pane',e=>e.dataset.key);
+    await lib.click('a[data-document]');
+    await page.waitForFunction(()=>document.querySelectorAll('#panes .split-pane').length===2);
+    const panes=await page.$$eval('#panes .split-pane',els=>els.map(e=>({key:e.dataset.key,src:e.querySelector('iframe').getAttribute('src'),left:e.getBoundingClientRect().left,hidden:e.hidden})));
+    assert.equal(panes[1].key,libKey,'the library pane keeps its frame and place: '+JSON.stringify(panes));
+    assert.match(panes[0].src,/#\/documents\/[0-9a-f]{12}$/,'the file opened in the new pane: '+JSON.stringify(panes));
+    assert.ok(!panes[0].hidden&&!panes[1].hidden&&panes[0].left<panes[1].left,'and it sits to the left of the library: '+JSON.stringify(panes));
+    assert.equal(await lib.evaluate(()=>location.hash),'#/documents','the library pane still shows the library');
+    await lib.click('[data-document-more]');await lib.waitForSelector('.sheet [data-beside]');
+    assert.equal(await lib.$eval('.sheet [data-beside] .sub',e=>e.textContent),'In a new pane to the left of this one','the pane\'s option sheet offers it too');
+    await lib.evaluate(()=>closeCurrentSheet?.());await lib.waitForFunction(()=>!document.querySelector('.sheet'));
+    await page.screenshot({path:path.join(out,'documents-pane-opens-left.png')});
+    const filePane=page.frames().find(f=>/#\/documents\/[0-9a-f]{12}$/.test(f.url()));await filePane.waitForSelector('#pane-close');await filePane.click('#pane-close');
+    await page.waitForFunction(()=>document.querySelectorAll('#panes .split-pane').length===1);
+    assert.equal(await page.$eval('#panes .split-pane',e=>e.dataset.key),libKey);
+    await page.evaluate(()=>writeLocal('pc-documents-open','tab'));await page.setViewport(vp);await pause(150);
+   });
    await page.frames().find(f=>f.url().includes('#/documents')).waitForSelector('#pane-close');await page.frames().find(f=>f.url().includes('#/documents')).click('#pane-close');await page.waitForFunction(()=>!document.querySelector('#panes iframe'));
    await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
    // Settings → Files button: open the library in a tab straight from the Files segment.

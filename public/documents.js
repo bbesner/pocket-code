@@ -263,7 +263,7 @@ function documentOptions(id){
   ${d.trashedAt?`<button class="opt" data-restore>${IC.up}<span>Restore<span class="sub">Back to the library; links stay off until you share it again</span></span></button><button class="opt doc-danger" data-destroy>${IC.x}<span>Delete forever<span class="sub">Deletes the file and its preview from the server now</span></span></button>`:
   optGroup('Open',[
    here?'':`<button class="opt" data-open>${IC.doc}<span>Open<span class="sub">${PANE?'In this pane':SOLO?'In this window':'As a tab, like a session'}</span></span></button>`,
-   !PANE&&!SOLO&&isWide()&&!here&&typeof openBeside==='function'?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">In a pane next to the current view</span></span></button>`:'',
+   !here&&(PANE?typeof paneSay==='function':!SOLO&&isWide()&&typeof openBeside==='function')?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">${PANE?'In a new pane to the left of this one':'In a pane next to the current view'}</span></span></button>`:'',
    `<button class="opt" data-window>${IC.external}<span>Open in a new window<span class="sub">A browser tab or app window of its own</span></span></button>`,
    `<a class="opt" href="${esc(docRawUrl(d))}" target="_blank" rel="noopener noreferrer">${IC.globe}<span>Open in your viewer<span class="sub">The file itself, in the app your device uses for it</span></span></a>`,
    `<a class="opt" href="${esc(docRawUrl(d,true))}" download="${esc(d.file)}">${IC.down}<span>Download</span></a>`])
@@ -276,7 +276,7 @@ function documentOptions(id){
    `<button class="opt" data-trash>${IC.x}<span>Remove<span class="sub">To the trash for ${docsSnap?.limits?.trashDays||30} days; links stop working</span></span></button>`])}`;
  const close=()=>closeCurrentSheet?.();
  sh.querySelector('[data-open]')?.addEventListener('click',()=>{close();location.hash=viewHref('documents/'+id);});
- sh.querySelector('[data-beside]')?.addEventListener('click',()=>{close();openBeside('documents/'+id);});
+ sh.querySelector('[data-beside]')?.addEventListener('click',()=>{close();if(PANE)paneSay('beside',{id:'documents/'+id});else openBeside('documents/'+id);});
  sh.querySelector('[data-window]')?.addEventListener('click',()=>{close();openInWindow('documents/'+id);});
  sh.querySelector('[data-restore]')?.addEventListener('click',()=>{close();docAct(id,{action:'restore'},'Restored');});
  sh.querySelector('[data-destroy]')?.addEventListener('click',()=>{close();confirmSheet('Delete this file forever?','It is deleted from the server now, with its preview, and the space is freed. This cannot be undone.','Delete forever',async()=>{const r=await docBulk('/documents/bulk',{action:'delete',ids:[id]},()=>'Deleted forever');if(r?.done.length&&docView==='documents/'+id)location.hash=viewHref('documents');});});

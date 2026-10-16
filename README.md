@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.53.2 / build 109**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.53.3 / build 110**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -201,7 +201,9 @@ device, and when you open them, so an item an agent adds shows up without a relo
   - Optional passphrase with **Lock now** and **Lock after**, custom fields, a **Credentials**
     kind, and encrypted export and import between installs.
 - Projects, files, tasks and the Vault open as a tab, beside a conversation, in a window of
-  their own, or full-screen on the phone.
+  their own, or full-screen on the phone. Chosen inside a split pane (the file library open
+  beside, say), a file or project set to open beside gets a new pane to that pane's left, so
+  the list it came from stays in view.
 
 ### Agents that know Pocket
 
