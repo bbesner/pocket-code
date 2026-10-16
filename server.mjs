@@ -183,6 +183,10 @@ const withDefaults = (provider, opts) => {
 const fallbackText = f => `${f.label} is ${f.reason === 'policy' ? "blocked by this computer's Claude Code policy" : f.reason === 'unknown' ? 'not a model Pocket knows' : 'not offered in Settings'}, so this turn uses ${f.used === 'default' ? 'the default model' : f.usedLabel}${f.used === 'default' ? ` (${f.usedLabel})` : ''}.`;
 // Workspace the New session screen preselects; unset = wherever you last started one.
 const DEFAULT_CWD = envPick('POCKET_DEFAULT_CWD', v => path.isAbsolute(v) && fs.existsSync(v) && fs.statSync(v).isDirectory());
+// 1.55: POCKET_LOCK_CWD=1 pins every session to DEFAULT_CWD: the New session screen shows the folder with nothing to
+// choose, and a start that names another folder is moved there. For installs whose users should never meet a folder.
+const LOCK_CWD = ['1', 'true', 'yes', 'on'].includes(String(process.env.POCKET_LOCK_CWD || '').trim().toLowerCase()) && Boolean(DEFAULT_CWD);
+if (!LOCK_CWD && /^(1|true|yes|on)$/i.test(String(process.env.POCKET_LOCK_CWD || '').trim())) console.log(new Date().toISOString(), 'POCKET_LOCK_CWD is set but POCKET_DEFAULT_CWD is not a directory; the workspace is not locked');
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 // A rejected promise nobody awaited (a transcript deleted mid-read, a timer callback that
@@ -1805,6 +1809,7 @@ app.get('/api/projects', requireAuth, async (_req, res) => {
     if (!s.cwd || s.cwd.startsWith('/tmp/') || s.cwd.includes('/.claude/')) continue;
     if (!seen.has(s.cwd) || seen.get(s.cwd) < s.mtimeMs) seen.set(s.cwd, s.mtimeMs);
   }
+  if (LOCK_CWD) return res.json({ projects: [DEFAULT_CWD], defaultCwd: DEFAULT_CWD, locked: true }); // 1.55: one folder, nothing to choose
   const projects = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([cwd]) => cwd);
   if (!projects.includes(HOME)) projects.push(HOME);
   if (DEFAULT_CWD) projects.splice(0, projects.length, DEFAULT_CWD, ...projects.filter(p => p !== DEFAULT_CWD));
@@ -2331,7 +2336,8 @@ function linkStartedSession(project, id) {
   catch (e) { log(`project link skipped project=${project} session=${id}: ${e.message}`); }
 }
 app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
-  const cwd = String(req.body?.cwd || '').trim();
+  let cwd = String(req.body?.cwd || '').trim();
+  if (LOCK_CWD && cwd !== DEFAULT_CWD) { if (cwd) log(`new session asked for ${cwd}; this Pocket starts every session in ${DEFAULT_CWD}`); cwd = DEFAULT_CWD; } // 1.55
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
   if (!cwd.startsWith('/') || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
@@ -3123,7 +3129,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Only links to this Pocket's own things follow Open files and links: a file, a project, a session, a share link to one of your files, or an image or file served by Pocket. A link to an outside website opens in your browser again, as before 1.54.0; the framing check that tried to show other sites inside Pocket is gone."];
+const RELEASE_NOTES = ["A Pocket can be locked to one workspace. With POCKET_LOCK_CWD=1 beside POCKET_DEFAULT_CWD, the New session screen shows that folder with nothing to choose and every session starts there, whatever a client sends. Made for the TechPro seats, whose users should never have to think about folders."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

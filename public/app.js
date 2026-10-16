@@ -2848,9 +2848,15 @@ async function renderNew() {
   let savedPrompts = [], recentStarts = [], activeStarter = null; // 1.23 (declared before the handlers that read them)
   first.oninput = () => { saveDraft(NEW_KEY, first.value); const h = $('#start-hint'); if (h) h.hidden = true; paintSaveButton(); if (activeStarter && first.value !== activeStarter.text) { activeStarter = null; paintStarters(); } };
   try {
-    const { projects, defaultCwd } = await api('/projects');
+    const { projects, defaultCwd, locked } = await api('/projects');
     if(viewVersion!==chatRenderVersion)return;
     const pl = $('#plist');
+    if (locked && defaultCwd) { // 1.55: this Pocket starts every session in one folder; nothing to choose
+      pl.innerHTML = `<div class="row workspace-locked">${IC.folder}<span class="p">${esc(projName(defaultCwd))}${projShort(defaultCwd) !== projName(defaultCwd) ? `<span class="workspace-path">${esc(projShort(defaultCwd))}</span>` : ''}</span><span class="workspace-note">Every session starts here</span></div>`;
+      $('#projh').textContent = 'Workspace';
+      $('#cpath').value = ''; $('#cpath').closest('div').hidden = true;
+      sel = defaultCwd; context();
+    } else {
     pl.innerHTML = projects.slice(0, 10).map((p, i) => `
       <button class="row" role="radio" aria-checked="false" data-p="${esc(p)}">
         <span class="dot"></span>${IC.folder}<span class="p">${esc(projName(p))}${projShort(p) !== projName(p) ? `<span class="workspace-path">${esc(projShort(p))}</span>` : ''}</span>
@@ -2868,6 +2874,7 @@ async function renderNew() {
     const firstRow = pl.querySelector('.row');
     if (lastRow) pick(lastRow); else if (startFrom?.cwd && !pendingNew) { $('#cpath').value = startFrom.cwd; context(); } else if (firstRow && !$('#cpath').value.trim()) pick(firstRow);
     bindRadioGroup(pl);
+    }
   } catch { }
   if(viewVersion!==chatRenderVersion)return;
   if (pendingNew) $('#cpath').value = pendingNew.payload.cwd;context();

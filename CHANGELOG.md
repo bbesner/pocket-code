@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.55.0] — 2026-10-16 · build 115
+
+- **A Pocket can be locked to one workspace.** `POCKET_LOCK_CWD=1` beside `POCKET_DEFAULT_CWD` pins every session to that folder: the New session screen shows it under **Workspace** with *Every session starts here* and no picker or custom-path field, `GET /api/projects` answers with that one folder and `locked: true`, and a start that names another folder is moved there (logged, not refused), so a stale remembered workspace in a browser cannot escape it. Resuming a session keeps that session's own folder. Without a valid default folder the flag is ignored and logged. Made for the TechPro seats, whose users should never have to think about folders; the seat provisioning kit sets it.
+- Tests: `test/defaults.test.mjs` starts a locked daemon (one folder listed, a start elsewhere lands in the folder, the flag without a default is ignored); the browser suite shows the locked New screen (no radios, no path field, the summary names the folder) and the picker's return when the lock is off.
+
 ## [1.54.1] — 2026-10-16 · build 114
 
 - **Only links to this Pocket's own things follow the setting.** 1.54.0 sent every link in a conversation through **Open files and links**, including outside websites, which it tried to show inside a pane or tab; a site that forbids that got a note instead of the page. Brad, on meeting the note for an outside site: "I really only meant for links that are to our own internal documents." Now a link to a file, a project, a session, a share or public link to one of your own files, or an image or file served by this Pocket opens the way the setting says; a link to any outside website opens in your browser, as before 1.54.0. The link view (`#/link/<address>`) stays for Pocket's own images and files only.

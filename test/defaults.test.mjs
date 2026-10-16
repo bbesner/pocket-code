@@ -40,6 +40,20 @@ test('Pocket-only model, effort and workspace defaults',async t=>{
  assert.deepEqual(s.calls().map(c=>[c.text,c.model,c.effort]),[['Default turn','claude-opus-5-5[1m]','high'],['Explicit turn','claude-sonnet-5','low']]);
 });
 
+test('1.55 A locked workspace: one folder on the New screen, and every session starts there',async t=>{
+ const s=await server(t,18375,dir=>({POCKET_DEFAULT_CWD:dir,POCKET_LOCK_CWD:'1'}));
+ const p=(await s.call('/projects')).body;assert.equal(p.locked,true);assert.deepEqual(p.projects,[s.dir]);assert.equal(p.defaultCwd,s.dir);
+ const a=await s.call('/new',{cwd:repo,text:'Locked turn',clientMessageId:randomUUID()});assert.equal(a.status,202,'a start naming another folder is moved, not refused');
+ await sleep(700);
+ assert.deepEqual(s.calls().map(c=>c.text),['Locked turn']);
+ const transcript=path.join(s.dir,'sessions','test-workspace',a.body.id+'.jsonl'); // the fake CLI records its working directory on every line
+ assert.equal(fs.realpathSync(JSON.parse(fs.readFileSync(transcript,'utf8').split('\n')[0]).cwd),fs.realpathSync(s.dir),'the turn ran in the locked folder, not the one asked for');
+ assert.match(s.logs(),/starts every session in/);
+ const u=await server(t,18376,()=>({POCKET_LOCK_CWD:'1'}));
+ const q=(await u.call('/projects')).body;assert.equal(q.locked,undefined,'no default folder: nothing to lock to');assert.ok(q.projects.length>=1);
+ assert.match(u.logs(),/POCKET_LOCK_CWD is set but POCKET_DEFAULT_CWD/);
+});
+
 test('Unset or invalid defaults fall back to the CLI configuration',async t=>{
  const s=await server(t,18372,()=>({POCKET_CLAUDE_MODEL:'opus-latest',POCKET_CLAUDE_EFFORT:'extreme',POCKET_DEFAULT_CWD:'/no/such/dir'}));
  const models=(await s.call('/claude/models')).body;

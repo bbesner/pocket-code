@@ -232,6 +232,8 @@ mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
 .projlist .row { padding: 13px 14px; gap: 10px; align-items: center; }
 .projlist .row:last-child { border-bottom: 0; }
 .projlist .row.sel { background: var(--raised); }
+.projlist .workspace-locked { display: flex; cursor: default; } /* 1.55: a locked Pocket's one folder */
+.projlist .workspace-locked .workspace-note { color: var(--dim); font-size: 13px; flex: none; }
 .projlist .row .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 15px; }
 .projlist .row .dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--faint); flex: none; }
