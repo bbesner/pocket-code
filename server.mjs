@@ -3122,7 +3122,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["A file or project chosen inside a split pane opens in a new pane to that pane's left when Settings has it open beside the conversation, so the library stays in view instead of being replaced."];
+const RELEASE_NOTES = ["Opening a tab no longer waits seconds behind the server. The Codex app-server's replies are framed in linear time, and a conversation's agent-activity poll keeps the thread's agent items instead of rereading the whole thread every 5 seconds."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

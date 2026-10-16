@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.53.4] — 2026-10-16 · build 111
+
+- **Opening a tab no longer waits seconds behind the server.** With a long Codex session open, every tab took several seconds to show its conversation. Two causes, both in the daemon. The reader for the Codex app-server's output rejoined and re-split its whole pending text on every 64 KB chunk, so one large reply cost time quadratic in its size: a 17 MB page of a 50 MB thread's items held the server's only thread for 3.9 s, and every other request, including the tab being opened, waited behind it. The reader now scans only the new chunk and joins a long line once (`LineBuffer`, with unit tests). And the open conversation's agent-activity poll, every 5 s, read that whole thread each time (18 MB and 5.5 s of Codex time per poll); it now keeps the thread's agent items after one walk and merges only the newest page, walking again only when more items landed than a page holds. Legacy-format threads, which the app-server cannot page, are reread at most every 15 s.
+- Tests: `test/codex-reader.test.mjs` frames lines across every chunk boundary and bounds a multi-megabyte line; the fake app-server pages `thread/items/list` like the real one and records each call, and the Codex session suite checks that a second agents poll fetches one newest-first page instead of the thread.
+- No frontend change; the build number moves so the in-app release notes refresh.
+
 ## [1.53.3] — 2026-10-16 · build 110
 
 - **A file opened from a split pane gets a pane of its own, to the left.** With **Settings → Open files** (or **Open projects**) set to *Beside the conversation*, choosing a file inside the file library open in a split pane used to load the file in that same pane, over the library. The pane now asks the window around it for a new pane, placed to the pane's left (between the conversation and the library), so the list stays in view and the next file opens the same way. The same goes for a project chosen in a pane, a session chosen from a project card in a pane, and **Open beside** in a pane's file and project option sheets, which now say *In a new pane to the left of this one*. From the main conversation nothing changes: a new pane still goes to the right. The window still decides whether there is room (up to four views, each at least 380px wide) and says so when there is not. Asked for by Brad.

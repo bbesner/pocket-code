@@ -81,6 +81,27 @@ function declineFor(method) {
   return {};
 }
 
+// Line framing for an app-server's stdout. One reply can be a single JSON line of many
+// megabytes (a page of a long thread's items came to 17 MB on 2026-10-16) arriving in
+// 64 KB chunks. Rejoining and re-splitting the whole pending text on every chunk made
+// the cost quadratic: 3.9 s of blocked event loop for that one reply, with every tab
+// waiting behind it. Only the new chunk is scanned; partial text is kept as pieces and
+// joined once, when its newline arrives.
+export class LineBuffer {
+  constructor() { this.parts = []; }
+  push(chunk) {
+    const lines = [];
+    let start = 0, nl;
+    while ((nl = chunk.indexOf('\n', start)) >= 0) {
+      const piece = chunk.slice(start, nl);
+      lines.push(this.parts.length ? this.parts.join('') + piece : piece);
+      this.parts.length = 0;
+      start = nl + 1;
+    }
+    if (start < chunk.length) this.parts.push(start ? chunk.slice(start) : chunk);
+    return lines;
+  }
+}
 // ---------- JSON-RPC over stdio ----------
 // Newline-delimited JSON both ways. Requests carry an id; anything with a `method` and
 // no `id` is a notification (the streaming channel).
@@ -93,7 +114,7 @@ class AppServer {
     // Ids stay unique across server restarts: a reattached app-server may still answer
     // the previous server's requests, and those replies must not match ours.
     this.nextId = Date.now();
-    this.rem = '';
+    this.lines = new LineBuffer();
     this.closed = false;
     if (transport) { // session process: stdin is a named pipe, stdout a log file (see spawnTransport)
       this.transport = transport;
@@ -124,9 +145,7 @@ class AppServer {
   }
 
   _feed(chunk) {
-    const lines = (this.rem + chunk).split('\n');
-    this.rem = lines.pop() ?? '';
-    for (const line of lines) {
+    for (const line of this.lines.push(chunk)) {
       if (!line.trim()) continue;
       let m; try { m = JSON.parse(line); } catch { continue; }
       if (m.id != null && (m.result !== undefined || m.error !== undefined)) {
@@ -450,8 +469,43 @@ async function listAllItems(threadId) {
   return readLegacyItems(threadId);
 }
 
-export async function readCodexAgents(threadId) {
+// The open conversation polls its agent activity every 5 s. Reading the whole thread each
+// time (18 MB and 5.5 s of Codex time for a 50 MB rollout, 2026-10-16) held up every other
+// request on the server. After one full walk the agent-bearing items are kept per thread;
+// later polls fetch only the newest page and merge it, walking again only when the page is
+// all news (more items landed than one page holds). Legacy-format threads, which the
+// app-server cannot page, are reread at most every AGENT_LEGACY_MS.
+const AGENT_TYPES = new Set(['collabAgentToolCall', 'subAgentActivity']);
+const AGENT_PAGE = 50, AGENT_LEGACY_MS = 15_000, AGENT_CACHE_THREADS = 40;
+const agentItemCache = new Map(); // threadId -> { byKey: Map<key,item>, seen: Set<id>, at }
+function rememberAgentItem(c, it, i) {
+  if (!it || typeof it !== 'object') return;
+  if (it.id) c.seen.add(it.id);
+  if (AGENT_TYPES.has(it.type)) c.byKey.set(it.id || 'history-' + i, it);
+}
+async function agentItems(threadId) {
+  const c = agentItemCache.get(threadId);
+  if (c && legacyThreads.has(threadId) && Date.now() - c.at < AGENT_LEGACY_MS) return [...c.byKey.values()];
+  if (c && !legacyThreads.has(threadId)) {
+    const r = await rpc('thread/items/list', { threadId, limit: AGENT_PAGE, sortDirection: 'desc' }, 30_000);
+    const rows = (r?.data || []).map(row => { const it = row.item || row; if (row.turnId && it && typeof it === 'object') it.__turnId = row.turnId; return it; }).reverse();
+    const known = rows.some(it => it?.id && c.seen.has(it.id));
+    if (rows.length < AGENT_PAGE || known) { // the page overlaps what is held: merge and done
+      rows.forEach((it, i) => rememberAgentItem(c, it, c.seen.size + i));
+      c.at = Date.now();
+      return [...c.byKey.values()];
+    }
+  }
   const items = await listAllItems(threadId);
+  const fresh = { byKey: new Map(), seen: new Set(), at: Date.now() };
+  items.forEach((it, i) => rememberAgentItem(fresh, it, i));
+  agentItemCache.delete(threadId); agentItemCache.set(threadId, fresh);
+  if (agentItemCache.size > AGENT_CACHE_THREADS) agentItemCache.delete(agentItemCache.keys().next().value);
+  return [...fresh.byKey.values()];
+}
+
+export async function readCodexAgents(threadId) {
+  const items = await agentItems(threadId);
   const turn = codexTurns.get(threadId);
   const byId = new Map(items.map((it,i)=>[it.id || 'history-'+i,it]));
   for (const [id,it] of turn?.agentItems || []) byId.set(id,it);

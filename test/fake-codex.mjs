@@ -79,6 +79,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     case 'turn/interrupt':reply(m.id,{});return notify('turn/completed',{turn:{id:p.turnId,status:'interrupted'}});
     case 'thread/items/list':{
       let data=[];try{data=JSON.parse(fs.readFileSync(path.join(root,p.threadId+'.items.json'),'utf8'));}catch{}
+      // Pages like the real app-server: newest first on request, `limit` rows; every call is recorded.
+      fs.appendFileSync(calls+'.items',JSON.stringify({threadId:p.threadId,limit:p.limit??null,desc:p.sortDirection==='desc',cursor:p.cursor??null})+'\n');
+      if(p.sortDirection==='desc')data=data.slice().reverse();
+      if(Number.isInteger(p.limit))data=data.slice(0,p.limit);
       return reply(m.id,{data,nextCursor:null});
     }
     case 'thread/list':case 'model/list':case 'skills/list':return reply(m.id,{data:[],nextCursor:null});

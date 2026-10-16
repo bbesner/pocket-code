@@ -166,6 +166,24 @@ test('Codex subagent projection survives reconnect and never resumes a child thr
  assert.equal(connections.length,1,'activity reads never start/resume an extra thread');
 });
 
+// 1.53.4: the agents poll runs every 5 s for the open conversation; after one walk of the thread it
+// asks only for the newest page, and a completion that arrives later still reaches the panel.
+test('a repeated Codex agents poll fetches one newest-first page, not the whole thread',async t=>{
+ const f=await fixture(t,18841);
+ const itemCalls=()=>{try{return fs.readFileSync(path.join(f.dir,'calls.items'),'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)}catch{return []}};
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('__AGENTS__ __SLOW__')})).body.id;
+ assert.ok(await f.until(()=>f.calls().length===1));
+ const first=(await f.call(`/session/${id}/agents`)).body;
+ assert.equal(first.total,1);
+ const walk=itemCalls();
+ assert.ok(walk.length>=1&&walk.every(c=>!c.desc),'the first read walks the thread oldest-first');
+ await sleep(4100); // the slow fake turn ends at 1.5 s; the route reuses its previous answer for 4 s. No session reads: those walk the thread too.
+ const second=(await f.call(`/session/${id}/agents`)).body;
+ const later=itemCalls().slice(walk.length);
+ assert.deepEqual(later.map(c=>[c.desc,c.limit]),[[true,50]],'the second read asks for one newest-first page');
+ assert.equal(second.running,0);assert.equal(second.agents[0].status,'completed');assert.equal(second.agents[0].latest,'Parser checks passed.');
+});
+
 test('a just-sent Codex message shows as pending until the reader has it, and never twice',async t=>{
  const f=await fixture(t,18781);
  const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('setup')})).body.id;
