@@ -33,6 +33,7 @@ import zlib from 'node:zlib';
 import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 import {PromptStore} from './prompts.mjs';
 import {ClaudeLogin} from './claude-login.mjs';
+import {claudeConnectors, codexConnectors} from './connectors.mjs';
 import {ProjectStore, projectInstructions} from './projects.mjs';
 import {CLAUDE_MODELS, CATALOG_IDS, managedDir, readManagedPolicy, policyAllows, parseSelection, resolveOffer, helperModel} from './models.mjs';
 import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
@@ -3121,7 +3122,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Settings → Agents & instance chooses which Claude models the picker offers, and POCKET_CLAUDE_MODELS sets the list at install. Models blocked by this computer's Claude Code policy are marked there and never offered; a turn sent with one runs on the default model and says so. Sonnet 5.5 and Haiku 5.5 join the list."];
+const RELEASE_NOTES = ["Settings → Agents & instance → Connectors shows whether Gmail, Google Calendar and Google Drive are connected for Claude Code and for Codex, and links to claude.ai or chatgpt.com to connect them with your own Google account. Pocket stores no Google credentials."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
@@ -3156,6 +3157,26 @@ app.get('/api/environment',requireAuth,async(_req,res)=>{
   res.setHeader('Cache-Control','private, no-store');
   const [claude,cx]=await Promise.all([readClaudeIdentity(CLAUDE_BIN,spawnEnv()),CODEX_ON?codex.accountSummary().catch(()=>({provider:'codex',signedIn:null,method:'Status unavailable'})):Promise.resolve({provider:'codex',signedIn:false,method:'Not installed'})]);
   res.json({host:os.hostname(),checkedAt:Date.now(),providers:[claude,cx],claudeActive:turns.size,permissions:'Selectable native tool approvals; not employee isolation',accountManagement:'Claude sign-in changes the shared login on this server, including code-server using the same configuration. Other open Claude processes may need reopening. Codex sign-in is managed by its installed CLI.',capabilities:{claudeQuestions:true,codexQuestions:CODEX_ON,approvalControls:true,claudeLogin:true}});
+});
+// 1.53: Gmail, Calendar and Drive status through each CLI's own connectors (connectors.mjs).
+// `claude mcp list` health-checks every MCP server and a forced Codex refetch reads the whole
+// app catalog, so a result is kept for a minute and Refresh asks for a fresh one.
+const connectorCache = { claude: null, codex: null };
+const connectorFresh = hit => hit && Date.now() - hit.at < 60_000;
+async function readConnectors(kind, refresh) {
+  if (!refresh && connectorFresh(connectorCache[kind])) return connectorCache[kind].value;
+  const value = kind === 'claude'
+    ? await claudeConnectors({ bin: CLAUDE_BIN, env: spawnEnv(), cwd: HOME, home: HOME, managedDir: MANAGED_DIR, identity: await readClaudeIdentity(CLAUDE_BIN, spawnEnv()) })
+    : !CODEX_ON ? { provider: 'codex', available: false, reason: 'Codex is turned off or not installed in Pocket on this server.', items: [] }
+    : await codexConnectors({ rpc: codex.appRpc, refresh, account: await codex.accountSummary().catch(() => null) });
+  connectorCache[kind] = { at: Date.now(), value: { ...value, checkedAt: Date.now() } };
+  return connectorCache[kind].value;
+}
+app.get('/api/connectors', requireAuth, async (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  const refresh = req.query.refresh === '1';
+  const [claude, cx] = await Promise.all(['claude', 'codex'].map(k => readConnectors(k, refresh).catch(() => ({ provider: k, available: false, reason: 'Status unavailable. Try again.', items: [] }))));
+  res.json({ providers: [claude, cx] });
 });
 app.get('/api/claude/activity',requireAuth,(_req,res)=>{
   res.setHeader('Cache-Control','private, no-store');

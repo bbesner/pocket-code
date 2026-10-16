@@ -1121,6 +1121,11 @@ export async function codexRateLimits() {
   return codexUsage.rateLimits || null;
 }
 
+// 1.53: the ChatGPT apps (connectors) Codex offers, for Settings → Connectors. Only app/ reads.
+export function appRpc(method, params, timeoutMs) {
+  if (!/^app\/(list|read)$/.test(method)) throw new Error('not an app read');
+  return rpc(method, params, timeoutMs);
+}
 export async function accountSummary(){
  const r=await rpc('account/read',{refreshToken:false},15000);const a=r.account;
  return {provider:'codex',signedIn:Boolean(a),method:a?.type||'Not signed in',email:typeof a?.email==='string'?a.email:null,plan:typeof a?.planType==='string'?a.planType:null};

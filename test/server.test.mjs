@@ -129,6 +129,10 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  assert.equal((await call(`/session/${iid}`)).body.active,false);
  assert.match(logs,/denied a pre-restart AskUserQuestion request/);
  assert.equal((await fetch(`http://127.0.0.1:${port}/api/environment`)).status,401);
+ assert.equal((await fetch(`http://127.0.0.1:${port}/api/connectors`)).status,401);
+ const connectors=(await call('/connectors')).body.providers;
+ assert.deepEqual(connectors.map(p=>p.provider),['claude','codex']);assert.equal(connectors[1].available,false,'Codex is off in this fixture');
+ if(connectors[0].available)assert.deepEqual(connectors[0].items.map(i=>i.status),['connected','not-connected','needs-auth']); // unless this computer turns connectors off
  assert.equal((await fetch(`http://127.0.0.1:${port}/api/session/${sid}/workspace`)).status,401);
  // Pending actions wait for explicit, session-bound decisions and are never replayed.
  const awaitApproval=async id=>{for(let i=0;i<60;i++){const d=(await call(`/session/${id}/approvals`)).body;if(d.requests.length)return d.requests[0];await sleep(50);}throw Error('Missing approval');};
