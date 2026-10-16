@@ -3122,7 +3122,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Settings → Agents & instance → Connectors shows whether Gmail, Google Calendar and Google Drive are connected for Claude Code and for Codex, and links to claude.ai or chatgpt.com to connect them with your own Google account. Pocket stores no Google credentials."];
+const RELEASE_NOTES = ["A Claude Code install that is not signed in now shows as Not signed in, with a Sign in button, instead of Could not verify; Connectors asks you to sign in to Claude Code first."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
