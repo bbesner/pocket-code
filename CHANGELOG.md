@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.53.1] — 2026-10-16 · build 108
+
+- **A signed-out Claude Code reads as signed out.** `claude auth status --json` exits 1 when nobody is signed in, though it still prints its status; Pocket treated the exit as a failed check. Accounts & instance said *Could not verify* (with **Switch account**) instead of *Not signed in* (with **Sign in**), and the 1.53.0 Connectors sheet listed Gmail, Calendar and Drive as *Not connected* instead of asking for a Claude sign-in first. Pocket now reads the printed status whatever the exit code; output it cannot read still counts as unknown. Found on the four TechPro agent seats right after the 1.53.0 rollout.
+- Tests: `test/environment.test.mjs` covers a CLI that exits 1 with a signed-out status, and one that exits 1 with unreadable output.
+
 ## [1.53.0] — 2026-10-16 · build 107
 
 - **Connectors: Gmail, Google Calendar and Google Drive for each agent.** **Settings → Agents & instance → Connectors** shows, for Claude Code and for Codex, whether each Google service is connected, with **Connect** or **Reconnect** beside the ones that are not and **Refresh status** to check again (it also checks again when you come back to the window after connecting). Pocket reuses the connectors the CLIs already have: Claude Code's claude.ai connectors (read with `claude mcp list`) and Codex's ChatGPT apps (read with the app-server's `app/list` and `app/read`). Anthropic and OpenAI hold the Google authorization, so Pocket stores no Google token and needs no Google Cloud project, and it works the same for every install. Neither CLI can make a first connection, so Connect opens claude.ai's connector settings or the app's chatgpt.com page. Both sets of tools go well beyond drafts: Claude's Gmail, Calendar and Drive connectors search, read, send, reply, label, manage events and create, edit and share files; Codex's Gmail, Calendar and Drive apps list 21, 15 and 45 tools. Asked for by Brad for the TechPro agent seats.
