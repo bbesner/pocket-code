@@ -184,6 +184,43 @@ test('a repeated Codex agents poll fetches one newest-first page, not the whole 
  assert.equal(second.running,0);assert.equal(second.agents[0].status,'completed');assert.equal(second.agents[0].latest,'Parser checks passed.');
 });
 
+// 1.53.5: a Codex conversation opens newest-first in small pages, keeps what it read per thread (memory and
+// disk), and never carries an image payload past the parser.
+test('a Codex conversation opens newest-first, caches the transcript across restarts and drops image bytes',async t=>{
+ const f=await fixture(t,18881);
+ const itemCalls=()=>{try{return fs.readFileSync(path.join(f.dir,'calls.items'),'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)}catch{return []}};
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id,tid=id.slice(3);
+ assert.ok(await f.until(()=>f.calls().length===1));await sleep(600); // the fake turn ends at 200 ms; no session read yet, so the first open builds the cache
+ const itemsFile=path.join(f.dir,'sessions',tid+'.items.json');
+ const img=()=>({turnId:'t1',item:{type:'imageGeneration',id:randomUUID(),prompt:'a diagram',data:'A'.repeat(3*1024*1024)}});
+ const items=[{turnId:'t1',item:{type:'userMessage',id:randomUUID(),content:[{type:'text',text:'hello'}]}}];
+ for(let i=0;i<125;i++)items.push(i===30||i===90?img():{turnId:'t1',item:{type:'agentMessage',id:randomUUID(),text:'m'+i}});
+ items.push({turnId:'t1',item:{type:'agentMessage',id:randomUUID(),text:'latest'}});
+ fs.writeFileSync(itemsFile,JSON.stringify(items));
+ const before=itemCalls().length;
+ const r1=await f.call(`/session/${id}`);
+ assert.equal(r1.status,200);
+ const texts=m=>m.messages.flatMap(x=>x.role==='user'?[x.text]:x.blocks.filter(b=>b.t==='text').map(b=>b.text));
+ assert.equal(texts(r1.body)[0],'hello');assert.ok(texts(r1.body).at(-1).includes('latest'));
+ assert.ok(JSON.stringify(r1.body).length<200_000,'no image bytes reach the response');
+ const open=itemCalls().slice(before);
+ assert.ok(open.length>=4&&open.every(c=>c.desc&&c.limit===40),'the open pages newest-first in 40s: '+JSON.stringify(open));
+ const n1=itemCalls().length;
+ const r2=await f.call(`/session/${id}`);
+ assert.deepEqual(itemCalls().slice(n1).map(c=>[c.desc,c.limit,c.cursor]),[[true,40,null]],'a reopen fetches one newest page');
+ assert.equal(texts(r2.body).length,texts(r1.body).length);
+ items.push({turnId:'t2',item:{type:'agentMessage',id:randomUUID(),text:'newer'}});fs.writeFileSync(itemsFile,JSON.stringify(items));
+ const r3=await f.call(`/session/${id}`);
+ assert.ok(texts(r3.body).at(-1).includes('newer'),'news on the newest page is merged');
+ await sleep(1300); // the cache file is written a second after a change
+ await f.stop();await f.start();
+ const n3=itemCalls().length;
+ const r4=await f.call(`/session/${id}`);
+ assert.deepEqual(itemCalls().slice(n3).map(c=>[c.desc,c.limit,c.cursor]),[[true,40,null]],'after a restart the disk cache needs one newest page');
+ assert.deepEqual(texts(r4.body),texts(r3.body));
+ assert.ok(fs.existsSync(path.join(f.dir,'data','codex-transcripts',tid+'.json')),'cache file in the data dir');
+});
+
 test('a just-sent Codex message shows as pending until the reader has it, and never twice',async t=>{
  const f=await fixture(t,18781);
  const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('setup')})).body.id;

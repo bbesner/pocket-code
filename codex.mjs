@@ -514,10 +514,142 @@ export async function readCodexAgents(threadId) {
   return activity.snapshot({confirmed:Boolean(turn)});
 }
 
+// ---------- transcript cache (1.53.5) ----------
+// Opening a Codex conversation used to walk the whole thread oldest-first. A thread that
+// had generated images inline (six `imageGeneration` items, 4.7 MB of base64 each, in a
+// 51.6 MB rollout on 2026-10-16) took 26 s to read, and Pocket never shows those bytes.
+// Now a thread is read newest-first in small pages, only as far back as the view needs;
+// each item is reduced to its display message as soon as it is parsed, so image payloads
+// are dropped at once; and the result is kept per thread, in memory and on disk, so a later
+// open fetches one page and merges it. Items Pocket's own turns stream in are added as
+// they complete, so a thread Pocket drives is never cold. Paging further back happens on
+// demand (deep find, results, summaries ask for more than the view).
+const TX_PAGE = 40, TX_MEM_THREADS = 30, TX_REFRESH_PAGES = 50, TX_LEGACY_MS = 15_000, TX_FILES_KEPT = 300;
+const TX_DIR = path.join(DATA_DIR, 'codex-transcripts');
+const transcripts = new Map(); // threadId -> cache
+const txSaves = new Map(); // threadId -> timer
+function txFile(threadId) { return path.join(TX_DIR, threadId.replace(/[^0-9a-f-]/gi, '_') + '.json'); }
+function txLoad(threadId) {
+  try {
+    const o = JSON.parse(fs.readFileSync(txFile(threadId), 'utf8'));
+    if (o?.v !== 1 || !Array.isArray(o.entries)) return null;
+    return { entries: o.entries, seen: new Set(o.seen || []), olderCursor: o.olderCursor ?? null, legacy: Boolean(o.legacy), at: o.at || 0, dirty: false };
+  } catch { return null; }
+}
+function txSave(threadId, c) {
+  c.dirty = true;
+  if (txSaves.has(threadId)) return;
+  const t = setTimeout(() => {
+    txSaves.delete(threadId);
+    if (!c.dirty) return; c.dirty = false;
+    try {
+      fs.mkdirSync(TX_DIR, { recursive: true, mode: 0o700 });
+      const tmp = txFile(threadId) + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify({ v: 1, entries: c.entries, seen: [...c.seen], olderCursor: c.olderCursor, legacy: c.legacy, at: c.at }), { mode: 0o600 });
+      fs.renameSync(tmp, txFile(threadId));
+    } catch (e) { log(`transcript cache save failed thread=${threadId}: ${e.message}`); }
+  }, 1000);
+  t.unref(); txSaves.set(threadId, t);
+}
+// Startup sweep: keep the newest TX_FILES_KEPT files, so the directory cannot grow without bound.
+export function pruneTranscriptCache() {
+  let names; try { names = fs.readdirSync(TX_DIR).filter(n => n.endsWith('.json')); } catch { return; }
+  if (names.length <= TX_FILES_KEPT) return;
+  const stamped = names.map(n => { try { return { n, m: fs.statSync(path.join(TX_DIR, n)).mtimeMs }; } catch { return null; } }).filter(Boolean).sort((a, b) => b.m - a.m);
+  for (const { n } of stamped.slice(TX_FILES_KEPT)) { try { fs.unlinkSync(path.join(TX_DIR, n)); } catch { } }
+}
+function txGet(threadId) {
+  let c = transcripts.get(threadId);
+  if (!c) {
+    c = txLoad(threadId) || { entries: [], seen: new Set(), olderCursor: null, legacy: legacyThreads.has(threadId), at: 0, dirty: false, empty: true };
+    if (c.legacy) legacyThreads.add(threadId);
+  }
+  transcripts.delete(threadId); transcripts.set(threadId, c); // most recent last
+  if (transcripts.size > TX_MEM_THREADS) transcripts.delete(transcripts.keys().next().value);
+  return c;
+}
+// One stored row per item that shows something: the display message and the ids needed to
+// recognise the item again. Items that show nothing still count as seen.
+function txEntry(row) {
+  const it = row?.item || row; if (!it || typeof it !== 'object') return null;
+  const turnId = row.turnId || it.__turnId || null;
+  return { id: it.id || null, turnId, msg: normalizeItem(it, uuid7Time(turnId)) };
+}
+function txPut(c, e, { front = false } = {}) {
+  if (!e) return;
+  if (e.id) {
+    if (c.seen.has(e.id)) { const i = c.entries.findIndex(x => x.id === e.id); if (i >= 0) { if (e.msg) c.entries[i] = e; else c.entries.splice(i, 1); } else if (e.msg) c.entries.push(e); return; }
+    c.seen.add(e.id);
+  }
+  if (e.msg) front ? c.entries.unshift(e) : c.entries.push(e);
+}
+async function txPage(threadId, cursor) {
+  const r = await rpc('thread/items/list', { threadId, limit: TX_PAGE, sortDirection: 'desc', ...(cursor ? { cursor } : {}) }, 60_000);
+  return { rows: r?.data || [], next: r?.nextCursor || null };
+}
+// Legacy-format threads cannot be paged: the whole history, at most every TX_LEGACY_MS.
+async function txLegacy(threadId, c) {
+  if (c.at && Date.now() - c.at < TX_LEGACY_MS) return;
+  const items = await readLegacyItems(threadId);
+  c.entries = []; c.seen = new Set(); c.legacy = true; c.olderCursor = null;
+  for (const it of items) txPut(c, txEntry(it));
+  c.at = Date.now(); delete c.empty; txSave(threadId, c);
+}
+// Newest pages until one overlaps what is held (its items are refreshed in place: a command
+// gains its exit code when it completes) or the thread ends. A fresh cache stops after
+// `need` messages and remembers where to continue backwards.
+async function txRefresh(threadId, c, need) {
+  const fresh = [];
+  let cursor = null, pages = 0, hitKnown = false;
+  do {
+    const { rows, next } = await txPage(threadId, cursor);
+    for (const row of rows) {
+      const e = txEntry(row); if (!e) continue;
+      if (e.id && c.seen.has(e.id)) { hitKnown = true; txPut(c, e); } else fresh.push(e);
+    }
+    cursor = next; pages++;
+    if (c.empty && fresh.filter(e => e.msg).length >= need) break;
+  } while (cursor && !hitKnown && pages < TX_REFRESH_PAGES);
+  if (!hitKnown && !c.empty && cursor) { // more than TX_REFRESH_PAGES pages of news: start over
+    c.entries = []; c.seen = new Set(); c.empty = true; c.olderCursor = null;
+    return txRefresh(threadId, c, need);
+  }
+  fresh.reverse().forEach(e => txPut(c, e));
+  if (c.empty) { c.olderCursor = cursor; delete c.empty; }
+  c.at = Date.now(); txSave(threadId, c);
+}
+// Older pages, on demand, until `need` messages are held or the thread's start is reached.
+async function txExtend(threadId, c, need) {
+  let pages = 0;
+  while (c.olderCursor && c.entries.length < need && pages < 200) {
+    const { rows, next } = await txPage(threadId, c.olderCursor);
+    for (const row of rows) txPut(c, txEntry(row), { front: true });
+    c.olderCursor = next; pages++;
+  }
+  if (pages) { c.at = Date.now(); txSave(threadId, c); }
+}
+// A completed item from a turn Pocket runs lands in the cache at once, when the cache exists.
+export function noteCodexItem(threadId, turnId, item) {
+  const c = transcripts.get(threadId);
+  if (!c || c.empty || c.legacy) return;
+  txPut(c, txEntry({ turnId, item })); c.at = Date.now(); txSave(threadId, c);
+}
 export async function readCodexThread(threadId, maxMsgs = 400) {
-  const items = await listAllItems(threadId);
-  const msgs = mergeAssistant(items.map(it => normalizeItem(it, uuid7Time(it.__turnId))).filter(Boolean));
-  return { msgs: msgs.slice(-maxMsgs), total: msgs.length, itemCount: items.length };
+  const c = txGet(threadId);
+  if (c.legacy || legacyThreads.has(threadId)) await txLegacy(threadId, c);
+  else {
+    try {
+      await txRefresh(threadId, c, maxMsgs);
+      if (c.entries.length < maxMsgs) await txExtend(threadId, c, maxMsgs);
+    } catch (e) {
+      if (!isLegacyError(e)) throw e;
+      legacyThreads.add(threadId); c.legacy = true; c.at = 0;
+      await txLegacy(threadId, c);
+    }
+  }
+  // mergeAssistant appends blocks into the first bubble of a run: give it copies, the cache keeps the originals
+  const msgs = mergeAssistant(c.entries.filter(e => e.msg).map(e => ({ ...e.msg, ...(e.msg.blocks ? { blocks: [...e.msg.blocks] } : {}) })));
+  return { msgs: msgs.slice(-maxMsgs), total: msgs.length, itemCount: c.seen.size, complete: !c.olderCursor };
 }
 
 export async function codexThreadMeta(threadId) {
@@ -910,6 +1042,7 @@ function promptWithAttachments(text, attachments) {
 // The streaming channel. `item/agentMessage/delta` is the word-by-word feed; completed
 // items become finished bubbles; `turn/completed` closes the turn out with usage.
 function onTurnNotify(turn, method, params) {
+  if (method === 'item/completed' && params?.item && turn.threadId) noteCodexItem(turn.threadId, params.turnId || turn.turnId || null, params.item);
   if (['item/started','item/completed'].includes(method) && ['collabAgentToolCall','subAgentActivity'].includes(params?.item?.type)) {
     turn.agentItems ||= new Map();
     turn.agentItems.set(params.item.id, params.item);
