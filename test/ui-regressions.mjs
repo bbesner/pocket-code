@@ -2135,6 +2135,43 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.$eval('#panes .split-pane',e=>e.dataset.key),libKey);
     await page.evaluate(()=>writeLocal('pc-documents-open','tab'));await page.setViewport(vp);await pause(150);
    });
+   // 1.54: a link in the conversation opens the way files do: beside (a pane framing the page, or saying the page forbids it), as a tab, or left to the browser.
+   await check('A link in the conversation opens like a file',async()=>{
+    const vp=page.viewport();await page.setViewport({width:2560,height:900});await pause(150);
+    const was=await page.evaluate(()=>location.hash),chat=rows[0].id;await openChat(chat); // its report ends with a link
+    const link='#msgs .m-asst a[href="https://example.com/inventory"]';await page.waitForSelector(link);
+    await page.evaluate(()=>writeLocal('pc-documents-open','beside'));
+    await page.click(link);
+    await page.waitForFunction(()=>document.querySelectorAll('#panes .split-pane').length===2);
+    const srcs=await page.$$eval('#panes .split-pane iframe',els=>els.map(e=>e.getAttribute('src')));
+    assert.ok(srcs.some(s=>s.endsWith('#/link/https%3A%2F%2Fexample.com%2Finventory')),'the page opened in a pane: '+srcs.join('|'));
+    assert.equal(await page.evaluate(()=>location.hash),'#/chat/'+chat,'the conversation stayed in the main column');
+    const linkPane=page.frames().find(f=>f.url().includes('#/link/'));
+    await linkPane.waitForSelector('.link-notice a[href="https://example.com/inventory"]'); // the fixture says example.com forbids framing
+    assert.equal(await linkPane.$eval('.doc-tools a[target="_blank"]',e=>e.textContent.trim()),'Open in browser');
+    assert.equal(await linkPane.$eval('#ltag',e=>e.textContent),'example.com');
+    assert.equal(await page.$$eval('#panes .split-pane iframe',els=>els.find(f=>f.getAttribute('src').includes('#/link/'))?.title),'Session beside: example.com','the pane is named by the site');
+    await page.screenshot({path:path.join(out,'link-pane-refused.png')});
+    await linkPane.click('#pane-close');await page.waitForFunction(()=>document.querySelectorAll('#panes .split-pane').length===1);
+    // As a tab: the link view takes this column, named by the link's text, and Back returns to the conversation.
+    await page.evaluate(()=>writeLocal('pc-documents-open','tab'));
+    await page.click(link);await page.waitForFunction(()=>location.hash.startsWith('#/link/'));await page.waitForSelector('.link-notice');
+    assert.equal(await page.$eval('#ltitle',e=>e.textContent),'Open the report');
+    const tabs=await page.$$eval('#open-sessions .open-session a',els=>els.map(e=>e.textContent));assert.ok(tabs.includes('Open the report'),'a tab in the strip: '+tabs.join('|'));
+    assert.equal(await page.$eval('#back',e=>e.getAttribute('aria-label')),'Back to conversation');await page.screenshot({path:path.join(out,'link-tab.png')});
+    await page.evaluate(()=>document.querySelector('#back').click()); // the Back control is for the phone; on a desktop the rail is the way back
+    await page.waitForFunction(id=>location.hash==='#/chat/'+id&&document.querySelector('#msgs .m-asst a'),{},chat);
+    await page.evaluate(()=>{openSessions=openSessions.filter(s=>!s.id.startsWith('link/'));writeLocal('pc-open-sessions',openSessions);paintOpenSessions();});
+    // In a new browser window: the click is left to the link's own target; a Ctrl-click is too, whatever the setting.
+    await page.evaluate(()=>writeLocal('pc-documents-open','window'));
+    const left=await page.evaluate(sel=>{const a=document.querySelector(sel);const e=new MouseEvent('click',{bubbles:true,cancelable:true,button:0});Object.defineProperty(e,'target',{value:a});return [openLinkPreferred(a,e),e.defaultPrevented];},link);
+    assert.deepEqual(left,[false,false]);
+    await page.evaluate(()=>writeLocal('pc-documents-open','beside'));
+    const ctrl=await page.evaluate(sel=>{const a=document.querySelector(sel);const e=new MouseEvent('click',{bubbles:true,cancelable:true,button:0,ctrlKey:true});return [openLinkPreferred(a,e),e.defaultPrevented,document.querySelectorAll('#panes .split-pane').length];},link);
+    assert.deepEqual(ctrl,[false,false,1]);
+    await page.evaluate(()=>writeLocal('pc-documents-open','tab'));await page.setViewport(vp);await pause(150);
+    await page.evaluate(h=>{location.hash=h;},was);await page.waitForFunction(h=>location.hash===h,{},was);
+   });
    await page.frames().find(f=>f.url().includes('#/documents')).waitForSelector('#pane-close');await page.frames().find(f=>f.url().includes('#/documents')).click('#pane-close');await page.waitForFunction(()=>!document.querySelector('#panes iframe'));
    await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
    // Settings → Files button: open the library in a tab straight from the Files segment.

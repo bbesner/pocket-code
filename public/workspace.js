@@ -28,11 +28,11 @@ function openViewPreferred(id,prefKey,e,canBeside){
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function writeLocal(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
 // 1.29: project views open like sessions (tabs, panes); their ids are routes without the leading #/.
-const VIEW_TAB_RE=/^(?:projects(?:\/(?:scheduled|[a-z0-9][a-z0-9-]{0,79}))?|documents(?:\/[0-9a-f]{12})?|tasks|vault)$/; // 1.30: documents too; 1.36: tasks; 1.39: vault
+const VIEW_TAB_RE=/^(?:projects(?:\/(?:scheduled|[a-z0-9][a-z0-9-]{0,79}))?|documents(?:\/[0-9a-f]{12})?|tasks|vault|link\/[A-Za-z0-9%._~!*'()-]{1,2000})$/; // 1.30: documents too; 1.36: tasks; 1.39: vault; 1.54: a linked page (links.js)
 const isViewId=id=>typeof id==='string'&&VIEW_TAB_RE.test(id);
 const tabHref=id=>isViewId(id)?'#/'+id:'#/chat/'+encodeURIComponent(id).replaceAll('%3A',':');
 // The view the main column shows when it is not a conversation: a project view (1.29) or a document view (1.30).
-const currentView=()=>(typeof boardView!=='undefined'&&boardView)||(typeof docView!=='undefined'&&docView)||(typeof taskView!=='undefined'&&taskView)||(typeof vaultView!=='undefined'&&vaultView)||null; // 1.39: vault
+const currentView=()=>(typeof boardView!=='undefined'&&boardView)||(typeof docView!=='undefined'&&docView)||(typeof taskView!=='undefined'&&taskView)||(typeof vaultView!=='undefined'&&vaultView)||(typeof linkView!=='undefined'&&linkView)||null; // 1.39: vault; 1.54: a linked page
 // Native radio keyboard conventions for our button-based choices.
 function bindRadioGroup(group) {
  const radios=()=>[...group.querySelectorAll('[role="radio"]')].filter(el=>!el.disabled);
@@ -545,7 +545,7 @@ function rememberViewNavigation(next) {
   // a reverse relationship between two detail pages.
   const saved=history.state?.pocketViewNavigation;
   const origin=saved?.route===next?saved.origin:returningToView?viewOrigins.get(next):visibleRoute;
-  if (/^#\/(projects\/(?!scheduled$)|documents\/)/.test(next)) {
+  if (/^#\/(projects\/(?!scheduled$)|documents\/|link\/)/.test(next)) { // 1.54: Back from a linked page returns to the conversation it was clicked in
    if(origin&&origin!==next)viewOrigins.set(next,origin);else viewOrigins.delete(next);
   }
   history.replaceState({...history.state,pocketViewNavigation:{route:next,origin:origin||null}},'');
