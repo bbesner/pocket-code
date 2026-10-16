@@ -1,7 +1,7 @@
 {
-  "version": "1.53.3",
-  "assetV": 110,
+  "version": "1.53.4",
+  "assetV": 111,
   "notes": [
-    "A file or project chosen inside a split pane opens in a new pane to that pane's left when Settings has it open beside the conversation, so the library stays in view instead of being replaced."
+    "Opening a tab no longer waits seconds behind the server. The Codex app-server's replies are framed in linear time, and a conversation's agent-activity poll keeps the thread's agent items instead of rereading the whole thread every 5 seconds."
   ]
 }
