@@ -664,6 +664,28 @@ the account's). Titles, summaries and task briefings use `POCKET_TITLE_CLAUDE_MO
 `haiku`); when the policy blocks it, they use the cheapest offered model the policy allows instead
 of letting the CLI fall back to its default.
 
+### Connectors: Gmail, Google Calendar and Google Drive
+
+**Settings → Agents & instance → Connectors** shows whether each agent can reach Gmail, Google
+Calendar and Google Drive. Pocket uses the connectors the CLIs already have, so it holds no Google
+password or token and needs no Google Cloud project:
+
+- **Claude Code** uses the claude.ai connectors of the Claude subscription it is signed in with.
+  **Connect** and **Reconnect** open [claude.ai's connector settings](https://claude.ai/customize/connectors);
+  turn on the Google connector there and sign in with your Google account. On Team and Enterprise
+  plans an admin adds the connectors first. Connectors need a subscription sign-in: with an API key
+  or a cloud provider they are not loaded, and the sheet says so. If `disableClaudeAiConnectors` is
+  set in `~/.claude/settings.json` or the managed settings, or `ENABLE_CLAUDEAI_MCP_SERVERS=false`,
+  the sheet shows them as off on this server.
+- **Codex** uses the ChatGPT apps of the ChatGPT account it is signed in with. **Connect** opens the
+  app's page on chatgpt.com. An app your workspace admin has turned off shows as off.
+
+Come back to Pocket after connecting; the sheet checks again when the window regains focus, or
+choose **Refresh status**. Sessions started afterwards can use the tools: searching, reading and
+sending mail, labels, calendar events and availability, and finding, reading, creating, editing and
+sharing Drive files. A session already open picks up a new connection when its process restarts.
+Scheduled or unattended runs may not be able to use connectors that need a fresh sign-in.
+
 Accounts & instance shows provider identity and plan metadata. Under Claude Code,
 choose **Switch account** (or **Sign in**), then **Get sign-in link**. Open the link,
 select the account you want in Claude’s browser page, and authorize Claude Code.

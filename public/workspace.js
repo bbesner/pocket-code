@@ -380,6 +380,33 @@ async function openQuestions(id){
   }
  }catch(e){if(sh.isConnected)sh.querySelector('[data-questions]').textContent=e.message;}
 }
+// 1.53: Gmail, Calendar and Drive through each agent's own connectors (claude.ai connectors, ChatGPT apps).
+// A first connection is made on claude.ai or chatgpt.com, which neither CLI can start; the sheet links
+// there and checks again when this window comes back into focus.
+const CONNECTOR_STATE={connected:'Connected','needs-auth':'Needs signing in again','not-connected':'Not connected',failed:'Could not connect',off:'Off on this server',unavailable:'Unavailable'};
+function openConnectors(){
+ const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
+ sh.innerHTML='<h2>Connectors</h2><p class="sheet-help">Each agent reaches Google through its own account: Claude Code through claude.ai connectors, Codex through ChatGPT apps. Connect once on that site with your Google account, then come back here. New sessions can then search and send mail, manage calendar events and work with Drive files.</p><div data-connectors role="status" aria-live="polite">Checking connectors…</div><p class="sheet-help">On Claude Team and Enterprise plans an admin adds connectors first. Sessions already open pick up a new connection when they restart.</p><button class="chip" data-connectors-refresh>Refresh status</button>';
+ mountSheet(scrim,sh);
+ const box=sh.querySelector('[data-connectors]'),again=sh.querySelector('[data-connectors-refresh]');
+ let away=false,loading=false;
+ const site=p=>p.provider==='codex'?'chatgpt.com':'claude.ai';
+ const row=(p,c)=>{const open=['not-connected','needs-auth','failed'].includes(c.status);const href=p.provider==='codex'?c.connectUrl:p.manageUrl;
+  return `<li class="connector-row"><span>${esc(c.label)}<span class="connector-state is-${esc(c.status)}">${esc(CONNECTOR_STATE[c.status]||c.status)}</span></span>${open&&href?`<a class="chip" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-connector-link aria-label="${esc((c.status==='not-connected'?'Connect ':'Reconnect ')+c.label+' for '+(p.provider==='codex'?'Codex':'Claude Code'))}">${c.status==='not-connected'?'Connect':'Reconnect'}</a>`:''}</li>`;};
+ const draw=d=>{box.innerHTML=d.providers.map(p=>`<section class="provider-account"><h3>${p.provider==='codex'?'Codex':'Claude Code'}</h3>${p.available?`<ul class="connector-list">${p.items.map(c=>row(p,c)).join('')}</ul>${p.manageUrl?`<div class="provider-actions"><a class="chip" href="${esc(p.manageUrl)}" target="_blank" rel="noopener noreferrer" data-connector-link>Manage on ${site(p)}</a></div>`:''}`:`<p class="sheet-help">${esc(p.reason||'Unavailable.')}</p>`}</section>`).join('');
+  box.querySelectorAll('[data-connector-link]').forEach(a=>a.addEventListener('click',()=>{away=true;}));};
+ const load=async refresh=>{
+  if(loading)return;loading=true;again.disabled=true;again.textContent='Checking…';
+  if(refresh)box.setAttribute('aria-busy','true');
+  try{const d=await api('/connectors'+(refresh?'?refresh=1':''));if(sh.isConnected)draw(d);}
+  catch(e){if(sh.isConnected)box.textContent=e.message||'Could not check connectors. Try again.';}
+  finally{loading=false;box.removeAttribute('aria-busy');again.disabled=false;again.textContent='Refresh status';}
+ };
+ const back=()=>{if(!sh.isConnected){removeEventListener('focus',back);document.removeEventListener('visibilitychange',back);return;}if(away&&document.visibilityState==='visible'){away=false;load(true);}};
+ addEventListener('focus',back);document.addEventListener('visibilitychange',back);
+ again.onclick=()=>load(true);
+ load(false);
+}
 async function openEnvironment(){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';sh.innerHTML='<h2>Accounts & instance</h2><div data-environment role="status">Checking provider sign-ins…</div>';mountSheet(scrim,sh);
  try{
@@ -564,7 +591,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
  const groups=[
   ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings']]],
   ['conversation','Conversation','Reading, session titles and summaries', [['This device','#s-tools,#s-times'],['This instance · all devices','#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
-  ['agents','Agents & instance','Accounts, plan usage and the models offered', [['This instance · all devices','#s-environment,#s-usage,#s-models']]],
+  ['agents','Agents & instance','Accounts, connectors, plan usage and the models offered', [['This instance · all devices','#s-environment,#s-connectors,#s-usage,#s-models']]],
   ['libraries','Projects, files, tasks & vault','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents,#s-tasks,#s-vault,#s-vault-more'],['This device','', '#s-projects-open,#s-files-button,#s-documents-open']]],
   ['notifications','Notifications & voice','Chime, push, the icon count, email and spoken replies', [['This device','#s-chime,#s-push,#s-push-kinds,#s-badge,#s-voice'],['This instance · all devices','#s-ahead,#s-email-wrap']]],
   ['help','Help & updates','Keyboard shortcuts, version and feedback', [['','#s-keys,#s-about,#s-notes,#s-feedback']]],

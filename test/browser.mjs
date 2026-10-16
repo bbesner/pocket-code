@@ -230,6 +230,7 @@ const server=http.createServer(async(req,res)=>{
   if(Array.isArray(b.offeredClaudeModels)&&!fixtureOffer(b.offeredClaudeModels).offered.length)return json({error:'Keep at least one model on.',code:'no_models'},400);
   Object.assign(fixtureSettings,b);}return json({...fixtureSettings,titles:fixtureTitles(),email:fixtureEmail(),claudeModels:fixtureClaudeModels(),...extra});}
  if(url.pathname==='/api/about')return uiModes.aboutFailed?json({error:'Version unavailable'},503):json({...JSON.parse(fs.readFileSync(path.join(repo,'public/release.json'),'utf8')),cli:'test',host:'preview'});
+ if(url.pathname==='/api/connectors'){uiModes.connectorCalls=(uiModes.connectorCalls||[]).concat(url.search);return json({providers:[{provider:'claude',available:true,manageUrl:'https://claude.ai/customize/connectors',items:[{key:'gmail',label:'Gmail',status:url.search?'connected':'needs-auth'},{key:'calendar',label:'Google Calendar',status:'not-connected'},{key:'drive',label:'Google Drive',status:'connected'}]},{provider:'codex',available:false,reason:'Apps need a ChatGPT sign-in. This Codex uses an API key.',manageUrl:'https://chatgpt.com/apps',items:[]}]});}
  if(url.pathname==='/api/environment')return json({host:'test-instance',checkedAt:Date.now(),providers:[{provider:'claude',email:'owner@example.test',plan:'max',method:'claude.ai',signedIn:true},{provider:'codex',email:'coder@example.test',plan:'pro',method:'chatgpt',signedIn:true}],claudeActive:uiModes.claudeActive||0,accountManagement:'Sign-ins follow this instance.',permissions:'Unattended server permissions',capabilities:{claudeLogin:true}});
  if(url.pathname==='/api/claude/activity')return json({active:uiModes.claudeActive||0});
  if(url.pathname==='/api/claude/stop-all'){
@@ -453,6 +454,15 @@ try{
   await p.waitForFunction(()=>document.querySelector('[data-claude-count]')?.textContent.includes('All Claude turns stopped'));
   assert.equal(uiModes.claudeActive,0);assert.equal(await p.$eval('[data-claude-stop]',element=>element.disabled),true);
   await p.screenshot({path:path.join(out,'claude-stop-all-'+width+'.png')});await scan('claude-stop-all-'+width);
+  // 1.53: Connectors — status per agent, Connect/Reconnect open claude.ai, Refresh asks for a fresh read.
+  uiModes.connectorCalls=[];await p.keyboard.press('Escape');await p.evaluate(()=>openConnectors());await p.waitForSelector('.connector-row');
+  assert.deepEqual(await p.$$eval('.connector-row',rows=>rows.map(r=>r.querySelector('.connector-state').textContent)),['Needs signing in again','Not connected','Connected']);
+  assert.deepEqual(await p.$$eval('.connector-row a.chip',links=>links.map(a=>[a.textContent,a.origin,a.target,a.rel])),[['Reconnect','https://claude.ai','_blank','noopener noreferrer'],['Connect','https://claude.ai','_blank','noopener noreferrer']]);
+  assert.match(await p.$eval('[data-connectors]',e=>e.textContent),/ChatGPT sign-in/);
+  await p.screenshot({path:path.join(out,'connectors-'+width+'.png')});await scan('connectors-'+width);
+  await clickControl(p,'[data-connectors-refresh]');await p.waitForFunction(()=>document.querySelector('.connector-state')?.textContent==='Connected');
+  assert.deepEqual(uiModes.connectorCalls,['','?refresh=1']);await p.keyboard.press('Escape');
+  await p.evaluate(()=>openEnvironment());await p.waitForSelector('[data-claude-login]');
   await clickControl(p,'[data-claude-login]');await p.waitForSelector('[data-login-start]');
   uiModes.loginBusy=true;await clickControl(p,'[data-login-start]');await p.waitForFunction(()=>document.querySelector('[data-login-error]')?.textContent.includes('Stop all Claude turns'));uiModes.loginBusy=false;
   await clickControl(p,'[data-login-start]');await p.waitForSelector('#claude-login-code');

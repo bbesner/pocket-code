@@ -1,7 +1,7 @@
 {
-  "version": "1.52.0",
-  "assetV": 106,
+  "version": "1.53.0",
+  "assetV": 107,
   "notes": [
-    "Settings → Agents & instance chooses which Claude models the picker offers, and POCKET_CLAUDE_MODELS sets the list at install. Models blocked by this computer's Claude Code policy are marked there and never offered; a turn sent with one runs on the default model and says so. Sonnet 5.5 and Haiku 5.5 join the list."
+    "Settings → Agents & instance → Connectors shows whether Gmail, Google Calendar and Google Drive are connected for Claude Code and for Codex, and links to claude.ai or chatgpt.com to connect them with your own Google account. Pocket stores no Google credentials."
   ]
 }

@@ -593,6 +593,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     ${chatTextControlsHTML()}
     ${accentControlsHTML()}
     <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button>
+    <button class="opt" id="s-connectors">${IC.globe}<span>Connectors<span class="sub">Gmail, Calendar and Drive for each agent</span></span></button>
     <button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>
     <div class="title-settings model-offer" id="s-models" role="group" aria-labelledby="s-models-h">
       <p class="vault-set-head" id="s-models-h">Claude models in the picker</p>
@@ -671,6 +672,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   sh.querySelector('#s-theme').onchange = e => PocketTheme.setPreference(e.target.value);
   Voice.bindSettings(sh);
   sh.querySelector('#s-environment').onclick = openEnvironment;
+  sh.querySelector('#s-connectors').onclick = () => openConnectors();
   sh.querySelector('#s-usage').onclick = openUsagePanel;
   sh.querySelector('#s-keys').onclick = keyboardHelp;
   sh.querySelector('#s-tools').onclick = e => {

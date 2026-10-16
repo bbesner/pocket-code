@@ -8,6 +8,20 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Connectors (1.53)
+
+Pinned Operate refinement (design-studio → impeccable): variance 3, motion 2, density 5;
+existing tokens, no new colour. Read: a place to check, once, that each agent can reach the
+owner's Google account, and a way to the page that connects it. **Settings → Agents & instance**
+gains a *Connectors* `.opt` row (globe icon) under Accounts & instance; it opens a sheet built
+like Accounts: a `.sheet-help` lead, one `.provider-account` section per agent, then a list of
+rows (15.5px label, 14px state line, 52px rows) with a **Connect**/**Reconnect** link chip on the
+right only where action is needed, a *Manage on claude.ai / chatgpt.com* chip, and **Refresh
+status**. States are words first; colour only repeats them (`--ok` connected, `--warn` needs
+signing in again, `--err` could not connect, `--dim` otherwise). A provider that cannot use
+connectors shows one sentence saying why, never a disabled button. Rendered checks at 390 and
+1440: axe clean.
+
 ## Claude models in the picker (1.52)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5;
