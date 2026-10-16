@@ -887,6 +887,20 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.type('#first','x');assert.equal(await page.$eval('#start-hint',e=>e.hidden),true);
    await page.$eval('#first',e=>{e.value='';e.dispatchEvent(new Event('input'));});
   });
+  await check('1.55 New session: a locked workspace shows the one folder with nothing to choose',async()=>{
+   setMode({lockedWorkspace:true});
+   await page.goto(base+'/#/');await page.waitForSelector('.session-home, #rail'); // leave the New screen so the next hash renders it afresh
+   await page.goto(base+'/#/new');await page.waitForSelector('#plist .workspace-locked');
+   assert.equal(await page.$$eval('#plist [role=radio]',es=>es.length),0,'no picker');
+   const shown=await page.$eval('#plist .workspace-locked',e=>e.textContent);assert.match(shown,/warehouse/);assert.match(shown,/Every session starts here/);
+   assert.equal(await page.$eval('#projh',e=>e.textContent),'Workspace');
+   assert.equal(await page.$eval('#cpath',e=>e.closest('div').hidden),true,'no custom path field');
+   assert.match(await page.$eval('#task-context',e=>e.textContent),/Workspace.*warehouse/);
+   await scan('new-session-locked-mobile');
+   setMode({lockedWorkspace:false});
+   await page.goto(base+'/#/');await page.waitForSelector('.session-home, #rail');
+   await page.goto(base+'/#/new');await page.waitForSelector('#plist .row.sel');assert.equal(await page.$$eval('#plist [role=radio]',es=>es.length),2,'the picker is back');
+  });
   await check('1.20 Settings: generated titles switch on and off, choose a model, and say why one is unavailable',async()=>{
    await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.waitForSelector('#settings');
    await clickControl(page,'#settings');await page.waitForFunction(()=>!document.querySelector('#s-titles').disabled);

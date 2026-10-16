@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.54.1 / build 114**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.55.0 / build 115**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -398,6 +398,7 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_CLAUDE_MANAGED_DIR` | no | Where to read Claude Code's managed settings from, if not the system directory (`/etc/claude-code`, or `/Library/Application Support/ClaudeCode` on macOS). Used by the tests. |
 | `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | no | Pocket-only Codex default, e.g. `gpt-6-sol` and `medium`. |
 | `POCKET_DEFAULT_CWD` | no | Workspace the New session screen preselects, e.g. your home directory. Default: wherever you last started a session. |
+| `POCKET_LOCK_CWD` | no | `1` pins every session to `POCKET_DEFAULT_CWD`: the New session screen shows that folder with nothing to choose, and a start naming another folder is moved there. For installs whose users should never meet a folder. Ignored without a valid `POCKET_DEFAULT_CWD`. |
 | `POCKET_IDLE_CLOSE_MS` | no | How long a session's process (Claude Code or Codex) stays up with no turn and no background job, in milliseconds. Default `3600000` (1 hour); `0` keeps processes until Pocket closes them for another reason. |
 | `POCKET_STALL_MS` | no | A turn with no output, no background job, nothing waiting on you and no CPU use by programs it started for this long is stopped. Milliseconds; default `1800000` (30 minutes); `0` disables the watchdog. A value that is not a number is logged and ignored. |
 | `POCKET_MAX_PROCESSES` | no | Soft target for live CLI processes (Claude Code and Codex together) kept at once. Starting one past the cap closes the longest-idle process that has no turn and no background job. Default `8`; `0` means no cap. Active work is never evicted to meet this target, so the count can exceed it. CLI and MCP processes add memory beyond the Pocket daemon. |
