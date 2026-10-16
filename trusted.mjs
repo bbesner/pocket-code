@@ -1,4 +1,4 @@
-// 1.55: actions that run without asking in Review actions (Claude only).
+// 1.56: actions that run without asking in Review actions (Claude only).
 //
 // Review mode keeps its blanket ask rules (they outrank any allow rule in the user's or the
 // project's Claude settings). The owner lists read-only actions here; when Claude asks to run

@@ -228,11 +228,11 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null, trustedActions: null }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default); 1.55: trustedActions (null = the server default)
+const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null, trustedActions: null }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default); 1.56: trustedActions (null = the server default)
 const loadSettings = () => { try { return { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { ...SETTINGS_DEFAULTS }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
-// 1.55: read-only actions Claude may run without a card in Review actions (trusted.mjs). A list saved in
+// 1.56: read-only actions Claude may run without a card in Review actions (trusted.mjs). A list saved in
 // Settings → Agents & instance wins; until one is saved, POCKET_TRUSTED_ACTIONS; else none (every action asks).
 const ENV_TRUSTED = parseRuleList(process.env.POCKET_TRUSTED_ACTIONS || '');
 for (const x of ENV_TRUSTED.ignored) console.warn(`POCKET_TRUSTED_ACTIONS: ignored ${JSON.stringify(x.rule)}: ${x.error}`);
@@ -1179,7 +1179,7 @@ function handleTurnLine(turn, line) {
     }
     if(o.request?.subtype==='can_use_tool'&&o.request.tool_name!=='AskUserQuestion'&&typeof o.request.tool_name==='string'&&o.request.input&&typeof o.request.input==='object'&&turn.approvals){
       const tool=o.request.tool_name;
-      // 1.55: in Review actions only, a request matching a trusted rule is answered Allow and audited, no card.
+      // 1.56: in Review actions only, a request matching a trusted rule is answered Allow and audited, no card.
       const rule=turn.approvalMode==='review'?matchTrusted(trustedRules(),tool,o.request.input):null;
       if(rule&&turn.approvals.autoAllow({nativeId:o.request_id,turnId:String(turn.startedAt),kind:'tool',title:'Allow '+tool+'?',details:{tool,cwd:turn.cwd,input:o.request.input},allow:{behavior:'allow',updatedInput:o.request.input},deny:{behavior:'deny',message:'The user denied this action. Do not run it through another tool.'},rule,tool})){log(`trusted action allowed session=${turn.sessionId} tool=${tool} rule=${JSON.stringify(rule)}`);return;}
       if(turn.approvals.receive({nativeId:o.request_id,turnId:String(turn.startedAt),kind:'tool',title:'Allow '+tool+'?',details:{tool,cwd:turn.cwd,input:o.request.input},allow:{behavior:'allow',updatedInput:o.request.input},deny:{behavior:'deny',message:'The user denied this action. Do not run it through another tool.'}}))return;
@@ -2474,7 +2474,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
     }
     log(`claude models offered: ${claudeOffer().offered.join(',') || '(none)'} (${claudeOffer().source})`);
   }
-  if (req.body && 'trustedActions' in req.body) { // 1.55: null = back to POCKET_TRUSTED_ACTIONS (or none)
+  if (req.body && 'trustedActions' in req.body) { // 1.56: null = back to POCKET_TRUSTED_ACTIONS (or none)
     const v = req.body.trustedActions;
     if (v === null) settings.trustedActions = null;
     else {
@@ -3150,7 +3150,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["A Pocket can be locked to one workspace. With POCKET_LOCK_CWD=1 beside POCKET_DEFAULT_CWD, the New session screen shows that folder with nothing to choose and every session starts there, whatever a client sends. Made for the TechPro seats, whose users should never have to think about folders."];
+const RELEASE_NOTES = ["Read-only actions can run without asking. Settings → Agents & instance → Actions that run without asking lists commands and tools, such as Bash(techpro-lookup:*) or mcp__memstem__*, that Claude runs in Review actions without an approval card; everything else, and anything chained, piped or redirected, still asks. Writes cannot be listed. Each automatic approval is recorded. POCKET_TRUSTED_ACTIONS sets the server's list."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

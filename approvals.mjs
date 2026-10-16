@@ -36,7 +36,7 @@ export class ApprovalInbox {
   try{this.audit({event:'requested',sessionId:this.sessionId(),turnId,requestId:row.id,kind,fingerprint});}catch{return false;}
   this.pending.set(row.id,row);this.onChange();return true;
  }
- // 1.55: a request matching one of the owner's trusted rules (trusted.mjs) is answered Allow without a
+ // 1.56: a request matching one of the owner's trusted rules (trusted.mjs) is answered Allow without a
  // card. Same guarantees as a tapped Allow: bound to this live turn, recorded before the pipe is written.
  // Returns false (show the card instead) whenever it cannot do that: closed or old turn, an oversized
  // request, a card already open for it, or an audit that cannot be written.

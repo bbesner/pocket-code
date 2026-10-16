@@ -42,7 +42,7 @@ const fixturePolicy={availableModels:null,deniedModels:['fable'],availableModels
 const fixtureOffer=saved=>resolveOffer({saved:Array.isArray(saved)?saved:null,envList:null,policy:fixturePolicy});
 const fixtureClaudeModels=()=>({...fixtureOffer(fixtureSettings.offeredClaudeModels),env:null,saved:Array.isArray(fixtureSettings.offeredClaudeModels),
  policy:{dir:'/etc/claude-code',files:['/etc/claude-code/managed-settings.json'],limits:true,error:null},pocketDefault:{configured:null,used:null,label:'Test agent'}});
-// 1.55: actions that run without asking. The fixture server's POCKET_TRUSTED_ACTIONS names one rule and skips one.
+// 1.56: actions that run without asking. The fixture server's POCKET_TRUSTED_ACTIONS names one rule and skips one.
 const fixtureTrustedEnv=['Bash(techpro-lookup:*)'];
 const fixtureTrusted=()=>{const saved=Array.isArray(fixtureSettings.trustedActions);return {rules:saved?fixtureSettings.trustedActions:fixtureTrustedEnv,source:saved?'settings':'env',saved,env:fixtureTrustedEnv,envIgnored:[{rule:'Edit',error:'Edit changes files, so it always asks.'}]};};
 // 1.50: the fixture server has mail set up (so Settings shows the address field) and records test messages.

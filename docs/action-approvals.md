@@ -57,7 +57,7 @@ Under Review actions every Bash command, MCP tool call and web lookup shows a ca
 harmless reads. **Settings → Agents & instance → Actions that run without asking** lists
 read-only actions that Pocket approves itself in Review actions: when Claude asks to run a listed
 action, Pocket answers Allow without a card and records it; everything else shows the card as
-before. The list is empty by default, which is the behavior before 1.55.
+before. The list is empty by default, which is the behavior before 1.56.
 
 This is a convenience, not a security boundary. A listed command runs with whatever arguments
 the agent gives it, so list only commands that cannot change anything whatever they are given:

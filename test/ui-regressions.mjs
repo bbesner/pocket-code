@@ -1283,7 +1283,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    delete settings.offeredClaudeModels;await page.evaluate(()=>{localStorage.removeItem('pc-prefs-'+NEW_KEY);localStorage.removeItem('pc-provider');claudeModelsLoaded=false;});
    await page.setViewport({width:1440,height:900});
   });
-  await check('Trusted actions (1.55): Settings → Agents & instance shows the server default, adds a rule, explains a refused one under the field, removes one with focus kept, and goes back to the server list, at 1440 and 390',async()=>{
+  await check('Trusted actions (1.56): Settings → Agents & instance shows the server default, adds a rule, explains a refused one under the field, removes one with focus kept, and goes back to the server list, at 1440 and 390',async()=>{
    const settings=settingsState();delete settings.trustedActions;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
    const rules=()=>page.$$eval('#s-trusted-list .trusted-row code',e=>e.map(x=>x.textContent));
    for(const width of [1440,390]){

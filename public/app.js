@@ -809,7 +809,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     saveModelOffer(next, m.offered ? m.label + ' is no longer offered' : m.label + ' is offered');
   };
   sh.querySelector('#s-models-reset').onclick = () => saveModelOffer(null, srv?.claudeModels?.env ? 'Back to the list in POCKET_CLAUDE_MODELS' : 'Every model is offered again');
-  // 1.55: read-only actions Claude runs without a card in Review actions (instance-wide). The server checks every
+  // 1.56: read-only actions Claude runs without a card in Review actions (instance-wide). The server checks every
   // rule; its reason shows under the field. A list saved here replaces POCKET_TRUSTED_ACTIONS until Use the server's list.
   const trustedInput = sh.querySelector('#s-trusted-input'), trustedError = sh.querySelector('#s-trusted-error');
   let trustedSaving = false;

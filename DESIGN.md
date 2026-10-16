@@ -8,6 +8,24 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Actions that run without asking (1.56)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5;
+existing tokens, no new colour. Read: a short allow-list the owner edits rarely, explained where
+it says no. **Settings → Agents & instance** gains the block under *Claude models in the picker*,
+built the same way: the uppercase set head, a one-line `.title-note` lead, then one 52px row per
+rule with the rule in the ledger monospace at 14px (it is a command, so mono is earned) and a
+**Remove** chip, hairlines between rows. Below, *Add an action*: a mono field and an **Add** chip
+in the email setting's field-and-chip arrangement; the server's reason for a refused rule sits under
+the field in `--err`, the field takes `aria-invalid` and an `--err` border and keeps the text for
+fixing. A dim syntax line follows, then the status note saying where the list comes from (chosen
+here, or `POCKET_TRUSTED_ACTIONS` with any rules it skipped), and *Use the server's list* once a
+list is saved. Removing a row moves focus to the row that takes its place, else to the field.
+Rendered checks at 1440 and 390: axe clean, no horizontal overflow. The detector reports the
+existing baseline (sheet shadow, system font, session footnote) and flags the 31-character
+uppercase set head as all-caps body text; kept, since it is a one-line label in the established
+set-head style and names the setting the way the request did.
+
 ## Connectors (1.53)
 
 Pinned Operate refinement (design-studio → impeccable): variance 3, motion 2, density 5;

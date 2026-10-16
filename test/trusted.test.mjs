@@ -1,4 +1,4 @@
-// 1.55: actions that run without asking in Review actions. The matcher must be strict: anything
+// 1.56: actions that run without asking in Review actions. The matcher must be strict: anything
 // it cannot be sure is one plain trusted command falls back to the approval card.
 import test from 'node:test';
 import assert from 'node:assert/strict';

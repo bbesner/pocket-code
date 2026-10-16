@@ -1,4 +1,4 @@
-// 1.55: Settings → Agents & instance → Actions that run without asking. The setting (validation,
+// 1.56: Settings → Agents & instance → Actions that run without asking. The setting (validation,
 // persistence, POCKET_TRUSTED_ACTIONS as the server default) and the approval flow with the fake CLI:
 // a trusted request is answered Allow and audited without a card; anything else still shows one.
 import test from 'node:test';

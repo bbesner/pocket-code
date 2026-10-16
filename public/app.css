@@ -1356,7 +1356,7 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .model-offer-list .opt[aria-disabled="true"] .sub { color: var(--dim); }
 .model-offer-list[aria-busy="true"] { pointer-events: none; }
 .model-offer-list[aria-busy="true"] .opt .dot { border-style: solid; } /* loading, not blocked */
-/* 1.55: Settings → Agents & instance → Actions that run without asking. The models block's head, notes and chips;
+/* 1.56: Settings → Agents & instance → Actions that run without asking. The models block's head, notes and chips;
    each rule a row of its own text (monospace: it is a command) with Remove, then the field-and-chip of the email
    setting. The server's reason for a refused rule sits under the field in the error colour. No new colour. */
 .trusted-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; }
