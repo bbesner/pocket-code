@@ -3122,7 +3122,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["A Claude Code install that is not signed in now shows as Not signed in, with a Sign in button, instead of Could not verify; Connectors asks you to sign in to Claude Code first."];
+const RELEASE_NOTES = ["Connectors says what went wrong when an agent cannot list its connectors, including when chatgpt.com turns this server away with a bot check, and Refresh tries again straight away."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
@@ -3169,13 +3169,16 @@ async function readConnectors(kind, refresh) {
     ? await claudeConnectors({ bin: CLAUDE_BIN, env: spawnEnv(), cwd: HOME, home: HOME, managedDir: MANAGED_DIR, identity: await readClaudeIdentity(CLAUDE_BIN, spawnEnv()) })
     : !CODEX_ON ? { provider: 'codex', available: false, reason: 'Codex is turned off or not installed in Pocket on this server.', items: [] }
     : await codexConnectors({ rpc: codex.appRpc, refresh, account: await codex.accountSummary().catch(() => null) });
-  connectorCache[kind] = { at: Date.now(), value: { ...value, checkedAt: Date.now() } };
+  // 1.53.2: a failed read is logged and not kept, so the next open or Refresh tries again.
+  const { transient, error, ...shown } = value;
+  if (transient) { log(`connectors: ${kind} read failed: ${error || 'unknown error'}`); connectorCache[kind] = null; return { ...shown, checkedAt: Date.now() }; }
+  connectorCache[kind] = { at: Date.now(), value: { ...shown, checkedAt: Date.now() } };
   return connectorCache[kind].value;
 }
 app.get('/api/connectors', requireAuth, async (req, res) => {
   res.setHeader('Cache-Control', 'private, no-store');
   const refresh = req.query.refresh === '1';
-  const [claude, cx] = await Promise.all(['claude', 'codex'].map(k => readConnectors(k, refresh).catch(() => ({ provider: k, available: false, reason: 'Status unavailable. Try again.', items: [] }))));
+  const [claude, cx] = await Promise.all(['claude', 'codex'].map(k => readConnectors(k, refresh).catch(e => { log(`connectors: ${k} read threw: ${String(e?.message || e).slice(0, 200)}`); return { provider: k, available: false, reason: 'Status unavailable. Try again.', items: [] }; })));
   res.json({ providers: [claude, cx] });
 });
 app.get('/api/claude/activity',requireAuth,(_req,res)=>{

@@ -678,7 +678,9 @@ password or token and needs no Google Cloud project:
   set in `~/.claude/settings.json` or the managed settings, or `ENABLE_CLAUDEAI_MCP_SERVERS=false`,
   the sheet shows them as off on this server.
 - **Codex** uses the ChatGPT apps of the ChatGPT account it is signed in with. **Connect** opens the
-  app's page on chatgpt.com. An app your workspace admin has turned off shows as off.
+  app's page on chatgpt.com. An app your workspace admin has turned off shows as off. chatgpt.com
+  sometimes answers a cloud server with a bot check instead of the list; the sheet says so, and
+  **Refresh status** a minute later usually gets through.
 
 Come back to Pocket after connecting; the sheet checks again when the window regains focus, or
 choose **Refresh status**. Sessions started afterwards can use the tools: searching, reading and
