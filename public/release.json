@@ -1,7 +1,7 @@
 {
-  "version": "1.56.1",
-  "assetV": 117,
+  "version": "1.57.0",
+  "assetV": 118,
   "notes": [
-    "A restart no longer takes the agents' PATH away. The ecosystem file now adds the user's own bin directories (~/.local/bin, ~/.npm-global/bin, ~/bin and the node directory) when a restart over ssh or from an agent's shell left them off, so MCP servers and CLIs installed there, such as memstem, keep working in every session Pocket starts."
+    "Start links: an agent or a job on the server can hand Pocket a briefing and get a link that opens New session with it already typed in, in the workspace and with the agent the link names. Made for alerts that arrive elsewhere, such as Ari's inbox monitor on Telegram with an Open in Pocket Code button."
   ]
 }

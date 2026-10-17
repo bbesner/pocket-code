@@ -41,6 +41,7 @@ import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
 import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
+import { StartStore } from './starts.mjs';
 import {Thumbnailer} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
 import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
@@ -266,6 +267,11 @@ setTimeout(purgeDocs, 60_000).unref(); // 1.45: also a minute after start, so a 
 // token serves pocket-tasks on /api/tasks* only; a dated task is announced once when due, like a project reminder.
 const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'));
 const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
+// ---------- 1.57: start links ----------
+// A briefing an agent or a job hands to Pocket (starts.mjs): <data dir>/starts.json. POST /api/start with the loopback token
+// (or the owner's cookie) stores it and answers with an id and a URL; opening #/start/<id> signed in puts the briefing in New
+// session with the workspace and agent it names. Entries expire (7 days by default). Nothing starts until the owner taps Start.
+const starts = new StartStore(path.join(DATA_DIR, 'starts.json'));
 const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).json({ error: 'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'tasks_off' });
 // ---------- 1.39: the vault ----------
 // Credentials agents use by name and never see (vault.mjs): <data dir>/vault.enc, one AES-256-GCM blob under
@@ -2720,6 +2726,21 @@ app.post('/api/tasks/act', requireBoardAuth, tasksOn, async (req, res) => {
     res.set('Cache-Control', 'private, no-store').json({ ok: true, task });
   } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.task ? { task: e.task } : {}) }); }
 });
+// 1.57: start links. Both routes accept the owner's cookie or the loopback token (a direct loopback request only, as for
+// the board), so a job on the server (Ari's inbox monitor) can mint a link and the CLI can show one; nothing else reads them.
+app.post('/api/start', requireBoardAuth, (req, res) => {
+  try {
+    const entry = starts.add(req.body || {}, { actor: req.boardActor || 'ui' });
+    const base = publicBase();
+    log(`start link ${entry.id} by ${req.boardActor || 'ui'}`);
+    res.set('Cache-Control', 'private, no-store').json({ ok: true, id: entry.id, path: '/#/start/' + entry.id, url: base ? base + '/#/start/' + entry.id : null, expiresAt: entry.expiresAt });
+  } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
+});
+app.get('/api/start/:id', requireBoardAuth, (req, res) => {
+  const entry = starts.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'That start link has expired or never existed.', code: 'start_missing' });
+  res.set('Cache-Control', 'private, no-store').json({ ok: true, ...entry });
+});
 // A briefing on a session for a task created from it: the whole session so far, through the titles helper model.
 app.post('/api/tasks/summary', requireAuth, tasksOn, async (req, res) => {
   const id = String(req.body?.session || '');
@@ -3150,7 +3171,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["A restart no longer takes the agents' PATH away. The ecosystem file now adds the user's own bin directories (~/.local/bin, ~/.npm-global/bin, ~/bin and the node directory) when a restart over ssh or from an agent's shell left them off, so MCP servers and CLIs installed there, such as memstem, keep working in every session Pocket starts."];
+const RELEASE_NOTES = ["Start links: an agent or a job on the server can hand Pocket a briefing and get a link that opens New session with it already typed in, in the workspace and with the agent the link names. Made for alerts that arrive elsewhere, such as Ari's inbox monitor on Telegram with an Open in Pocket Code button."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
