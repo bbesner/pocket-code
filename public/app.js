@@ -2837,6 +2837,17 @@ async function openSkills(provider,cwd,box) {
 }
 
 /* ---------- new session ---------- */
+// 1.57: #/start/<id> — a briefing handed to Pocket by an agent or a job (POST /api/start, pocket-start add). Loads it into
+// New session's draft with the workspace and agent it names, then goes there; the session starts only when the owner taps Start.
+async function openStartLink(id) {
+  if (!/^[0-9a-f]{12}$/.test(id)) { toast('That start link is not valid.'); location.replace('#/new'); return; }
+  try {
+    const s = await api('/start/' + id);
+    saveDraft(NEW_KEY, s.text || '');
+    try { localStorage.removeItem('pc-new-start'); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
+  } catch (e) { if (e.message === 'login') return; toast(e.status === 404 ? 'That start link has expired.' : 'Could not load the start link.'); }
+  location.replace('#/new');
+}
 async function renderNew() {
   const viewVersion=++chatRenderVersion;
   const pendingNew = loadOutbox(NEW_KEY);
@@ -3124,6 +3135,7 @@ async function route() {
   if (typeof docView !== 'undefined') docView = null;
   if (h === '#/projects/scheduled' && tasksOn()) { location.replace('#/tasks'); return; } // 1.50: with Tasks on, reminders are listed there
   if (isViewId(h.slice(2))) return h === '#/vault' ? renderVault('vault') : h === '#/tasks' ? renderTasks('tasks') : h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : h.startsWith('#/link/') ? renderLink(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30/1.36/1.54: project, document, task and linked-page views
+  if (h.startsWith('#/start/')) return openStartLink(h.slice(8)); // 1.57: a start link puts its briefing in New session
   if (h === '#/new') return renderNew();
   return renderList();
 }

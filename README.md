@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.56.1 / build 117**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.57.0 / build 118**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -34,7 +34,7 @@ hold where you left off, the next step, a checklist and reminders; **Start sessi
 session briefed on where the project stands and linked to it. **Files** keeps the
 reports, dashboards and spreadsheets agents produce, rendered in place and shared only when
 you ask. **Tasks** are to-dos with an optional date, linked to the session they came from;
-**Start** opens a new session with the task already written in. The **Vault** keeps API keys,
+**Start** opens a new session with the task already written in, and a **start link** lets an agent or a job on the server hand Pocket a briefing that opens the same way. The **Vault** keeps API keys,
 tokens and logins encrypted on the server; agents use them by name, in commands or typed into
 a web page's login form, and never see the values. You decide how much they may do without
 asking, and every use is recorded. Lists keep up on their own: something an agent adds
