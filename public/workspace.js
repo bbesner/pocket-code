@@ -514,7 +514,7 @@ matchMedia('(min-width: 1280px)').addEventListener('change',()=>{
 
 // Keep the same conversation DOM, draft and selection while the viewport changes.
 function sizeComposerBox(){
- const box=document.getElementById('box');if(!box)return;
+ const box=document.getElementById('box')||document.getElementById('first');if(!box)return; // 1.58: New session uses the same composer
  const limit=Math.min(innerHeight<500?90:180,innerHeight*.25);
  box.style.height='auto';box.style.height=Math.max(46,Math.min(box.scrollHeight+2,limit))+'px';
 }
@@ -587,8 +587,6 @@ function agentSummary(){
 function updateNewSummary() {
  const el=document.querySelector('#task-context');if(!el||!tb)return;
  el.innerHTML=`<span><strong>Workspace</strong> ${esc(el.dataset.workspace||'Choose a workspace')}</span><span><strong>Agent</strong> ${esc(agentSummary())}</span><span><strong>Permissions</strong> ${esc(permissionLabel(nextApprovalMode()))}</span>`;
- const bar=document.querySelector('#new-setup #tbar');
- if(bar)for(const [id,label] of [['c-model','Model'],['c-eff','Reasoning'],['c-approval','Permissions'],['c-mode','Mode']]){const b=document.getElementById(id);if(b){b.setAttribute('aria-label',label+': '+b.textContent);b.dataset.settingLabel=label;}}
 }
 function organizeSettings(sh, {category='',scrollTop=0}={}) {
  const groups=[

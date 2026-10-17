@@ -355,6 +355,26 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForFunction(()=>Voice._test.state()==='idle'&&Voice._test.handsFree()===null);
    await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('pc-voice'));delete p.keepListening;localStorage.setItem('pc-voice',JSON.stringify(p));});
   });
+  await check('New session: the conversation composer, and a hands-free start carries into the new session',async()=>{
+   const back=await page.evaluate(()=>chatId); // the checks after this one continue in that conversation
+   await page.setViewport({width:390,height:844});await page.goto(base+'/#/new');await page.waitForSelector('#plist .row.sel');await page.waitForSelector('#micb:not([hidden])');
+   await page.evaluate(()=>{clearDraft(NEW_KEY);const f=document.querySelector('#first');f.value='';f.dispatchEvent(new Event('input'));const p=JSON.parse(localStorage.getItem('pc-voice')||'{}');p.review=false;p.speak=true;localStorage.setItem('pc-voice',JSON.stringify(p));});
+   // 1.58: the same controls as a conversation's composer, in the composer (an empty box shows the headset).
+   for(const sel of ['#composer-actions #c-att','#composer-actions #composer-toggle','#composer-actions #choose-skill','#composer-actions #save-prompt','#comp .toolbar-scroll #tbar #c-model','#comp #c-eff','#comp #c-approval','#comp #hfb','#comp #micb','#comp #first','#comp #start.send']){
+    const r=await page.$eval(sel,e=>{const b=e.getBoundingClientRect();return {w:b.width,h:b.height,in:b.left>=0&&b.right<=innerWidth&&b.bottom<=innerHeight};});
+    assert.ok(r.in&&r.h>=44||sel.endsWith('#first')&&r.in,sel+' '+JSON.stringify(r));
+   }
+   assert.equal(await page.$eval('#start',b=>b.getAttribute('aria-label')),'Start session');
+   await scan('new-session-composer-mobile');await page.screenshot({path:path.join(out,'new-session-composer-mobile.png')});
+   const sent=received.length;
+   await page.evaluate(()=>{Voice._test.setHandsFree(NEW_KEY);Voice._test.handle('Count the incoming camera stock.');});
+   assert.deepEqual(await page.evaluate(()=>Voice._test.pending()),{id:'new',text:'Count the incoming camera stock.'});assert.equal(received.length,sent,'hands-free never starts a session without a yes');
+   await page.evaluate(()=>Voice._test.handle('Yes, send it'));
+   await page.waitForFunction(()=>location.hash.startsWith('#/chat/')&&chatId&&document.querySelector('#box'));
+   assert.equal(received.at(-1).text,'Count the incoming camera stock.');
+   assert.equal(await page.evaluate(()=>Voice._test.handsFree()===chatId),true,'the hands-free conversation follows the session it started');
+   await page.evaluate(()=>Voice._test.setHandsFree(null));await openChat(back);
+  });
   await check('Voice: the spoken reply follows the chosen length',async()=>{
    const id=await page.evaluate(()=>chatId);
    const said=async length=>{
@@ -1890,7 +1910,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(posts.filter(x=>x.path==='/api/new').length,newPosts,'no start was posted');
     await clickControl(page,'.secret-sheet [data-back]');await sheetGone();
     assert.equal(await page.$eval('#first',f=>f.value),'Log in with password: hunter2! and pull the invoices');
-    assert.equal(await page.$eval('#start',b=>b.textContent),'Start session');
+    assert.equal(await page.$eval('#start',b=>b.getAttribute('aria-label')),'Start session');
     await page.evaluate(()=>{clearDraft(NEW_KEY);document.querySelector('#first').value='';});
     // Settings → Vault: Catch secrets in messages, on by default; off lets a key paste through untouched.
     await openChat(idleId);await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-secrets')?.disabled===false);

@@ -2,6 +2,8 @@
    Speech-to-text and text-to-speech run on the Pocket server (local Whisper + Kokoro, see voice.mjs); this file
    records, detects the end of speech, handles a few short commands on the device, and plays replies.
    Uses app.js globals: api, toast, esc, chatId, composerWorking, sendMsg, allSessions, needsAttention.
+   New session binds the same controls with its own key and send (1.58): what you say starts the session, and a
+   hands-free conversation follows it into the session it started.
    Two composer buttons: the mic takes one message (tap or hold); the headset starts a hands-free conversation
    that speaks each reply and listens for the answer. Only that conversation ever reopens the microphone:
    session alerts, approval prompts and the spoken reply to anything else never listen afterwards. */
@@ -23,6 +25,10 @@ const Voice = (() => {
   let speech = null;                                            // { cancelled, source }
   let handsFree = null, hfStarting = false;                     // session id of the hands-free conversation, if one is on
   let pendingSend = null;                                       // {id, text}: a hands-free instruction waiting for "send it"
+  let boundKey = null, boundSend = null, carry = null;          // New session: its key, its send, and a hands-free hand-over
+  const target = () => chatId || boundKey;                      // the conversation the mic speaks to
+  const boxEl = () => document.getElementById('box') || document.getElementById('first');
+  const send = text => boundSend ? boundSend(text) : sendMsg(text);
   const armed = new Set();                                      // sessions whose next finished turn is spoken
   const lastReply = new Map();                                  // sessionId -> markdown of the latest reply
   const announced = new Map();                                  // sessionId -> kinds already announced this turn
@@ -69,12 +75,13 @@ const Voice = (() => {
     return `<button class="icon voice-mic voice-hf" id="hfb" type="button" hidden aria-pressed="false" aria-label="Hands-free conversation" aria-describedby="voice-strip">${HEADSET}</button>`
       + `<button class="icon voice-mic" id="micb" type="button" hidden aria-pressed="false" aria-label="Voice input" aria-describedby="voice-strip">${MIC}</button>`;
   }
-  const inHandsFree = (id = chatId) => Boolean(id) && handsFree === id;
-  function bindComposer() {
+  const inHandsFree = (id = target()) => Boolean(id) && handsFree === id;
+  function bindComposer({ key = null, send: sendText = null } = {}) {
+    boundKey = key; boundSend = sendText;
     const b = document.getElementById('micb'), hf = document.getElementById('hfb'); if (!b) return;
     loadStatus().then(s => { if (b.isConnected) b.hidden = !s.available; if (hf?.isConnected) hf.hidden = !s.available; paint(); });
     if (hf) hf.onclick = () => handsFreeTap();
-    document.getElementById('box')?.addEventListener('input', syncDraft);
+    boxEl()?.addEventListener('input', syncDraft);
     let downAt = 0, holdTimer = null;
     b.onpointerdown = e => {
       if (e.button) return;
@@ -103,7 +110,7 @@ const Voice = (() => {
   // A typed draft turns any voice input into an addition to that draft (nothing is sent), so the headset has
   // nothing to do then; it steps aside and gives the narrow phone composer its width back.
   function syncDraft() {
-    const hf = document.getElementById('hfb'), box = document.getElementById('box');
+    const hf = document.getElementById('hfb'), box = boxEl();
     if (hf) hf.classList.toggle('drafting', Boolean(box?.value.trim()) && !inHandsFree());
   }
   function paint() {
@@ -125,7 +132,7 @@ const Voice = (() => {
     }
     if (!strip) return;
     const pre = conv ? 'Hands-free. ' : '';
-    const pend = pendingSend?.id === chatId ? pendingSend : null;
+    const pend = pendingSend?.id === target() ? pendingSend : null;
     const label = { listening: pre + (rec?.reopened && !rec.speechAt ? 'Listening for your reply. Take your time' : conv ? 'Listening. Pause when you’re done' : 'Listening. Tap the mic when you’re done'),
       holding: 'Listening. Release to send', transcribing: pre + 'Transcribing…', speaking: pre + 'Speaking' }[state] || note || (pend ? `Send this? “${pend.text}”` : '') || (conv ? hfStarting ? 'Hands-free. Starting the mic…' : 'Hands-free is on. Waiting for the reply' : '');
     strip.hidden = !label;
@@ -147,9 +154,9 @@ const Voice = (() => {
     unlockAudio();
     if (isMuted() && !inHandsFree()) setMuted(false);           // starting a conversation is asking to hear it
     if (inHandsFree()) return endHandsFree('Hands-free is off.');
-    if (!chatId) return;
+    if (!target()) return;
     if (rec) release();
-    handsFree = chatId; hfStarting = true; paint();
+    handsFree = target(); hfStarting = true; paint();
     try { await start('auto'); } finally { hfStarting = false; }
     if (!rec && inHandsFree() && state === 'idle') { handsFree = null; paint(); }   // the mic did not start: nothing is on
   }
@@ -186,7 +193,7 @@ const Voice = (() => {
   async function start(mode, { waitMs = NO_SPEECH_MS, reopened = false } = {}) {
     const s = await loadStatus();
     if (!s.available) { toast(s.reason || 'Voice is not available on this server.'); return; }
-    if (!chatId) return;
+    if (!target()) return;
     stopSpeaking();
     unlockAudio();
     if (!ctx || !navigator.mediaDevices?.getUserMedia) { say(micError()); return; }
@@ -197,7 +204,7 @@ const Voice = (() => {
       if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=49'); workletReady = true; }
       const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pocket-capture'), sink = ctx.createGain();
       sink.gain.value = 0; src.connect(node); node.connect(sink); sink.connect(ctx.destination);   // a pulled graph keeps the worklet running
-      rec = { session: chatId, mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened, handsFree: inHandsFree(),
+      rec = { session: target(), mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened, handsFree: inHandsFree(),
         floor: null, warm: 0, voiced: 0, speechAt: 0, lastVoiceAt: 0 };
       node.port.onmessage = e => hear(e.data);
       setState(mode === 'hold' ? 'holding' : 'listening');
@@ -254,9 +261,9 @@ const Voice = (() => {
     } catch (e) { setState('idle'); say(e.message || 'Transcription failed.', 8000); return; }
     setState('idle');
     const left = r.waitMs - (Date.now() - r.startedAt);
-    if (r.handsFree && inHandsFree(r.session) && (!text || VoiceText.isNoise(text, pcm.length / 16000)) && left > 2000 && r.session === chatId) return start('auto', { waitMs: left, reopened: r.reopened });
+    if (r.handsFree && inHandsFree(r.session) && (!text || VoiceText.isNoise(text, pcm.length / 16000)) && left > 2000 && r.session === target()) return start('auto', { waitMs: left, reopened: r.reopened });
     if (!text) { if (r.handsFree) handsFree = null; say(r.handsFree ? 'I didn’t catch that. Hands-free is off.' : 'I didn’t catch that.'); return; }
-    if (r.session !== chatId) { handsFree = null; say('You switched sessions, so that wasn’t sent.'); return; }
+    if (r.session !== target()) { handsFree = null; say('You switched sessions, so that wasn’t sent.'); return; }
     await handle(text);
   }
   const replyLength = () => LENGTH_CHOICES.some(([v]) => v === prefs().replyLength) ? prefs().replyLength : DEFAULTS.replyLength;
@@ -268,26 +275,26 @@ const Voice = (() => {
 
   /* ---------- what was said ---------- */
   async function handle(text) {
-    const id = chatId;
+    const id = target();
     if (pendingSend?.id === id) return confirmStep(text);
     const kind = VoiceText.intent(text);
     if (kind) { say(`Heard: “${text}”`, 4000); return command(kind, id); }
     const p = prefs();
-    const box = document.getElementById('box');
+    const box = boxEl();
     // Review mode, or a typed draft already in the box: add the words to the draft and let the user send it.
     // Never send a half-written draft on the user's behalf.
     const draft = box?.value.trim();
-    if (p.review || draft || !box || box.readOnly) {
+    if (p.review || draft || !box || box.readOnly || box.disabled) {
       handsFree = null;                                          // nothing is sent, so there is no reply to listen after
-      if (box && !box.readOnly) { box.value = draft ? `${draft} ${text}` : text; box.dispatchEvent(new Event('input')); box.focus(); }
-      say(box?.readOnly ? `Heard: “${text}”. Resolve the pending message first.` : draft ? 'Added to your draft. Review it, then send.' : 'Review the text, then send it.', 6000);
+      if (box && !box.readOnly && !box.disabled) { box.value = draft ? `${draft} ${text}` : text; box.dispatchEvent(new Event('input')); box.focus(); }
+      say(box?.readOnly || box?.disabled ? `Heard: “${text}”. Resolve the pending message first.` : draft ? 'Added to your draft. Review it, then send.' : 'Review the text, then send it.', 6000);
       return;
     }
     if (inHandsFree(id)) return askToSend(id, text);       // hands-free never starts a turn without a yes
-    if (heldAsSecret(text)) { say('That sounded like a password or key, so it was not sent. Choose what to do in the sheet.', 8000); await sendMsg(text); return; }
-    say(`Sent: “${text}”`, 5000);
+    if (heldAsSecret(text)) { say('That sounded like a password or key, so it was not sent. Choose what to do in the sheet.', 8000); await send(text); return; }
+    say(`${boundSend ? 'Starting' : 'Sent'}: “${text}”`, 5000);
     if (p.speak) arm(id);
-    await sendMsg(text);
+    await send(text);
   }
   // 1.42: a dictated message that sounds like it carries a key or password is held by sendMsg's sheet, so say that, not "Sent".
   const heldAsSecret = text => typeof PocketSecrets !== 'undefined' && typeof secretGuard !== 'undefined' && secretGuard.on && PocketSecrets.scan(text, { mode: 'message' }).length > 0;
@@ -307,16 +314,17 @@ const Voice = (() => {
   async function sendPending() {
     const p = pendingSend; if (!p) return;
     pendingSend = null;
-    if (p.id !== chatId) { say('You switched sessions, so that wasn’t sent.'); return; }
-    if (heldAsSecret(p.text)) { say('That sounded like a password or key, so it was not sent. Choose what to do in the sheet.', 8000); await sendMsg(p.text); return; }
-    say(`Sent: “${p.text}”`, 5000);
+    if (p.id !== target()) { say('You switched sessions, so that wasn’t sent.'); return; }
+    if (heldAsSecret(p.text)) { say('That sounded like a password or key, so it was not sent. Choose what to do in the sheet.', 8000); await send(p.text); return; }
+    say(`${boundSend ? 'Starting' : 'Sent'}: “${p.text}”`, 5000);
     if (prefs().speak || inHandsFree(p.id)) arm(p.id);
-    await sendMsg(p.text);
+    // New session reports false when nothing started (no workspace, held as a secret): there is no reply to wait for.
+    if (await send(p.text) === false && inHandsFree(p.id)) { handsFree = null; armed.delete(p.id); say('The session did not start. Hands-free is off.', 8000); }
   }
   function editPending() {
     const p = pendingSend; if (!p) return;
     pendingSend = null; handsFree = null; if (rec) release(); stopSpeaking(); setState('idle');
-    const box = document.getElementById('box');
+    const box = boxEl();
     if (box && !box.readOnly) { box.value = box.value.trim() ? `${box.value.trim()} ${p.text}` : p.text; box.dispatchEvent(new Event('input')); box.focus(); }
     say('Edit the message, then send it.', 6000);
   }
@@ -488,7 +496,19 @@ const Voice = (() => {
       speakOut(kind === 'approvals' ? 'It needs your approval. Review it on screen.' : 'It has a question for you on screen.');
     }, 800);
   }
-  function onLeave() { handsFree = null; pendingSend = null; if (rec) cancel(); stopSpeaking(); paint(); }
+  // nextId: the conversation being opened. A session started from New session by voice keeps its conversation going.
+  function onLeave(nextId) {
+    const c = carry; carry = null;
+    if (boundKey) armed.delete(boundKey);
+    boundKey = null; boundSend = null;
+    if (c && nextId && c.to === nextId) { if (rec) { release(); setState('idle'); } if (c.handsFree) handsFree = nextId; paint(); return; } // a mic still open for New session stops; the conversation does not
+    handsFree = null; pendingSend = null; if (rec) cancel(); stopSpeaking(); paint();
+  }
+  // New session started `to`: its spoken reply and any hands-free conversation move from the New session key to it.
+  function carryTo(from, to) {
+    if (armed.delete(from)) arm(to);
+    carry = { to, handsFree: handsFree === from };
+  }
 
   /* ---------- settings ---------- */
   function settingsHTML() {
@@ -531,5 +551,5 @@ const Voice = (() => {
     });
   }
 
-  return { micHTML, muteButtonHTML, bindComposer, paint, onAssistant, onTurnEnd, onIdle, onSessions, replacesChime, onAttention, onLeave, settingsHTML, bindSettings, speak: speakOut, stopSpeaking, isMuted, setMuted, _test: { toPcm16, handsFree: () => handsFree, setHandsFree: id => { handsFree = id; paint(); }, arm: id => armed.add(id), state: () => state, handle: t => handle(t), pending: () => pendingSend } };
+  return { micHTML, muteButtonHTML, bindComposer, carryTo, paint, onAssistant, onTurnEnd, onIdle, onSessions, replacesChime, onAttention, onLeave, settingsHTML, bindSettings, speak: speakOut, stopSpeaking, isMuted, setMuted, _test: { toPcm16, handsFree: () => handsFree, setHandsFree: id => { handsFree = id; paint(); }, arm: id => armed.add(id), state: () => state, handle: t => handle(t), pending: () => pendingSend } };
 })();
