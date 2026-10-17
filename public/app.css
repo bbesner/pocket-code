@@ -586,8 +586,8 @@ header.bar { gap: 2px; padding-inline: 8px; }
 
 .task-pane { gap: 14px; }
 .task-heading { display: block; font-size: 23px; line-height: 1.3; font-weight: 600; margin-bottom: 16px; }
-.task-pane #first { min-height: 136px; }
 .task-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.task-actions[hidden] { display: none; }
 .task-context { color: var(--dim); font-size: 14px; }
 .task-pane details { border-top: 1px solid var(--line); padding-top: 12px; }
 .task-pane summary { cursor: pointer; min-height: 44px; padding: 8px 0; color: var(--dim); }
@@ -974,7 +974,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .turn-failure-actions .chip { color: var(--text); }
 .turn-failure-actions [hidden] { display: none; }
 /* New session: the reason Start did nothing, next to Start. */
-.start-hint { margin: -4px 0 0; color: var(--err); font-size: 14px; }
+.start-hint { max-width: 720px; margin: 0 auto; padding: 8px 16px; color: var(--err); font-size: 14px; } /* 1.58: above the New session composer, like a delivery problem */
 .start-hint[hidden] { display: none; }
 
 /* ---------- 1.20: generated session titles in Settings (existing toggle row + native select) ---------- */
@@ -1267,18 +1267,13 @@ video.doc-media { width: 100%; max-height: 70vh; background: #000; }
 .conversation-project.linked { color: var(--clay); }
 .chip.conversation-project.linked { border-color: var(--clay-deep); } /* a linked project reads as the conversation's home */
 .workrow button.wbell, .doc-filters .chip, .doc-layout .icon, .doc-card-actions .icon { min-width: 44px; min-height: 44px; }
-#new-setup { margin: 8px 0 16px; border: 1px solid var(--line); border-radius: 10px; }
+#new-setup { margin: 0 0 16px; border: 1px solid var(--line); border-radius: 10px; }
 #new-setup > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 14px; cursor: pointer; list-style: none; }
 #new-setup > summary::-webkit-details-marker { display: none; }
 #new-setup .task-context { display: grid; gap: 3px; margin: 0; min-width: 0; overflow-wrap: anywhere; }
 #new-setup .task-context strong { font-weight: 500; color: var(--text); margin-right: 6px; }
 #new-setup .setup-edit { color: var(--clay); flex: none; font-size: 13px; }
 #new-setup .setup-fields { padding: 0 14px 16px; }
-#new-setup .toolbar { flex-wrap: wrap; overflow: visible; padding: 0; mask-image: none; }
-#new-setup .toolbar .chip { max-width: 100%; white-space: normal; }
-#new-setup [data-setting-label]::before { content: attr(data-setting-label) ':'; color: var(--dim); }
-#new-setup .label-short { display: none; }
-#new-setup .label-full { display: inline; }
 .split-picker .session-search { margin: 0 0 16px; }
 .split-picker h3 { font-size: 13px; color: var(--dim); font-weight: 500; margin: 20px 0 6px; }
 .split-picker .opt { min-height: 60px; }

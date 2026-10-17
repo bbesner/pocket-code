@@ -5,13 +5,21 @@ This guide follows the current checkout, through release 1.37. Check
 
 ## Start or resume work
 
-Open a session from the list or choose **New session**. Write the task, choose the
-workspace and agent in **Edit setup**, then press **Start session**. The summary names the workspace, the agent with its model and reasoning level (for example *Claude Code · Opus 5.5 · High reasoning*) and the permissions before you start. Model, reasoning and permission controls wrap inside setup; closing it preserves your draft. **Choose a skill** inserts
-an editable instruction from that agent's installed skills; choosing it does not
-start a turn. A custom workspace path must be a directory on the server, not your phone.
-With no default workspace and nothing remembered, the most recent workspace is
-preselected and named above **Start session**. If something is missing, the reason
-appears under the button.
+Open a session from the list or choose **New session**. New session uses the same message box as a
+conversation (1.58): write the task in it and press the Send arrow (**Start session**), or Enter on a desktop.
+The chips above the box set the model, reasoning, permissions and, for Codex, the mode, exactly as they
+do for a conversation's next turn. Beside the box are **Attach**, the settings toggle, **Choose a skill**
+(the spark), which inserts an editable instruction from that agent's installed skills without starting a
+turn, and **Save as prompt** (the bookmark). The mic and the hands-free headset work as in a conversation:
+the mic dictates the task, or starts the session with it unless Review before sending is on or you have
+typed something; hands-free reads your instruction back, starts the session after "send it" or a tap on
+Send, and the conversation carries on in the new session.
+
+Above the box, the setup card names the workspace, the agent with its model and reasoning level (for
+example *Claude Code · Opus 5.5 · High reasoning*) and the permissions. **Edit setup** chooses the agent
+and the workspace; closing it preserves your draft. A custom workspace path must be a directory on the
+server, not your phone. With no default workspace and nothing remembered, the most recent workspace is
+preselected. If something is missing, the reason appears above the box.
 
 **Saved prompts.** **Save as prompt** keeps the task with its workspace and agent (and, if you
 keep them, model, effort, permissions and Codex mode). Saved prompts show as chips above the task
@@ -336,7 +344,7 @@ project's directory with a briefing already written as the first message: where 
 next step, what it is waiting for, the open steps with their ids, the last three notes, open
 reminders, the link and the last three sessions that worked on it, plus how to keep the card
 current. Edit it if you like, then Start. The new session is linked to the project as it starts, so
-the card lists it; the project's chip beside Choose a skill shows which project it will join, and
+the card lists it; the project's chip above the setup card shows which project it will join, and
 tapping it removes the link before you start. The agent is the one that last worked on the project.
 
 **Where reminders are listed.** With Tasks on (1.50), every open reminder appears in the

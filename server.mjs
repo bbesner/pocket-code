@@ -3171,7 +3171,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Start links: an agent or a job on the server can hand Pocket a briefing and get a link that opens New session with it already typed in, in the workspace and with the agent the link names. Made for alerts that arrive elsewhere, such as Ari's inbox monitor on Telegram with an Open in Pocket Code button."];
+const RELEASE_NOTES = ["New session uses the same message box as a conversation: model, reasoning and permissions chips above it; Attach, Choose a skill and Save as prompt beside it; the mic, the hands-free headset and the Send arrow on the right. Workspace and agent stay in Edit setup above. A hands-free start reads your instruction back, starts the session after a yes and keeps the conversation going in it."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

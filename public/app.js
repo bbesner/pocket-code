@@ -46,6 +46,8 @@ const IC = {
   link: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 13.5a3.8 3.8 0 005.4 0l3-3a3.8 3.8 0 00-5.4-5.4l-1.3 1.3M13.5 10.5a3.8 3.8 0 00-5.4 0l-3 3a3.8 3.8 0 005.4 5.4l1.3-1.3"/></svg>',
   share: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="17.5" cy="6" r="2.3"/><circle cx="6.5" cy="12" r="2.3"/><circle cx="17.5" cy="18" r="2.3"/><path d="M8.6 10.9l6.8-3.7M8.6 13.1l6.8 3.7"/></svg>',
   swap: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h13l-3.5-3.5M19 16H6l3.5 3.5"/></svg>',
+  spark: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9zM18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>',
+  bookmark: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h10a1 1 0 011 1v16l-6-4-6 4v-16a1 1 0 011-1z"/></svg>',
   pen: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l.9-3.9L16 5a2.1 2.1 0 013 3L7.9 19.1 4 20zM13.8 7.2l3 3"/></svg>',
 };
 
@@ -207,7 +209,6 @@ function renderToolbar() {
   const focusedControl=bar.contains(document.activeElement)?document.activeElement.id:null;
   normalizeModelPick();
   $('#composer-actions #c-att')?.remove();
-  $('#new-actions #c-att')?.remove();
   bar.innerHTML = `
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
@@ -225,7 +226,6 @@ function renderToolbar() {
   }
   const att = $('#c-att');
   const actions=$('#composer-actions');
-  if(att && $('#new-setup')) $('#new-actions').prepend(att);
   if(att&&actions){att.className='icon composer-attach';att.innerHTML=IC.clip;actions.prepend(att);}
   if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard'],
     ...(vaultOn() ? [['vault','Store in the Vault','Save a key or password here instead of pasting it into the message']] : [])],null,v=>{if(v==='file')$('#fpick')?.click();else if(v==='vault')addVaultItemFromComposer();else pasteClipboardImage();}); // 1.39: the Vault option
@@ -247,7 +247,7 @@ function renderToolbar() {
   Voice.paint();                                              // the voice-mute chip reads its state from Voice
   if (typeof paintChatProject === 'function') paintChatProject(); // 1.35: Add project sits with the session's chips, not in a header row
   if (typeof paintChatTask === 'function') paintChatTask(); // 1.36: Add task beside it
-  if (!bar.closest('#new-setup')) bindToolbarScroll(bar);
+  bindToolbarScroll(bar);
   updateNewSummary();
   if(focusedControl)document.getElementById(focusedControl)?.focus({preventScroll:true});
 }
@@ -2114,7 +2114,7 @@ async function renderChat(id, { away = false } = {}) {
   const renderVersion = ++chatRenderVersion;
   const awaySince = away && !pendingFind ? Math.max(seenAt(id), Number(viewedAt[id]) || 0) : 0; // a search result opens at its match instead
   stashAttachments();rememberReading();
-  if (chatId !== id) Voice.onLeave();
+  if (chatId !== id) Voice.onLeave(id);
   chatId = id; closeES();
   fmarks = []; fidx = -1; // marks from the previous render are gone with the DOM
   awayFollow = false;
@@ -2851,17 +2851,18 @@ async function openStartLink(id) {
 async function renderNew() {
   const viewVersion=++chatRenderVersion;
   const pendingNew = loadOutbox(NEW_KEY);
+  Voice.onLeave(); // 1.58: the mic below speaks to this New session, not the conversation you left
+  // 1.58: the message box is the conversation's own composer (settings chips, attach, skill, save as prompt,
+  // mic, hands-free, Send); the task heading, saved prompts and workspace setup sit above it.
   const col = `
     <header class="bar">
       ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : `<button class="icon" id="back" aria-label="Back">${IC.back}</button>`}
       <h1>New session</h1>
     </header>
-    <div id="new-delivery" class="delivery-status" role="status" hidden></div>
     <main class="scroll"><div class="pane task-pane">
-      <div><label class="task-heading" for="first">What would you like done?</label><div class="starters" id="starters" hidden></div><textarea id="first" placeholder="Describe the task, or choose a skill below."></textarea></div>
-      <div class="task-actions" id="new-actions"><button class="chip" id="choose-skill">Choose a skill</button><button class="chip" id="save-prompt" disabled>Save as prompt</button><button class="chip conversation-project linked" id="new-project" hidden></button></div>
+      <div><label class="task-heading" for="first">What would you like done?</label><div class="starters" id="starters" hidden></div></div>
+      <div class="task-actions" id="new-actions" hidden><button class="chip conversation-project linked" id="new-project" hidden></button></div>
       <details id="new-setup"><summary id="choose-workspace"><span class="task-context" id="task-context"></span><span class="setup-edit">Edit setup</span></summary><div class="setup-fields">
-      <div><span class="h">Model, reasoning and permissions</span><div class="toolbar" id="tbar"></div></div>
       <div><span class="h" id="agenth">Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth">
         <button class="row" role="radio" aria-checked="false" data-a="claude"><span class="dot"></span>${IC.term}<span class="p">Claude Code</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="codex"><span class="dot"></span>${IC.term}<span class="p">Codex</span></button>
@@ -2869,9 +2870,12 @@ async function renderNew() {
       <div><span class="h" id="projh">Project</span><div class="projlist" id="plist" role="radiogroup" aria-labelledby="projh"><div class="empty">Loading…</div></div></div>
       <div><label class="h" for="cpath">Or a custom path</label><input type="text" id="cpath" placeholder="/full/path/to/project" autocapitalize="off" autocorrect="off"></div>
       </div></details>
-      <div class="attachrow" id="attrow"></div>
-      <button class="primary" id="start" aria-describedby="start-hint">Start session</button><p class="start-hint" id="start-hint" role="alert" hidden></p>
-    </div></main>`;
+    </div></main>
+    <section class="composerwrap" aria-label="New session message"><div id="new-delivery" class="delivery-status" role="status" hidden></div><p class="start-hint" id="start-hint" role="alert" hidden></p><div class="voice-strip" id="voice-strip" role="status" aria-live="polite" hidden></div>
+      <div class="composer" id="comp"><div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>
+        <div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button><button class="icon" id="choose-skill" aria-label="Choose a skill" title="Choose a skill">${IC.spark}</button><button class="icon" id="save-prompt" aria-label="Save as prompt" title="Save as prompt" disabled>${IC.bookmark}</button></div>
+        <textarea id="first" rows="1" placeholder="Describe the task, or choose a skill" enterkeyhint="send" aria-describedby="start-hint"></textarea>
+        ${Voice.micHTML()}<button class="send" id="start" aria-label="Start session" title="Start session">${IC.up}</button></div></section>`;
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   if (PANE) $('#pane-close').onclick = () => paneSay('close'); else $('#back').onclick = () => { location.hash = '#/'; };
@@ -2884,7 +2888,7 @@ async function renderNew() {
   let startFrom = pendingNew?.payload.project ? { project: pendingNew.payload.project, projectName: pendingNew.payload.projectName || '' } : readLocal('pc-new-start', null);
   const paintNewProject = () => {
     const b = $('#new-project'); if (!b) return;
-    b.hidden = !startFrom?.project;
+    b.hidden = !startFrom?.project; $('#new-actions').hidden = b.hidden;
     if (!startFrom?.project) return;
     const name = startFrom.projectName || startFrom.project;
     b.innerHTML = IC.folder + '<span>' + esc(name) + '</span>'; b.title = 'This session will be linked to the project ' + name;
@@ -2917,7 +2921,9 @@ async function renderNew() {
   const first = $('#first');
   first.value = pendingNew?.payload.text || loadDraft(NEW_KEY);
   let savedPrompts = [], recentStarts = [], activeStarter = null; // 1.23 (declared before the handlers that read them)
-  first.oninput = () => { saveDraft(NEW_KEY, first.value); const h = $('#start-hint'); if (h) h.hidden = true; paintSaveButton(); if (activeStarter && first.value !== activeStarter.text) { activeStarter = null; paintStarters(); } };
+  first.oninput = () => { sizeComposerBox(); saveDraft(NEW_KEY, first.value); const h = $('#start-hint'); if (h) h.hidden = true; paintSaveButton(); if (activeStarter && first.value !== activeStarter.text) { activeStarter = null; paintStarters(); } };
+  first.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && isWide()) { e.preventDefault(); startSession(); } }; // like the conversation: Enter starts, Shift+Enter for a newline
+  sizeComposerBox();
   try {
     const { projects, defaultCwd, locked } = await api('/projects');
     if(viewVersion!==chatRenderVersion)return;
@@ -2953,10 +2959,13 @@ async function renderNew() {
     const pending = loadOutbox(NEW_KEY), note = $('#new-delivery');
     if (!note) return;
     note.hidden = !pending;
-    note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><button class="chip" id="discard-new">Discard retry</button>' : '';
+    note.classList.toggle('delivery-problem', Boolean(pending));
+    note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><div class="delivery-actions"><button class="chip" id="retry-new">Retry start</button><button class="chip" id="discard-new">Discard retry</button></div>' : '';
+    const retry = $('#retry-new'); if (retry) retry.onclick = () => startSession();
     const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NEW_KEY, null); clearDraft(NEW_KEY); localStorage.removeItem('pc-new-start'); renderNew(); };
-    app.querySelectorAll('.pane input,.pane textarea,.pane button:not(#start)').forEach(el => { el.disabled = Boolean(pending); });
-    $('#start').textContent = pending ? 'Retry start' : 'Start session';
+    app.querySelectorAll('.pane input,.pane textarea,.pane button,#comp textarea,#comp button:not(#start):not(#composer-toggle)').forEach(el => { el.disabled = Boolean(pending); });
+    const label = pending ? 'Retry start' : 'Start session';
+    $('#start').setAttribute('aria-label', label); $('#start').title = label;
   };
   paintNewDelivery();
   /* ---------- 1.23: saved prompts and recent starts ----------
@@ -3081,15 +3090,15 @@ async function renderNew() {
     const cwd = savedStart?.payload.cwd || $('#cpath').value.trim() || sel;
     const text = savedStart?.payload.text || $('#first').value.trim();
     const hint = msg => { const h = $('#start-hint'); h.textContent = msg; h.hidden = false; };
-    if (!cwd) {$('#new-setup').open=true;hint('Choose a workspace below, or enter its path.');$('#new-setup').scrollIntoView({block:'start'});return;}
-    if (!text) { hint('Write what you would like done first.'); $('#first').focus(); return; }
-    if (!savedStart && !allowSecrets && holdSecretStart(text)) return; // 1.42
+    if (!cwd) {$('#new-setup').open=true;hint('Choose a workspace above, or enter its path.');$('#new-setup').scrollIntoView({block:'start'});return false;}
+    if (!text) { hint('Write what you would like done first.'); $('#first').focus(); return false; }
+    if (!savedStart && !allowSecrets && holdSecretStart(text)) return false; // 1.42
     $('#start-hint').hidden = true;
-    $('#start').disabled = true; $('#start').textContent = 'Starting…';
+    $('#start').disabled = true; $('#start').setAttribute('aria-label', 'Starting…');
     try {
       const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts(), ...(startFrom?.project ? { project: startFrom.project, projectName: startFrom.projectName || '' } : {}) };
       const saved = loadOutbox(NEW_KEY);
-      if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) return toast('Retry the saved new-session request before changing it.');
+      if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) { toast('Retry the saved new-session request before changing it.'); return false; }
       newPending = saved || { payload, clientMessageId: crypto.randomUUID(), ...(allowSecrets ? { allowSecrets: true } : {}) };
       saveOutbox(NEW_KEY, newPending);
       const { id, modelFallback } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
@@ -3098,12 +3107,15 @@ async function renderNew() {
       clearDraft(NEW_KEY); localStorage.removeItem('pc-attachments-'+NEW_KEY); localStorage.removeItem('pc-new-start'); if (tb?.key === NEW_KEY) tb.attachments = [];
       try { localStorage.setItem('pc-lastproj', cwd); } catch { }
       if (payload.project && typeof loadBoard === 'function') loadBoard(true).catch(() => { }); // the card now lists the session
+      Voice.carryTo(NEW_KEY, id); // a spoken start keeps its reply and hands-free conversation in the new session
       location.hash = '#/chat/' + id;
       if (modelFallback) modelFellBack(null, modelFallback);
+      return true;
     } catch (e) {
       if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NEW_KEY, null);
       if (e.code === 'secret_detected') holdSecretStart(newPending?.payload.text || text, e.body?.matches || []);
       else toast(e.message || 'Delivery not confirmed. Retry the same request.');
+      return false;
     } finally { const start = $('#start'); if (start) { start.disabled = false; paintNewDelivery(); } }
   };
   // 1.42: the task waits in the box while the owner chooses Store and send, Send as is or Edit.
@@ -3111,6 +3123,7 @@ async function renderNew() {
     onAsIs: () => { if (viewVersion === chatRenderVersion) startSession({ allowSecrets: true }); },
     onStore: t => { const f = $('#first'); if (viewVersion !== chatRenderVersion || !f) return toast('Stored. The new session was not started.'); f.value = t; saveDraft(NEW_KEY, t); paintSaveButton(); startSession(); } });
   $('#start').onclick = () => startSession();
+  Voice.bindComposer({ key: NEW_KEY, send: t => { if (viewVersion !== chatRenderVersion) return false; first.value = t; saveDraft(NEW_KEY, t); paintSaveButton(); return startSession(); } });
 }
 
 /* ---------- router ---------- */

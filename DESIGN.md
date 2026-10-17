@@ -157,10 +157,12 @@ navigation rows with short descriptions; categories name device/instance scope,
 keep their existing controls, and use All settings or Back to Settings for the parent.
 Close exits the flow. Initial dialog focus targets a visible control.
 
-New session keeps the task and Start dominant. A single outlined setup disclosure
-names workspace, agent and permissions; inside, model controls wrap. Attach, skill
-and saved-prompt actions share one secondary row. The conversation's linked project
-gets its own 44px context row with ellipsis rather than squeezing the action strip.
+New session uses the conversation's composer (1.58): settings chips (model, reasoning,
+permissions, Codex mode) scroll above the box; attach, the settings toggle, a drawn spark
+for Choose a skill and a bookmark for Save as prompt sit in its action cluster; mic,
+headset and the clay Send (named Start session) on the right. Above it, the task heading,
+saved prompts and one outlined setup disclosure naming workspace, agent and permissions;
+inside, agent, project and custom path. The linked project keeps its own 44px context row.
 
 Library Back restores its origin and scroll; load errors offer Retry and label cached
 data. The rail uses button-group semantics with arrow/Home/End shortcuts. Split view
@@ -387,8 +389,8 @@ Reports retain document typography with real heading levels, nested lists and
 quotes. Tables scroll in a named keyboard-focusable region without widening the
 page. Results and Queue are visible next to the session switcher; phone sheets
 use the available height, desktop sheets keep a bounded measure. New Session starts
-with the task; skill discovery inserts editable instructions, with workspace and
-agent setup below the start action. Existing color/type identity stays pinned.
+with the task; skill discovery inserts editable instructions; workspace and agent setup
+sit above the composer (1.58). Existing color/type identity stays pinned.
 
 ## Daily workspace (1.3)
 

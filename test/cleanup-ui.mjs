@@ -38,7 +38,7 @@ export async function runCleanupRegressions({browser,base,rows,out}) {
    await page.click('#choose-workspace');await page.click('[data-a=codex]');await page.waitForFunction(()=>document.querySelector('#task-context').textContent.includes('Codex')&&CODEX_MODELS.length>1);
    await clickControl(page,'#c-model');await page.waitForSelector('[data-v="gpt-6-sol"]');await page.click('[data-v="gpt-6-sol"]');
    assert.equal(await page.$eval('#first',e=>e.value),'Do not lose this draft');
-   assert.equal(await page.$eval('#tbar',e=>e.scrollWidth<=e.clientWidth+1),true,'setup choices wrap');
+   assert.equal(await page.$eval('#tbar',e=>Boolean(e.closest('#comp .toolbar-scroll'))),true,'1.58: model, reasoning and permissions use the conversation composer\'s toolbar');
    await page.click('#choose-workspace');await scan('new-'+width);
   });
  }

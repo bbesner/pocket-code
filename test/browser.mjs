@@ -391,9 +391,9 @@ try{
  // New-session creation must recover the same server-issued session ID too.
  stale=false;await p.goto(base+'/#/new',{waitUntil:'domcontentloaded'});await p.waitForSelector('[data-p]');
  await clickControl(p,'#choose-workspace');await clickControl(p,'[data-p]');await p.type('#first','Prepare the weekly inventory.');failNext=true;await clickControl(p,'#start');
- await p.waitForFunction(()=>document.querySelector('#start')?.textContent==='Retry start');
+ await p.waitForFunction(()=>document.querySelector('#start')?.getAttribute('aria-label')==='Retry start');
  assert.equal(dispatches,2);await p.reload({waitUntil:'domcontentloaded'});
- await p.waitForFunction(()=>document.querySelector('#start')?.textContent==='Retry start');
+ await p.waitForFunction(()=>document.querySelector('#start')?.getAttribute('aria-label')==='Retry start');
  assert.equal(await p.$eval('#first',e=>e.value),'Prepare the weekly inventory.');
  failNext=false;await clickControl(p,'#start');await p.waitForSelector('#box');
  assert.equal(dispatches,2);assert.match(p.url(),/66666666-6666-4666-8666-666666666666/);
