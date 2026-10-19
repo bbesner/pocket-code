@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.64.3 / build 128**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.65.0 / build 129**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -317,7 +317,7 @@ an input connection that cannot be recovered is shown as interrupted.
 ## Agent commands
 
 Agents (and you, from a terminal on the server) keep projects, files and tasks, and use the
-Vault, with four commands that talk to the running server over loopback. The daemon writes its
+Vault, with five commands that talk to the running server over loopback. The daemon writes its
 address to `<data dir>/cli-url` and a token to `<data dir>/cli-token` (both mode `0600`) at
 every start, and the commands read those first, so an inherited `PORT` cannot point them at
 another program (1.43.1). Each works only while its feature is on. Run them as
@@ -329,6 +329,7 @@ header of each script in `scripts/`; the shipped skills explain when to use them
 | `pocket-board` | `track --requested --name "…" --summary "…" --next "…"`, `update`, `edit`, `task add\|done`, `remind --at "YYYY-MM-DDTHH:MM"`, `dismiss`, `note`, `status [--all]`, `scheduled`, `link-session <id>`, `unlink-session <id>`, `reopen` |
 | `pocket-docs` | `add <path> [--title] [--project] [--session] [--visibility]`, `list [--q]`, `show <id>`, `share <id> [--expires 7d\|30d\|none]`, `set <id> --visibility private\|link\|public`, `trash <id>`, `restore <id>` |
 | `pocket-tasks` | `add "…" [--due] [--session <id>] [--summary "…"] [--dir]`, `list [--all]`, `show <id>`, `done <id>`, `reopen <id>`, `edit <id> [--clear-due]`, `remove <id>` |
+| `pocket-notify` | `--title "…" --body "…" [--url /#/start/<id> or another Pocket path] [--tag <key>] [--email]` (1.65.0): a push to every device that wants alerts, and an email to the notification address with `--email`; pair it with `pocket-start` so the alert opens a briefed New session |
 | `pocket-vault` | `run --env VAR=name[.field] [--cwd] [--timeout] -- <command…>`, `wait <request id>`, `put <name> --kind api_key\|token\|login\|credentials\|note (--from-env VAR\|--from-file path\|--stdin)`, `list`, `show <name>`, `history`. Never prints a value; exits 4 while a request waits for you and 5 when it is refused |
 
 For browser logins, `scripts/pocket-mcp-proxy.mjs` (**Typed by Pocket**, 1.43) sits between an

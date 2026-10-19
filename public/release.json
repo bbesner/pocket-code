@@ -1,7 +1,7 @@
 {
-  "version": "1.64.3",
-  "assetV": 128,
+  "version": "1.65.0",
+  "assetV": 129,
   "notes": [
-    "The message box stays on screen on iPhone: the field and its buttons are one unit, and the page follows the visible screen height."
+    "An agent or a job on the server can send you an alert: node scripts/pocket-notify.mjs --title … --body … [--url …] [--email] reaches every device that wants alerts as a push, and your notification address when asked. Made for Ari's inbox monitor, with the start link as the button."
   ]
 }
