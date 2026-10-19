@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.64.1] — 2026-10-19 · build 126
+
+- **Try harder stays in view and uses Opus.** The button arrived after the finished reply had scrolled to the bottom, so it sat half under the message box; it now keeps the view at the bottom when you're there. It asks for Opus when Opus is offered (Fable stays a choice you make yourself), else the strongest offered model.
+- Migration: none.
+
 ## [1.64.0] — 2026-10-19 · build 125
 
 - **Claude and Codex know how to work in Gmail, Google Calendar and Google Drive.** A new agent skill, `pocket-google`, is written on every server next to `pocket-files` and the others, in two versions: Claude Code's (`~/.claude/skills`) names the claude.ai connectors (`mcp__claude_ai_Gmail__…`, `…Google_Calendar__…`, `…Google_Drive__…`, loaded with ToolSearch when deferred), and Codex's (`$CODEX_HOME/skills`) names the ChatGPT apps (`…gmail_…`, `…google_calendar_…`, `…google_drive_…`). Both are the connectors **Settings → Connectors** links (1.53). Each covers Gmail search syntax and reading whole threads before replying, an inbox report, free time before booking, and its own Drive tools: the Claude connector's `search_files` query syntax (`parentId = '…'` for a folder's contents, file types as `mimeType`), the Codex app's `list_folder` (a `url`) versus `get_file_metadata` (a `fileId`). Asked for by Brad.

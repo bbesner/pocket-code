@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v125';
-const SHELL = ['/theme.js?v=125', '/', '/release.json?v=125', '/app.css?v=125', '/app.js?v=125', '/workspace.js?v=125', '/projects.js?v=125', '/documents.js?v=125', '/links.js?v=125', '/tasks.js?v=125', '/vault.js?v=125', '/secret-detect.js?v=125', '/phrases.js?v=125', '/approvals.js?v=125', '/split.js?v=125', '/tips.js?v=125', '/format.js?v=125', '/voice-text.js?v=125', '/voice.js?v=125', '/voice-worklet.js?v=125', '/vendor/marked.js?v=125', '/vendor/purify.js?v=125', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v126';
+const SHELL = ['/theme.js?v=126', '/', '/release.json?v=126', '/app.css?v=126', '/app.js?v=126', '/workspace.js?v=126', '/projects.js?v=126', '/documents.js?v=126', '/links.js?v=126', '/tasks.js?v=126', '/vault.js?v=126', '/secret-detect.js?v=126', '/phrases.js?v=126', '/approvals.js?v=126', '/split.js?v=126', '/tips.js?v=126', '/format.js?v=126', '/voice-text.js?v=126', '/voice.js?v=126', '/voice-worklet.js?v=126', '/vendor/marked.js?v=126', '/vendor/purify.js?v=126', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
