@@ -736,7 +736,7 @@ async function listSessions(limit = 60) {
   // overshoot the limit: hygiene below drops noise rows and collapses duplicates
   const sorted = stats.filter(Boolean).sort((a, b) => b.mtimeMs - a.mtimeMs);
   const recent = sorted.slice(0, Math.min(limit * 2, 400));
-  for (const x of sorted.slice(recent.length)) if (isPinned(x.id) || turns.has(x.id) || extActive(x.id) || followups.list(x.id).length) recent.push(x); // pins never age out
+  for (const x of sorted.slice(recent.length)) if (isPinned(x.id) || turns.has(x.id) || backgroundJobs(x.id).length || extActive(x.id) || followups.list(x.id).length) recent.push(x); // pins never age out
   // read metadata 8 files at a time — a cold cache (every restart) meant up to 400 serial
   // head/tail reads; the dedupe walk below is order-dependent, the reads aren't
   const metas = new Array(recent.length);
@@ -754,7 +754,7 @@ async function listSessions(limit = 60) {
     const pinned = isPinned(x.id);
     const meta = metas[i];
     if (meta.cwd?.startsWith('/tmp/') && !pinned) continue; // scratch/test sessions
-    const active = turns.has(x.id) || extActive(x.id);
+    const active = turns.has(x.id) || backgroundJobs(x.id).length > 0 || extActive(x.id);
     if (meta.noise && !active && !pinned) continue; // hook/subagent noise: no user message, no summary
     const key = meta.dedupeTitle + '\u0000' + (meta.cwd || '');
     const prev = seen.get(key);
@@ -1071,6 +1071,9 @@ async function pumpTail(id, file) {
 // the CLI then reads EOF and exits 0.
 const turns = new Map(); // sessionId -> active turn {pid, events[], subs:Set<res>, cwd, startedAt, runner}
 const runners = new Map(); // sessionId -> live CLI process for that session
+// 1.64: the live process's background jobs (a Bash command run in the background, a subagent). The CLI
+// reports the list on every change; it is empty once the process has exited.
+const backgroundJobs = id => { const r = runners.get(id); return r && !r.exited ? r.bgTasks : []; };
 const claudeLogin = new ClaudeLogin({
   bin:CLAUDE_BIN, env:spawnEnv(), cwd:HOME,
   busy:() => turns.size > 0,
@@ -1582,7 +1585,10 @@ async function finalizeTurn(sessionId, turn, code) {
     return;
   }
   if (!turn.stopped) autoKeepTurnFiles(sessionId, turn.startedAt || 0);
-  if (!watching && !turn.stopped) {
+  // 1.64: a reply that leaves background jobs running is not done. The CLI starts a turn by itself when
+  // they finish, and that turn's end sends the notification; a push now would say Done too early.
+  if (!watching && !turn.stopped && r && !r.exited && r.bgTasks.length) log(`notification held: ${r.bgTasks.length} background job(s) still running session=${sessionId}`);
+  else if (!watching && !turn.stopped) {
     const result = turn.events.find(e => e.type === 'result');
     // 1.59: plain words; the cost and time stay after "Ready" for the owner who wants them.
     const body = retryAt ? `Usage limit reached. Picks up again at ${fmtET(retryAt)}`
@@ -1823,7 +1829,7 @@ function stateFor(s) {
   const questions=turn?.questions?.list()||[];
   if(questions.length)return {kind:'input',label:questions.some(q=>q.blocking)?'Needs your answer':'Working · answer requested',confirmed:true,startedAt:turn.startedAt,queued:queue.length,questions:questions.length};
   const state=sessionState({ turn: turn ? {...turn,queue} : null, external: cx ? codex.codexExtActive(codex.bareId(s.id)) : extActive(s.id),
-    retryAt, outcome: smeta[s.id]?.outcome, mtimeMs:s.mtimeMs });
+    retryAt, outcome: smeta[s.id]?.outcome, mtimeMs:s.mtimeMs, background: cx ? [] : backgroundJobs(s.id) });
   if(queue.length&&!turn && state.kind!=='failed')return {kind:'waiting',label:queue[0].status==='uncertain'?'Queue needs review':'Queue paused',queued:queue.length,confirmed:true};
   return {...state,...(queue.length?{queued:queue.length}:{})};
 }
@@ -3315,7 +3321,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["An agent or a job on the server can send you an alert: node scripts/pocket-notify.mjs --title … --body … [--url …] [--email] reaches every device that wants alerts as a push, and your notification address when asked. Made for Ari's inbox monitor, with the start link as the button."];
+const RELEASE_NOTES = ["Working in background: a conversation whose reply ended while a background job or a subagent still runs now says so, in its own group under Running with a dimmer breathing dot in the list, the title bar and the tabs, instead of Ready or Recent. The finished notification waits for the work to finish."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

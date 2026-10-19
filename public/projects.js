@@ -85,7 +85,7 @@ function paintProjectsView(){
  paintProjectBadges();
  if(typeof paintOpenSessions==='function')paintOpenSessions();
 }
-const sessionMarkHTML=id=>{const st=typeof tabState==='function'?tabState(id):null;return st?`<span class="tab-state ${st.kind==='running'?'ember':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:'';};
+const sessionMarkHTML=id=>{const st=typeof tabState==='function'?tabState(id):null;return st?`<span class="tab-state ${st.kind==='running'?'ember':st.kind==='background'?'ember dim':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:'';};
 const sessionName=id=>(typeof allSessions!=='undefined'&&allSessions.find(s=>s.id===id)?.title)||(typeof openSessions!=='undefined'&&openSessions.find(s=>s.id===id)?.title)||'Conversation '+id.replace(/^cx:/,'').slice(0,8);
 function projectRowHTML(p){
  const due=p.dueCount?`<span class="due-label">${p.dueCount===1?'Reminder due':p.dueCount+' reminders due'}</span>`:p.reminders[0]?`<span>Reminder ${esc(fmtDue(p.reminders[0].dueAt))}</span>`:'';

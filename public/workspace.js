@@ -244,7 +244,7 @@ if(!hiddenSessions||typeof hiddenSessions!=='object'||Array.isArray(hiddenSessio
 openSessions=Array.isArray(openSessions)?openSessions.filter(s=>s&&typeof s.id==='string'&&(/^(cx:)?[0-9a-f-]{36}$/.test(s.id)||isViewId(s.id))&&typeof s.title==='string').slice(-12):[];
 let dockKind=readLocal('pc-dock-kind',''),dockSurface=null;
 const hasDockRoom=()=>matchMedia('(min-width: 1280px)').matches;
-function isHiddenSession(s){return hiddenSessions[s.id]>=Math.max(s.mtimeMs||0,s.state?.at||0)&&!['running','observed','waiting','input'].includes(rowState(s).kind);}
+function isHiddenSession(s){return hiddenSessions[s.id]>=Math.max(s.mtimeMs||0,s.state?.at||0)&&!['running','background','observed','waiting','input'].includes(rowState(s).kind);}
 function workspaceFilterHTML(){
  const paths=[...new Set(allSessions.map(s=>s.cwd).filter(Boolean))].sort();
  if(workspaceFilter&&!paths.includes(workspaceFilter))paths.unshift(workspaceFilter);
@@ -281,7 +281,7 @@ function tabState(id){
  if(typeof allSessions==='undefined'||sessionsStale)return null;
  const row=allSessions.find(s=>s.id===id);if(!row)return null;
  const st=listState(row);
- return ['running','input','failed','finished','observed','waiting'].includes(st.kind)?{kind:st.kind,label:st.kind==='finished'?'Response ready':st.label}:null;
+ return ['running','background','input','failed','finished','observed','waiting'].includes(st.kind)?{kind:st.kind,label:st.kind==='finished'?'Response ready':st.label}:null;
 }
 // 1.28: a large session whose prompt cache is about to expire (hourglass) or has expired (snowflake). Resuming it
 // cold writes the whole context to cache again. Warm and small sessions show nothing; an unconfirmed list neither.
@@ -299,7 +299,7 @@ function paintOpenSessions(){
  const current=id=>id===chatId||(!chatId&&id===currentView());
  const key=JSON.stringify([chatId,currentView(),list.map((s,i)=>[s.id,s.title,Boolean(pinnedSession(s.id)),states[i]?.kind,states[i]?.label,caches[i]?.label])]);
  if(el.dataset.key===key)return;el.dataset.key=key;
- el.innerHTML=list.map((s,i)=>{const pinned=Boolean(pinnedSession(s.id)),st=states[i],ca=caches[i];return `<span class="open-session ${current(s.id)?'current':''} ${pinned?'pinned':''}"><a href="${tabHref(s.id)}" ${current(s.id)?'aria-current="page"':''} title="${esc(s.title)}${pinned?' · Pinned':''}${st?' · '+esc(st.label):''}${ca?' · '+esc(ca.label):''}">${st?`<span class="tab-state ${st.kind==='running'?'ember':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:''}${pinned?`<span class="pinmark">${IC.pin}</span><span class="vh">Pinned: </span>`:''}${ca?`<span class="tab-cache tab-cache-${ca.kind}" role="img" aria-label="${esc(ca.label)}">${ca.kind==='cold'?IC.snow:IC.hourglass}</span>`:''}${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`;}).join('');
+ el.innerHTML=list.map((s,i)=>{const pinned=Boolean(pinnedSession(s.id)),st=states[i],ca=caches[i];return `<span class="open-session ${current(s.id)?'current':''} ${pinned?'pinned':''}"><a href="${tabHref(s.id)}" ${current(s.id)?'aria-current="page"':''} title="${esc(s.title)}${pinned?' · Pinned':''}${st?' · '+esc(st.label):''}${ca?' · '+esc(ca.label):''}">${st?`<span class="tab-state ${st.kind==='running'?'ember':st.kind==='background'?'ember dim':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:''}${pinned?`<span class="pinmark">${IC.pin}</span><span class="vh">Pinned: </span>`:''}${ca?`<span class="tab-cache tab-cache-${ca.kind}" role="img" aria-label="${esc(ca.label)}">${ca.kind==='cold'?IC.snow:IC.hourglass}</span>`:''}${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`;}).join('');
  el.querySelectorAll('[data-close-session]').forEach(b=>b.onclick=()=>{
   const id=b.dataset.closeSession,shown=orderedOpenSessions(),index=shown.findIndex(s=>s.id===id),rest=shown.filter(s=>s.id!==id);
   openSessions=openSessions.filter(s=>s.id!==id);writeLocal('pc-open-sessions',openSessions);
@@ -523,7 +523,9 @@ function syncViewport(){
  cancelAnimationFrame(viewportFrame);
  viewportFrame=requestAnimationFrame(()=>{
   const viewport=window.visualViewport;
-  if(window===window.top&&viewport&&viewport.scale===1)document.documentElement.style.setProperty('--app-height',Math.min(innerHeight,viewport.height)+'px');
+  // 1.66: only on touch screens, where the keyboard and the home indicator shrink the visible area; a desktop keeps
+  // the browser's own height, which never lags a frame behind a window resize.
+  if(window===window.top&&viewport&&viewport.scale===1&&matchMedia('(pointer: coarse)').matches)document.documentElement.style.setProperty('--app-height',Math.min(innerHeight,viewport.height)+'px');
   else document.documentElement.style.removeProperty('--app-height');
   sizeComposerBox();
  });

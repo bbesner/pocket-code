@@ -291,7 +291,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   };
   sh.querySelector('#so-pin-up')?.addEventListener('click',()=>{close();movePin(s.id,-1);});
   sh.querySelector('#so-pin-down')?.addEventListener('click',()=>{close();movePin(s.id,1);});
-  sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting conversations stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
+  sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','background','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting conversations stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
   sh.querySelector('#so-project')?.addEventListener('click',()=>{close();addSessionToProject(allSessions.find(r=>r.id===s.id)||s);});
   sh.querySelector('#so-task')?.addEventListener('click',()=>{close();addTaskFromSession(allSessions.find(r=>r.id===s.id)||s);});
@@ -1229,8 +1229,9 @@ function rowState(s) { return s.state || { kind: s.active ? 'observed' : 'idle',
 // The list announces a finished reply only until it has been opened; afterwards it is an ordinary recent session.
 function listState(s) { const state = rowState(s); return state.kind === 'finished' && !isUnread(s) ? { ...state, kind: 'idle', label: 'Recent' } : state; }
 function sessionCounts() {
-  if(sessionsStale)return {running:0,input:0,observed:0,attention:allSessions.filter(inAttention).length,fresh:allSessions.filter(isUnread).length};
+  if(sessionsStale)return {running:0,background:0,input:0,observed:0,attention:allSessions.filter(inAttention).length,fresh:allSessions.filter(isUnread).length};
   return { running: allSessions.filter(s => rowState(s).kind === 'running').length,
+    background: allSessions.filter(s => rowState(s).kind === 'background').length,
     input:allSessions.filter(s=>rowState(s).kind==='input').length,
     observed: allSessions.filter(s => rowState(s).kind === 'observed').length,
     attention: allSessions.filter(inAttention).length,
@@ -1240,29 +1241,30 @@ function sessionSummary() {
   if (sessionsStale) return 'Status unavailable. Showing the last saved list.';
   if (!sessionCheckedAt) return 'Checking your conversations…';
   const c = sessionCounts();
-  return [c.running ? `${c.running} running` : 'Nothing running', c.observed ? `${c.observed} with activity elsewhere` : '', c.attention ? `${c.attention} ${c.attention === 1 ? 'needs' : 'need'} attention` : ''].filter(Boolean).join(' · ');
+  return [c.running ? `${c.running} running` : 'Nothing running', c.background ? `${c.background} in background` : '', c.observed ? `${c.observed} with activity elsewhere` : '', c.attention ? `${c.attention} ${c.attention === 1 ? 'needs' : 'need'} attention` : ''].filter(Boolean).join(' · ');
 }
 function filterButtons(keys) {
   const c = sessionCounts();
-  return [['all','All',null],['active','Active',c.running+c.observed+c.input],['attention','Attention',c.attention],['new','New',c.fresh],['pinned','Pinned',null],['hidden','Hidden',null]].filter(([key]) => !keys || keys.includes(key)).map(([key,label,count]) =>
+  return [['all','All',null],['active','Active',c.running+c.background+c.observed+c.input],['attention','Attention',c.attention],['new','New',c.fresh],['pinned','Pinned',null],['hidden','Hidden',null]].filter(([key]) => !keys || keys.includes(key)).map(([key,label,count]) =>
     `<button type="button" data-filter="${key}" aria-pressed="${sessionFilter === key}">${label}${count ? `<span>${count}</span>` : ''}</button>`).join('');
 }
 function filteredSessions() {
   const needle = sessionQuery.trim().toLowerCase();
   return allSessions.filter(s => (!workspaceFilter||s.cwd===workspaceFilter)&&(!providerFilter||s.provider===providerFilter)&&(sessionFilter==='hidden'?isHiddenSession(s):!isHiddenSession(s))&&(!needle || (s.title + ' ' + (s.cwd || '')).toLowerCase().includes(needle)) &&
-    (sessionFilter === 'all' || sessionFilter === 'active' && ['running','observed','input'].includes(rowState(s).kind) ||
+    (sessionFilter === 'all' || sessionFilter === 'active' && ['running','background','observed','input'].includes(rowState(s).kind) ||
      sessionFilter === 'attention' && inAttention(s) || sessionFilter === 'new' && isUnread(s) || sessionFilter==='pinned'&&s.pinned || sessionFilter==='hidden'));
 }
 function sessionRowHTML(s) {
-  const state = listState(s), running = state.kind === 'running';
+  const state = listState(s), running = state.kind === 'running', background = state.kind === 'background';
   const detail = running && state.startedAt ? `Started ${rel(state.startedAt)}`
+    : background ? (state.background?.jobs?.[0]?.description ? `Background: ${state.background.jobs[0].description}` : 'Background work still running')
     : state.kind === 'observed' ? 'Recent transcript activity; run status unconfirmed'
     : state.kind === 'waiting' && state.retryAt ? `Retry at ${new Date(state.retryAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}` : `Updated ${rel(s.mtimeMs)}`;
   return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}" data-item="${esc(s.id)}">
     <button class="row" data-id="${esc(s.id)}">
       <span class="body"><span class="title">${esc(s.title)}</span>
       <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${s.provider === 'codex' ? 'Codex' : 'Claude'}</span>
-      <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
+      <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : background && !sessionsStale ? '<span class="ember dim" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
       <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
     </button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned conversation ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
   </div>`;
@@ -1354,19 +1356,19 @@ function reviewBarHTML(list) {
 }
 // 1.19: scheduled runs (the server marks them automated) that need nothing from you sit in one collapsed group
 // at the end of All, so the sessions you started lead the list. Search, filters, pins and attention show them normally.
-const isQuietAutomated = s => s.automated && !s.pinned && !['running','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s);
+const isQuietAutomated = s => s.automated && !s.pinned && !['running','background','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s);
 function groupedSessionsHTML(all) {
   const grouping = sessionFilter === 'all' && !sessionQuery.trim() && !sessionsStale;
   const automated = grouping ? all.filter(isQuietAutomated) : [];
   const list = automated.length ? all.filter(s => !isQuietAutomated(s)) : all;
-  const groups = [['running','Running'],['observed','Activity elsewhere'],['failed','Needs attention'],['waiting','Waiting'],['recent','Recent']];
+  const groups = [['running','Running'],['background','Working in background'],['observed','Activity elsewhere'],['failed','Needs attention'],['waiting','Waiting'],['recent','Recent']];
   // 1.22: while a search also looks inside conversations, an empty title match is one quiet line, not a big empty state.
   if (!all.length && sessionQuery.trim().length >= 3 && !sessionsStale && !workspaceFilter && !providerFilter && sessionFilter === 'all')
     return `<p class="convo-note title-empty">No conversation titles match. Matches inside conversations are below.</p>`;
   if (!all.length) return `<div class="empty">${sessionsStale ? 'Could not load conversations. Use Refresh to try again.' : sessionQuery || workspaceFilter || providerFilter || ['pinned','hidden'].includes(sessionFilter) ? 'No conversations match these filters.' : sessionFilter === 'active' ? 'No runs or recent external activity.' : sessionFilter === 'attention' ? 'Nothing needs your attention.' : sessionFilter === 'new' ? 'No new recorded responses.' : 'No conversations yet. Start a conversation to begin.'}</div>`;
   if(sessionsStale)return `<section class="session-group"><h2>Status unconfirmed<span>${list.length}</span></h2>${list.map(sessionRowHTML).join('')}</section>`;
   return groups.map(([key,label]) => {
-    const rows = list.filter(s => key === 'recent' ? !['running','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s) : key === 'failed' ? needsAttention(s) : rowState(s).kind === key);
+    const rows = list.filter(s => key === 'recent' ? !['running','background','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s) : key === 'failed' ? needsAttention(s) : rowState(s).kind === key);
     // Pinned sessions first inside each group, then an accent-coloured rule before the rest.
     const pinned = rows.filter(s => s.pinned), rest = rows.filter(s => !s.pinned);
     const body = pinned.map(sessionRowHTML).join('') + (pinned.length && rest.length ? '<div class="pin-divider" role="separator" aria-label="Pinned conversations above, others below"></div>' : '') + rest.map(sessionRowHTML).join('');
@@ -1442,7 +1444,7 @@ function paintSessionPanels() {
   paintSessionFilterSummaries();
   paintRunConfirmation();
   const quick = $('#session-switch');
-  if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Conversations · status unavailable' : `Conversations · ${c.running} running${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
+  if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Conversations · status unavailable' : `Conversations · ${c.running} running${c.background ? ` · ${c.background} in background` : ''}${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
   if (typeof paintOpenSessions === 'function') paintOpenSessions(); // tabs show pins and follow the pinned order
 }
 // 1.19: send the last list's ETag; an unchanged list comes back as 304 with the server's check time in a
@@ -1498,14 +1500,16 @@ function paintRunConfirmation(){
    else {label='No active run here';kind='idle';}
   }
   // 1.19: in the title bar (phones, collapsed header) the same states use short words; the tooltip keeps the detail.
-  if(box.closest('header'))label={'No active run here':'Idle','Running on server':'Running','Activity seen. Run unconfirmed':'Activity seen','Status unconfirmed. Reconnecting…':'Unconfirmed','Checking server…':'Checking…'}[label]||label;
+  if(box.closest('header'))label=kind==='background'?'Background':{'No active run here':'Idle','Running on server':'Running','Activity seen. Run unconfirmed':'Activity seen','Status unconfirmed. Reconnecting…':'Unconfirmed','Checking server…':'Checking…'}[label]||label;
   if(name.textContent!==label)name.textContent=label;
   box.dataset.state=kind;
   const stampText=elapsed===null?'':(fresh?'Checked ':'Last check ')+checkAge(elapsed);if(stamp.textContent!==stampText)stamp.textContent=stampText;
-  box.title=sessionCheckedAt?'Server confirmation: '+new Date(sessionCheckedAt).toLocaleTimeString()+'. '+(state?.startedAt?'Started: '+new Date(state.startedAt).toLocaleTimeString()+'. ':'')+'Checks every 5 seconds. Running means the server owns an active reply; it does not guarantee continuous output.':'';
+  box.title=sessionCheckedAt?'Server confirmation: '+new Date(sessionCheckedAt).toLocaleTimeString()+'. '+(state?.startedAt?'Started: '+new Date(state.startedAt).toLocaleTimeString()+'. ':'')+'Checks every 5 seconds. Running means the server owns an active reply; it does not guarantee continuous output.'+(state?.kind==='background'&&state.background?.jobs?.length?' Background: '+state.background.jobs.map(j=>j.description||j.kind).join('; ')+'.':''):'';
  }
- const headerLamp=document.getElementById('hember');
- if(headerLamp)headerLamp.hidden=!(fresh&&state?.kind==='running'&&state.confirmed===true);
+ // 1.64: background work shows the dimmer ember in the title bar while the composer is free.
+ const headerLamp=document.getElementById('hember'),inBackground=fresh&&state?.kind==='background'&&state.confirmed===true;
+ if(headerLamp){headerLamp.hidden=!(fresh&&state?.kind==='running'&&state.confirmed===true)&&!inBackground;
+  if(!composerWorking){const dim=headerLamp.querySelector('.ember.dim');if(inBackground&&!dim)headerLamp.innerHTML='<span class="ember dim" aria-hidden="true"></span>';else if(!inBackground&&dim)headerLamp.innerHTML='';}}
  const workingLabel=document.getElementById('work-label');
  if(workingLabel){
   const label=!fresh?'Run status unconfirmed':state?.kind==='running'&&state.confirmed===true?'Working on server':state?.label||'No active run confirmed';

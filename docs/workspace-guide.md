@@ -282,8 +282,8 @@ lists in Settings run without a card in Review actions; see
 [Actions that run without asking](#actions-that-run-without-asking).
 
 The conversation has one header (1.35). Under the title, a subtitle line names the project, the
-run status in short words (Idle, Running, Needs your answer) and the age of the last server
-check; hover or long-press the status for the detail. **Sessions**, **Results**, **Queue** and
+run status in short words (Idle, Running, Background, Needs your answer) and the age of the last server
+check; hover or long-press the status for the detail (for Background, the jobs still running). **Sessions**, **Results**, **Queue** and
 **Git** sit in the same bar, on the title row when the header is wide and on a second line
 inside the header when it is narrow; a phone keeps the check age in the tooltip. The run
 status stays visible when the header collapses. The check time

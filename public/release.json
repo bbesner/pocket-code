@@ -1,7 +1,7 @@
 {
-  "version": "1.65.0",
-  "assetV": 129,
+  "version": "1.66.0",
+  "assetV": 130,
   "notes": [
-    "An agent or a job on the server can send you an alert: node scripts/pocket-notify.mjs --title … --body … [--url …] [--email] reaches every device that wants alerts as a push, and your notification address when asked. Made for Ari's inbox monitor, with the start link as the button."
+    "Working in background: a conversation whose reply ended while a background job or a subagent still runs now says so, in its own group under Running with a dimmer breathing dot in the list, the title bar and the tabs, instead of Ready or Recent. The finished notification waits for the work to finish."
   ]
 }

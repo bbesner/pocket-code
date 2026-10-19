@@ -122,6 +122,25 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,done.state.at]);await page.reload();await page.waitForSelector(`[data-session-results] [data-id="${done.id}"]`);
    assert.deepEqual(await status(),{cls:'session-status state-idle',text:'Recent'});
   });
+  await check('A session with background work reads Working in background, grouped and counted, with the dim ember in the row and the title bar',async()=>{
+   const row=rows.find(r=>r.id===idle);const saved=row.state;
+   row.state={kind:'background',label:'Working in background · 1 job',confirmed:true,background:{count:1,summary:'1 job',jobs:[{kind:'job',description:'Run the full test suites'}]}};
+   await page.goto(base+'/#/');await page.evaluate(()=>refreshSessions());await page.waitForSelector(`[data-session-results] [data-id="${row.id}"] .state-background`);
+   const status=await page.$eval(`[data-session-results] [data-id="${row.id}"] .session-status`,e=>({cls:e.className,text:e.textContent,dim:Boolean(e.querySelector('.ember.dim'))}));
+   assert.deepEqual(status,{cls:'session-status state-background',text:'Working in background · 1 job',dim:true});
+   assert.match(await page.$eval(`[data-session-results] [data-id="${row.id}"] .activity-detail`,e=>e.textContent),/^Background: Run the full test suites/);
+   const groups=await page.$$eval('[data-session-results] .session-group h2',es=>es.map(e=>e.firstChild.textContent));
+   assert.ok(groups.indexOf('Working in background')>groups.indexOf('Running')||!groups.includes('Running'),groups.join(','));assert.ok(groups.includes('Working in background'),groups.join(','));
+   assert.match(await page.$eval('[data-session-summary]',e=>e.textContent),/1 in background/);
+   await scan('sessions-background-mobile');await page.screenshot({path:path.join(out,'sessions-background-mobile.png')});
+   await openChat(row.id);
+   await page.waitForFunction(()=>/Background/.test(document.querySelector('#run-confirmed-state')?.textContent||''));
+   assert.equal(await page.$eval('#run-confirmation',e=>e.dataset.state),'background');
+   assert.ok(await page.$('#hember:not([hidden]) .ember.dim'),'the title bar shows the dim ember');
+   assert.match(await page.$eval('#run-confirmation',e=>e.title),/Background: Run the full test suites/);
+   if(saved===undefined)delete row.state;else row.state=saved;
+   await page.goto(base+'/#/');await page.evaluate(()=>refreshSessions());await page.waitForFunction(id=>!document.querySelector(`[data-session-results] [data-id="${id}"] .state-background`),{},row.id);
+  });
   setMode({workerFailed:false});
   await page.setViewport({width:1440,height:900});
   await page.goto(base+'/#/new');await page.waitForSelector('#first');
