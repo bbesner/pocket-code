@@ -273,14 +273,18 @@ mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
 #toast.show { opacity: 1; transform: translateX(-50%); }
 
 
+/* The message field and its buttons are one unit. A percentage flex-basis on the textarea
+   (the old flex: 1 1 100%) let iOS push that row below the screen, leaving only the chips. */
+.composer-entry { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; width: 100%; min-width: 0; }
+.composer-entry textarea { flex: 1 1 auto; width: auto; min-width: 0; min-height: 46px; }
 /* Narrow screens and narrow panes: the message box gets its own full-width row and the icons (settings,
    headset, mic, send; Steer now / After this turn while working) sit on a row beneath it, so the box is never squeezed. */
 @media (max-width: 600px) {
-  .composer textarea { flex: 1 1 100%; order: 1; min-width: 0; }
-  .composer .composer-actions, .composer .send-mode, .composer .voice-mic, .composer .send { order: 2; }
-  .composer .composer-actions { margin-right: auto; }
-  .composer .send-mode { flex: 1 1 0; min-width: 0; margin: 0; gap: 6px; }  /* shrinks so Send stays on this row */
-  .composer .send-mode button { flex: 0 1 auto; min-width: 0; padding: 8px 7px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .composer-entry textarea { flex: 0 0 auto; width: 100%; order: -1; min-height: 46px; }
+  .composer-entry .composer-actions, .composer-entry .send-mode, .composer-entry .voice-mic, .composer-entry .send { order: 0; }
+  .composer-entry .composer-actions { margin-right: auto; }
+  .composer-entry .send-mode { flex: 1 1 auto; min-width: 0; margin: 0; gap: 6px; }
+  .composer-entry .send-mode button { flex: 0 1 auto; min-width: 0; padding: 8px 7px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 /* ---------- composer toolbar (attach / model / effort) ---------- */
 .composer { flex-wrap: wrap; }
@@ -484,7 +488,7 @@ header.bar h1.tappable { cursor: pointer; }
 
 /* Session workspace: readable state, visible actions, shared phone/desktop list. */
 /* The shared palette owns faint text in both modes. */
-body { height: 100dvh; }
+body { height: var(--app-height, 100dvh); } /* visual viewport wins, so the home indicator cannot cover the message box */
 button:disabled { cursor: default; opacity: .55; }
 .session-home { padding-bottom: calc(96px + var(--sab)); }
 .session-home-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 18px 0; }
