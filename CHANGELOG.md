@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.65.0] — 2026-10-19 · build 129
+
+- **Alerts from agents and jobs.** `node scripts/pocket-notify.mjs --title "…" --body "…" [--url /#/start/<id>] [--tag <key>] [--email]` sends a push to every subscribed device (a new notification kind, *alerts*, that every device receives for now; urgent, like a due reminder) and, with `--email`, a message to the address in **Settings → Notifications & voice** when the server has `POCKET_SMTP_URL`. Over HTTP, `POST /api/notify` takes the owner's cookie or the loopback token (direct loopback only, as for the board and start links). The link must be a Pocket path or start with the public address; opening the notification goes there. Made for Ari's inbox monitor, which pairs it with a start link so an alert opens a briefed New session; any job on the server can use it. Nothing in the interface changes; the device toggle for the new kind comes with the notification settings rework. Issue #111.
+- Merged as 1.65.0 (PR #114 was written as 1.58.1 on 1.58.0 and renumbered when it landed after 1.64.3).
+- Migration: none. A device subscribed earlier receives alerts (no preference saved means everything, as before).
+- Tests: `test/notify-api.test.mjs` (token and cookie accepted, tunnel and signed-out refused, a missing title and a foreign link refused, the public address trimmed to a path, the email written through the file transport and reported off when no address is saved, the CLI printing the result).
+
 ## [1.64.3] — 2026-10-19 · build 128
 
 - **The message box stays on screen on iPhone.** The message field and its buttons are now one unit (`.composer-entry`): a percentage width on the field let iOS Safari push the row with the box below the screen, leaving only the chips. The page height also follows the visual viewport (`--app-height`), so the home indicator can't cover the box. This fix ran on brads-server from October 17 as an uncommitted change; it is now released.

@@ -213,7 +213,7 @@ else log('push disabled: VAPID keys not set');
 const loadSubs = () => { try { return JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8')); } catch { return []; } };
 const saveSubs = s => atomicWrite(SUBS_FILE, s);
 // 1.50: what each device wants. A subscription saved by an earlier build has no prefs and gets everything, as before.
-const PUSH_KINDS = ['turns', 'reminders', 'vault'];
+const PUSH_KINDS = ['turns', 'reminders', 'vault']; // 1.58.1: alerts (POST /api/notify) is not a saved kind yet: every device receives them (an unknown kind passes the filter in pushRaw)
 const pushPrefsOf = s => ({ kinds: Object.fromEntries(PUSH_KINDS.map(k => [k, s.kinds?.[k] !== false])), badge: s.badge !== false });
 const cleanPushPrefs = p => { const out = {}; if (p?.kinds && typeof p.kinds === 'object') out.kinds = Object.fromEntries(PUSH_KINDS.filter(k => typeof p.kinds[k] === 'boolean').map(k => [k, p.kinds[k]])); if (typeof p?.badge === 'boolean') out.badge = p.badge; return out; };
 // per-session mute: a chatty background session shouldn't buzz the phone every turn
@@ -3250,6 +3250,36 @@ app.post('/api/notify/test-email', requireAuth, async (_req, res) => {
     res.json({ ok: true, to: settings.notifyEmail });
   } catch (e) { log(`mail test failed: ${e.message}`); res.status(502).json({ error: 'The test message could not be sent: ' + e.message, code: 'mail_failed' }); }
 });
+// 1.58.1: an alert from an agent or a job on the server (Ari's inbox monitor), as a push to every device that wants
+// alerts and, when asked and set up, an email to the address in Settings. Owner's cookie or the loopback token (direct
+// loopback only, as for the board). The link is a Pocket path (a start link, a conversation, Files) or the public address.
+app.post('/api/notify', requireBoardAuth, async (req, res) => {
+  const b = req.body || {};
+  const title = String(b.title || '').trim().slice(0, 70), body = String(b.body || '').trim().slice(0, 2000);
+  if (!title) return res.status(400).json({ error: 'A title is needed.', code: 'no_title' });
+  const base = publicBase();
+  let url = String(b.url || '').trim().slice(0, 500);
+  if (url && !(url.startsWith('/') || (base && url.startsWith(base + '/')))) return res.status(400).json({ error: 'The link must be a Pocket path (/#/…) or start with the public address.', code: 'bad_url' });
+  if (url && base && url.startsWith(base + '/')) url = url.slice(base.length);
+  const tag = String(b.tag || '').trim().slice(0, 80) || Date.now().toString(36);
+  const actor = req.boardActor || 'ui';
+  const devices = await pushRaw(title, body, { tag: 'alert:' + tag, url: url || '/', kind: 'alerts' });
+  let mail = false;
+  if (b.email === true) {
+    if (!emailOn()) mail = 'off';
+    else {
+      const esc = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const link = url && base ? base + url : '';
+      try {
+        await mailer.send({ to: settings.notifyEmail, subject: '[Pocket Code] ' + title, text: body + (link ? '\n\n' + link : ''),
+          html: `<p>${esc(body).replace(/\n/g, '<br>')}</p>${link ? `<p><a href="${esc(link)}">Open in Pocket Code</a></p>` : ''}` });
+        mail = true;
+      } catch (e) { log(`notify mail failed: ${e.message}`); mail = 'failed'; }
+    }
+  }
+  log(`notify "${title}" by ${actor} push=${devices ?? 'off'} mail=${mail}`);
+  res.set('Cache-Control', 'private, no-store').json({ ok: true, push: devices, mail, url: url || null });
+});
 app.post('/api/push/unsubscribe', requireAuth, (req, res) => {
   saveSubs(loadSubs().filter(s => s.endpoint !== req.body?.endpoint));
   res.json({ ok: true });
@@ -3285,7 +3315,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["The message box stays on screen on iPhone: the field and its buttons are one unit, and the page follows the visible screen height."];
+const RELEASE_NOTES = ["An agent or a job on the server can send you an alert: node scripts/pocket-notify.mjs --title … --body … [--url …] [--email] reaches every device that wants alerts as a push, and your notification address when asked. Made for Ari's inbox monitor, with the start link as the button."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
