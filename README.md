@@ -57,6 +57,25 @@ mid-turn shows up without a reload.
 </tr>
 </table>
 
+### Developer mode or Assistant mode
+
+Pocket has two faces on the same server, sessions, Files, Tasks and Vault.
+
+- **Developer mode** is the workbench: the session rail, tabs and split view, the model,
+  reasoning and permission chips on every message, Results, Queue, Git, changed files, the
+  subagent panel, cost and timing. For people who run coding agents and want to see the
+  machinery.
+- **Assistant mode** is for people who never write code: an account manager drafting a
+  proposal, a warehouse manager marking stock, anyone making a deck or a document. It opens on
+  the message box ("What would you like done?"), shows what is waiting for you and your recent
+  conversations, picks the model for you, keeps steps and approvals in plain words, and calls
+  the app **Pocket Assistant**. Nothing is removed underneath: every conversation, file and task
+  is the same one the developer view shows, and **Show details** still opens the raw step.
+
+Switch in **Settings → Appearance → Assistant mode** (this Pocket, every device). An
+administrator can set it for an install with `POCKET_ASSISTANT_MODE=on` or lock it with
+`locked`, which is how a seat for an employee is provisioned.
+
 ### On your phone, with agents that work with you
 
 When a reply ends with a decision, the options appear as buttons: one tap answers. When the
@@ -98,6 +117,8 @@ the same way, through commands and skills that ship with Pocket.
   runs inventory reports, email, accounting and server operations through it, not just code.
 - **People who already run Claude Code or Codex on a Linux machine** and want to run more of
   it, from more places, with less babysitting.
+- **Office staff who never write code**, through Assistant mode: one Pocket per person on
+  their own small server, opening on a message box, with the developer controls out of sight.
 
 It is not a hosted service, not a terminal or editor replacement, and not a multi-user team
 product. Projects, Files, Tasks and the Vault are off by default; a session works the same
@@ -152,6 +173,11 @@ Choose **Light**, **Dark** or **System** in **Settings → Appearance**. Orange,
 purple highlights adapt to each mode. Your choice stays on this browser, including its
 split panes and other Pocket windows. New browsers follow the system; existing browsers
 keep dark mode until you change it.
+
+**Assistant mode** lives in the same place: **Settings → Appearance → Assistant mode** turns the
+workbench into Pocket Assistant for this Pocket on every device (see [Developer mode or
+Assistant mode](#developer-mode-or-assistant-mode)). When an administrator locked it for the
+install, the switch shows disabled with the reason.
 
 | Light | Dark |
 |---|---|
@@ -219,6 +245,32 @@ device, and when you open them, so an item an agent adds shows up without a relo
   Codex, so any agent on the server, in Pocket or a terminal, knows how to keep a project,
   what "my files" or "docs" mean, how to add a to-do, and how to use a credential by name
   (and store one it meets). They use the [agent commands](#agent-commands).
+
+### Inbox Watch: your mailbox, read for you (1.65)
+
+Inbox Watch is a small worker that runs beside Pocket on the same server, every five minutes,
+and reads one Gmail mailbox the way a chief of staff would. It keeps a 90-day memory of the
+mail, follows each situation as a story across threads and senders (a camera outage, a
+customer's service visit, a bill with a deadline), notices when the same device, invoice or
+account turns up again, and hands all of that to a model (Claude Code or Codex headless, or an
+OpenClaw agent) to decide what deserves you. What it sends:
+
+- **An alert** only when an email tells you something the email itself does not: a repeat
+  failure after a repair, a reminder that contradicts what the customer asked for, something
+  from an earlier email now due, a reply that never came, the same problem across threads.
+  It arrives as a push on your devices; tapping it opens a conversation already briefed with
+  the story, the evidence and the Gmail links, so handling it is a sentence, not a copy and
+  paste.
+- **A morning digest** of the rest, and a **look-ahead** at 8 a.m. and 5 p.m. of what is due
+  or at risk in the next few days, kept in Files with a push that links there.
+
+Quiet hours hold ordinary alerts until morning; only something critical gets through. Your
+standing preferences live in a text file the judge reads every turn, so "don't repeat my
+email" or "ignore these notices" sticks. Pocket's part is the push (`pocket-notify`), the
+briefed conversation (a start link) and Files; the worker ships as its own program,
+`inbox-monitor`, with a config file per mailbox (owner, mailbox, judge, delivery) and a
+timer. Mail access is the owner's own Gmail consent, or a Workspace service account for
+mailboxes an administrator controls.
 
 ### Answer, approve and steer
 

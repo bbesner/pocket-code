@@ -629,6 +629,16 @@ on this browser, shared with its other Pocket windows and split panes; it does n
 another device. New browsers start with System. Browsers with existing Pocket preferences
 keep dark mode until you choose otherwise. Clearing browser storage resets to System.
 
+**Appearance → Assistant mode** (1.60) switches this Pocket, on every device, between the
+developer workbench and **Pocket Assistant**: home becomes the message box with **Waiting for
+you** cards and **Recent** conversations; the model is chosen for you; the composer chips,
+Results, Queue, Git, changed files, split view, the cost line and the raw part of each step are
+hidden (the full request stays under **Show details**); notifications say "Ready" without the
+cost. Nothing is removed from the server: the same conversations, Files, Tasks and Vault are
+underneath, and turning it off restores the workbench exactly. `POCKET_ASSISTANT_MODE=on`
+seeds the setting for an install; `locked` keeps it on and shows the switch disabled with the
+reason, which is how a seat for an employee is provisioned.
+
 Orange, blue and purple highlights adapt to each mode, including message bubbles and
 status colours. Switching mode preserves your draft and reading position. The app sets
 its appearance before opening, including when its cached shell opens offline. The browser
