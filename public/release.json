@@ -1,7 +1,7 @@
 {
-  "version": "1.64.0",
-  "assetV": 125,
+  "version": "1.64.1",
+  "assetV": 126,
   "notes": [
-    "Claude and Codex now know how to work in your Gmail, Google Calendar and Google Drive through the connectors in Settings \u2192 Connectors. They check which Google account is connected, write emails as drafts first and send them when you say so, and ask before sending calendar invites."
+    "Try harder stays in view under the latest reply and asks for Opus (Fable stays your own choice)."
   ]
 }

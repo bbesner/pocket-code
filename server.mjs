@@ -3285,7 +3285,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Claude and Codex now know how to work in your Gmail, Google Calendar and Google Drive through the connectors in Settings \u2192 Connectors. They check which Google account is connected, write emails as drafts first and send them when you say so, and ask before sending calendar invites."];
+const RELEASE_NOTES = ["Try harder stays in view under the latest reply and asks for Opus (Fable stays your own choice)."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

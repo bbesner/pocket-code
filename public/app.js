@@ -1870,12 +1870,14 @@ function paintTryHarder(msgs) {
   b.title = 'Take another, more careful pass at this';
   b.onclick = async () => {
     await loadClaudeModels().catch(() => { });
-    const strongest = MODELS.find(m => m[0] !== 'default')?.[0];
+    // Opus when it's offered (Fable stays an explicit choice), else the strongest offered model.
+    const offered = MODELS.filter(m => m[0] !== 'default'), strongest = (offered.find(m => /opus/i.test(m[0])) || offered[0])?.[0];
     if (!strongest || !tb) return toast('Try harder is not available here.');
     tb.prefs = { ...tb.prefs, model: strongest, effort: 'high' }; setPrefs(chatId, tb.prefs);
     sendMsg('Please take another, more careful pass at that. Check your work before you answer.');
   };
   last.after(b); // beside the reply, not in it, so copying or reading the reply aloud never includes the button
+  scrollBottom(); // 1.63.1: it arrives after the reply has scrolled into view; keep it in view if you're at the bottom
 }
 document.addEventListener('click', e => {
   const x = e.target.closest?.('.choice-x');
