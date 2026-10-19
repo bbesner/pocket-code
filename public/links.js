@@ -104,5 +104,5 @@ async function renderLink(view){
  if(!u){main.innerHTML='<p class="sheet-help doc-note">That link cannot be opened here. Links to outside websites open in your browser.</p>';return;}
  main.innerHTML=linkToolsHTML(u)+linkBodyHTML(u,title);
  main.querySelector('[data-copy-link]').onclick=e=>copyLink(u.href,e.currentTarget);
- if(PANE)paneSay('route',{id:view,title});else if(SOLO)document.title=title+' · Pocket Code';else rememberOpenView(view,title);
+ if(PANE)paneSay('route',{id:view,title});else if(SOLO)document.title=title+' · '+appName();else rememberOpenView(view,title);
 }

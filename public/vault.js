@@ -134,7 +134,7 @@ async function renderVault(view){
  try{await loadVault(true);}
  catch(e){if(vaultView!==view)return;const main=$('#vault-main');if(!main)return;if(vaultSnap)paintVaultView();showLibraryError(main,e,'The Vault',()=>renderVault(view),Boolean(vaultSnap));restoreViewPosition(view);return;}
  if(vaultView!==view)return;
- if(PANE)paneSay('route',{id:view,title:'Vault'});else if(SOLO)document.title='Vault · Pocket Code';else rememberOpenView(view,'Vault');
+ if(PANE)paneSay('route',{id:view,title:'Vault'});else if(SOLO)document.title='Vault · '+appName();else rememberOpenView(view,'Vault');
  paintVaultView();
  restoreViewPosition(view);
  if(vaultFocusRequests){vaultFocusRequests=false;const req=$('#vault-requests');if(req){req.scrollIntoView({block:'start'});req.querySelector('h2')?.focus({preventScroll:true});}}

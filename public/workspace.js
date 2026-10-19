@@ -589,8 +589,15 @@ function updateNewSummary() {
  el.innerHTML=`<span><strong>Workspace</strong> ${esc(el.dataset.workspace||'Choose a workspace')}</span><span><strong>Agent</strong> ${esc(agentSummary())}</span><span><strong>Permissions</strong> ${esc(permissionLabel(nextApprovalMode()))}</span>`;
 }
 function organizeSettings(sh, {category='',scrollTop=0}={}) {
- const groups=[
-  ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings']]],
+ // 1.60: Assistant mode shows the settings a person needs day to day; everything else stays as it is, hidden.
+ const groups=assistantMode()?[
+  ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This Pocket · all devices','#s-assistant']]],
+  ['conversation','Conversation','How replies and steps read', [['This device','#s-tools,#s-times']]],
+  ['accounts','Accounts','Your Claude sign-in and Gmail, Calendar and Drive', [['','#s-environment,#s-connectors']]],
+  ['notifications','Notifications & voice','Sounds, alerts on this device, reminders by email and spoken replies', [['This device','#s-chime,#s-push,#s-push-kinds,#s-badge,#s-voice'],['This Pocket · all devices','#s-ahead,#s-email-wrap']]],
+  ['help','Help & updates','Version and what’s new', [['','#s-about,#s-notes']]],
+ ]:[
+  ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This instance · all devices','#s-assistant']]],
   ['conversation','Conversation','Reading, conversation titles and summaries', [['This device','#s-tools,#s-plain,#s-times'],['This instance · all devices','#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
   ['agents','Agents & instance','Accounts, connectors, plan usage, the models offered and actions that run without asking', [['This instance · all devices','#s-environment,#s-connectors,#s-usage,#s-models,#s-trusted']]],
   ['libraries','Projects, files, tasks & vault','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents,#s-tasks,#s-vault,#s-vault-more'],['This device','', '#s-projects-open,#s-files-button,#s-documents-open']]],
@@ -611,6 +618,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
   const button=document.createElement('button');button.className='opt';button.dataset.settingsCategory=key;button.innerHTML=`<span>${esc(title)}<span class="sub">${esc(description)}</span></span>${IC.back}`;button.onclick=()=>select(key);index.append(button);
  }
  sh.querySelector('.settings-group')?.remove();heading.after(index);
+ if(assistantMode())for(const el of [...sh.children])if(el!==heading&&el!==index&&el!==back&&!el.dataset.settingsPanel)el.classList.add('settings-assistant-hidden');
  function select(key,initial=false){
   positions.set(current,sh.scrollTop);current=panels.has(key)?key:'';
   heading.textContent=groups.find(g=>g[0]===current)?.[1]||'Settings';index.hidden=Boolean(current);back.hidden=!current;

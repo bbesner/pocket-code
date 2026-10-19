@@ -1,7 +1,7 @@
 {
-  "version": "1.59.0",
-  "assetV": 120,
+  "version": "1.60.0",
+  "assetV": 121,
   "notes": [
-    "Plain words: conversations instead of sessions, and each step in plain words (“Saved Proposal.pdf”, “Checked Gmail”) with the raw command or path beside it; Settings → Conversation → Describe steps in plain words turns it off. Approval cards ask a plain question, show the whole command or path, keep the full request behind Show details, and offer Don’t allow or Allow."
+    "Assistant mode: a simpler Pocket for everyday work. It opens on the message box with your saved prompts, what's waiting for you and your latest conversations; developer controls and meters are hidden, steps read in plain words, Settings is short, and the app is called Pocket Assistant. Settings → Appearance → Assistant mode, or POCKET_ASSISTANT_MODE (on, or locked for a seat run for someone else)."
   ]
 }

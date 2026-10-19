@@ -8,6 +8,26 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Assistant mode (1.60)
+
+Pinned brief (design-studio → impeccable): variance 3, motion 2, density 3; existing tokens, no
+new colour. Read: a calm assistant for office staff, leaning "well-made notes app", one obvious
+next step on every screen. Plan: `docs/plans/assistant-mode.md`.
+
+One class, `html.assistant`, carries it. It **hides**; it doesn't restyle the workbench, so
+turning it off restores 1.59 exactly. Home is the New conversation pane with `.assistant-home`:
+a dismissible `.assistant-intro` on `--raised` (promising "I'll ask before I send…" only when the
+next turn is Review actions), **Waiting for you** cards (56px, 12px radius, a `--warn`-tinted
+border, title 16px/600, the reason 14px `--dim`), **Recent** as 52px rows (a 8px state dot:
+`--warn` needs you, `--ok` working, `--err` didn't finish, clay ready; title 16px; time 13.5px
+`--dim`), **See all conversations** as a 44px clay link, then the library chips. Section heads are
+13px uppercase `--dim`. On a wide screen with the list open, Recent is left to the list.
+Hidden in Assistant mode: the composer chips and toggle, Choose a skill, Save as prompt, the cache
+ring, alerts, the steer choice, Results / Queue / Git / changed files / split, the folder name, the
+idle state, the cost line, the raw part of steps and the command block under an approval (the
+full request stays in Show details), list filters, summary and footnote. The app name is
+**Pocket Assistant**.
+
 ## Plain words, steps and approval cards (1.59)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5;

@@ -500,8 +500,8 @@ function renderUnreachable(e) {
 function renderLogin() {
   app.innerHTML = `
     <div class="login">
-      <h1>Pocket Code</h1>
-      <p class="sub">Your Claude Code and Codex conversations, from anywhere.</p>
+      <h1>${appName()}</h1>
+      <p class="sub">${assistantMode() ? 'Sign in to pick up where you left off.' : 'Your Claude Code and Codex conversations, from anywhere.'}</p>
       <input type="password" id="pw" placeholder="Password" autocomplete="current-password" enterkeyhint="go">
       <p class="err" id="lerr"></p>
       <button class="primary" id="go">Unlock</button>
@@ -592,6 +592,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     ${themeControlsHTML()}
     ${chatTextControlsHTML()}
     ${accentControlsHTML()}
+    ${window.pocketFeatures?.assistantLocked ? '' : `<button class="opt" id="s-assistant" aria-pressed="${assistantMode()}"><span class="dot ${assistantMode() ? 'on' : ''}"></span><span>Assistant mode<span class="sub">A simpler Pocket for everyday work: the message box first, plain words, no developer controls. Every device on this Pocket</span></span></button>`}
     <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button>
     <button class="opt" id="s-connectors">${IC.globe}<span>Connectors<span class="sub">Gmail, Calendar and Drive for each agent</span></span></button>
     <button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>
@@ -694,6 +695,16 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     e.currentTarget.setAttribute('aria-pressed', String(on));
     e.currentTarget.querySelector('.dot').classList.toggle('on', on);
     document.querySelectorAll('details.ledgerwrap').forEach(d => { d.open = !on; });
+  };
+  const assistantToggle = sh.querySelector('#s-assistant');
+  if (assistantToggle) assistantToggle.onclick = async e => {
+    const b = e.currentTarget, on = !assistantMode(); b.disabled = true;
+    try {
+      await api('/settings', { method: 'POST', body: JSON.stringify({ assistantMode: on }) });
+      window.pocketFeatures = { ...(window.pocketFeatures || {}), assistantMode: on };
+      closeCurrentSheet?.(); applyAssistantMode(); route();
+      toast(on ? 'Assistant mode is on. Settings → Appearance turns it off' : 'Assistant mode is off');
+    } catch (err) { toast(err.message); b.disabled = false; }
   };
   sh.querySelector('#s-plain').onclick = e => {
     const on = !plainSteps();
@@ -1347,7 +1358,48 @@ function groupedSessionsHTML(all) {
     return rows.length ? `<section class="session-group"><h2>${label}<span>${rows.length}</span></h2>${body}</section>` : '';
   }).join('') + (automated.length ? `<details class="session-group automated-group" data-automated${readLocal('pc-automated-open', false) ? ' open' : ''}><summary><h2>Automated<span>${automated.length}</span></h2><span class="automated-note">Scheduled runs</span></summary>${automated.map(sessionRowHTML).join('')}</details>` : '');
 }
+/* ---------- 1.60: Assistant mode home ----------
+   The message box first, then what needs the person ("Waiting for you": a question or approval, or a reply that
+   didn't finish), then the five latest conversations and the way to the rest. On a wide screen with the
+   conversation list open beside it, Recent is left to that list. */
+function assistantIntroHTML() {
+  if (readLocal('pc-assistant-intro', false)) return '';
+  const asks = nextApprovalMode(getPrefs(NEW_KEY)) === 'review'; // only promise what Review actions does
+  return `<section class="assistant-intro" id="assistant-intro" aria-label="Getting started"><p>Start with a button below, or just type what you need.${asks ? ' I’ll ask before I send, save or change anything.' : ''}</p><button class="chip" id="assistant-intro-ok">Got it</button></section>`;
+}
+function bindAssistantIntro() {
+  const b = $('#assistant-intro-ok'); if (!b) return;
+  b.onclick = () => { writeLocal('pc-assistant-intro', true); $('#assistant-intro')?.remove(); $('#first')?.focus(); };
+}
+function homeRowHTML(s) {
+  const st = listState(s), kind = st.kind === 'input' ? 'input' : st.kind === 'running' || st.kind === 'observed' ? 'running' : st.kind === 'failed' ? 'failed' : isUnread(s) ? 'ready' : 'idle';
+  const label = { input: 'Needs you', running: 'Working', failed: 'Didn’t finish', ready: 'Ready', idle: '' }[kind];
+  return `<a class="home-row state-${kind}" href="#/chat/${esc(s.id)}"><span class="home-dot" aria-hidden="true"></span><span class="home-title">${esc(s.title || 'Untitled conversation')}</span><span class="home-when">${label ? `<span class="home-state">${esc(label)}</span> · ` : ''}${esc(rel(s.mtimeMs))}</span></a>`;
+}
+function paintAssistantHome() {
+  const waiting = $('#home-waiting'), recent = $('#home-recent');
+  if (!waiting && !recent) return;
+  const rows = (allSessions || []).filter(s => !isHiddenSession(s));
+  if (waiting) {
+    const need = rows.filter(needsAttention).slice(0, 4);
+    waiting.hidden = !need.length;
+    waiting.innerHTML = need.length ? `<h2 class="home-h" id="home-waiting-h">Waiting for you</h2>${need.map(s => {
+      const q = rowState(s).kind === 'input';
+      return `<a class="home-card" href="#/chat/${esc(s.id)}"><span class="home-card-title">${esc(s.title || 'Untitled conversation')}</span><span class="home-card-what">${q ? esc(rowState(s).label || 'Needs your answer or OK') : 'Didn’t finish. Open to see what happened'}</span></a>`;
+    }).join('')}` : '';
+  }
+  if (recent) {
+    const beside = isWide() && railOpen() && !SOLO;
+    const latest = rows.slice().sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0)).slice(0, 5);
+    const links = [documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : '', tasksOn() ? '<a class="chip" href="#/tasks">Tasks</a>' : '', projectsOn() ? '<a class="chip" href="#/projects">Projects</a>' : '', vaultOn() ? '<a class="chip" href="#/vault">Vault</a>' : ''].join('');
+    recent.innerHTML = (beside || !latest.length ? '' : `<h2 class="home-h" id="home-recent-h">Recent</h2><div class="home-list">${latest.map(homeRowHTML).join('')}</div><a class="home-all" href="#/all">See all conversations</a>`)
+      + (links ? `<nav class="home-links" aria-label="Your things">${links}</nav>` : '');
+    if (beside || !latest.length) { recent.removeAttribute('aria-labelledby'); recent.setAttribute('aria-label', 'Your things'); recent.hidden = !links; }
+    else { recent.removeAttribute('aria-label'); recent.setAttribute('aria-labelledby', 'home-recent-h'); recent.hidden = false; }
+  }
+}
 function paintSessionPanels() {
+  paintAssistantHome();
   paintWorkspaceFilters();
   paintWorkspaceDensity();
   document.querySelectorAll('[data-session-summary]').forEach(el => { el.textContent = sessionSummary(); });
@@ -1565,12 +1617,13 @@ function bindSessionPanel(container) {
 }
 async function renderList() {
   Voice.onLeave();
-  app.innerHTML = `<header class="bar"><h1>Pocket Code</h1>
+  app.innerHTML = `<header class="bar">${assistantMode() ? `<button class="icon" id="back" aria-label="Back">${IC.back}</button><h1>Conversations</h1>` : '<h1>Pocket Code</h1>'}
     <button class="icon bell" id="bell" aria-label="Toggle notifications for this device">${IC.bellOff}</button>
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
     <main class="scroll session-home"><div class="session-home-head"><h2>Your conversations</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New conversation">${IC.plus}</button>`;
-  $('#new').onclick = () => { location.hash = '#/new'; };
+  $('#new').onclick = () => { location.hash = assistantMode() ? '#/' : '#/new'; };
+  if (assistantMode()) $('#back').onclick = () => { location.hash = '#/'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
   pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
   $('#bell').onclick = () => togglePush($('#bell'));
@@ -2575,6 +2628,8 @@ function slashUpdate(box) {
 }
 
 const sendModes = new Map();
+// 1.60: in Assistant mode a message sent while Claude works waits for the current reply (the choice is hidden there).
+const defaultSendMode = () => assistantMode() ? 'queue' : 'steer';
 let composerWorking = false;
 function setComposer(working) {
   const c = $('#comp'); if (!c) return;
@@ -2589,7 +2644,7 @@ function setComposer(working) {
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
     ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this reply" aria-label="After this reply">After <span class="sm-x">this </span>reply</button></div>' : ''}
     ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button>${ctxRingHTML()}</div>` : ''}
-    <textarea id="box" rows="1" placeholder="${working ? "Add to what it's doing…" : 'Reply…'}" enterkeyhint="send"></textarea>
+    <textarea id="box" rows="1" placeholder="${working ? (assistantMode() ? 'Send this after the current reply…' : "Add to what it's doing…") : 'Reply…'}" enterkeyhint="send"></textarea>
     ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button>`;
   if (typeof paintChatProject === 'function') paintChatProject(); // the toolbar's chip, or the working row's folder button
   if (typeof paintChatTask === 'function') paintChatTask();
@@ -2603,7 +2658,7 @@ function setComposer(working) {
     renderToolbar();
   }
   const modeButtons=c.querySelectorAll('[data-mode]');
-  const paintMode=()=>modeButtons.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===(sendModes.get(chatId)||'steer'))));
+  const paintMode=()=>modeButtons.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===(sendModes.get(chatId)||defaultSendMode()))));
   modeButtons.forEach(b=>b.onclick=()=>{sendModes.set(chatId,b.dataset.mode);paintMode();$('#box').placeholder=b.dataset.mode==='queue'?'Run this after the current reply…':"Add to what it's doing…";});paintMode();
   const box = $('#box');
   const grow = () => sizeComposerBox();
@@ -2664,7 +2719,7 @@ async function sendMsg(text, {allowSecrets = false, matches = null} = {}) {
   if (liveFailure?.id === id) liveFailure = null;
   awayAnchor = null; awayFollow = false;                         // sending goes back to following the conversation
   document.getElementById('turn-failure')?.remove();
-  const opts = composerWorking ? {mode:sendModes.get(id)||'steer',approvalMode:nextApprovalMode()} : turnOpts();
+  const opts = composerWorking ? {mode:sendModes.get(id)||defaultSendMode(),approvalMode:nextApprovalMode()} : turnOpts();
   if (allowSecrets) opts.allowSecrets = true; // the owner chose Send as is; a retry of this message carries it too
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
     files: composerWorking ? [] : [...(tb?.attachments || [])], createdAt: Date.now() };
@@ -2872,18 +2927,20 @@ async function openStartLink(id) {
   } catch (e) { if (e.message === 'login') return; toast(e.status === 404 ? 'That start link has expired.' : 'Could not load the start link.'); }
   location.replace('#/new');
 }
-async function renderNew() {
+async function renderNew({ home = false } = {}) {
   const viewVersion=++chatRenderVersion;
+  home = home && assistantMode() && !PANE;
   const pendingNew = loadOutbox(NEW_KEY);
   Voice.onLeave(); // 1.58: the mic below speaks to this New session, not the conversation you left
   // 1.58: the message box is the conversation's own composer (settings chips, attach, skill, save as prompt,
   // mic, hands-free, Send); the task heading, saved prompts and workspace setup sit above it.
   const col = `
     <header class="bar">
-      ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : `<button class="icon" id="back" aria-label="Back">${IC.back}</button>`}
-      <h1>New conversation</h1>
+      ${home ? `<h1>${esc(appName())}</h1><button class="icon" id="settings" aria-label="Settings">${IC.cog}</button>` : PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : `<button class="icon" id="back" aria-label="Back">${IC.back}</button>`}
+      ${home ? '' : '<h1>New conversation</h1>'}
     </header>
-    <main class="scroll"><div class="pane task-pane">
+    <main class="scroll"><div class="pane task-pane${home ? ' assistant-home' : ''}">
+      ${home ? assistantIntroHTML() + '<section class="home-waiting" id="home-waiting" aria-labelledby="home-waiting-h" hidden></section>' : ''}
       <div><label class="task-heading" for="first">What would you like done?</label><div class="starters" id="starters" hidden></div></div>
       <div class="task-actions" id="new-actions" hidden><button class="chip conversation-project linked" id="new-project" hidden></button></div>
       <details id="new-setup"><summary id="choose-workspace"><span class="task-context" id="task-context"></span><span class="setup-edit">Edit setup</span></summary><div class="setup-fields">
@@ -2894,6 +2951,7 @@ async function renderNew() {
       <div><span class="h" id="projh">Project</span><div class="projlist" id="plist" role="radiogroup" aria-labelledby="projh"><div class="empty">Loading…</div></div></div>
       <div><label class="h" for="cpath">Or a custom path</label><input type="text" id="cpath" placeholder="/full/path/to/project" autocapitalize="off" autocorrect="off"></div>
       </div></details>
+      ${home ? '<section class="home-recent" id="home-recent" aria-labelledby="home-recent-h"></section>' : ''}
     </div></main>
     <section class="composerwrap" aria-label="New conversation message"><div id="new-delivery" class="delivery-status" role="status" hidden></div><p class="start-hint" id="start-hint" role="alert" hidden></p><div class="voice-strip" id="voice-strip" role="status" aria-live="polite" hidden></div>
       <div class="composer" id="comp"><div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>
@@ -2902,7 +2960,7 @@ async function renderNew() {
         ${Voice.micHTML()}<button class="send" id="start" aria-label="Start conversation" title="Start conversation">${IC.up}</button></div></section>`;
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
-  if (PANE) $('#pane-close').onclick = () => paneSay('close'); else $('#back').onclick = () => { location.hash = '#/'; };
+  if (PANE) $('#pane-close').onclick = () => paneSay('close'); else if (home) { $('#settings').onclick = settingsSheet; bindAssistantIntro(); paintAssistantHome(); refreshSessions(); } else $('#back').onclick = () => { location.hash = '#/'; };
   tb = { key: NEW_KEY, prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs(NEW_KEY), attachments: loadAttachments(NEW_KEY), allowAttach: true, provider: pendingNew?.payload.provider || (localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude') };
   renderToolbar();
   // which agent runs this session — remembered, since most days you stay on one
@@ -2979,6 +3037,7 @@ async function renderNew() {
   } catch { }
   if(viewVersion!==chatRenderVersion)return;
   if (pendingNew) $('#cpath').value = pendingNew.payload.cwd;context();
+  if (assistantMode() && ($('#cpath').value.trim() || sel)) $('#new-setup').hidden = true; // 1.60: nothing to choose
   const paintNewDelivery = () => {
     const pending = loadOutbox(NEW_KEY), note = $('#new-delivery');
     if (!note) return;
@@ -3114,7 +3173,7 @@ async function renderNew() {
     const cwd = savedStart?.payload.cwd || $('#cpath').value.trim() || sel;
     const text = savedStart?.payload.text || $('#first').value.trim();
     const hint = msg => { const h = $('#start-hint'); h.textContent = msg; h.hidden = false; };
-    if (!cwd) {$('#new-setup').open=true;hint('Choose a workspace above, or enter its path.');$('#new-setup').scrollIntoView({block:'start'});return false;}
+    if (!cwd) {$('#new-setup').hidden=false;$('#new-setup').open=true;hint('Choose a workspace above, or enter its path.');$('#new-setup').scrollIntoView({block:'start'});return false;}
     if (!text) { hint('Write what you would like done first.'); $('#first').focus(); return false; }
     if (!savedStart && !allowSecrets && holdSecretStart(text)) return false; // 1.42
     $('#start-hint').hidden = true;
@@ -3156,7 +3215,7 @@ async function route() {
   rememberViewNavigation(location.hash || '#/');
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { const me = await api('/me'); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } window.pocketFeatures = me.features || {}; loadSecretGuard(); } // 1.20.1: 200 {ok:false} when signed out
+  try { const me = await api('/me'); window.pocketFeatures = me.features || {}; applyAssistantMode(); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } loadSecretGuard(); } // 1.20.1: 200 {ok:false} when signed out
   catch (e) { // 401 rendered the login; anything else (offline, deploy restart) gets a retry view
     if (e.message !== 'login') renderUnreachable(e);
     reportWorkspaceChrome(); return;
@@ -3174,7 +3233,14 @@ async function route() {
   if (isViewId(h.slice(2))) return h === '#/vault' ? renderVault('vault') : h === '#/tasks' ? renderTasks('tasks') : h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : h.startsWith('#/link/') ? renderLink(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30/1.36/1.54: project, document, task and linked-page views
   if (h.startsWith('#/start/')) return openStartLink(h.slice(8)); // 1.57: a start link puts its briefing in New session
   if (h === '#/new') return renderNew();
-  return renderList();
+  if (h === '#/all') return renderList();
+  return assistantMode() ? renderNew({ home: true }) : renderList(); // 1.60: Assistant mode opens on the message box
+}
+// 1.60: one class on <html> carries Assistant mode's simplifications (app.css), and the window takes its name.
+function applyAssistantMode() {
+  const on = assistantMode();
+  document.documentElement.classList.toggle('assistant', on);
+  if (!SOLO && !PANE) document.title = appName();
 }
 document.addEventListener('load', e => { if (e.target?.classList?.contains('genimg')) scrollBottom(); }, true);
 document.addEventListener('keydown', e => {
