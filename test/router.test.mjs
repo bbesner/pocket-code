@@ -63,7 +63,7 @@ async function server(t, port, env) {
   const headers = { 'content-type': 'application/json', cookie: 'pc_auth=' + exp + '.' + createHmac('sha256', secret).update(String(exp)).digest('hex') };
   fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true }); fs.mkdirSync(path.join(dir, 'managed'));
   fs.writeFileSync(path.join(dir, 'managed', 'managed-settings.json'), JSON.stringify({ availableModels: ['claude-opus-5-5', 'claude-sonnet-5-5'], maxEffortLevel: 'medium' }));
-  const child = spawn(process.execPath, ['server.mjs'], { cwd: repo, env: { ...cleanEnv(), PORT: String(port), POCKET_ENV_FILE: '', POCKET_PASSWORD: 'test-only', POCKET_SECRET: secret,
+  const child = spawn(process.execPath, ['server.mjs'], { cwd: repo, env: { ...cleanEnv(), POCKET_SKILLS: '0', PORT: String(port), POCKET_ENV_FILE: '', POCKET_PASSWORD: 'test-only', POCKET_SECRET: secret,
     POCKET_SESSION_ROOT: path.join(dir, 'sessions'), POCKET_DATA_DIR: path.join(dir, 'data'), POCKET_TEST_CALLS: path.join(dir, 'calls'), POCKET_CLAUDE_MANAGED_DIR: path.join(dir, 'managed'),
     CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs'), CODEX_BIN: path.join(repo, 'test/fake-codex.mjs'), ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', b => { logs += b }); child.stderr.on('data', b => { logs += b });

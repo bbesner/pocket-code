@@ -1,4 +1,4 @@
-// Agent skills that ship with Pocket Code (1.34). skills/pocket-projects, skills/pocket-files and (1.36) skills/pocket-tasks are written into the
+// Agent skills that ship with Pocket Code (1.34). skills/pocket-projects, skills/pocket-files, (1.36) skills/pocket-tasks and (1.59) skills/pocket-google are written into the
 // user-level folders Claude Code (~/.claude/skills) and Codex ($CODEX_HOME/skills) read, so every agent on this server
 // (Pocket's, the terminal's, code-server's) knows how to create a project and what "save it to my files" means.
 // A skill is installed while its feature is on and removed when it is turned off. Pocket only writes or removes a
@@ -14,16 +14,19 @@ export const SKILLS = [
   { name: 'pocket-files', feature: 'documents', cli: 'docs' },
   { name: 'pocket-tasks', feature: 'tasks', cli: 'tasks' }, // 1.36
   { name: 'pocket-vault', feature: 'vault', cli: 'vault' }, // 1.39
+  // 1.59: Gmail, Calendar and Drive through each agent's own connectors (Settings → Connectors). Always on; one file per agent.
+  { name: 'pocket-google', feature: null, files: { claude: 'SKILL.claude.md', codex: 'SKILL.codex.md' } },
 ];
 const BIN = { board: 'pocket-board', docs: 'pocket-docs', tasks: 'pocket-tasks', vault: 'pocket-vault' };
 const SRC = path.join(import.meta.dirname, 'skills');
 
 // Claude Code's user skills folder always; Codex's only where Codex is installed for this user.
+export const codexSkillRoot = (env = process.env) => path.join(env.CODEX_HOME || path.join(env.HOME || os.homedir(), '.codex'), 'skills');
 export function skillRoots(env = process.env) {
   const home = env.HOME || os.homedir();
   const roots = [path.join(env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'skills')];
-  const codex = env.CODEX_HOME || path.join(home, '.codex');
-  if (fs.existsSync(codex)) roots.push(path.join(codex, 'skills'));
+  const codex = codexSkillRoot(env);
+  if (fs.existsSync(path.dirname(codex))) roots.push(codex);
   return roots;
 }
 
@@ -33,16 +36,18 @@ export function renderSkill(text, command, binName) {
   return text.replace(/<!-- pocket:commands -->[\s\S]*?<!-- \/pocket:commands -->/, block);
 }
 
-export function syncSkills({ settings, commands, env = process.env, roots = skillRoots(env), src = SRC, log = () => {} }) {
+// codexRoots: which of `roots` are Codex's; a skill with `files` installs that agent's own SKILL file.
+export function syncSkills({ settings, commands, env = process.env, roots = skillRoots(env), codexRoots = [codexSkillRoot(env)], src = SRC, log = () => {} }) {
   const result = { installed: [], removed: [], skipped: [] };
   if (env.POCKET_SKILLS === '0') return result;
   for (const root of roots) for (const s of SKILLS) {
     const dir = path.join(root, s.name), mark = path.join(dir, MARKER), ours = fs.existsSync(mark);
+    const srcFile = s.files ? s.files[codexRoots.includes(root) ? 'codex' : 'claude'] : 'SKILL.md';
     try {
-      if (settings[s.feature]) {
+      if (srcFile && (s.feature === null || settings[s.feature])) {
         if (fs.existsSync(dir) && !ours) { result.skipped.push(dir); log(`skill ${dir} exists and is not Pocket's; left alone`); continue; }
-        const bin = BIN[s.cli];
-        const body = renderSkill(fs.readFileSync(path.join(src, s.name, 'SKILL.md'), 'utf8'), commands[s.cli], bin);
+        const text = fs.readFileSync(path.join(src, s.name, srcFile), 'utf8');
+        const body = s.cli ? renderSkill(text, commands[s.cli], BIN[s.cli]) : text;
         const file = path.join(dir, 'SKILL.md');
         if (ours && fs.readFileSync(file, 'utf8') === body) continue;
         fs.mkdirSync(dir, { recursive: true });

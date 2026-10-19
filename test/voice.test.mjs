@@ -110,7 +110,7 @@ test('HTTP: voice routes require login, report availability and round-trip audio
   const secret = randomUUID(), exp = Date.now() + 3600000;
   const cookie = 'pc_auth=' + exp + '.' + createHmac('sha256', secret).update(String(exp)).digest('hex');
   const env = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(POCKET|VAPID)_/.test(k))), PORT: String(port), POCKET_ENV_FILE: '', POCKET_AUTO_TITLES: '0',
-    POCKET_PASSWORD: 'test-only', POCKET_SECRET: secret, POCKET_CODEX: '0', POCKET_DATA_DIR: dir, POCKET_SESSION_ROOT: path.join(dir, 'sessions'),
+    POCKET_PASSWORD: 'test-only', POCKET_SECRET: secret, POCKET_CODEX: '0', POCKET_SKILLS: '0', POCKET_DATA_DIR: dir, POCKET_SESSION_ROOT: path.join(dir, 'sessions'),
     POCKET_VOICE_COMMAND: JSON.stringify(fake), FAKE_VOICE_TEXT: 'what is it doing' };
   fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true });
   const child = spawn(process.execPath, ['server.mjs'], { cwd: repo, env });

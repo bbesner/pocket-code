@@ -1,7 +1,7 @@
 {
-  "version": "1.63.0",
-  "assetV": 124,
+  "version": "1.64.0",
+  "assetV": 125,
   "notes": [
-    "One sign-in behind Cloudflare Access: with POCKET_ACCESS_TEAM, POCKET_ACCESS_AUD and POCKET_ACCESS_EMAILS set, Pocket verifies Cloudflare's signed token and signs you in without its own password, for at most a day at a time."
+    "Claude and Codex now know how to work in your Gmail, Google Calendar and Google Drive through the connectors in Settings \u2192 Connectors. They check which Google account is connected, write emails as drafts first and send them when you say so, and ask before sending calendar invites."
   ]
 }
