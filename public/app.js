@@ -1851,11 +1851,31 @@ function choicesHTML(options, rec) {
 }
 function paintChoices() {
   const msgs = $('#msgs'); if (!msgs) return;
+  paintTryHarder(msgs);
   const sets = msgs.querySelectorAll('[data-choices]'); if (!sets.length) return;
   const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop();
   const box = $('#box'), dismissed = readLocal('pc-choices-dismissed', {})[chatId];
   const open = !composerWorking && !sendsInFlight.has(chatId) && !loadOutbox(chatId) && !box?.value.trim() && !box?.readOnly;
   sets.forEach(c => { c.hidden = !(open && c.closest('.m-asst') === last && c.dataset.choices !== dismissed); });
+}
+// 1.62: Assistant mode's only model control, phrased as an outcome. Under the latest finished Claude reply, it asks
+// for another, more careful pass on the strongest model this Pocket offers at high effort (capped by the policy);
+// the conversation keeps that choice afterwards (the server remembers it).
+function paintTryHarder(msgs) {
+  msgs.querySelectorAll('.try-harder').forEach(b => b.remove());
+  if (!assistantMode() || !chatId || String(chatId).startsWith('cx:') || composerWorking || sendsInFlight.has(chatId)) return;
+  const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop();
+  if (!last?.matches('.m-asst') || !last.textContent.trim()) return;
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'chip try-harder'; b.textContent = 'Try harder';
+  b.title = 'Take another, more careful pass at this';
+  b.onclick = async () => {
+    await loadClaudeModels().catch(() => { });
+    const strongest = MODELS.find(m => m[0] !== 'default')?.[0];
+    if (!strongest || !tb) return toast('Try harder is not available here.');
+    tb.prefs = { ...tb.prefs, model: strongest, effort: 'high' }; setPrefs(chatId, tb.prefs);
+    sendMsg('Please take another, more careful pass at that. Check your work before you answer.');
+  };
+  last.after(b); // beside the reply, not in it, so copying or reading the reply aloud never includes the button
 }
 document.addEventListener('click', e => {
   const x = e.target.closest?.('.choice-x');

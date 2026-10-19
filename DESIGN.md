@@ -8,6 +8,12 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Try harder (1.62)
+
+Assistant mode's only model control, phrased as an outcome. A `.chip` labelled **Try harder**
+sits just under the latest finished Claude reply (outside it, so copying or reading the reply
+never includes it), hidden while a reply is running. No model name appears anywhere.
+
 ## Files in the conversation (1.61)
 
 Pinned Operate refinement: variance 2, motion 1, density 5; existing tokens, no new colour. Read:

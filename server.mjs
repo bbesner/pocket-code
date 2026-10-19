@@ -37,6 +37,7 @@ import {ClaudeLogin} from './claude-login.mjs';
 import {claudeConnectors, codexConnectors} from './connectors.mjs';
 import {ProjectStore, projectInstructions} from './projects.mjs';
 import {CLAUDE_MODELS, CATALOG_IDS, managedDir, readManagedPolicy, policyAllows, parseSelection, resolveOffer, helperModel} from './models.mjs';
+import {ModelRouter, capEffort} from './router.mjs';
 import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
 import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
@@ -130,6 +131,8 @@ const ENV_CLAUDE_MODELS = (() => {
 })();
 const claudeOffer = () => resolveOffer({ saved: settings.offeredClaudeModels, envList: ENV_CLAUDE_MODELS, policy: modelPolicy() });
 const isOffered = id => claudeOffer().offered.includes(id);
+// 1.62: the effort ceiling from the managed policy (maxEffortLevel), applied to every Claude turn Pocket starts.
+const maxEffort = () => managedPolicy().maxEffortLevel || null;
 // POCKET_CLAUDE_MODEL counts only while it is offered; otherwise Default is the CLI's own default.
 const claudePocketModel = () => POCKET_DEFAULTS.claude.model && isOffered(POCKET_DEFAULTS.claude.model) ? POCKET_DEFAULTS.claude.model : undefined;
 // Human label for whatever the CLI's own default is ('opus[1m]', 'claude-fable-5-1', …): a managed
@@ -176,7 +179,8 @@ const withDefaults = (provider, opts) => {
       modelFallback = { requested: asked, label: known?.label || asked, used: model || 'default', usedLabel: claudeDefaultLabel(),
         reason: !known ? 'unknown' : !policyAllows(asked, modelPolicy()) ? 'policy' : 'not-offered' };
     } else if (!asked) model = claudePocketModel();
-    return { ...opts, model, effort: opts.effort || POCKET_DEFAULTS[provider].effort, modelFallback };
+    const effort = opts.effort || POCKET_DEFAULTS[provider].effort;
+    return { ...opts, model, effort: EFFORTS.has(effort) ? capEffort(effort, maxEffort()) : effort, modelFallback }; // 1.62: never above the policy's ceiling
   }
   const model = opts.model && opts.model !== 'default' ? opts.model : POCKET_DEFAULTS[provider].model;
   validateModel(provider, model);
@@ -440,6 +444,13 @@ const assistantOn = () => assistantLocked || settings.assistantMode === true;
 // 1.61: keep every file Claude hands over in a reply in Files (Settings, or always in Assistant mode).
 if (typeof settings.autoKeepFiles !== 'boolean') settings.autoKeepFiles = false;
 const autoKeepOn = () => Boolean(settings.documents) && (assistantOn() || settings.autoKeepFiles);
+// 1.62: in Assistant mode a request typed from scratch gets its model and effort from a decision model (router.mjs).
+// POCKET_ROUTER=jev (TypeSafe Jev through OpenRouter) or openai (OpenAI Decisions API) with POCKET_ROUTER_KEY or
+// POCKET_ROUTER_KEY_FILE; off or unset: the instance default, as before. It fails open to the default.
+const ROUTER_KEY = (() => { const k = (process.env.POCKET_ROUTER_KEY || '').trim(); if (k) return k; const f = (process.env.POCKET_ROUTER_KEY_FILE || '').trim(); try { return f ? fs.readFileSync(f, 'utf8').trim() : ''; } catch { return ''; } })();
+const router = new ModelRouter({ provider: (process.env.POCKET_ROUTER || 'off').trim().toLowerCase(), key: ROUTER_KEY, url: process.env.POCKET_ROUTER_URL || null,
+  timeoutMs: Math.max(300, Number(process.env.POCKET_ROUTER_TIMEOUT_MS) || 1500), log });
+const routerOffered = () => CLAUDE_MODELS.filter(m => isOffered(m.id));
 const TITLE_MODELS = { claude: (process.env.POCKET_TITLE_CLAUDE_MODEL || 'haiku').trim(), codex: (process.env.POCKET_TITLE_CODEX_MODEL || 'gpt-6-luna').trim() };
 // 1.52: a helper call never names a Claude model the managed policy blocks (the CLI would run its default,
 // often the most expensive model, instead); it takes the cheapest offered model the policy allows.
@@ -1599,6 +1610,13 @@ function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, r
   if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   cancelRetry(sessionId); // a manually-started turn supersedes any pending auto-resume
   let modelFallback;
+  // 1.62: in Assistant mode a conversation remembers the model and effort it was given (by the router, or by Try
+  // harder), since the person never picks one and every later reply arrives as "default".
+  if (assistantOn()) {
+    const asked = model && model !== 'default', kept = smeta[sessionId]?.routed;
+    if (asked) { if (kept?.model !== model || kept?.effort !== effort) setSmeta(sessionId, { routed: { model, effort: effort && effort !== 'default' ? effort : null } }); }
+    else if (kept?.model) { model = kept.model; if (!effort || effort === 'default') effort = kept.effort || effort; }
+  }
   ({ model, effort, modelFallback } = withDefaults('claude', { model, effort }));
   if (modelFallback) log(`model fallback session=${sessionId} requested=${modelFallback.requested} reason=${modelFallback.reason} using=${modelFallback.used}`);
   const mode=approvalMode(requestedMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);
@@ -2426,8 +2444,13 @@ app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secre
     } catch (e) { return res.status(500).json({ error: String(e.message) }); }
   }
   const id = randomUUID();
+  const opts = turnOpts(req.body);
+  if (assistantOn() && router.on && (!opts.model || opts.model === 'default')) { // 1.62
+    const pick = await router.pick(text, { offered: routerOffered(), maxEffort: maxEffort() });
+    if (pick) { opts.model = pick.model; opts.effort = pick.effort; log(`router: ${pick.tier} → ${pick.model} ${pick.effort} (${pick.ms} ms) session=${id}`); }
+  }
   try {
-    const turn = startTurn({ sessionId: id, cwd, text, resume: false, ...turnOpts(req.body) });
+    const turn = startTurn({ sessionId: id, cwd, text, resume: false, ...opts });
     if (!req.body?.project) try { promptStore.recordRecent({ text, cwd, provider: 'claude' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
     linkStartedSession(req.body?.project, id);
     res.status(202).json({ id, ...(turn.modelFallback ? { modelFallback: turn.modelFallback } : {}) });
@@ -2512,7 +2535,7 @@ function claudeModelSettings() {
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
 app.get('/api/settings', requireAuth, async (_req, res) => {
   await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
-  res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, autoKeepActive: autoKeepOn(), vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings() });
+  res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, autoKeepActive: autoKeepOn(), router: { provider: router.provider, last: router.last, maxEffort: maxEffort() }, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.assistantMode === 'boolean') {
@@ -3232,7 +3255,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Files in the conversation: a file a reply hands you shows under it as a card with a picture of a PDF's first page, Keep in Files and Download, and opens the way Settings → Open files and links says. Keep files from replies keeps each one in Files once (always on in Assistant mode)."];
+const RELEASE_NOTES = ["In Assistant mode the model is chosen for you: a request you type is matched to the lightest model and effort that will do it well (POCKET_ROUTER with a decision model), the conversation keeps it, and Try harder under the latest reply asks for a more careful pass. Pocket now honours the managed policy's maxEffortLevel on every Claude turn."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

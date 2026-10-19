@@ -3,6 +3,15 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.62.0] — 2026-10-19 · build 123
+
+- **The model is chosen for you in Assistant mode.** A request typed from scratch is sent once to a small decision model, which answers which of four levels it needs: *quick* (a lookup or short answer: Sonnet, low effort), *standard* (an email, a summary, an explanation: Sonnet, medium), *careful* (several steps, figures that must reconcile: Sonnet, high) or *deep* (a proposal, deck, report or hard analysis: Opus, high). It only chooses among the models this Pocket offers (Settings and the managed policy) and falls back a level when one isn't offered. The conversation keeps that choice for later replies. A saved prompt that names a model and effort uses them, as before. Anything that goes wrong (no key, a timeout over 1.5 s, an error, a refusal, an answer under 35% confidence) runs the instance default, exactly as before.
+- **Turning it on.** `POCKET_ROUTER=jev` (TypeSafe Jev through OpenRouter's decisions endpoint) or `openai` (OpenAI's Decisions API, `gpt-6-luna`), with `POCKET_ROUTER_KEY` or `POCKET_ROUTER_KEY_FILE`; `POCKET_ROUTER_TIMEOUT_MS` (default 1500). Off unless set. `/api/settings` reports the provider, the effort ceiling and the last decision or failure. A 20-request check through Jev on 2026-10-19 put every request in the expected level, p50 138 ms; a backtest on real first messages from the seats is still to do.
+- **Try harder.** In Assistant mode the latest Claude reply has a **Try harder** button: it asks for another, more careful pass on the strongest offered model at high effort, and the conversation keeps that choice.
+- **The policy's effort ceiling is honoured.** `maxEffortLevel` in Claude Code's managed settings now caps the effort Pocket asks for on every Claude turn, whatever the picker, a saved prompt or the router says.
+- Migration: none. A routed or Try-harder choice is kept as `routed` in `session-meta.json`.
+- Tests: `test/router.test.mjs` (levels onto offered models with fallback and the ceiling; Jev and OpenAI requests and answers; HTTP errors, refusals, unknown levels, low confidence and timeouts fail open; no key or an unknown provider is off; over HTTP with a fake decision endpoint: a deep request runs Opus capped to the policy's medium, later replies keep it, an explicit choice sticks, a light request runs Sonnet low, a dead router runs the default).
+
 ## [1.61.0] — 2026-10-19 · build 122
 
 - **Files in the conversation.** A file a reply hands you (a link, a path in a code span or on its own line) now shows under that reply as a card: the first page of a PDF as a picture, or the file's type, its name, and **Keep in Files** (or **In Files**) and **Download**. Tapping the card opens it the way **Settings → Open files and links** says (a tab, beside the conversation, or a new window): a kept file opens in Files; a PDF, page or text file opens in Pocket's own viewer, still sandboxed; an Office file downloads. Images already show in the reply and get no card.
