@@ -2409,6 +2409,23 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    }finally{Object.assign(settings,before);if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
   });
 
+  await check('1.68.1 Settings → Appearance: Mode shows Developer mode and Assistant mode with the current one pressed',async()=>{
+   const settings=settingsState(),before={assistantMode:settings.assistantMode},vp=page.viewport();
+   try{
+    for(const [w,h] of [[390,844],[1440,900]])for(const assistant of [false,true]){
+     settings.assistantMode=assistant;await page.setViewport({width:w,height:h});
+     await page.goto(base+'/#/all');await page.reload();await page.waitForSelector('.session-home'); // a reload, so the page reads the mode afresh
+     await page.evaluate(()=>settingsSheet({category:'appearance'}));await page.waitForSelector('#s-mode');
+     assert.deepEqual(await page.$$eval('#s-mode [data-pocket-mode]',b=>b.map(x=>[x.dataset.pocketMode,x.textContent.trim(),x.getAttribute('aria-pressed')])),[['developer','Developer mode',String(!assistant)],['assistant','Assistant mode',String(assistant)]],'the current mode is pressed at '+w+' assistant='+assistant);
+     assert.ok((await page.$$eval('#s-mode [data-pocket-mode]',b=>b.map(x=>x.getBoundingClientRect().height))).every(x=>x>=44),'44px targets');
+     assert.equal(await page.$('#s-assistant'),null,'the 1.60 switch is gone');
+     assert.match(await page.$eval('#s-mode .chat-text-help',e=>e.textContent),/Developer mode is the full workbench/);
+     if(!assistant){await page.mouse.move(1,1);await page.evaluate(()=>document.querySelector('#tip')?.setAttribute('hidden',''));await scan('settings-mode-'+w);} // the hover tip from the reload is not part of this surface
+     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.settings-sheet'));
+    }
+   }finally{Object.assign(settings,before);if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
+  });
+
   await check('1.67 Settings: automatic model choice and one sign-in are set here, with the levels, the key state and the sign-in fields',async()=>{
    const vp=page.viewport();
    try{

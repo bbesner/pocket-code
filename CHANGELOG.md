@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.68.1] — 2026-10-19 · build 133
+
+- **Mode is a choice you can read.** **Settings → Appearance → Mode** shows **Developer mode** and **Assistant mode** side by side, the one you are in pressed, in the same row style as Highlight colour. 1.60's single *Assistant mode* switch read as on or off, and off said nothing about what you were in; now the alternative is named and visible. Tapping the other option switches this Pocket on every device, as before. With `POCKET_ASSISTANT_MODE=locked` both options show disabled and the help line says where to change it. Asked for by Brad.
+- Migration: none. Settings, `/api/settings` and `/api/me` are unchanged; only the control changed.
+- Tests: the browser suite checks the Mode row in both modes (the pressed option, the two names, 44px targets) at 390 and 1440.
+
 ## [1.68.0] — 2026-10-19 · build 132
 
 - **The Gmail, Calendar and Drive instructions reach the agent with every message.** 1.64 delivered `pocket-google` only as an installed skill, so a server running `POCKET_SKILLS=0` never saw it. Siri's and Ramesh's boxes run that way on purpose: their Codex home is shared with the UltraWeb chat container, where Pocket's installed skills would shadow the tenant's own. Each Claude turn (`--append-system-prompt`) and each Codex thread (`developerInstructions`) now carries one line, as Files, Projects, Tasks and the Vault already do: use this agent's connectors from Settings → Connectors, check whose Google account it is, draft every email and show it first, send when asked and never refuse, ask before sending invitations, and read `skills/pocket-google/SKILL.claude.md` or `SKILL.codex.md` in the checkout for the full procedure. The line needs no setting and does not depend on `POCKET_SKILLS`. A Codex `config.toml` with its own `developer_instructions` still keeps all of Pocket's lines out, as since 1.39 (Siri's and Ramesh's do not set one). Asked for by Brad.
