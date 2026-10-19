@@ -18,7 +18,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
  const errors=[],checks=[],scans=[];
  page.on('pageerror',e=>errors.push(e.message));
  const idle=rows[4].id;
- const check=async(name,fn)=>{await fn();checks.push(name);};
+ const check=async(name,fn)=>{if(process.env.POCKET_CHECK&&!name.includes(process.env.POCKET_CHECK))return;await fn();checks.push(name);}; // POCKET_CHECK=<substring> runs one check while iterating on it
  const chat=async()=>{await page.goto(base+'/#/chat/'+idle);await page.waitForSelector('#box');};
  // Hash-only navigation keeps the old view for a moment; wait for the requested conversation to be loaded.
  const openChat=async id=>{await page.goto(base+'/#/chat/'+id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#ctitle')?.textContent!=='Conversation'&&document.querySelector('#box'),{},id);};
@@ -1257,7 +1257,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    settings.tasks=true;await page.goto(base+'/#/tasks');await page.waitForSelector('.task-item');
    await page.evaluate(()=>settingsSheet({category:'notifications'}));await page.waitForFunction(()=>document.querySelector('#s-ahead')?.disabled===false);
    const notify=await page.evaluate(()=>({heading:document.querySelector('.settings-sheet h2').textContent,push:document.querySelector('#s-push > span:last-child').firstChild.textContent,kindsDisabled:[...document.querySelectorAll('.push-kinds .opt')].map(b=>b.disabled),badge:Boolean(document.querySelector('#s-badge')),scopes:[...document.querySelectorAll('[data-settings-panel="notifications"] .settings-scope')].map(e=>e.textContent),ahead:document.querySelector('#s-ahead').getAttribute('aria-pressed'),email:document.querySelector('#s-email').disabled,note:document.querySelector('#s-email-note').textContent}));
-   assert.equal(notify.heading,'Notifications & voice');assert.equal(notify.push,'Push to this device');assert.deepEqual(notify.kindsDisabled,[true,true,true],'the kinds wait for a subscription');assert.equal(notify.badge,true);
+   assert.equal(notify.heading,'Notifications & voice');assert.equal(notify.push,'Push to this device');assert.deepEqual(notify.kindsDisabled,[true,true,true,true],'the four kinds wait for a subscription (1.69: Inbox alerts too)');assert.equal(notify.badge,true);
    assert.deepEqual(notify.scopes,['This device','This instance · all devices']);assert.equal(notify.ahead,'false');assert.equal(notify.email,false,'the fixture server has mail set up');assert.match(notify.note,/Enter the address/);
    await clickControl(page,'#s-ahead');for(let i=0;i<30&&settings.remindAhead!==24;i++)await sleep(100);assert.equal(settings.remindAhead,24,'the notice is instance-wide');
    await page.waitForFunction(()=>document.querySelector('#s-ahead')?.getAttribute('aria-pressed')==='true');
@@ -2407,6 +2407,63 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.goto(base+'/#/all');await page.waitForSelector('.session-home');
     assert.equal(await page.$eval('header.bar h1',e=>e.textContent.trim()),'Conversations');assert.equal(await shown('.session-filters'),false);
    }finally{Object.assign(settings,before);if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
+  });
+
+  await check('1.69 Inbox: the rail fits six libraries, the list opens with New / All / Dismissed, X dismisses, the row menu resolves, Settings and the push kind are there',async()=>{
+   const settings=settingsState(),before={projects:settings.projects,documents:settings.documents,tasks:settings.tasks,vault:settings.vault,inbox:settings.inbox},vp=page.viewport();
+   Object.assign(settings,{projects:true,documents:true,tasks:true,vault:true,inbox:true});
+   const shown=sel=>page.evaluate(s=>[...document.querySelectorAll(s)].some(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'),sel);
+   try{
+    await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));
+    // the rail at a desk: six entries, icons for all, the name only on the pressed one, every entry named for assistive tech
+    await page.setViewport({width:1440,height:900});await page.goto(base+'/#/inbox');await page.reload();await page.waitForSelector('.inbox-view'); // the rail belongs to the view shell
+    await page.waitForSelector('.rail-switch.many');
+    const segs=await page.$$eval('.rail-switch button',bs=>bs.map(b=>({view:b.dataset.railView,label:b.getAttribute('aria-label'),pressed:b.getAttribute('aria-pressed'),named:b.querySelector('.rail-label').getBoundingClientRect().width>4,icon:Boolean(b.querySelector('svg')),w:b.getBoundingClientRect().width})));
+    assert.deepEqual(segs.map(x=>x.view),['sessions','projects','documents','tasks','vault','inbox']);
+    assert.deepEqual(segs.map(x=>x.label),['Chats','Projects','Files','Tasks','Vault','Inbox']);
+    assert.ok(segs.every(x=>x.icon),'every entry has an icon');assert.deepEqual(segs.map(x=>x.named),[true,false,false,false,false,false],'only the pressed entry (Chats, the rail’s own choice) shows its name');
+    const fit=await page.evaluate(()=>{const r=s=>{const e=document.querySelector(s);if(!e)return null;const b=e.getBoundingClientRect();return {left:Math.round(b.left),right:Math.round(b.right),top:Math.round(b.top),bottom:Math.round(b.bottom),w:Math.round(b.width)};};return {switch:r('.rail-switch'),head:r('.railhead'),actions:r('.rail-actions'),rail:r('aside.rail'),overflow:document.querySelector('.railhead').scrollWidth>document.querySelector('.railhead').clientWidth+1,buttons:[...document.querySelectorAll('.rail-switch button')].map(b=>[Math.round(b.getBoundingClientRect().width),Math.round(b.querySelector('.rail-label').getBoundingClientRect().width),getComputedStyle(b.querySelector('.rail-label')).position,b.className]),many:document.querySelector('.rail-switch').className};});
+    assert.ok(!fit.overflow&&fit.switch.right<=fit.head.right&&(fit.switch.right<=fit.actions.left||fit.switch.top>=fit.actions.bottom||fit.switch.bottom<=fit.actions.top),'the switch fits the rail head, beside the rail actions or on its own row: '+JSON.stringify(fit));
+    assert.ok(fit.switch.right<=fit.actions.left,'at the default rail width six entries share one row with the rail actions: '+JSON.stringify(fit));
+    await page.waitForFunction(()=>document.querySelector('[data-inbox-badge]')?.textContent==='1');
+    await scan('rail-six-1440');
+    // the list
+    for(const w of [390,1440]){
+     await page.setViewport({width:w,height:w===390?844:900});await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view .inbox-item');
+     assert.equal(await page.$eval('#ktitle',e=>e.textContent),'Inbox');
+     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item .title',t=>t.map(x=>x.textContent)),['Pradera dispatch conflict'],'New shows the one new alert at '+w);
+     assert.ok((await page.$$eval('.inbox-item button',bs=>bs.map(b=>b.getBoundingClientRect().height))).every(h=>h>=44),'44px targets');
+     await clickControl(page,'[data-inbox-filter="all"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===3);
+     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item',r=>r.map(x=>x.className.match(/state-\w+/)[0])),['state-new','state-opened','state-resolved']);
+     assert.match(await page.$eval('.inbox-item.state-new .inbox-text',e=>e.textContent),/Kimberly says/);
+     if(w===390)await scan('inbox-all-390');else await scan('inbox-all-1440');
+     await clickControl(page,'[data-inbox-filter="new"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1);
+    }
+    // the row menu: Resolved; then X: Dismissed shows it and Restore brings it back
+    await clickControl(page,'.inbox-item.state-new [data-inbox-more]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
+    assert.match(await page.$eval('.inbox-sheet .inbox-body',e=>e.innerHTML),/<a href="https:\/\/mail\.google\.com\/mail\/u\/0\/#all\/1a1540e0de10f879"/,'a citation is a Gmail link');
+    assert.deepEqual(await page.evaluate(()=>['[data-go]','a.opt[href^="https://mail.google.com/"]','[data-resolve]','[data-useless]','[data-dismiss]','[data-restore]'].map(q=>Boolean(document.querySelector('.inbox-sheet '+q)))),[true,true,true,true,true,false],'the choices: open, Gmail, Resolved, Not useful, Dismiss; no Restore on a new entry');
+    await clickControl(page,'.inbox-sheet [data-resolve]');await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));
+    await page.waitForFunction(()=>document.querySelector('.inbox-view .project-empty')?.textContent.includes('Nothing new'));
+    await clickControl(page,'[data-inbox-filter="all"]');await page.waitForSelector('.inbox-item.state-resolved [data-inbox-dismiss]');
+    await clickControl(page,'.inbox-item.state-resolved [data-inbox-dismiss]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
+    await clickControl(page,'[data-inbox-filter="dismissed"]');await page.waitForSelector('.inbox-item.state-dismissed');
+    await clickControl(page,'.inbox-item.state-dismissed [data-inbox-more]');await page.waitForSelector('.inbox-sheet [data-restore]');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));await clickControl(page,'.inbox-sheet [data-restore]');
+    await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));await page.waitForFunction(()=>document.querySelector('.inbox-view .project-empty')?.textContent.includes('Nothing dismissed'));
+    // Settings: the switch under the libraries, the push kind under notifications
+    await page.setViewport({width:1440,height:900});await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox');
+    await page.waitForFunction(()=>document.querySelector('#s-inbox')?.getAttribute('aria-pressed')==='true');assert.match(await page.$eval('#s-inbox-state',e=>e.textContent),/^On: alerts, digests and look-aheads/);
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.settings-sheet'));
+    await page.evaluate(()=>settingsSheet({category:'notifications'}));await page.waitForSelector('#s-push-alerts');assert.equal(await page.$eval('#s-push-alerts',e=>e.textContent.includes('Inbox alerts')),true);
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.settings-sheet'));
+    // Assistant mode: a new alert is a Waiting-for-you card on home
+    await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));settings.assistantMode=true;
+    await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.reload();await page.waitForSelector('.assistant-home');
+    await page.waitForSelector('#home-waiting .inbox-card');
+    assert.equal(await page.$eval('#home-waiting .inbox-card .home-card-title',e=>e.textContent),'Pradera dispatch conflict');
+    assert.equal(await page.$eval('#home-waiting .inbox-card',e=>e.getAttribute('href')),'#/start/0123456789ab','the card opens the briefed conversation');
+    await page.mouse.move(1,1);await page.evaluate(()=>document.querySelector('#tip')?.setAttribute('hidden',''));await scan('assistant-home-inbox-390');
+   }finally{Object.assign(settings,before);settings.assistantMode=false;await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
   });
 
   await check('1.68.1 Settings → Appearance: Mode shows Developer mode and Assistant mode with the current one pressed',async()=>{

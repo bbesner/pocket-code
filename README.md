@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.68.1 / build 133**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.69.0 / build 134**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -163,7 +163,7 @@ roughly doubled what I get done with AI in a day, and it did that without adding
 - **Know what needs you.** Attention collects questions, approvals, failed turns and
   replies you have not opened; **Mark as reviewed** clears one, on every device.
 - **Get alerts.** Optional push notifications, chosen by kind per device (finished turns, due
-  tasks and reminders, Vault requests), a count of due items on the app icon, an on-screen chime
+  tasks and reminders, Vault requests, Inbox alerts), a count of due items on the app icon, an on-screen chime
   and per-session muting. Push needs HTTPS, server keys and browser permission. Due tasks and
   reminders can also go by email when the server has an SMTP address.
 
@@ -183,10 +183,11 @@ the install, both options show disabled with the reason.
 |---|---|
 | ![Light mode: warm paper surfaces, dark text and orange highlights in the conversation workspace](docs/images/appearance-light.png) | ![Dark mode: warm ink surfaces, light text and orange highlights in the same workspace](docs/images/appearance-dark.png) |
 
-### Projects, files, tasks and the Vault (optional)
+### Projects, files, tasks, Inbox and the Vault (optional)
 
 Each is off until **Settings → Projects, files, tasks & vault** turns it on for the install. On
-the desktop the rail head switches between Sessions, Projects, Files and Tasks. Open lists
+the desktop the rail head switches between Chats, Projects, Files, Tasks, Vault and Inbox, an icon
+for each; with five or more, only the pressed one shows its name (1.69). Open lists
 refresh when the window comes back into focus, when a turn ends in any Pocket window on the
 device, and when you open them, so an item an agent adds shows up without a reload.
 
@@ -204,6 +205,10 @@ device, and when you open them, so an item an agent adds shows up without a relo
 - **Tasks** are to-dos with an optional date and time, the session they came from and, if
   you want it, a short briefing on that session. **Start** opens a new session with the
   task written in, ready to send. See [Tasks](docs/workspace-guide.md#tasks).
+- **Inbox** (1.69) is what [Inbox Watch](#inbox-watch-your-mailbox-read-for-you-165) sent: alerts,
+  digests and look-aheads in one list, newest first. **Open** goes to the briefed conversation or the
+  Files document, **X** dismisses, and the row menu records **Resolved** or **Not useful**, which the
+  watcher reads back on its next run. See [Inbox](docs/workspace-guide.md#inbox).
 - **Vault** (1.39) keeps API keys, tokens, logins and notes encrypted in one file on the
   server. See [Vault](docs/workspace-guide.md#vault).
   - **Set up in one switch.** Turning it on creates the key, saves it to the install's
@@ -266,10 +271,12 @@ OpenClaw agent) to decide what deserves you. What it sends:
 
 Quiet hours hold ordinary alerts until morning; only something critical gets through. Your
 standing preferences live in a text file the judge reads every turn, so "don't repeat my
-email" or "ignore these notices" sticks. Pocket's part is the push (`pocket-notify`), the
-briefed conversation (a start link) and Files; the worker ships as its own program,
-`inbox-monitor`, with a config file per mailbox (owner, mailbox, judge, delivery) and a
-timer. Mail access is the owner's own Gmail consent, or a Workspace service account for
+email" or "ignore these notices" sticks. With the **Inbox** library on (1.69), everything it sent
+is one list in Pocket: tap **X** to dismiss, or choose **Resolved** or **Not useful** from a row, and
+the watcher applies it on its next run, closing the story or adding a line to your preferences.
+Pocket's part is the Inbox (`pocket-inbox`), the push, the briefed conversation (a start link) and
+Files; the worker ships as its own program, `inbox-monitor`, with a config file per mailbox (owner,
+mailbox, judge, delivery) and a timer. Mail access is the owner's own Gmail consent, or a Workspace service account for
 mailboxes an administrator controls.
 
 ### Answer, approve and steer
@@ -382,6 +389,7 @@ header of each script in `scripts/`; the shipped skills explain when to use them
 | `pocket-docs` | `add <path> [--title] [--project] [--session] [--visibility]`, `list [--q]`, `show <id>`, `share <id> [--expires 7d\|30d\|none]`, `set <id> --visibility private\|link\|public`, `trash <id>`, `restore <id>` |
 | `pocket-tasks` | `add "…" [--due] [--session <id>] [--summary "…"] [--dir]`, `list [--all]`, `show <id>`, `done <id>`, `reopen <id>`, `edit <id> [--clear-due]`, `remove <id>` |
 | `pocket-notify` | `--title "…" --body "…" [--url /#/start/<id> or another Pocket path] [--tag <key>] [--email]` (1.65.0): a push to every device that wants alerts, and an email to the notification address with `--email`; pair it with `pocket-start` so the alert opens a briefed New session |
+| `pocket-inbox` | `add --title "…" (--text "…" \| --file -) [--kind alert\|digest\|lookahead] [--priority] [--story] [--url] [--gmail] [--doc] [--dedupe] [--email]` (1.69): an Inbox entry plus the push; `list [--state new\|all\|dismissed]`, `act <id> open\|dismiss\|resolve\|not_useful\|restore`, `feedback`, `ack <ids>`, `seen` for a watcher applying what the owner decided |
 | `pocket-vault` | `run --env VAR=name[.field] [--cwd] [--timeout] -- <command…>`, `wait <request id>`, `put <name> --kind api_key\|token\|login\|credentials\|note (--from-env VAR\|--from-file path\|--stdin)`, `list`, `show <name>`, `history`. Never prints a value; exits 4 while a request waits for you and 5 when it is refused |
 
 For browser logins, `scripts/pocket-mcp-proxy.mjs` (**Typed by Pocket**, 1.43) sits between an

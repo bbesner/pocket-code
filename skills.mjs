@@ -1,4 +1,4 @@
-// Agent skills that ship with Pocket Code (1.34). skills/pocket-projects, skills/pocket-files, (1.36) skills/pocket-tasks and (1.59) skills/pocket-google are written into the
+// Agent skills that ship with Pocket Code (1.34). skills/pocket-projects, skills/pocket-files, (1.36) skills/pocket-tasks, (1.59) skills/pocket-google and (1.69) skills/pocket-inbox are written into the
 // user-level folders Claude Code (~/.claude/skills) and Codex ($CODEX_HOME/skills) read, so every agent on this server
 // (Pocket's, the terminal's, code-server's) knows how to create a project and what "save it to my files" means.
 // A skill is installed while its feature is on and removed when it is turned off. Pocket only writes or removes a
@@ -14,10 +14,11 @@ export const SKILLS = [
   { name: 'pocket-files', feature: 'documents', cli: 'docs' },
   { name: 'pocket-tasks', feature: 'tasks', cli: 'tasks' }, // 1.36
   { name: 'pocket-vault', feature: 'vault', cli: 'vault' }, // 1.39
+  { name: 'pocket-inbox', feature: 'inbox', cli: 'inbox' }, // 1.69: Inbox Watch
   // 1.59: Gmail, Calendar and Drive through each agent's own connectors (Settings → Connectors). Always on; one file per agent.
   { name: 'pocket-google', feature: null, files: { claude: 'SKILL.claude.md', codex: 'SKILL.codex.md' } },
 ];
-const BIN = { board: 'pocket-board', docs: 'pocket-docs', tasks: 'pocket-tasks', vault: 'pocket-vault' };
+const BIN = { board: 'pocket-board', docs: 'pocket-docs', tasks: 'pocket-tasks', vault: 'pocket-vault', inbox: 'pocket-inbox' };
 const SRC = path.join(import.meta.dirname, 'skills');
 
 // Claude Code's user skills folder always; Codex's only where Codex is installed for this user.

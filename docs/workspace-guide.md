@@ -492,6 +492,35 @@ session in the task's workspace with the task text, the briefing and the task's 
 draft, editable, so one tap of Send begins the work; an agent that finishes it marks the task
 done. **Open the session** returns to the conversation the task came from.
 
+## Inbox
+
+Inbox (1.69) is the list of what Inbox Watch sent: alerts, the morning digest and the two look-aheads,
+newest first and grouped by day. It is off until **Settings → Projects, files, tasks & vault → Inbox
+Watch** turns it on for the install; the desktop rail then shows **Inbox** beside the other
+libraries (an icon for each; with five or more, only the pressed one shows its name), the phone's
+home shows an **Inbox** chip, and `#/inbox` opens the list like a session: as a tab, beside a
+conversation or in its own window.
+
+**A row** is the title, the first sentence, and a line with the time, the story it belongs to and
+its kind (alert, digest, look-ahead); a new entry has a dot in the accent colour. **Open** (the row or
+its mark) goes to the conversation the watcher briefed for it, or to the Files document for a digest
+or look-ahead. **X** dismisses the row. The **…** menu shows the whole text, with each citation a
+Gmail link, and the choices: **Open the conversation** or **Open in Files**, **Open in Gmail**,
+**Resolved** (the situation is over; the watcher stops following it), **Not useful** (the watcher adds
+a line to your standing preferences so it stops alerting on that kind of thing) and **Dismiss**. A
+dismissed, resolved or not-useful entry offers **Restore**. The chips **New**, **All** and
+**Dismissed** filter the list and a search box narrows it by title, story or text. Dismissed entries
+are kept for 30 days, everything else for 60. When the watcher has not reported in a day the list
+says so.
+
+**What the watcher reads back.** Resolved, Not useful, Dismiss and Restore are recorded with the
+entry; a watcher asks for them (`pocket-inbox feedback`), applies them, and acknowledges them
+(`pocket-inbox ack`), so nothing is applied twice. Dismiss changes nothing on the watcher's side.
+
+**In Assistant mode** a new alert also appears as a **Waiting for you** card on home, opening the
+briefed conversation; digests and look-aheads wait in Inbox and Files. **Settings → Notifications &
+voice → Inbox alerts** is the push kind for them, per device, urgent like a due reminder.
+
 ## Vault
 
 The Vault (1.39) keeps API keys, tokens, logins and secure notes on the server, encrypted, so

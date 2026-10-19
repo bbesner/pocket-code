@@ -1,7 +1,8 @@
 {
-  "version": "1.68.1",
-  "assetV": 133,
+  "version": "1.69.0",
+  "assetV": 134,
   "notes": [
+    "Inbox: a fifth library beside Projects, Files, Tasks and the Vault for what Inbox Watch sends, with Open, Gmail and X on every row and a Resolved / Not useful choice the watcher reads back. The rail shows an icon per library so six fit. Inbox alerts get their own push toggle.",
     "Settings → Appearance now shows Mode as a choice, Developer mode or Assistant mode, with the one you are in pressed, instead of a single Assistant mode switch that left you guessing what off meant.",
     "The Gmail, Calendar and Drive instructions now reach Claude and Codex with every message, so they work even on servers that keep Pocket's skills out of the agents' skill folders."
   ]

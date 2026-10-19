@@ -1,0 +1,86 @@
+---
+name: pocket-inbox
+description: Read and answer Inbox Watch in Pocket Code. Use when the user asks what Inbox Watch (their inbox watcher, the inbox monitor) sent, about today's alerts, digest or look-ahead, about an alert on a customer or a story, or asks to mark one resolved, not useful or dismissed, or to bring one back. Also use when a job on this server needs to post an alert, digest or look-ahead to the user's Inbox.
+---
+
+# Pocket Code Inbox Watch
+
+Pocket Code keeps **Inbox** on its own server: what the user's inbox watcher sent them. There
+are three kinds of entry: an **alert** (one email thread that needs the user, with a briefed
+conversation to open), a **digest** (a summary of a stretch of mail, kept in Files) and a
+**look-ahead** (what is coming up today). Each entry has a title, a short text whose
+`[label](msg:<id>)` citations point at the emails it came from, the story it belongs to (for
+example "Pradera service-call story"), a priority, and links to open it in Pocket, in Gmail or
+in Files. The user sees the list under Inbox in Pocket Code on every device and answers each
+entry there. You read and answer it with the `pocket-inbox` command.
+
+<!-- pocket:commands -->
+Run `pocket-inbox` from the Pocket Code directory (`node scripts/pocket-inbox.mjs`). The session
+instructions Pocket gives you name the exact command.
+<!-- /pocket:commands -->
+
+## Reading it
+
+```bash
+pocket-inbox list                     # the new (unread) entries, newest first
+pocket-inbox list --state all         # everything except dismissed
+pocket-inbox list --state dismissed   # the Dismissed filter (kept 30 days)
+pocket-inbox list --since 2026-10-19T00:00:00Z
+pocket-inbox show <id>                # one entry in full: text, story, links, note
+```
+
+Use these when the user asks "what did Inbox Watch send today", "anything urgent from the
+inbox", "what was the Pradera alert about". Answer from the entries: the title, what the text
+says, the story and when it came in. Keep the citations' labels; the links are the user's to
+open in Pocket or Gmail.
+
+## Answering an entry
+
+What the user decides about an entry goes back to the watcher, which changes what it sends
+next time:
+
+- **Resolved** (`resolve`): the situation is over. The watcher stops following that story.
+- **Not useful** (`not_useful`): the user does not want alerts about this kind of thing. The
+  watcher adds it to the user's preferences and lowers that story's priority.
+- **Dismiss** (`dismiss`): hide it in Pocket. Nothing else changes.
+- **Restore** (`restore`): undo any of those three.
+
+```bash
+pocket-inbox act <id> resolve
+pocket-inbox act <id> not_useful --note "Vendor newsletters are never urgent"
+pocket-inbox act <id> dismiss
+pocket-inbox act <id> restore
+```
+
+**Act only when the user asks**, in words that name the decision: "mark the Circa alert
+resolved", "that one wasn't useful", "dismiss the look-ahead", "bring back the Pradera alert".
+Never resolve, dismiss or mark anything not useful on your own judgment, even when the
+situation looks finished; tell the user what you see and let them decide. A `--note` carries
+the user's reason, in their words, when they gave one. If more than one entry could match what
+the user said, list them and ask which.
+
+After acting, confirm in one sentence: the entry's title and what you recorded.
+
+## Posting to it (jobs on this server)
+
+The inbox watcher and other jobs post entries; an agent in a conversation does not, unless the
+user asks for that job to be set up.
+
+```bash
+pocket-inbox add --title "Pradera needs dispatch attention before 9 a.m." --file - \
+  --kind alert --priority high --story "Pradera service-call story" \
+  --url "/#/start/<id>" --gmail "https://mail.google.com/mail/u/0/#all/<thread>" --dedupe "pradera:<thread>"
+pocket-inbox feedback          # the user's decisions the job has not applied yet
+pocket-inbox ack <id…>         # after applying them
+pocket-inbox seen              # a heartbeat when a run posts nothing
+```
+
+`add` sends a push to the user's devices (`--no-push` to skip it) and, with `--email`, an
+email to the address saved in Settings. A `--dedupe` key already used in the last 24 hours
+adds nothing and says `duplicate`.
+
+## If Inbox Watch is off
+
+`pocket-inbox` says so and exits with code 1. Tell the user that Inbox Watch is turned off and
+can be turned on in Pocket Code under **Settings → Projects, files, tasks & vault → Inbox Watch**.
+Exit code 2 means Pocket Code is not running on this server.

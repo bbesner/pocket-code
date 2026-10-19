@@ -6,6 +6,9 @@ const app = $('#app');
 /* ---------- drawn icons (1.8px stroke, round caps) ---------- */
 const IC = {
   back: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
+  inbox: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-7.5h11L20 13v6H4zM4 13h5l1.5 2.5h3L15 13h5"/></svg>', // 1.69
+  vault: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>', // 1.69: the rail's Vault entry
+  chat: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H10l-4 3.5v-3.5H5z"/></svg>', // 1.69
   plus: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   up: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V6M6 12l6-6 6 6"/></svg>',
   down: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v13M6 12l6 6 6-6"/></svg>',
@@ -556,7 +559,7 @@ async function togglePush(btn) {
       if (!key) return toast('Push not configured on server');
       sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(key) });
       // 1.50: this device's choices travel with the subscription: every kind on, the icon count as set here.
-      await api('/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON(), prefs: { kinds: { turns: true, reminders: true, vault: true }, badge: typeof iconBadgeOn === 'function' ? iconBadgeOn() : true } }) });
+      await api('/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON(), prefs: { kinds: { turns: true, reminders: true, vault: true, alerts: true }, badge: typeof iconBadgeOn === 'function' ? iconBadgeOn() : true } }) });
       toast('This device will get notifications');
     }
     const now = await pushState();
@@ -664,6 +667,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       <button class="opt" id="s-push-turns" disabled aria-pressed="false"><span class="dot"></span><span>Finished replies<span class="sub">When a conversation finishes a reply, unless it is muted</span></span></button>
       <button class="opt" id="s-push-reminders" disabled aria-pressed="false"><span class="dot"></span><span>Due tasks and reminders<span class="sub">Once when each comes due. Tomorrow and Done on the notification answer without opening Pocket</span></span></button>
       <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">When an agent needs a secret you have to allow</span></span></button>
+      <button class="opt" id="s-push-alerts" disabled aria-pressed="false"><span class="dot"></span><span>Inbox alerts<span class="sub">An alert from Inbox Watch or another job on the server; urgent, like a due reminder</span></span></button>
     </div>
     <button class="opt" id="s-badge" aria-pressed="false"><span class="dot"></span><span>Count on the app icon<span class="sub" id="s-badge-state">How many tasks and reminders are due, on the installed app's icon</span></span></button>
     <button class="opt" id="s-ahead" disabled aria-pressed="false"><span class="dot"></span><span>Notice a day before<span class="sub" id="s-ahead-state">Loading the reminder setting…</span></span></button>
@@ -686,6 +690,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings"><label class="voice-field">Open files and links<select id="s-documents-open"><option value="tab">As a tab, like a conversation</option><option value="beside">Beside the conversation (from a pane: a new pane to its left)</option><option value="window">In a new browser window</option></select></label><p class="title-note">A link in a conversation to one of your files, projects or conversations opens the same way. A link to an outside website opens in your browser.</p></div>
     <button class="opt" id="s-autokeep" disabled aria-pressed="false"><span class="dot"></span><span>Keep files from replies<span class="sub" id="s-autokeep-state">Loading…</span></span></button>
     <button class="opt" id="s-tasks" disabled aria-pressed="false"><span class="dot"></span><span>Tasks<span class="sub" id="s-tasks-state">Loading the Tasks setting…</span></span></button>
+    <button class="opt" id="s-inbox" disabled aria-pressed="false"><span class="dot"></span><span>Inbox Watch<span class="sub" id="s-inbox-state">Loading the Inbox setting…</span></span></button>
     <button class="opt" id="s-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault<span class="sub" id="s-vault-state">Loading the Vault setting…</span></span></button>
     <div class="title-settings vault-settings" id="s-vault-restore-wrap" hidden><span class="vault-set-actions"><button class="chip" id="s-vault-restore">${VIC.key}Restore key…</button></span></div>
     <div class="title-settings vault-settings" id="s-vault-more" hidden>
@@ -774,7 +779,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   };
   // 1.50: push by kind and the icon count are this device's choices, kept with its subscription on the server.
   let pushSub = null, pushPrefs = null;
-  const PUSH_KINDS = ['turns', 'reminders', 'vault'];
+  const PUSH_KINDS = ['turns', 'reminders', 'vault', 'alerts']; // 1.69: alerts
   const paintPushKinds = () => {
     for (const k of PUSH_KINDS) { const b = sh.querySelector('#s-push-' + k); if (!b) continue; const on = Boolean(pushSub) && pushPrefs?.kinds?.[k] !== false; b.disabled = !pushSub; b.setAttribute('aria-pressed', String(on)); b.querySelector('.dot').classList.toggle('on', on); }
   };
@@ -788,13 +793,13 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     btn.setAttribute('aria-pressed', String(Boolean(sub)));
     btn.querySelector('.dot').classList.toggle('on', Boolean(sub));
     sh.querySelector('#s-push-state').textContent = !reg ? 'Unavailable. Reload the app or tap to retry.' : sub ? 'On. Notifications reach this device even when Pocket is closed; choose which below' : 'Off. Turn on for finished replies, due tasks and reminders, and Vault requests on this device';
-    if (sub) { try { pushPrefs = (await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) })).prefs; } catch { pushPrefs = { kinds: { turns: true, reminders: true, vault: true }, badge: true }; } }
+    if (sub) { try { pushPrefs = (await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) })).prefs; } catch { pushPrefs = { kinds: { turns: true, reminders: true, vault: true, alerts: true }, badge: true }; } }
     if (sh.isConnected) paintPushKinds();
   };
   sh.querySelector('#s-push').onclick = async e => { await togglePush(e.currentTarget); await refreshPush(); };
   for (const k of PUSH_KINDS) sh.querySelector('#s-push-' + k).onclick = async e => {
     if (!pushSub) return; const btn = e.currentTarget, on = btn.getAttribute('aria-pressed') !== 'true'; btn.disabled = true;
-    try { pushPrefs = (await api('/push/prefs', { method: 'POST', body: JSON.stringify({ endpoint: pushSub.endpoint, kinds: { [k]: on } }), signal: AbortSignal.timeout(8000) })).prefs; toast(({ turns: 'Finished replies', reminders: 'Due tasks and reminders', vault: 'Vault requests' })[k] + (on ? ' on for this device' : ' off for this device')); }
+    try { pushPrefs = (await api('/push/prefs', { method: 'POST', body: JSON.stringify({ endpoint: pushSub.endpoint, kinds: { [k]: on } }), signal: AbortSignal.timeout(8000) })).prefs; toast(({ turns: 'Finished replies', reminders: 'Due tasks and reminders', vault: 'Vault requests', alerts: 'Inbox alerts' })[k] + (on ? ' on for this device' : ' off for this device')); }
     catch (err) { toast('Could not save: ' + (err.message || 'error')); }
     finally { if (sh.isConnected) paintPushKinds(); }
   };
@@ -1082,6 +1087,23 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
   };
   const filesBtnSel = sh.querySelector('#s-files-button'); filesBtnSel.value = filesButtonOpens(); filesBtnSel.onchange = () => writeLocal('pc-files-button', filesBtnSel.value);
+  // 1.69: Inbox Watch, the same way.
+  const paintInboxSetting = () => {
+    const btn = sh.querySelector('#s-inbox'); if (!btn || !srv) return;
+    const on = Boolean(srv.inbox);
+    btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
+    sh.querySelector('#s-inbox-state').textContent = on ? 'On: alerts, digests and look-aheads from your inbox watcher, in one list; Resolved and Not useful reach the watcher' : 'Off. Turn on to keep what Inbox Watch sends in one list, with a way to tell it when an alert was not useful';
+  };
+  sh.querySelector('#s-inbox').onclick = async e => {
+    const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ inbox: !srv.inbox }), signal: AbortSignal.timeout(8000) });
+      window.pocketFeatures = { ...(window.pocketFeatures || {}), inbox: Boolean(srv.inbox) };
+      paintInboxSetting(); toast(srv.inbox ? 'Inbox Watch is on' : 'Inbox Watch is off');
+      if (!srv.inbox && readLocal('pc-rail-view', 'sessions') === 'inbox') writeLocal('pc-rail-view', 'sessions');
+      document.querySelectorAll('.session-home, aside.rail').length && route();
+    } catch (err) { toast('Could not save: ' + (err.message || 'error')); btn.disabled = false; }
+  };
   // 1.36: Tasks, the same way.
   const paintTasksSetting = () => {
     const btn = sh.querySelector('#s-tasks'); if (!btn || !srv) return;
@@ -1203,7 +1225,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintNotifySettings(); paintModelOffer(); paintTrusted(); paintRouter(); paintAccess(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
+      paintTitles(); paintNotifySettings(); paintModelOffer(); paintTrusted(); paintRouter(); paintAccess(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintInboxSetting(); paintVaultSetting(); paintSecretsSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Conversation names follow Claude Code's titles, and renames here show there too";
@@ -1512,8 +1534,9 @@ function paintAssistantHome() {
   const rows = (allSessions || []).filter(s => !isHiddenSession(s));
   if (waiting) {
     const need = rows.filter(needsAttention).slice(0, 4);
-    waiting.hidden = !need.length;
-    waiting.innerHTML = need.length ? `<h2 class="home-h" id="home-waiting-h">Waiting for you</h2>${need.map(s => {
+    const inboxCards = typeof inboxWaitingCards === 'function' ? inboxWaitingCards() : []; // 1.69: a new Inbox Watch alert waits here too
+    waiting.hidden = !need.length && !inboxCards.length;
+    waiting.innerHTML = need.length || inboxCards.length ? `<h2 class="home-h" id="home-waiting-h">Waiting for you</h2>${inboxCards.join('')}${need.map(s => {
       const q = rowState(s).kind === 'input';
       return `<a class="home-card" href="#/chat/${esc(s.id)}"><span class="home-card-title">${esc(s.title || 'Untitled conversation')}</span><span class="home-card-what">${q ? esc(rowState(s).label || 'Needs your answer or OK') : 'Didn’t finish. Open to see what happened'}</span></a>`;
     }).join('')}` : '';
@@ -1521,7 +1544,7 @@ function paintAssistantHome() {
   if (recent) {
     const beside = isWide() && railOpen() && !SOLO;
     const latest = rows.slice().sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0)).slice(0, 5);
-    const links = [documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : '', tasksOn() ? '<a class="chip" href="#/tasks">Tasks</a>' : '', projectsOn() ? '<a class="chip" href="#/projects">Projects</a>' : '', vaultOn() ? '<a class="chip" href="#/vault">Vault</a>' : ''].join('');
+    const links = [documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : '', tasksOn() ? '<a class="chip" href="#/tasks">Tasks</a>' : '', projectsOn() ? '<a class="chip" href="#/projects">Projects</a>' : '', vaultOn() ? '<a class="chip" href="#/vault">Vault</a>' : '', inboxOn() ? '<a class="chip" href="#/inbox" data-inbox-home>Inbox</a>' : ''].join('');
     recent.innerHTML = (beside || !latest.length ? '' : `<h2 class="home-h" id="home-recent-h">Recent</h2><div class="home-list">${latest.map(homeRowHTML).join('')}</div><a class="home-all" href="#/all">See all conversations</a>`)
       + (links ? `<nav class="home-links" aria-label="Your things">${links}</nav>` : '');
     if (beside || !latest.length) { recent.removeAttribute('aria-labelledby'); recent.setAttribute('aria-label', 'Your things'); recent.hidden = !links; }
@@ -1752,14 +1775,14 @@ async function renderList() {
   app.innerHTML = `<header class="bar">${assistantMode() ? `<button class="icon" id="back" aria-label="Back">${IC.back}</button><h1>Conversations</h1>` : '<h1>Pocket Code</h1>'}
     <button class="icon bell" id="bell" aria-label="Toggle notifications for this device">${IC.bellOff}</button>
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
-    <main class="scroll session-home"><div class="session-home-head"><h2>Your conversations</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
+    <main class="scroll session-home"><div class="session-home-head"><h2>Your conversations</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}${inboxOn() ? '<a class="chip" href="#/inbox" data-inbox-home>Inbox</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New conversation">${IC.plus}</button>`;
   $('#new').onclick = () => { location.hash = assistantMode() ? '#/' : '#/new'; };
   if (assistantMode()) $('#back').onclick = () => { location.hash = '#/'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
   pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
   $('#bell').onclick = () => togglePush($('#bell'));
-  bindSessionPanel(app); if (projectsOn()) loadBoard().then(paintProjectBadges).catch(() => { }); if (tasksOn()) loadTasks().then(paintTaskBadges).catch(() => { }); if (vaultOn()) loadVault().then(paintVaultBadges).catch(() => { }); await refreshSessions();
+  bindSessionPanel(app); if (projectsOn()) loadBoard().then(paintProjectBadges).catch(() => { }); if (tasksOn()) loadTasks().then(paintTaskBadges).catch(() => { }); if (vaultOn()) loadVault().then(paintVaultBadges).catch(() => { }); if (inboxOn()) loadInbox().then(paintInboxBadges).catch(() => { }); await refreshSessions();
   const last=openSessions.find(s=>s.id===readLocal('pc-last-session',''));if(last&&$('#resume-last'))$('#resume-last').innerHTML=`<a class="resume-last" href="#/chat/${esc(last.id)}">Resume: ${esc(last.title)}</a>`;
 }
 function openSessionSwitcher() {
@@ -2348,18 +2371,22 @@ const railOpen = () => localStorage.getItem('pc-rail') !== 'closed';
 const railW = () => Math.min(480, Math.max(220, Number(localStorage.getItem('pc-railw')) || 320));
 // 1.29: with Projects on, the rail head switches between the session list and the project list.
 const filesButtonOpens = () => { const v = readLocal('pc-files-button', 'rail'); return ['rail', 'tab', 'beside'].includes(v) ? v : 'rail'; };
-const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return v === 'projects' && projectsOn() ? 'projects' : v === 'documents' && documentsOn() ? 'documents' : v === 'tasks' && tasksOn() ? 'tasks' : v === 'vault' && vaultOn() ? 'vault' : 'sessions'; }; // 1.39: vault
+const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return v === 'projects' && projectsOn() ? 'projects' : v === 'documents' && documentsOn() ? 'documents' : v === 'tasks' && tasksOn() ? 'tasks' : v === 'vault' && vaultOn() ? 'vault' : v === 'inbox' && inboxOn() ? 'inbox' : 'sessions'; }; // 1.39: vault; 1.69: inbox
 function railSwitchHTML() {
-  if (!projectsOn() && !documentsOn() && !tasksOn() && !vaultOn()) return '<span>Conversations</span>';
+  if (!projectsOn() && !documentsOn() && !tasksOn() && !vaultOn() && !inboxOn()) return '<span>Conversations</span>';
   const v = railView();
-  return `<div class="rail-switch" role="group" aria-label="Browse conversations, projects, files, tasks or the vault"><button data-rail-view="sessions" aria-pressed="${v === 'sessions'}">Chats</button>${projectsOn() ? `<button data-rail-view="projects" aria-pressed="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button data-rail-view="documents" aria-pressed="${v === 'documents'}" >Files</button>` : ''}${tasksOn() ? `<button data-rail-view="tasks" aria-pressed="${v === 'tasks'}">Tasks<span class="badge" data-tasks-badge hidden></span></button>` : ''}${vaultOn() ? `<button data-rail-view="vault" aria-pressed="${v === 'vault'}">Vault<span class="badge" data-vault-badge hidden></span></button>` : ''}</div>`;
+  // 1.69: each entry is an icon with its name; with five or more entries the rail shows the name only on the pressed one
+  // (the icon, aria-label and title carry it for the rest), so Inbox fits beside the other four.
+  const seg = (key, icon, label, badge) => `<button data-rail-view="${key}" aria-pressed="${v === key}" aria-label="${label}" title="${label}">${icon}<span class="rail-label">${label}</span>${badge ? `<span class="badge" ${badge} hidden></span>` : ''}</button>`;
+  const segs = [seg('sessions', IC.chat, 'Chats'), projectsOn() ? seg('projects', IC.folder, 'Projects', 'data-projects-badge') : '', documentsOn() ? seg('documents', IC.doc, 'Files') : '', tasksOn() ? seg('tasks', IC.task, 'Tasks', 'data-tasks-badge') : '', vaultOn() ? seg('vault', IC.vault, 'Vault', 'data-vault-badge') : '', inboxOn() ? seg('inbox', IC.inbox, 'Inbox', 'data-inbox-badge') : ''].filter(Boolean);
+  return `<div class="rail-switch${segs.length >= 5 ? ' many' : ''}" role="group" aria-label="Browse conversations, projects, files, tasks, the vault or the inbox">${segs.join('')}</div>`;
 }
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
-  const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : colHtml.includes('id="tasks-main"') ? 'tasks-main' : colHtml.includes('id="vault-main"') ? 'vault-main' : 'box'; // 1.29/1.30: project and document views have no composer
+  const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : colHtml.includes('id="tasks-main"') ? 'tasks-main' : colHtml.includes('id="vault-main"') ? 'vault-main' : colHtml.includes('id="inbox-main"') ? 'inbox-main' : 'box'; // 1.29/1.30: project and document views have no composer; 1.69: inbox
   if (PANE || SOLO) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs; a solo window shows one view
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open conversations"></nav>${colHtml}</div></div>`;
   return `<div class="split">
-    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to files':inputId==='tasks-main'?'Skip to tasks':inputId==='vault-main'?'Skip to the vault':'Skip to message'}</a>
+    <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to files':inputId==='tasks-main'?'Skip to tasks':inputId==='vault-main'?'Skip to the vault':inputId==='inbox-main'?'Skip to the inbox':'Skip to message'}</a>
       <div class="railhead">${railSwitchHTML()}<div class="rail-actions"><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse conversation filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New conversation">${IC.plus}</button></div></div>
       <div id="rail"></div>
     </aside>
@@ -2403,6 +2430,7 @@ function paintRailBadges() {
   if (projectsOn()) { if (boardSnap) paintProjectBadges(); loadBoard().then(paintProjectBadges).catch(() => { }); }
   if (tasksOn()) { if (tasksSnap) paintTaskBadges(); loadTasks().then(paintTaskBadges).catch(() => { }); }
   if (vaultOn()) { if (typeof vaultSnap !== 'undefined' && vaultSnap) paintVaultBadges(); loadVault().then(paintVaultBadges).catch(() => { }); }
+  if (inboxOn()) { if (inboxSnap) paintInboxBadges(); loadInbox().then(paintInboxBadges).catch(() => { }); } // 1.69
 }
 async function paintRail() {
   const el = $('#rail'); if (!el) return;
@@ -2411,6 +2439,7 @@ async function paintRail() {
   if (railView() === 'documents') { if (!el.querySelector('.rail-documents')) el.innerHTML = ''; paintRailDocuments(); return; }
   if (railView() === 'tasks') { if (!el.querySelector('.rail-tasks')) el.innerHTML = ''; paintRailTasks(); return; } // 1.36
   if (railView() === 'vault') { if (!el.querySelector('.rail-vault')) el.innerHTML = ''; paintRailVault(); return; } // 1.39
+  if (railView() === 'inbox') { if (!el.querySelector('.rail-inbox')) el.innerHTML = ''; paintRailInbox(); return; } // 1.69
   if (!el.querySelector('.session-panel')) { el.innerHTML = sessionPanelHTML(true); bindSessionPanel(el); }
   await refreshSessions();
 }
@@ -3468,10 +3497,11 @@ async function route() {
   if (typeof taskView !== 'undefined') taskView = null; // 1.36: a conversation opened from the task list must not count Tasks as the current view
   if (typeof vaultView !== 'undefined') vaultView = null; // 1.39: the same for the Vault
   if (typeof linkView !== 'undefined') linkView = null; // 1.54: and for a linked page
+  if (typeof inboxView !== 'undefined') inboxView = null; // 1.69: and for the inbox
   if (h.startsWith('#/chat/')) return renderChat(h.slice(7), { away: true });
   if (typeof docView !== 'undefined') docView = null;
   if (h === '#/projects/scheduled' && tasksOn()) { location.replace('#/tasks'); return; } // 1.50: with Tasks on, reminders are listed there
-  if (isViewId(h.slice(2))) return h === '#/vault' ? renderVault('vault') : h === '#/tasks' ? renderTasks('tasks') : h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : h.startsWith('#/link/') ? renderLink(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30/1.36/1.54: project, document, task and linked-page views
+  if (isViewId(h.slice(2))) return h === '#/vault' ? renderVault('vault') : h === '#/tasks' ? renderTasks('tasks') : h.startsWith('#/inbox') ? renderInbox('inbox') : h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : h.startsWith('#/link/') ? renderLink(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30/1.36/1.54: project, document, task and linked-page views
   if (h.startsWith('#/start/')) return openStartLink(h.slice(8)); // 1.57: a start link puts its briefing in New session
   if (h === '#/new') return renderNew();
   if (h === '#/all') return renderList();
