@@ -585,6 +585,20 @@ async function hardRefresh() {
   } catch { }
   location.reload();
 }
+// 1.68.1: Settings → Appearance → Mode. Two options, the current one pressed, so the view you are in is always visible
+// (1.60's single Assistant mode switch read as "on/off" with nothing saying what off was). This instance, every device.
+function modeControlsHTML() {
+  const on = assistantMode(), locked = Boolean(window.pocketFeatures?.assistantLocked);
+  const opt = (key, label) => `<button data-pocket-mode="${key}" aria-pressed="${(key === 'assistant') === on}"${locked ? ' aria-disabled="true"' : ''}>${label}</button>`;
+  const help = locked
+    ? 'Assistant mode is kept on by this server (POCKET_ASSISTANT_MODE=locked). Change it there to allow Developer mode.'
+    : 'Developer mode is the full workbench. Assistant mode opens on the message box, in plain words, with the developer controls out of sight.';
+  return `<section class="mode-settings" id="s-mode" aria-label="Mode">
+  <p class="chat-text-label">Mode</p>
+  <div class="chat-text-controls mode-controls" role="group" aria-label="Choose Developer mode or Assistant mode">${opt('developer', 'Developer mode')}${opt('assistant', 'Assistant mode')}</div>
+  <p class="chat-text-help">${help}</p>
+ </section>`;
+}
 async function settingsSheet({about = false, category = '', scrollTop = 0} = {}) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet settings-sheet';
@@ -595,7 +609,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     ${themeControlsHTML()}
     ${chatTextControlsHTML()}
     ${accentControlsHTML()}
-    <button class="opt" id="s-assistant" aria-pressed="${assistantMode()}"${window.pocketFeatures?.assistantLocked ? ' aria-disabled="true"' : ''}><span class="dot ${assistantMode() ? 'on' : ''}"></span><span>Assistant mode<span class="sub">${window.pocketFeatures?.assistantLocked ? 'Kept on by this server (POCKET_ASSISTANT_MODE=locked). Change it there to allow the full view' : 'A simpler Pocket for everyday work: the message box first, plain words, no developer controls. Off: the full developer view. Every device on this Pocket'}</span></span></button>
+    ${modeControlsHTML()}
     <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button>
     <button class="opt" id="s-connectors">${IC.globe}<span>Connectors<span class="sub">Gmail, Calendar and Drive for each agent</span></span></button>
     <button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>
@@ -724,17 +738,19 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     e.currentTarget.querySelector('.dot').classList.toggle('on', on);
     document.querySelectorAll('details.ledgerwrap').forEach(d => { d.open = !on; });
   };
-  const assistantToggle = sh.querySelector('#s-assistant');
-  if (assistantToggle) assistantToggle.onclick = async e => {
+  // 1.68.1: the mode is a two-way choice you can read, not a switch you flip to find out which view you are in.
+  sh.querySelectorAll('#s-mode [data-pocket-mode]').forEach(b => { b.onclick = async e => {
+    const want = e.currentTarget.dataset.pocketMode === 'assistant';
+    if (want === assistantMode()) return;
     if (window.pocketFeatures?.assistantLocked) return toast('Assistant mode is kept on by this server');
-    const b = e.currentTarget, on = !assistantMode(); b.disabled = true;
+    const buttons = sh.querySelectorAll('#s-mode [data-pocket-mode]'); buttons.forEach(x => { x.disabled = true; });
     try {
-      await api('/settings', { method: 'POST', body: JSON.stringify({ assistantMode: on }) });
-      window.pocketFeatures = { ...(window.pocketFeatures || {}), assistantMode: on };
+      await api('/settings', { method: 'POST', body: JSON.stringify({ assistantMode: want }) });
+      window.pocketFeatures = { ...(window.pocketFeatures || {}), assistantMode: want };
       closeCurrentSheet?.(); applyAssistantMode(); route();
-      toast(on ? 'Assistant mode is on. Settings → Appearance turns it off' : 'Assistant mode is off');
-    } catch (err) { toast(err.message); b.disabled = false; }
-  };
+      toast(want ? 'Assistant mode is on' : 'Developer mode is on');
+    } catch (err) { toast(err.message); buttons.forEach(x => { x.disabled = false; }); }
+  }; });
   sh.querySelector('#s-plain').onclick = e => {
     const on = !plainSteps();
     writeLocal('pc-plain-steps', on);

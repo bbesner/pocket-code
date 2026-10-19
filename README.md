@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.68.0 / build 132**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.68.1 / build 133**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -72,7 +72,7 @@ Pocket has two faces on the same server, sessions, Files, Tasks and Vault.
   the app **Pocket Assistant**. Nothing is removed underneath: every conversation, file and task
   is the same one the developer view shows, and **Show details** still opens the raw step.
 
-Switch in **Settings → Appearance → Assistant mode** (this Pocket, every device). An
+Switch in **Settings → Appearance → Mode** (this Pocket, every device). An
 administrator can set it for an install with `POCKET_ASSISTANT_MODE=on` or lock it with
 `locked`, which is how a seat for an employee is provisioned.
 
@@ -174,10 +174,10 @@ purple highlights adapt to each mode. Your choice stays on this browser, includi
 split panes and other Pocket windows. New browsers follow the system; existing browsers
 keep dark mode until you change it.
 
-**Assistant mode** lives in the same place: **Settings → Appearance → Assistant mode** turns the
-workbench into Pocket Assistant for this Pocket on every device (see [Developer mode or
-Assistant mode](#developer-mode-or-assistant-mode)). When an administrator locked it for the
-install, the switch shows disabled with the reason.
+**Mode** lives in the same place: **Settings → Appearance → Mode** offers **Developer mode** and
+**Assistant mode**, the one you are in pressed, for this Pocket on every device (see [Developer mode or
+Assistant mode](#developer-mode-or-assistant-mode)). When an administrator locked Assistant mode for
+the install, both options show disabled with the reason.
 
 | Light | Dark |
 |---|---|

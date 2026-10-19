@@ -3412,7 +3412,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["The Gmail, Calendar and Drive instructions now reach Claude and Codex with every message, so they work even on servers that keep Pocket's skills out of the agents' skill folders."];
+const RELEASE_NOTES = ["Settings → Appearance now shows Mode as a choice, Developer mode or Assistant mode, with the one you are in pressed, instead of a single Assistant mode switch that left you guessing what off meant.", "The Gmail, Calendar and Drive instructions now reach Claude and Codex with every message, so they work even on servers that keep Pocket's skills out of the agents' skill folders."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

@@ -593,13 +593,13 @@ function updateNewSummary() {
 function organizeSettings(sh, {category='',scrollTop=0}={}) {
  // 1.60: Assistant mode shows the settings a person needs day to day; everything else stays as it is, hidden.
  const groups=assistantMode()?[
-  ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This Pocket · all devices','#s-assistant']]],
+  ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This Pocket · all devices','#s-mode']]],
   ['conversation','Conversation','How replies and steps read', [['This device','#s-tools,#s-times']]],
   ['accounts','Accounts','Your Claude sign-in and Gmail, Calendar and Drive', [['','#s-environment,#s-connectors']]],
   ['notifications','Notifications & voice','Sounds, alerts on this device, reminders by email and spoken replies', [['This device','#s-chime,#s-push,#s-push-kinds,#s-badge,#s-voice'],['This Pocket · all devices','#s-ahead,#s-email-wrap']]],
   ['help','Help & updates','Version and what’s new', [['','#s-about,#s-notes']]],
  ]:[
-  ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This instance · all devices','#s-assistant']]],
+  ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This instance · all devices','#s-mode']]],
   ['conversation','Conversation','Reading, conversation titles and summaries', [['This device','#s-tools,#s-plain,#s-times'],['This instance · all devices','#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
   ['agents','Agents & instance','Accounts, connectors, plan usage, models, automatic model choice, actions that run without asking and sign-in', [['This instance · all devices','#s-environment,#s-connectors,#s-usage,#s-models,#s-trusted,#s-router,#s-access']]],
   ['libraries','Projects, files, tasks & vault','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents,#s-autokeep,#s-tasks,#s-vault,#s-vault-more'],['This device','', '#s-projects-open,#s-files-button,#s-documents-open']]],
