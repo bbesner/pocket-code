@@ -3285,7 +3285,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["A file a conversation keeps in Files now shows as a card under its reply, with the library's picture, and opens the way Settings → Open files and links says."];
+const RELEASE_NOTES = ["The message box stays on screen on iPhone: the field and its buttons are one unit, and the page follows the visible screen height."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

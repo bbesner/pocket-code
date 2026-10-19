@@ -1,7 +1,7 @@
 {
-  "version": "1.64.2",
-  "assetV": 127,
+  "version": "1.64.3",
+  "assetV": 128,
   "notes": [
-    "A file a conversation keeps in Files now shows as a card under its reply, with the library's picture, and opens the way Settings → Open files and links says."
+    "The message box stays on screen on iPhone: the field and its buttons are one unit, and the page follows the visible screen height."
   ]
 }

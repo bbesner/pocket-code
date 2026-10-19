@@ -2764,10 +2764,11 @@ function setComposer(working) {
         ${ctxRingHTML()}<button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this conversation">${chatMuted ? IC.bellOff : IC.bell}</button>${Voice.muteButtonHTML('icon')}<button class="icon wbell conversation-project" id="project-open" hidden></button><button class="icon wbell conversation-task" id="task-open" hidden></button>
         <button class="chip stopchip" id="stopb" aria-label="Stop">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
+    <div class="composer-entry">
     ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this reply" aria-label="After this reply">After <span class="sm-x">this </span>reply</button></div>' : ''}
     ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button>${ctxRingHTML()}</div>` : ''}
     <textarea id="box" rows="1" placeholder="${working ? (assistantMode() ? 'Send this after the current reply…' : "Add to what it's doing…") : 'Reply…'}" enterkeyhint="send"></textarea>
-    ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button>`;
+    ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button></div>`;
   if (typeof paintChatProject === 'function') paintChatProject(); // the toolbar's chip, or the working row's folder button
   if (typeof paintChatTask === 'function') paintChatTask();
   if (working) {
@@ -3078,9 +3079,9 @@ async function renderNew({ home = false } = {}) {
     </div></main>
     <section class="composerwrap" aria-label="New conversation message"><div id="new-delivery" class="delivery-status" role="status" hidden></div><p class="start-hint" id="start-hint" role="alert" hidden></p><div class="voice-strip" id="voice-strip" role="status" aria-live="polite" hidden></div>
       <div class="composer" id="comp"><div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>
-        <div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button><button class="icon" id="choose-skill" aria-label="Choose a skill" title="Choose a skill">${IC.spark}</button><button class="icon" id="save-prompt" aria-label="Save as prompt" title="Save as prompt" disabled>${IC.bookmark}</button></div>
+        <div class="composer-entry"><div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button><button class="icon" id="choose-skill" aria-label="Choose a skill" title="Choose a skill">${IC.spark}</button><button class="icon" id="save-prompt" aria-label="Save as prompt" title="Save as prompt" disabled>${IC.bookmark}</button></div>
         <textarea id="first" rows="1" placeholder="Describe the task, or choose a skill" enterkeyhint="send" aria-describedby="start-hint"></textarea>
-        ${Voice.micHTML()}<button class="send" id="start" aria-label="Start conversation" title="Start conversation">${IC.up}</button></div></section>`;
+        ${Voice.micHTML()}<button class="send" id="start" aria-label="Start conversation" title="Start conversation">${IC.up}</button></div></div></section>`;
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   if (PANE) $('#pane-close').onclick = () => paneSay('close'); else if (home) { $('#settings').onclick = settingsSheet; bindAssistantIntro(); paintAssistantHome(); refreshSessions(); } else $('#back').onclick = () => { location.hash = '#/'; };

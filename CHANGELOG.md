@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.64.3] — 2026-10-19 · build 128
+
+- **The message box stays on screen on iPhone.** The message field and its buttons are now one unit (`.composer-entry`): a percentage width on the field let iOS Safari push the row with the box below the screen, leaving only the chips. The page height also follows the visual viewport (`--app-height`), so the home indicator can't cover the box. This fix ran on brads-server from October 17 as an uncommitted change; it is now released.
+- Migration: none.
+
 ## [1.64.2] — 2026-10-19 · build 127
 
 - **A file the conversation kept in Files gets a card too.** 1.61's cards needed the reply to name the file's path; an agent that keeps a report with `pocket-docs add --session …` and then says "it's in your Files" left nothing to tap (Brad, on the Addison Reserve storm report). Every Files item linked to the conversation now shows as a card under the first reply after it was kept: the library's picture, its title and file name, **In Files** and **Download**. Tapping it opens the file in Files the way **Settings → Open files and links** says. A file already shown by a path card isn't repeated.
