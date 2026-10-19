@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.61.0] — 2026-10-19 · build 122
+
+- **Files in the conversation.** A file a reply hands you (a link, a path in a code span or on its own line) now shows under that reply as a card: the first page of a PDF as a picture, or the file's type, its name, and **Keep in Files** (or **In Files**) and **Download**. Tapping the card opens it the way **Settings → Open files and links** says (a tab, beside the conversation, or a new window): a kept file opens in Files; a PDF, page or text file opens in Pocket's own viewer, still sandboxed; an Office file downloads. Images already show in the reply and get no card.
+- **Keep files from replies.** **Settings → Projects, files, tasks & vault → Keep files from replies** (this Pocket, needs Files on) keeps every PDF, deck, sheet, document, page or image a reply hands over in Files, once, linked to its conversation. Always on in Assistant mode. A kept file remembers where it came from (`source` in `documents.json`), so a second reply naming it keeps nothing new.
+- The artifact route takes `inline=1` (readable files shown in place, same sandbox policy) and `thumb=1` (the first page of a PDF or a scaled image, cached under `<data dir>/artifact-thumbs`; an agent-made HTML page is never rendered on the server).
+- Migration: none.
+- Tests: `test/file-cards.test.mjs` (a file named in a reply is marked, one only written by a tool is not; inline and picture rules; Office stays a download; another conversation's file is refused; auto-keep keeps once and stops when turned off). The fake CLI's `__FILE__ <path>` reply hands a file over.
+
 ## [1.60.0] — 2026-10-19 · build 121
 
 - **Assistant mode.** A per-Pocket switch for people who don't write code. It opens on the message box ("What would you like done?") with the saved prompts, a short getting-started note, **Waiting for you** cards for a conversation that has a question, needs an OK or didn't finish, the five latest conversations and **See all conversations**, and buttons for Files, Tasks, Projects and the Vault when they're on. The message box is Attach, the mic and Send; the model, reasoning, permissions and Codex chips, the settings toggle, Choose a skill, Save as prompt, the cache ring, alerts and the Steer now / After this reply choice are hidden (a message sent while Claude works waits for the current reply). A conversation hides Results, Queue, Git, changed files, split view, the folder name, the idle state and the cost line, and steps show only their plain words. Settings shrinks to Appearance, Conversation, Accounts, Notifications & voice, and Help & updates. The app is called **Pocket Assistant** (header, window title, sign-in page and the installed app's name). Nothing is removed: turning it off brings every control back.

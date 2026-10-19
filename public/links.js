@@ -51,7 +51,7 @@ function openLinkPreferred(a,e){
  if(!['http:','https:'].includes(u.protocol)||u.origin!==location.origin)return false; // an outside website is the browser's
  const viewId=pocketViewOf(u);
  if(viewId){e.preventDefault();openIdPreferred(viewId,viewId.startsWith('projects')?'pc-projects-open':'pc-documents-open');return true;}
- if(/^\/api\/session\/[^/]+\/artifact$/.test(u.pathname)||u.searchParams.get('download')==='1')return false; // a download stays a download
+ if(/^\/api\/session\/[^/]+\/artifact$/.test(u.pathname)&&u.searchParams.get('inline')!=='1'||u.searchParams.get('download')==='1')return false; // a download stays a download (1.61: an inline view of a file opens like any link)
  const pref=readLocal('pc-documents-open','tab');
  if(pref==='window')return false;                                   // the link's own target already opens the browser's window
  if(/^\/(share|files)\/[^/]+$/.test(u.pathname)&&typeof documentsOn==='function'&&documentsOn()){

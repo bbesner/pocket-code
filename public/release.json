@@ -1,7 +1,7 @@
 {
-  "version": "1.60.0",
-  "assetV": 121,
+  "version": "1.61.0",
+  "assetV": 122,
   "notes": [
-    "Assistant mode: a simpler Pocket for everyday work. It opens on the message box with your saved prompts, what's waiting for you and your latest conversations; developer controls and meters are hidden, steps read in plain words, Settings is short, and the app is called Pocket Assistant. Settings → Appearance → Assistant mode, or POCKET_ASSISTANT_MODE (on, or locked for a seat run for someone else)."
+    "Files in the conversation: a file a reply hands you shows under it as a card with a picture of a PDF's first page, Keep in Files and Download, and opens the way Settings → Open files and links says. Keep files from replies keeps each one in Files once (always on in Assistant mode)."
   ]
 }
