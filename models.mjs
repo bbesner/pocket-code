@@ -45,7 +45,7 @@ export function managedDir(env = process.env, platform = process.platform) {
 // Returns { dir, files, availableModels: string[]|null, deniedModels: string[]|null,
 // availableModelsMatch, model, enforceAvailableModels, error }.
 export function readManagedPolicy(dir) {
-  const out = { dir, files: [], availableModels: null, deniedModels: null, availableModelsMatch: 'prefix', model: null, enforceAvailableModels: false, error: null };
+  const out = { dir, files: [], availableModels: null, deniedModels: null, availableModelsMatch: 'prefix', model: null, enforceAvailableModels: false, maxEffortLevel: null, error: null };
   const docs = [];
   const base = path.join(dir, 'managed-settings.json');
   const read = file => {
@@ -72,6 +72,8 @@ export function readManagedPolicy(dir) {
     if ('availableModelsMatch' in d) out.availableModelsMatch = d.availableModelsMatch === 'prefix' ? 'prefix' : 'exact';
     if (typeof d.model === 'string') out.model = d.model;
     if (typeof d.enforceAvailableModels === 'boolean') out.enforceAvailableModels = d.enforceAvailableModels;
+    // 1.62: the highest reasoning effort this computer's policy allows; Pocket never asks for more.
+    if (['low', 'medium', 'high', 'xhigh', 'max'].includes(d.maxEffortLevel)) out.maxEffortLevel = d.maxEffortLevel;
   }
   return out;
 }

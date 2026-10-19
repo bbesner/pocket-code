@@ -1705,3 +1705,6 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .file-card-meta { font-size: 13.5px; color: var(--dim); }
 .file-card-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .file-card-kept { font-size: 13.5px; color: var(--ok); padding: 0 6px; }
+
+/* 1.62: Try harder, under the latest reply in Assistant mode */
+#msgs > .try-harder { margin: 2px 0 8px; align-self: flex-start; }
