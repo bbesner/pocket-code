@@ -64,11 +64,12 @@ export class DocumentStore {
     while (this.documents.some(r => r.file === file && r.id !== except) || fs.existsSync(path.join(this.dir, file))) file = `${stem}-${n++}${ext}`;
     return file;
   }
-  record(file, { title, project, session, visibility, addedBy, size, at }) {
+  record(file, { title, project, session, visibility, addedBy, size, at, source }) {
     if (this.documents.length >= LIMITS.documents) throw fail(`The Files library holds up to ${LIMITS.documents} files.`, 409);
     if (session && !SESSION_RE.test(session)) throw fail('That is not a session id.');
     if (visibility && !VISIBILITIES.includes(visibility)) throw fail('Visibility must be private, link or public.');
     const r = { id: randomBytes(6).toString('hex'), file, title: str(title, LIMITS.title) || titleFor(file, this.peek(path.join(this.dir, file))), kind: kindOf(file), size, added: at, addedBy, updated: at, session: session || null, project: str(project, 80) || null, visibility: visibility || 'private', share: null, shareHash: null, trashedAt: null };
+    if (source) r.source = String(source).slice(0, 1000); // 1.61: the kept file's original path
     this.pendingToken = r.visibility === 'link' ? this.mintShare(r, null) : null;
     this.documents.push(r);
     return r;

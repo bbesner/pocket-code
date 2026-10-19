@@ -643,6 +643,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <button class="opt" id="s-documents" disabled aria-pressed="false"><span class="dot"></span><span>Files<span class="sub" id="s-documents-state">Loading the Files setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Files button<select id="s-files-button"><option value="rail">Lists files in the sidebar</option><option value="tab">Opens the library in a tab</option><option value="beside">Opens the library in split view</option></select></label></div>
     <div class="title-settings"><label class="voice-field">Open files and links<select id="s-documents-open"><option value="tab">As a tab, like a conversation</option><option value="beside">Beside the conversation (from a pane: a new pane to its left)</option><option value="window">In a new browser window</option></select></label><p class="title-note">A link in a conversation to one of your files, projects or conversations opens the same way. A link to an outside website opens in your browser.</p></div>
+    <button class="opt" id="s-autokeep" disabled aria-pressed="false"><span class="dot"></span><span>Keep files from replies<span class="sub" id="s-autokeep-state">Loading…</span></span></button>
     <button class="opt" id="s-tasks" disabled aria-pressed="false"><span class="dot"></span><span>Tasks<span class="sub" id="s-tasks-state">Loading the Tasks setting…</span></span></button>
     <button class="opt" id="s-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault<span class="sub" id="s-vault-state">Loading the Vault setting…</span></span></button>
     <div class="title-settings vault-settings" id="s-vault-restore-wrap" hidden><span class="vault-set-actions"><button class="chip" id="s-vault-restore">${VIC.key}Restore key…</button></span></div>
@@ -942,6 +943,20 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const on = Boolean(srv.documents);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
     sh.querySelector('#s-documents-state').textContent = on ? 'On: a library of files from your work, with previews, sharing and links to conversations' : 'Off. Turn on to keep reports, PDFs and other files from conversations in a library you can view and share';
+
+    paintAutoKeepSetting();
+  };
+  // 1.61: keep every file a reply hands over in Files. Needs Files on; always on in Assistant mode.
+  const paintAutoKeepSetting = () => {
+    const btn = sh.querySelector('#s-autokeep'); if (!btn || !srv) return;
+    const forced = assistantMode(), on = Boolean(srv.documents) && (forced || Boolean(srv.autoKeepFiles));
+    btn.disabled = !srv.documents || forced; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
+    sh.querySelector('#s-autokeep-state').textContent = !srv.documents ? 'Needs Files on' : forced ? 'Always on in Assistant mode' : on ? 'On: a file a reply hands you (a PDF, deck, sheet, page) is kept in Files once, linked to its conversation' : 'Off. Keep a file from its card or from Results';
+  };
+  sh.querySelector('#s-autokeep').onclick = async e => {
+    const btn = e.currentTarget; if (!srv || btn.disabled) return; btn.disabled = true;
+    try { srv = await api('/settings', { method: 'POST', body: JSON.stringify({ autoKeepFiles: !srv.autoKeepFiles }), signal: AbortSignal.timeout(8000) }); paintAutoKeepSetting(); toast(srv.autoKeepFiles ? 'Files from replies will be kept' : 'Files from replies are no longer kept automatically'); }
+    catch (err) { toast('Could not save: ' + (err.message || 'error')); paintAutoKeepSetting(); }
   };
   sh.querySelector('#s-documents').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
@@ -1731,6 +1746,62 @@ function foldSummary(d) {
     : `<span class="tc-count">${items.length} tool call${items.length === 1 ? '' : 's'}</span><span class="tc-last">${esc(name)} ${esc(det)}</span>`;
   if (sum.innerHTML !== html) sum.innerHTML = html;
 }
+/* ---------- 1.61: files in the conversation ----------
+   A file a reply hands over (named in its text: a link, a code span or a path on its own line) shows under that
+   reply as a card: a picture (the first page of a PDF), its name and type, and Open, Download and Keep in Files.
+   Open follows Settings → Open files and links (a tab, beside the conversation or a new window), like any link
+   here: a kept file opens in Files, a readable one (PDF, HTML, text) in Pocket's link view, an Office file downloads.
+   Images already show in the reply, so they get no card. */
+const CARD_EXT = /\.(pdf|docx|pptx|xlsx|csv|tsv|html?|md|txt|json|zip)$/i, INLINE_EXT = /\.(pdf|html?|md|txt|csv|tsv|json)$/i;
+let cardResults = { id: null, at: 0, list: [] }, cardSeq = 0;
+const artifactUrl = (id, target, extra = '') => '/api/session/' + encodeURIComponent(id) + '/artifact?path=' + encodeURIComponent(target) + extra;
+function keptDocFor(id, target) { // kept by hand (1.30, by file name) or by auto-keep (1.61, by its source path)
+  if (typeof docsSnap === 'undefined' || !docsSnap) return null;
+  const safe = target.split('/').pop().replace(/[^\w.\-]+/g, '_');
+  return docsSnap.documents.find(d => !d.trashedAt && d.session === id && (d.source ? d.source === target : d.addedBy === 'session' && d.file.replace(/-\d+(?=\.[^.]+$)/, '') === safe)) || null;
+}
+function fileCardHTML(id, r) {
+  const name = r.target.split('/').pop(), ext = (name.match(/\.([^.]+)$/)?.[1] || '').toUpperCase();
+  const kept = keptDocFor(id, r.target), docs = typeof documentsOn === 'function' && documentsOn();
+  const open = kept && docs ? location.origin + '/#/documents/' + encodeURIComponent(kept.id) : INLINE_EXT.test(name) ? artifactUrl(id, r.target, '&inline=1') : artifactUrl(id, r.target);
+  const thumb = /\.pdf$/i.test(name) ? `<img class="file-card-img" src="${esc(artifactUrl(id, r.target, '&thumb=1'))}" alt="" loading="lazy">` : '';
+  const keep = docs ? (kept ? `<span class="file-card-kept">In Files</span>` : `<button class="chip" type="button" data-card-keep>Keep in Files</button>`) : '';
+  return `<div class="file-card" data-card-path="${esc(r.target)}"><a class="file-card-main" href="${esc(open)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${esc(name)}">
+    <span class="file-card-thumb">${thumb}<span class="file-card-ext">${esc(ext || 'FILE')}</span></span>
+    <span class="file-card-body"><span class="file-card-name">${esc(name)}</span><span class="file-card-meta">${esc(r.detail || ext + ' file')}</span></span></a>
+    <span class="file-card-actions">${keep}<a class="chip" href="${esc(artifactUrl(id, r.target))}" download>Download</a></span></div>`;
+}
+async function paintFileCards(container, fresh = false) {
+  const id = chatId; if (!id || !container) return;
+  const seq = ++cardSeq;
+  if (fresh || cardResults.id !== id || Date.now() - cardResults.at > 4000) {
+    let d; try { d = await api('/session/' + encodeURIComponent(id) + '/results'); } catch { return; }
+    if (typeof documentsOn === 'function' && documentsOn()) await loadDocs(fresh).catch(() => { });
+    cardResults = { id, at: Date.now(), list: (d.results || []).filter(r => r.kind === 'file' && r.inText && CARD_EXT.test(r.target)) };
+  }
+  if (seq !== cardSeq || chatId !== id || !container.isConnected) return;
+  const replies = [...container.querySelectorAll(':scope > .m-asst:not(.live)')];
+  for (const r of [...cardResults.list].reverse()) { // results are newest first; a reply's cards follow its own order
+    const enc = encodeURIComponent(r.target), name = r.target.split('/').pop();
+    const host = replies.filter(m => m.innerHTML.includes(enc) || m.textContent.includes(r.target)).pop() || replies.filter(m => m.textContent.includes(name)).pop();
+    const old = container.querySelector(`.file-card[data-card-path="${CSS.escape(r.target)}"]`);
+    if (!host) { old?.remove(); continue; }
+    const html = fileCardHTML(id, r);
+    if (old && old.outerHTML.replace(/\s+/g, ' ') === html.replace(/\s+/g, ' ')) continue;
+    old?.remove();
+    let list = host.querySelector(':scope > .file-cards');
+    if (!list) { list = document.createElement('div'); list.className = 'file-cards'; const choices = host.querySelector(':scope > .choices'); choices ? choices.before(list) : host.append(list); }
+    list.insertAdjacentHTML('beforeend', html);
+    const card = list.lastElementChild;
+    card.querySelector('.file-card-img')?.addEventListener('error', e => e.target.remove());
+    card.querySelector('[data-card-keep]')?.addEventListener('click', async e => {
+      const b = e.currentTarget; b.disabled = true;
+      try { const doc = await api('/documents/keep', { method: 'POST', body: JSON.stringify({ session: id, path: r.target }) }); mergeDoc(doc); toast('Kept in Files: ' + doc.title); paintFileCards(container); }
+      catch (err) { toast(err.message || 'Could not keep the file'); b.disabled = false; }
+    });
+  }
+  container.querySelectorAll('.file-cards:empty').forEach(el => el.remove());
+}
 function mergeToolFolds(container) {
   if (!container) return;
   const isFold = el => el?.matches?.('details.ledgerwrap');
@@ -2277,6 +2348,7 @@ async function renderChat(id, { away = false } = {}) {
   msgs.classList.toggle('times-off', !showTimes());
   msgs.innerHTML = withDays(s.messages) + steeredHTML(id, s.messages);
   mergeToolFolds(msgs);
+  paintFileCards(msgs, true);
   openLastTodo();
   paintChoices();
   if (lastMeta && lastMeta.id === id) { msgs.insertAdjacentHTML('beforeend', lastMeta.html); lastMeta = null; }
@@ -2860,6 +2932,7 @@ function openES() {
       if (document.visibilityState === 'visible' && !Voice.replacesChime()) chime(); // not watching → push already notified; spoken alerts replace the chime
       Voice.onTurnEnd(streamId, d.ok, d.error);
       announceListsStale(); // the agent may have added a project, file or task during the turn
+      setTimeout(() => paintFileCards($('#msgs'), true), 600); // 1.61: the reply's files, and any it kept in Files
       if (!d.ok && !/^Stopped/.test(String(d.error || ''))) paintTurnFailure({ error: String(d.error || '').slice(0, 300) });
       // 1.48: a Codex turn has no cost line, but its time and cache start show the same way
       if (d.cost != null || (d.cache && Number.isFinite(d.cache.hit))) {

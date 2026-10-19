@@ -257,6 +257,8 @@ const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'documents');
 const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
+// 1.61: pictures for file cards in a conversation (PDF pages and images only), cached under the data directory.
+const artifactThumbs = new Thumbnailer({ dir: path.join(DATA_DIR, 'artifact-thumbs'), filePath: r => r.file }, { log });
 const DOCS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-docs.mjs');
 const docsOn = (_req, res, next) => settings.documents ? next() : res.status(404).json({ error: 'Files is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'documents_off' });
 const purgeDocs = () => { try { const gone = docs.purge(); if (gone.length) log(`documents purged from trash: ${gone.length}`); } catch (e) { log('documents purge: ' + e.message); } };
@@ -435,6 +437,9 @@ const ASSISTANT_ENV = (process.env.POCKET_ASSISTANT_MODE || '').trim().toLowerCa
 const assistantLocked = ASSISTANT_ENV === 'locked';
 if (typeof settings.assistantMode !== 'boolean') settings.assistantMode = ['on', '1', 'true', 'locked'].includes(ASSISTANT_ENV);
 const assistantOn = () => assistantLocked || settings.assistantMode === true;
+// 1.61: keep every file Claude hands over in a reply in Files (Settings, or always in Assistant mode).
+if (typeof settings.autoKeepFiles !== 'boolean') settings.autoKeepFiles = false;
+const autoKeepOn = () => Boolean(settings.documents) && (assistantOn() || settings.autoKeepFiles);
 const TITLE_MODELS = { claude: (process.env.POCKET_TITLE_CLAUDE_MODEL || 'haiku').trim(), codex: (process.env.POCKET_TITLE_CODEX_MODEL || 'gpt-6-luna').trim() };
 // 1.52: a helper call never names a Claude model the managed policy blocks (the CLI would run its default,
 // often the most expensive model, instead); it takes the cheapest offered model the policy allows.
@@ -1535,6 +1540,7 @@ async function finalizeTurn(sessionId, turn, code) {
     runNextFollowup(sessionId, turn.cwd).catch(e => log(`queue start failed session=${sessionId}: ${e.message}`));
     return;
   }
+  if (!turn.stopped) autoKeepTurnFiles(sessionId, turn.startedAt || 0);
   if (!watching && !turn.stopped) {
     const result = turn.events.find(e => e.type === 'result');
     // 1.59: plain words; the cost and time stay after "Ready" for the owner who wants them.
@@ -1549,6 +1555,23 @@ async function finalizeTurn(sessionId, turn, code) {
       .catch(() => { });
   }
   } finally { turn.finalizeResolve?.(); }
+}
+
+// 1.61: after a reply, keep the files it handed over (named in its text since the turn started) in Files, once each.
+const AUTO_KEEP_RE = /\.(pdf|docx|pptx|xlsx|csv|html?|md|png|jpe?g|gif|webp)$/i;
+async function autoKeepTurnFiles(sessionId, since) {
+  if (!autoKeepOn()) return;
+  try {
+    resultCache.delete(sessionId);
+    const { results } = await sessionResults(sessionId);
+    for (const r of results) {
+      if (r.kind !== 'file' || !r.inText || !AUTO_KEEP_RE.test(r.target) || !(Date.parse(r.at || 0) >= since - 2000)) continue;
+      let real; try { real = await documentSource(r.target); } catch { continue; }
+      if (docs.documents.some(d => !d.trashedAt && d.session === sessionId && d.source === real)) continue;
+      const d = docs.addFromPath(real, { session: sessionId, addedBy: 'session', source: real });
+      log(`document auto-kept from session ${sessionId}: ${d.id} ${d.file}`);
+    }
+  } catch (e) { log(`auto-keep failed session=${sessionId}: ${e.message}`); }
 }
 
 function promptText(text, attachments) {
@@ -2051,10 +2074,26 @@ app.get('/api/session/:id/artifact', requireAuth, async (req,res) => {
     const real=await fsp.realpath(requested);
     if(!real.startsWith(HOME+'/')||real.slice(HOME.length+1).split('/').some(p=>p.startsWith('.')))return res.status(403).json({error:'File is outside the supported report location.'});
     const stat=await fsp.stat(real);if(!stat.isFile())return res.status(404).end();
+    // 1.61: ?thumb=1 is the file card's picture: the first page of a PDF or a scaled image, never an HTML page (an
+    // agent-made page is not rendered by a browser on the server). 404 when there is none; the card shows its type.
+    if(req.query.thumb==='1'){
+      const kind=/\.pdf$/i.test(real)?'pdf':/\.(png|jpe?g|gif|webp)$/i.test(real)?'image':null;
+      const t=kind?await artifactThumbs.get({id:'a'+createHash('sha256').update(real).digest('hex').slice(0,20),kind,file:real}).catch(()=>null):null;
+      if(!t)return res.status(404).end();
+      res.setHeader('Cache-Control','private, max-age=300');res.type(t.type);return res.sendFile(t.path);
+    }
     res.setHeader('Cache-Control','private, no-store');
     res.setHeader('X-Content-Type-Options','nosniff');
     res.setHeader('Content-Security-Policy',"sandbox; default-src 'none'");
     // HTML and other active documents must never execute under the app origin.
+    // 1.61: ?inline=1 shows a readable file (PDF, image, HTML, text) in Pocket's link view instead of downloading it;
+    // the sandbox policy above still applies, so a page cannot run scripts here.
+    if(req.query.inline==='1'&&/\.(pdf|png|jpe?g|gif|webp|html?|md|txt|csv|tsv|json)$/i.test(real)){
+      const text=/\.(md|txt|csv|tsv|json)$/i.test(real);
+      res.setHeader('Content-Disposition','inline; filename="'+path.basename(requested).replace(/[^\w.\- ]+/g,'_')+'"');
+      if(text)res.type('text/plain; charset=utf-8');else res.type(path.extname(real));
+      return res.sendFile(real,err=>{if(err&&!res.headersSent)res.status(404).end();});
+    }
     res.download(real,path.basename(requested),err=>{if(err&&!res.headersSent)res.status(404).end();});
   }catch(e){res.status(e.code==='ENOENT'||e.status===404?404:503).json({error:'This result is not available. It may have moved or been removed.'});}
 });
@@ -2208,6 +2247,7 @@ function turnOpts(body) {
 async function codexTurnFinished(id, turn, ev) {
   recordOutcome(id, turn, ev);
   retitler.request(id); // 1.29.1
+  if (!turn.stopped) autoKeepTurnFiles(id, turn.startedAt || 0);
   if (!turn.stopped && ev.ok && followups.list(id)[0]?.status === 'pending') {
     // Let the previous app-server release its writer lock before resuming.
     await new Promise(resolve=>setTimeout(resolve,600));
@@ -2472,13 +2512,14 @@ function claudeModelSettings() {
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
 app.get('/api/settings', requireAuth, async (_req, res) => {
   await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
-  res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings() });
+  res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, autoKeepActive: autoKeepOn(), vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.assistantMode === 'boolean') {
     if (assistantLocked && !req.body.assistantMode) return res.status(409).json({ error: 'Assistant mode is locked on for this Pocket.' });
     settings.assistantMode = req.body.assistantMode;
   }
+  if (typeof req.body?.autoKeepFiles === 'boolean') settings.autoKeepFiles = req.body.autoKeepFiles;
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
   if (typeof req.body?.autoTitles === 'boolean') settings.autoTitles = req.body.autoTitles;
   if (['auto', 'claude', 'codex'].includes(req.body?.titleProvider)) settings.titleProvider = req.body.titleProvider;
@@ -3191,7 +3232,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Assistant mode: a simpler Pocket for everyday work. It opens on the message box with your saved prompts, what's waiting for you and your latest conversations; developer controls and meters are hidden, steps read in plain words, Settings is short, and the app is called Pocket Assistant. Settings → Appearance → Assistant mode, or POCKET_ASSISTANT_MODE (on, or locked for a seat run for someone else)."];
+const RELEASE_NOTES = ["Files in the conversation: a file a reply hands you shows under it as a card with a picture of a PDF's first page, Keep in Files and Download, and opens the way Settings → Open files and links says. Keep files from replies keeps each one in Files once (always on in Assistant mode)."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

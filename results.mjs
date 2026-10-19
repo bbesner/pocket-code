@@ -13,7 +13,9 @@ export function reference(href, label='') {
 }
 export function collectResults(messages,{limit=200}={}){
   const found=new Map();let matched=0;
-  const add=(r,ts)=>{if(!r)return;matched++;if(found.has(r.target))found.delete(r.target);found.set(r.target,{...r,at:ts||null});if(found.size>limit)found.delete(found.keys().next().value);};
+  // 1.61: inText marks a file named in a reply (a link, a code span or a path on its own line), as opposed to one a
+  // tool only wrote or edited; file cards and auto-keep use it.
+  const add=(r,ts,inText=false)=>{if(!r)return;matched++;const prev=found.get(r.target);if(prev)found.delete(r.target);found.set(r.target,{...r,at:ts||null,...(inText||prev?.inText?{inText:true}:{})});if(found.size>limit)found.delete(found.keys().next().value);};
   for(const msg of messages){
     if(msg.role!=='assistant')continue;
     for(const b of msg.blocks||[]){
@@ -21,10 +23,10 @@ export function collectResults(messages,{limit=200}={}){
       if(b.t!=='text')continue;
       const text=String(b.text||'').slice(0,250000);
       try {marked.walkTokens(marked.lexer(text),token=>{
-        if(token.type==='link'||token.type==='image')add(reference(token.href,token.text),msg.ts);
-        if(token.type==='codespan' && /^\//.test(token.text))add(reference(token.text),msg.ts);
+        if(token.type==='link'||token.type==='image')add(reference(token.href,token.text),msg.ts,true);
+        if(token.type==='codespan' && /^\//.test(token.text))add(reference(token.text),msg.ts,true);
       });}catch{}
-      for(const m of text.matchAll(/^\s*(\/(?:home|Users|root)\/[^\n`]+\.(?:pdf|csv|tsv|xlsx|docx|pptx|txt|md|html|json|zip|png|jpe?g|gif|webp))\s*$/gmi))add(reference(m[1]),msg.ts);
+      for(const m of text.matchAll(/^\s*(\/(?:home|Users|root)\/[^\n`]+\.(?:pdf|csv|tsv|xlsx|docx|pptx|txt|md|html|json|zip|png|jpe?g|gif|webp))\s*$/gmi))add(reference(m[1]),msg.ts,true);
     }
   }
   return {results:[...found.values()].reverse(),limited:matched>limit};

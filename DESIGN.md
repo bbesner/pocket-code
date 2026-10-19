@@ -8,6 +8,16 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Files in the conversation (1.61)
+
+Pinned Operate refinement: variance 2, motion 1, density 5; existing tokens, no new colour. Read:
+a file you were handed should look like a file, not a path. Under the reply that names it, a
+`.file-card` on `--surface` with a hairline and 12px radius (max 640px): a 72×56 picture (the
+PDF's first page, cover-fit to the top) or a type tile in the ledger mono at 12px `--dim`, the
+name at 15.5px/600 in `--text`, the type at 13.5px `--dim`, then **Keep in Files** (or **In
+Files** in `--ok`) and **Download** chips, right-aligned and wrapping under the name on a phone.
+The card is one 56px link that opens like any link here (Settings → Open files and links).
+
 ## Assistant mode (1.60)
 
 Pinned brief (design-studio → impeccable): variance 3, motion 2, density 3; existing tokens, no
