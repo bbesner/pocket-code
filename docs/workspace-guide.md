@@ -502,10 +502,10 @@ home shows an **Inbox** chip, and `#/inbox` opens the list like a session: as a 
 conversation or in its own window.
 
 **A row** is the title, the first sentence, and a line with the time, the story it belongs to and
-its kind (alert, digest, look-ahead); a new entry has a dot in the accent colour. **Open** (the row or
-its mark) goes to the conversation the watcher briefed for it, or to the Files document for a digest
-or look-ahead. **X** dismisses the row. The **…** menu shows the whole text, with each citation a
-Gmail link, and the choices: **Open the conversation** or **Open in Files**, **Open in Gmail**,
+its kind (alert, digest, look-ahead); a new entry has a dot in the accent colour. A tap on the row (or
+its mark, or the **…**) opens the entry's sheet (1.69.1): the whole text with each citation a Gmail
+link, and the choices: **Start a conversation** (a new conversation briefed with the story and the
+evidence; nothing starts until you press Start) or **Open in Files** for a digest or look-ahead, **Open in Gmail**,
 **Resolved** (the situation is over; the watcher stops following it), **Not useful** (the watcher adds
 a line to your standing preferences so it stops alerting on that kind of thing) and **Dismiss**. A
 dismissed, resolved or not-useful entry offers **Restore**. The chips **New**, **All** and

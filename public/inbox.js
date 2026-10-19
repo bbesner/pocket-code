@@ -59,7 +59,7 @@ async function renderInbox(view){
  inboxView=view;if(typeof boardView!=='undefined')boardView=null;if(typeof docView!=='undefined')docView=null;if(typeof taskView!=='undefined')taskView=null;
  const col=`<header class="bar">
    ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the conversation list">${IC.panel}</button>`}
-   <h1><span class="one" id="ktitle">Inbox</span><span class="tag" id="ktag">What Inbox Watch sent</span></h1>
+   <h1><span class="one" id="ktitle">Inbox</span><span class="tag" id="ktag">What Inbox Watch sent · tap to read</span></h1>
    ${SOLO?'':`<button class="icon" id="kwin" aria-label="Open in a new window" title="Open in a new window">${IC.external}</button>`}
    ${PANE||SOLO?'':`<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
    ${PANE?`<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>`:''}
@@ -97,7 +97,7 @@ function inboxRowHTML(e){
  const facts=[`<span>${esc(inboxWhen(e.at))}</span>`,e.story?`<span>${esc(e.story.replace(/-/g,' '))}</span>`:'',`<span>${inboxKindWord(e)}${e.priority==='critical'?' · critical':''}</span>`,inboxStateWord(e)?`<span>${inboxStateWord(e)}</span>`:''].filter(Boolean).join('<span aria-hidden="true">·</span>');
  const first=inboxFirst(e.text);
  return `<div class="session-item task-item inbox-item state-${esc(e.state)} kind-${esc(e.kind)}" data-item="${esc(e.id)}">
-  <button class="task-check inbox-mark" data-inbox-open="${esc(e.id)}" aria-label="Open: ${esc(e.title)}">${e.state==='new'?'<span class="inbox-dot" aria-hidden="true"></span>':e.kind==='alert'?IC.bell:IC.doc}</button>
+  <button class="task-check inbox-mark" data-inbox-open="${esc(e.id)}" aria-label="Read: ${esc(e.title)}">${e.state==='new'?'<span class="inbox-dot" aria-hidden="true"></span>':e.kind==='alert'?IC.bell:IC.doc}</button>
   <button class="row" data-inbox-open="${esc(e.id)}"><span class="body"><span class="title">${esc(e.title)}</span>${first?`<span class="inbox-text">${esc(first)}</span>`:''}<span class="session-status">${facts}</span></span></button>
   ${e.state==='dismissed'?'':`<button class="session-more icon inbox-x" data-inbox-dismiss="${esc(e.id)}" aria-label="Dismiss: ${esc(e.title)}" title="Dismiss">${IC.x}</button>`}
   <button class="session-more icon" data-inbox-more="${esc(e.id)}" aria-label="Options for ${esc(e.title)}">${IC.more}</button></div>`;
@@ -113,7 +113,7 @@ function inboxListHTML(){
   ${groups.length?groups.map(g=>`<section class="session-group project-group"><h2>${esc(g.day)} <span>${g.html.length}</span></h2>${g.html.join('')}</section>`).join(''):`<p class="sheet-help project-empty">${empty}</p>`}`;
 }
 function bindInboxRows(root){
- root.querySelectorAll('[data-inbox-open]').forEach(b=>b.onclick=()=>inboxOpen(b.dataset.inboxOpen));
+ root.querySelectorAll('[data-inbox-open]').forEach(b=>b.onclick=()=>inboxSheet(b.dataset.inboxOpen)); // 1.69.1: read first; the sheet starts the conversation
  root.querySelectorAll('[data-inbox-dismiss]').forEach(b=>b.onclick=()=>inboxAct({action:'dismiss',id:b.dataset.inboxDismiss},'Dismissed'));
  root.querySelectorAll('[data-inbox-more]').forEach(b=>b.onclick=()=>inboxSheet(b.dataset.inboxMore));
 }
@@ -126,7 +126,7 @@ function inboxSheet(id){
  const target=inboxTarget(e),gone=['dismissed','resolved','not_useful'].includes(e.state);
  sh.innerHTML=`<h2>${e.kind==='alert'?'Alert':e.kind==='digest'?'Digest':'Look-ahead'}</h2><p class="task-text">${esc(e.title)}</p><div class="task-facts">${facts}</div>
   <div class="task-summary inbox-body">${inboxText(e.text)}</div>
-  ${target?`<button class="opt" data-go>${IC.term}<span>${e.doc&&!e.url?'Open in Files':'Open the conversation'}<span class="sub">${e.doc&&!e.url?'The full text, kept in Files':'A conversation already briefed with the story and the evidence'}</span></span></button>`:''}
+  ${target?`<button class="opt" data-go>${e.doc&&!e.url?IC.doc:IC.plus}<span>${e.doc&&!e.url?'Open in Files':'Start a conversation'}<span class="sub">${e.doc&&!e.url?'The full text, kept in Files':'New conversation, already briefed with the story and the evidence; nothing starts until you press Start'}</span></span></button>`:''}
   ${e.gmail?`<a class="opt" href="${esc(e.gmail)}" target="_blank" rel="noopener">${IC.globe}<span>Open in Gmail</span></a>`:''}
   ${gone?`<button class="opt" data-restore>${IC.swap}<span>Restore<span class="sub">Back to the list; the watcher is told</span></span></button>`:`<button class="opt" data-resolve>${IC.tick}<span>Resolved<span class="sub">This situation is over; the watcher stops following it</span></span></button>
   <button class="opt" data-useless>${IC.bellOff}<span>Not useful<span class="sub">Don’t alert me about this kind of thing; the watcher adds it to your preferences</span></span></button>
@@ -164,7 +164,7 @@ function paintInboxBadges(){
 function inboxWaitingCards(){
  if(!inboxOn())return [];
  if(!inboxSnap){if(!inboxLoading)loadInbox().then(()=>{if(typeof paintAssistantHome==='function')paintAssistantHome();}).catch(()=>{});return [];} // first paint on a fresh page: fetch, then paint again
- return inboxSnap.entries.filter(e=>e.state==='new'&&e.kind==='alert').slice(0,3).map(e=>`<a class="home-card inbox-card" href="${esc(inboxTarget(e)||'#/inbox/'+e.id)}" data-inbox-card="${esc(e.id)}"><span class="home-card-title">${esc(e.title)}</span><span class="home-card-what">Inbox Watch · ${esc(inboxFirst(e.text)||'Open to read')}</span></a>`);
+ return inboxSnap.entries.filter(e=>e.state==='new'&&e.kind==='alert').slice(0,3).map(e=>`<a class="home-card inbox-card" href="#/inbox/${esc(e.id)}" data-inbox-card="${esc(e.id)}"><span class="home-card-title">${esc(e.title)}</span><span class="home-card-what">Inbox Watch · ${esc(inboxFirst(e.text)||'Open to read')}</span></a>`);
 }
 function inboxTick(){if(!inboxOn()||document.visibilityState!=='visible'||!(inboxView||railView()==='inbox'||document.querySelector('[data-inbox-home],[data-inbox-badge],.assistant-home')))return;loadInbox(true).then(()=>{paintInboxView();paintRailInbox();paintInboxBadges();if(typeof paintAssistantHome==='function')paintAssistantHome();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
 setInterval(inboxTick,30000);onListsStale(inboxTick);

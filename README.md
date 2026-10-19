@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.69.0 / build 134**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.69.1 / build 135**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -206,9 +206,10 @@ device, and when you open them, so an item an agent adds shows up without a relo
   you want it, a short briefing on that session. **Start** opens a new session with the
   task written in, ready to send. See [Tasks](docs/workspace-guide.md#tasks).
 - **Inbox** (1.69) is what [Inbox Watch](#inbox-watch-your-mailbox-read-for-you-165) sent: alerts,
-  digests and look-aheads in one list, newest first. **Open** goes to the briefed conversation or the
-  Files document, **X** dismisses, and the row menu records **Resolved** or **Not useful**, which the
-  watcher reads back on its next run. See [Inbox](docs/workspace-guide.md#inbox).
+  digests and look-aheads in one list, newest first. A row opens its sheet: the whole text with Gmail links, **Start a conversation**
+  (a new conversation briefed with the story; nothing starts until you press Start) or **Open in Files**,
+  **Open in Gmail**, **Resolved**, **Not useful** and **Dismiss**; **X** on the row dismisses. Resolved and Not
+  useful reach the watcher on its next run. See [Inbox](docs/workspace-guide.md#inbox).
 - **Vault** (1.39) keeps API keys, tokens, logins and notes encrypted in one file on the
   server. See [Vault](docs/workspace-guide.md#vault).
   - **Set up in one switch.** Turning it on creates the key, saves it to the install's
@@ -263,9 +264,9 @@ OpenClaw agent) to decide what deserves you. What it sends:
 - **An alert** only when an email tells you something the email itself does not: a repeat
   failure after a repair, a reminder that contradicts what the customer asked for, something
   from an earlier email now due, a reply that never came, the same problem across threads.
-  It arrives as a push on your devices; tapping it opens a conversation already briefed with
-  the story, the evidence and the Gmail links, so handling it is a sentence, not a copy and
-  paste.
+  It arrives as a push on your devices and a row in Inbox; the row shows the whole text, and
+  **Start a conversation** opens one already briefed with the story, the evidence and the Gmail
+  links, so handling it is a sentence, not a copy and paste.
 - **A morning digest** of the rest, and a **look-ahead** at 8 a.m. and 5 p.m. of what is due
   or at risk in the next few days, kept in Files with a push that links there.
 

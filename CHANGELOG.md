@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.69.1] — 2026-10-19 · build 135
+
+- **Read first, then decide.** A tap on an Inbox row opened the briefed conversation straight away. It now opens the entry's sheet: the whole text with Gmail links, then **Start a conversation** (a new conversation briefed with the story and the evidence; nothing starts until you press Start) or **Open in Files**, **Open in Gmail**, **Resolved**, **Not useful**, **Dismiss**. The Assistant-mode **Waiting for you** card opens the entry the same way. Asked for by Brad after the first tap on a live alert.
+- Migration: none.
+- Tests: the Inbox browser check taps a row and expects the sheet with *Start a conversation*; the home card's link is the entry.
+
 ## [1.69.0] — 2026-10-19 · build 134
 
 - **Inbox.** A fifth optional library for what Inbox Watch sends. **Settings → Projects, files, tasks & vault → Inbox Watch** turns it on; `#/inbox` lists alerts, digests and look-aheads newest first by day, with **New**, **All** and **Dismissed** chips and a search box. A row opens the briefed conversation (the start link) or the Files document; **X** dismisses; the **…** menu shows the whole text with every citation a Gmail link, and records **Resolved** or **Not useful**, which a watcher reads back (`GET /api/inbox/feedback`, `POST /api/inbox/ack`) and applies on its next run: a story closed, a line added to the owner's preferences. **Restore** undoes any of those. Dismissed entries keep 30 days, the rest 60; the list says when the watcher has not reported in a day.
