@@ -126,7 +126,14 @@ sudo systemctl restart cloudflared
 ```
 
 Put Cloudflare Access in front of the hostname if you want an identity check before Pocket's
-password.
+password. Since 1.63 Pocket can then skip its own password: set `POCKET_ACCESS_TEAM` (the
+Zero Trust team name, as in `<team>.cloudflareaccess.com`), `POCKET_ACCESS_AUD` (the Access
+application's audience tag, under the application's Overview) and `POCKET_ACCESS_EMAILS` (the
+comma-separated emails that may sign in this way). Pocket checks Cloudflare's signature on the
+`Cf-Access-Jwt-Assertion` header, the team, the audience, the expiry and the email, then signs
+the browser in for as long as the Access token lasts, at most a day; anything else gets the
+password page. Leave any of the three unset to
+keep the password only.
 
 **Caddy** (a public hostname with automatic certificates, on a machine with ports 80 and 443
 open):
