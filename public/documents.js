@@ -89,7 +89,7 @@ async function renderDocuments(view){
  catch(e){if(docView!==view)return;const main=$('#documents-main');if(!main)return;if(docsSnap)paintDocumentsView();showLibraryError(main,e,'Files',()=>renderDocuments(view),Boolean(docsSnap));restoreViewPosition(view);return;}
  if(docView!==view)return;
  if(kind==='doc'&&!docById(view.slice(10))){$('#documents-main').innerHTML='<p class="sheet-help">That file does not exist. It may have been removed on another device.</p>';return;}
- if(PANE)paneSay('route',{id:view,title:docViewTitle(view)});else if(SOLO)document.title=docViewTitle(view)+' · Pocket Code';else rememberOpenView(view,docViewTitle(view));
+ if(PANE)paneSay('route',{id:view,title:docViewTitle(view)});else if(SOLO)document.title=docViewTitle(view)+' · '+appName();else rememberOpenView(view,docViewTitle(view));
  paintDocumentsView();
  restoreViewPosition(view);
 }

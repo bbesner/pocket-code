@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.60.0] — 2026-10-19 · build 121
+
+- **Assistant mode.** A per-Pocket switch for people who don't write code. It opens on the message box ("What would you like done?") with the saved prompts, a short getting-started note, **Waiting for you** cards for a conversation that has a question, needs an OK or didn't finish, the five latest conversations and **See all conversations**, and buttons for Files, Tasks, Projects and the Vault when they're on. The message box is Attach, the mic and Send; the model, reasoning, permissions and Codex chips, the settings toggle, Choose a skill, Save as prompt, the cache ring, alerts and the Steer now / After this reply choice are hidden (a message sent while Claude works waits for the current reply). A conversation hides Results, Queue, Git, changed files, split view, the folder name, the idle state and the cost line, and steps show only their plain words. Settings shrinks to Appearance, Conversation, Accounts, Notifications & voice, and Help & updates. The app is called **Pocket Assistant** (header, window title, sign-in page and the installed app's name). Nothing is removed: turning it off brings every control back.
+- **Turning it on.** **Settings → Appearance → Assistant mode** (this Pocket, every device), or `POCKET_ASSISTANT_MODE`: `on` sets the starting value, `locked` keeps it on and takes the switch out of Settings (for seats run for someone else), `off` or unset starts with the full workbench. `/api/me` reports `assistantMode` and `assistantLocked`; `/manifest.webmanifest` is served with the name that matches.
+- **Notifications in Assistant mode** say "Ready" without the cost and time.
+- Migration: none. `assistantMode` is added to `pocket-settings.json` on first start.
+- Tests: `test/assistant-mode.test.mjs` (off by default, Settings on and off, saved; `on` and `locked` from the environment; locked refuses to turn off; the sign-in page sees the mode; the manifest name). The browser suite opens Assistant mode at 390 and 1440 (home, a conversation, Settings, See all) and runs axe on each.
+
 ## [1.59.0] — 2026-10-19 · build 120
 
 - **Plain words.** Pocket says *conversation* instead of *session* and *reply* instead of *turn* everywhere you read it: the list, New conversation, the message box ("Reply…"), tabs, tips, notifications and spoken replies. Ids, routes, settings keys and the CLI commands are unchanged.

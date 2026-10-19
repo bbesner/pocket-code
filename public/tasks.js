@@ -63,7 +63,7 @@ async function renderTasks(view){
  try{await Promise.all([loadTasks(true),typeof refreshSessions==='function'?refreshSessions().catch(()=>{}):null,typeof projectsOn==='function'&&projectsOn()&&typeof loadBoard==='function'?loadBoard().catch(()=>{}):null]);} // session names for the rows; the board for its reminders (1.50)
  catch(e){if(taskView!==view)return;const main=$('#tasks-main');if(!main)return;if(tasksSnap)paintTasksView();showLibraryError(main,e,'Tasks',()=>renderTasks(view),Boolean(tasksSnap));restoreViewPosition(view);return;}
  if(taskView!==view)return;
- if(PANE)paneSay('route',{id:view,title:'Tasks'});else if(SOLO)document.title='Tasks · Pocket Code';else rememberOpenView(view,'Tasks');
+ if(PANE)paneSay('route',{id:view,title:'Tasks'});else if(SOLO)document.title='Tasks · '+appName();else rememberOpenView(view,'Tasks');
  paintTasksView();
  restoreViewPosition(view);
 }

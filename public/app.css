@@ -1620,3 +1620,71 @@ button[data-accent="purple"] .accent-dot { background: var(--accent-purple); }
 .doc-trash > summary::before { content: '▸'; color: var(--faint); flex: none; }
 .doc-trash[open] > summary::before { content: '▾'; }
 .doc-trash > summary h2 { padding: 8px 18px 4px 0; }
+
+/* ---------- 1.60: Assistant mode ----------
+   html.assistant (Settings, or POCKET_ASSISTANT_MODE). Pinned brief: variance 3, motion 2, density 3; existing
+   tokens, no new colour. It hides developer controls and meters; nothing is restyled for the workbench. */
+html.assistant #tbar,
+html.assistant #composer-toggle,
+html.assistant #ctx-ring,
+html.assistant #choose-skill,
+html.assistant #save-prompt,
+html.assistant #muteb,
+html.assistant .voice-mute,
+html.assistant #project-open,
+html.assistant #task-open,
+html.assistant .send-mode,
+html.assistant .turnmeta,
+html.assistant #results-open,
+html.assistant #queue-open,
+html.assistant #git-open,
+html.assistant #chgb,
+html.assistant #splitb,
+html.assistant #session-switch,
+html.assistant .session-summary,
+html.assistant .session-filters,
+html.assistant .session-more-filters,
+html.assistant [data-workspace-filters],
+html.assistant .session-footnote,
+html.assistant #rail-filter-toggle,
+html.assistant #rail-filter-controls,
+html.assistant #rail-filter-summary,
+html.assistant #refresh-sessions,
+html.assistant .ledger.step .det,
+html.assistant .ledgerwrap > summary .tc-raw,
+html.assistant .approval-card pre.approval-what,
+html.assistant .row .meta .proj,
+html.assistant .session-item .row .meta,
+html.assistant .session-item .session-status.state-idle,
+html.assistant #cproj,
+html.assistant .run-confirmation[data-state=idle],
+html.assistant .run-confirmation[data-state=unknown] { display: none !important; }
+html.assistant #composer-actions:empty { display: none; }
+html.assistant .settings-assistant-hidden { display: none !important; }
+html.assistant .assistant-home .recent-starts { display: none; } /* the home's own Recent lists conversations */
+
+/* Home: the first-run note, Waiting for you, Recent, then the way to Files, Tasks, Projects and the Vault. */
+.assistant-home { gap: 22px; }
+.assistant-intro { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); }
+.assistant-intro p { flex: 1 1 240px; margin: 0; font-size: 15.5px; line-height: 1.5; }
+.home-h { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; }
+.home-waiting { display: flex; flex-direction: column; gap: 8px; }
+.home-waiting[hidden] { display: none; }
+.home-card { display: flex; flex-direction: column; gap: 2px; min-height: 56px; justify-content: center; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: 12px; color: var(--text); text-decoration: none; background: var(--surface); }
+.home-card:hover, .home-card:focus-visible { background: var(--raised); }
+.home-card-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-card-what { font-size: 14px; color: var(--dim); }
+.home-recent[hidden] { display: none; }
+.home-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.home-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 52px; padding: 6px 2px; border-bottom: 1px solid var(--line); color: var(--text); text-decoration: none; }
+.home-row:hover, .home-row:focus-visible { background: var(--raised); }
+.home-dot { width: 8px; height: 8px; border-radius: 50%; background: transparent; }
+.home-row.state-input .home-dot { background: var(--warn); }
+.home-row.state-running .home-dot { background: var(--ok); }
+.home-row.state-failed .home-dot { background: var(--err); }
+.home-row.state-ready .home-dot { background: var(--clay); }
+.home-title { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-when { font-size: 13.5px; color: var(--dim); white-space: nowrap; }
+.home-state { color: var(--text); }
+.home-all { display: inline-flex; align-items: center; min-height: 44px; color: var(--clay); font-size: 15px; }
+.home-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }

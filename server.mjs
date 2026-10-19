@@ -428,6 +428,13 @@ if (typeof settings.autoTitles !== 'boolean') settings.autoTitles = (process.env
 if (!['auto', 'claude', 'codex'].includes(settings.titleProvider)) settings.titleProvider = 'auto';
 if (typeof settings.awaySummaries !== 'boolean') settings.awaySummaries = true; // 1.21: "While you were away" summaries
 if (typeof settings.liveTitles !== 'boolean') settings.liveTitles = true; // 1.29.1: titles follow the session
+// 1.60: Assistant mode, a simpler Pocket for people who don't write code (docs/plans/assistant-mode.md).
+// POCKET_ASSISTANT_MODE=locked keeps it on and out of Settings; on (or 1) sets the starting value until Settings
+// changes it; off or unset starts with the full workbench.
+const ASSISTANT_ENV = (process.env.POCKET_ASSISTANT_MODE || '').trim().toLowerCase();
+const assistantLocked = ASSISTANT_ENV === 'locked';
+if (typeof settings.assistantMode !== 'boolean') settings.assistantMode = ['on', '1', 'true', 'locked'].includes(ASSISTANT_ENV);
+const assistantOn = () => assistantLocked || settings.assistantMode === true;
 const TITLE_MODELS = { claude: (process.env.POCKET_TITLE_CLAUDE_MODEL || 'haiku').trim(), codex: (process.env.POCKET_TITLE_CODEX_MODEL || 'gpt-6-luna').trim() };
 // 1.52: a helper call never names a Claude model the managed policy blocks (the CLI would run its default,
 // often the most expensive model, instead); it takes the cheapest offered model the policy allows.
@@ -1534,6 +1541,7 @@ async function finalizeTurn(sessionId, turn, code) {
     const body = retryAt ? `Usage limit reached. Picks up again at ${fmtET(retryAt)}`
       : !result ? 'Stopped'
         : !result.ok ? 'Something went wrong. Tap to see what happened'
+          : assistantOn() ? 'Ready' // 1.60: no meters in Assistant mode
           : `Ready${result.cost != null ? ` · $${result.cost.toFixed(2)}` : ''}${result.duration_ms ? ` · ${Math.round(result.duration_ms / 1000)}s` : ''}`;
     findSessionFile(sessionId)
       .then(f => f ? sessionMeta(f, sessionId) : null)
@@ -1699,6 +1707,13 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '2mb' }));
+// 1.60: the installed app's name follows Assistant mode (Pocket Assistant), so a seat's home-screen icon says so.
+const MANIFEST = (() => { try { return JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'public', 'manifest.webmanifest'), 'utf8')); } catch { return null; } })();
+app.get('/manifest.webmanifest', (_req, res, next) => {
+  if (!MANIFEST) return next();
+  const m = assistantOn() ? { ...MANIFEST, name: 'Pocket Assistant', short_name: 'Pocket Assistant', description: 'Your assistant for email, documents, quotes and everyday work' } : MANIFEST;
+  res.setHeader('Cache-Control', 'no-cache'); res.type('application/manifest+json').send(JSON.stringify(m));
+});
 app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index.html', maxAge: '5m',
   setHeaders(res, file) { if (['index.html', 'sw.js'].includes(path.basename(file))) res.setHeader('Cache-Control', 'no-cache'); },
 }));
@@ -1717,7 +1732,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
-app.get('/api/me', (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')); if (ok) learnPublicUrl(req); return res.json({ ok, features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), vault: vaultLive() } }); });
+app.get('/api/me', (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')); if (ok) learnPublicUrl(req); return res.json({ ok, features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked } }); });
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -2457,9 +2472,13 @@ function claudeModelSettings() {
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
 app.get('/api/settings', requireAuth, async (_req, res) => {
   await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings() });
+  res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
+  if (typeof req.body?.assistantMode === 'boolean') {
+    if (assistantLocked && !req.body.assistantMode) return res.status(409).json({ error: 'Assistant mode is locked on for this Pocket.' });
+    settings.assistantMode = req.body.assistantMode;
+  }
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
   if (typeof req.body?.autoTitles === 'boolean') settings.autoTitles = req.body.autoTitles;
   if (['auto', 'claude', 'codex'].includes(req.body?.titleProvider)) settings.titleProvider = req.body.titleProvider;
@@ -2510,7 +2529,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
   saveSettings();
   if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
-  log(`settings updated: titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
+  log(`settings updated: assistantMode=${assistantOn()} titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
   res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
 });
 
@@ -3172,7 +3191,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Plain words: conversations instead of sessions, and each step in plain words (“Saved Proposal.pdf”, “Checked Gmail”) with the raw command or path beside it; Settings → Conversation → Describe steps in plain words turns it off. Approval cards ask a plain question, show the whole command or path, keep the full request behind Show details, and offer Don’t allow or Allow."];
+const RELEASE_NOTES = ["Assistant mode: a simpler Pocket for everyday work. It opens on the message box with your saved prompts, what's waiting for you and your latest conversations; developer controls and meters are hidden, steps read in plain words, Settings is short, and the app is called Pocket Assistant. Settings → Appearance → Assistant mode, or POCKET_ASSISTANT_MODE (on, or locked for a seat run for someone else)."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

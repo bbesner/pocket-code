@@ -2362,6 +2362,34 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.deepEqual(errors,[]);
   });
 
+  await check('1.60 Assistant mode: home is the message box, developer controls and meters are hidden, Settings is short',async()=>{
+   const settings=settingsState(),before={assistantMode:settings.assistantMode},vp=page.viewport();settings.assistantMode=true;
+   const shown=sel=>page.evaluate(s=>[...document.querySelectorAll(s)].some(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'),sel);
+   try{
+    for(const [w,h] of [[390,844],[1440,900]]){
+     await page.setViewport({width:w,height:h});
+     await page.goto(base+'/#/all');await page.waitForSelector('.session-home');await page.goto(base+'/#/');await page.waitForSelector('.assistant-home');await page.waitForSelector('#first');
+     assert.equal(await page.evaluate(()=>document.documentElement.classList.contains('assistant')),true);
+     assert.equal(await page.$eval('header.bar h1',e=>e.textContent.trim()),'Pocket Assistant');
+     assert.equal(await page.evaluate(()=>document.title),'Pocket Assistant');
+     for(const sel of ['#tbar','#composer-toggle','#choose-skill','#save-prompt'])assert.equal(await shown(sel),false,sel+' is hidden at '+w);
+     assert.equal(await shown('#start'),true,'Send is there');assert.equal(await shown('#home-recent .home-row')||w>=900,true,'Recent on a phone; the list beside it on a desktop');
+     await scan('assistant-home-'+w);
+    }
+    await page.setViewport({width:390,height:844});
+    await openChat(idle);
+    for(const sel of ['#tbar','#results-open','#queue-open','#git-open','#ctx-ring','.turnmeta','#cproj'])assert.equal(await shown(sel),false,sel+' is hidden in a conversation');
+    assert.equal(await page.$eval('#box',b=>b.placeholder),'Reply…');
+    await scan('assistant-chat-390');
+    await page.goto(base+'/#/');await page.waitForSelector('.assistant-home');await clickControl(page,'#settings');await page.waitForSelector('.settings-index');
+    assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','notifications','help']);
+    assert.equal(await shown('#s-models'),false,'the model list is not offered');assert.equal(await shown('#s-trusted'),false);
+    await page.keyboard.press('Escape');
+    await page.goto(base+'/#/all');await page.waitForSelector('.session-home');
+    assert.equal(await page.$eval('header.bar h1',e=>e.textContent.trim()),'Conversations');assert.equal(await shown('.session-filters'),false);
+   }finally{Object.assign(settings,before);if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
+  });
+
   fs.writeFileSync(path.join(out,'ui-regressions.json'),JSON.stringify({checks,scans,errors},null,2));
   console.log(JSON.stringify({uiRegressions:checks.length,accessibilityScans:scans.length,ok:true}));
  } catch(e) {

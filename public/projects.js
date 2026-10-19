@@ -5,6 +5,9 @@
    returned card replaces the local one, so a stale edit shows the current card instead of overwriting it. */
 const viewHref=id=>'#/'+id; // isViewId, tabHref: workspace.js
 const projectsOn=()=>Boolean(window.pocketFeatures?.projects);
+// 1.60: Assistant mode (a per-instance switch) and the app's name that follows it.
+const assistantMode=()=>Boolean(window.pocketFeatures?.assistantMode);
+const appName=()=>assistantMode()?'Pocket Assistant':'Pocket Code';
 let boardSnap=null,boardAt=0,boardLoading=null,boardView=null;
 const projectById=id=>boardSnap?.projects.find(p=>p.id===id)||null;
 async function loadBoard(force){
@@ -63,7 +66,7 @@ async function renderProjects(view){
  catch(e){if(boardView!==view)return;const main=$('#projects-main');if(!main)return;if(boardSnap)paintProjectsView();showLibraryError(main,e,'Projects',()=>renderProjects(view),Boolean(boardSnap));restoreViewPosition(view);return;}
  if(boardView!==view)return;
  if(kind==='card'&&!projectById(view.slice(9))){$('#projects-main').innerHTML='<p class="sheet-help">That project does not exist. It may have been removed on another device.</p>';return;}
- if(PANE)paneSay('route',{id:view,title:viewTitle(view)});else if(SOLO)document.title=viewTitle(view)+' · Pocket Code';else rememberOpenView(view,viewTitle(view)); // a pane's or a solo window's view is not a tab of the outer window
+ if(PANE)paneSay('route',{id:view,title:viewTitle(view)});else if(SOLO)document.title=viewTitle(view)+' · '+appName();else rememberOpenView(view,viewTitle(view)); // a pane's or a solo window's view is not a tab of the outer window
  paintProjectsView();
  restoreViewPosition(view);
 }
