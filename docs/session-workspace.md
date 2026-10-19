@@ -14,8 +14,10 @@ These screenshots use synthetic sessions and contain no private transcripts.
 
 ## Behavior
 
-- Running means Pocket Code owns a live turn. Activity elsewhere means recent
-  transcript activity; it cannot confirm that another process is still running.
+- Running means Pocket Code owns a live turn. Working in background means the reply
+  ended but a command run in the background or a subagent is still going; the agent
+  wakes by itself when it finishes, so the session is not done yet. Activity elsewhere
+  means recent transcript activity; it cannot confirm that another process is still running.
 - Response ready means a successful agent turn ended, not that its overall task is
   complete. New and Attention indicators are read markers on this device.
 - The same search, groups and filters appear in the session home, desktop rail and

@@ -885,3 +885,15 @@ in the existing style. No new colour, no motion.
 
 1.24.1: a bubble from another day carries its date in the same 12px mono line ("Yesterday 3:05 PM",
 "Oct 6, 3:05 PM"); today's keep the time alone, so the common case stays as quiet as before.
+
+## Working in background (1.64)
+
+Pinned Operate refinement (design-studio → impeccable): variance 3, motion 1, density 6;
+existing tokens, no new colour. Read: a session whose reply ended while a background job or a
+subagent still runs must look alive without claiming the agent is mid-reply. Running keeps the
+clay ember and means "wait"; the new state reuses the same ember in `--dim` with a 2.6 s breath
+(`.ember.dim`) and means "you may send, the session will wake on its own". It appears in the
+session row (own group under Running, label `Working in background · 1 job`, detail line naming
+the first job), the title bar lamp when the composer is free, and the open-session tabs at 7px.
+Status text stays `--text`; the status bar shows `Background` in short form. No new motion.
+

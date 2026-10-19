@@ -96,8 +96,9 @@ test('bad timer and mode settings fall back to defaults instead of breaking turn
 test('a background job is remembered across a restart: no idle close, release asks first',async t=>{
  const f=await fixture(t,18415,{POCKET_IDLE_CLOSE_MS:'1000'});
  const id=(await f.call('/new',{cwd:repo,...msg('__BG_LONG__ long job')})).body.id;
- assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ assert.ok(await f.until(async()=>await f.state(id)==='background'));
  await f.stop();await f.start();
+ assert.equal(await f.state(id),'background','the adopted process still reports its job');
  assert.equal((await f.health()).processes,1,'process adopted');
  await sleep(1600);
  assert.equal((await f.health()).processes,1,'not idle-closed while its job runs');

@@ -66,6 +66,9 @@ header.bar button.icon { padding: 8px; margin: -8px -2px -8px -8px; color: var(-
 .ember { width: 10px; height: 10px; border-radius: 50%; background: var(--clay); flex: none;
   animation: breathe 1.6s ease-in-out infinite alternate; }
 @keyframes breathe { from { transform: scale(1); opacity: .55; } to { transform: scale(1.28); opacity: 1; } }
+/* 1.64: the same ember in the dim ink and a slower breath means work is still running in the background
+   (a job or a subagent) while the reply is done and the box is free. Clay keeps meaning a live turn. */
+.ember.dim { background: var(--dim); animation-duration: 2.6s; }
 @media (prefers-reduced-motion: reduce) { .ember { animation: none; } .enter { animation: none !important; } }
 .enter { animation: rise .18s ease-out; }
 @keyframes rise { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -520,6 +523,7 @@ button:disabled { cursor: default; opacity: .55; }
 .session-status { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 7px; font-size: 13px; color: var(--dim); }
 .state-running { color: var(--clay); }.state-failed { color: var(--err); }.state-finished { color: var(--ok); }
 .state-observed { color: var(--text); }
+.state-background { color: var(--text); }
 .session-status .ember { width: 7px; height: 7px; margin: 0; }
 .activity-detail { display: block; margin-top: 3px; font-size: 12px; line-height: 1.5; color: var(--faint); }
 .unread { color: var(--text); font-size: 12px; font-weight: 650; }
@@ -777,6 +781,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 #run-confirmed-at { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .run-confirmation[data-state=running] #run-confirmed-state { color: var(--ok); }
 .run-confirmation[data-state=waiting] #run-confirmed-state { color: var(--clay); }
+.run-confirmation[data-state=background] #run-confirmed-state { color: var(--text); }
 /* Amber means waiting on you (1.27.1): list label, tab mark and status bar; clay stays for work in progress. */
 .run-confirmation[data-state=input] #run-confirmed-state { color: var(--warn); }
 .run-confirmation[data-state=failed] #run-confirmed-state { color: var(--err); }

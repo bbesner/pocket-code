@@ -56,7 +56,7 @@ test('one process carries a session across turns; a model change starts a new on
 test('a turn the agent starts by itself (finished background job) is streamed and recorded',async t=>{
  const f=await fixture(t,18392,{POCKET_TEST_BG_MS:'1500'});
  const id=(await f.call('/new',{cwd:repo,...msg('__BG__ start a job')})).body.id;
- assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ assert.ok(await f.until(async()=>await f.state(id)==='background')); // 1.64: the reply ended, the job runs
  // A viewer mirroring the idle session is told to reattach when the agent starts a turn.
  const viewer=await fetch(`http://127.0.0.1:18392/api/session/${id}/events`,{headers:f.headers});
  const reader=viewer.body.getReader();let seen='';
@@ -70,11 +70,27 @@ test('a turn the agent starts by itself (finished background job) is streamed an
  assert.equal(f.pids().size,1);
 });
 
+test('a reply that leaves a background job running reads Working in background until the job is done',async t=>{
+ const f=await fixture(t,18396,{POCKET_TEST_BG_MS:'2000'});
+ const row=async id=>(await f.call('/sessions')).body.sessions.find(s=>s.id===id);
+ const id=(await f.call('/new',{cwd:repo,...msg('__BG__ start a job')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='background'),'the ended reply shows background work, not Response ready');
+ const st=(await row(id)).state;
+ assert.equal(st.confirmed,true);assert.equal(st.label,'Working in background · 1 job');
+ assert.deepEqual(st.background,{count:1,summary:'1 job',jobs:[{kind:'job',description:'sleep'}]});
+ assert.equal((await f.call(`/session/${id}`)).body.state.kind,'background','the conversation reads the same state');
+ assert.match(f.logs(),new RegExp(`notification held: 1 background job\\(s\\) still running session=${id}`),'no Done push while the job runs');
+ assert.ok(await f.until(()=>/turn start \(started by the agent\)/.test(f.logs()),6000),'the agent reports the finished job');
+ assert.ok(await f.until(async()=>await f.state(id)==='finished',6000),'then the session is Response ready');
+ assert.equal((await row(id)).state.background,undefined);
+ assert.equal((f.logs().match(/notification held/g)||[]).length,1,'the finishing turn is not held');
+});
+
 test('idle processes close after the idle time, but not while a background job runs',async t=>{
  const f=await fixture(t,18393,{POCKET_IDLE_CLOSE_MS:'1200'});
  const a=(await f.call('/new',{cwd:repo,...msg('quick')})).body.id;
  const b=(await f.call('/new',{cwd:repo,...msg('__BG_LONG__ long job')})).body.id;
- assert.ok(await f.until(async()=>await f.state(a)==='finished'&&await f.state(b)==='finished'));
+ assert.ok(await f.until(async()=>await f.state(a)==='finished'&&await f.state(b)==='background'));
  assert.equal((await f.health()).processes,2);
  assert.ok(await f.until(async()=>(await f.health()).processes===1,4000),'idle session closed');
  await sleep(1500);

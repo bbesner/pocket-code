@@ -1,9 +1,26 @@
-export function sessionState({ turn, external = false, retryAt = null, outcome = null, mtimeMs = 0 }) {
+// 1.64: the CLI's background job list. A Bash command run in the background or a subagent keeps
+// the session's process alive after the reply, and the CLI starts a turn by itself when one
+// finishes. Until then the session is working, not finished: this state outranks the outcome
+// and the transcript's age, and ends when the CLI reports an empty list or the process exits.
+export function backgroundSummary(tasks) {
+  const jobs = (Array.isArray(tasks) ? tasks : []).map(t => ({
+    kind: /agent/.test(t?.task_type || '') ? 'agent' : 'job',
+    description: String(t?.description || t?.subagent_type || '').slice(0, 120),
+  }));
+  if (!jobs.length) return null;
+  const agents = jobs.filter(j => j.kind === 'agent').length, plain = jobs.length - agents;
+  const parts = [agents ? `${agents} ${agents === 1 ? 'agent' : 'agents'}` : '', plain ? `${plain} ${plain === 1 ? 'job' : 'jobs'}` : ''].filter(Boolean);
+  return { count: jobs.length, summary: parts.join(', '), jobs };
+}
+
+export function sessionState({ turn, external = false, retryAt = null, outcome = null, mtimeMs = 0, background = [] }) {
   if (turn) return {
     kind: 'running', label: 'Running', confirmed: true,
     startedAt: turn.startedAt, queued: turn.queue?.length || 0,
   };
   if (retryAt) return { kind: 'waiting', label: 'Waiting for usage reset', retryAt, confirmed: true };
+  const bg = backgroundSummary(background);
+  if (bg) return { kind: 'background', label: `Working in background · ${bg.summary}`, confirmed: true, background: bg };
   // A newer external turn invalidates our older outcome. Filesystem flushes can
   // trail our completion callback, so tolerate a small bounded delay.
   if (outcome && mtimeMs <= outcome.at + 5000) return { ...outcome, confirmed: true };
@@ -12,7 +29,7 @@ export function sessionState({ turn, external = false, retryAt = null, outcome =
 }
 
 export function prioritizeSessions(rows, limit) {
-  const important = rows.filter(s => s.pinned || ['running', 'observed', 'waiting', 'failed', 'input'].includes(s.state.kind));
+  const important = rows.filter(s => s.pinned || ['running', 'background', 'observed', 'waiting', 'failed', 'input'].includes(s.state.kind));
   const importantIds = new Set(important.map(s => s.id));
   return [...important, ...rows.filter(s => !importantIds.has(s.id)).slice(0, Math.max(0, limit - important.length))];
 }
