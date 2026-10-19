@@ -2431,19 +2431,18 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     for(const w of [390,1440]){
      await page.setViewport({width:w,height:w===390?844:900});await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view .inbox-item');
      assert.equal(await page.$eval('#ktitle',e=>e.textContent),'Inbox');
-     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item .title',t=>t.map(x=>x.textContent)),['Pradera dispatch conflict'],'New shows the one new alert at '+w);
+     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item',r=>r.map(x=>x.className.match(/state-\w+/)[0])),['state-new','state-opened','state-resolved'],'All opens first, everything but dismissed, at '+w);
+     await clickControl(page,'[data-inbox-filter="new"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1);
+     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item .title',t=>t.map(x=>x.textContent)),['Pradera dispatch conflict'],'Unread shows the one new alert at '+w);
      assert.ok((await page.$$eval('.inbox-item button',bs=>bs.map(b=>b.getBoundingClientRect().height))).every(h=>h>=44),'44px targets');
      await clickControl(page,'[data-inbox-filter="all"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===3);
-     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item',r=>r.map(x=>x.className.match(/state-\w+/)[0])),['state-new','state-opened','state-resolved']);
      assert.match(await page.$eval('.inbox-item.state-new .inbox-text',e=>e.textContent),/Kimberly says/);
      if(w===390)await scan('inbox-all-390');else await scan('inbox-all-1440');
-     await clickControl(page,'[data-inbox-filter="new"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1);
     }
     // 1.69.1: a tap on the row reads it (the sheet), and only the sheet starts a conversation
     await clickControl(page,'.inbox-item.state-new .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet');assert.equal(await page.$eval('.inbox-sheet [data-go]',e=>e.textContent.includes('Start a conversation')),true);await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));
-    // reading marked it opened, so New is empty now; the row menu in All: Resolved; then X: Dismissed shows it and Restore brings it back
-    await page.waitForFunction(()=>document.querySelector('.inbox-view .project-empty')?.textContent.includes('Nothing new'));
-    await clickControl(page,'[data-inbox-filter="all"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===3);
+    // 1.69.2: reading cleared the dot but the row stays in All; the row menu: Resolved; then X: Dismissed shows it and Restore brings it back
+    await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===3&&!document.querySelector('.inbox-view .inbox-item.state-new'));
     await clickControl(page,'[data-inbox-more][aria-label="Options for Pradera dispatch conflict"]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
     assert.match(await page.$eval('.inbox-sheet .inbox-body',e=>e.innerHTML),/<a href="https:\/\/mail\.google\.com\/mail\/u\/0\/#all\/1a1540e0de10f879"/,'a citation is a Gmail link');
     assert.deepEqual(await page.evaluate(()=>['[data-go]','a.opt[href^="https://mail.google.com/"]','[data-resolve]','[data-useless]','[data-dismiss]','[data-restore]'].map(q=>Boolean(document.querySelector('.inbox-sheet '+q)))),[true,true,true,true,true,false],'the choices: open, Gmail, Resolved, Not useful, Dismiss; no Restore on a new entry');

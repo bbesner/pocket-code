@@ -1,7 +1,8 @@
 {
-  "version": "1.69.1",
-  "assetV": 135,
+  "version": "1.69.2",
+  "assetV": 136,
   "notes": [
+    "Reading an Inbox entry no longer makes it go away: the list opens on All, the dot marks what is unread, and a row or the home card stays until you dismiss it, mark it resolved or not useful.",
     "An Inbox row opens its sheet first: the whole text, Gmail links and the choices. Start a conversation is the deliberate step, as a task's Start is; the Assistant-mode card opens the entry the same way.",
     "Inbox: a fifth library beside Projects, Files, Tasks and the Vault for what Inbox Watch sends, with Open, Gmail and X on every row and a Resolved / Not useful choice the watcher reads back. The rail shows an icon per library so six fit. Inbox alerts get their own push toggle.",
     "Settings → Appearance now shows Mode as a choice, Developer mode or Assistant mode, with the one you are in pressed, instead of a single Assistant mode switch that left you guessing what off meant.",
