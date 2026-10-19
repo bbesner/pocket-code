@@ -15,9 +15,10 @@ const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-skills-'));
 const commands={board:'/srv/pocket/scripts/pocket-board.mjs',docs:'/srv/pocket/scripts/pocket-docs.mjs',tasks:'/srv/pocket/scripts/pocket-tasks.mjs',vault:'/srv/pocket/scripts/pocket-vault.mjs'};
 
 test('skills: installed while the feature is on, rewritten with this server\'s command, removed when off, never over a user\'s own skill',t=>{
+  const ours=r=>({...r,installed:r.installed.filter(d=>!d.endsWith('pocket-google'))}); // pocket-google is always on (own test)
   const dir=tmp();t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
   const claude=path.join(dir,'claude'),codex=path.join(dir,'codex'),roots=[claude,codex],env={};
-  let r=syncSkills({settings:{projects:true,documents:false},commands,env,roots});
+  let r=ours(syncSkills({settings:{projects:true,documents:false},commands,env,roots}));
   assert.deepEqual(r.installed.sort(),[path.join(claude,'pocket-projects'),path.join(codex,'pocket-projects')].sort());
   const body=fs.readFileSync(path.join(claude,'pocket-projects','SKILL.md'),'utf8');
   assert.match(body,/^---\nname: pocket-projects\n/);
@@ -27,16 +28,16 @@ test('skills: installed while the feature is on, rewritten with this server\'s c
   assert.equal(fs.existsSync(path.join(claude,'pocket-files')),false);
   // Unchanged content is not rewritten; turning Files on adds its skill.
   assert.deepEqual(syncSkills({settings:{projects:true},commands,env,roots}).installed,[]);
-  r=syncSkills({settings:{projects:true,documents:true},commands,env,roots});
+  r=ours(syncSkills({settings:{projects:true,documents:true},commands,env,roots}));
   assert.equal(r.installed.length,2);
   assert.match(fs.readFileSync(path.join(codex,'pocket-files','SKILL.md'),'utf8'),/my documents/);
   // 1.36: Tasks brings pocket-tasks, named for this server's command.
-  r=syncSkills({settings:{projects:true,documents:true,tasks:true},commands,env,roots});
+  r=ours(syncSkills({settings:{projects:true,documents:true,tasks:true},commands,env,roots}));
   assert.deepEqual(r.installed.sort(),[path.join(claude,'pocket-tasks'),path.join(codex,'pocket-tasks')].sort());
   assert.match(fs.readFileSync(path.join(claude,'pocket-tasks','SKILL.md'),'utf8'),/run `pocket-tasks` as `node \/srv\/pocket\/scripts\/pocket-tasks\.mjs`/);
   syncSkills({settings:{projects:true,documents:true,tasks:false},commands,env,roots});assert.equal(fs.existsSync(path.join(claude,'pocket-tasks')),false);
   // 1.39: the Vault brings pocket-vault.
-  r=syncSkills({settings:{projects:true,documents:true,vault:true},commands,env,roots});
+  r=ours(syncSkills({settings:{projects:true,documents:true,vault:true},commands,env,roots}));
   assert.deepEqual(r.installed.sort(),[path.join(claude,'pocket-vault'),path.join(codex,'pocket-vault')].sort());
   assert.match(fs.readFileSync(path.join(claude,'pocket-vault','SKILL.md'),'utf8'),/run `pocket-vault` as `node \/srv\/pocket\/scripts\/pocket-vault\.mjs`/);
   syncSkills({settings:{projects:true,documents:true,vault:false},commands,env,roots});assert.equal(fs.existsSync(path.join(claude,'pocket-vault')),false);
@@ -51,6 +52,33 @@ test('skills: installed while the feature is on, rewritten with this server\'s c
   // POCKET_SKILLS=0 does nothing at all.
   assert.deepEqual(syncSkills({settings:{projects:true,documents:true},commands,env:{POCKET_SKILLS:'0'},roots}),{installed:[],removed:[],skipped:[]});
   assert.equal(fs.existsSync(path.join(claude,'pocket-projects')),false);
+});
+
+test('skills: pocket-google is always on, with Claude\'s connector file for Claude Code and the apps file for Codex; a user\'s own skill is left alone',t=>{
+  const dir=tmp();t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const claude=path.join(dir,'claude'),codex=path.join(dir,'codex'),roots=[claude,codex],env={};
+  let r=syncSkills({settings:{},commands,env,roots,codexRoots:[codex]});
+  assert.deepEqual(r.installed.sort(),[path.join(claude,'pocket-google'),path.join(codex,'pocket-google')].sort());
+  const cl=fs.readFileSync(path.join(claude,'pocket-google','SKILL.md'),'utf8'),cx=fs.readFileSync(path.join(codex,'pocket-google','SKILL.md'),'utf8');
+  for(const body of [cl,cx]){
+    assert.match(body,/^---\nname: pocket-google\n/);
+    assert.match(body,/Draft by default/);
+    assert.match(body,/Never refuse to send/);
+    assert.match(body,/never ask the person to share their files with that other account/);
+  }
+  assert.match(cl,/mcp__claude_ai_Gmail__/);assert.match(cl,/`send_message` and its `draftId`/);assert.match(cl,/includeSignature: true/);
+  assert.doesNotMatch(cl,/codex_apps|send_draft/,'Claude\'s file names only Claude\'s tools');
+  assert.match(cx,/Codex apps/);assert.match(cx,/send_draft/);assert.match(cx,/get_profile/);
+  assert.doesNotMatch(cx,/mcp__claude_ai_/,'Codex\'s file names only the Codex apps');
+  assert.ok(fs.existsSync(path.join(codex,'pocket-google',MARKER)));
+  // Nothing changes on a second run.
+  assert.deepEqual(syncSkills({settings:{},commands,env,roots,codexRoots:[codex]}).installed,[]);
+  // A user's own pocket-google is never touched.
+  fs.rmSync(path.join(codex,'pocket-google'),{recursive:true});fs.mkdirSync(path.join(codex,'pocket-google'));fs.writeFileSync(path.join(codex,'pocket-google','SKILL.md'),'mine');
+  r=syncSkills({settings:{},commands,env,roots,codexRoots:[codex]});
+  assert.deepEqual(r.skipped,[path.join(codex,'pocket-google')]);
+  assert.equal(fs.readFileSync(path.join(codex,'pocket-google','SKILL.md'),'utf8'),'mine');
+  assert.deepEqual(syncSkills({settings:{},commands,env:{POCKET_SKILLS:'0'},roots,codexRoots:[codex]}).installed,[]);
 });
 
 test('skills: roots follow HOME, CLAUDE_CONFIG_DIR and CODEX_HOME; Codex only where it exists',()=>{

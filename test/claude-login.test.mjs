@@ -78,7 +78,7 @@ test('authenticated HTTP login: CSRF, privacy, reconnect, turn gate, completion 
   let child,logs='',base;
   const boot=async()=>{
     let startup='';
-    child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...env,PORT:'0',POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_AUTO_TITLES:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_CONFIG_DIR:path.join(dir,'config'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
+    child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...env,POCKET_SKILLS:'0',PORT:'0',POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_AUTO_TITLES:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_CONFIG_DIR:path.join(dir,'config'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
     child.stdout.on('data',data=>{logs+=data;startup+=data;});child.stderr.on('data',data=>{logs+=data;startup+=data;});
     for(let attempt=0;attempt<150&&!startup.includes('listening on');attempt++)await new Promise(resolve=>setTimeout(resolve,40));
     const port=startup.match(/listening on 127\.0\.0\.1:(\d+)/)?.[1];assert.ok(port,startup);base='http://127.0.0.1:'+port;
@@ -129,7 +129,7 @@ test('stop all Claude turns clears the sign-in gate, including approval waits',a
   const cookie='pc_auth='+expires+'.'+createHmac('sha256',secret).update(String(expires)).digest('hex');
   const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('POCKET_')&&!key.startsWith('VAPID_')&&!key.startsWith('ANTHROPIC_')&&!key.startsWith('CLAUDE_')));
   let child,startup='';
-  child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...env,PORT:'0',POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_AUTO_TITLES:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_CONFIG_DIR:path.join(dir,'config'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
+  child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...env,POCKET_SKILLS:'0',PORT:'0',POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_AUTO_TITLES:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_CONFIG_DIR:path.join(dir,'config'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',data=>startup+=data);child.stderr.on('data',data=>startup+=data);
   context.after(async()=>{child.kill('SIGTERM');if(child.exitCode===null&&child.signalCode===null)await once(child,'exit');fs.rmSync(dir,{recursive:true,force:true,maxRetries:10});});
   for(let attempt=0;attempt<150&&!startup.includes('listening on');attempt++)await new Promise(resolve=>setTimeout(resolve,40));

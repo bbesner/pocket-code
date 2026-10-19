@@ -28,7 +28,7 @@ async function server(t, port, env) {
   const secret = randomUUID(), exp = Date.now() + 3600000;
   const headers = { 'content-type': 'application/json', cookie: 'pc_auth=' + exp + '.' + createHmac('sha256', secret).update(String(exp)).digest('hex') };
   fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true });
-  const child = spawn(process.execPath, ['server.mjs'], { cwd: repo, env: { ...cleanEnv(), PORT: String(port), POCKET_ENV_FILE: '', POCKET_PASSWORD: 'test-only', POCKET_SECRET: secret,
+  const child = spawn(process.execPath, ['server.mjs'], { cwd: repo, env: { ...cleanEnv(), POCKET_SKILLS: '0', PORT: String(port), POCKET_ENV_FILE: '', POCKET_PASSWORD: 'test-only', POCKET_SECRET: secret,
     POCKET_SESSION_ROOT: path.join(dir, 'sessions'), POCKET_DATA_DIR: path.join(dir, 'data'), POCKET_DOCUMENTS_DIR: path.join(dir, 'docs'), POCKET_TEST_CALLS: path.join(dir, 'calls'),
     CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs'), CODEX_BIN: path.join(repo, 'test/fake-codex.mjs'), ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', b => { logs += b }); child.stderr.on('data', b => { logs += b });

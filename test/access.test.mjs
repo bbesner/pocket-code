@@ -83,7 +83,7 @@ test('server: an Access token signs in without the password, sets the normal coo
   const certs = await certsServer(t), port = 18680;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-access-')); let logs = '';
   fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true });
-  const child = spawn(process.execPath, ['server.mjs'], { cwd: repo, env: { ...cleanEnv(), PORT: String(port), POCKET_ENV_FILE: '', POCKET_PASSWORD: 'test-only', POCKET_SECRET: randomUUID(),
+  const child = spawn(process.execPath, ['server.mjs'], { cwd: repo, env: { ...cleanEnv(), POCKET_SKILLS: '0', PORT: String(port), POCKET_ENV_FILE: '', POCKET_PASSWORD: 'test-only', POCKET_SECRET: randomUUID(),
     POCKET_SESSION_ROOT: path.join(dir, 'sessions'), POCKET_DATA_DIR: path.join(dir, 'data'), CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs'), CODEX_BIN: path.join(repo, 'test/fake-codex.mjs'),
     POCKET_ACCESS_TEAM: TEAM, POCKET_ACCESS_AUD: AUD, POCKET_ACCESS_EMAILS: 'owner@example.test', POCKET_ACCESS_CERTS_URL: certs.url }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', b => { logs += b }); child.stderr.on('data', b => { logs += b });

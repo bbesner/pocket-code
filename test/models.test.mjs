@@ -104,7 +104,7 @@ async function server(t,port,env){
   const ws=path.join(dir,'sessions','test-workspace');fs.mkdirSync(ws,{recursive:true});
   if(env.policy)fs.writeFileSync(path.join(policyDir,'managed-settings.json'),JSON.stringify(env.policy));
   const extra={...env};delete extra.policy;
-  const child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',
+  const child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),POCKET_SKILLS:'0',PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',
     POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),POCKET_CLAUDE_MANAGED_DIR:policyDir,
     CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),...extra},stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
