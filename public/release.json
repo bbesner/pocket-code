@@ -1,7 +1,7 @@
 {
-  "version": "1.62.0",
-  "assetV": 123,
+  "version": "1.63.0",
+  "assetV": 124,
   "notes": [
-    "In Assistant mode the model is chosen for you: a request you type is matched to the lightest model and effort that will do it well (POCKET_ROUTER with a decision model), the conversation keeps it, and Try harder under the latest reply asks for a more careful pass. Pocket now honours the managed policy's maxEffortLevel on every Claude turn."
+    "One sign-in behind Cloudflare Access: with POCKET_ACCESS_TEAM, POCKET_ACCESS_AUD and POCKET_ACCESS_EMAILS set, Pocket verifies Cloudflare's signed token and signs you in without its own password, for at most a day at a time."
   ]
 }

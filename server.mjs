@@ -38,6 +38,7 @@ import {claudeConnectors, codexConnectors} from './connectors.mjs';
 import {ProjectStore, projectInstructions} from './projects.mjs';
 import {CLAUDE_MODELS, CATALOG_IDS, managedDir, readManagedPolicy, policyAllows, parseSelection, resolveOffer, helperModel} from './models.mjs';
 import {ModelRouter, capEffort} from './router.mjs';
+import {AccessVerifier} from './access.mjs';
 import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
 import {syncSkills} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
@@ -331,11 +332,12 @@ const CLI_URL_FILE = path.join(DATA_DIR, 'cli-url');
 fs.writeFileSync(CLI_URL_FILE, `http://127.0.0.1:${PORT}\n`, { mode: 0o600 }); fs.chmodSync(CLI_URL_FILE, 0o600);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 // Cookie, or the loopback CLI token: mounted only on /api/board* and /api/documents*.
-function requireBoardAuth(req, res, next) {
+async function requireBoardAuth(req, res, next) {
   if (checkCookie(getCookie(req, 'pc_auth'))) return next();
   const m = /^Bearer ([0-9a-f]{64})$/.exec(req.get('authorization') || '');
   const direct = LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
   if (m && direct && timingSafeEqual(Buffer.from(m[1]), Buffer.from(cliToken))) { req.boardActor = 'cli'; return next(); }
+  if (await accessSignIn(req, res)) return next(); // 1.63
   res.status(401).json({ error: 'unauthorized' });
 }
 const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404).json({ error: 'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'projects_off' });
@@ -555,8 +557,8 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
 function sign(exp) {
   return createHmac('sha256', SECRET).update(String(exp)).digest('hex');
 }
-function makeCookie() {
-  const exp = Date.now() + 90 * 24 * 3600 * 1000;
+function makeCookie(ms = 90 * 24 * 3600 * 1000) {
+  const exp = Date.now() + ms;
   return `${exp}.${sign(exp)}`;
 }
 function checkCookie(v) {
@@ -583,8 +585,36 @@ function getCookie(req, name) {
   }
   return null;
 }
-function requireAuth(req, res, next) {
+// 1.63: one sign-in. Behind Cloudflare Access, a valid Access token for an allowed email signs in without Pocket's
+// password (access.mjs). POCKET_ACCESS_TEAM (<team>.cloudflareaccess.com), POCKET_ACCESS_AUD (the application's
+// audience tag) and POCKET_ACCESS_EMAILS (comma-separated) turn it on; any of them missing keeps the password only.
+const access = new AccessVerifier({ team: process.env.POCKET_ACCESS_TEAM || '', aud: process.env.POCKET_ACCESS_AUD || '', emails: process.env.POCKET_ACCESS_EMAILS || '',
+  certsUrl: process.env.POCKET_ACCESS_CERTS_URL || null, log });
+if (process.env.POCKET_ACCESS_CERTS_URL) console.warn('POCKET_ACCESS_CERTS_URL is set: Cloudflare Access keys come from ' + process.env.POCKET_ACCESS_CERTS_URL + ' (tests only)');
+const accessRefusals = new Map(); // reason → last logged, so a bad token on every poll is logged once a minute
+const accessSignIns = new Map(); // email → last logged
+async function accessSignIn(req, res) {
+  const token = access.on ? req.get('cf-access-jwt-assertion') : null;
+  if (!token) return false;
+  // A cross-site request could carry Cloudflare's own cookie (its SameSite is set in Access, not here), so only a
+  // same-site request may sign in this way; Pocket's own cookie keeps SameSite=Lax as before.
+  const site = req.get('sec-fetch-site'), origin = req.get('origin');
+  if (req.method !== 'GET' && req.method !== 'HEAD' && (site === 'cross-site' || (origin && origin !== `https://${req.get('host')}` && origin !== `http://${req.get('host')}`))) return false;
+  const r = await access.verify(token).catch(e => ({ error: e.message }));
+  if (r.email) {
+    // Signed in for a day at most, and never past the Access token's own expiry: someone removed from Access (or
+    // from POCKET_ACCESS_EMAILS) is out within a day, and the next request through Access signs in again quietly.
+    const ms = Math.max(60_000, Math.min(24 * 3600_000, (r.exp || 0) * 1000 - Date.now()));
+    res.setHeader('Set-Cookie', `pc_auth=${makeCookie(ms)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${Math.floor(ms / 1000)}`);
+    if (Date.now() - (accessSignIns.get(r.email) || 0) > 3600_000) { accessSignIns.set(r.email, Date.now()); log(`signed in through Cloudflare Access: ${r.email}`); }
+    return true;
+  }
+  if (Date.now() - (accessRefusals.get(r.error) || 0) > 60_000) { accessRefusals.set(r.error, Date.now()); log(`Cloudflare Access token not accepted (${r.error}); the password page stays`); }
+  return false;
+}
+async function requireAuth(req, res, next) {
   if (checkCookie(getCookie(req, 'pc_auth'))) return next();
+  if (await accessSignIn(req, res)) return next();
   res.status(401).json({ error: 'unauthorized' });
 }
 
@@ -1773,7 +1803,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
-app.get('/api/me', (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')); if (ok) learnPublicUrl(req); return res.json({ ok, features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked } }); });
+app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) learnPublicUrl(req); return res.json({ ok, features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked } }); });
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -3255,7 +3285,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["In Assistant mode the model is chosen for you: a request you type is matched to the lightest model and effort that will do it well (POCKET_ROUTER with a decision model), the conversation keeps it, and Try harder under the latest reply asks for a more careful pass. Pocket now honours the managed policy's maxEffortLevel on every Claude turn."];
+const RELEASE_NOTES = ["One sign-in behind Cloudflare Access: with POCKET_ACCESS_TEAM, POCKET_ACCESS_AUD and POCKET_ACCESS_EMAILS set, Pocket verifies Cloudflare's signed token and signs you in without its own password, for at most a day at a time."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
