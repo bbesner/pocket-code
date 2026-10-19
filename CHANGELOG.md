@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.64.2] — 2026-10-19 · build 127
+
+- **A file the conversation kept in Files gets a card too.** 1.61's cards needed the reply to name the file's path; an agent that keeps a report with `pocket-docs add --session …` and then says "it's in your Files" left nothing to tap (Brad, on the Addison Reserve storm report). Every Files item linked to the conversation now shows as a card under the first reply after it was kept: the library's picture, its title and file name, **In Files** and **Download**. Tapping it opens the file in Files the way **Settings → Open files and links** says. A file already shown by a path card isn't repeated.
+- Migration: none.
+
 ## [1.64.1] — 2026-10-19 · build 126
 
 - **Try harder stays in view and uses Opus.** The button arrived after the finished reply had scrolled to the bottom, so it sat half under the message box; it now keeps the view at the bottom when you're there. It asks for Opus when Opus is offered (Fable stays a choice you make yourself), else the strongest offered model.

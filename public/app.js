@@ -1800,7 +1800,35 @@ async function paintFileCards(container, fresh = false) {
       catch (err) { toast(err.message || 'Could not keep the file'); b.disabled = false; }
     });
   }
+  // 1.64.2: files the conversation kept in Files itself (pocket-docs add --session …) get a card too, even when the
+  // reply only says "it's in your Files". Under the first reply after it was kept; it opens in Files the way Settings →
+  // Open files and links says, with the library's own picture.
+  const docs = typeof documentsOn === 'function' && documentsOn() && typeof docsSnap !== 'undefined' && docsSnap ? docsSnap.documents : [];
+  const shown = new Set(cardResults.list.map(r => keptDocFor(id, r.target)?.id).filter(Boolean));
+  const linked = docs.filter(d => !d.trashedAt && d.session === id && !shown.has(d.id));
+  container.querySelectorAll('.file-card[data-card-doc]').forEach(el => { if (!linked.some(d => d.id === el.dataset.cardDoc)) el.remove(); });
+  for (const d of linked.slice().sort((a, b) => Date.parse(a.added) - Date.parse(b.added))) {
+    const at = Date.parse(d.added) || 0;
+    const host = replies.find(m => Date.parse(m.dataset.ts || 0) >= at) || replies.at(-1);
+    const old = container.querySelector(`.file-card[data-card-doc="${CSS.escape(d.id)}"]`);
+    if (!host) { old?.remove(); continue; }
+    const html = keptCardHTML(d);
+    if (old && old.parentElement?.parentElement === host && old.outerHTML.replace(/\s+/g, ' ') === html.replace(/\s+/g, ' ')) continue;
+    old?.remove();
+    let list = host.querySelector(':scope > .file-cards');
+    if (!list) { list = document.createElement('div'); list.className = 'file-cards'; const choices = host.querySelector(':scope > .choices'); choices ? choices.before(list) : host.append(list); }
+    list.insertAdjacentHTML('beforeend', html);
+    list.lastElementChild.querySelector('.file-card-img')?.addEventListener('error', e => e.target.remove());
+  }
   container.querySelectorAll('.file-cards:empty').forEach(el => el.remove());
+}
+function keptCardHTML(d) {
+  const ext = (String(d.file || '').match(/\.([^.]+)$/)?.[1] || d.kind || 'file').toUpperCase();
+  const pic = Boolean(docsSnap?.thumbs?.[d.kind]) && !d.missing;
+  return `<div class="file-card" data-card-doc="${esc(d.id)}"><a class="file-card-main" href="${esc(location.origin + '/#/documents/' + encodeURIComponent(d.id))}" target="_blank" rel="noopener noreferrer" aria-label="Open ${esc(d.title)}">
+    <span class="file-card-thumb">${pic ? `<img class="file-card-img" src="/api/documents/${esc(d.id)}/thumb" alt="" loading="lazy">` : ''}<span class="file-card-ext">${esc(ext)}</span></span>
+    <span class="file-card-body"><span class="file-card-name">${esc(d.title)}</span><span class="file-card-meta">${esc(ext)} file · ${esc(d.file)}</span></span></a>
+    <span class="file-card-actions"><span class="file-card-kept">In Files</span><a class="chip" href="/api/documents/${esc(d.id)}/raw?download=1" download>Download</a></span></div>`;
 }
 function mergeToolFolds(container) {
   if (!container) return;
