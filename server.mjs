@@ -43,6 +43,7 @@ import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
 import {syncSkills, googleInstructions} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
+import {InboxStore, inboxInstructions} from './inbox.mjs';
 import { StartStore } from './starts.mjs';
 import {Thumbnailer} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
@@ -213,7 +214,7 @@ else log('push disabled: VAPID keys not set');
 const loadSubs = () => { try { return JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8')); } catch { return []; } };
 const saveSubs = s => atomicWrite(SUBS_FILE, s);
 // 1.50: what each device wants. A subscription saved by an earlier build has no prefs and gets everything, as before.
-const PUSH_KINDS = ['turns', 'reminders', 'vault']; // 1.58.1: alerts (POST /api/notify) is not a saved kind yet: every device receives them (an unknown kind passes the filter in pushRaw)
+const PUSH_KINDS = ['turns', 'reminders', 'vault', 'alerts']; // 1.69: alerts (POST /api/notify, Inbox Watch) is a saved kind with its own device toggle; a device saved before it gets them, as before
 const pushPrefsOf = s => ({ kinds: Object.fromEntries(PUSH_KINDS.map(k => [k, s.kinds?.[k] !== false])), badge: s.badge !== false });
 const cleanPushPrefs = p => { const out = {}; if (p?.kinds && typeof p.kinds === 'object') out.kinds = Object.fromEntries(PUSH_KINDS.filter(k => typeof p.kinds[k] === 'boolean').map(k => [k, p.kinds[k]])); if (typeof p?.badge === 'boolean') out.badge = p.badge; return out; };
 // per-session mute: a chatty background session shouldn't buzz the phone every turn
@@ -234,7 +235,7 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null, trustedActions: null }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default); 1.56: trustedActions (null = the server default)
+const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, inbox: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null, trustedActions: null }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default); 1.56: trustedActions (null = the server default)
 const loadSettings = () => { try { return { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { ...SETTINGS_DEFAULTS }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
@@ -274,6 +275,12 @@ setTimeout(purgeDocs, 60_000).unref(); // 1.45: also a minute after start, so a 
 // token serves pocket-tasks on /api/tasks* only; a dated task is announced once when due, like a project reminder.
 const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'));
 const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
+// ---------- 1.69: inbox ----------
+// What the owner's inbox watcher sent (inbox.mjs): <data dir>/inbox.json. Off until Settings → Projects, files, tasks & vault
+// turns it on. The same loopback token serves pocket-inbox and the worker on /api/inbox* only.
+const inboxStore = new InboxStore(path.join(DATA_DIR, 'inbox.json'));
+const INBOX_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-inbox.mjs');
+const inboxOn = (_req, res, next) => settings.inbox ? next() : res.status(404).json({ error: 'Inbox Watch is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'inbox_off' });
 // ---------- 1.57: start links ----------
 // A briefing an agent or a job hands to Pocket (starts.mjs): <data dir>/starts.json. POST /api/start with the loopback token
 // (or the owner's cookie) stores it and answers with an id and a URL; opening #/start/<id> signed in puts the briefing in New
@@ -321,8 +328,8 @@ const vaultOpen = (req, res, next) => {
 const AUTO_LOCK_CHOICES = [0, 15, 60, 480, 1440];
 setInterval(() => { try { if (vault && vault.idleLockDue(settings.vaultAutoLockMinutes || 0)) { vault.lock(); log(`vault locked after ${settings.vaultAutoLockMinutes} minutes idle`); } } catch (e) { log('vault idle lock: ' + e.message); } }, Math.max(1000, Number(process.env.POCKET_VAULT_IDLE_CHECK_MS) || 60_000)).unref();
 setInterval(() => { try { if (vault) { const gone = vault.purge(); if (gone.length) log(`vault purged from trash: ${gone.length}`); } } catch (e) { log('vault purge: ' + e.message); } }, 6 * 3600_000).unref();
-codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null, { choices: process.env.POCKET_CHOICES !== '0' }) : '', vaultLive() ? vaultInstructions(VAULT_CLI, threadId ? 'cx:' + threadId : null) : '', googleInstructions('codex')].filter(Boolean).join(' '));
-const syncAgentSkills = () => syncSkills({ settings: { ...settings, vault: vaultLive() }, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI, vault: VAULT_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks, 1.39: pocket-vault) for every agent on the box
+codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null, { choices: process.env.POCKET_CHOICES !== '0' }) : '', settings.inbox ? inboxInstructions(INBOX_CLI, threadId ? 'cx:' + threadId : null) : '', vaultLive() ? vaultInstructions(VAULT_CLI, threadId ? 'cx:' + threadId : null) : '', googleInstructions('codex')].filter(Boolean).join(' '));
+const syncAgentSkills = () => syncSkills({ settings: { ...settings, vault: vaultLive() }, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI, vault: VAULT_CLI, inbox: INBOX_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks, 1.39: pocket-vault, 1.69: pocket-inbox) for every agent on the box
 syncAgentSkills();
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
 const cliToken = randomBytes(32).toString('hex');
@@ -1358,7 +1365,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
-  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId, { choices: process.env.POCKET_CHOICES !== '0' }) : '', vaultLive() ? vaultInstructions(VAULT_CLI, sessionId) : '', googleInstructions('claude')].filter(Boolean).join(' ');
+  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId, { choices: process.env.POCKET_CHOICES !== '0' }) : '', settings.inbox ? inboxInstructions(INBOX_CLI, sessionId) : '', vaultLive() ? vaultInstructions(VAULT_CLI, sessionId) : '', googleInstructions('claude')].filter(Boolean).join(' ');
   if (extra) args.push('--append-system-prompt', extra);
   args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
   args.push(resume ? '--resume' : '--session-id', sessionId);
@@ -1851,7 +1858,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
-app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) learnPublicUrl(req); return res.json({ ok, features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked } }); });
+app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) learnPublicUrl(req); return res.json({ ok, features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked } }); });
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -2677,6 +2684,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.projects === 'boolean') settings.projects = req.body.projects;
   if (typeof req.body?.documents === 'boolean') settings.documents = req.body.documents;
   if (typeof req.body?.tasks === 'boolean') settings.tasks = req.body.tasks;
+  if (typeof req.body?.inbox === 'boolean') settings.inbox = req.body.inbox; // 1.69
   if (req.body?.remindAhead === 0 || req.body?.remindAhead === 24) settings.remindAhead = req.body.remindAhead; // 1.50: the day-before notice
   if (typeof req.body?.notifyEmail === 'string') { const to = req.body.notifyEmail.trim(); if (to && !looksLikeEmail(to)) return res.status(400).json({ error: 'That does not look like an email address.', code: 'bad_email' }); settings.notifyEmail = to; }
   if (req.body && 'offeredClaudeModels' in req.body) { // 1.52: null = back to POCKET_CLAUDE_MODELS (or every model)
@@ -2717,9 +2725,9 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.secretGuard === 'boolean') settings.secretGuard = req.body.secretGuard; // 1.42
   if (VAULT_ACCESS.includes(req.body?.vaultAccess)) { if (settings.vaultAccess !== req.body.vaultAccess) log(`vault agent access: ${settings.vaultAccess} -> ${req.body.vaultAccess}`); settings.vaultAccess = req.body.vaultAccess; } // 1.41
   saveSettings();
-  if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
+  if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || typeof req.body?.inbox === 'boolean' || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
-  log(`settings updated: assistantMode=${assistantOn()} titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
+  log(`settings updated: assistantMode=${assistantOn()} titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} inbox=${settings.inbox} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
   res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, autoKeepActive: autoKeepOn(), router: routerView(), access: accessView(), vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
 });
 
@@ -2968,6 +2976,80 @@ app.post('/api/tasks/summary', requireAuth, tasksOn, async (req, res) => {
   const r = await summarizeForTask({ provider, claudeBin: CLAUDE_BIN, codexBin: codex.CODEX_BIN, models: helperModels(), env: spawnEnv() }, digest, String(req.body?.text || ''));
   if (r) log(`task summary session=${id} provider=${provider} model=${r.model}`);
   res.json(r ? { summary: r.summary, model: r.model, provider } : { summary: null, reason: 'failed' });
+});
+
+// ---------- 1.69: inbox routes ----------
+// Inbox Watch: the owner's cookie or the loopback token (a direct loopback request only, as for Tasks and start links).
+// POST /api/inbox is the worker's one call: the entry, the push (kind alerts, urgent) and, when asked, the email.
+const inboxError = (res, e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) }); };
+// The push and mail text: the first sentence, with [label](msg:<id>) citations (and any other Markdown link) reduced to their labels.
+const plainCitations = t => String(t || '').replace(/\[([^\]\n]+)\]\([^)\s]*\)/g, '$1');
+function firstSentence(text, max = 200) {
+  const flat = plainCitations(text).replace(/\s+/g, ' ').trim();
+  const m = /^.*?[.!?](?=\s+["“(]?[A-Z0-9]|$)/.exec(flat);
+  const s = m ? m[0] : flat;
+  return s.length > max ? s.slice(0, max - 1).trimEnd() + '…' : s;
+}
+// Where a tap goes: the entry's link when it is a Pocket path (or the public address), else the entry itself. A web
+// address elsewhere is the row's to open, never the push's: the service worker navigates Pocket's own window.
+function inboxTapPath(entry) {
+  const base = publicBase(), u = entry.url || '';
+  if (u.startsWith('/')) return u;
+  if (base && u.startsWith(base + '/')) return u.slice(base.length);
+  return '/#/inbox/' + entry.id;
+}
+app.get('/api/inbox', requireBoardAuth, inboxOn, (req, res) => {
+  try {
+    const state = typeof req.query.state === 'string' && req.query.state ? req.query.state : 'new';
+    const since = typeof req.query.since === 'string' ? req.query.since : undefined;
+    res.set('Cache-Control', 'private, no-store').json({ ...inboxStore.snapshot({ state, since }), push: { enabled: pushReady }, email: emailOn() });
+  } catch (e) { inboxError(res, e); }
+});
+app.post('/api/inbox', requireBoardAuth, inboxOn, async (req, res) => {
+  const b = req.body || {}, actor = req.boardActor || 'ui';
+  let entry;
+  try { entry = inboxStore.add(b, { actor }); inboxStore.seen(entry.source); } catch (e) { return inboxError(res, e); }
+  const duplicate = entry.duplicate === true;
+  let devices = null, mail = false;
+  if (!duplicate) {
+    const tap = inboxTapPath(entry), body = firstSentence(entry.text);
+    if (b.push !== false) devices = await pushRaw(entry.title, body, { tag: 'inbox:' + entry.id, url: tap, kind: 'alerts' });
+    if (b.email === true) {
+      if (!emailOn()) mail = 'off';
+      else {
+        const esc = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const base = publicBase(), link = base ? base + tap : '', text = plainCitations(entry.text);
+        try {
+          await mailer.send({ to: settings.notifyEmail, subject: '[Pocket Code] ' + entry.title, text: text + (link ? '\n\n' + link : '') + (entry.gmail ? '\n\nGmail: ' + entry.gmail : ''),
+            html: `<p>${esc(text).replace(/\n/g, '<br>')}</p>${link ? `<p><a href="${esc(link)}">Open in Pocket Code</a></p>` : ''}${entry.gmail ? `<p><a href="${esc(entry.gmail)}">Open in Gmail</a></p>` : ''}` });
+          mail = true;
+        } catch (e) { log(`inbox mail failed: ${e.message}`); mail = 'failed'; }
+      }
+    }
+  }
+  log(`inbox add kind=${entry.kind} id=${entry.id} by=${actor} push=${devices ?? 'off'} mail=${mail}${duplicate ? ' duplicate' : ''}`);
+  res.set('Cache-Control', 'private, no-store').json({ ok: true, entry, push: devices, mail, duplicate });
+});
+app.post('/api/inbox/act', requireBoardAuth, inboxOn, (req, res) => {
+  const actor = req.boardActor || 'ui';
+  try {
+    const entry = inboxStore.act(req.body || {}, { actor });
+    log(`inbox ${req.body?.action} id=${entry.id} by=${actor} state=${entry.state}`);
+    res.set('Cache-Control', 'private, no-store').json({ ok: true, entry });
+  } catch (e) { inboxError(res, e); }
+});
+// The worker's side of the loop: the owner's decisions it has not applied, then an ack once it has.
+app.get('/api/inbox/feedback', requireBoardAuth, inboxOn, (req, res) => {
+  try { res.set('Cache-Control', 'private, no-store').json({ ok: true, feedback: inboxStore.feedback({ since: typeof req.query.since === 'string' ? req.query.since : undefined }) }); }
+  catch (e) { inboxError(res, e); }
+});
+app.post('/api/inbox/ack', requireBoardAuth, inboxOn, (req, res) => {
+  try { const acked = inboxStore.ack(req.body?.ids); if (acked) log(`inbox ack n=${acked} by=${req.boardActor || 'ui'}`); res.json({ ok: true, acked }); }
+  catch (e) { inboxError(res, e); }
+});
+app.post('/api/inbox/seen', requireBoardAuth, inboxOn, (req, res) => {
+  try { inboxStore.seen(req.body?.source, req.body?.at ?? undefined); res.json({ ok: true }); }
+  catch (e) { inboxError(res, e); }
 });
 
 // ---------- 1.39: vault routes ----------
@@ -3412,7 +3494,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Settings → Appearance now shows Mode as a choice, Developer mode or Assistant mode, with the one you are in pressed, instead of a single Assistant mode switch that left you guessing what off meant.", "The Gmail, Calendar and Drive instructions now reach Claude and Codex with every message, so they work even on servers that keep Pocket's skills out of the agents' skill folders."];
+const RELEASE_NOTES = ["Inbox: a fifth library beside Projects, Files, Tasks and the Vault for what Inbox Watch sends, with Open, Gmail and X on every row and a Resolved / Not useful choice the watcher reads back. The rail shows an icon per library so six fit. Inbox alerts get their own push toggle.", "Settings → Appearance now shows Mode as a choice, Developer mode or Assistant mode, with the one you are in pressed, instead of a single Assistant mode switch that left you guessing what off meant.", "The Gmail, Calendar and Drive instructions now reach Claude and Codex with every message, so they work even on servers that keep Pocket's skills out of the agents' skill folders."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

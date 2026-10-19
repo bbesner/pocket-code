@@ -13,6 +13,7 @@ import {captureDocs} from './docs-screenshots.mjs';
 import {ProjectStore} from '../projects.mjs';
 import {DocumentStore,mimeOf} from '../documents.mjs';
 import {TaskStore} from '../tasks.mjs';
+import {InboxStore} from '../inbox.mjs'; // 1.69
 import {VaultStore,newKey,parseKey} from '../vault.mjs';
 import {resolveOffer} from '../models.mjs';
 import {validateRules} from '../trusted.mjs';
@@ -41,7 +42,7 @@ const fixtureRouter=()=>{const sonnet='claude-sonnet-5-5',opus='claude-opus-5-5[
  return {enabled:true,enabledSource:'settings',provider:'jev',providers:['jev','openai'],keySource:'settings',active:true,maxEffort:'high',last:{at:Date.now()-120000,tier:'deep',confidence:.93,ms:142,used:{model:opus,effort:'high',tier:'deep'}},
   levels:lv.map(([key,label,model,effort])=>({key,label,about:'What this level is for.',chosen:null,auto:{model,effort,tier:key},runs:{model,effort,tier:key}}))};};
 const fixtureAccess=()=>({on:true,source:'settings',off:false,team:'example',aud:'a'.repeat(32),emails:['owner@example.test'],last:{at:Date.now()-300000,email:'owner@example.test'},envSet:false});
-let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,vault:false,vaultReady:true,vaultCanCreateKey:false,vaultNeedsKey:false,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',secretGuard:true,remindAhead:0,notifyEmail:''};
+let fixtureSettings={titleSync:false,autoTitles:true,titleProvider:'auto',awaySummaries:true,projects:false,documents:false,tasks:false,inbox:false,vault:false,vaultReady:true,vaultCanCreateKey:false,vaultNeedsKey:false,vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',secretGuard:true,remindAhead:0,notifyEmail:''};
 // 1.52: the picker's models. The fixture's Claude Code policy blocks Fable; a saved choice also drives /api/claude/models.
 const fixturePolicy={availableModels:null,deniedModels:['fable'],availableModelsMatch:'prefix'};
 const fixtureOffer=saved=>resolveOffer({saved:Array.isArray(saved)?saved:null,envList:null,policy:fixturePolicy});
@@ -105,7 +106,14 @@ const seedBoard=()=>{board.projects.length=0;
  board.act({action:'update',project:c.id,status:'waiting',waitingFor:'Revised vendor quote'});board.act({action:'remind',project:c.id,at:new Date(now+5*86400000).toISOString(),text:'Chase the revised quote'});
  const d=board.act({action:'track',name:'Monthly warehouse summary',summary:'September summary sent.'});board.act({action:'update',project:d.id,status:'done'});
 };
-seedBoard();seedTasks();
+// 1.69: Inbox Watch entries: a new alert with a start link and a Gmail thread, an opened digest kept in Files, a resolved alert.
+const inboxStore=new InboxStore(path.join(out,'inbox.json'));
+const seedInbox=()=>{inboxStore.entries.length=0;inboxStore.sources={};
+ const r=inboxStore.add({kind:'alert',title:'Circa alarm timer tests',text:'Ten missed tests since October 13. [Latest](msg:1a151dff1dfb590e)',story:'circa-late-alarm-test',source:'inbox-monitor',url:'/#/start/0123456789ac'},{actor:'cli'});inboxStore.act({action:'resolve',id:r.id});
+ const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- SCK WooPayments deductions: the scheduled payout includes $267.48 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
+ inboxStore.add({kind:'alert',priority:'high',title:'Pradera dispatch conflict',text:'Kimberly says the visit was supposed to be last night and asks that nobody be dispatched, while the 8:03 notice has Jairon on the way for 9–10. [Call transcript](msg:1a1540e0de10f879) · [Dispatch notice](msg:1a1540b3f8676388) Valentina should reach Jairon before 9 a.m.',story:'pradera-service-scheduling',source:'inbox-monitor',url:'/#/start/0123456789ab',gmail:'https://mail.google.com/mail/u/0/#all/1a1540b3f8676388',dedupe:'pradera|1'},{actor:'cli'});
+ inboxStore.seen('inbox-monitor');};
+seedBoard();seedTasks();seedInbox();
 // Mirrors the server's titleSettings() (1.20): Claude signed in, Codex without GPT-6-Luna.
 const fixtureTitles=()=>{const using=!fixtureSettings.autoTitles?null:fixtureSettings.titleProvider==='codex'?null:'claude';
  return {enabled:fixtureSettings.autoTitles,choice:fixtureSettings.titleProvider,using,helper:'claude',awaySummaries:fixtureSettings.awaySummaries,models:{claude:'haiku',codex:'gpt-6-luna'},
@@ -141,7 +149,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/voice/transcribe'){const chunks=[];for await(const c of req)chunks.push(c);voiceLog.transcribe.push({bytes:Buffer.concat(chunks).length,vocabulary:req.headers['x-vocabulary']||''});return json({text:uiModes.voiceText});}
  if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}
  if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
- if(url.pathname==='/api/me')return json({ok:true,features:{projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),assistantMode:Boolean(fixtureSettings.assistantMode)}});
+ if(url.pathname==='/api/me')return json({ok:true,features:{projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),inbox:Boolean(fixtureSettings.inbox),assistantMode:Boolean(fixtureSettings.assistantMode)}});
  if(url.pathname==='/api/approval-policy')return json({defaultMode:'review',allowFullAccess:true});
  if(url.pathname.endsWith('/approvals'))return json({requests:approvalRequests,interrupted:false,activeMode:'review',defaultMode:'review',allowFullAccess:true});
  if(/\/approvals\/[^/]+\/decision$/.test(url.pathname)){
@@ -170,6 +178,12 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/push/key')return json({});
  if(url.pathname==='/api/push/prefs')return json({error:'This device is not subscribed.',code:'not_subscribed'},404); // push is off in the fixture
  if(url.pathname==='/api/notify/test-email'){if(!fixtureSettings.notifyEmail)return json({error:'Save an email address first.',code:'no_address'},400);(uiModes.mailLog??=[]).push({to:fixtureSettings.notifyEmail,subject:'[Pocket Code] Test: reminders will arrive like this'});return json({ok:true,to:fixtureSettings.notifyEmail});}
+ if(url.pathname.startsWith('/api/inbox')){ // 1.69
+  if(!fixtureSettings.inbox)return json({error:'Inbox Watch is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'inbox_off'},404);
+  if(url.pathname==='/api/inbox')return json({...inboxStore.snapshot({state:url.searchParams.get('state')||'new',since:url.searchParams.get('since')||undefined}),push:{enabled:false},email:Boolean(fixtureSettings.notifyEmail)});
+  if(url.pathname==='/api/inbox/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,entry:inboxStore.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message},e.status||400);}}
+  if(url.pathname==='/api/inbox/reset'){seedInbox();return json({ok:true});}
+ }
  if(url.pathname.startsWith('/api/tasks')){ // 1.36
   if(!fixtureSettings.tasks)return json({error:'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'tasks_off'},404);
   if(url.pathname==='/api/tasks')return json({...taskStore.snapshot(),push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail)});

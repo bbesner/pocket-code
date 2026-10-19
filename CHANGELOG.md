@@ -3,6 +3,16 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.69.0] — 2026-10-19 · build 134
+
+- **Inbox.** A fifth optional library for what Inbox Watch sends. **Settings → Projects, files, tasks & vault → Inbox Watch** turns it on; `#/inbox` lists alerts, digests and look-aheads newest first by day, with **New**, **All** and **Dismissed** chips and a search box. A row opens the briefed conversation (the start link) or the Files document; **X** dismisses; the **…** menu shows the whole text with every citation a Gmail link, and records **Resolved** or **Not useful**, which a watcher reads back (`GET /api/inbox/feedback`, `POST /api/inbox/ack`) and applies on its next run: a story closed, a line added to the owner's preferences. **Restore** undoes any of those. Dismissed entries keep 30 days, the rest 60; the list says when the watcher has not reported in a day.
+- **One call for a watcher.** `POST /api/inbox` (owner cookie or loopback token, direct loopback only, as for Tasks and start links) adds the entry **and** sends the push (the new kind *alerts*, urgent, opening the entry's link) and, when asked, the email. `scripts/pocket-inbox.mjs add|list|show|act|feedback|ack|seen` is the command; a `pocket-inbox` skill is written while the feature is on, so an agent asked "what did Inbox Watch send today" or "mark the Circa alert resolved" can do it. `pocket-notify` stays for other jobs.
+- **The rail fits six.** The rail head's switch shows an icon for each library (Chats, Projects, Files, Tasks, Vault, Inbox); with five or more entries only the pressed one shows its name, the icon, `aria-label` and title carrying it for the rest. The phone's home gets an **Inbox** chip with the new count.
+- **Assistant mode:** a new alert is a **Waiting for you** card on home, opening the briefed conversation.
+- **Inbox alerts** are a push kind of their own in **Settings → Notifications & voice**, per device (finishing what 1.65 left for later; every device gets them until it turns them off).
+- Migration: none. New optional settings key `inbox`; new file `inbox.json` in the data directory on first use. `/api/me` gains `features.inbox`.
+- Tests: `test/inbox.test.mjs` (the store: states, dedupe, feedback and ack, prune, the cap; the routes: token and cookie, tunnel refused, feature off, add with push and email, act, feedback, seen; the CLI). The browser suite checks the six-entry rail at 1440, the list and its actions at 390 and 1440, the Settings switch and push kind, and the Assistant-mode card, with axe.
+
 ## [1.68.1] — 2026-10-19 · build 133
 
 - **Mode is a choice you can read.** **Settings → Appearance → Mode** shows **Developer mode** and **Assistant mode** side by side, the one you are in pressed, in the same row style as Highlight colour. 1.60's single *Assistant mode* switch read as on or off, and off said nothing about what you were in; now the alternative is named and visible. Tapping the other option switches this Pocket on every device, as before. With `POCKET_ASSISTANT_MODE=locked` both options show disabled and the help line says where to change it. Asked for by Brad.

@@ -1,6 +1,6 @@
 {
   "name": "pocket-code",
-  "version": "1.68.1",
+  "version": "1.69.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -8,7 +8,8 @@
     "pocket-board": "scripts/pocket-board.mjs",
     "pocket-docs": "scripts/pocket-docs.mjs",
     "pocket-tasks": "scripts/pocket-tasks.mjs",
-    "pocket-vault": "scripts/pocket-vault.mjs"
+    "pocket-vault": "scripts/pocket-vault.mjs",
+    "pocket-inbox": "scripts/pocket-inbox.mjs"
   },
   "description": "Self-hosted Claude Code and Codex workspace for desktop, tablet and phone, with persistent sessions, split conversations and server-side execution.",
   "keywords": [

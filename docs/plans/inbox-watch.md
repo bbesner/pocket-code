@@ -1,6 +1,6 @@
 # Inbox Watch in Pocket: plan
 
-**Prepared:** October 19, 2026 · **Status:** draft for Brad's review · **Built against:** Pocket Code 1.68.1 (build 133) and inbox-monitor 0.1.0
+**Prepared:** October 19, 2026 · **Status:** approved October 19 (all five recommendations), in build · **Built against:** Pocket Code 1.68.1 (build 133) and inbox-monitor 0.1.0
 
 ## What it is
 
@@ -138,7 +138,7 @@ working days, then the other three, logged in `AGENT-SEATS.md`. Each seat needs 
 `config.toml` (service-account mail access, judge Sonnet/Opus, delivery `pocket`), a timer, and a
 `preferences.md` seeded with the role's standing preferences.
 
-## Decisions for Brad
+## Decisions (Brad, October 19): the recommendations, all five
 
 1. **The rail name.** "Inbox" (recommended: one word like the others) or "Inbox Watch".
 2. **The rail at phone width.** Icons only below 480px with the pressed entry labelled

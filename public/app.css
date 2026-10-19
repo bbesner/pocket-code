@@ -1737,3 +1737,28 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 @media (max-width: 520px) { .router-level { grid-template-columns: minmax(0, 1fr); } }
 .access-form { display: flex; flex-direction: column; gap: 6px; }
 .access-form .voice-field input { width: 100%; }
+
+/* 1.69: Inbox. The rail switch carries an icon per library; with five or more entries only the pressed one keeps its
+   name (aria-label and title carry it for the rest). The list reuses the Tasks rows; a new entry has a clay dot. */
+.rail-switch button .i { width: 18px; height: 18px; flex: none; }
+.rail-switch.many button:not([aria-pressed="true"]) .rail-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.rail-switch.many { gap: 2px; }
+.rail-switch.many button + button::before { left: -1.5px; }
+/* A narrow rail does the same whatever the count, and the narrowest keeps icons only (the rail is an inline-size container). */
+@container (max-width: 319px) { .rail-switch button:not([aria-pressed="true"]) .rail-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } .rail-switch button { gap: 2px; } }
+@container (max-width: 239px) { .rail-switch button[aria-pressed="true"] .rail-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }
+/* With five or more entries a count sits on the icon's corner instead of beside it, so six entries with three counts
+   fit beside the rail's buttons in a 320px rail (the head's container-query sizing does the rest). */
+.rail-switch.many .badge { position: absolute; top: 1px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10.5px; }
+.rail-switch.many button[aria-pressed="true"] .badge { position: static; margin-left: 2px; min-width: 18px; height: 18px; font-size: 11.5px; }
+.inbox-item .inbox-mark .inbox-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--clay); }
+.inbox-item .inbox-text { display: block; margin-top: 2px; font-size: 14px; line-height: 1.45; color: var(--dim); overflow-wrap: anywhere; }
+.inbox-item.state-opened .row .title, .inbox-item.state-resolved .row .title, .inbox-item.state-not_useful .row .title, .inbox-item.state-dismissed .row .title { color: var(--dim); }
+.inbox-item .inbox-x { color: var(--dim); }
+.inbox-tools { padding: 4px 18px 8px; }
+.inbox-search { width: 100%; min-height: 44px; font: inherit; font-size: 15px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.inbox-search:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.inbox-stale { margin-top: 8px; color: var(--warn); }
+.inbox-body { font-size: 15.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.inbox-body a { color: var(--clay); }
+.inbox-card .home-card-what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

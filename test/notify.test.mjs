@@ -118,13 +118,13 @@ test('HTTP: push preferences per device, the notification settings, and due and 
   // Push preferences: saved with the subscription, read and changed per device; an old subscription gets everything.
   const ep='https://push.example.test/sub/1';
   let r=await call('/push/subscribe',{subscription:{endpoint:ep,keys:{p256dh:'k',auth:'a'}},prefs:{kinds:{turns:false},badge:false}});
-  assert.equal(r.status,200);assert.deepEqual(r.body.prefs,{kinds:{turns:false,reminders:true,vault:true},badge:false});
-  r=await call('/push/prefs?endpoint='+encodeURIComponent(ep));assert.deepEqual(r.body.prefs,{kinds:{turns:false,reminders:true,vault:true},badge:false});
-  r=await call('/push/prefs',{endpoint:ep,kinds:{reminders:false,bogus:true},badge:true});assert.deepEqual(r.body.prefs,{kinds:{turns:false,reminders:false,vault:true},badge:true});
+  assert.equal(r.status,200);assert.deepEqual(r.body.prefs,{kinds:{turns:false,reminders:true,vault:true,alerts:true},badge:false});
+  r=await call('/push/prefs?endpoint='+encodeURIComponent(ep));assert.deepEqual(r.body.prefs,{kinds:{turns:false,reminders:true,vault:true,alerts:true},badge:false});
+  r=await call('/push/prefs',{endpoint:ep,kinds:{reminders:false,bogus:true},badge:true});assert.deepEqual(r.body.prefs,{kinds:{turns:false,reminders:false,vault:true,alerts:true},badge:true});
   assert.equal((await call('/push/prefs?endpoint=https://push.example.test/none')).status,404);
   assert.equal((await call('/push/prefs',{endpoint:'https://push.example.test/none',badge:false})).status,404);
-  r=await call('/push/subscribe',{subscription:{endpoint:'https://push.example.test/old',keys:{}}});assert.deepEqual(r.body.prefs,{kinds:{turns:true,reminders:true,vault:true},badge:true},'no prefs given: everything, as before 1.50');
-  const subs=JSON.parse(fs.readFileSync(path.join(dir,'data','push-subs.json'),'utf8'));assert.equal(subs.length,2);assert.deepEqual(subs[0].kinds,{turns:false,reminders:false,vault:true});
+  r=await call('/push/subscribe',{subscription:{endpoint:'https://push.example.test/old',keys:{}}});assert.deepEqual(r.body.prefs,{kinds:{turns:true,reminders:true,vault:true,alerts:true},badge:true},'no prefs given: everything, as before 1.50');
+  const subs=JSON.parse(fs.readFileSync(path.join(dir,'data','push-subs.json'),'utf8'));assert.equal(subs.length,2);assert.deepEqual(subs[0].kinds,{turns:false,reminders:false,vault:true,alerts:true});
   assert.equal((await call('/push/prefs?endpoint='+encodeURIComponent(ep),null,{})).status,401,'signed out: nothing');
   assert.equal((await call('/push/unsubscribe',{endpoint:ep})).status,200);assert.equal((await call('/push/prefs?endpoint='+encodeURIComponent(ep))).status,404);
   // No notices without the setting, and the ones already sent stay sent across a restart.

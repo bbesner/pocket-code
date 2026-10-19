@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+// pocket-inbox: Inbox Watch from a terminal, an agent session or the inbox watcher itself (1.69).
+// Talks to the running Pocket Code server over loopback with the token it writes to <data dir>/cli-token;
+// it never opens inbox.json itself. An agent records a decision (act) only when the user asks.
+//
+//   pocket-inbox add --title "…" (--text "…" | --file <path|->) [--kind alert|digest|lookahead] [--priority critical|high|normal|low]
+//                    [--story "…"] [--source "…"] [--url </#/start/<id> or a web address>] [--gmail <https://mail.google.com/…>]
+//                    [--doc <Files id>] [--dedupe <key>] [--email] [--no-push] [--json]      prints "<id> push=<devices|off> mail=<yes|no|off|failed>"
+//   pocket-inbox list [--state new|all|dismissed] [--since <ISO>] [--json]                   new ones by default, newest first
+//   pocket-inbox show <id> [--json]
+//   pocket-inbox act <id> <open|dismiss|resolve|not_useful|restore> [--note "…"] [--json]
+//   pocket-inbox feedback [--since <ISO>] [--json]                                           the owner's decisions not yet applied
+//   pocket-inbox ack <id…>                                                                   the worker applied them
+//   pocket-inbox seen [--source <name>]                                                      a heartbeat: the worker ran
+// Exit codes: 2 when Pocket is not running here or refused the token, 1 on any other error.
+// Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
+import fs from 'node:fs';
+import path from 'node:path';
+
+const root = path.resolve(import.meta.dirname, '..');
+const envFile = process.env.POCKET_ENV_FILE ?? path.join(root, '.env');
+const fileEnv = {};
+try { for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) { const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line); if (m && !m[1].startsWith('#')) fileEnv[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2'); } } catch { }
+const env = k => process.env[k] ?? fileEnv[k];
+const dataDir = env('POCKET_DATA_DIR') || root;
+// The daemon's own address first (<data dir>/cli-url, 1.43.1): an app the agent is working on may export PORT, and the token must never go to it.
+const base = (() => { if (env('POCKET_URL')) return env('POCKET_URL'); try { const u = fs.readFileSync(path.join(dataDir, 'cli-url'), 'utf8').trim(); if (/^http:\/\/127\.0\.0\.1:\d+$/.test(u)) return u; } catch { } return `http://127.0.0.1:${Number(fileEnv.PORT) || Number(process.env.PORT) || 3610}`; })();
+
+const argv = process.argv.slice(2);
+const opts = { _: [] };
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (['--json', '--email', '--no-push'].includes(a)) opts[a.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = true;
+  else if (a.startsWith('--')) { const k = a.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase()); opts[k] = argv[++i] ?? ''; }
+  else opts._.push(a);
+}
+const [cmd, ...rest] = opts._;
+const die = (msg, code = 1) => { console.error(msg); process.exit(code); };
+if (!cmd || cmd === 'help' || argv.includes('--help')) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 16).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+
+let token = '';
+try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { die(`Pocket Code is not running here (no cli-token in ${dataDir}).`, 2); }
+async function call(p, body) {
+  let r;
+  try { r = await fetch(base + p, { method: body ? 'POST' : 'GET', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); }
+  catch (e) { die(`Pocket Code is not reachable at ${base}: ${e.cause?.code || e.message}`, 2); }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (data.code === 'inbox_off') die('Inbox Watch is off for this Pocket Code. Turn it on in Settings → Projects, files, tasks & vault.');
+    die(data.error || `${r.status} from ${p}`, r.status === 401 ? 2 : 1);
+  }
+  return data;
+}
+const qs = o => { const q = new URLSearchParams(Object.entries(o).filter(([, v]) => v)); return q.size ? '?' + q : ''; };
+const when = v => v ? new Date(v).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+const KIND = { alert: 'alert', digest: 'digest', lookahead: 'look-ahead' };
+const STATE = { new: 'new', opened: 'seen', dismissed: 'dismissed', resolved: 'resolved', not_useful: 'not useful' };
+const plain = t => String(t || '').replace(/\[([^\]\n]+)\]\([^)\s]*\)/g, '$1');
+const line = e => `${e.state === 'new' ? '*' : ' '} ${when(e.at)}  ${e.title}  (${e.id})  ${KIND[e.kind] || e.kind}${e.priority !== 'normal' ? ' · ' + e.priority : ''}${e.state !== 'new' ? ' · ' + (STATE[e.state] || e.state) : ''}`;
+function card(e) {
+  const lines = [line(e)];
+  if (e.story) lines.push(`  Story: ${e.story}`);
+  lines.push(`  From: ${e.source}`);
+  if (e.text) lines.push('  ' + plain(e.text).split('\n').join('\n  '));
+  if (e.url) lines.push(`  Open: ${e.url}`);
+  if (e.gmail) lines.push(`  Gmail: ${e.gmail}`);
+  if (e.doc) lines.push(`  File: ${e.doc}`);
+  if (e.note) lines.push(`  Note: ${e.note}`);
+  if (e.actedAt) lines.push(`  ${e.lastAction === 'restore' ? 'Restored' : 'Marked ' + (STATE[e.state] || e.state)} ${when(e.actedAt)}`);
+  return lines.join('\n');
+}
+const out = (data, text) => console.log(opts.json ? JSON.stringify(data, null, 1) : text);
+const mailWord = m => m === true ? 'yes' : m === false ? 'no' : m;
+
+switch (cmd) {
+  case 'add': {
+    const title = String(opts.title || '').trim();
+    if (!title) die('add needs --title "…"');
+    let text = opts.text;
+    if (opts.file !== undefined) { try { text = opts.file === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(opts.file, 'utf8'); } catch (e) { die(`Could not read ${opts.file}: ${e.message}`); } }
+    if (text === undefined) die('add needs --text "…" or --file <path|->');
+    const r = await call('/api/inbox', { title, text: String(text).trim(), kind: opts.kind || undefined, priority: opts.priority || undefined, story: opts.story || '', source: opts.source || undefined,
+      url: opts.url || '', gmail: opts.gmail || '', doc: opts.doc || '', dedupe: opts.dedupe || '', email: Boolean(opts.email), push: !opts.noPush });
+    out(r, `${r.entry.id} push=${r.push ?? 'off'} mail=${mailWord(r.mail)}${r.duplicate ? ' duplicate' : ''}`);
+    break;
+  }
+  case 'list': {
+    const snap = await call('/api/inbox' + qs({ state: opts.state || 'new', since: opts.since }));
+    if (opts.json) { console.log(JSON.stringify(snap.entries, null, 1)); break; }
+    if (!snap.entries.length) { console.log((opts.state || 'new') === 'new' ? 'Nothing new from Inbox Watch.' : 'Nothing here.'); break; }
+    for (const e of snap.entries) console.log(line(e));
+    break;
+  }
+  case 'show': {
+    if (!rest[0]) die('show needs an entry id');
+    let e = (await call('/api/inbox?state=all')).entries.find(x => x.id === rest[0]);
+    if (!e) e = (await call('/api/inbox?state=dismissed')).entries.find(x => x.id === rest[0]);
+    if (!e) die(`No Inbox entry with id ${rest[0]}.`);
+    out(e, card(e)); break;
+  }
+  case 'act': {
+    const [id, action] = rest;
+    if (!id || !action) die('act needs an entry id and an action: pocket-inbox act <id> resolve');
+    const r = await call('/api/inbox/act', { action, id, ...(opts.note !== undefined ? { note: opts.note } : {}) });
+    out(r.entry, card(r.entry)); break;
+  }
+  case 'feedback': {
+    const r = await call('/api/inbox/feedback' + qs({ since: opts.since }));
+    if (opts.json) { console.log(JSON.stringify(r.feedback, null, 1)); break; }
+    if (!r.feedback.length) { console.log('No new feedback.'); break; }
+    for (const f of r.feedback) console.log(`${when(f.at)}  ${f.action}  ${f.title}  (${f.id})${f.story ? '  story: ' + f.story : ''}${f.note ? '  note: ' + f.note : ''}`);
+    break;
+  }
+  case 'ack': {
+    if (!rest.length) die('ack needs one or more entry ids');
+    const r = await call('/api/inbox/ack', { ids: rest });
+    out(r, `acked ${r.acked}`); break;
+  }
+  case 'seen': {
+    const r = await call('/api/inbox/seen', { source: opts.source || undefined, ...(opts.at ? { at: opts.at } : {}) });
+    out(r, 'ok'); break;
+  }
+  default: die(`Unknown command ${cmd}. Run pocket-inbox help.`);
+}
