@@ -1717,3 +1717,19 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 
 /* 1.62: Try harder, under the latest reply in Assistant mode */
 #msgs > .try-harder { margin: 2px 0 8px; align-self: flex-start; }
+
+/* 1.67: Settings → Agents & instance → Automatic model choice and One sign-in. Operate refinement: variance 2, motion 1,
+   density 5; existing tokens. One row per level: name and what it is for, then Model and Effort side by side (stacked on
+   a phone), then what it runs now. */
+/* inside .model-offer, everything but the switch sits on the same 14px inset as the set head and notes */
+.model-offer > .voice-field, .model-offer > .trusted-add, .model-offer > .router-levels, .model-offer > .access-form { margin-left: 14px; margin-right: 14px; }
+.model-offer > #s-router-on { margin: 0; padding: 10px 14px; font-size: 15.5px; }
+.router-levels { display: flex; flex-direction: column; margin-top: 6px; border-top: 1px solid var(--line); }
+.router-level { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.router-level-name { grid-column: 1 / -1; font-size: 15.5px; font-weight: 600; margin: 0; }
+.router-level-name .sub { display: block; font-weight: 400; font-size: 13.5px; color: var(--dim); margin-top: 2px; }
+.router-level .voice-field { margin: 0; }
+.router-runs { grid-column: 1 / -1; margin: 2px 0 0; }
+@media (max-width: 520px) { .router-level { grid-template-columns: minmax(0, 1fr); } }
+.access-form { display: flex; flex-direction: column; gap: 6px; }
+.access-form .voice-field input { width: 100%; }

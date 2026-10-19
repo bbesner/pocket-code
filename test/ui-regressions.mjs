@@ -2409,6 +2409,28 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    }finally{Object.assign(settings,before);if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
   });
 
+  await check('1.67 Settings: automatic model choice and one sign-in are set here, with the levels, the key state and the sign-in fields',async()=>{
+   const vp=page.viewport();
+   try{
+    for(const [w,h] of [[390,844],[1440,900]]){
+     await page.setViewport({width:w,height:h});await page.goto(base+'/#/all');await page.waitForSelector('.session-home');
+     await page.evaluate(()=>settingsSheet({category:'agents'}));await page.waitForFunction(()=>document.querySelectorAll('#s-router-levels .router-level').length===4);
+     assert.equal(await page.$eval('#s-router-on',b=>b.getAttribute('aria-pressed')),'true');
+     assert.equal(await page.$eval('#s-router-provider',s=>s.value),'jev');
+     assert.match(await page.$eval('#s-router-key-note',p=>p.textContent),/never shown again/);
+     assert.deepEqual(await page.$$eval('#s-router-levels .router-level-name',ns=>ns.map(n=>n.firstChild.textContent)),['Quick','Standard','Careful','Deep']);
+     assert.deepEqual(await page.$eval('#s-router-levels [data-level-effort]',s=>[...s.options].map(o=>o.value)),['auto','high','medium','low'],'no effort above the policy ceiling');
+     assert.match(await page.$eval('#s-router-note',p=>p.textContent),/caps effort at High/);
+     assert.match(await page.$eval('#s-access-state',p=>p.textContent),/owner@example\.test can sign in/);
+     assert.equal(await page.$eval('#s-access-team',i=>i.value),'example');
+     await page.$eval('#s-router',el=>el.scrollIntoView());await page.screenshot({path:path.join(out,`settings-router-${w}.png`)});
+     await page.$eval('#s-access',el=>el.scrollIntoView());await page.screenshot({path:path.join(out,`settings-access-${w}.png`)});
+     await scan('settings-router-access-'+w);
+     await page.keyboard.press('Escape');
+    }
+   }finally{if(vp)await page.setViewport(vp);}
+  });
+
   fs.writeFileSync(path.join(out,'ui-regressions.json'),JSON.stringify({checks,scans,errors},null,2));
   console.log(JSON.stringify({uiRegressions:checks.length,accessibilityScans:scans.length,ok:true}));
  } catch(e) {

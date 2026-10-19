@@ -133,7 +133,8 @@ comma-separated emails that may sign in this way). Pocket checks Cloudflare's si
 `Cf-Access-Jwt-Assertion` header, the team, the audience, the expiry and the email, then signs
 the browser in for as long as the Access token lasts, at most a day; anything else gets the
 password page. Leave any of the three unset to
-keep the password only.
+keep the password only. Since 1.67 the same can be set, changed or turned off in **Settings → Agents &
+instance → One sign-in**.
 
 **Caddy** (a public hostname with automatic certificates, on a machine with ports 80 and 443
 open):

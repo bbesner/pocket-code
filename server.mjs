@@ -37,7 +37,7 @@ import {ClaudeLogin} from './claude-login.mjs';
 import {claudeConnectors, codexConnectors} from './connectors.mjs';
 import {ProjectStore, projectInstructions} from './projects.mjs';
 import {CLAUDE_MODELS, CATALOG_IDS, managedDir, readManagedPolicy, policyAllows, parseSelection, resolveOffer, helperModel} from './models.mjs';
-import {ModelRouter, capEffort} from './router.mjs';
+import {ModelRouter, capEffort, tierChoice, TIERS} from './router.mjs';
 import {AccessVerifier} from './access.mjs';
 import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
 import {syncSkills} from './skills.mjs';
@@ -449,9 +449,29 @@ const autoKeepOn = () => Boolean(settings.documents) && (assistantOn() || settin
 // 1.62: in Assistant mode a request typed from scratch gets its model and effort from a decision model (router.mjs).
 // POCKET_ROUTER=jev (TypeSafe Jev through OpenRouter) or openai (OpenAI Decisions API) with POCKET_ROUTER_KEY or
 // POCKET_ROUTER_KEY_FILE; off or unset: the instance default, as before. It fails open to the default.
-const ROUTER_KEY = (() => { const k = (process.env.POCKET_ROUTER_KEY || '').trim(); if (k) return k; const f = (process.env.POCKET_ROUTER_KEY_FILE || '').trim(); try { return f ? fs.readFileSync(f, 'utf8').trim() : ''; } catch { return ''; } })();
-const router = new ModelRouter({ provider: (process.env.POCKET_ROUTER || 'off').trim().toLowerCase(), key: ROUTER_KEY, url: process.env.POCKET_ROUTER_URL || null,
-  timeoutMs: Math.max(300, Number(process.env.POCKET_ROUTER_TIMEOUT_MS) || 1500), log });
+// 1.67: everything here can also be set in Settings → Agents & instance → Automatic model choice; a choice saved
+// there wins over the environment, and its key lives in <data dir>/router-key (0600), never in pocket-settings.json.
+const ROUTER_ENV = { provider: (process.env.POCKET_ROUTER || 'off').trim().toLowerCase(),
+  key: (() => { const k = (process.env.POCKET_ROUTER_KEY || '').trim(); if (k) return k; const f = (process.env.POCKET_ROUTER_KEY_FILE || '').trim(); try { return f ? fs.readFileSync(f, 'utf8').trim() : ''; } catch { return ''; } })() };
+const ROUTER_KEY_FILE = path.join(DATA_DIR, 'router-key');
+const routerSavedKey = () => { try { return fs.readFileSync(ROUTER_KEY_FILE, 'utf8').trim(); } catch { return ''; } };
+const ROUTER_PROVIDERS = ['jev', 'openai'];
+function routerConfig() {
+  const r = settings.router || {}, envOn = ROUTER_PROVIDERS.includes(ROUTER_ENV.provider);
+  const provider = ROUTER_PROVIDERS.includes(r.provider) ? r.provider : envOn ? ROUTER_ENV.provider : 'jev';
+  const saved = routerSavedKey(), key = saved || ROUTER_ENV.key;
+  const enabled = typeof r.enabled === 'boolean' ? r.enabled : envOn;
+  return { enabled, enabledSource: typeof r.enabled === 'boolean' ? 'settings' : envOn ? 'env' : 'default', provider, key,
+    keySource: saved ? 'settings' : ROUTER_ENV.key ? 'env' : 'none', levels: r.levels || null };
+}
+let router = null;
+function buildRouter() {
+  const c = routerConfig(), last = router?.last || null;
+  router = new ModelRouter({ provider: c.enabled ? c.provider : 'off', key: c.key, url: process.env.POCKET_ROUTER_URL || null,
+    timeoutMs: Math.max(300, Number(process.env.POCKET_ROUTER_TIMEOUT_MS) || 1500), log });
+  router.last = last;
+}
+buildRouter();
 const routerOffered = () => CLAUDE_MODELS.filter(m => isOffered(m.id));
 const TITLE_MODELS = { claude: (process.env.POCKET_TITLE_CLAUDE_MODEL || 'haiku').trim(), codex: (process.env.POCKET_TITLE_CODEX_MODEL || 'gpt-6-luna').trim() };
 // 1.52: a helper call never names a Claude model the managed policy blocks (the CLI would run its default,
@@ -588,8 +608,20 @@ function getCookie(req, name) {
 // 1.63: one sign-in. Behind Cloudflare Access, a valid Access token for an allowed email signs in without Pocket's
 // password (access.mjs). POCKET_ACCESS_TEAM (<team>.cloudflareaccess.com), POCKET_ACCESS_AUD (the application's
 // audience tag) and POCKET_ACCESS_EMAILS (comma-separated) turn it on; any of them missing keeps the password only.
-const access = new AccessVerifier({ team: process.env.POCKET_ACCESS_TEAM || '', aud: process.env.POCKET_ACCESS_AUD || '', emails: process.env.POCKET_ACCESS_EMAILS || '',
-  certsUrl: process.env.POCKET_ACCESS_CERTS_URL || null, log });
+// 1.67: Settings → Agents & instance → One sign-in can set, change or turn this off; a saved choice wins over the
+// environment until "Use the server's values".
+const ACCESS_ENV = { team: process.env.POCKET_ACCESS_TEAM || '', aud: process.env.POCKET_ACCESS_AUD || '', emails: process.env.POCKET_ACCESS_EMAILS || '' };
+let access = null, accessLast = null; // accessLast: { at, email } of the last sign-in through Access
+function accessConfig() {
+  const a = settings.access;
+  if (a?.enabled === false) return { source: 'settings', team: '', aud: '', emails: [], off: true };
+  if (a?.team) return { source: 'settings', team: a.team, aud: a.aud, emails: a.emails };
+  const emails = ACCESS_ENV.emails.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+  return { source: ACCESS_ENV.team || ACCESS_ENV.aud || emails.length ? 'env' : 'none', team: ACCESS_ENV.team.trim().toLowerCase(), aud: ACCESS_ENV.aud.trim(), emails };
+}
+function buildAccess() { const c = accessConfig(); access = new AccessVerifier({ team: c.off ? '' : c.team, aud: c.aud, emails: c.emails, certsUrl: process.env.POCKET_ACCESS_CERTS_URL || null, log }); }
+function accessView() { const c = accessConfig(); return { on: access.on, source: c.source, off: Boolean(c.off), team: c.team, aud: c.aud, emails: c.emails, last: accessLast, envSet: Boolean(ACCESS_ENV.team || ACCESS_ENV.aud || ACCESS_ENV.emails) }; }
+buildAccess();
 if (process.env.POCKET_ACCESS_CERTS_URL) console.warn('POCKET_ACCESS_CERTS_URL is set: Cloudflare Access keys come from ' + process.env.POCKET_ACCESS_CERTS_URL + ' (tests only)');
 const accessRefusals = new Map(); // reason → last logged, so a bad token on every poll is logged once a minute
 const accessSignIns = new Map(); // email → last logged
@@ -606,6 +638,7 @@ async function accessSignIn(req, res) {
     // from POCKET_ACCESS_EMAILS) is out within a day, and the next request through Access signs in again quietly.
     const ms = Math.max(60_000, Math.min(24 * 3600_000, (r.exp || 0) * 1000 - Date.now()));
     res.setHeader('Set-Cookie', `pc_auth=${makeCookie(ms)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${Math.floor(ms / 1000)}`);
+    accessLast = { at: Date.now(), email: r.email };
     if (Date.now() - (accessSignIns.get(r.email) || 0) > 3600_000) { accessSignIns.set(r.email, Date.now()); log(`signed in through Cloudflare Access: ${r.email}`); }
     return true;
   }
@@ -1621,6 +1654,15 @@ async function autoKeepTurnFiles(sessionId, since) {
   } catch (e) { log(`auto-keep failed session=${sessionId}: ${e.message}`); }
 }
 
+// 1.67: what Settings shows for automatic model choice: on/off and where that comes from, the provider, whether a key
+// is set (never the key), and each level's own choice beside what it runs now.
+function routerView() {
+  const c = routerConfig(), offered = routerOffered(), cap = maxEffort();
+  return { enabled: c.enabled, enabledSource: c.enabledSource, provider: c.provider, providers: ROUTER_PROVIDERS, keySource: c.keySource, active: router.on,
+    maxEffort: cap, last: router.last, levels: TIERS.map(t => ({ key: t.key, label: t.label, about: t.about,
+      chosen: c.levels?.[t.key] || null, auto: tierChoice(t.key, offered, cap), runs: tierChoice(t.key, offered, cap, c.levels) })) };
+}
+
 function promptText(text, attachments) {
   let prompt = text;
   if (attachments?.length) {
@@ -2482,7 +2524,7 @@ app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secre
   const id = randomUUID();
   const opts = turnOpts(req.body);
   if (assistantOn() && router.on && (!opts.model || opts.model === 'default')) { // 1.62
-    const pick = await router.pick(text, { offered: routerOffered(), maxEffort: maxEffort() });
+    const pick = await router.pick(text, { offered: routerOffered(), maxEffort: maxEffort(), levels: routerConfig().levels });
     if (pick) { opts.model = pick.model; opts.effort = pick.effort; log(`router: ${pick.tier} → ${pick.model} ${pick.effort} (${pick.ms} ms) session=${id}`); }
   }
   try {
@@ -2571,7 +2613,7 @@ function claudeModelSettings() {
 // server-wide options (titleSync). One tenant per install, so no per-user scoping.
 app.get('/api/settings', requireAuth, async (_req, res) => {
   await Promise.race([refreshTitleProviders(30_000), new Promise(r => setTimeout(r, 6000))]); // Settings shows current availability
-  res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, autoKeepActive: autoKeepOn(), router: { provider: router.provider, last: router.last, maxEffort: maxEffort() }, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings() });
+  res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, autoKeepActive: autoKeepOn(), router: routerView(), access: accessView(), vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.assistantMode === 'boolean') {
@@ -2579,6 +2621,54 @@ app.post('/api/settings', requireAuth, (req, res) => {
     settings.assistantMode = req.body.assistantMode;
   }
   if (typeof req.body?.autoKeepFiles === 'boolean') settings.autoKeepFiles = req.body.autoKeepFiles;
+  // 1.67: automatic model choice and one sign-in, from Settings.
+  const rb = req.body?.router;
+  if (rb !== undefined) {
+    if (rb === null) { delete settings.router; try { fs.rmSync(ROUTER_KEY_FILE, { force: true }); } catch { } }
+    else if (typeof rb === 'object' && !Array.isArray(rb)) {
+      const next = { ...(settings.router || {}) };
+      if (typeof rb.enabled === 'boolean') next.enabled = rb.enabled;
+      if (rb.provider !== undefined) { if (!ROUTER_PROVIDERS.includes(rb.provider)) return res.status(400).json({ error: 'Choose Jev or OpenAI.' }); next.provider = rb.provider; }
+      if (rb.levels !== undefined) {
+        if (rb.levels === null) delete next.levels;
+        else {
+          const lv = {};
+          for (const t of TIERS) {
+            const v = rb.levels?.[t.key]; if (!v) continue;
+            const model = v.model === 'auto' || CATALOG_IDS.has(v.model) ? v.model : null, effort = v.effort === 'auto' || EFFORTS.has(v.effort) ? v.effort : null;
+            if (!model || !effort) return res.status(400).json({ error: `Pick a model and effort for ${t.label}.` });
+            if (model !== 'auto' && !isOffered(model)) return res.status(400).json({ error: `${t.label}: that model is not offered on this Pocket.` });
+            if (model !== 'auto' || effort !== 'auto') lv[t.key] = { model, effort };
+          }
+          if (Object.keys(lv).length) next.levels = lv; else delete next.levels;
+        }
+      }
+      if (rb.key !== undefined) {
+        const k = String(rb.key || '').trim();
+        if (k && (k.length > 400 || !/^[\x21-\x7e]+$/.test(k))) return res.status(400).json({ error: 'That does not look like an API key.' });
+        if (k) { const tmp = ROUTER_KEY_FILE + '.tmp'; fs.writeFileSync(tmp, k, { mode: 0o600 }); fs.chmodSync(tmp, 0o600); fs.renameSync(tmp, ROUTER_KEY_FILE); } else fs.rmSync(ROUTER_KEY_FILE, { force: true });
+      }
+      if (next.enabled && !routerSavedKey() && !ROUTER_ENV.key) return res.status(400).json({ error: 'Add a key first: automatic model choice needs one.' });
+      settings.router = next;
+    }
+    buildRouter();
+  }
+  const ab = req.body?.access;
+  if (ab !== undefined) {
+    if (ab === null) delete settings.access;
+    else if (typeof ab === 'object' && !Array.isArray(ab)) {
+      if (ab.enabled === false) settings.access = { enabled: false };
+      else {
+        const team = String(ab.team || '').trim().toLowerCase(), aud = String(ab.aud || '').trim();
+        const emails = (Array.isArray(ab.emails) ? ab.emails : String(ab.emails || '').split(/[\s,]+/)).map(e => String(e).trim().toLowerCase()).filter(Boolean);
+        if (!/^[a-z0-9-]{1,63}$/.test(team)) return res.status(400).json({ error: 'The team name is the part before .cloudflareaccess.com.' });
+        if (!/^[A-Za-z0-9]{16,128}$/.test(aud)) return res.status(400).json({ error: 'The audience tag is the long code on the Access application’s Overview.' });
+        if (!emails.length || emails.length > 50 || emails.some(e => !/^[\x21-\x7e]+@[\x21-\x7e]+\.[a-z]{2,}$/.test(e))) return res.status(400).json({ error: 'List the emails that may sign in this way, separated by commas.' });
+        settings.access = { enabled: true, team, aud, emails };
+      }
+    }
+    buildAccess();
+  }
   if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
   if (typeof req.body?.autoTitles === 'boolean') settings.autoTitles = req.body.autoTitles;
   if (['auto', 'claude', 'codex'].includes(req.body?.titleProvider)) settings.titleProvider = req.body.titleProvider;
@@ -2630,7 +2720,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
   log(`settings updated: assistantMode=${assistantOn()} titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
-  res.json({ ...settings, vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
+  res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, autoKeepActive: autoKeepOn(), router: routerView(), access: accessView(), vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
 });
 
 app.post('/api/session/:id/mute', requireAuth, (req, res) => {
@@ -3309,6 +3399,7 @@ app.get('/api/claude/models', requireAuth, (_req, res) => { const offer = claude
   models: offer.models.filter(m => m.offered).map(({ id, label, sub }) => ({ id, label, sub })),
   defaultLabel: claudeDefaultLabel(),
   defaultEffort: POCKET_DEFAULTS.claude.effort || null,
+  maxEffort: maxEffort(), // 1.67: the effort picker offers nothing above the managed policy's ceiling
   pocketDefault: Boolean(claudePocketModel() || POCKET_DEFAULTS.claude.effort),
   limited: offer.offered.length < CLAUDE_MODELS.length,
 }); });
@@ -3321,7 +3412,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Working in background: a conversation whose reply ended while a background job or a subagent still runs now says so, in its own group under Running with a dimmer breathing dot in the list, the title bar and the tabs, instead of Ready or Recent. The finished notification waits for the work to finish."];
+const RELEASE_NOTES = ["Automatic model choice and one sign-in are set in Settings → Agents & instance: the switch, decision model, key and the model and effort for each level (Automatic follows the newest offered model), and the Access team, audience and emails. The effort picker stops at the policy's ceiling."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
