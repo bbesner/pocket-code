@@ -1777,7 +1777,7 @@ async function renderList() {
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
     <main class="scroll session-home"><div class="session-home-head"><h2>Your conversations</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}${inboxOn() ? '<a class="chip" href="#/inbox" data-inbox-home>Inbox</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New conversation">${IC.plus}</button>`;
-  $('#new').onclick = () => { location.hash = assistantMode() ? '#/' : '#/new'; };
+  $('#new').onclick = () => openFreshNew(assistantMode() ? '#/' : '#/new');
   if (assistantMode()) $('#back').onclick = () => { location.hash = '#/'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
   pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
@@ -2365,6 +2365,19 @@ const draftKey = id => 'pc-draft-' + (id || 'new');
 const saveDraft = (id, v) => { try { v.trim() ? localStorage.setItem(draftKey(id), v) : localStorage.removeItem(draftKey(id)); } catch { } };
 const loadDraft = id => { try { return localStorage.getItem(draftKey(id)) || ''; } catch { return ''; } };
 const clearDraft = id => { try { localStorage.removeItem(draftKey(id)); } catch { } };
+// 1.69.3: a briefing handed to New (a start link or Inbox alert, a task's or project's Start) stays only for that visit.
+// The plus button opens a clean conversation unless you changed the briefing, so one you walked away from does not return.
+const briefingKey = () => 'pc-new-briefing-' + NEW_KEY;
+const saveBriefing = text => { saveDraft(NEW_KEY, text); writeLocal(briefingKey(), text); };
+function openFreshNew(hash = '#/new') {
+  const brief = readLocal(briefingKey(), null);
+  if (brief !== null && !loadOutbox(NEW_KEY)) {
+    if (loadDraft(NEW_KEY) === brief) { clearDraft(NEW_KEY); try { localStorage.removeItem('pc-new-start'); } catch { } }
+    try { localStorage.removeItem(briefingKey()); } catch { }
+    if (location.hash === hash || (hash === '#/' && !location.hash)) return route();
+  }
+  location.hash = hash;
+}
 
 const isWide = () => matchMedia('(min-width: 900px)').matches;
 const railOpen = () => localStorage.getItem('pc-rail') !== 'closed';
@@ -2407,7 +2420,7 @@ function wireShell() {
     writeLocal('pc-rail-view', b.dataset.railView); document.querySelectorAll('[data-rail-view]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); paintRail(); });
   bindRailNavigation();
   $('#railsettings').onclick=settingsSheet;
-  $('#railnew').onclick = () => { location.hash = '#/new'; };
+  $('#railnew').onclick = () => openFreshNew();
   const grip = $('#grip'), rail = document.querySelector('aside.rail');
   grip.onkeydown = e => { if (!['ArrowLeft','ArrowRight'].includes(e.key)) return; e.preventDefault(); const w = Math.min(480, Math.max(220, railW() + (e.key === 'ArrowRight' ? 20 : -20))); rail.style.width = w + 'px'; localStorage.setItem('pc-railw', String(w)); grip.setAttribute('aria-valuenow', String(w)); };
   document.querySelector('.skip-chat').onclick = e => { e.preventDefault(); document.getElementById(e.currentTarget.hash.slice(1))?.focus(); };
@@ -3192,7 +3205,7 @@ async function openStartLink(id) {
   if (!/^[0-9a-f]{12}$/.test(id)) { toast('That start link is not valid.'); location.replace('#/new'); return; }
   try {
     const s = await api('/start/' + id);
-    saveDraft(NEW_KEY, s.text || '');
+    saveBriefing(s.text || '');
     try { localStorage.removeItem('pc-new-start'); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
   } catch (e) { if (e.message === 'login') return; toast(e.status === 404 ? 'That start link has expired.' : 'Could not load the start link.'); }
   location.replace('#/new');
@@ -3315,7 +3328,7 @@ async function renderNew({ home = false } = {}) {
     note.classList.toggle('delivery-problem', Boolean(pending));
     note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><div class="delivery-actions"><button class="chip" id="retry-new">Retry start</button><button class="chip" id="discard-new">Discard retry</button></div>' : '';
     const retry = $('#retry-new'); if (retry) retry.onclick = () => startSession();
-    const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NEW_KEY, null); clearDraft(NEW_KEY); localStorage.removeItem('pc-new-start'); renderNew(); };
+    const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NEW_KEY, null); clearDraft(NEW_KEY); localStorage.removeItem('pc-new-start'); localStorage.removeItem(briefingKey()); renderNew(); };
     app.querySelectorAll('.pane input,.pane textarea,.pane button,#comp textarea,#comp button:not(#start):not(#composer-toggle)').forEach(el => { el.disabled = Boolean(pending); });
     const label = pending ? 'Retry start' : 'Start conversation';
     $('#start').setAttribute('aria-label', label); $('#start').title = label;
@@ -3457,7 +3470,7 @@ async function renderNew({ home = false } = {}) {
       const { id, modelFallback } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
       setPrefs(id,{model:modelFallback?'default':payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work',approvalMode:payload.approvalMode||approvalPolicy.defaultMode});
       saveOutbox(NEW_KEY, null);
-      clearDraft(NEW_KEY); localStorage.removeItem('pc-attachments-'+NEW_KEY); localStorage.removeItem('pc-new-start'); if (tb?.key === NEW_KEY) tb.attachments = [];
+      clearDraft(NEW_KEY); localStorage.removeItem('pc-attachments-'+NEW_KEY); localStorage.removeItem('pc-new-start'); localStorage.removeItem(briefingKey()); if (tb?.key === NEW_KEY) tb.attachments = [];
       try { localStorage.setItem('pc-lastproj', cwd); } catch { }
       if (payload.project && typeof loadBoard === 'function') loadBoard(true).catch(() => { }); // the card now lists the session
       Voice.carryTo(NEW_KEY, id); // a spoken start keeps its reply and hands-free conversation in the new session

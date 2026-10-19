@@ -51,6 +51,25 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   // A fresh profile and a real HTTP503 from sw.js reproduce the registration failure.
   setMode({workerFailed:true,aboutFailed:true});
   await page.goto(base+'/#/');await page.waitForSelector('#settings');
+  await check('The plus button opens a clean conversation, not a briefing you walked away from',async()=>{
+   const ctx=await browser.createBrowserContext(),ph=await ctx.newPage();
+   try{
+    await ph.setViewport({width:390,height:844,isMobile:true,hasTouch:true});
+    await ph.goto(base+'/#/',{waitUntil:'domcontentloaded'});await ph.waitForSelector('#new');
+    const tapPlus=async()=>{const b=await ph.$eval('#new',e=>{const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};});await ph.touchscreen.tap(b.x,b.y);await ph.waitForSelector('#first');await pause(150);return ph.$eval('#first',e=>e.value);};
+    const briefing='Email alert from the inbox monitor.\n\nSubject: Upside installation confirmation';
+    // An alert's Start a conversation loads its briefing into New; leaving without starting it must not keep it there.
+    await ph.evaluate(t=>{saveBriefing(t);location.hash='#/new';},briefing);await ph.waitForFunction(t=>document.querySelector('#first')?.value===t,{},briefing);
+    await ph.evaluate(()=>{location.hash='#/';});await ph.waitForSelector('#new');
+    assert.equal(await tapPlus(),'','the untouched briefing is gone');
+    // A briefing you edited is your draft now, and a typed draft is kept as before.
+    await ph.evaluate(t=>{saveBriefing(t);saveDraft(NEW_KEY,t+' Also check the invoice.');location.hash='#/';},briefing);await ph.waitForSelector('#new');
+    assert.equal(await tapPlus(),briefing+' Also check the invoice.','an edited briefing stays');
+    await ph.evaluate(()=>{clearDraft(NEW_KEY);location.hash='#/';});await ph.waitForSelector('#new');
+    await ph.evaluate(()=>saveDraft(NEW_KEY,'My own half-written task'));
+    assert.equal(await tapPlus(),'My own half-written task','a typed draft stays');
+   }finally{await ctx.close();}
+  });
   await check('Settings usable when service worker fails; explicit notification fallback',async()=>{
    await clickControl(page,'#settings');await page.waitForSelector('#s-usage',{timeout:1000});
    assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),6);

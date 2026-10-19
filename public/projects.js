@@ -218,7 +218,7 @@ function projectBriefing(p){
  return lines.join('\n');
 }
 function startProject(p){
- saveDraft(NEW_KEY,projectBriefing(p));
+ saveBriefing(projectBriefing(p));
  writeLocal('pc-new-start',{project:p.id,projectName:p.name,cwd:p.directory||''});
  const last=p.sessions[p.sessions.length-1];
  try{if(p.directory)localStorage.setItem('pc-lastproj',p.directory);if(last)localStorage.setItem('pc-provider',last.startsWith('cx:')?'codex':'claude');}catch{}

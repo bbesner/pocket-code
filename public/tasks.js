@@ -153,7 +153,7 @@ function startTask(t){
  const lines=[t.text];
  if(t.summary)lines.push('','Context from the earlier conversation:',t.summary);
  lines.push('',`(Pocket task ${t.id}. When it is finished, mark it done with pocket-tasks done ${t.id}.)`);
- saveDraft(NEW_KEY,lines.join('\n'));
+ saveBriefing(lines.join('\n'));
  try{localStorage.removeItem('pc-new-start');if(t.directory)localStorage.setItem('pc-lastproj',t.directory);if(t.session)localStorage.setItem('pc-provider',t.session.startsWith('cx:')?'codex':'claude');}catch{}
  location.hash='#/new';
 }

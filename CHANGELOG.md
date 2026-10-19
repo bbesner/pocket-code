@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.69.3] — 2026-10-19 · build 137
+
+- **The + button opens a clean conversation.** Opening an Inbox alert's *Start a conversation* (or a start link, or a task's or project's **Start**) put its briefing in the New-conversation draft, and leaving without starting kept it there, so every later tap of **+** on the phone opened that old briefing and the only way out was to delete it by hand. The briefing now lasts for that visit: **+** (and the rail's **+**, and Ctrl/Cmd+Shift+L) clears it unless you edited it. A draft you typed yourself is still kept. Reported by Brad.
+- Migration: none. A briefing already stuck in a phone's draft from an earlier version is not marked as one; delete it once and the fix applies from then on.
+
 ## [1.69.2] — 2026-10-19 · build 136
 
 - **Reading is not acting.** Opening an entry's sheet marked it read, and the list opened on the New filter, so a row vanished as soon as its sheet closed. The list now opens on **All** (everything but dismissed), the chips read **All · Unread · Dismissed**, the dot marks what is unread, and a row, the rail list and the Assistant-mode **Waiting for you** card stay until you dismiss the entry, mark it resolved or not useful. Asked for by Brad.

@@ -19,7 +19,9 @@ Above the box, the setup card names the workspace, the agent with its model and 
 example *Claude Code · Opus 5.5 · High reasoning*) and the permissions. **Edit setup** chooses the agent
 and the workspace; closing it preserves your draft. A custom workspace path must be a directory on the
 server, not your phone. With no default workspace and nothing remembered, the most recent workspace is
-preselected. If something is missing, the reason appears above the box.
+preselected. If something is missing, the reason appears above the box. A briefing put in the box for you (an
+Inbox alert's or start link's, a task's or project's **Start**) stays only for that visit: leave without starting
+and the **+** button opens a clean conversation, unless you edited the briefing (1.69.3). Your own typed draft is kept.
 
 **Saved prompts.** **Save as prompt** keeps the task with its workspace and agent (and, if you
 keep them, model, effort, permissions and Codex mode). Saved prompts show as chips above the task
