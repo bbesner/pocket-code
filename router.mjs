@@ -6,11 +6,12 @@
 
 // Tiers from lightest to heaviest. `want` is [model family, effort] in order of preference; the first offered model
 // in that family is used, else the next tier down that can be served.
+// The levels, lightest first; `label` names them in Settings.
 export const TIERS = [
-  { key: 'quick', want: ['sonnet', 'low'], about: 'A quick question, a lookup, a list or a status check with a short answer.' },
-  { key: 'standard', want: ['sonnet', 'medium'], about: 'An ordinary task: draft or reply to an email, summarize something, look up a customer or quote and explain it.' },
-  { key: 'careful', want: ['sonnet', 'high'], about: 'A longer task with several steps or tools, or one where the details matter: reconcile figures, compare options, fix a problem.' },
-  { key: 'deep', want: ['opus', 'high'], about: 'A finished deliverable that has to be right and look right: a proposal, presentation, report, customer-facing document or a hard analysis that needs judgment.' },
+  { key: 'quick', label: 'Quick', want: ['sonnet', 'low'], about: 'A quick question, a lookup, a list or a status check with a short answer.' },
+  { key: 'standard', label: 'Standard', want: ['sonnet', 'medium'], about: 'An ordinary task: draft or reply to an email, summarize something, look up a customer or quote and explain it.' },
+  { key: 'careful', label: 'Careful', want: ['sonnet', 'high'], about: 'A longer task with several steps or tools, or one where the details matter: reconcile figures, compare options, fix a problem.' },
+  { key: 'deep', label: 'Deep', want: ['opus', 'high'], about: 'A finished deliverable that has to be right and look right: a proposal, presentation, report, customer-facing document or a hard analysis that needs judgment.' },
 ];
 const INSTRUCTIONS = 'Which level of effort does this request need from an AI assistant at a small security-systems company? '
   + 'Pick the lightest level that will still do the job well.';
@@ -20,8 +21,17 @@ const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // The (model, effort) for a tier among `offered` (catalog entries with `alias` and `id`, strongest first), capped at
 // maxEffort. Null when nothing fits (the default runs).
-export function tierChoice(key, offered, maxEffort = null) {
+// 1.67: `levels` are the owner's choices from Settings ({ quick: { model, effort }, … }; 'auto' or missing = this
+// rule). A chosen model that is no longer offered falls back to the rule, so a stale choice never runs a blocked model.
+export function tierChoice(key, offered, maxEffort = null, levels = null) {
   const start = TIERS.findIndex(t => t.key === key); if (start < 0) return null;
+  const own = levels?.[key];
+  if (own && (own.model && own.model !== 'auto' || own.effort && own.effort !== 'auto')) {
+    const auto = tierChoice(key, offered, maxEffort);
+    const model = own.model && own.model !== 'auto' && offered.some(m => m.id === own.model) ? own.model : auto?.model;
+    const effort = own.effort && own.effort !== 'auto' ? capEffort(own.effort, maxEffort) : auto?.effort;
+    return model ? { model, effort, tier: key } : auto;
+  }
   for (let i = start; i >= 0; i--) {
     const [family, effort] = TIERS[i].want;
     const m = offered.find(x => x.alias === family); if (!m) continue;
@@ -60,7 +70,7 @@ export class ModelRouter {
   }
   get on() { return this.provider !== 'off'; }
   // { model, effort, tier, confidence, ms } or null (use the default).
-  async pick(text, { offered, maxEffort = null } = {}) {
+  async pick(text, { offered, maxEffort = null, levels = null } = {}) {
     if (!this.on || !String(text || '').trim() || !offered?.length) return null;
     const p = PROVIDERS[this.provider], t0 = Date.now();
     try {
@@ -71,7 +81,7 @@ export class ModelRouter {
       if (!TIERS.some(x => x.key === tier)) throw new Error('no tier');
       const ms = Date.now() - t0;
       if (Number.isFinite(confidence) && confidence < this.minConfidence) { this.last = { at: Date.now(), tier, confidence, ms, used: null }; this.log(`router: ${tier} at ${confidence.toFixed(2)} is below ${this.minConfidence}; default`); return null; }
-      const choice = tierChoice(tier, offered, maxEffort); if (!choice) return null;
+      const choice = tierChoice(tier, offered, maxEffort, levels); if (!choice) return null;
       this.last = { at: Date.now(), tier, confidence, ms, used: choice };
       return { ...choice, confidence: Number.isFinite(confidence) ? confidence : null, ms };
     } catch (e) {

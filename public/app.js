@@ -68,12 +68,12 @@ let claudeModelsLoaded = false;
 async function loadClaudeModels() {
   if (claudeModelsLoaded) return MODELS;
   try {
-    const { models, defaultLabel, defaultEffort, pocketDefault } = await api('/claude/models');
+    const { models, defaultLabel, defaultEffort, pocketDefault, maxEffort } = await api('/claude/models');
     if (Array.isArray(models)) { // 1.52: only the offered models; none offered leaves Default alone
       // 4th field = chip text, so Default shows the model it actually runs
       MODELS = [['default', 'Default', `${defaultLabel || 'Global'} · ${pocketDefault ? 'Pocket default' : 'your global setting'}`, defaultLabel || 'Default'],
         ...models.map(m => [m.id, m.label || m.id, m.sub || ''])];
-      providerDefaults.claude = { effort: defaultEffort, pocket: pocketDefault };
+      providerDefaults.claude = { effort: defaultEffort, pocket: pocketDefault, maxEffort: maxEffort || null };
       claudeModelsLoaded = true;
     }
   } catch { }
@@ -101,7 +101,10 @@ const modelList = () => (tb?.provider === 'codex' ? CODEX_MODELS : MODELS);
 // Default effort row names the level Pocket will send; without one it's the CLI's own setting.
 const effortList = () => {
   const d = providerDefaults[tb?.provider === 'codex' ? 'codex' : 'claude'], name = d.effort && EFFORT_NAMES[d.effort];
-  return [['default', 'Default', name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'], ...EFFORTS];
+  // 1.67: nothing above the managed policy's ceiling (maxEffortLevel) is offered for Claude.
+  const cap = tb?.provider === 'codex' ? null : d.maxEffort, order = EFFORTS.map(e => e[0]).reverse();
+  const allowed = cap ? EFFORTS.filter(([v]) => order.indexOf(v) <= order.indexOf(cap)) : EFFORTS;
+  return [['default', 'Default', name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'], ...allowed];
 };
 const providerDefaults = { claude: {}, codex: {} };
 const EFFORTS = [
@@ -592,7 +595,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     ${themeControlsHTML()}
     ${chatTextControlsHTML()}
     ${accentControlsHTML()}
-    ${window.pocketFeatures?.assistantLocked ? '' : `<button class="opt" id="s-assistant" aria-pressed="${assistantMode()}"><span class="dot ${assistantMode() ? 'on' : ''}"></span><span>Assistant mode<span class="sub">A simpler Pocket for everyday work: the message box first, plain words, no developer controls. Every device on this Pocket</span></span></button>`}
+    <button class="opt" id="s-assistant" aria-pressed="${assistantMode()}"${window.pocketFeatures?.assistantLocked ? ' aria-disabled="true"' : ''}><span class="dot ${assistantMode() ? 'on' : ''}"></span><span>Assistant mode<span class="sub">${window.pocketFeatures?.assistantLocked ? 'Kept on by this server (POCKET_ASSISTANT_MODE=locked). Change it there to allow the full view' : 'A simpler Pocket for everyday work: the message box first, plain words, no developer controls. Off: the full developer view. Every device on this Pocket'}</span></span></button>
     <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button>
     <button class="opt" id="s-connectors">${IC.globe}<span>Connectors<span class="sub">Gmail, Calendar and Drive for each agent</span></span></button>
     <button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>
@@ -613,6 +616,30 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       </form>
       <p class="title-note" id="s-trusted-note" role="status">Loading the list…</p>
       <span class="vault-set-actions"><button class="chip" id="s-trusted-reset" hidden>Use the server's list</button></span></div>
+    <div class="title-settings model-offer router-settings" id="s-router" role="group" aria-labelledby="s-router-h" aria-describedby="s-router-lead">
+      <p class="vault-set-head" id="s-router-h">Automatic model choice</p>
+      <p class="title-note" id="s-router-lead">In Assistant mode, a request typed from scratch goes to a small decision model that picks the lightest of four levels that will do it well. Each level runs the model and effort below. Saved prompts keep their own.</p>
+      <button class="opt" id="s-router-on" disabled aria-pressed="false"><span class="dot"></span><span>Choose the model for me<span class="sub" id="s-router-state">Loading…</span></span></button>
+      <label class="voice-field">Decision model<select id="s-router-provider" disabled><option value="jev">TypeSafe Jev, through OpenRouter</option><option value="openai">OpenAI Decisions API (GPT-6 Luna)</option></select></label>
+      <form class="trusted-add" id="s-router-key-form" novalidate>
+        <label class="trusted-label" for="s-router-key">Key</label>
+        <span class="trusted-add-row"><input id="s-router-key" type="password" maxlength="400" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste a key" disabled><button class="chip" type="submit" id="s-router-key-save" disabled>Save key</button><button class="chip" type="button" id="s-router-key-remove" hidden>Remove</button></span>
+        <p class="title-note" id="s-router-key-note"></p>
+      </form>
+      <div class="router-levels" id="s-router-levels" aria-busy="true"></div>
+      <p class="title-note" id="s-router-note" role="status"></p>
+      <span class="vault-set-actions"><button class="chip" id="s-router-reset" hidden>Use the server's settings</button></span></div>
+    <div class="title-settings model-offer access-settings" id="s-access" role="group" aria-labelledby="s-access-h" aria-describedby="s-access-lead">
+      <p class="vault-set-head" id="s-access-h">One sign-in</p>
+      <p class="title-note" id="s-access-lead">Behind Cloudflare Access, Pocket can accept the Access sign-in instead of asking for its own password as well. It checks Cloudflare's signature, this application and the email, and signs the browser in for a day at most.</p>
+      <p class="title-note" id="s-access-state" role="status">Loading…</p>
+      <form class="access-form" id="s-access-form" novalidate>
+        <label class="voice-field">Team<input id="s-access-team" type="text" maxlength="63" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="the part before .cloudflareaccess.com" disabled></label>
+        <label class="voice-field">Audience tag<input id="s-access-aud" type="text" maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="from the Access application's Overview" disabled></label>
+        <label class="voice-field">Who may sign in this way<input id="s-access-emails" type="text" maxlength="2000" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="you@example.com, …" disabled></label>
+        <p class="vault-field-error" id="s-access-error" role="alert"></p>
+        <span class="vault-set-actions"><button class="chip" type="submit" id="s-access-save" disabled>Save</button><button class="chip" type="button" id="s-access-off" hidden>Turn off</button><button class="chip" type="button" id="s-access-reset" hidden>Use the server's values</button></span>
+      </form></div>
     <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-conversation tabs</span></span></button>
     <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a reply finishes on screen</span></span></button>
     <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse steps<span class="sub">Fold each run of steps behind a one-line summary</span></span></button>
@@ -699,6 +726,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   };
   const assistantToggle = sh.querySelector('#s-assistant');
   if (assistantToggle) assistantToggle.onclick = async e => {
+    if (window.pocketFeatures?.assistantLocked) return toast('Assistant mode is kept on by this server');
     const b = e.currentTarget, on = !assistantMode(); b.disabled = true;
     try {
       await api('/settings', { method: 'POST', body: JSON.stringify({ assistantMode: on }) });
@@ -821,6 +849,75 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     } catch (err) { toast(err.message || 'Could not save the model list'); }
     finally { list.removeAttribute('aria-busy'); if (sh.isConnected) paintModelOffer(); }
   };
+  // 1.67: automatic model choice. Each level's model list is the models this Pocket offers (Settings above and the
+  // managed policy), strongest first; effort stops at the policy's ceiling. "Automatic" follows the newest offered
+  // model of the level's family, so a newer model is picked up as soon as it is offered.
+  const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'];
+  const routerModelLabel = id => srv?.claudeModels?.models.find(m => m.id === id)?.label || id || 'Default';
+  const paintRouter = () => {
+    const r = srv?.router, cm = srv?.claudeModels; if (!r) return;
+    const on = sh.querySelector('#s-router-on'), prov = sh.querySelector('#s-router-provider'), key = sh.querySelector('#s-router-key');
+    on.disabled = false; on.setAttribute('aria-pressed', String(r.enabled)); on.querySelector('.dot').classList.toggle('on', r.enabled);
+    sh.querySelector('#s-router-state').textContent = !r.enabled ? 'Off. Typed requests run on the default model' : r.active ? 'On in Assistant mode' : 'On, but it needs a key to work';
+    prov.disabled = false; prov.value = r.provider;
+    key.disabled = false; sh.querySelector('#s-router-key-save').disabled = false;
+    sh.querySelector('#s-router-key-remove').hidden = r.keySource !== 'settings';
+    sh.querySelector('#s-router-key-note').textContent = r.keySource === 'settings' ? 'A key is saved here. It is never shown again; paste a new one to replace it.' : r.keySource === 'env' ? 'Using the key this server was started with (POCKET_ROUTER_KEY / POCKET_ROUTER_KEY_FILE). A key saved here replaces it.' : (r.provider === 'openai' ? 'An OpenAI API key with the Decisions API.' : 'An OpenRouter key.') + ' None is set yet.';
+    const offered = (cm?.models || []).filter(m => m.offered), cap = r.maxEffort, efforts = EFFORT_ORDER.filter(e => !cap || EFFORT_ORDER.indexOf(e) <= EFFORT_ORDER.indexOf(cap)).reverse();
+    const levels = sh.querySelector('#s-router-levels'); levels.removeAttribute('aria-busy');
+    levels.innerHTML = r.levels.map(l => {
+      const m = l.chosen?.model || 'auto', e = l.chosen?.effort || 'auto';
+      return `<div class="router-level" data-level="${esc(l.key)}"><p class="router-level-name">${esc(l.label)}<span class="sub">${esc(l.about)}</span></p>
+        <label class="voice-field">Model<select data-level-model>${[`<option value="auto">Automatic: ${esc(routerModelLabel(l.auto?.model))}</option>`, ...offered.map(x => `<option value="${esc(x.id)}">${esc(x.label)}</option>`)].join('')}</select></label>
+        <label class="voice-field">Effort<select data-level-effort>${[`<option value="auto">Automatic: ${esc(EFFORT_NAMES[l.auto?.effort] || 'Default')}</option>`, ...efforts.map(x => `<option value="${x}">${esc(EFFORT_NAMES[x])}</option>`)].join('')}</select></label>
+        <p class="title-note router-runs">Runs ${esc(routerModelLabel(l.runs?.model))}, ${esc((EFFORT_NAMES[l.runs?.effort] || 'default').toLowerCase())} effort</p></div>`;
+    }).join('');
+    levels.querySelectorAll('.router-level').forEach(row => { const l = r.levels.find(x => x.key === row.dataset.level); row.querySelector('[data-level-model]').value = l.chosen?.model && offered.some(x => x.id === l.chosen.model) ? l.chosen.model : 'auto'; row.querySelector('[data-level-effort]').value = l.chosen?.effort && efforts.includes(l.chosen.effort) ? l.chosen.effort : 'auto'; });
+    const last = r.last;
+    sh.querySelector('#s-router-note').textContent = [
+      r.enabledSource === 'env' ? 'Turned on by this server (POCKET_ROUTER).' : '',
+      cap ? `This computer's Claude Code policy caps effort at ${EFFORT_NAMES[cap]}.` : '',
+      last?.used ? `Last choice ${ago(last.at)}: ${last.tier} → ${routerModelLabel(last.used.model)}, ${(EFFORT_NAMES[last.used.effort] || '').toLowerCase()} (${last.ms} ms).` : last?.error ? `Last attempt ${ago(last.at)} failed (${last.error}); the default ran.` : last?.tier ? `Last answer ${ago(last.at)} was unsure (${last.tier}); the default ran.` : '',
+    ].filter(Boolean).join(' ');
+    sh.querySelector('#s-router-reset').hidden = !(srv.router && (r.enabledSource === 'settings' || r.keySource === 'settings' || r.levels.some(l => l.chosen)));
+  };
+  const saveRouter = async (patch, done) => {
+    try { srv = await api('/settings', { method: 'POST', body: JSON.stringify({ router: patch }), signal: AbortSignal.timeout(8000) }); if (done) toast(done); }
+    catch (err) { toast(err.message || 'Could not save'); }
+    finally { if (sh.isConnected) paintRouter(); }
+  };
+  const ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+  sh.querySelector('#s-router-on').onclick = () => { const r = srv?.router; if (r) saveRouter({ enabled: !r.enabled }, !r.enabled ? 'Automatic model choice is on' : 'Automatic model choice is off'); };
+  sh.querySelector('#s-router-provider').onchange = e => saveRouter({ provider: e.target.value }, 'Decision model saved');
+  sh.querySelector('#s-router-key-form').onsubmit = e => { e.preventDefault(); const k = sh.querySelector('#s-router-key'); if (!k.value.trim()) return toast('Paste the key first'); saveRouter({ key: k.value.trim() }, 'Key saved'); k.value = ''; };
+  sh.querySelector('#s-router-key-remove').onclick = () => confirmSheet('Remove the saved key?', srv?.router?.enabled ? 'Automatic model choice uses the server\'s key if it has one, and stops otherwise.' : 'The key saved here is deleted.', 'Remove', () => saveRouter({ key: '' }, 'Key removed'));
+  sh.querySelector('#s-router-levels').onchange = () => {
+    const levels = {}; sh.querySelectorAll('#s-router-levels .router-level').forEach(row => { levels[row.dataset.level] = { model: row.querySelector('[data-level-model]').value, effort: row.querySelector('[data-level-effort]').value }; });
+    saveRouter({ levels }, 'Levels saved');
+  };
+  sh.querySelector('#s-router-reset').onclick = () => confirmSheet('Use the server\'s settings?', 'The switch, decision model, key and levels saved here are cleared; the server\'s POCKET_ROUTER settings apply again.', 'Use the server\'s settings', async () => { try { srv = await api('/settings', { method: 'POST', body: JSON.stringify({ router: null }) }); toast('Using the server\'s settings'); } catch (err) { toast(err.message); } paintRouter(); });
+  // 1.67: one sign-in.
+  const paintAccess = () => {
+    const a = srv?.access; if (!a) return;
+    ['#s-access-team', '#s-access-aud', '#s-access-emails', '#s-access-save'].forEach(q => { sh.querySelector(q).disabled = false; });
+    const f = sh.querySelector('#s-access-form');
+    if (!f.dataset.dirty) { sh.querySelector('#s-access-team').value = a.team || ''; sh.querySelector('#s-access-aud').value = a.aud || ''; sh.querySelector('#s-access-emails').value = (a.emails || []).join(', '); }
+    sh.querySelector('#s-access-state').textContent = a.on
+      ? `On${a.source === 'env' ? ', from this server\'s settings' : ''}: ${a.emails.join(', ')} can sign in with Cloudflare Access alone.${a.last ? ` Last sign-in ${ago(a.last.at)} (${a.last.email}).` : ''}`
+      : a.off ? 'Off. Pocket asks for its own password.' : a.source === 'none' ? 'Off. Fill in the three fields to turn it on.' : 'Not working: the team, audience tag or emails are incomplete. Pocket asks for its own password.';
+    sh.querySelector('#s-access-off').hidden = !a.on;
+    sh.querySelector('#s-access-reset').hidden = !(a.source === 'settings' && a.envSet);
+  };
+  const saveAccess = async (body, done) => {
+    const err = sh.querySelector('#s-access-error'); err.textContent = '';
+    try { srv = await api('/settings', { method: 'POST', body: JSON.stringify({ access: body }), signal: AbortSignal.timeout(8000) }); delete sh.querySelector('#s-access-form').dataset.dirty; toast(done); }
+    catch (e2) { err.textContent = e2.message || 'Could not save'; }
+    finally { if (sh.isConnected) paintAccess(); }
+  };
+  sh.querySelector('#s-access-form').oninput = e => { e.currentTarget.dataset.dirty = '1'; };
+  sh.querySelector('#s-access-form').onsubmit = e => { e.preventDefault(); saveAccess({ team: sh.querySelector('#s-access-team').value, aud: sh.querySelector('#s-access-aud').value, emails: sh.querySelector('#s-access-emails').value }, 'One sign-in saved'); };
+  sh.querySelector('#s-access-off').onclick = () => confirmSheet('Turn off one sign-in?', 'Pocket asks for its own password again after Cloudflare Access. Browsers already signed in stay signed in for up to a day.', 'Turn off', () => saveAccess({ enabled: false }, 'One sign-in is off'));
+  sh.querySelector('#s-access-reset').onclick = () => saveAccess(null, 'Using the server\'s values');
   sh.querySelector('#s-models-list').onclick = e => {
     const btn = e.target.closest('[data-offer-model]'), cm = srv?.claudeModels; if (!btn || !cm) return;
     const m = cm.models.find(x => x.id === btn.dataset.offerModel); if (!m) return;
@@ -1090,7 +1187,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintNotifySettings(); paintModelOffer(); paintTrusted(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
+      paintTitles(); paintNotifySettings(); paintModelOffer(); paintTrusted(); paintRouter(); paintAccess(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Conversation names follow Claude Code's titles, and renames here show there too";

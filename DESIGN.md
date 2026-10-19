@@ -8,6 +8,17 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Automatic model choice and one sign-in in Settings (1.67)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5; existing tokens, no new
+colour. Read: an owner's switchboard, set once, explained where it says no. Both blocks sit in **Agents & instance**
+after *Actions that run without asking*, built like *Claude models in the picker*: the uppercase set head, a
+one-line lead, then controls. Automatic model choice: an `.opt` switch, the decision model `select`, a password key
+field with **Save key** (the key is never shown again; the note says where the active key comes from), then one
+row per level (name 15.5px/600 with what it is for at 13.5px `--dim`; Model and Effort selects side by side,
+stacked under 520px; "Runs …" as a `.title-note`), the status note and *Use the server's settings*. One sign-in:
+status line, three `.voice-field` inputs, a `--err` line, **Save**, **Turn off**, *Use the server's values*.
+
 ## Try harder (1.62)
 
 Assistant mode's only model control, phrased as an outcome. A `.chip` labelled **Try harder**
