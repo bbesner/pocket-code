@@ -1,8 +1,7 @@
 # Documentation image provenance
 
-The seven workspace screenshots below were captured from the **1.37.0 / build 81** frontend on
-2026-10-10, except `vault-desktop.png`, captured from **1.44.1 / build 94** on 2026-10-13, and
-`tasks-mobile.png`, captured from **1.50.0 / build 102** on 2026-10-15. They
+The seven workspace screenshots below were recaptured from the **1.63.0 / build 124** frontend on
+2026-10-19 with the docs-only browser mode, after 1.59 changed the wording ("conversations", plain steps). They
 show synthetic sessions, projects, files, tasks and Vault items supplied by the browser
 test fixture, with no production data or model calls. Desktop captures are emulated Chromium
 viewports (1600×1000 for the split view; 1440×900 for Projects, Files and the Vault, cropped to the
@@ -11,7 +10,7 @@ content area because the hero already shows the session rail); phone captures ar
 
 | Image | Shows |
 |---|---|
-| `desktop-split.png` | The session rail (Sessions, Projects, Files, Tasks) beside two conversations in split view |
+| `desktop-split.png` | The conversation rail (Chats, Projects, Files, Tasks, Vault) beside two conversations in split view |
 | `mobile-workspace.png` | A conversation on a phone with the composer and message settings |
 | `projects-desktop.png` | A project card: where we left off, next step, checklist, a due reminder, its session |
 | `files-desktop.png` | The Files library as a list, with kinds, sharing state and the project a file came from |
