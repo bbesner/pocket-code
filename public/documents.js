@@ -70,8 +70,8 @@ async function renderDocuments(view){
  docView=view;if(typeof boardView!=='undefined')boardView=null;
  const kind=view==='documents'?'list':'doc';
  const col=`<header class="bar">
-   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
-   <h1><span class="one" id="dtitle">${esc(docViewTitle(view))}</span><span class="tag" id="dtag">${kind==='list'?'From your sessions':'File'}</span></h1>
+   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the conversation list">${IC.panel}</button>`}
+   <h1><span class="one" id="dtitle">${esc(docViewTitle(view))}</span><span class="tag" id="dtag">${kind==='list'?'From your conversations':'File'}</span></h1>
    ${kind==='doc'?`<button class="icon" id="dmore" aria-label="File options">${IC.more}</button>`:''}
    ${SOLO?'':`<button class="icon" id="dwin" aria-label="Open in a new window" title="Open in a new window">${IC.external}</button>`}
    ${PANE||SOLO?'':`<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
@@ -117,7 +117,7 @@ function docRowHTML(d,opt){
  return `<div class="session-item document-item ${docView==='documents/'+d.id?'cur':''}" data-item="${esc(d.id)}">
   <a class="row" href="${viewHref('documents/'+d.id)}" data-document="${esc(d.id)}"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}${d.missing?' <span class="due-label">(file missing)</span>':''}</span>
    <span class="meta">${esc(where||d.file)}</span>
-   <span class="session-status"><span class="doc-vis vis-${esc(d.visibility)}">${visWord[d.visibility]}</span><span>${esc(rel(Date.parse(d.added)))}</span>${d.addedBy==='session'||d.session?'<span aria-hidden="true">·</span><span>from a session</span>':''}</span></span></a>
+   <span class="session-status"><span class="doc-vis vis-${esc(d.visibility)}">${visWord[d.visibility]}</span><span>${esc(rel(Date.parse(d.added)))}</span>${d.addedBy==='session'||d.session?'<span aria-hidden="true">·</span><span>from a conversation</span>':''}</span></span></a>
   ${url?`<button class="session-more icon" data-copy-link="${esc(d.id)}" aria-label="Copy the ${visWord[d.visibility].toLowerCase()} link for ${esc(d.title)}" title="Copy link">${IC.link}</button>`:''}
   <button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></div>`;
 }
@@ -158,12 +158,12 @@ function libraryHTML(){
  const heading=docFilterProject?projects.find(p=>p.id===docFilterProject)?.name||'Project':docFilterVis?visLong[docFilterVis]:docFilterKind?KIND_GROUPS.find(g=>g[0]===docFilterKind)[1]:q?'Matching':'All';
  const grid=gridOn();
  return `<div class="session-home-head"><h2>Files</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span>${all.length||pick?`<button class="chip" id="doc-select" aria-pressed="${pick}">${pick?IC.tick+'Done':IC.task+'Select'}</button>`:''}${pick?'':`<button class="chip" id="doc-upload">${IC.up}Upload</button>`}${pick?'':'<input type="file" id="doc-file" multiple hidden>'}</span></div>
-  <div class="documents-tools"><div class="session-search">${IC.search}<input type="search" id="doc-query" placeholder="Search files" aria-label="Search files by title, file name, project or session" value="${esc(docQuery)}" autocomplete="off"></div>
+  <div class="documents-tools"><div class="session-search">${IC.search}<input type="search" id="doc-query" placeholder="Search files" aria-label="Search files by title, file name, project or conversation" value="${esc(docQuery)}" autocomplete="off"></div>
    ${projects.length?`<label class="voice-field doc-project-filter">Project<select id="doc-project"><option value="">All projects</option>${projects.map(p=>`<option value="${esc(p.id)}" ${docFilterProject===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
    <label class="voice-field doc-kind-filter">Kind<select id="doc-kind"><option value="">All kinds</option>${KIND_GROUPS.map(([v,label])=>`<option value="${v}" ${docFilterKind===v?'selected':''}>${label}</option>`).join('')}</select></label></div>
   <div class="doc-filters" role="group" aria-label="Show files by visibility">${chip('','All',all.length)}${chip('private','Private',count('private'))}${chip('link','Link',count('link'))}${chip('public','Public',count('public'))}${filtered?'<button class="chip" id="doc-clear">Clear</button>':''}</div>
   ${rows.length?`<section class="session-group document-group"><h2>${esc(heading)} <span>${rows.length}${rows.length!==all.length?' of '+all.length:''}</span></h2>${grid?`<div class="doc-grid">${rows.map(d=>docCardHTML(d,opt)).join('')}</div>`:rows.map(d=>docRowHTML(d,opt)).join('')}</section>`
-   :`<p class="sheet-help project-empty">${filtered?'No files match.':'No files yet. Upload one, keep a result from a session\'s Results panel, or let an agent keep one with <code>pocket-docs add</code>. Files placed in the library\'s folder on the server appear here too.'}</p>`}
+   :`<p class="sheet-help project-empty">${filtered?'No files match.':'No files yet. Upload one, keep a result from a conversation\'s Results panel, or let an agent keep one with <code>pocket-docs add</code>. Files placed in the library\'s folder on the server appear here too.'}</p>`}
   ${pick?docSelectBarHTML(rows):''}
   ${docTrashHTML()}`;
 }
@@ -215,7 +215,7 @@ async function uploadDocuments(files){
 }
 function docToolsHTML(d){
  const raw=docRawUrl(d),dl=docRawUrl(d,true),url=docShareUrl(d);
- return `<div class="doc-tools"><a class="chip" href="${esc(raw)}" target="_blank" rel="noopener noreferrer">${IC.globe}Open in your viewer</a><a class="chip" href="${esc(dl)}" download="${esc(d.file)}">${IC.down}Download</a><button class="chip ${d.visibility!=='private'?'set':''}" data-share>${IC.share}${d.visibility==='private'?'Share':visWord[d.visibility]+' · Share'}</button>${url?`<button class="chip" data-copy-link="${esc(d.id)}">${IC.link}Copy link</button>`:''}${typeof projectsOn==='function'&&projectsOn()?`<button class="chip" data-project>${IC.folder}${d.project?esc(docProjectName(d)):'Project'}</button>`:''}${d.session?`<a class="chip" href="#/chat/${esc(d.session)}">${IC.term}Session</a>`:''}</div>`;
+ return `<div class="doc-tools"><a class="chip" href="${esc(raw)}" target="_blank" rel="noopener noreferrer">${IC.globe}Open in your viewer</a><a class="chip" href="${esc(dl)}" download="${esc(d.file)}">${IC.down}Download</a><button class="chip ${d.visibility!=='private'?'set':''}" data-share>${IC.share}${d.visibility==='private'?'Share':visWord[d.visibility]+' · Share'}</button>${url?`<button class="chip" data-copy-link="${esc(d.id)}">${IC.link}Copy link</button>`:''}${typeof projectsOn==='function'&&projectsOn()?`<button class="chip" data-project>${IC.folder}${d.project?esc(docProjectName(d)):'Project'}</button>`:''}${d.session?`<a class="chip" href="#/chat/${esc(d.session)}">${IC.term}Conversation</a>`:''}</div>`;
 }
 function documentHTML(d){
  const raw=docRawUrl(d);
@@ -262,7 +262,7 @@ function documentOptions(id){
  sh.innerHTML=`<h2>File options</h2><p class="sheet-name">${esc(d.title)}</p><p class="sheet-help">${esc([KIND_WORD[d.kind],fmtSize(d.size),d.file].join(' · '))}</p>
   ${d.trashedAt?`<button class="opt" data-restore>${IC.up}<span>Restore<span class="sub">Back to the library; links stay off until you share it again</span></span></button><button class="opt doc-danger" data-destroy>${IC.x}<span>Delete forever<span class="sub">Deletes the file and its preview from the server now</span></span></button>`:
   optGroup('Open',[
-   here?'':`<button class="opt" data-open>${IC.doc}<span>Open<span class="sub">${PANE?'In this pane':SOLO?'In this window':'As a tab, like a session'}</span></span></button>`,
+   here?'':`<button class="opt" data-open>${IC.doc}<span>Open<span class="sub">${PANE?'In this pane':SOLO?'In this window':'As a tab, like a conversation'}</span></span></button>`,
    !here&&(PANE?typeof paneSay==='function':!SOLO&&isWide()&&typeof openBeside==='function')?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">${PANE?'In a new pane to the left of this one':'In a pane next to the current view'}</span></span></button>`:'',
    `<button class="opt" data-window>${IC.external}<span>Open in a new window<span class="sub">A browser tab or app window of its own</span></span></button>`,
    `<a class="opt" href="${esc(docRawUrl(d))}" target="_blank" rel="noopener noreferrer">${IC.globe}<span>Open in your viewer<span class="sub">The file itself, in the app your device uses for it</span></span></a>`,
@@ -335,7 +335,7 @@ function projectDocumentsHTML(projectId){
  const rows=docsSnap?docsSnap.documents.filter(d=>d.project===projectId):null;
  return `<section class="project-documents"><h2>Files <span>${rows?rows.length||'':''}</span></h2>
   ${!rows?'<p class="project-empty">Loading…</p>':rows.length?rows.slice(0,8).map(d=>`<div class="session-item linked-session document-item" data-item="${esc(d.id)}"><a class="row" href="${viewHref('documents/'+d.id)}" data-document="${esc(d.id)}"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}</span><span class="meta">${esc(rel(Date.parse(d.added)))} · ${visWord[d.visibility]}</span></span></a><button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></div>`).join('')+(rows.length>8?`<a class="rail-done-link" href="${viewHref('documents')}" data-project-docs="${esc(projectId)}">All ${rows.length} files</a>`:'')
-  :'<p class="project-empty">No files yet. Keep one from a session\'s Results, or an agent keeps one with <code>pocket-docs add --project '+esc(projectId)+'</code>.</p>'}</section>`;
+  :'<p class="project-empty">No files yet. Keep one from a conversation\'s Results, or an agent keeps one with <code>pocket-docs add --project '+esc(projectId)+'</code>.</p>'}</section>`;
 }
 function bindProjectDocuments(main,projectId){
  if(!documentsOn())return;

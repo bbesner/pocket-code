@@ -69,7 +69,7 @@ export class ApprovalInbox {
   catch{throw fail('Could not record this decision. Nothing was approved; try again.',503);}
   row.status='sending';this.onChange();
   try{await this.write(row.nativeId,decision==='allow'?row.allow:row.deny);}
-  catch{row.status='uncertain';this.onChange();throw fail('Delivery of this decision is uncertain. Stop the turn and review the conversation; do not approve it again.',503);}
+  catch{row.status='uncertain';this.onChange();throw fail('Delivery of this decision is uncertain. Stop the reply and review the conversation; do not approve it again.',503);}
   this.pending.delete(id);this.answered.set(id,decision);
   if(this.answered.size>200)this.answered.delete(this.answered.keys().next().value);
   this.onChange();return {ok:true,decision};
@@ -86,6 +86,6 @@ export function codexApproval(request,turn){
   const item=turn.approvalItems.get(p.itemId);
   return {...common,kind:'fileChange',title:'Apply these file changes?',details:{cwd:turn.cwd,reason:p.reason,changes:item?.changes,grantRoot:p.grantRoot},canAllow:Boolean(item?.changes?.length)&&!p.grantRoot};
  }
- if(request.method==='item/permissions/requestApproval')return {...common,kind:'permissions',title:'Allow access for this turn?',details:{cwd:p.cwd,reason:p.reason,permissions:p.permissions},canAllow:Boolean(p.permissions&&typeof p.permissions==='object'&&!Array.isArray(p.permissions)),allow:{permissions:p.permissions,scope:'turn'},deny:{permissions:{},scope:'turn'}};
+ if(request.method==='item/permissions/requestApproval')return {...common,kind:'permissions',title:'Allow access for this reply?',details:{cwd:p.cwd,reason:p.reason,permissions:p.permissions},canAllow:Boolean(p.permissions&&typeof p.permissions==='object'&&!Array.isArray(p.permissions)),allow:{permissions:p.permissions,scope:'turn'},deny:{permissions:{},scope:'turn'}};
  return null;
 }

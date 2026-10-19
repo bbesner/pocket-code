@@ -183,7 +183,7 @@ function sheet(title, options, current, onPick) {
 // 1.52: the server ran a turn on the default because the picked model is not offered. Say so, refresh the
 // picker (Settings or the policy changed since it loaded) and put this session's pick back to Default.
 function modelFellBack(id, f) {
-  toast(f.message || 'That model is not offered, so this turn uses the default model.');
+  toast(f.message || 'That model is not offered, so this reply uses the default model.');
   claudeModelsLoaded = false;
   if (id) { const p = getPrefs(id); if (p.model === f.requested) setPrefs(id, { ...p, model: 'default' }); }
   loadClaudeModels().then(() => renderToolbar());
@@ -213,9 +213,9 @@ function renderToolbar() {
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
     <button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>
-    <button class="chip" id="c-approval" title="Permissions for the next turn" aria-label="Permissions for the next turn: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
+    <button class="chip" id="c-approval" title="Permissions for the next reply" aria-label="Permissions for the next reply: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
     ${tb.provider==='codex'?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
-    ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-project" id="project-open" hidden>Project</button><button class="chip conversation-task" id="task-open" hidden>Add task</button>' : ''}`;
+    ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this conversation">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-project" id="project-open" hidden>Project</button><button class="chip conversation-task" id="task-open" hidden>Add task</button>' : ''}`;
   const ar = $('#attrow');
   if (ar) {
     ar.innerHTML = tb.attachments.map((a, i) => `
@@ -229,7 +229,7 @@ function renderToolbar() {
   if(att&&actions){att.className='icon composer-attach';att.innerHTML=IC.clip;actions.prepend(att);}
   if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard'],
     ...(vaultOn() ? [['vault','Store in the Vault','Save a key or password here instead of pasting it into the message']] : [])],null,v=>{if(v==='file')$('#fpick')?.click();else if(v==='vault')addVaultItemFromComposer();else pasteClipboardImage();}); // 1.39: the Vault option
-  $('#c-model').onclick = () => sheet('Model for this turn', modelList(), tb.prefs.model,
+  $('#c-model').onclick = () => sheet('Model for this reply', modelList(), tb.prefs.model,
     v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   $('#c-eff').onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
     v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
@@ -238,7 +238,7 @@ function renderToolbar() {
     if(att)att.disabled=true;
     ar?.querySelectorAll('button').forEach(b => { b.disabled = true; });
   }
-  const mode=$('#c-mode');if(mode)mode.onclick=()=>sheet('Codex mode for the next turn',[['work','Work normally','Carry out your request'],['plan','Plan first','Explore an approach and answer native questions before implementation']],tb.prefs.executionMode||'work',v=>{tb.prefs.executionMode=v;setPrefs(tb.key,tb.prefs);renderToolbar();});
+  const mode=$('#c-mode');if(mode)mode.onclick=()=>sheet('Codex mode for the next reply',[['work','Work normally','Carry out your request'],['plan','Plan first','Explore an approach and answer native questions before implementation']],tb.prefs.executionMode||'work',v=>{tb.prefs.executionMode=v;setPrefs(tb.key,tb.prefs);renderToolbar();});
   $('#c-approval').onclick=()=>chooseApprovalMode();
   paintComposerDensity();
   paintUploadStatus();
@@ -259,25 +259,25 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet';
   sh.innerHTML = `
-    <h2>Session options</h2>
+    <h2>Conversation options</h2>
     <p class="sheet-name">${esc(s.title)}</p>
-    ${s.id!==chatId&&canMarkReviewed(allSessions.find(r=>r.id===s.id)||s)?'<button class="opt" id="so-reviewed">'+IC.tick+'<span>Mark as reviewed<span class="sub">Clear '+(s.state?.kind==='failed'?'the failed turn':'Response ready')+' on all your devices without opening it</span></span></button>':''}
+    ${s.id!==chatId&&canMarkReviewed(allSessions.find(r=>r.id===s.id)||s)?'<button class="opt" id="so-reviewed">'+IC.tick+'<span>Mark as reviewed<span class="sub">Clear '+(s.state?.kind==='failed'?'the failed reply':'Response ready')+' on all your devices without opening it</span></span></button>':''}
     ${optGroup('This conversation', [
       s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':'',
       !PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : '',
       `<button class="opt" id="so-agents">${IC.columns}<span>Subagents<span class="sub">Tasks, status and latest activity</span></span></button>`,
       s.id===chatId?'<button class="opt" id="so-usage">'+IC.gauge+'<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>':''])}
-    ${optGroup('Session', [
-      `<button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin session' : 'Pin session'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>`,
-      s.pinned && pinnedIds().indexOf(s.id) > 0 ? '<button class="opt" id="so-pin-up">'+IC.up+'<span>Move pin up<span class="sub">Earlier among pinned sessions, in the list and the tabs, on every device</span></span></button>' : '',
-      s.pinned && pinnedIds().indexOf(s.id) >= 0 && pinnedIds().indexOf(s.id) < pinnedIds().length - 1 ? '<button class="opt" id="so-pin-down">'+IC.down+'<span>Move pin down<span class="sub">Later among pinned sessions, in the list and the tabs, on every device</span></span></button>' : '',
+    ${optGroup('Organize', [
+      `<button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin conversation' : 'Pin conversation'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>`,
+      s.pinned && pinnedIds().indexOf(s.id) > 0 ? '<button class="opt" id="so-pin-up">'+IC.up+'<span>Move pin up<span class="sub">Earlier among pinned conversations, in the list and the tabs, on every device</span></span></button>' : '',
+      s.pinned && pinnedIds().indexOf(s.id) >= 0 && pinnedIds().indexOf(s.id) < pinnedIds().length - 1 ? '<button class="opt" id="so-pin-down">'+IC.down+'<span>Move pin down<span class="sub">Later among pinned conversations, in the list and the tabs, on every device</span></span></button>' : '',
       `<button class="opt" id="so-ren">${IC.pen}<span>Rename<span class="sub">Your title, on every device. Clear it to go back to the automatic one</span></span></button>`,
-      `<button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to session list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>`,
-      `<button class="opt" id="so-permissions">${IC.sliders}<span>Permissions for the next turn<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>`,
-      projectsOn() ? '<button class="opt" id="so-project">'+IC.folder+'<span>Add project<span class="sub">Track a new project around this session, or link it to one</span></span></button>' : '',
-      tasksOn() ? '<button class="opt" id="so-task">'+IC.task+'<span>Add task<span class="sub">A to-do with an optional date, kept with this session and its context</span></span></button>' : '',
+      `<button class="opt" id="so-hide">${IC.folder}<span>${isHiddenSession(allSessions.find(r=>r.id===s.id)||s)?'Restore to conversation list':'Hide from this device'}<span class="sub">History stays intact. New activity brings it back.</span></span></button>`,
+      `<button class="opt" id="so-permissions">${IC.sliders}<span>Permissions for the next reply<span class="sub">${permissionLabel(nextApprovalMode(getPrefs(s.id)))}. Running work keeps its current permissions.</span></span></button>`,
+      projectsOn() ? '<button class="opt" id="so-project">'+IC.folder+'<span>Add project<span class="sub">Track a new project around this conversation, or link it to one</span></span></button>' : '',
+      tasksOn() ? '<button class="opt" id="so-task">'+IC.task+'<span>Add task<span class="sub">A to-do with an optional date, kept with this conversation and its context</span></span></button>' : '',
       vaultOn() ? '<button class="opt" id="so-vault">'+VIC.lock+'<span>Store in the Vault<span class="sub">Save a key or password agents use by name, instead of pasting it here</span></span></button>' : ''])}
-    ${optGroup('Server process', [!PANE && s.id === chatId ? '<button class="opt" id="so-close">'+IC.x+'<span>Close session process<span class="sub">Release its server process. If work is running, choose whether to keep it running or stop it</span></span></button>' : ''])}
+    ${optGroup('Server process', [!PANE && s.id === chatId ? '<button class="opt" id="so-close">'+IC.x+'<span>Close conversation process<span class="sub">Release its server process. If work is running, choose whether to keep it running or stop it</span></span></button>' : ''])}
     ${optGroup('Display and version', [chatTextControlsHTML(), s.id===chatId?'<button class="opt" id="so-version">'+IC.info+'<span>Version & updates<span class="sub" id="so-version-sub">'+esc(appVersionLabel())+'</span></span></button>':''])}`;
   const close = () => closeCurrentSheet?.();
   scrim.onclick = close;
@@ -291,7 +291,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   };
   sh.querySelector('#so-pin-up')?.addEventListener('click',()=>{close();movePin(s.id,-1);});
   sh.querySelector('#so-pin-down')?.addEventListener('click',()=>{close();movePin(s.id,1);});
-  sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting sessions stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
+  sh.querySelector('#so-hide').onclick=()=>{const row=allSessions.find(r=>r.id===s.id)||s;if(['running','observed','waiting','input'].includes(rowState(row).kind))return toast('Active or waiting conversations stay visible.');if(hiddenSessions[s.id])delete hiddenSessions[s.id];else hiddenSessions[s.id]=Math.max(row.mtimeMs||0,row.state?.at||0,Date.now());writeLocal('pc-hidden-sessions',hiddenSessions);close();paintSessionPanels();};
   sh.querySelector('#so-ren').onclick = () => { close(); renameSheet(s, refresh); };
   sh.querySelector('#so-project')?.addEventListener('click',()=>{close();addSessionToProject(allSessions.find(r=>r.id===s.id)||s);});
   sh.querySelector('#so-task')?.addEventListener('click',()=>{close();addTaskFromSession(allSessions.find(r=>r.id===s.id)||s);});
@@ -313,13 +313,13 @@ function renameSheet(s, refresh) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet';
   sh.innerHTML = `
-    <h2>Rename session</h2>
-    <input type="text" class="rename" id="rn" maxlength="120" placeholder="Session title" enterkeyhint="done" autocomplete="off">
+    <h2>Rename conversation</h2>
+    <input type="text" class="rename" id="rn" maxlength="120" placeholder="Conversation title" enterkeyhint="done" autocomplete="off">
     <button class="primary" id="rn-save">Save</button>`;
   const close = () => closeCurrentSheet?.();
   scrim.onclick = close;
   const box = sh.querySelector('#rn');
-  box.value = s.title === '(untitled session)' ? '' : s.title;
+  box.value = s.title === '(untitled conversation)' || s.title === '(untitled session)' ? '' : s.title;
   const save = async () => {
     close();
     try {
@@ -357,7 +357,7 @@ async function toggleMute() {
   try {
     const r = await api(`/session/${chatId}/mute`, { method: 'POST', body: JSON.stringify({ muted: !chatMuted }) });
     chatMuted = r.muted;
-    toast(chatMuted ? 'Notifications muted for this session' : 'Notifications back on for this session');
+    toast(chatMuted ? 'Notifications muted for this conversation' : 'Notifications back on for this conversation');
     renderToolbar();
     const wb = $('#muteb'); if (wb) { wb.innerHTML = chatMuted ? IC.bellOff : IC.bell; wb.classList.toggle('on', chatMuted); }
   } catch (e) { toast('Mute failed: ' + e.message); }
@@ -365,7 +365,7 @@ async function toggleMute() {
 const uploadsInFlight = new Map();
 function attachmentTarget() {
   if (!tb?.allowAttach || loadOutbox(tb.key)) { toast('Finish or discard the pending message before attaching files.'); return null; }
-  if (tb.key !== NEW_KEY && composerWorking) { toast('Attach files after this turn finishes.'); return null; }
+  if (tb.key !== NEW_KEY && composerWorking) { toast('Attach files after this reply finishes.'); return null; }
   return tb.key;
 }
 function paintUploadStatus() {
@@ -501,7 +501,7 @@ function renderLogin() {
   app.innerHTML = `
     <div class="login">
       <h1>Pocket Code</h1>
-      <p class="sub">Your Claude Code and Codex sessions, from anywhere.</p>
+      <p class="sub">Your Claude Code and Codex conversations, from anywhere.</p>
       <input type="password" id="pw" placeholder="Password" autocomplete="current-password" enterkeyhint="go">
       <p class="err" id="lerr"></p>
       <button class="primary" id="go">Unlock</button>
@@ -612,13 +612,14 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       </form>
       <p class="title-note" id="s-trusted-note" role="status">Loading the list…</p>
       <span class="vault-set-actions"><button class="chip" id="s-trusted-reset" hidden>Use the server's list</button></span></div>
-    <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-session tabs</span></span></button>
-    <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a turn finishes on screen</span></span></button>
-    <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse tool calls<span class="sub">Fold Bash, Edit and other actions behind a one-line summary</span></span></button>
+    <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-conversation tabs</span></span></button>
+    <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a reply finishes on screen</span></span></button>
+    <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse steps<span class="sub">Fold each run of steps behind a one-line summary</span></span></button>
+    <button class="opt" id="s-plain" aria-pressed="${plainSteps()}"><span class="dot ${plainSteps() ? 'on' : ''}"></span><span>Describe steps in plain words<span class="sub">“Saved Proposal.pdf” with the command or path beside it. Off shows the tool name and its raw detail</span></span></button>
     <button class="opt" id="s-times" aria-pressed="${showTimes()}"><span class="dot ${showTimes() ? 'on' : ''}"></span><span>Show message times<span class="sub">A time on each message and a divider for each day</span></span></button>
     <button class="opt" id="s-push" aria-pressed="false"><span class="dot"></span><span>Push to this device<span class="sub" id="s-push-state">Checking notification support…</span></span></button>
     <div class="title-settings push-kinds" id="s-push-kinds" role="group" aria-label="Which notifications this device gets">
-      <button class="opt" id="s-push-turns" disabled aria-pressed="false"><span class="dot"></span><span>Finished turns<span class="sub">When a session finishes a turn, unless that session is muted</span></span></button>
+      <button class="opt" id="s-push-turns" disabled aria-pressed="false"><span class="dot"></span><span>Finished replies<span class="sub">When a conversation finishes a reply, unless it is muted</span></span></button>
       <button class="opt" id="s-push-reminders" disabled aria-pressed="false"><span class="dot"></span><span>Due tasks and reminders<span class="sub">Once when each comes due. Tomorrow and Done on the notification answer without opening Pocket</span></span></button>
       <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">When an agent needs a secret you have to allow</span></span></button>
     </div>
@@ -630,17 +631,17 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
     <button class="opt" id="s-titles" disabled aria-pressed="false"><span class="dot"></span><span>Generate short titles<span class="sub" id="s-titles-state">Loading the title setting…</span></span></button>
-    <button class="opt" id="s-live" disabled aria-pressed="false"><span class="dot"></span><span>Update titles as sessions progress<span class="sub" id="s-live-state">Loading the title setting…</span></span></button>
+    <button class="opt" id="s-live" disabled aria-pressed="false"><span class="dot"></span><span>Update titles as conversations progress<span class="sub" id="s-live-state">Loading the title setting…</span></span></button>
     <button class="opt" id="s-away" disabled aria-pressed="false"><span class="dot"></span><span>Summarize what you missed<span class="sub" id="s-away-state">Loading the summary setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Model for titles and summaries<select id="s-title-model" disabled>
       <option value="auto">Automatic: Claude first, then Codex</option><option value="claude">Claude · Haiku</option><option value="codex">Codex · GPT-6-Luna</option></select></label>
       <p class="title-note" id="s-title-note" role="status"></p></div>
     <h2 class="settings-group">Tools</h2>
     <button class="opt" id="s-projects" disabled aria-pressed="false"><span class="dot"></span><span>Projects<span class="sub" id="s-projects-state">Loading the projects setting…</span></span></button>
-    <div class="title-settings"><label class="voice-field">Open projects<select id="s-projects-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation (from a pane: a new pane to its left)</option><option value="window">In a new browser window</option></select></label></div>
+    <div class="title-settings"><label class="voice-field">Open projects<select id="s-projects-open"><option value="tab">As a tab, like a conversation</option><option value="beside">Beside the conversation (from a pane: a new pane to its left)</option><option value="window">In a new browser window</option></select></label></div>
     <button class="opt" id="s-documents" disabled aria-pressed="false"><span class="dot"></span><span>Files<span class="sub" id="s-documents-state">Loading the Files setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Files button<select id="s-files-button"><option value="rail">Lists files in the sidebar</option><option value="tab">Opens the library in a tab</option><option value="beside">Opens the library in split view</option></select></label></div>
-    <div class="title-settings"><label class="voice-field">Open files and links<select id="s-documents-open"><option value="tab">As a tab, like a session</option><option value="beside">Beside the conversation (from a pane: a new pane to its left)</option><option value="window">In a new browser window</option></select></label><p class="title-note">A link in a conversation to one of your files, projects or sessions opens the same way. A link to an outside website opens in your browser.</p></div>
+    <div class="title-settings"><label class="voice-field">Open files and links<select id="s-documents-open"><option value="tab">As a tab, like a conversation</option><option value="beside">Beside the conversation (from a pane: a new pane to its left)</option><option value="window">In a new browser window</option></select></label><p class="title-note">A link in a conversation to one of your files, projects or conversations opens the same way. A link to an outside website opens in your browser.</p></div>
     <button class="opt" id="s-tasks" disabled aria-pressed="false"><span class="dot"></span><span>Tasks<span class="sub" id="s-tasks-state">Loading the Tasks setting…</span></span></button>
     <button class="opt" id="s-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault<span class="sub" id="s-vault-state">Loading the Vault setting…</span></span></button>
     <div class="title-settings vault-settings" id="s-vault-restore-wrap" hidden><span class="vault-set-actions"><button class="chip" id="s-vault-restore">${VIC.key}Restore key…</button></span></div>
@@ -694,6 +695,14 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     e.currentTarget.querySelector('.dot').classList.toggle('on', on);
     document.querySelectorAll('details.ledgerwrap').forEach(d => { d.open = !on; });
   };
+  sh.querySelector('#s-plain').onclick = e => {
+    const on = !plainSteps();
+    writeLocal('pc-plain-steps', on);
+    e.currentTarget.setAttribute('aria-pressed', String(on));
+    e.currentTarget.querySelector('.dot').classList.toggle('on', on);
+    applyPlainSteps();
+    document.querySelectorAll('details.ledgerwrap').forEach(foldSummary);
+  };
   sh.querySelector('#s-times').onclick = e => {
     const on = !showTimes();
     writeLocal('pc-times', on);
@@ -722,14 +731,14 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-push');
     btn.setAttribute('aria-pressed', String(Boolean(sub)));
     btn.querySelector('.dot').classList.toggle('on', Boolean(sub));
-    sh.querySelector('#s-push-state').textContent = !reg ? 'Unavailable. Reload the app or tap to retry.' : sub ? 'On. Notifications reach this device even when Pocket is closed; choose which below' : 'Off. Turn on for finished turns, due tasks and reminders, and Vault requests on this device';
+    sh.querySelector('#s-push-state').textContent = !reg ? 'Unavailable. Reload the app or tap to retry.' : sub ? 'On. Notifications reach this device even when Pocket is closed; choose which below' : 'Off. Turn on for finished replies, due tasks and reminders, and Vault requests on this device';
     if (sub) { try { pushPrefs = (await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) })).prefs; } catch { pushPrefs = { kinds: { turns: true, reminders: true, vault: true }, badge: true }; } }
     if (sh.isConnected) paintPushKinds();
   };
   sh.querySelector('#s-push').onclick = async e => { await togglePush(e.currentTarget); await refreshPush(); };
   for (const k of PUSH_KINDS) sh.querySelector('#s-push-' + k).onclick = async e => {
     if (!pushSub) return; const btn = e.currentTarget, on = btn.getAttribute('aria-pressed') !== 'true'; btn.disabled = true;
-    try { pushPrefs = (await api('/push/prefs', { method: 'POST', body: JSON.stringify({ endpoint: pushSub.endpoint, kinds: { [k]: on } }), signal: AbortSignal.timeout(8000) })).prefs; toast(({ turns: 'Finished turns', reminders: 'Due tasks and reminders', vault: 'Vault requests' })[k] + (on ? ' on for this device' : ' off for this device')); }
+    try { pushPrefs = (await api('/push/prefs', { method: 'POST', body: JSON.stringify({ endpoint: pushSub.endpoint, kinds: { [k]: on } }), signal: AbortSignal.timeout(8000) })).prefs; toast(({ turns: 'Finished replies', reminders: 'Due tasks and reminders', vault: 'Vault requests' })[k] + (on ? ' on for this device' : ' off for this device')); }
     catch (err) { toast('Could not save: ' + (err.message || 'error')); }
     finally { if (sh.isConnected) paintPushKinds(); }
   };
@@ -863,7 +872,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     if (!t || !btn) return;
     btn.disabled = false; btn.setAttribute('aria-pressed', String(t.enabled)); btn.querySelector('.dot').classList.toggle('on', t.enabled);
     const name = p => p === 'codex' ? 'Codex · ' + (t.codex.label || t.models.codex) : 'Claude · ' + (t.claudeModelLabel || 'Haiku');
-    state.textContent = !t.enabled ? 'Off. Sessions named only by their first message show that message.'
+    state.textContent = !t.enabled ? 'Off. Conversations named only by their first message show that message.'
       : t.using ? 'On, using ' + name(t.using) + '. A rename always comes first.'
       : 'On, but no signed-in Claude Code or Codex on this server can make titles.';
     for (const o of sel.options) if (o.value !== 'auto') { const a = t[o.value]; o.disabled = a.available === false; o.textContent = name(o.value) + (a.available === false ? ' (unavailable)' : ''); }
@@ -872,12 +881,12 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     live.disabled = !t.enabled; live.setAttribute('aria-pressed', String(liveOn && t.enabled)); live.querySelector('.dot').classList.toggle('on', liveOn && t.enabled);
     sh.querySelector('#s-live-state').textContent = !t.enabled ? 'Needs Generate short titles.'
       : !liveOn ? 'Off. A title is made once, from the opening request.'
-      : t.liveUsing ? 'After a turn, once a session has moved on, its title is checked and rewritten to say what it is about now. Renames are never touched.' + (t.lastLive ? ' Last update ' + ago(t.lastLive.at) + ': "' + t.lastLive.title + '".' : '')
+      : t.liveUsing ? 'After a reply, once a conversation has moved on, its title is checked and rewritten to say what it is about now. Renames are never touched.' + (t.lastLive ? ' Last update ' + ago(t.lastLive.at) + ': "' + t.lastLive.title + '".' : '')
       : 'On, but no signed-in Claude Code or Codex on this server can check titles.';
     const away = sh.querySelector('#s-away'), awayOn = t.awaySummaries !== false;
     away.disabled = false; away.setAttribute('aria-pressed', String(awayOn)); away.querySelector('.dot').classList.toggle('on', awayOn);
-    sh.querySelector('#s-away-state').textContent = !awayOn ? 'Off. Coming back to a session still marks where new work starts.'
-      : t.helper ? 'When you come back to a session, it opens at the end with a New since card and a short summary of the new work. A New since divider marks where it starts.'
+    sh.querySelector('#s-away-state').textContent = !awayOn ? 'Off. Coming back to a conversation still marks where new work starts.'
+      : t.helper ? 'When you come back to a conversation, it opens at the end with a New since card and a short summary of the new work. A New since divider marks where it starts.'
       : 'On, but no signed-in Claude Code or Codex on this server can write summaries. The New since divider and card still show.';
     sel.value = t.choice; sel.disabled = !t.enabled && !awayOn;
     const chosen = t.choice === 'auto' ? null : t[t.choice];
@@ -891,7 +900,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       srv = await api('/settings', { method: 'POST', body: JSON.stringify(patch), signal: AbortSignal.timeout(8000) });
       if (!sh.isConnected) return;
       toast(patch.autoTitles === false ? 'Generated titles off' : patch.autoTitles ? 'Generated titles on'
-        : patch.liveTitles === false ? 'Titles stay as first made' : patch.liveTitles ? 'Titles will follow the session'
+        : patch.liveTitles === false ? 'Titles stay as first made' : patch.liveTitles ? 'Titles will follow the conversation'
         : patch.awaySummaries === false ? 'Summaries off' : patch.awaySummaries ? 'Summaries on' : 'Titles and summaries will use ' + sel.selectedOptions[0].textContent);
       refreshSessions();
     } catch (err) { toast('Could not save: ' + err.message); }
@@ -903,7 +912,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-projects'); if (!btn || !srv) return;
     const on = Boolean(srv.projects);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-projects-state').textContent = on ? 'On: tracked projects with steps and reminders, across your devices and agent sessions' : 'Off. Turn on to track projects, steps and reminders, here and from agent sessions';
+    sh.querySelector('#s-projects-state').textContent = on ? 'On: tracked projects with steps and reminders, across your devices and agent conversations' : 'Off. Turn on to track projects, steps and reminders, here and from agent conversations';
   };
   sh.querySelector('#s-projects').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
@@ -921,7 +930,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-documents'); if (!btn || !srv) return;
     const on = Boolean(srv.documents);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-documents-state').textContent = on ? 'On: a library of files from your work, with previews, sharing and links to sessions' : 'Off. Turn on to keep reports, PDFs and other files from sessions in a library you can view and share';
+    sh.querySelector('#s-documents-state').textContent = on ? 'On: a library of files from your work, with previews, sharing and links to conversations' : 'Off. Turn on to keep reports, PDFs and other files from conversations in a library you can view and share';
   };
   sh.querySelector('#s-documents').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
@@ -939,7 +948,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-tasks'); if (!btn || !srv) return;
     const on = Boolean(srv.tasks);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-tasks-state').textContent = on ? 'On: to-dos with an optional date and the context of the session they came from, across your devices and agents' : 'Off. Turn on to keep to-dos here and from agent sessions, with dates and session context';
+    sh.querySelector('#s-tasks-state').textContent = on ? 'On: to-dos with an optional date and the context of the conversation they came from, across your devices and agents' : 'Off. Turn on to keep to-dos here and from agent conversations, with dates and conversation context';
   };
   sh.querySelector('#s-tasks').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
@@ -979,7 +988,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     for (const [sel, v] of Object.entries(show)) sh.querySelector(sel).hidden = !v;
     sh.querySelector('#s-vault-autolock').value = String(VAULT_LOCK_CHOICES.some(([m]) => m === srv.vaultAutoLockMinutes) ? srv.vaultAutoLockMinutes : 0);
     sh.querySelector('#s-vault-export').disabled = sh.querySelector('#s-vault-import').disabled = locked;
-    sh.querySelector('#s-vault-codex').textContent = on && srv.codexInstructionsOverridden ? "Codex's config.toml sets developer_instructions, so Codex sessions don't receive the Vault's rules. Claude Code sessions do." : '';
+    sh.querySelector('#s-vault-codex').textContent = on && srv.codexInstructionsOverridden ? "Codex's config.toml sets developer_instructions, so Codex conversations don't receive the Vault's rules. Claude Code conversations do." : '';
   };
   sh.querySelector('#s-vault').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
@@ -988,7 +997,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       const { recoveryKey, ...next } = await api('/settings', { method: 'POST', body: JSON.stringify({ vault: !srv.vault }), signal: AbortSignal.timeout(8000) });
       srv = next;
       window.pocketFeatures = { ...(window.pocketFeatures || {}), vault: Boolean(srv.vault) };
-      paintVaultSetting(); toast(srv.vault ? 'Vault is on. Running sessions get it from their next turn' : 'Vault is off');
+      paintVaultSetting(); toast(srv.vault ? 'Vault is on. Running conversations get it from their next reply' : 'Vault is off');
       if (!srv.vault && readLocal('pc-rail-view', 'sessions') === 'vault') writeLocal('pc-rail-view', 'sessions');
       document.querySelectorAll('.session-home, aside.rail').length && route(); // closes Settings at once, so the sheet below opens on top
       if (recoveryKey) vaultRecoverySheet(recoveryKey);
@@ -1058,7 +1067,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       paintTitles(); paintNotifySettings(); paintModelOffer(); paintTrusted(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintVaultSetting(); paintSecretsSetting();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
-      sh.querySelector('#s-sync-state').textContent = "Session names follow Claude Code's titles, and renames here show there too";
+      sh.querySelector('#s-sync-state').textContent = "Conversation names follow Claude Code's titles, and renames here show there too";
     } catch {
       if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-titles-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-models-note').textContent = 'Could not load the model list.'; sh.querySelector('#s-trusted-note').textContent = 'Could not load the list.'; retry.hidden = false; }
     }
@@ -1070,7 +1079,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       srv = await api('/settings', { method: 'POST', body: JSON.stringify({ titleSync: !srv.titleSync }), signal:AbortSignal.timeout(8000) });
       if (!sh.isConnected) return;
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync)); btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
-      toast(srv.titleSync ? 'Session names now sync with code-server' : 'Name sync off. Pocket names stay local');
+      toast(srv.titleSync ? 'Conversation names now sync with code-server' : 'Name sync off. Pocket names stay local');
     } catch (err) { toast('Could not save: ' + err.message); }
     finally { btn.disabled = false; }
   };
@@ -1203,9 +1212,9 @@ function sessionCounts() {
 }
 function sessionSummary() {
   if (sessionsStale) return 'Status unavailable. Showing the last saved list.';
-  if (!sessionCheckedAt) return 'Checking your sessions…';
+  if (!sessionCheckedAt) return 'Checking your conversations…';
   const c = sessionCounts();
-  return [c.running ? `${c.running} running` : 'No confirmed runs', c.observed ? `${c.observed} with activity elsewhere` : '', c.attention ? `${c.attention} ${c.attention === 1 ? 'needs' : 'need'} attention` : ''].filter(Boolean).join(' · ');
+  return [c.running ? `${c.running} running` : 'Nothing running', c.observed ? `${c.observed} with activity elsewhere` : '', c.attention ? `${c.attention} ${c.attention === 1 ? 'needs' : 'need'} attention` : ''].filter(Boolean).join(' · ');
 }
 function filterButtons(keys) {
   const c = sessionCounts();
@@ -1229,7 +1238,7 @@ function sessionRowHTML(s) {
       <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${s.provider === 'codex' ? 'Codex' : 'Claude'}</span>
       <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
       <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
-    </button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned session ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
+    </button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned conversation ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
   </div>`;
 }
 /* ---------- pinned order: drag a pin's grip, press its arrow keys, or use Move up/down in Session options.
@@ -1327,14 +1336,14 @@ function groupedSessionsHTML(all) {
   const groups = [['running','Running'],['observed','Activity elsewhere'],['failed','Needs attention'],['waiting','Waiting'],['recent','Recent']];
   // 1.22: while a search also looks inside conversations, an empty title match is one quiet line, not a big empty state.
   if (!all.length && sessionQuery.trim().length >= 3 && !sessionsStale && !workspaceFilter && !providerFilter && sessionFilter === 'all')
-    return `<p class="convo-note title-empty">No session titles match. Matches inside conversations are below.</p>`;
-  if (!all.length) return `<div class="empty">${sessionsStale ? 'Could not load sessions. Use Refresh to try again.' : sessionQuery || workspaceFilter || providerFilter || ['pinned','hidden'].includes(sessionFilter) ? 'No sessions match these filters.' : sessionFilter === 'active' ? 'No runs or recent external activity.' : sessionFilter === 'attention' ? 'Nothing needs your attention.' : sessionFilter === 'new' ? 'No new recorded responses.' : 'No sessions yet. Start a conversation to begin.'}</div>`;
+    return `<p class="convo-note title-empty">No conversation titles match. Matches inside conversations are below.</p>`;
+  if (!all.length) return `<div class="empty">${sessionsStale ? 'Could not load conversations. Use Refresh to try again.' : sessionQuery || workspaceFilter || providerFilter || ['pinned','hidden'].includes(sessionFilter) ? 'No conversations match these filters.' : sessionFilter === 'active' ? 'No runs or recent external activity.' : sessionFilter === 'attention' ? 'Nothing needs your attention.' : sessionFilter === 'new' ? 'No new recorded responses.' : 'No conversations yet. Start a conversation to begin.'}</div>`;
   if(sessionsStale)return `<section class="session-group"><h2>Status unconfirmed<span>${list.length}</span></h2>${list.map(sessionRowHTML).join('')}</section>`;
   return groups.map(([key,label]) => {
     const rows = list.filter(s => key === 'recent' ? !['running','observed','waiting','input'].includes(rowState(s).kind) && !needsAttention(s) : key === 'failed' ? needsAttention(s) : rowState(s).kind === key);
     // Pinned sessions first inside each group, then an accent-coloured rule before the rest.
     const pinned = rows.filter(s => s.pinned), rest = rows.filter(s => !s.pinned);
-    const body = pinned.map(sessionRowHTML).join('') + (pinned.length && rest.length ? '<div class="pin-divider" role="separator" aria-label="Pinned sessions above, others below"></div>' : '') + rest.map(sessionRowHTML).join('');
+    const body = pinned.map(sessionRowHTML).join('') + (pinned.length && rest.length ? '<div class="pin-divider" role="separator" aria-label="Pinned conversations above, others below"></div>' : '') + rest.map(sessionRowHTML).join('');
     return rows.length ? `<section class="session-group"><h2>${label}<span>${rows.length}</span></h2>${body}</section>` : '';
   }).join('') + (automated.length ? `<details class="session-group automated-group" data-automated${readLocal('pc-automated-open', false) ? ' open' : ''}><summary><h2>Automated<span>${automated.length}</span></h2><span class="automated-note">Scheduled runs</span></summary>${automated.map(sessionRowHTML).join('')}</details>` : '');
 }
@@ -1366,7 +1375,7 @@ function paintSessionPanels() {
   paintSessionFilterSummaries();
   paintRunConfirmation();
   const quick = $('#session-switch');
-  if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Sessions · status unavailable' : `Sessions · ${c.running} running${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
+  if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Conversations · status unavailable' : `Conversations · ${c.running} running${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
   if (typeof paintOpenSessions === 'function') paintOpenSessions(); // tabs show pins and follow the pinned order
 }
 // 1.19: send the last list's ETag; an unchanged list comes back as 304 with the server's check time in a
@@ -1426,7 +1435,7 @@ function paintRunConfirmation(){
   if(name.textContent!==label)name.textContent=label;
   box.dataset.state=kind;
   const stampText=elapsed===null?'':(fresh?'Checked ':'Last check ')+checkAge(elapsed);if(stamp.textContent!==stampText)stamp.textContent=stampText;
-  box.title=sessionCheckedAt?'Server confirmation: '+new Date(sessionCheckedAt).toLocaleTimeString()+'. '+(state?.startedAt?'Turn started: '+new Date(state.startedAt).toLocaleTimeString()+'. ':'')+'Checks every 5 seconds. Running means the server owns an active turn; it does not guarantee continuous output.':'';
+  box.title=sessionCheckedAt?'Server confirmation: '+new Date(sessionCheckedAt).toLocaleTimeString()+'. '+(state?.startedAt?'Started: '+new Date(state.startedAt).toLocaleTimeString()+'. ':'')+'Checks every 5 seconds. Running means the server owns an active reply; it does not guarantee continuous output.':'';
  }
  const headerLamp=document.getElementById('hember');
  if(headerLamp)headerLamp.hidden=!(fresh&&state?.kind==='running'&&state.confirmed===true);
@@ -1452,7 +1461,7 @@ function paintTurnFailure(live) {
   let el = document.getElementById('turn-failure');
   if (!failed || (composerWorking && !lf)) { el?.remove(); return; }
   const reason = String(lf?.error || st?.error || '').trim();
-  const text = reason ? 'This turn ended with an error: ' + reason : 'This turn ended with an error.';
+  const text = reason ? 'This reply ended with an error: ' + reason : 'This reply ended with an error.';
   if (!el) {
     msgs.insertAdjacentHTML('beforeend', `<div class="turn-failure" id="turn-failure"><p role="status"></p><div class="turn-failure-actions"><button class="chip" type="button" data-retry-turn>Send again</button><button class="chip" type="button" data-edit-turn>Edit message</button></div></div>`);
     el = msgs.lastElementChild;
@@ -1468,15 +1477,15 @@ function paintTurnFailure(live) {
 }
 function sessionPanelHTML(rail = false) {
   const summary = `<p class="session-summary" data-session-summary role="status">${esc(sessionSummary())}</p>`;
-  const filters = `<div data-workspace-filters></div><nav class="session-filters" data-session-filters aria-label="Filter sessions">${filterButtons()}</nav>`;
+  const filters = `<div data-workspace-filters></div><nav class="session-filters" data-session-filters aria-label="Filter conversations">${filterButtons()}</nav>`;
   return `<div class="session-panel ${rail ? 'compact' : ''}">
     ${rail ? '' : summary}
-    <div class="session-search">${IC.search}<input type="search" data-session-search aria-label="Search recent sessions" placeholder="Search recent sessions" value="${esc(sessionQuery)}" autocomplete="off"></div>
-    ${rail ? `<div id="rail-filter-summary" class="rail-filter-summary" hidden><span></span><button id="clear-rail-filters">Clear filters</button></div><div id="rail-filter-controls">${summary}${filters}</div>` : `<nav class="session-filters" data-session-filters data-filter-keys="all active attention" aria-label="Session shortcuts">${filterButtons(['all','active','attention'])}</nav><details class="session-more-filters" data-more-filters ${readLocal('pc-session-filters-open',false)?'open':''}><summary>Filters<span data-filter-summary></span></summary>${`<div data-workspace-filters></div><nav class="session-filters" data-session-filters data-filter-keys="new pinned hidden" aria-label="More session filters">${filterButtons(['new','pinned','hidden'])}</nav>`}</details><button class="chip clear-more-filters" data-clear-more-filters hidden>Clear filters</button>`}
+    <div class="session-search">${IC.search}<input type="search" data-session-search aria-label="Search recent conversations" placeholder="Search recent conversations" value="${esc(sessionQuery)}" autocomplete="off"></div>
+    ${rail ? `<div id="rail-filter-summary" class="rail-filter-summary" hidden><span></span><button id="clear-rail-filters">Clear filters</button></div><div id="rail-filter-controls">${summary}${filters}</div>` : `<nav class="session-filters" data-session-filters data-filter-keys="all active attention" aria-label="Conversation shortcuts">${filterButtons(['all','active','attention'])}</nav><details class="session-more-filters" data-more-filters ${readLocal('pc-session-filters-open',false)?'open':''}><summary>Filters<span data-filter-summary></span></summary>${`<div data-workspace-filters></div><nav class="session-filters" data-session-filters data-filter-keys="new pinned hidden" aria-label="More conversation filters">${filterButtons(['new','pinned','hidden'])}</nav>`}</details><button class="chip clear-more-filters" data-clear-more-filters hidden>Clear filters</button>`}
     <p class="session-warning" data-session-warning hidden></p>
     <div class="session-results" data-session-results></div>
     <div class="convo-results" data-convo-results></div>
-    <p class="session-footnote">Recent history and all runs owned by Pocket Code. External activity is an estimate.</p>
+    <p class="session-footnote">Recent conversations and everything Pocket ran. Activity from other apps is an estimate.</p>
   </div>`;
 }
 /* ---------- 1.22: search inside conversations ----------
@@ -1517,7 +1526,7 @@ function convoResultsHTML() {
     const who = r.related ? 'Related' : r.role === 'user' ? 'You' : r.provider === 'codex' ? 'Codex' : 'Claude';
     const where = r.cwd && r.cwd !== sessionsHome ? esc(projName(r.cwd)) + ' · ' : '';
     return `<div class="session-item convo-item"><button class="row" data-convo-id="${esc(r.id)}">
-      <span class="body"><span class="title">${esc(r.title || 'Untitled session')}</span>
+      <span class="body"><span class="title">${esc(r.title || 'Untitled conversation')}</span>
       <span class="meta">${where}${r.provider === 'codex' ? 'Codex' : 'Claude'}${r.mtimeMs ? ' · ' + esc(rel(r.mtimeMs)) : ''}</span>
       <span class="convo-snippet"><span class="convo-who">${who}:</span> ${r.related ? esc(r.snippet || '') : markTerms(r.snippet || '', c.q)}</span></span>
     </button></div>`;
@@ -1559,8 +1568,8 @@ async function renderList() {
   app.innerHTML = `<header class="bar"><h1>Pocket Code</h1>
     <button class="icon bell" id="bell" aria-label="Toggle notifications for this device">${IC.bellOff}</button>
     <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
-    <main class="scroll session-home"><div class="session-home-head"><h2>Your sessions</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
-    <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New session">${IC.plus}</button>`;
+    <main class="scroll session-home"><div class="session-home-head"><h2>Your conversations</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
+    <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New conversation">${IC.plus}</button>`;
   $('#new').onclick = () => { location.hash = '#/new'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
   pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
@@ -1571,7 +1580,7 @@ async function renderList() {
 function openSessionSwitcher() {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet session-switcher';
-  sh.innerHTML = `<h2>Switch session</h2>${sessionPanelHTML(true)}`;
+  sh.innerHTML = `<h2>Switch conversation</h2>${sessionPanelHTML(true)}`;
   mountSheet(scrim, sh); bindSessionPanel(sh); refreshSessions();
 }
 // Refresh state without rebuilding the conversation or discarding its draft.
@@ -1587,14 +1596,14 @@ window.addEventListener('online', () => { if (document.querySelector('[data-offl
 async function openQueue(id) {
   const scrim=document.createElement('div');scrim.className='scrim';
   const sh=document.createElement('div');sh.className='sheet queue-sheet';
-  sh.innerHTML='<h2>Queued instructions</h2><p class="sheet-help">Each saved instruction runs as a separate turn. Stopping the current turn pauses the queue.</p><button class="chip" id="queue-refresh">Refresh</button><div id="queue-items" role="status">Loading queue…</div>';
+  sh.innerHTML='<h2>Queued instructions</h2><p class="sheet-help">Each saved instruction runs as its own reply. Stopping the current reply pauses the queue.</p><button class="chip" id="queue-refresh">Refresh</button><div id="queue-items" role="status">Loading queue…</div>';
   workspaceMount(scrim,sh,'queue');
   const load=async()=>{
     try{
       const d=await api('/session/'+encodeURIComponent(id)+'/queue');if(!sh.isConnected)return;
       const target=sh.querySelector('#queue-items');
-      target.innerHTML=d.items.length?d.items.map((r,i)=>`<article class="queue-item"><div class="result-detail">${i+1} · ${r.status==='pending'?(d.active?'After the current turn':'Paused'):r.status==='editing'?'Editing · paused':r.status==='dispatching'?'Starting…':'Needs review'}</div><p>${esc(r.text)}</p><div class="result-detail">${permissionLabel(r.approvalMode||approvalPolicy.defaultMode)}</div>${r.error?`<p class="sheet-help">${esc(r.error)}</p>`:''}<div class="queue-actions">${['pending','editing'].includes(r.status)?`<button class="chip" data-edit="${r.id}">${r.status==='editing'?'Continue editing':'Edit'}</button>`:''}${r.status!=='dispatching'?`<button class="chip" data-remove="${r.id}">Remove</button>`:''}</div></article>`).join(''):'<p class="empty">No queued instructions. While the agent works, choose After this turn before sending.</p>';
-      if(d.items[0]?.status==='pending'&&!d.active)target.insertAdjacentHTML('beforeend',`<button class="primary" id="queue-start" ${d.external?'disabled':''}>Run next instruction</button>${d.external?'<p class="sheet-help">Recent activity was seen elsewhere. Refresh after that turn finishes.</p>':''}`);
+      target.innerHTML=d.items.length?d.items.map((r,i)=>`<article class="queue-item"><div class="result-detail">${i+1} · ${r.status==='pending'?(d.active?'After the current reply':'Paused'):r.status==='editing'?'Editing · paused':r.status==='dispatching'?'Starting…':'Needs review'}</div><p>${esc(r.text)}</p><div class="result-detail">${permissionLabel(r.approvalMode||approvalPolicy.defaultMode)}</div>${r.error?`<p class="sheet-help">${esc(r.error)}</p>`:''}<div class="queue-actions">${['pending','editing'].includes(r.status)?`<button class="chip" data-edit="${r.id}">${r.status==='editing'?'Continue editing':'Edit'}</button>`:''}${r.status!=='dispatching'?`<button class="chip" data-remove="${r.id}">Remove</button>`:''}</div></article>`).join(''):'<p class="empty">No queued instructions. While the agent works, choose After this reply before sending.</p>';
+      if(d.items[0]?.status==='pending'&&!d.active)target.insertAdjacentHTML('beforeend',`<button class="primary" id="queue-start" ${d.external?'disabled':''}>Run next instruction</button>${d.external?'<p class="sheet-help">Recent activity was seen elsewhere. Refresh after that reply finishes.</p>':''}`);
       target.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{const r=d.items.find(x=>x.id===b.dataset.remove);b.disabled=true;
         try{await api('/session/'+id+'/queue/'+r.id,{method:'DELETE',body:JSON.stringify({revision:r.revision})});await load();refreshSessions();}catch(e){toast(e.message);b.disabled=false;}
       });
@@ -1661,7 +1670,12 @@ function foldSummary(d) {
   const last = items[items.length - 1];
   const name = last?.querySelector('.name')?.textContent || '', det = last?.querySelector('.det')?.textContent || '';
   const sum = d.querySelector(':scope > summary'); if (!sum) return;
-  const html = `<span class="tc-count">${items.length} tool call${items.length === 1 ? '' : 's'}</span><span class="tc-last">${esc(name)} ${esc(det)}</span>`;
+  // 1.59: plain words by default ("3 steps · Saved Proposal.pdf"); Settings > Describe steps in plain words off
+  // brings back the tool name and its raw detail.
+  const plain = plainSteps(), say = last?.dataset.say || '';
+  const html = plain
+    ? `<span class="tc-count">${items.length} step${items.length === 1 ? '' : 's'}</span><span class="tc-last">${esc(say || (name + ' ' + det))}${say && det && !last.classList.contains('same') ? `<span class="tc-raw">${esc(det)}</span>` : ''}</span>`
+    : `<span class="tc-count">${items.length} tool call${items.length === 1 ? '' : 's'}</span><span class="tc-last">${esc(name)} ${esc(det)}</span>`;
   if (sum.innerHTML !== html) sum.innerHTML = html;
 }
 function mergeToolFolds(container) {
@@ -1693,6 +1707,11 @@ function mergeToolFolds(container) {
   }
 }
 function toolsCollapsed() { return readLocal('pc-tools-collapsed', true) !== false; }
+// 1.59: each tool call reads as a plain step ("Saved Proposal.pdf") with its raw call beside it in the ledger font.
+// Off: the tool name and detail only, as before 1.59. A class on <html> switches every line already on screen.
+function plainSteps() { return readLocal('pc-plain-steps', true) !== false; }
+function applyPlainSteps() { document.documentElement.classList.toggle('raw-steps', !plainSteps()); }
+applyPlainSteps();
 // Reply suggestions: the agent ends a question with a ```choices block (see choices.mjs); the server turns it
 // into {t:'choices', options}. They show only under the latest reply of a finished turn, while the message
 // box is empty, until dismissed. A tap sends the option as the next message.
@@ -1727,7 +1746,12 @@ document.addEventListener('click', e => {
   if (b && chatId) { b.closest('[data-choices]').hidden = true; sendMsg(b.dataset.choice); }
 });
 function ledgerHTML(name, detail) {
-  return `<div class="ledger enter">${toolIcon(name)}<span class="name">${esc(name)}</span><span class="det">${esc(detail || '')}</span></div>`;
+  const say = window.PocketPhrase ? PocketPhrase.step(name, detail) : '';
+  // The raw detail stays beside a plain step only when it adds something (a full path, a command), not when the
+  // step already says it (a Bash description).
+  const extra = say && detail && !say.includes(String(detail).trim()) ? '' : ' same';
+  if (!say) return `<div class="ledger enter">${toolIcon(name)}<span class="name">${esc(name)}</span><span class="det">${esc(detail || '')}</span></div>`;
+  return `<div class="ledger step enter${extra}" data-say="${esc(say)}">${toolIcon(name)}<span class="say">${esc(say)}</span><span class="name">${esc(name)}</span><span class="det">${esc(detail || '')}</span></div>`;
 }
 // the plan, as a checklist — collapsed history, newest one open (see openLastTodo)
 function todoHTML(todos) {
@@ -1974,7 +1998,7 @@ async function openChanges() {
   $('#chgx').onclick = () => ov.remove();
   let d; try { d = await api(`/session/${chatId}/changes`); } catch (e) { ov.remove(); return toast('Could not load changes: ' + e.message); }
   const m = ov.querySelector('main'); if (!m) return;
-  if (!d.files.length) { m.innerHTML = '<div class="empty">This session hasn’t edited any files.</div>'; return; }
+  if (!d.files.length) { m.innerHTML = '<div class="empty">This conversation hasn’t edited any files.</div>'; return; }
   const n = (k, w) => k ? `${k} ${w}${k > 1 ? 's' : ''}` : '';
   m.innerHTML = d.files.map((f, i) => {
     const edits = f.ops.filter(o => o.tool === 'Edit').length, writes = f.ops.length - edits;
@@ -2035,21 +2059,21 @@ const railW = () => Math.min(480, Math.max(220, Number(localStorage.getItem('pc-
 const filesButtonOpens = () => { const v = readLocal('pc-files-button', 'rail'); return ['rail', 'tab', 'beside'].includes(v) ? v : 'rail'; };
 const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return v === 'projects' && projectsOn() ? 'projects' : v === 'documents' && documentsOn() ? 'documents' : v === 'tasks' && tasksOn() ? 'tasks' : v === 'vault' && vaultOn() ? 'vault' : 'sessions'; }; // 1.39: vault
 function railSwitchHTML() {
-  if (!projectsOn() && !documentsOn() && !tasksOn() && !vaultOn()) return '<span>Sessions</span>';
+  if (!projectsOn() && !documentsOn() && !tasksOn() && !vaultOn()) return '<span>Conversations</span>';
   const v = railView();
-  return `<div class="rail-switch" role="group" aria-label="Browse sessions, projects, files, tasks or the vault"><button data-rail-view="sessions" aria-pressed="${v === 'sessions'}">Sessions</button>${projectsOn() ? `<button data-rail-view="projects" aria-pressed="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button data-rail-view="documents" aria-pressed="${v === 'documents'}" >Files</button>` : ''}${tasksOn() ? `<button data-rail-view="tasks" aria-pressed="${v === 'tasks'}">Tasks<span class="badge" data-tasks-badge hidden></span></button>` : ''}${vaultOn() ? `<button data-rail-view="vault" aria-pressed="${v === 'vault'}">Vault<span class="badge" data-vault-badge hidden></span></button>` : ''}</div>`;
+  return `<div class="rail-switch" role="group" aria-label="Browse conversations, projects, files, tasks or the vault"><button data-rail-view="sessions" aria-pressed="${v === 'sessions'}">Chats</button>${projectsOn() ? `<button data-rail-view="projects" aria-pressed="${v === 'projects'}">Projects<span class="badge" data-projects-badge hidden></span></button>` : ''}${documentsOn() ? `<button data-rail-view="documents" aria-pressed="${v === 'documents'}" >Files</button>` : ''}${tasksOn() ? `<button data-rail-view="tasks" aria-pressed="${v === 'tasks'}">Tasks<span class="badge" data-tasks-badge hidden></span></button>` : ''}${vaultOn() ? `<button data-rail-view="vault" aria-pressed="${v === 'vault'}">Vault<span class="badge" data-vault-badge hidden></span></button>` : ''}</div>`;
 }
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column
   const inputId = colHtml.includes('id="first"') ? 'first' : colHtml.includes('id="projects-main"') ? 'projects-main' : colHtml.includes('id="documents-main"') ? 'documents-main' : colHtml.includes('id="tasks-main"') ? 'tasks-main' : colHtml.includes('id="vault-main"') ? 'vault-main' : 'box'; // 1.29/1.30: project and document views have no composer
   if (PANE || SOLO) return `<div class="split"><div class="chatcol">${colHtml}</div></div>`; // the outer window has the rail and tabs; a solo window shows one view
-  if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div></div>`;
+  if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open conversations"></nav>${colHtml}</div></div>`;
   return `<div class="split">
     <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to files':inputId==='tasks-main'?'Skip to tasks':inputId==='vault-main'?'Skip to the vault':'Skip to message'}</a>
-      <div class="railhead">${railSwitchHTML()}<div class="rail-actions"><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse session filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New session">${IC.plus}</button></div></div>
+      <div class="railhead">${railSwitchHTML()}<div class="rail-actions"><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse conversation filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New conversation">${IC.plus}</button></div></div>
       <div id="rail"></div>
     </aside>
-    <div class="rail-resize-region" role="region" aria-label="Session list layout"><div class="railgrip" id="grip" role="separator" tabindex="0" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="${railW()}" aria-label="Resize session list"></div></div>
-    <div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open sessions"></nav>${colHtml}</div>
+    <div class="rail-resize-region" role="region" aria-label="Conversation list layout"><div class="railgrip" id="grip" role="separator" tabindex="0" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="${railW()}" aria-label="Resize conversation list"></div></div>
+    <div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open conversations"></nav>${colHtml}</div>
   </div>`;
 }
 function wireShell() {
@@ -2121,21 +2145,21 @@ async function renderChat(id, { away = false } = {}) {
   const chatCol = `
     <header class="bar">
       ${PANE ? `<button class="icon" id="pane-main" aria-label="Make this the main conversation">${IC.swap}</button>` : `<button class="icon" id="back" aria-label="Back">${IC.back}</button>
-      <button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
-      <h1><span class="one" id="ctitle">Session</span><span class="tag" id="cproj"></span></h1>
+      <button class="icon desk" id="railtog" aria-label="Show or hide the conversation list">${IC.panel}</button>`}
+      <h1><span class="one" id="ctitle">Conversation</span><span class="tag" id="cproj"></span></h1>
       <span id="hember"></span>
-      <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Sessions</button><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
+      <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Conversations</button><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
       <button class="icon" id="chgb" aria-label="Changed files">${IC.diff}</button>
       <button class="icon" id="findb" aria-label="Find in conversation">${IC.search}</button>
-      <button class="icon" id="chatmore" aria-label="Session options">${IC.more}</button>
+      <button class="icon" id="chatmore" aria-label="Conversation options">${IC.more}</button>
       ${PANE ? '' : `<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
       <button class="icon" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj chat-statebar run-confirmation">${IC.up1}</button>
       ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
     </header>
     <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
     <button id="agents-open" class="agents-open" aria-haspopup="dialog" hidden></button>
-    <button class="question-banner" id="questions-open" hidden>Agent needs your answer</button>
-    <button class="question-banner" id="approvals-open" hidden>Action needs approval · Review</button>
+    <button class="question-banner" id="questions-open" hidden>${String(id).startsWith('cx:') ? 'Codex' : 'Claude'} has a question</button>
+    <button class="question-banner" id="approvals-open" hidden>Waiting for your OK · Review</button>
     <p id="connection-state" class="connection-state" role="status" hidden></p>
     <div class="findbar" id="findbar" hidden>
       <input type="search" id="fq" placeholder="Find in conversation" autocomplete="off" enterkeyhint="search">
@@ -2168,7 +2192,7 @@ async function renderChat(id, { away = false } = {}) {
   if (tog) tog.onclick = () => { localStorage.setItem('pc-rail', railOpen() ? 'closed' : 'open'); renderChat(chatId); };
   let s;
   try { s = await api('/session/' + id); }
-  catch (e) { if (renderVersion !== chatRenderVersion) return; toast(e.status === 404 ? 'Session not found' : 'Could not open session: ' + (e.message || 'error')); location.hash = '#/'; return; }
+  catch (e) { if (renderVersion !== chatRenderVersion) return; toast(e.status === 404 ? 'Conversation not found' : 'Could not open conversation: ' + (e.message || 'error')); location.hash = '#/'; return; }
   if (renderVersion !== chatRenderVersion || chatId !== id) return;
   markRead(id, s.state);
   $('#ctitle').textContent = s.title;
@@ -2298,7 +2322,7 @@ function paintAgents() {
   const sh=document.querySelector('.agents-sheet');if(!sh)return;
   const data=agentCache.get(sh.dataset.session);if(!data)return;
   const fresh=agentsFresh(data), status=sh.querySelector('.agents-status'), list=sh.querySelector('.agents-list');
-  status.textContent=!fresh?'Activity could not be confirmed. Showing the last available details.':data.total?`${data.running} working · ${data.total} recorded. Updates every 5 seconds.`:'No subagents recorded in this session yet.';
+  status.textContent=!fresh?'Activity could not be confirmed. Showing the last available details.':data.total?`${data.running} working · ${data.total} recorded. Updates every 5 seconds.`:'No subagents recorded in this conversation yet.';
   sh.querySelector('.agents-retry').hidden=fresh;
   sh.querySelector('.agents-limit').hidden=!data.truncated;
   const keep=new Set();
@@ -2378,7 +2402,7 @@ function paintRingContext(el) {
   const fill = el.querySelector('.ctx-fill');
   if (!ctx || !ctx.window) {
     fill.setAttribute('stroke-dasharray', '0 100'); el.dataset.level = '';
-    el.dataset.tip = 'Context window: shown after the next turn reports it. Click for plan usage.';
+    el.dataset.tip = 'Context window: shown after the next reply reports it. Click for plan usage.';
     el.setAttribute('aria-label', 'Context window not reported yet. Open usage');
     return;
   }
@@ -2415,7 +2439,7 @@ const cacheMinutes = ms => Math.floor(ms / 60_000);
 const cacheLeftShort = ms => cacheMinutes(ms) < 1 ? '<1m' : cacheMinutes(ms) + 'm';
 const cacheLeftLong = ms => cacheMinutes(ms) < 1 ? 'less than a minute' : 'about ' + cacheMinutes(ms) + ' min';
 function cacheSentence(c, st) {
-  if (st.kind === 'cold') return `Prompt cache expired at ${fmtAsOfET(st.expiresAt)}; the next turn writes ${fmtTokens(c.cached)} tokens to cache again`;
+  if (st.kind === 'cold') return `Prompt cache expired at ${fmtAsOfET(st.expiresAt)}; the next reply writes ${fmtTokens(c.cached)} tokens to cache again`;
   return `Prompt cache ${st.kind === 'cooling' ? 'cooling' : 'warm'}: ${cacheLeftLong(st.left)} left, until ${fmtAsOfET(st.expiresAt)}`;
 }
 // The ring's companion label: minutes left while warm, amber in the last stretch, "cold" once expired.
@@ -2437,8 +2461,8 @@ function cacheBlockHTML(c) {
   const hours = c.ttlMs / 3_600_000, life = hours >= 1 ? (hours === 1 ? '1 hour' : Math.round(hours) + ' hours') : Math.round(c.ttlMs / 60_000) + ' minutes';
   const t = c.lastTurn, pct = t && t.hit != null ? Math.floor(t.hit * 100) : null;
   // dated, so a warm start shown beside "Cold" reads as history rather than a contradiction
-  const last = pct == null ? '' : `The last turn, at ${fmtAsOfET(t.at)}, started ` + (t.hit >= 0.5 ? `${pct}% from cache.` : `cold: ${fmtTokens(t.written)} tokens written to cache.`);
-  const next = st.kind === 'cold' ? 'The next turn writes the context to cache again, which uses more of your plan than reading it.' : 'A turn before then reads the context from cache at a fraction of the cost.';
+  const last = pct == null ? '' : `The last reply, at ${fmtAsOfET(t.at)}, started ` + (t.hit >= 0.5 ? `${pct}% from cache.` : `cold: ${fmtTokens(t.written)} tokens written to cache.`);
+  const next = st.kind === 'cold' ? 'The next reply writes the context to cache again, which uses more of your plan than reading it.' : 'A reply before then reads the context from cache at a fraction of the cost.';
   return `<div class="usage-block cache-block"><h3>Prompt cache</h3>
     <div class="usage-row-head"><span>Status</span><span class="cache-state" data-cache="${st.kind}">${esc(head)}</span></div>
     <dl class="ctx-facts"><div><dt>${st.kind === 'cold' ? 'Expired' : 'Expires'}</dt><dd>${esc(fmtAsOfET(st.expiresAt))}</dd></div><div><dt>Cached</dt><dd>${esc(fmtTokens(c.cached))} tokens</dd></div><div><dt>Lifetime</dt><dd>${esc(life)}${c.ttlKnown ? '' : ' (' + esc(c.ttlNote || 'assumed') + ')'}</dd></div></dl>
@@ -2452,11 +2476,11 @@ async function openContextPanel() {
   const sh = document.createElement('div'); sh.className = 'sheet usage-sheet';
   const model = modelLabel(ctx?.model);
   const ctxBlock = ctx?.window
-    ? `<div class="usage-block"><h3>This session${model ? ' · ' + esc(model) : ''}</h3>${usageWindowRow('Context window', ctx.pct, null)}
+    ? `<div class="usage-block"><h3>This conversation${model ? ' · ' + esc(model) : ''}</h3>${usageWindowRow('Context window', ctx.pct, null)}
        <dl class="ctx-facts"><div><dt>Window</dt><dd>${esc(fmtTokens(ctx.window))} tokens</dd></div><div><dt>Used</dt><dd>${esc(fmtTokens(ctx.used))} tokens</dd></div><div><dt>Free</dt><dd>${esc(fmtTokens(Math.max(0, ctx.window - ctx.used)))} tokens</dd></div></dl>
        <p class="usage-asof">${ctx.estimated ? 'Estimated from the transcript. ' : ''}As of ${esc(fmtAsOfET(ctx.lastAt))}</p></div>`
-    : '<div class="usage-block"><h3>This session</h3><p class="usage-empty">Context use appears after the next turn reports it.</p></div>';
-  sh.innerHTML = `<h2>Usage</h2><p class="sheet-help">Only updates when a turn runs, not live.</p><div class="usage-body">${ctxBlock}${codexSession ? '' : cacheBlockHTML(cacheData.get(id))}</div><div class="usage-body" id="usage-body">Loading plan usage…</div>`;
+    : '<div class="usage-block"><h3>This conversation</h3><p class="usage-empty">Context use appears after the next reply reports it.</p></div>';
+  sh.innerHTML = `<h2>Usage</h2><p class="sheet-help">Only updates when a reply runs, not live.</p><div class="usage-body">${ctxBlock}${codexSession ? '' : cacheBlockHTML(cacheData.get(id))}</div><div class="usage-body" id="usage-body">Loading plan usage…</div>`;
   mountSheet(scrim, sh);
   let d;
   try { d = await api('/usage'); } catch (e) { sh.querySelector('#usage-body').innerHTML = `<p class="usage-empty">Plan usage could not be loaded: ${esc(e.message)}</p>`; return; }
@@ -2496,7 +2520,7 @@ function claudeUsageBlockHTML(d) {
     w.seven_day && usageWindowRow('Weekly', w.seven_day.utilization, w.seven_day.resetsAt),
     w.seven_day_overage_included && usageWindowRow('Weekly + extra usage', w.seven_day_overage_included.utilization, w.seven_day_overage_included.resetsAt),
   ].filter(Boolean);
-  if (!rows.length) return '<div class="usage-block"><h3>Claude Code</h3><p class="usage-empty">No usage observed yet — it reports usage on the next turn.</p></div>';
+  if (!rows.length) return '<div class="usage-block"><h3>Claude Code</h3><p class="usage-empty">No usage observed yet — it reports usage on the next reply.</p></div>';
   const overage = d.overage ? `<div class="usage-row-head"><span>Extra usage</span><span>${d.overage.using ? 'On' : 'Off'}${d.overage.reason ? ' · ' + esc(String(d.overage.reason).replace(/_/g, ' ')) : ''}</span></div>` : '';
   return `<div class="usage-block"><h3>Claude Code</h3>${rows.join('')}${overage}<p class="usage-asof">As of ${esc(fmtAsOfET(d.observedAt))}</p></div>`;
 }
@@ -2519,7 +2543,7 @@ async function paintUsageBody(sh) {
 async function openUsagePanel() {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet usage-sheet';
-  sh.innerHTML = '<h2>Plan usage</h2><p class="sheet-help">Only updates when a turn runs, not live.</p><div class="usage-body" id="usage-body">Loading…</div>';
+  sh.innerHTML = '<h2>Plan usage</h2><p class="sheet-help">Only updates when a reply runs, not live.</p><div class="usage-body" id="usage-body">Loading…</div>';
   mountSheet(scrim, sh);
   await paintUsageBody(sh);
 }
@@ -2560,12 +2584,12 @@ function setComposer(working) {
   c.innerHTML = `
     ${working ? `
       <div class="workrow"><span class="ember"></span><span id="work-label">Working</span>
-        ${ctxRingHTML()}<button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this session">${chatMuted ? IC.bellOff : IC.bell}</button>${Voice.muteButtonHTML('icon')}<button class="icon wbell conversation-project" id="project-open" hidden></button><button class="icon wbell conversation-task" id="task-open" hidden></button>
-        <button class="chip stopchip" id="stopb" aria-label="Stop this turn">${IC.stop}Stop</button></div>`
+        ${ctxRingHTML()}<button class="icon wbell ${chatMuted ? 'on' : ''}" id="muteb" aria-label="Toggle notifications for this conversation">${chatMuted ? IC.bellOff : IC.bell}</button>${Voice.muteButtonHTML('icon')}<button class="icon wbell conversation-project" id="project-open" hidden></button><button class="icon wbell conversation-task" id="task-open" hidden></button>
+        <button class="chip stopchip" id="stopb" aria-label="Stop">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
-    ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this turn" aria-label="After this turn">After <span class="sm-x">this </span>turn</button></div>' : ''}
+    ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this reply" aria-label="After this reply">After <span class="sm-x">this </span>reply</button></div>' : ''}
     ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button>${ctxRingHTML()}</div>` : ''}
-    <textarea id="box" rows="1" placeholder="${working ? 'Steer this turn…' : 'Message this session…'}" enterkeyhint="send"></textarea>
+    <textarea id="box" rows="1" placeholder="${working ? "Add to what it's doing…" : 'Reply…'}" enterkeyhint="send"></textarea>
     ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button>`;
   if (typeof paintChatProject === 'function') paintChatProject(); // the toolbar's chip, or the working row's folder button
   if (typeof paintChatTask === 'function') paintChatTask();
@@ -2580,7 +2604,7 @@ function setComposer(working) {
   }
   const modeButtons=c.querySelectorAll('[data-mode]');
   const paintMode=()=>modeButtons.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===(sendModes.get(chatId)||'steer'))));
-  modeButtons.forEach(b=>b.onclick=()=>{sendModes.set(chatId,b.dataset.mode);paintMode();$('#box').placeholder=b.dataset.mode==='queue'?'Run this after the current turn…':'Steer this turn…';});paintMode();
+  modeButtons.forEach(b=>b.onclick=()=>{sendModes.set(chatId,b.dataset.mode);paintMode();$('#box').placeholder=b.dataset.mode==='queue'?'Run this after the current reply…':"Add to what it's doing…";});paintMode();
   const box = $('#box');
   const grow = () => sizeComposerBox();
   const draft = loadOutbox(chatId)?.text || loadDraft(chatId);
@@ -2673,7 +2697,7 @@ async function submitPending(id) {
     saveOutbox(id, null); clearDraft(id);
     if (pending.files.length) localStorage.removeItem('pc-attachments-' + id);
     if (result.steered) steeredEchoes.set(id, [...(steeredEchoes.get(id) || []), { text: pending.text.trim(), at: Date.now() }]);
-    deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current turn.' : result.steered ? 'Sent to the running turn.' : 'Message delivered.');
+    deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current reply.' : result.steered ? 'Sent to the running reply.' : 'Message delivered.');
     if (result.modelFallback) modelFellBack(id, result.modelFallback);
     if (chatId === id) {
       if (tb?.key === id && pending.files.length) tb.attachments = [];
@@ -2705,9 +2729,9 @@ async function submitPending(id) {
 function holdSecretSend(id, text, matches = null) {
   const box = () => chatId === id ? $('#box') : null;
   return secretHold(text, { matches, trigger: box(),
-    onAsIs: t => { if (chatId !== id) return toast('You switched sessions, so that was not sent.'); sendMsg(t, { allowSecrets: true }); },
+    onAsIs: t => { if (chatId !== id) return toast('You switched conversations, so that was not sent.'); sendMsg(t, { allowSecrets: true }); },
     onStore: t => {
-      if (chatId !== id) return toast('Stored. You switched sessions, so the message was not sent.');
+      if (chatId !== id) return toast('Stored. You switched conversations, so the message was not sent.');
       const b = box(); if (b && !b.readOnly) { b.value = t; sizeComposerBox(); }
       saveDraft(id, t); sendMsg(t);
     } }) && (() => { // held: keep the words in the box (a voice message has none there yet) so Edit returns to them
@@ -2857,7 +2881,7 @@ async function renderNew() {
   const col = `
     <header class="bar">
       ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : `<button class="icon" id="back" aria-label="Back">${IC.back}</button>`}
-      <h1>New session</h1>
+      <h1>New conversation</h1>
     </header>
     <main class="scroll"><div class="pane task-pane">
       <div><label class="task-heading" for="first">What would you like done?</label><div class="starters" id="starters" hidden></div></div>
@@ -2871,11 +2895,11 @@ async function renderNew() {
       <div><label class="h" for="cpath">Or a custom path</label><input type="text" id="cpath" placeholder="/full/path/to/project" autocapitalize="off" autocorrect="off"></div>
       </div></details>
     </div></main>
-    <section class="composerwrap" aria-label="New session message"><div id="new-delivery" class="delivery-status" role="status" hidden></div><p class="start-hint" id="start-hint" role="alert" hidden></p><div class="voice-strip" id="voice-strip" role="status" aria-live="polite" hidden></div>
+    <section class="composerwrap" aria-label="New conversation message"><div id="new-delivery" class="delivery-status" role="status" hidden></div><p class="start-hint" id="start-hint" role="alert" hidden></p><div class="voice-strip" id="voice-strip" role="status" aria-live="polite" hidden></div>
       <div class="composer" id="comp"><div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>
         <div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button><button class="icon" id="choose-skill" aria-label="Choose a skill" title="Choose a skill">${IC.spark}</button><button class="icon" id="save-prompt" aria-label="Save as prompt" title="Save as prompt" disabled>${IC.bookmark}</button></div>
         <textarea id="first" rows="1" placeholder="Describe the task, or choose a skill" enterkeyhint="send" aria-describedby="start-hint"></textarea>
-        ${Voice.micHTML()}<button class="send" id="start" aria-label="Start session" title="Start session">${IC.up}</button></div></section>`;
+        ${Voice.micHTML()}<button class="send" id="start" aria-label="Start conversation" title="Start conversation">${IC.up}</button></div></section>`;
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   if (PANE) $('#pane-close').onclick = () => paneSay('close'); else $('#back').onclick = () => { location.hash = '#/'; };
@@ -2891,9 +2915,9 @@ async function renderNew() {
     b.hidden = !startFrom?.project; $('#new-actions').hidden = b.hidden;
     if (!startFrom?.project) return;
     const name = startFrom.projectName || startFrom.project;
-    b.innerHTML = IC.folder + '<span>' + esc(name) + '</span>'; b.title = 'This session will be linked to the project ' + name;
+    b.innerHTML = IC.folder + '<span>' + esc(name) + '</span>'; b.title = 'This conversation will be linked to the project ' + name;
     b.setAttribute('aria-label', 'Linked to the project ' + name + '. Options');
-    b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.'); confirmSheet('Start without the project?', 'The new session will not be linked to ' + name + '. The briefing stays in the message; edit it if you no longer want it.', 'Remove the link', () => { startFrom = null; try { localStorage.removeItem('pc-new-start'); } catch { } paintNewProject(); }); };
+    b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.'); confirmSheet('Start without the project?', 'The new conversation will not be linked to ' + name + '. The briefing stays in the message; edit it if you no longer want it.', 'Remove the link', () => { startFrom = null; try { localStorage.removeItem('pc-new-start'); } catch { } paintNewProject(); }); };
   };
   paintNewProject();
   const context = () => {const cwd=$('#cpath')?.value.trim()||sel;const el=$('#task-context');if(el)el.dataset.workspace=cwd?projName(cwd):'Choose a workspace';updateNewSummary();};
@@ -2929,7 +2953,7 @@ async function renderNew() {
     if(viewVersion!==chatRenderVersion)return;
     const pl = $('#plist');
     if (locked && defaultCwd) { // 1.55: this Pocket starts every session in one folder; nothing to choose
-      pl.innerHTML = `<div class="row workspace-locked">${IC.folder}<span class="p">${esc(projName(defaultCwd))}${projShort(defaultCwd) !== projName(defaultCwd) ? `<span class="workspace-path">${esc(projShort(defaultCwd))}</span>` : ''}</span><span class="workspace-note">Every session starts here</span></div>`;
+      pl.innerHTML = `<div class="row workspace-locked">${IC.folder}<span class="p">${esc(projName(defaultCwd))}${projShort(defaultCwd) !== projName(defaultCwd) ? `<span class="workspace-path">${esc(projShort(defaultCwd))}</span>` : ''}</span><span class="workspace-note">Every conversation starts here</span></div>`;
       $('#projh').textContent = 'Workspace';
       $('#cpath').value = ''; $('#cpath').closest('div').hidden = true;
       sel = defaultCwd; context();
@@ -2964,7 +2988,7 @@ async function renderNew() {
     const retry = $('#retry-new'); if (retry) retry.onclick = () => startSession();
     const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NEW_KEY, null); clearDraft(NEW_KEY); localStorage.removeItem('pc-new-start'); renderNew(); };
     app.querySelectorAll('.pane input,.pane textarea,.pane button,#comp textarea,#comp button:not(#start):not(#composer-toggle)').forEach(el => { el.disabled = Boolean(pending); });
-    const label = pending ? 'Retry start' : 'Start session';
+    const label = pending ? 'Retry start' : 'Start conversation';
     $('#start').setAttribute('aria-label', label); $('#start').title = label;
   };
   paintNewDelivery();
@@ -3098,7 +3122,7 @@ async function renderNew() {
     try {
       const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts(), ...(startFrom?.project ? { project: startFrom.project, projectName: startFrom.projectName || '' } : {}) };
       const saved = loadOutbox(NEW_KEY);
-      if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) { toast('Retry the saved new-session request before changing it.'); return false; }
+      if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) { toast('Retry the saved new conversation request before changing it.'); return false; }
       newPending = saved || { payload, clientMessageId: crypto.randomUUID(), ...(allowSecrets ? { allowSecrets: true } : {}) };
       saveOutbox(NEW_KEY, newPending);
       const { id, modelFallback } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
@@ -3121,7 +3145,7 @@ async function renderNew() {
   // 1.42: the task waits in the box while the owner chooses Store and send, Send as is or Edit.
   const holdSecretStart = (text, matches = null) => secretHold(text, { matches, trigger: $('#first'),
     onAsIs: () => { if (viewVersion === chatRenderVersion) startSession({ allowSecrets: true }); },
-    onStore: t => { const f = $('#first'); if (viewVersion !== chatRenderVersion || !f) return toast('Stored. The new session was not started.'); f.value = t; saveDraft(NEW_KEY, t); paintSaveButton(); startSession(); } });
+    onStore: t => { const f = $('#first'); if (viewVersion !== chatRenderVersion || !f) return toast('Stored. The new conversation was not started.'); f.value = t; saveDraft(NEW_KEY, t); paintSaveButton(); startSession(); } });
   $('#start').onclick = () => startSession();
   Voice.bindComposer({ key: NEW_KEY, send: t => { if (viewVersion !== chatRenderVersion) return false; first.value = t; saveDraft(NEW_KEY, t); paintSaveButton(); return startSession(); } });
 }

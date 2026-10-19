@@ -242,14 +242,14 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/claude/activity')return json({active:uiModes.claudeActive||0});
  if(url.pathname==='/api/claude/stop-all'){
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);
-  if((uiModes.claudeActive||0)>body.expected)return json({error:'More Claude turns started since you confirmed.'},409);
+  if((uiModes.claudeActive||0)>body.expected)return json({error:'More Claude replies started since you confirmed.'},409);
   const stopping=uiModes.claudeActive||0;uiModes.claudeActive=0;return json({stopping,active:stopping});
  }
  if(url.pathname==='/api/claude/login')return uiModes.loginOffline?json({error:'Offline'},503):json(loginState);
  if(url.pathname.startsWith('/api/claude/login/')){
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);
   if(url.pathname.endsWith('/start')){
-   if(uiModes.loginBusy)return json({error:'Claude still has active turns. Let them finish, or use Stop all Claude turns in Accounts & instance.'},409);
+   if(uiModes.loginBusy)return json({error:'Claude still has active replies. Let them finish, or use Stop all Claude replies in Accounts & instance.'},409);
    loginState={id:'login-'+(++loginSequence),status:'waiting',url:'https://claude.com/cai/oauth/authorize?state=fixture&code_challenge=fixture',message:'Open the sign-in link, choose your account, then paste the code here.'};
   }
   if(url.pathname.endsWith('/code')){loginCodes.push(body.code);loginState={id:loginState.id,status:'success',account:{email:'new@example.test'},message:'Claude Code is signed in.'};}
@@ -453,12 +453,12 @@ try{
  for(const width of [390,1440]){
   loginState={status:'idle'};uiModes.claudeActive=2;await p.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});await p.goto(base+'/#/chat/'+rows[1].id);await p.waitForSelector('#box');
   await p.evaluate(()=>openEnvironment());await p.waitForSelector('[data-claude-stop]:not([disabled])');
-  assert.match(await p.$eval('[data-claude-count]',element=>element.textContent),/2 active Claude turns/);
+  assert.match(await p.$eval('[data-claude-count]',element=>element.textContent),/2 active Claude replies/);
   await clickControl(p,'[data-claude-stop]');await p.waitForSelector('[data-claude-confirm]:not([hidden])');
   assert.match(await p.$eval('[data-claude-stop-copy]',element=>element.textContent),/Saved conversations remain/);
   await clickControl(p,'[data-claude-stop-no]');assert.equal(uiModes.claudeActive,2);
   await clickControl(p,'[data-claude-stop]');await p.waitForSelector('[data-claude-confirm]:not([hidden])');await clickControl(p,'[data-claude-stop-yes]');
-  await p.waitForFunction(()=>document.querySelector('[data-claude-count]')?.textContent.includes('All Claude turns stopped'));
+  await p.waitForFunction(()=>document.querySelector('[data-claude-count]')?.textContent.includes('All Claude replies stopped'));
   assert.equal(uiModes.claudeActive,0);assert.equal(await p.$eval('[data-claude-stop]',element=>element.disabled),true);
   await p.screenshot({path:path.join(out,'claude-stop-all-'+width+'.png')});await scan('claude-stop-all-'+width);
   // 1.53: Connectors — status per agent, Connect/Reconnect open claude.ai, Refresh asks for a fresh read.
@@ -471,7 +471,7 @@ try{
   assert.deepEqual(uiModes.connectorCalls,['','?refresh=1']);await p.keyboard.press('Escape');
   await p.evaluate(()=>openEnvironment());await p.waitForSelector('[data-claude-login]');
   await clickControl(p,'[data-claude-login]');await p.waitForSelector('[data-login-start]');
-  uiModes.loginBusy=true;await clickControl(p,'[data-login-start]');await p.waitForFunction(()=>document.querySelector('[data-login-error]')?.textContent.includes('Stop all Claude turns'));uiModes.loginBusy=false;
+  uiModes.loginBusy=true;await clickControl(p,'[data-login-start]');await p.waitForFunction(()=>document.querySelector('[data-login-error]')?.textContent.includes('Stop all Claude replies'));uiModes.loginBusy=false;
   await clickControl(p,'[data-login-start]');await p.waitForSelector('#claude-login-code');
   assert.equal(await p.$eval('[data-login-link]',element=>element.origin),'https://claude.com');
   await p.type('#claude-login-code','unsent-secret');await p.keyboard.press('Escape');

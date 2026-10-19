@@ -383,7 +383,7 @@ export function promptOnlyName(t) {
   return Boolean(preview) && (preview === name || preview.startsWith(name.slice(0, 40)) && name.length >= 40);
 }
 function threadToSession(t) {
-  const title = t.name || clip(t.preview, 120) || '(untitled session)';
+  const title = t.name || clip(t.preview, 120) || '(untitled conversation)';
   return {
     id: CX + t.id,
     provider: 'codex',

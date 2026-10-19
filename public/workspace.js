@@ -184,7 +184,7 @@ function paintWorkspaceDensity(){
  reportWorkspaceChrome();
  const toggle=document.getElementById('rail-filter-toggle'),controls=document.getElementById('rail-filter-controls');
  if(toggle){
-  const label=(railFiltersCollapsed?'Expand':'Collapse')+' session filters';
+  const label=(railFiltersCollapsed?'Expand':'Collapse')+' conversation filters';
   toggle.setAttribute('aria-expanded',String(!railFiltersCollapsed));toggle.setAttribute('aria-label',label);toggle.title=label;
   toggle.innerHTML='Filters '+(railFiltersCollapsed?IC.down1:IC.up1);
  }
@@ -311,7 +311,7 @@ function workspaceMount(scrim,sh,kind){
  dockSurface?.remove();dockSurface=null;
  if(!hasDockRoom()||!document.querySelector('.split'))return mountSheet(scrim,sh);
  closeCurrentSheet?.();dockKind=kind;writeLocal('pc-dock-kind',kind);
- sh.classList.remove('sheet');sh.classList.add('workspace-dock');sh.setAttribute('role','complementary');sh.setAttribute('aria-label',kind==='git'?'Git workspace':kind==='queue'?'Queued instructions':'Session results');
+ sh.classList.remove('sheet');sh.classList.add('workspace-dock');sh.setAttribute('role','complementary');sh.setAttribute('aria-label',kind==='git'?'Git workspace':kind==='queue'?'Queued instructions':'Conversation results');
  const actions=document.createElement('nav');actions.className='dock-tabs';actions.setAttribute('aria-label','Workspace panel');
  actions.innerHTML=[['results','Results'],['queue','Queue'],['git','Git']].map(([key,label])=>`<button class="chip" data-dock="${key}" aria-pressed="${kind===key}">${label}</button>`).join('')+`<button class="icon" data-close-dock aria-label="Close workspace panel">${IC.x}</button>`;
  sh.prepend(actions);document.querySelector('.split').append(sh);dockSurface=sh;
@@ -324,7 +324,7 @@ function openDock(kind,id){if(kind==='results')return openResults(id);if(kind===
 function restoreDock(){if(hasDockRoom()&&['results','queue','git'].includes(dockKind))openDock(dockKind,chatId);}
 async function openGit(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet git-sheet';
- sh.innerHTML='<h2>Git workspace</h2><p class="sheet-help">Current changes in this repository, including work from other sessions. Read only.</p><button class="chip" data-git-refresh>Refresh</button><div data-git-status role="status">Reading repository…</div><div data-git-files></div><div data-git-diff></div>';
+ sh.innerHTML='<h2>Git workspace</h2><p class="sheet-help">Current changes in this repository, including work from other conversations. Read only.</p><button class="chip" data-git-refresh>Refresh</button><div data-git-status role="status">Reading repository…</div><div data-git-files></div><div data-git-diff></div>';
  workspaceMount(scrim,sh,'git');let generation=0;
  const load=async()=>{
   const token=++generation;sh.querySelector('[data-git-diff]').replaceChildren();const btn=sh.querySelector('[data-git-refresh]');btn.disabled=true;
@@ -346,7 +346,7 @@ async function openGit(id){
 }
 function keyboardHelp(){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
- sh.innerHTML='<h2>Keyboard shortcuts</h2><dl class="shortcut-list"><dt>Ctrl / ⌘ K</dt><dd>Find a session</dd><dt>Ctrl / ⌘ Shift L</dt><dd>Start a session</dd><dt>Alt [ / Alt ]</dt><dd>Previous / next open session</dd><dt>Ctrl / ⌘ F</dt><dd>Find in the conversation</dd><dt>Escape</dt><dd>Close a dialog or search</dd></dl><p class="sheet-help">Open-session tabs and workspace filters are saved on this device. Closing a tab never stops an agent or deletes its conversation.</p>';
+ sh.innerHTML='<h2>Keyboard shortcuts</h2><dl class="shortcut-list"><dt>Ctrl / ⌘ K</dt><dd>Find a conversation</dd><dt>Ctrl / ⌘ Shift L</dt><dd>Start a conversation</dd><dt>Alt [ / Alt ]</dt><dd>Previous / next open conversation</dd><dt>Ctrl / ⌘ F</dt><dd>Find in the conversation</dd><dt>Escape</dt><dd>Close a dialog or search</dd></dl><p class="sheet-help">Open-conversation tabs and workspace filters are saved on this device. Closing a tab never stops an agent or deletes its conversation.</p>';
  mountSheet(scrim,sh);
 }
 document.addEventListener('keydown',e=>{
@@ -358,7 +358,7 @@ document.addEventListener('keydown',e=>{
 });
 
 async function refreshQuestions(id){
- try{const d=await api('/session/'+encodeURIComponent(id)+'/questions');if(chatId!==id)return;const b=$('#questions-open');if(b){b.hidden=!d.requests.length&&!d.interrupted;b.textContent=d.interrupted?'Question interrupted · Review':d.requests.length+' agent question'+(d.requests.length===1?'':'s')+' · Answer';}}
+ try{const d=await api('/session/'+encodeURIComponent(id)+'/questions');if(chatId!==id)return;const b=$('#questions-open');if(b){b.hidden=!d.requests.length&&!d.interrupted;b.textContent=d.interrupted?'Question interrupted · Review':(String(id).startsWith('cx:')?'Codex':'Claude')+' has '+(d.requests.length===1?'a question':d.requests.length+' questions')+' · Answer';}}
  catch{if(chatId===id&&$('#questions-open')&&!$('#questions-open').hidden)$('#questions-open').textContent='Question status unavailable · Retry';}
 }
 async function openQuestions(id){
@@ -366,8 +366,8 @@ async function openQuestions(id){
  try{
   const d=await api('/session/'+encodeURIComponent(id)+'/questions');if(!sh.isConnected)return;
   const target=sh.querySelector('[data-questions]');
-  if(d.interrupted){target.innerHTML='<p class="sheet-help">The server restarted while Claude was waiting for an answer. The original question connection cannot be resumed. Stop this turn, then send your answer as a new message after reviewing the conversation.</p><button class="chip" data-stop-question>Stop interrupted turn</button>';target.querySelector('[data-stop-question]').onclick=async e=>{e.target.disabled=true;try{await api('/session/'+encodeURIComponent(id)+'/stop',{method:'POST',body:'{}'});closeCurrentSheet?.();toast('Stop requested. Send your answer after the turn stops.');}catch(err){toast(err.message);e.target.disabled=false;}};return;}
-  if(!d.requests.length){target.textContent=d.supported?'No questions are waiting.':'Native questions are unavailable for this session.';return;}
+  if(d.interrupted){target.innerHTML='<p class="sheet-help">The server restarted while Claude was waiting for an answer. The original question connection cannot be resumed. Stop this reply, then send your answer as a new message after reviewing the conversation.</p><button class="chip" data-stop-question>Stop interrupted reply</button>';target.querySelector('[data-stop-question]').onclick=async e=>{e.target.disabled=true;try{await api('/session/'+encodeURIComponent(id)+'/stop',{method:'POST',body:'{}'});closeCurrentSheet?.();toast('Stop requested. Send your answer after the reply stops.');}catch(err){toast(err.message);e.target.disabled=false;}};return;}
+  if(!d.requests.length){target.textContent=d.supported?'No questions are waiting.':'Native questions are unavailable for this conversation.';return;}
   target.innerHTML='';
   for(const r of d.requests){
    const form=document.createElement('form');form.className='question-form';
@@ -389,7 +389,7 @@ async function openQuestions(id){
 const CONNECTOR_STATE={connected:'Connected','needs-auth':'Needs signing in again','not-connected':'Not connected',failed:'Could not connect',off:'Off on this server',unavailable:'Unavailable'};
 function openConnectors(){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
- sh.innerHTML='<h2>Connectors</h2><p class="sheet-help">Each agent reaches Google through its own account: Claude Code through claude.ai connectors, Codex through ChatGPT apps. Connect once on that site with your Google account, then come back here. New sessions can then search and send mail, manage calendar events and work with Drive files.</p><div data-connectors role="status" aria-live="polite">Checking connectors…</div><p class="sheet-help">On Claude Team and Enterprise plans an admin adds connectors first. Sessions already open pick up a new connection when they restart.</p><button class="chip" data-connectors-refresh>Refresh status</button>';
+ sh.innerHTML='<h2>Connectors</h2><p class="sheet-help">Each agent reaches Google through its own account: Claude Code through claude.ai connectors, Codex through ChatGPT apps. Connect once on that site with your Google account, then come back here. New conversations can then search and send mail, manage calendar events and work with Drive files.</p><div data-connectors role="status" aria-live="polite">Checking connectors…</div><p class="sheet-help">On Claude Team and Enterprise plans an admin adds connectors first. Conversations already open pick up a new connection when they restart.</p><button class="chip" data-connectors-refresh>Refresh status</button>';
  mountSheet(scrim,sh);
  const box=sh.querySelector('[data-connectors]'),again=sh.querySelector('[data-connectors-refresh]');
  let away=false,loading=false;
@@ -415,14 +415,14 @@ async function openEnvironment(){
  try{
   const d=await api('/environment');if(!sh.isConnected)return;
   const count=Number.isInteger(d.claudeActive)?d.claudeActive:0;
-  sh.querySelector('[data-environment]').innerHTML=`<p class="sheet-help">${esc(d.host)} · Checked ${esc(new Date(d.checkedAt).toLocaleTimeString())}</p>${d.providers.map(p=>`<section class="provider-account"><h3>${p.provider==='codex'?'Codex':'Claude Code'}</h3><p>${esc(p.email||p.method)}</p><p class="sheet-help">${esc([p.plan,p.method].filter(Boolean).join(' · '))}${p.signedIn===false?' · Not signed in':p.signedIn===null?' · Could not verify':''}</p>${p.provider==='claude'?`<div class="provider-actions">${d.capabilities?.claudeLogin?`<button class="chip" data-claude-login>${p.signedIn?'Switch account':'Sign in'}</button>`:''}<button class="chip claude-stop" data-claude-stop ${count?'':'disabled'}>Stop all Claude turns</button></div><p class="sheet-help" data-claude-count aria-live="polite">${count} active Claude ${count===1?'turn':'turns'}</p><div class="claude-stop-confirm" data-claude-confirm hidden><p data-claude-stop-copy></p><div class="provider-actions"><button class="chip claude-stop" data-claude-stop-yes>Stop turns</button><button class="chip" data-claude-stop-no>Keep running</button></div></div><p class="question-error" data-claude-stop-error role="alert"></p>`:''}</section>`).join('')}<p class="sheet-help">${esc(d.accountManagement)}</p><h3>Session controls</h3><p class="sheet-help">${esc(d.permissions)}. Codex Plan first can show native agent questions. Plan mode guides behavior; it does not change server permissions. Claude can show native questions during owned turns.</p><p class="sheet-help">MemStem and other tools follow each agent’s server configuration.</p><button class="chip" data-env-refresh>Refresh status</button>`;
+  sh.querySelector('[data-environment]').innerHTML=`<p class="sheet-help">${esc(d.host)} · Checked ${esc(new Date(d.checkedAt).toLocaleTimeString())}</p>${d.providers.map(p=>`<section class="provider-account"><h3>${p.provider==='codex'?'Codex':'Claude Code'}</h3><p>${esc(p.email||p.method)}</p><p class="sheet-help">${esc([p.plan,p.method].filter(Boolean).join(' · '))}${p.signedIn===false?' · Not signed in':p.signedIn===null?' · Could not verify':''}</p>${p.provider==='claude'?`<div class="provider-actions">${d.capabilities?.claudeLogin?`<button class="chip" data-claude-login>${p.signedIn?'Switch account':'Sign in'}</button>`:''}<button class="chip claude-stop" data-claude-stop ${count?'':'disabled'}>Stop all Claude replies</button></div><p class="sheet-help" data-claude-count aria-live="polite">${count} active Claude ${count===1?'reply':'replies'}</p><div class="claude-stop-confirm" data-claude-confirm hidden><p data-claude-stop-copy></p><div class="provider-actions"><button class="chip claude-stop" data-claude-stop-yes>Stop replies</button><button class="chip" data-claude-stop-no>Keep running</button></div></div><p class="question-error" data-claude-stop-error role="alert"></p>`:''}</section>`).join('')}<p class="sheet-help">${esc(d.accountManagement)}</p><h3>Conversation controls</h3><p class="sheet-help">${esc(d.permissions)}. Codex Plan first can show native agent questions. Plan mode guides behavior; it does not change server permissions. Claude can show native questions during owned replies.</p><p class="sheet-help">MemStem and other tools follow each agent’s server configuration.</p><button class="chip" data-env-refresh>Refresh status</button>`;
   sh.querySelector('[data-env-refresh]').onclick=openEnvironment;
   sh.querySelector('[data-claude-login]')?.addEventListener('click',openClaudeLogin);
   const stop=sh.querySelector('[data-claude-stop]'),confirm=sh.querySelector('[data-claude-confirm]');
   if(!stop)return;
   const countLine=sh.querySelector('[data-claude-count]'),error=sh.querySelector('[data-claude-stop-error]');
   let expected=count,stopping=false;
-  const showCount=n=>{countLine.textContent=`${n} active Claude ${n===1?'turn':'turns'}`;stop.disabled=stopping||n===0;};
+  const showCount=n=>{countLine.textContent=`${n} active Claude ${n===1?'reply':'replies'}`;stop.disabled=stopping||n===0;};
   stop.onclick=async()=>{
    stop.disabled=true;error.textContent='';
    try{
@@ -430,8 +430,8 @@ async function openEnvironment(){
     expected=active;showCount(active);
     if(!active)return;
     confirm.hidden=false;stop.disabled=true;
-    confirm.querySelector('[data-claude-stop-copy]').textContent=`Stop ${active} active Claude ${active===1?'turn':'turns'}? Work in those turns and their child processes will stop. Saved conversations remain. Codex turns and idle background jobs continue.`;
-    const yes=confirm.querySelector('[data-claude-stop-yes]');yes.textContent=`Stop ${active} ${active===1?'turn':'turns'}`;yes.focus();
+    confirm.querySelector('[data-claude-stop-copy]').textContent=`Stop ${active} active Claude ${active===1?'reply':'replies'}? Work in those replies and their child processes will stop. Saved conversations remain. Codex replies and idle background jobs continue.`;
+    const yes=confirm.querySelector('[data-claude-stop-yes]');yes.textContent=`Stop ${active} ${active===1?'reply':'replies'}`;yes.focus();
    }catch(problem){if(sh.isConnected){error.textContent=problem.message;stop.disabled=false;}}
   };
   confirm.querySelector('[data-claude-stop-no]').onclick=()=>{confirm.hidden=true;stop.disabled=false;stop.focus();};
@@ -440,12 +440,12 @@ async function openEnvironment(){
    try{
     const {stopping:requested}=await api('/claude/stop-all',{method:'POST',body:JSON.stringify({expected})});
     if(!sh.isConnected)return;
-    confirm.hidden=true;stopping=true;stop.disabled=true;countLine.textContent=`Stopping ${requested} Claude ${requested===1?'turn':'turns'}…`;
+    confirm.hidden=true;stopping=true;stop.disabled=true;countLine.textContent=`Stopping ${requested} Claude ${requested===1?'reply':'replies'}…`;
     const poll=async()=>{
      if(!sh.isConnected)return;
      try{const {active}=await api('/claude/activity');if(!sh.isConnected)return;
-      if(active){countLine.textContent=`Waiting for ${active} Claude ${active===1?'turn':'turns'} to stop…`;setTimeout(poll,750);}
-      else{stopping=false;showCount(0);countLine.textContent='All Claude turns stopped. You can switch accounts now.';}
+      if(active){countLine.textContent=`Waiting for ${active} Claude ${active===1?'reply':'replies'} to stop…`;setTimeout(poll,750);}
+      else{stopping=false;showCount(0);countLine.textContent='All Claude replies stopped. You can switch accounts now.';}
      }catch(problem){stopping=false;error.textContent=problem.message;stop.disabled=false;}
     };
     poll();
@@ -463,7 +463,7 @@ async function openEnvironment(){
 async function openClaudeLogin(){
  const scrim=document.createElement('div');scrim.className='scrim';
  const sh=document.createElement('div');sh.className='sheet claude-login-sheet';
- sh.innerHTML='<h2>Claude Code sign-in</h2><p class="sheet-help">Changes the shared Claude login on this server, including code-server. Let current Claude turns finish first. Background jobs and Codex keep running; existing jobs may keep the earlier login.</p><p data-login-status role="status">Checking sign-in…</p><div data-login-controls></div><p class="question-error" data-login-error role="alert"></p>';
+ sh.innerHTML='<h2>Claude Code sign-in</h2><p class="sheet-help">Changes the shared Claude login on this server, including code-server. Let current Claude replies finish first. Background jobs and Codex keep running; existing jobs may keep the earlier login.</p><p data-login-status role="status">Checking sign-in…</p><div data-login-controls></div><p class="question-error" data-login-error role="alert"></p>';
  mountSheet(scrim,sh);
  const controls=sh.querySelector('[data-login-controls]'),error=sh.querySelector('[data-login-error]');
  let current={status:'idle'},rendered='',pollTimer,busy=false,disconnected=false;
@@ -486,7 +486,7 @@ async function openClaudeLogin(){
   }else if(state.status==='starting'||state.status==='verifying'){
    controls.innerHTML='<p class="sheet-help">You can return to Accounts & instance if you close this window.</p><button class="chip" data-login-cancel>Cancel sign-in</button>';
   }else if(state.status==='success'){
-   controls.innerHTML=`<p class="login-account">${esc(state.account?.email||'Account verified')}</p><p class="sheet-help">New Claude sessions use this login. Existing background jobs keep running; their sessions refresh the login after those jobs finish. Reopen other Claude processes to use the new account there.</p><button class="chip" data-login-done>Back to accounts</button><button class="chip" data-login-start>Switch again</button>`;
+   controls.innerHTML=`<p class="login-account">${esc(state.account?.email||'Account verified')}</p><p class="sheet-help">New Claude conversations use this login. Existing background jobs keep running; their conversations refresh the login after those jobs finish. Reopen other Claude processes to use the new account there.</p><button class="chip" data-login-done>Back to accounts</button><button class="chip" data-login-start>Switch again</button>`;
    controls.querySelector('[data-login-done]').onclick=openEnvironment;
   }else{
    controls.innerHTML='<p class="sheet-help">You’ll get a link to open in your browser. Choose the Claude account you want, then return here to paste its code.</p><button class="primary" data-login-start>Get sign-in link</button><button class="chip" data-login-done>Back to accounts</button>';
@@ -557,7 +557,7 @@ function viewBackTarget(view) {
  return viewOrigins.get('#/'+view) || (view.startsWith('documents/') ? '#/documents' : view.startsWith('projects/') ? '#/projects' : '#/');
 }
 function bindViewBack(button, view) {
- const target=viewBackTarget(view),label=target==='#/documents'?'Back to Files':target==='#/projects'?'Back to Projects':target==='#/projects/scheduled'?'Back to Scheduled':target.startsWith('#/chat/')?'Back to conversation':target==='#/'?'Back to Sessions':'Back to previous view';
+ const target=viewBackTarget(view),label=target==='#/documents'?'Back to Files':target==='#/projects'?'Back to Projects':target==='#/projects/scheduled'?'Back to Scheduled':target.startsWith('#/chat/')?'Back to conversation':target==='#/'?'Back to Conversations':'Back to previous view';
  button.setAttribute('aria-label',label);button.title=label;
  button.onclick=()=>{returningToView=true;location.hash=target;};
 }
@@ -591,7 +591,7 @@ function updateNewSummary() {
 function organizeSettings(sh, {category='',scrollTop=0}={}) {
  const groups=[
   ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings']]],
-  ['conversation','Conversation','Reading, session titles and summaries', [['This device','#s-tools,#s-times'],['This instance · all devices','#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
+  ['conversation','Conversation','Reading, conversation titles and summaries', [['This device','#s-tools,#s-plain,#s-times'],['This instance · all devices','#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
   ['agents','Agents & instance','Accounts, connectors, plan usage, the models offered and actions that run without asking', [['This instance · all devices','#s-environment,#s-connectors,#s-usage,#s-models,#s-trusted']]],
   ['libraries','Projects, files, tasks & vault','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents,#s-tasks,#s-vault,#s-vault-more'],['This device','', '#s-projects-open,#s-files-button,#s-documents-open']]],
   ['notifications','Notifications & voice','Chime, push, the icon count, email and spoken replies', [['This device','#s-chime,#s-push,#s-push-kinds,#s-badge,#s-voice'],['This instance · all devices','#s-ahead,#s-email-wrap']]],

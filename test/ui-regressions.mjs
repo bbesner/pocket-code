@@ -21,7 +21,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
  const check=async(name,fn)=>{await fn();checks.push(name);};
  const chat=async()=>{await page.goto(base+'/#/chat/'+idle);await page.waitForSelector('#box');};
  // Hash-only navigation keeps the old view for a moment; wait for the requested conversation to be loaded.
- const openChat=async id=>{await page.goto(base+'/#/chat/'+id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#ctitle')?.textContent!=='Session'&&document.querySelector('#box'),{},id);};
+ const openChat=async id=>{await page.goto(base+'/#/chat/'+id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#ctitle')?.textContent!=='Conversation'&&document.querySelector('#box'),{},id);};
  const scan=async name=>{
   // Measure final colors, not the translucent opening frame of a sheet animation.
   await page.evaluate(()=>Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))));
@@ -145,7 +145,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await check('Process closing is a labelled session-menu action, not an adjacent X',async()=>{
    assert.equal(await page.$('#close-main'),null);
    assert.ok(await page.$('[data-close-session]'));
-   await clickControl(page,'#chatmore');assert.match(await page.$eval('#so-close',e=>e.textContent),/Close session process/);
+   await clickControl(page,'#chatmore');assert.match(await page.$eval('#so-close',e=>e.textContent),/Close conversation process/);
    await page.keyboard.press('Escape');
   });
   await check('Session menu names itself, shows the title as the conversation, and opens the version in one tap',async()=>{
@@ -153,7 +153,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const vp=page.viewport();await page.setViewport({width:390,height:844});
    const settled=()=>page.waitForFunction(()=>document.getAnimations().every(a=>a.playState!=='running'));
    await clickControl(page,'#chatmore');await settled();
-   assert.equal(await page.$eval('#sheet-title',e=>e.textContent),'Session options');
+   assert.equal(await page.$eval('#sheet-title',e=>e.textContent),'Conversation options');
    assert.equal(await page.$eval('.sheet-name',e=>e.textContent),rows[4].title);
    await page.waitForFunction(v=>document.querySelector('#so-version-sub')?.textContent.includes(v),{},release.version);
    assert.equal(await page.$eval('#so-version-sub',e=>e.textContent),`Pocket Code ${release.version} · build ${release.assetV}`);
@@ -304,7 +304,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     document.body.append(c);mergeToolFolds(c);const f=c.querySelectorAll('details.ledgerwrap');
     const out={folds:f.length,summary:f[0]?.querySelector('summary').textContent,lines:f[0]?.querySelectorAll('.ledger').length,msgs:c.querySelectorAll('.m-asst').length,open:f[0]?.open};c.remove();return out;});
    assert.equal(r.folds,1);assert.equal(r.lines,2);assert.equal(r.msgs,2,'a message that held only tool calls is absorbed');
-   assert.match(r.summary,/2 tool calls/);assert.match(r.summary,/Edit app\.js/);assert.equal(r.open,false,'collapsed by default');
+   assert.match(r.summary,/2 steps/);assert.match(r.summary,/Edited app\.js/);assert.equal(r.open,false,'collapsed by default');
   });
   await check('Tool calls: a run stays one fold while streaming, across an empty live placeholder',async()=>{
    const r=await page.evaluate(()=>{const c=document.createElement('div');
@@ -312,7 +312,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      +msgHTML({role:'assistant',blocks:[{t:'tool',name:'Bash',detail:'npm test'}]});
     document.body.append(c);mergeToolFolds(c);const f=c.querySelectorAll('details.ledgerwrap');
     const out={folds:f.length,summary:f[0]?.querySelector('summary').textContent};c.remove();return out;});
-   assert.equal(r.folds,1,'one fold for the run');assert.match(r.summary,/2 tool calls/);assert.match(r.summary,/Bash npm test/,'shows the latest call');
+   assert.equal(r.folds,1,'one fold for the run');assert.match(r.summary,/2 steps/);assert.match(r.summary,/Ran a command/,'shows the latest step');
   });
   await check('Voice: the headset starts a hands-free conversation; the mic stays a single message',async()=>{
    const heard=voiceLog.transcribe.length;
@@ -364,7 +364,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     const r=await page.$eval(sel,e=>{const b=e.getBoundingClientRect();return {w:b.width,h:b.height,in:b.left>=0&&b.right<=innerWidth&&b.bottom<=innerHeight};});
     assert.ok(r.in&&r.h>=44||sel.endsWith('#first')&&r.in,sel+' '+JSON.stringify(r));
    }
-   assert.equal(await page.$eval('#start',b=>b.getAttribute('aria-label')),'Start session');
+   assert.equal(await page.$eval('#start',b=>b.getAttribute('aria-label')),'Start conversation');
    await scan('new-session-composer-mobile');await page.screenshot({path:path.join(out,'new-session-composer-mobile.png')});
    const sent=received.length;
    await page.evaluate(()=>{Voice._test.setHandsFree(NEW_KEY);Voice._test.handle('Count the incoming camera stock.');});
@@ -440,7 +440,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.screenshot({path:path.join(out,'context-ring-hover.png')});
    await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet #usage-body .usage-block');
    const sheet=await page.$eval('.usage-sheet',e=>e.textContent);
-   assert.match(sheet,/This session · Opus 5\.5/);assert.match(sheet,/Context window/);assert.match(sheet,/Window1M tokens/);assert.match(sheet,/Used435k tokens/);assert.match(sheet,/Free565k tokens/);
+   assert.match(sheet,/This conversation · Opus 5\.5/);assert.match(sheet,/Context window/);assert.match(sheet,/Window1M tokens/);assert.match(sheet,/Used435k tokens/);assert.match(sheet,/Free565k tokens/);
    assert.match(sheet,/Claude Code/);assert.match(sheet,/5-hour/);
    await scan('context-usage-sheet');await page.screenshot({path:path.join(out,'context-usage-sheet.png')});
    await page.keyboard.press('Escape');
@@ -724,7 +724,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
     let sheet=await page.$eval('.usage-sheet .cache-block',e=>e.textContent.replace(/\s+/g,' '));
     assert.match(sheet,/Prompt cache/);assert.match(sheet,/Status ?Warm · about 5[12] min left/);assert.match(sheet,/Expires ?([A-Z][a-z]{2} \d+, )?\d/);
-    assert.match(sheet,/Cached ?729k tokens/);assert.match(sheet,/Lifetime ?1 hour/);assert.match(sheet,/The last turn, at .+ ET, started 97% from cache\./);
+    assert.match(sheet,/Cached ?729k tokens/);assert.match(sheet,/Lifetime ?1 hour/);assert.match(sheet,/The last reply, at .+ ET, started 97% from cache\./);
     assert.match(sheet,/Estimated from the last request at .+ ET; each request restarts the lifetime/);
     await page.waitForSelector('.usage-sheet #usage-body .usage-block');
     await scan('cache-usage-sheet');await page.screenshot({path:path.join(out,'cache-usage-sheet.png')});
@@ -737,12 +737,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await scan('cache-ring-phone');await page.screenshot({path:path.join(out,'cache-ring-phone.png'),clip:{x:0,y:Math.max(0,phone.y-120),width:390,height:200}});
     await page.setViewport({width:1440,height:900});
     setMode({cache:cache(125,{lastTurn:{at:Date.now()-130*min,read:0,written:729000,input:4,hit:0}})});await repaint('cold');
-    const cold=await ring();assert.equal(cold.label,'cold');assert.equal(cold.color,'rgb(159, 212, 240)','cold is ice blue');assert.equal(await page.$eval('#ctx-ring .ctx-fill',e=>getComputedStyle(e).stroke),'rgb(159, 212, 240)','the ring itself turns ice blue');assert.match(cold.aria,/Prompt cache expired at .+ ET; the next turn writes 729k tokens to cache again\. Open usage$/);
+    const cold=await ring();assert.equal(cold.label,'cold');assert.equal(cold.color,'rgb(159, 212, 240)','cold is ice blue');assert.equal(await page.$eval('#ctx-ring .ctx-fill',e=>getComputedStyle(e).stroke),'rgb(159, 212, 240)','the ring itself turns ice blue');assert.match(cold.aria,/Prompt cache expired at .+ ET; the next reply writes 729k tokens to cache again\. Open usage$/);
     const rr=await page.$eval('#ctx-ring',e=>{const b=e.getBoundingClientRect();return {x:b.x,y:b.y};});
     await page.screenshot({path:path.join(out,'cache-ring-cold.png'),clip:{x:Math.max(0,rr.x-160),y:Math.max(0,rr.y-40),width:420,height:120}});
     await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
     sheet=await page.$eval('.usage-sheet .cache-block',e=>e.textContent.replace(/\s+/g,' '));
-    assert.match(sheet,/Status ?Cold/);assert.match(sheet,/Expired ?([A-Z][a-z]{2} \d+, )?\d/);assert.match(sheet,/The last turn, at .+ ET, started cold: 729k tokens written to cache\./);assert.match(sheet,/The next turn writes the context to cache again/);
+    assert.match(sheet,/Status ?Cold/);assert.match(sheet,/Expired ?([A-Z][a-z]{2} \d+, )?\d/);assert.match(sheet,/The last reply, at .+ ET, started cold: 729k tokens written to cache\./);assert.match(sheet,/The next reply writes the context to cache again/);
     await page.keyboard.press('Escape');
     setMode({cache:{...cache(8),ttlKnown:false,ttlMs:5*min,at:Date.now()-min}});await repaint('warm');
     await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
@@ -872,7 +872,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    try{
     await page.goto(base+'/#/chat/'+failed.id);await page.waitForSelector('#box');await page.evaluate(()=>refreshSessions());
     await page.waitForSelector('#turn-failure');
-    assert.match(await page.$eval('#turn-failure',e=>e.textContent),/This turn ended with an error: Tool crashed while reading the supplier file/);
+    assert.match(await page.$eval('#turn-failure',e=>e.textContent),/This reply ended with an error: Tool crashed while reading the supplier file/);
     assert.equal(await page.$eval('#msgs',e=>e.lastElementChild.id),'turn-failure','shown where you are reading');
     await page.waitForFunction(()=>{const r=document.querySelector('[data-retry-turn]').getBoundingClientRect(),c=document.querySelector('.composerwrap').getBoundingClientRect();return r.bottom<=c.top;},{timeout:3000}); // Send again is above the composer, not behind it
     await scan('turn-failure-mobile');await page.screenshot({path:path.join(out,'turn-failure-mobile.png')});
@@ -889,7 +889,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await check('1.19 Session options: grouped, with display settings last',async()=>{
    await chat();await clickControl(page,'#chatmore');await page.waitForSelector('.sheet .opt-group');
    const groups=await page.$$eval('.sheet .opt-group',gs=>gs.map(g=>({label:g.getAttribute('aria-label'),ids:[...g.querySelectorAll('button.opt')].map(b=>b.id),size:Boolean(g.querySelector('.chat-text-settings'))})));
-   assert.deepEqual(groups.map(g=>g.label),['This conversation','Session','Server process','Display and version']);
+   assert.deepEqual(groups.map(g=>g.label),['This conversation','Organize','Server process','Display and version']);
    assert.deepEqual(groups[0].ids,['so-find','so-changes','so-agents','so-usage']);
    assert.ok(groups.at(-1).size&&groups.at(-1).ids.includes('so-version'));
    assert.ok(await page.$eval('#so-find',e=>e.getBoundingClientRect().bottom<innerHeight),'the first action is in view on a phone');
@@ -912,7 +912,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.goto(base+'/#/');await page.waitForSelector('.session-home, #rail'); // leave the New screen so the next hash renders it afresh
    await page.goto(base+'/#/new');await page.waitForSelector('#plist .workspace-locked');
    assert.equal(await page.$$eval('#plist [role=radio]',es=>es.length),0,'no picker');
-   const shown=await page.$eval('#plist .workspace-locked',e=>e.textContent);assert.match(shown,/warehouse/);assert.match(shown,/Every session starts here/);
+   const shown=await page.$eval('#plist .workspace-locked',e=>e.textContent);assert.match(shown,/warehouse/);assert.match(shown,/Every conversation starts here/);
    assert.equal(await page.$eval('#projh',e=>e.textContent),'Workspace');
    assert.equal(await page.$eval('#cpath',e=>e.closest('div').hidden),true,'no custom path field');
    assert.match(await page.$eval('#task-context',e=>e.textContent),/Workspace.*warehouse/);
@@ -955,7 +955,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await chat();await page.waitForSelector('#c-approval');
     assert.equal(await page.$eval('#git-open',e=>e.hidden),true,'no Git control outside a repository');
     const chip=await page.$eval('#c-approval',e=>({text:e.innerText.trim(),label:e.getAttribute('aria-label')}));
-    assert.match(chip.text,/^(Full|Review)$/);assert.match(chip.label,/^Permissions for the next turn: (Full access|Review actions)$/);
+    assert.match(chip.text,/^(Full|Review)$/);assert.match(chip.label,/^Permissions for the next reply: (Full access|Review actions)$/);
     const fade=await page.$eval('#tbar',e=>({over:e.scrollWidth>e.clientWidth+1,end:e.classList.contains('fade-end')}));
     assert.equal(fade.end,fade.over,'the scrolling edge fades exactly when the row overflows');
     assert.match(await page.$eval('.ctx-ring .ctx-track',e=>getComputedStyle(e).strokeDasharray),/\d/,'dotted gauge track');
@@ -1091,7 +1091,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const g=await page.$eval('.convo-group',e=>({h:e.querySelector('h2').textContent,note:e.querySelector('.convo-note').textContent,
      rows:[...e.querySelectorAll('.convo-item')].map(r=>({who:r.querySelector('.convo-who').textContent,marks:[...r.querySelectorAll('mark')].map(m=>m.textContent)}))}));
    assert.equal(g.h,'In conversations2');assert.match(g.note,/MemStem/);
-   assert.equal(await page.$eval('[data-session-results]',e=>e.textContent.trim()),'No session titles match. Matches inside conversations are below.');
+   assert.equal(await page.$eval('[data-session-results]',e=>e.textContent.trim()),'No conversation titles match. Matches inside conversations are below.');
    assert.deepEqual(g.rows,[{who:'Claude:',marks:['Incoming','stock']},{who:'Related:',marks:[]}]);
    await scan('convo-search-mobile');await page.screenshot({path:path.join(out,'convo-search-mobile.png')});
    await clickControl(page,`.convo-item [data-convo-id="${rows[3].id}"]`);
@@ -1198,7 +1198,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await scan('task-sheet-desktop');await page.screenshot({path:path.join(out,'task-sheet-desktop.png')});
    await clickControl(page,'.task-sheet [data-start]');await page.waitForSelector('#first');await page.waitForFunction(()=>document.querySelector('#plist .row.sel'));
    const draft=await page.$eval('#first',e=>e.value);
-   assert.match(draft,/^Send the aisle 4 recount to purchasing\n\nContext from the earlier session:\nRecounting aisle 4/);assert.match(draft,/\(Pocket task [0-9a-f]{12}\. When it is finished, mark it done with pocket-tasks done [0-9a-f]{12}\.\)$/);
+   assert.match(draft,/^Send the aisle 4 recount to purchasing\n\nContext from the earlier conversation:\nRecounting aisle 4/);assert.match(draft,/\(Pocket task [0-9a-f]{12}\. When it is finished, mark it done with pocket-tasks done [0-9a-f]{12}\.\)$/);
    assert.equal(await page.$eval('#plist .row.sel',e=>e.dataset.p),rows[0].cwd,'Start picks the task\'s workspace');
    await page.evaluate(()=>{clearDraft(NEW_KEY);localStorage.removeItem('pc-lastproj');});
    // Done from the list clears the due badge; the task moves under Done.
@@ -1910,7 +1910,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(posts.filter(x=>x.path==='/api/new').length,newPosts,'no start was posted');
     await clickControl(page,'.secret-sheet [data-back]');await sheetGone();
     assert.equal(await page.$eval('#first',f=>f.value),'Log in with password: hunter2! and pull the invoices');
-    assert.equal(await page.$eval('#start',b=>b.getAttribute('aria-label')),'Start session');
+    assert.equal(await page.$eval('#start',b=>b.getAttribute('aria-label')),'Start conversation');
     await page.evaluate(()=>{clearDraft(NEW_KEY);document.querySelector('#first').value='';});
     // Settings → Vault: Catch secrets in messages, on by default; off lets a key paste through untouched.
     await openChat(idleId);await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-secrets')?.disabled===false);
@@ -1988,7 +1988,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Done');
    c=await card();assert.deepEqual(c.reminders,[],'finishing stops the reminders');assert.deepEqual(c.actions,['Resume project']);assert.equal(await page.$('[data-task-add]'),null,'a finished card takes no new steps');
    await clickControl(page,'[data-resume]');await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Active');
-   c=await card();assert.deepEqual(c.reminders,[],'resuming does not restore them');assert.deepEqual(c.actions,['Start session','Edit','Remind me','Finish project']);
+   c=await card();assert.deepEqual(c.reminders,[],'resuming does not restore them');assert.deepEqual(c.actions,['Start conversation','Edit','Remind me','Finish project']);
    // 1.49 Start session: a New session in the project's directory, briefed on the card and linked to the project when it starts.
    await page.evaluate(async()=>{const act=b=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:'warehouse-stock-report',...b})});await act({action:'note',text:'MOM shows the Friday delivery twice.'});await act({action:'remind',at:new Date(Date.now()+86400000).toISOString(),text:'Revisit Warehouse stock report'});});
    await page.reload();await page.waitForSelector('.project-card [data-start]');
@@ -1998,8 +1998,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.match(brief,/\nNext step: Recount aisle 4 with the Friday delivery excluded/);
    assert.match(brief,/\nRemaining steps \(2 of 3 done\):\n- Post the inventory adjustment \(step [0-9a-f]{12}\)\n/);
    assert.match(brief,/\nRecent notes:\n- .+: MOM shows the Friday delivery twice\.\n/);assert.match(brief,/\nReminders:\n- Revisit Warehouse stock report/);
-   assert.match(brief,new RegExp('Earlier sessions on this project, newest last:\\n- Warehouse stock report \\(Claude session '+rows[0].id+'\\)'));
-   assert.match(brief,/\(Pocket project warehouse-stock-report; this session is linked to it\..*pocket-board update -p warehouse-stock-report/);
+   assert.match(brief,new RegExp('Earlier conversations on this project, newest last:\\n- Warehouse stock report \\(Claude conversation '+rows[0].id+'\\)'));
+   assert.match(brief,/\(Pocket project warehouse-stock-report; this conversation is linked to it\..*pocket-board update -p warehouse-stock-report/);
    assert.equal(await page.$eval('#plist .row.sel',e=>e.dataset.p),'/workspaces/warehouse','Start picks the project\'s directory');
    assert.equal(await page.$eval('#new-project',e=>e.textContent),'Warehouse stock report','the New session names the project it will join');
    await scan('project-start-desktop');await page.screenshot({path:path.join(out,'project-start-desktop.png')});
@@ -2042,7 +2042,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // Split: a project view beside a conversation; the pane is a full Pocket instance on that route.
    await openChat(rows[4].id);await clickControl(page,'#splitb');await page.waitForSelector('.sheet [data-v="projects/scheduled"]');
    await clickControl(page,'.sheet [data-v="projects/scheduled"]');await page.waitForSelector('#panes iframe');
-   const pane=await page.$eval('#panes iframe',f=>({src:f.getAttribute('src'),title:f.title}));assert.match(pane.src,/#\/projects\/scheduled$/);assert.equal(pane.title,'Session beside: Scheduled');
+   const pane=await page.$eval('#panes iframe',f=>({src:f.getAttribute('src'),title:f.title}));assert.match(pane.src,/#\/projects\/scheduled$/);assert.equal(pane.title,'Conversation beside: Scheduled');
    const frame=page.frames().find(f=>f.url().includes('#/projects/scheduled'));await frame.waitForSelector('.reminder-item');
    assert.equal(await frame.$eval('#ptitle',e=>e.textContent),'Scheduled');
    await scan('projects-split-desktop');await page.screenshot({path:path.join(out,'projects-split-desktop.png')});
@@ -2175,7 +2175,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const offered=await page.$$eval('.sheet [data-v^="documents/"]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));
    assert.ok(offered.some(t=>/^Weekly summary/.test(t)),'1.31.1: the chooser offers the open document tab: '+offered.join('|'));assert.ok(offered.length>=3,'and the recent documents');
    await clickControl(page,'.sheet [data-v="documents"]');
-   await page.waitForSelector('#panes iframe');assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/documents$/);assert.equal(await page.$eval('#panes iframe',f=>f.title),'Session beside: Files');
+   await page.waitForSelector('#panes iframe');assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/documents$/);assert.equal(await page.$eval('#panes iframe',f=>f.title),'Conversation beside: Files');
    const pane=page.frames().find(f=>f.url().includes('#/documents'));await pane.waitForSelector('.document-item');await pane.click('#pane-close');await page.waitForFunction(()=>!document.querySelector('#panes iframe'));
    // Rail: Docs segment lists documents; the Project control is unaffected.
    await clickControl(page,'[data-rail-view="documents"]');await page.waitForSelector('#rail .rail-documents .document-item');

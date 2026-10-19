@@ -81,8 +81,8 @@ const VoiceText = (() => {
     ['quiet', /^(be quiet|quiet|stop talking|shut up|silence|enough)$/],
     ['mute', /^(mute|mute (the |your )?voice|voice off|turn (the |your )?voice off|turn off (the |your )?voice|stop speaking)$/],
     ['unmute', /^(unmute|unmute (the |your )?voice|voice on|turn (the |your )?voice (back )?on|turn on (the |your )?voice)$/],
-    ['stop', /^(stop|stop it|stop that|stop the turn|stop working|stop the session|cancel( it| that| the turn)?|abort)$/],
-    ['status', /^(whats|what is) (it|he|she|claude|codex|the agent|the session|this session) (doing|working on|up to)( (right )?now)?$|^(status|progress|whats the status|what is the status|where are we|where are things|hows it going|how is it going|whats happening|what is happening)( (right )?now)?$/],
+    ['stop', /^(stop|stop it|stop that|stop the turn|stop working|stop the session|stop the conversation|cancel( it| that| the turn)?|abort)$/],
+    ['status', /^(whats|what is) (it|he|she|claude|codex|the agent|the session|this session|the conversation|this conversation) (doing|working on|up to)( (right )?now)?$|^(status|progress|whats the status|what is the status|where are we|where are things|hows it going|how is it going|whats happening|what is happening)( (right )?now)?$/],
     ['readAll', /^read (me )?(it |that |the whole thing |everything )?(all|in full|the whole thing|everything|the whole reply|the full reply)$/],
     ['read', /^(read (it|that|me the (result|reply|answer|response|last message|last reply))|what did (it|you) say|repeat( that)?|say (that|it) again)$/],
     ['waiting', /^((is )?(there )?anything (waiting|pending) (on|for) me|whats waiting (on|for) me|what is waiting (on|for) me|what needs me|what needs my attention|anything need me|does anything need me)$/],
@@ -128,11 +128,11 @@ const VoiceText = (() => {
   // A session title as spoken: no markdown or paths, at most about eight words.
   function shortTitle(title) {
     const words = speakable(String(title || '')).replace(/[.!?]+$/, '').split(/\s+/).filter(Boolean);
-    return words.length ? words.slice(0, 8).join(' ') + (words.length > 8 ? '…' : '') : 'A session';
+    return words.length ? words.slice(0, 8).join(' ') + (words.length > 8 ? '…' : '') : 'A conversation';
   }
   // What a spoken alert says. kind: finished | failed | input. mode: name | summary.
   function alertText({ title, kind, approvals = 0, reply = '' }, mode) {
-    const name = shortTitle(title), tail = /\bsession$/i.test(name) ? '' : ' session';
+    const name = shortTitle(title), tail = /\b(conversation|session)$/i.test(name) ? '' : ' conversation';
     if (kind === 'input') return approvals ? `The ${name}${tail} needs your approval.` : `The ${name}${tail} has a question for you.`;
     if (kind === 'failed') return `The ${name}${tail} stopped with an error.`;
     const line = mode === 'summary' ? oneLine(reply) : '';
