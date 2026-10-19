@@ -1,7 +1,7 @@
 {
-  "version": "1.64.1",
-  "assetV": 126,
+  "version": "1.64.2",
+  "assetV": 127,
   "notes": [
-    "Try harder stays in view under the latest reply and asks for Opus (Fable stays your own choice)."
+    "A file a conversation keeps in Files now shows as a card under its reply, with the library's picture, and opens the way Settings → Open files and links says."
   ]
 }
