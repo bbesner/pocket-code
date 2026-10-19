@@ -2439,14 +2439,17 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      if(w===390)await scan('inbox-all-390');else await scan('inbox-all-1440');
      await clickControl(page,'[data-inbox-filter="new"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1);
     }
-    // the row menu: Resolved; then X: Dismissed shows it and Restore brings it back
-    await clickControl(page,'.inbox-item.state-new [data-inbox-more]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
+    // 1.69.1: a tap on the row reads it (the sheet), and only the sheet starts a conversation
+    await clickControl(page,'.inbox-item.state-new .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet');assert.equal(await page.$eval('.inbox-sheet [data-go]',e=>e.textContent.includes('Start a conversation')),true);await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));
+    // reading marked it opened, so New is empty now; the row menu in All: Resolved; then X: Dismissed shows it and Restore brings it back
+    await page.waitForFunction(()=>document.querySelector('.inbox-view .project-empty')?.textContent.includes('Nothing new'));
+    await clickControl(page,'[data-inbox-filter="all"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===3);
+    await clickControl(page,'[data-inbox-more][aria-label="Options for Pradera dispatch conflict"]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
     assert.match(await page.$eval('.inbox-sheet .inbox-body',e=>e.innerHTML),/<a href="https:\/\/mail\.google\.com\/mail\/u\/0\/#all\/1a1540e0de10f879"/,'a citation is a Gmail link');
     assert.deepEqual(await page.evaluate(()=>['[data-go]','a.opt[href^="https://mail.google.com/"]','[data-resolve]','[data-useless]','[data-dismiss]','[data-restore]'].map(q=>Boolean(document.querySelector('.inbox-sheet '+q)))),[true,true,true,true,true,false],'the choices: open, Gmail, Resolved, Not useful, Dismiss; no Restore on a new entry');
     await clickControl(page,'.inbox-sheet [data-resolve]');await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));
-    await page.waitForFunction(()=>document.querySelector('.inbox-view .project-empty')?.textContent.includes('Nothing new'));
-    await clickControl(page,'[data-inbox-filter="all"]');await page.waitForSelector('.inbox-item.state-resolved [data-inbox-dismiss]');
-    await clickControl(page,'.inbox-item.state-resolved [data-inbox-dismiss]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
+    await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item.state-resolved').length===2,'Pradera joins Circa as resolved');
+    await clickControl(page,'[data-inbox-dismiss][aria-label="Dismiss: Pradera dispatch conflict"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
     await clickControl(page,'[data-inbox-filter="dismissed"]');await page.waitForSelector('.inbox-item.state-dismissed');
     await clickControl(page,'.inbox-item.state-dismissed [data-inbox-more]');await page.waitForSelector('.inbox-sheet [data-restore]');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));await clickControl(page,'.inbox-sheet [data-restore]');
     await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));await page.waitForFunction(()=>document.querySelector('.inbox-view .project-empty')?.textContent.includes('Nothing dismissed'));
@@ -2461,7 +2464,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.reload();await page.waitForSelector('.assistant-home');
     await page.waitForSelector('#home-waiting .inbox-card');
     assert.equal(await page.$eval('#home-waiting .inbox-card .home-card-title',e=>e.textContent),'Pradera dispatch conflict');
-    assert.equal(await page.$eval('#home-waiting .inbox-card',e=>e.getAttribute('href')),'#/start/0123456789ab','the card opens the briefed conversation');
+    assert.match(await page.$eval('#home-waiting .inbox-card',e=>e.getAttribute('href')),/^#\/inbox\/[0-9a-f]{12}$/,'1.69.1: the card opens the entry to read, not the session');
     await page.mouse.move(1,1);await page.evaluate(()=>document.querySelector('#tip')?.setAttribute('hidden',''));await scan('assistant-home-inbox-390');
    }finally{Object.assign(settings,before);settings.assistantMode=false;await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
   });
