@@ -8,6 +8,41 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Plain words, steps and approval cards (1.59)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5;
+existing tokens, no new colour. Read: the same workbench in words a non-developer can follow,
+with nothing taken away from the developer. Plan: `docs/plans/assistant-mode.md`.
+
+**Words.** Visible text says *conversation*, not *session*; *reply*, not *turn*. Ids, routes,
+keys, file names and log lines keep the old words. Glossary for new text:
+
+| Say | Not |
+|---|---|
+| Conversation, New conversation | Session, New session |
+| Reply… (message box) | Message this session… |
+| Allow / Don't allow | Allow once / Deny |
+| Waiting for your OK | Action needs approval |
+| Something went wrong. Tap to see what happened | Turn failed — tap to see why |
+| Stopped | Turn ended |
+| Nothing running | No confirmed runs |
+| Chats (the sidebar switch only, where width is tight) | Sessions |
+
+**Steps.** A tool call reads as a plain past-tense step in the UI font at 14px `--dim`
+("Saved Proposal.pdf", "Checked Gmail", "Started a helper: Map the UI"), worded by
+`public/phrases.js`. The raw call stays beside it in the ledger monospace at 12px `--faint`
+only when it adds something (a full path, a command); a Bash description already is the step.
+The fold summary reads "3 steps · Saved Proposal.pdf" in the UI font. **Settings → Conversation →
+Describe steps in plain words** (this device, default on) off restores the pre-1.59 mono name and
+detail everywhere, through `html.raw-steps`. Monospace stays reserved for machinery.
+
+**Approval cards.** The title is the request as a question ("Save Proposal.pdf?", "Run: Convert
+the deck to PDF?", "Make a Gmail draft?"). Under it, the folder in `--dim` and the whole
+command, path or address in the mono block, never clipped. Broad grants (permissions, network)
+keep their scope sentence in view. The full request sits behind **Show details** (44px summary),
+open by default when Pocket can't summarise the request. Buttons: **Don't allow**, then the clay
+**Allow**. The approval engine and audit are unchanged; only the words and order are.
+
 ## Actions that run without asking (1.56)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5;

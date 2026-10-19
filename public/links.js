@@ -86,7 +86,7 @@ async function renderLink(view){
  linkView=view;
  const u=linkViewUrl(view),title=linkViewTitle(view);
  const col=`<header class="bar">
-   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
+   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the conversation list">${IC.panel}</button>`}
    <h1><span class="one" id="ltitle">${esc(title)}</span><span class="tag" id="ltag">${u?'From this Pocket':'Link'}</span></h1>
    ${SOLO?'':`<button class="icon" id="lwin" aria-label="Open in a new window" title="Open in a new window">${IC.external}</button>`}
    ${PANE||SOLO?'':`<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}

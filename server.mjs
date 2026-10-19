@@ -182,7 +182,7 @@ const withDefaults = (provider, opts) => {
   validateModel(provider, model);
   return { ...opts, model, effort: opts.effort || POCKET_DEFAULTS[provider].effort };
 };
-const fallbackText = f => `${f.label} is ${f.reason === 'policy' ? "blocked by this computer's Claude Code policy" : f.reason === 'unknown' ? 'not a model Pocket knows' : 'not offered in Settings'}, so this turn uses ${f.used === 'default' ? 'the default model' : f.usedLabel}${f.used === 'default' ? ` (${f.usedLabel})` : ''}.`;
+const fallbackText = f => `${f.label} is ${f.reason === 'policy' ? "blocked by this computer's Claude Code policy" : f.reason === 'unknown' ? 'not a model Pocket knows' : 'not offered in Settings'}, so this reply uses ${f.used === 'default' ? 'the default model' : f.usedLabel}${f.used === 'default' ? ` (${f.usedLabel})` : ''}.`;
 // Workspace the New session screen preselects; unset = wherever you last started one.
 const DEFAULT_CWD = envPick('POCKET_DEFAULT_CWD', v => path.isAbsolute(v) && fs.existsSync(v) && fs.statSync(v).isDirectory());
 // 1.55: POCKET_LOCK_CWD=1 pins every session to DEFAULT_CWD: the New session screen shows the folder with nothing to
@@ -659,7 +659,7 @@ async function sessionMeta(file, id) {
   } catch { /* unreadable — show what we have */ }
   const { title, cwd, firstUser, customTitle, aiTitle } = acc;
   // noise = no human message and no summary anywhere: hook runs, subagent scratch, warmups
-  const meta = { id, title: title || firstUser || '(untitled session)', cwd, noise: !firstUser && !title, customTitle, aiTitle, fromPrompt: !title && Boolean(firstUser) };
+  const meta = { id, title: title || firstUser || '(untitled conversation)', cwd, noise: !firstUser && !title, customTitle, aiTitle, fromPrompt: !title && Boolean(firstUser) };
   metaCache.set(file, { mtimeMs: st.mtimeMs, meta });
   return composeTitle({ ...meta, mtimeMs: st.mtimeMs, size: st.size });
 }
@@ -1118,7 +1118,7 @@ async function fireRetry(m) {
     else startTurn({ ...opts, resume: false, text: m.userText }); // limit hit before the transcript existed
     log(`auto-resume after rate limit session=${m.sessionId} attempt=${m.attempt}`);
     const meta = file ? await sessionMeta(file, m.sessionId).catch(() => null) : null;
-    pushNotify(m.sessionId, meta?.title || 'Claude session', 'Rate limit reset — picking the task back up');
+    pushNotify(m.sessionId, meta?.title || 'Claude conversation', 'Usage limit reset. Picking the task back up');
   } catch (e) { log(`auto-resume failed session=${m.sessionId}: ${e.message}`); }
 }
 
@@ -1157,7 +1157,7 @@ function attachClaudeQuestions(turn,sessionId){
     try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForInput=Boolean(pending||turn.approvals?.list().length);fs.writeFileSync(turn.files.meta,JSON.stringify(meta),{mode:0o600});}catch{}
     broadcast(turn,{type:'questions'});
     const questionId=turn.questions.list().at(-1)?.id;
-    if(pending&&turn.questionNotified!==questionId&&!mutes.has(sessionId)){turn.questionNotified=questionId;pushNotify(sessionId,'Claude needs your answer','Open Pocket Code to answer the agent’s question.').catch(()=>{});}
+    if(pending&&turn.questionNotified!==questionId&&!mutes.has(sessionId)){turn.questionNotified=questionId;pushNotify(sessionId,'Claude has a question','Open Pocket Code to answer it.').catch(()=>{});}
   }});
   turn.approvals=new ApprovalInbox({sessionId:()=>sessionId,turnId:()=>String(turn.startedAt),audit:auditApproval,write:(id,response)=>new Promise((resolve,reject)=>{
     if(!turn.stdin||turn.stdin.destroyed||turn.stdin.writableEnded)return reject(new Error('Approval connection closed'));
@@ -1167,7 +1167,7 @@ function attachClaudeQuestions(turn,sessionId){
     try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForApproval=Boolean(requests.length);meta.waitingForInput=Boolean(requests.length||turn.questions.list().length);fs.writeFileSync(turn.files.meta,JSON.stringify(meta),{mode:0o600});}catch{}
     broadcast(turn,{type:'approvals'});
     const id=requests.at(-1)?.id;
-    if(id&&turn.approvalNotified!==id&&!mutes.has(sessionId)){turn.approvalNotified=id;pushNotify(sessionId,'Action needs approval','Open Pocket Code to review the pending action.').catch(()=>{});}
+    if(id&&turn.approvalNotified!==id&&!mutes.has(sessionId)){turn.approvalNotified=id;pushNotify(sessionId,'Waiting for your OK','Open Pocket Code to review the pending action.').catch(()=>{});}
   },onAutoError:(e,{tool})=>log(`trusted action reply not delivered session=${sessionId} tool=${tool}: ${e.message}`)});
 }
 function handleTurnLine(turn, line) {
@@ -1530,13 +1530,14 @@ async function finalizeTurn(sessionId, turn, code) {
   }
   if (!watching && !turn.stopped) {
     const result = turn.events.find(e => e.type === 'result');
-    const body = retryAt ? `Rate limited — auto-resume at ${fmtET(retryAt)}`
-      : !result ? 'Turn ended'
-        : !result.ok ? 'Turn failed — tap to see why'
-          : `Done${result.cost != null ? ` · $${result.cost.toFixed(2)}` : ''}${result.duration_ms ? ` · ${Math.round(result.duration_ms / 1000)}s` : ''}`;
+    // 1.59: plain words; the cost and time stay after "Ready" for the owner who wants them.
+    const body = retryAt ? `Usage limit reached. Picks up again at ${fmtET(retryAt)}`
+      : !result ? 'Stopped'
+        : !result.ok ? 'Something went wrong. Tap to see what happened'
+          : `Ready${result.cost != null ? ` · $${result.cost.toFixed(2)}` : ''}${result.duration_ms ? ` · ${Math.round(result.duration_ms / 1000)}s` : ''}`;
     findSessionFile(sessionId)
       .then(f => f ? sessionMeta(f, sessionId) : null)
-      .then(m => pushNotify(sessionId, m?.title || 'Claude session', body))
+      .then(m => pushNotify(sessionId, m?.title || 'Claude conversation', body))
       .catch(() => { });
   }
   } finally { turn.finalizeResolve?.(); }
@@ -1572,7 +1573,7 @@ function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, r
   const mode=approvalMode(requestedMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);
   let r = runners.get(sessionId);
   if (r) {
-    if (r.accountStale && r.bgTasks.length) throw Object.assign(new Error('This session has background jobs keeping its earlier Claude login. Let them finish, or start a new session with the current account.'), {code:409});
+    if (r.accountStale && r.bgTasks.length) throw Object.assign(new Error('This conversation has background jobs keeping its earlier Claude login. Let them finish, or start a new conversation with the current account.'), {code:409});
     // A process can only carry on if nothing it was started with has changed, and if no
     // other app added turns since ours (its in-memory history would fork the transcript).
     const why = r.closing || r.exited ? 'closing' : r.accountStale ? 'account sign-in changed'
@@ -1742,7 +1743,7 @@ function stateFor(s) {
 }
 function recordOutcome(id, turn, result, retryAt = null) {
   const kind = retryAt ? 'waiting' : turn.stopped ? 'stopped' : result?.ok ? 'finished' : result ? 'failed' : 'ended';
-  const labels = { waiting: 'Waiting for usage reset', stopped: 'Stopped', finished: 'Response ready', failed: 'Turn failed', ended: 'Turn ended' };
+  const labels = { waiting: 'Waiting for usage reset', stopped: 'Stopped', finished: 'Response ready', failed: 'Didn\'t finish', ended: 'Stopped' };
   // 1.19: a failed turn keeps its reason, so the conversation can say what went wrong after a reload.
   const error = kind === 'failed' && result?.error ? String(result.error).slice(0, 300) : null;
   try { setSmeta(id, { outcome: { kind, label: labels[kind], at: Date.now(), ...(retryAt ? { retryAt } : {}), ...(error ? { error } : {}) } }); }
@@ -1779,19 +1780,19 @@ async function listAllSessions(limit) {
         title: smeta[s.id]?.name || s.title, untitled: !smeta[s.id]?.name && s.untitled, pinned: isPinned(s.id) || undefined,
         active: codex.codexTurnActive(codex.bareId(s.id)) || codex.codexExtActive(codex.bareId(s.id)),
       })));
-    } catch (e) { log(`codex list failed: ${e.message}`); warnings.push('Codex sessions are temporarily unavailable.'); }
+    } catch (e) { log(`codex list failed: ${e.message}`); warnings.push('Codex conversations are temporarily unavailable.'); }
   }
   // Owned runs must stay visible even before the CLI writes a transcript, or
   // after their last transcript update falls outside the recent-history window.
   const known = new Set(rows.map(s => s.id));
   const owned = [...turns.entries(), ...[...codex.codexTurns].map(([id, t]) => [codex.CX + id, t])];
-  for (const [id, t] of owned) if (!known.has(id)) rows.push({ id, title: smeta[id]?.name || t.userText?.slice(0,120) || 'New session',
+  for (const [id, t] of owned) if (!known.has(id)) rows.push({ id, title: smeta[id]?.name || t.userText?.slice(0,120) || 'New conversation',
     cwd: t.cwd, provider: codex.isCodexId(id) ? 'codex' : 'claude', active: true, mtimeMs: t.startedAt, pinned: isPinned(id) });
   for(const id of new Set(followups.rows.map(r=>r.sessionId))){
     if(rows.some(s=>s.id===id))continue;
     const file=!isCx(id)?await findSessionFile(id):null;
     const meta=isCx(id)?await codex.codexThreadMeta(codex.bareId(id)).catch(()=>null):file?await sessionMeta(file,id):null;
-    rows.push({...meta,id,provider:isCx(id)?'codex':'claude',title:smeta[id]?.name||meta?.title||'Queued session',mtimeMs:meta?.mtimeMs||followups.list(id)[0].createdAt});
+    rows.push({...meta,id,provider:isCx(id)?'codex':'claude',title:smeta[id]?.name||meta?.title||'Queued conversation',mtimeMs:meta?.mtimeMs||followups.list(id)[0].createdAt});
   }
   // Scratch and test workspaces stay out of the list for both agents unless pinned or running.
   rows = rows.filter(s => !(s.provider === 'codex' && s.cwd?.startsWith('/tmp/') && !s.pinned && !s.active));
@@ -1817,7 +1818,7 @@ app.get('/api/sessions', requireAuth, async (req, res) => {
     res.set({ ETag: etag, 'X-Pocket-Checked-At': String(checkedAt), 'Cache-Control': 'no-store' });
     if (req.get('if-none-match') === etag) return res.status(304).end();
     sendJson(req, res, { ...payload, checkedAt });
-  } catch { res.status(503).json({ error: 'Session status is unavailable. Please retry.' }); }
+  } catch { res.status(503).json({ error: 'Conversation status is unavailable. Please retry.' }); }
 });
 
 app.get('/api/projects', requireAuth, async (_req, res) => {
@@ -1864,7 +1865,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
     messages = withPendingUser(messages, turn);
     return sendJson(req, res, {
       id: req.params.id, provider: 'codex',
-      title: smeta[req.params.id]?.name || (meta ? finishTitle({ ...meta, untitled: meta.untitled }).title : turn?.userText?.slice(0, 120)) || 'New session',
+      title: smeta[req.params.id]?.name || (meta ? finishTitle({ ...meta, untitled: meta.untitled }).title : turn?.userText?.slice(0, 120)) || 'New conversation',
       cwd: meta?.cwd || turn?.cwd || null, model: meta?.model, source: meta?.source,
       state: stateFor({ id: req.params.id, mtimeMs: meta?.mtimeMs || 0 }),
       executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid), turnEvents: turn?.events.length ?? null,
@@ -1878,7 +1879,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
     const turn = turns.get(req.params.id);
     if (turn) { // brand-new session: transcript file not written yet
       return res.json({
-        id: req.params.id, title: turn.userText?.slice(0, 120) || 'New session', cwd: turn.cwd, repo: isGitWorkspace(turn.cwd),
+        id: req.params.id, title: turn.userText?.slice(0, 120) || 'New conversation', cwd: turn.cwd, repo: isGitWorkspace(turn.cwd),
         state: stateFor({ id: req.params.id }), active: true, messages: turn.userText ? [{ role: 'user', text: turn.userText }] : [],
       });
     }
@@ -1901,7 +1902,7 @@ async function sessionResults(id) {
   if (isCx(id)) transcript = await codex.readCodexThread(codex.bareId(id), 4000);
   else {
     const file = await findSessionFile(id);
-    if (!file) throw Object.assign(new Error('Session not found'), {status:404});
+    if (!file) throw Object.assign(new Error('Conversation not found'), {status:404});
     transcript = await readTranscript(file, 4000);
   }
   const refs = collectResults(transcript.msgs);
@@ -1920,7 +1921,7 @@ function isGitWorkspace(cwd) {
   }
 }
 async function workspaceCwd(id) {
-  if(!anyId(id))throw Object.assign(new Error('Invalid session'),{status:400});
+  if(!anyId(id))throw Object.assign(new Error('Invalid conversation'),{status:400});
   if(isCx(id))return codex.codexTurns.get(codex.bareId(id))?.cwd || (await codex.codexThreadMeta(codex.bareId(id)))?.cwd;
   const file=await findSessionFile(id);
   return turns.get(id)?.cwd || (file ? (await sessionMeta(file,id))?.cwd : null);
@@ -1933,7 +1934,7 @@ async function sessionAgents(id) {
   const promise=(async()=>{
     if(isCx(id))return codex.readCodexAgents(codex.bareId(id));
     const file=await findSessionFile(id), runner=runners.get(id);
-    if(!file&&!runner)throw Object.assign(new Error('Session not found'),{status:404});
+    if(!file&&!runner)throw Object.assign(new Error('Conversation not found'),{status:404});
     const activity=new AgentActivity();let truncated=false;
     // Transcript history supplies terminal/editor sessions; the current runner log
     // adds task lifecycle events that Claude does not write to its transcript.
@@ -1952,7 +1953,7 @@ async function sessionAgents(id) {
 }
 app.get('/api/session/:id/agents',requireAuth,async(req,res)=>{
   res.set('Cache-Control','private, no-store');
-  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
   try{res.json(await sessionAgents(req.params.id));}
   catch(e){res.status(e.status||503).json({error:e.status?e.message:'Subagent activity could not be loaded. Try again.'});}
 });
@@ -1960,28 +1961,28 @@ app.get('/api/session/:id/agents',requireAuth,async(req,res)=>{
 app.get('/api/approval-policy',requireAuth,(_req,res)=>res.json({defaultMode:DEFAULT_APPROVAL_MODE,allowFullAccess:ALLOW_FULL_ACCESS}));
 app.get('/api/session/:id/approvals',requireAuth,(req,res)=>{
   res.set('Cache-Control','no-store');
-  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
   const turn=ownedTurn(req.params.id);
   res.json({requests:turn?.approvals?.list()||[],interrupted:Boolean(turn?.approvalUnavailable),activeMode:turn?.approvalMode||null,defaultMode:DEFAULT_APPROVAL_MODE,allowFullAccess:ALLOW_FULL_ACCESS});
 });
 app.post('/api/session/:id/approvals/:request/decision',requireAuth,async(req,res)=>{
   res.set('Cache-Control','no-store');
-  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
   const turn=ownedTurn(req.params.id);
   if(!turn?.approvals||turn.done||turn.finalized||turn.stopped)return res.status(409).json({error:'This action is no longer waiting. Refresh the conversation.'});
   try{res.json(await turn.approvals.decide(req.params.request,req.body.decision));}
-  catch(e){res.status(e.status||503).json({error:e.status?e.message:'The approval connection is unavailable. Stop this turn before trying again.'});}
+  catch(e){res.status(e.status||503).json({error:e.status?e.message:'The approval connection is unavailable. Stop this reply before trying again.'});}
 });
 
 app.get('/api/session/:id/questions',requireAuth,(req,res)=>{
   res.setHeader('Cache-Control','private, no-store');
-  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
   const turn=isCx(req.params.id)?codex.codexTurns.get(codex.bareId(req.params.id)):turns.get(req.params.id);
   res.json({supported:true,interrupted:Boolean(turn?.inputUnavailable),requests:turn?.questions?.list()||[]});
 });
 app.post('/api/session/:id/questions/:request/answer',requireAuth,(req,res)=>{
   const turn=isCx(req.params.id)?codex.codexTurns.get(codex.bareId(req.params.id)):turns.get(req.params.id);
-  if(!turn?.questions||turn.done)return res.status(409).json({error:'This question is no longer active. Refresh the session.'});
+  if(!turn?.questions||turn.done)return res.status(409).json({error:'This question is no longer active. Refresh the conversation.'});
   try{res.json(turn.questions.answer(req.params.request,req.body.answers));}
   catch(e){res.status(e.status||503).json({error:e.status?e.message:'Answer could not be confirmed. Refresh before trying again.'});}
 });
@@ -2022,16 +2023,16 @@ app.post('/api/session/:id/away', requireAuth, async (req, res) => {
   res.json(body);
 });
 app.get('/api/session/:id/results', requireAuth, async (req,res) => {
-  if(!anyId(req.params.id)) return res.status(400).json({error:'Invalid session'});
+  if(!anyId(req.params.id)) return res.status(400).json({error:'Invalid conversation'});
   try { res.json(await sessionResults(req.params.id)); }
   catch(e) { res.status(e.status || 503).json({error:e.status===404 ? e.message : 'Results could not be loaded. Try again.'}); }
 });
 app.get('/api/session/:id/artifact', requireAuth, async (req,res) => {
-  if(!anyId(req.params.id)) return res.status(400).json({error:'Invalid session'});
+  if(!anyId(req.params.id)) return res.status(400).json({error:'Invalid conversation'});
   const requested=String(req.query.path || '');
   try {
     const {results}=await sessionResults(req.params.id);
-    if(!results.some(r=>r.kind==='file'&&r.target===requested))return res.status(403).json({error:'This file is not a result referenced by the session.'});
+    if(!results.some(r=>r.kind==='file'&&r.target===requested))return res.status(403).json({error:'This file is not a result referenced by the conversation.'});
     const real=await fsp.realpath(requested);
     if(!real.startsWith(HOME+'/')||real.slice(HOME.length+1).split('/').some(p=>p.startsWith('.')))return res.status(403).json({error:'File is outside the supported report location.'});
     const stat=await fsp.stat(real);if(!stat.isFile())return res.status(404).end();
@@ -2056,7 +2057,7 @@ app.get('/api/usage', requireAuth, async (_req, res) => {
 // assistant usage line for sessions this daemon never ran a turn for.
 app.get('/api/session/:id/context', requireAuth, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid session' });
+  if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid conversation' });
   try {
     if (isCx(req.params.id)) return res.json({ ...(await codex.codexContextAndCache(codex.bareId(req.params.id))), serverNow: Date.now() });
     const file = await findSessionFile(req.params.id);
@@ -2201,7 +2202,7 @@ async function codexTurnFinished(id, turn, ev) {
   }
   if (!mutes.has(id)) {
     const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
-    pushNotify(id, meta?.title || 'Codex session', ev.ok ? 'Response ready' : 'Turn ended — tap to review').catch(() => {});
+    pushNotify(id, meta?.title || 'Codex conversation', ev.ok ? 'Ready' : 'Stopped. Tap to review').catch(() => {});
   }
 }
 async function runNextFollowup(id, cwd) {
@@ -2215,7 +2216,7 @@ async function runNextFollowup(id, cwd) {
 function ownedTurn(id){return isCx(id)?codex.codexTurns.get(codex.bareId(id)):turns.get(id);}
 function queueError(res,e){return res.status(e.status||503).json({error:e.status?e.message:'Queue could not be saved. Refresh and try again.'});}
 app.get('/api/session/:id/queue',requireAuth,(req,res)=>{
-  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid session'});
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
   const id=req.params.id;
   res.json({items:followups.list(id),active:Boolean(ownedTurn(id)),external:isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)});
 });
@@ -2228,8 +2229,8 @@ app.delete('/api/session/:id/queue/:item',requireAuth,(req,res)=>{
   try {followups.remove(req.params.id,req.params.item,req.body.revision);res.json({ok:true});}catch(e){queueError(res,e);}
 });
 app.post('/api/session/:id/queue/start',requireAuth,async(req,res)=>{
-  const id=req.params.id;if(!anyId(id))return res.status(400).json({error:'Invalid session'});
-  if(ownedTurn(id)|| (isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)))return res.status(409).json({error:'A turn is running or activity was seen elsewhere. Wait before starting queued work.'});
+  const id=req.params.id;if(!anyId(id))return res.status(400).json({error:'Invalid conversation'});
+  if(ownedTurn(id)|| (isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)))return res.status(409).json({error:'A reply is running or activity was seen elsewhere. Wait before starting queued work.'});
   if(followups.list(id)[0]?.id!==req.body.itemId)return res.status(409).json({error:'The queue changed. Refresh before starting the next message.'});
   try {const started=await runNextFollowup(id);res.json({ok:true,started:Boolean(started)});}catch(e){queueError(res,e);}
 });
@@ -2239,8 +2240,8 @@ app.post('/api/session/:id/queue/start',requireAuth,async(req,res)=>{
 // startCodexTurn has returned, so a closure can't reach a local binding yet.
 function codexHooks(id) {
   return {
-    auditApproval,onApproval:turn=>{const sid=id||(codex.CX+turn.threadId);const aid=turn.approvals.list().at(-1)?.id;if(aid&&turn.approvalNotified!==aid&&!mutes.has(sid)){turn.approvalNotified=aid;pushNotify(sid,'Action needs approval','Open Pocket Code to review the pending action.').catch(()=>{});}},
-    onQuestion:turn=>{const sid=id||(codex.CX+turn.threadId);const qid=turn.questions.list().at(-1)?.id;if(!mutes.has(sid)&&turn.questionNotified!==qid){turn.questionNotified=qid;pushNotify(sid,'Codex needs your answer','Open Pocket Code to answer the agent’s question.').catch(()=>{});}},
+    auditApproval,onApproval:turn=>{const sid=id||(codex.CX+turn.threadId);const aid=turn.approvals.list().at(-1)?.id;if(aid&&turn.approvalNotified!==aid&&!mutes.has(sid)){turn.approvalNotified=aid;pushNotify(sid,'Waiting for your OK','Open Pocket Code to review the pending action.').catch(()=>{});}},
+    onQuestion:turn=>{const sid=id||(codex.CX+turn.threadId);const qid=turn.questions.list().at(-1)?.id;if(!mutes.has(sid)&&turn.questionNotified!==qid){turn.questionNotified=qid;pushNotify(sid,'Codex has a question','Open Pocket Code to answer it.').catch(()=>{});}},
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
   };
 }
@@ -2274,15 +2275,15 @@ function secretGuard(req, res, next) {
 }
 app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const id = req.params.id;
-  if(!anyId(id))return res.status(400).json({error:'Invalid session'});
+  if(!anyId(id))return res.status(400).json({error:'Invalid conversation'});
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
   vaultAnswerFromMessage(id, text); // 1.41: "Allow zoho-books for this command" answers that session's pending Vault request
   const mode=req.body.mode || 'auto';
   if(!['auto','steer','queue'].includes(mode))return res.status(400).json({error:'Invalid delivery mode'});
-  if(mode==='steer'&&!ownedTurn(id))return res.status(409).json({error:'The turn has ended. Review the conversation, then send a new message.'});
+  if(mode==='steer'&&!ownedTurn(id))return res.status(409).json({error:'The reply has ended. Review the conversation, then send a new message.'});
   if(mode==='queue'&&!ownedTurn(id)){
-    if(isCx(id)?!await codex.codexThreadMeta(codex.bareId(id)):!await findSessionFile(id))return res.status(404).json({error:'Session not found'});
+    if(isCx(id)?!await codex.codexThreadMeta(codex.bareId(id)):!await findSessionFile(id))return res.status(404).json({error:'Conversation not found'});
     try{const item=followups.add(id,{text,...turnOpts(req.body)});return res.status(202).json({ok:true,queued:true,paused:true,itemId:item.id});}
     catch(e){return queueError(res,e);}
   }
@@ -2295,7 +2296,7 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
         log(`steered message into running codex turn thread=${tid}`);
         return res.status(202).json({ ok: true, steered: true });
       } } catch {return res.status(503).json({error:'Steering was not confirmed. Review the conversation before sending again.',code:'delivery_uncertain'});}
-      if(mode==='steer')return res.status(409).json({error:'This turn cannot accept steering now. Choose After this turn to queue it.'});
+      if(mode==='steer')return res.status(409).json({error:'This reply cannot accept steering now. Choose After this reply to queue it.'});
       try {const item=followups.add(id,{text,...opts});return res.status(202).json({ok:true,queued:true,itemId:item.id});}
       catch(e){return queueError(res,e);}
 
@@ -2313,7 +2314,7 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
   const cwd = meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME;
   let running = turns.get(id);
   if (running?.finalized) { await running.finalizeDone; running = turns.get(id); } // a turn that is just ending: send as the next turn, not a steer
-  if (!running && busyElsewhere(id)) return res.status(409).json({ error: 'This session is being used in another app right now (code-server or a terminal). Send again once that turn has finished.' });
+  if (!running && busyElsewhere(id)) return res.status(409).json({ error: 'This conversation is being used in another app right now (code-server or a terminal). Send again once that reply has finished.' });
   if (running) {
     const opts = turnOpts(req.body);
     // steer first: inject into the running turn (model sees it at the next boundary);
@@ -2323,7 +2324,7 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
       log(`steered message into running turn session=${id}`);
       return res.status(202).json({ ok: true, steered: true });
     }
-    if(mode==='steer')return res.status(409).json({error:'This turn cannot accept steering now. Choose After this turn to queue it.'});
+    if(mode==='steer')return res.status(409).json({error:'This reply cannot accept steering now. Choose After this reply to queue it.'});
     try {const item=followups.add(id,{text,...opts});return res.status(202).json({ok:true,queued:true,itemId:item.id});}
     catch(e){return queueError(res,e);}
 
@@ -2386,7 +2387,7 @@ app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secre
 app.post('/api/seen', requireAuth, (req, res) => {
   const ok = (id, at) => anyId(id) && Number.isFinite(at) && at >= 0 && at <= Date.now() + 86400000;
   const seen = Object.entries(req.body?.seen || {}), restore = Object.entries(req.body?.restore || {});
-  if (seen.length + restore.length > 500) return res.status(400).json({ error: 'too many sessions' });
+  if (seen.length + restore.length > 500) return res.status(400).json({ error: 'too many conversations' });
   let changed = 0;
   for (const [id, at] of seen) if (ok(id, at) && at > (smeta[id]?.seen || 0)) { smeta[id] = { ...smeta[id], seen: at }; changed++; }
   for (const [id, at] of restore) if (ok(id, at) && at !== (smeta[id]?.seen || 0)) {
@@ -2409,7 +2410,7 @@ app.post('/api/session/:id/pin', requireAuth, (req, res) => {
 // each gets its index. Ids that are not pinned are ignored; pins left out keep recency order after these.
 app.post('/api/pins/order', requireAuth, (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
-  if (!ids || ids.length > 200 || !ids.every(id => typeof id === 'string' && anyId(id))) return res.status(400).json({ error: 'ids: up to 200 session ids' });
+  if (!ids || ids.length > 200 || !ids.every(id => typeof id === 'string' && anyId(id))) return res.status(400).json({ error: 'ids: up to 200 conversation ids' });
   const order = [...new Set(ids)].filter(isPinned);
   order.forEach((id, i) => { smeta[id] = { ...smeta[id], pinOrder: i }; });
   if (order.length) saveSmeta();
@@ -2526,7 +2527,7 @@ app.post('/api/session/:id/mute', requireAuth, (req, res) => {
 // 409 while a turn (or a background job) is running unless the caller chose to stop it.
 app.post('/api/session/:id/release', requireAuth, (req, res) => {
   const id = req.params.id, stop = req.body?.stop === true;
-  if (!anyId(id)) return res.status(400).json({ error: 'Invalid session' });
+  if (!anyId(id)) return res.status(400).json({ error: 'Invalid conversation' });
   if (isCx(id)) {
     const tid = codex.bareId(id), cs = codex.codexSessions.get(tid);
     if (codex.codexTurns.get(tid)) {
@@ -2547,12 +2548,12 @@ app.post('/api/session/:id/release', requireAuth, (req, res) => {
 
 app.post('/api/session/:id/stop', requireAuth, (req, res) => {
   if (isCx(req.params.id)) {
-    if (!codex.stopCodexTurn(codex.bareId(req.params.id))) return res.status(404).json({ error: 'no running turn' });
+    if (!codex.stopCodexTurn(codex.bareId(req.params.id))) return res.status(404).json({ error: 'nothing is running' });
     log(`stop requested session=${req.params.id}`);
     return res.json({ ok: true });
   }
   const turn = turns.get(req.params.id);
-  if (!turn) return res.status(404).json({ error: 'no running turn' });
+  if (!turn) return res.status(404).json({ error: 'nothing is running' });
   turn.stopped = true;
   signalTurn(turn);
   log(`stop requested session=${req.params.id}`);
@@ -2744,7 +2745,7 @@ app.get('/api/start/:id', requireBoardAuth, (req, res) => {
 // A briefing on a session for a task created from it: the whole session so far, through the titles helper model.
 app.post('/api/tasks/summary', requireAuth, tasksOn, async (req, res) => {
   const id = String(req.body?.session || '');
-  if (!anyId(id)) return res.status(400).json({ error: 'Invalid session' });
+  if (!anyId(id)) return res.status(400).json({ error: 'Invalid conversation' });
   refreshTitleProviders();
   const provider = helperProvider();
   if (!provider) return res.json({ summary: null, reason: 'unavailable' });
@@ -3039,10 +3040,10 @@ const VISIBILITY_OK = v => ['private', 'link', 'public'].includes(v) ? v : 'priv
 // Keep as document from a session's Results: the path must be one of that session's file results.
 app.post('/api/documents/keep', requireAuth, docsOn, async (req, res) => {
   const id = String(req.body?.session || ''), requested = String(req.body?.path || '');
-  if (!anyId(id)) return res.status(400).json({ error: 'Invalid session' });
+  if (!anyId(id)) return res.status(400).json({ error: 'Invalid conversation' });
   try {
     const { results } = await sessionResults(id);
-    if (!results.some(r => r.kind === 'file' && r.target === requested)) return res.status(403).json({ error: 'This file is not a result referenced by the session.' });
+    if (!results.some(r => r.kind === 'file' && r.target === requested)) return res.status(403).json({ error: 'This file is not a result referenced by the conversation.' });
     const real = await documentSource(requested);
     const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: id, addedBy: 'session' });
     log(`document kept from session ${id}: ${d.id} ${d.file}`); res.json(d);
@@ -3171,7 +3172,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["New session uses the same message box as a conversation: model, reasoning and permissions chips above it; Attach, Choose a skill and Save as prompt beside it; the mic, the hands-free headset and the Send arrow on the right. Workspace and agent stay in Edit setup above. A hands-free start reads your instruction back, starts the session after a yes and keeps the conversation going in it."];
+const RELEASE_NOTES = ["Plain words: conversations instead of sessions, and each step in plain words (“Saved Proposal.pdf”, “Checked Gmail”) with the raw command or path beside it; Settings → Conversation → Describe steps in plain words turns it off. Approval cards ask a plain question, show the whole command or path, keep the full request behind Show details, and offer Don’t allow or Allow."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
@@ -3239,7 +3240,7 @@ app.post('/api/claude/stop-all',requireAuth,(req,res)=>{
   if (!req.is('application/json') || req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({error:'Open this control from Pocket Code.'});
   const expected=req.body?.expected;
   if (!Number.isSafeInteger(expected) || expected<0 || expected>1000) return res.status(400).json({error:'Refresh Claude activity and try again.'});
-  if (turns.size>expected) return res.status(409).json({error:'More Claude turns started since you confirmed. Review the new count before stopping them.',active:turns.size});
+  if (turns.size>expected) return res.status(409).json({error:'More Claude replies started since you confirmed. Review the new count before stopping them.',active:turns.size});
   let stopping=0;
   for (const [id,turn] of turns) {
     if (turn.stopped || turn.finalized) continue;

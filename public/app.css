@@ -139,6 +139,19 @@ body.has-panes .fab { position: absolute; }
 .ledgerwrap > summary .tc-last { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ledgerwrap > summary .tc-last::before { content: '·'; margin: 0 6px 0 0; color: var(--faint); }
 .ledgerlist { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 2px 14px; }
+/* 1.59 plain steps: the step reads in the UI font ("Saved Proposal.pdf"); the raw call stays beside it in the ledger
+   font when it adds something (a full path, a command). html.raw-steps (Settings > Describe steps in plain words off)
+   brings back the pre-1.59 tool name and detail. */
+.ledger.step .say { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px; color: var(--dim); flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger.step .name { display: none; }
+.ledger.step .det { font-size: 12px; color: var(--faint); min-width: 0; }
+.ledger.step.same .det { display: none; }
+html.raw-steps .ledger.step .say { display: none; }
+html.raw-steps .ledger.step .name { display: inline; }
+html.raw-steps .ledger.step.same .det { display: inline; }
+html.raw-steps .ledger.step .det { font-size: inherit; color: inherit; }
+html:not(.raw-steps) .ledgerwrap > summary { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px; }
+.ledgerwrap > summary .tc-raw { font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; font-size: 12px; color: var(--faint); margin-left: 8px; }
 
 /* Reply suggestions (1.11): your-side material (clay-deep, like your own messages) so a tap reads as "send this". */
 .choices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0 2px; }
@@ -200,7 +213,7 @@ details.todo li.t-in_progress .tbox { border-color: var(--clay); background: var
 .findbar .fcount { flex: none; min-width: 46px; text-align: right; font-size: 12.5px; color: var(--faint);
   font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; }
 .findbar button.icon { padding: 6px; color: var(--dim); }
-mark.fmark { background: color-mix(in srgb, var(--clay) 28%, transparent); color: inherit; border-radius: 3px; }
+mark.fmark { background: color-mix(in srgb, var(--clay) 28%, transparent); color: var(--text); border-radius: 3px; } /* 1.59: full text colour, so a match in dim snippet text still passes AA */
 mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
 
 /* ---------- composer ---------- */
@@ -639,6 +652,11 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .approval-card { padding-block:20px;border-bottom:1px solid var(--line); }
 .approval-card:last-child { border-bottom:0; }
 .approval-card h3 { font-size:18px;line-height:1.4;overflow-wrap:anywhere; }
+.approval-where { color:var(--dim);font-size:15px;margin-top:6px;overflow-wrap:anywhere; }
+.approval-card pre.approval-what { max-height:30dvh; }
+.approval-more { margin-top:10px; }
+.approval-more > summary { cursor:pointer;color:var(--dim);font-size:15px;min-height:44px;display:flex;align-items:center; }
+.approval-more > summary:hover { color:var(--text); }
 .approval-card pre { max-height:40dvh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.6 ui-monospace,monospace;background:var(--bg);padding:12px;margin-block:12px;border-radius:8px; }
 .approval-actions { display:flex;flex-wrap:wrap;justify-content:flex-end;gap:12px;margin-top:12px; }
 .approval-allow { color:var(--text);background:var(--clay-deep); }

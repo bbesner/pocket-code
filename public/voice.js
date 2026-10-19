@@ -14,7 +14,7 @@ const Voice = (() => {
   const PREF_KEY = 'pc-voice';
   const DEFAULTS = { speak: true, review: false, replyWait: 120, alerts: 'off', voice: 'af_heart', vocab: '', replyLength: 'normal', mute: false };
   const LENGTH_CHOICES = [['brief', 'Brief: one sentence'], ['normal', 'Normal: about two sentences'], ['detailed', 'Detailed: the whole reply']];
-  const ALERT_CHOICES = [['off', 'Off'], ['name', 'Session name only'], ['summary', 'Name and a one-line summary']];
+  const ALERT_CHOICES = [['off', 'Off'], ['name', 'Conversation name only'], ['summary', 'Name and a one-line summary']];
   // A tap means you're about to speak, so silence ends it after 10 s. After a spoken reply (hands-free) the mic
   // waits replyWait seconds, so there is time to read the rest of the reply first. MAX_MS limits one utterance.
   const HOLD_MS = 350, END_SILENCE_MS = 1100, NO_SPEECH_MS = 10000, MAX_MS = 60000;
@@ -263,7 +263,7 @@ const Voice = (() => {
     const left = r.waitMs - (Date.now() - r.startedAt);
     if (r.handsFree && inHandsFree(r.session) && (!text || VoiceText.isNoise(text, pcm.length / 16000)) && left > 2000 && r.session === target()) return start('auto', { waitMs: left, reopened: r.reopened });
     if (!text) { if (r.handsFree) handsFree = null; say(r.handsFree ? 'I didn’t catch that. Hands-free is off.' : 'I didn’t catch that.'); return; }
-    if (r.session !== target()) { handsFree = null; say('You switched sessions, so that wasn’t sent.'); return; }
+    if (r.session !== target()) { handsFree = null; say('You switched conversations, so that wasn’t sent.'); return; }
     await handle(text);
   }
   const replyLength = () => LENGTH_CHOICES.some(([v]) => v === prefs().replyLength) ? prefs().replyLength : DEFAULTS.replyLength;
@@ -314,12 +314,12 @@ const Voice = (() => {
   async function sendPending() {
     const p = pendingSend; if (!p) return;
     pendingSend = null;
-    if (p.id !== target()) { say('You switched sessions, so that wasn’t sent.'); return; }
+    if (p.id !== target()) { say('You switched conversations, so that wasn’t sent.'); return; }
     if (heldAsSecret(p.text)) { say('That sounded like a password or key, so it was not sent. Choose what to do in the sheet.', 8000); await send(p.text); return; }
     say(`${boundSend ? 'Starting' : 'Sent'}: “${p.text}”`, 5000);
     if (prefs().speak || inHandsFree(p.id)) arm(p.id);
     // New session reports false when nothing started (no workspace, held as a secret): there is no reply to wait for.
-    if (await send(p.text) === false && inHandsFree(p.id)) { handsFree = null; armed.delete(p.id); say('The session did not start. Hands-free is off.', 8000); }
+    if (await send(p.text) === false && inHandsFree(p.id)) { handsFree = null; armed.delete(p.id); say('The conversation did not start. Hands-free is off.', 8000); }
   }
   function editPending() {
     const p = pendingSend; if (!p) return;
@@ -337,7 +337,7 @@ const Voice = (() => {
     if (kind === 'mute') { setMuted(true); return; }
     if (kind === 'unmute') { setMuted(false); return speak('Voice is back on.'); }
     if (kind === 'stop') {
-      if (!composerWorking) return speak('Nothing is running in this session.');
+      if (!composerWorking) return speak('Nothing is running in this conversation.');
       armed.delete(id);
       try { await api(`/session/${id}/stop`, { method: 'POST', body: '{}' }); return speak('Stopped.'); }
       catch (e) { return speak('I couldn’t stop it. ' + (e.message || '')); }
@@ -356,10 +356,10 @@ const Voice = (() => {
       return speak(kind === 'readAll' ? VoiceText.full(md) : VoiceText.reply(md, replyLength()));
     }
     if (kind === 'waiting') {
-      const here = [!document.getElementById('approvals-open')?.hidden && 'this session needs an approval', !document.getElementById('questions-open')?.hidden && 'this session has a question'].filter(Boolean);
-      const others = (allSessions || []).filter(s => s.id !== id && needsAttention(s)).map(s => s.title || 'an untitled session').slice(0, 4);
+      const here = [!document.getElementById('approvals-open')?.hidden && 'this conversation needs an approval', !document.getElementById('questions-open')?.hidden && 'this conversation has a question'].filter(Boolean);
+      const others = (allSessions || []).filter(s => s.id !== id && needsAttention(s)).map(s => s.title || 'an untitled conversation').slice(0, 4);
       if (!here.length && !others.length) return speak('Nothing is waiting on you.');
-      return speak([here.length ? cap(here.join(' and ')) + '.' : '', others.length ? `${others.length === 1 ? 'One other session needs you' : `${others.length} other sessions need you`}: ${others.join(', ')}.` : ''].join(' ').trim());
+      return speak([here.length ? cap(here.join(' and ')) + '.' : '', others.length ? `${others.length === 1 ? 'One other conversation needs you' : `${others.length} other conversations need you`}: ${others.join(', ')}.` : ''].join(' ').trim());
     }
   }
   const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
@@ -424,7 +424,7 @@ const Voice = (() => {
     if (id !== chatId || (!prefs().speak && !conv)) return;
     spokenTurnEnd.set(id, Date.now());                         // its spoken reply stands in for the alert
     const md = lastReply.get(id) || replyText(id);
-    const line = ok === false ? 'The turn didn’t finish. Details are on screen.' : md ? VoiceText.reply(md, replyLength()) : 'It finished.';
+    const line = ok === false ? 'It didn’t finish. Details are on screen.' : md ? VoiceText.reply(md, replyLength()) : 'It finished.';
     speakOut(line, { listenAfter: conv });                     // only a hands-free conversation listens after a reply
   }
   /* ---------- spoken alerts: any session finishing or needing you, while Pocket is open ---------- */
@@ -518,12 +518,12 @@ const Voice = (() => {
       <div class="voice-settings">
         <p id="s-voice-state" role="status">Checking voice on the server…</p>
         ${toggle('s-voice-mute', p.mute, 'Mute voice on this device', 'Nothing is spoken here: replies, announcements, approval prompts. The settings below are kept for when you unmute. Also in the composer, or say “mute”')}
-        ${toggle('s-voice-speak', p.speak, 'Speak replies', 'Read the reply aloud when a turn you started by voice finishes')}
+        ${toggle('s-voice-speak', p.speak, 'Speak replies', 'Read the reply aloud when a reply you asked for by voice finishes')}
         <label class="voice-field">Spoken reply length<select id="s-voice-length">${LENGTH_CHOICES.map(([v, l]) => `<option value="${v}"${replyLength() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <p class="sub">Applies to replies and “read it”. Detailed skips code, tables and links, and stops after about three minutes. Say “read it all” for the whole reply at any length.</p>
         ${toggle('s-voice-review', p.review, 'Review before sending', 'Put what you said in the message box instead of sending it')}
-        <label class="voice-field">Announce sessions<select id="s-voice-alerts">${ALERT_CHOICES.map(([v, l]) => `<option value="${v}"${p.alerts === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-        <p class="sub">Says when any session finishes or needs you, while Pocket is open, in place of the chime. Muted sessions stay quiet.</p>
+        <label class="voice-field">Announce conversations<select id="s-voice-alerts">${ALERT_CHOICES.map(([v, l]) => `<option value="${v}"${p.alerts === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+        <p class="sub">Says when any conversation finishes or needs you, while Pocket is open, in place of the chime. Muted conversations stay quiet.</p>
         <label class="voice-field">Hands-free: wait for my reply<select id="s-voice-wait">${WAIT_CHOICES.map(([v, l]) => `<option value="${v}"${Number(p.replyWait) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="voice-field">Voice<select id="s-voice-voice"></select></label>
         <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, TechPro, Zoho" value="${esc(p.vocab)}"></label>

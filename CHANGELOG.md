@@ -3,6 +3,15 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.59.0] — 2026-10-19 · build 120
+
+- **Plain words.** Pocket says *conversation* instead of *session* and *reply* instead of *turn* everywhere you read it: the list, New conversation, the message box ("Reply…"), tabs, tips, notifications and spoken replies. Ids, routes, settings keys and the CLI commands are unchanged.
+- **Steps in plain words.** Each tool call reads as a step a person can follow: "Saved Proposal.pdf", "Checked Gmail", "Searched the web for “HOA grants”", "Started a helper: …", with the raw call (the full path or command) beside it in the ledger font when it adds something. A run of steps folds to "3 steps · Saved Proposal.pdf". Connectors are named by service and verb (Gmail, Google Calendar, Drive, past conversations for MemStem, the browser). **Settings → Conversation → Describe steps in plain words** (this device, on by default) turns it off and shows the tool name and detail as before.
+- **Clearer approval cards.** A request reads as a question ("Save Proposal.pdf?", "Run: Convert the deck to PDF?", "Make a Gmail draft?"), shows the whole command, path or address it acts on, and keeps the full request behind **Show details**. The buttons are **Don't allow** and **Allow**. The banner and the working label say "Waiting for your OK". Nothing about what is asked, auto-allowed or audited changed.
+- **Notifications** say "Ready · $0.07 · 14s", "Something went wrong. Tap to see what happened", "Stopped" and "Usage limit reached. Picks up again at …".
+- Migration: none.
+- Tests: `test/phrases.test.mjs` (steps for files, commands, web, skills, helpers and connectors in Claude and Codex name forms; questions; the command under an approval is never clipped; odd input never throws). Browser and unit expectations updated for the new words.
+
 ## [1.58.0] — 2026-10-17 · build 119
 
 - **New session has the conversation's message box.** Starting a session had a large text area, a row of chips and a Start button, with model, reasoning and permissions hidden inside Edit setup, and no mic or hands-free. It now uses the same composer as an open conversation, at the bottom of the screen: the model, reasoning, permissions (and Codex mode) chips above the box, scrolling sideways with the same arrows; Attach, the settings toggle, **Choose a skill** and **Save as prompt** beside it; the mic, the hands-free headset and the Send arrow on the right. Enter starts the session on a desktop, Shift+Enter adds a line, as in a conversation. The task heading, saved prompts, Recent and the Workspace · Agent · Permissions setup card stay above; Edit setup now holds the agent, the project and a custom path. A missing workspace or task, an unconfirmed start (with **Retry start** and **Discard retry**) and a linked project show where they did.

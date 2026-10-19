@@ -32,18 +32,27 @@ function chooseApprovalMode(key=tb?.key){
  if(approvalPolicy.allowFullAccess)choices.push(['full','Full access','Run tools without routine permission prompts, using this server’s account access.']);
  sheet('Permissions for the next turn',choices,nextApprovalMode(prefs),mode=>{prefs.approvalMode=mode;prefs.approvalModeSource='user';setPrefs(key,prefs);if(tb?.key===key){tb.prefs=prefs;renderToolbar();}});
 }
+// 1.59: a request in plain words. Claude requests carry {tool,input}; Codex ones keep their own titles, which are
+// already questions ("Run this command?"), with the command or the changed files shown under them.
+function approvalPlain(r){
+ let d=null;try{d=JSON.parse(r.details);}catch{}
+ if(r.kind==='tool'&&d&&typeof d.tool==='string'&&window.PocketPhrase)return {title:PocketPhrase.ask(d.tool,d.input),where:PocketPhrase.where(d.tool,d.input)};
+ if(r.kind==='command'&&d?.command)return {title:r.title,where:{mono:Array.isArray(d.command)?d.command.join(' '):String(d.command)}};
+ if(r.kind==='fileChange'&&Array.isArray(d?.changes)&&d.changes.length){const paths=d.changes.map(c=>c?.path).filter(Boolean);if(paths.length)return {title:r.title,where:{text:paths.length===1?'1 file':paths.length+' files',mono:paths.join('\n')}};}
+ return {title:r.title,where:null};
+}
 async function refreshApprovals(id){
  try{
   const d=await api('/session/'+encodeURIComponent(id)+'/approvals');if(chatId!==id)return;
   const b=$('#approvals-open');if(!b)return;
   b.hidden=!d.interrupted&&!d.requests.length;
-  b.textContent=d.interrupted?'Approval connection interrupted · Review':d.requests.some(r=>r.status==='uncertain')?'Approval delivery uncertain · Review':d.requests.length+' action'+(d.requests.length===1?' needs':'s need')+' approval · Review';
-  const label=$('#work-label');if(label)label.textContent=!b.hidden?'Waiting for approval':'Working';
+  b.textContent=d.interrupted?'Approval connection interrupted · Review':d.requests.some(r=>r.status==='uncertain')?'Approval delivery uncertain · Review':d.requests.length===1?'Waiting for your OK · Review':d.requests.length+' requests waiting for your OK · Review';
+  const label=$('#work-label');if(label)label.textContent=!b.hidden?'Waiting for your OK':'Working';
  }catch{if(chatId===id&&$('#approvals-open')){$('#approvals-open').hidden=false;$('#approvals-open').textContent='Approval status unavailable · Retry';}}
 }
 async function openApprovals(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet approvals-sheet';
- sh.innerHTML='<h2>Action approvals</h2><p class="sheet-help">Review the full action, then allow or deny it.</p><button class="chip" data-refresh-approvals>Refresh</button><div data-approval-list role="status">Loading…</div>';
+ sh.innerHTML='<h2>Waiting for your OK</h2><p class="sheet-help">Check what it wants to do, then allow it or not.</p><button class="chip" data-refresh-approvals>Refresh</button><div data-approval-list role="status">Loading…</div>';
  mountSheet(scrim,sh);
  const load=async()=>{
   const list=sh.querySelector('[data-approval-list]');
@@ -57,9 +66,12 @@ async function openApprovals(id){
    list.replaceChildren();
    for(const r of d.requests){
     const card=document.createElement('section');card.className='approval-card';
-    const scope=r.kind==='permissions'?'This grants the listed access for the rest of this turn. Later actions within that access may run without another prompt.':r.kind==='network'?'This can release multiple pending requests to the displayed network destination.':'Allow applies to this pending request only.';
-    const unavailable=r.status!=='pending';
-    card.innerHTML=`<h3>${esc(r.title)}</h3><p class="sheet-help">${esc(scope)}</p><pre tabindex="0" aria-label="Full action details">${esc(r.details)}</pre>${!r.canAllow?'<p class="approval-error">A complete, supported action preview is unavailable. Deny this request and ask for a different action.</p>':''}<p class="approval-outcome" role="status">${unavailable?'Decision sent or uncertain. Refresh and review the conversation before continuing.':''}</p><div class="approval-actions"><button class="chip" data-decision="deny" ${unavailable?'disabled':''}>Deny</button><button class="chip approval-allow" data-decision="allow" ${unavailable||!r.canAllow?'disabled':''}>${r.kind==='permissions'?'Allow for this turn':r.kind==='network'?'Allow network access':'Allow once'}</button></div>`;
+    const scope=r.kind==='permissions'?'This grants the listed access for the rest of this turn. Later actions within that access may run without another prompt.':r.kind==='network'?'This can release multiple pending requests to the displayed network destination.':'Allow applies to this request only.';
+    const unavailable=r.status!=='pending',plain=approvalPlain(r);
+    // 1.59: the request as a plain question, the whole command or path it acts on, then the full request behind
+    // Show details. Broad grants (permissions, network) keep their scope line in view; a request Pocket can't
+    // summarise shows its details open.
+    card.innerHTML=`<h3>${esc(plain.title)}</h3>${plain.where?.text?`<p class="approval-where">${esc(plain.where.text)}</p>`:''}${plain.where?.mono?`<pre class="approval-what" tabindex="0" aria-label="What it runs or changes">${esc(plain.where.mono)}</pre>`:''}${r.kind==='permissions'||r.kind==='network'?`<p class="sheet-help">${esc(scope)}</p>`:''}<details class="approval-more"${plain.where?'':' open'}><summary>Show details</summary>${r.kind==='permissions'||r.kind==='network'?'':`<p class="sheet-help">${esc(scope)}</p>`}<pre tabindex="0" aria-label="Full action details">${esc(r.details)}</pre></details>${!r.canAllow?'<p class="approval-error">A complete, supported action preview is unavailable. Deny this request and ask for a different action.</p>':''}<p class="approval-outcome" role="status">${unavailable?'Decision sent or uncertain. Refresh and review the conversation before continuing.':''}</p><div class="approval-actions"><button class="chip" data-decision="deny" ${unavailable?'disabled':''}>Don’t allow</button><button class="chip approval-allow" data-decision="allow" ${unavailable||!r.canAllow?'disabled':''}>${r.kind==='permissions'?'Allow for this turn':r.kind==='network'?'Allow network access':'Allow'}</button></div>`;
     card.querySelectorAll('[data-decision]').forEach(button=>button.onclick=async()=>{
      const outcome=card.querySelector('.approval-outcome'),decision=button.dataset.decision;
      card.querySelectorAll('button').forEach(b=>b.disabled=true);outcome.textContent='Sending decision…';

@@ -47,7 +47,7 @@ async function renderTasks(view){
  Voice.onLeave?.();
  taskView=view;if(typeof boardView!=='undefined')boardView=null;if(typeof docView!=='undefined')docView=null;
  const col=`<header class="bar">
-   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
+   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the conversation list">${IC.panel}</button>`}
    <h1><span class="one" id="ktitle">Tasks</span><span class="tag" id="ktag">To do, due first</span></h1>
    ${SOLO?'':`<button class="icon" id="kwin" aria-label="Open in a new window" title="Open in a new window">${IC.external}</button>`}
    ${PANE||SOLO?'':`<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
@@ -100,9 +100,9 @@ function taskListHTML(){
  const open=tasksSnap.tasks.filter(t=>!t.done),done=tasksSnap.tasks.filter(t=>t.done),rems=dueReminders(),due=dueTotal(),count=open.length+rems.length;
  const withProjects=typeof projectsOn==='function'&&projectsOn();
  return `<div class="session-home-head"><h2>Tasks</h2><span class="project-head-actions"><button class="chip" id="tk-add">${IC.plus}Add task</button></span></div>
-  ${count||done.length?`${count?`<section class="session-group project-group"><h2>To do <span>${count}${due?` · ${due} due`:''}</span></h2>${openRows().join('')}</section>`:'<p class="sheet-help project-empty">Nothing to do. Add a task here, or from a session with Add task.</p>'}
+  ${count||done.length?`${count?`<section class="session-group project-group"><h2>To do <span>${count}${due?` · ${due} due`:''}</span></h2>${openRows().join('')}</section>`:'<p class="sheet-help project-empty">Nothing to do. Add a task here, or from a conversation with Add task.</p>'}
    ${done.length?`<details class="session-group project-group settings-details"><summary><h2>Done <span>${done.length}</span></h2></summary>${done.map(taskRowHTML).join('')}</details>`:''}`
-  :`<p class="sheet-help project-empty">No tasks yet. Add one here, from a session's Add task chip, or by telling an agent "create a task to …". A task can carry a date and the context of the session it came from, and Start opens a new session with it.${withProjects?' Project reminders appear here too, when a project has one.':''}</p>`}`;
+  :`<p class="sheet-help project-empty">No tasks yet. Add one here, from a conversation's Add task chip, or by telling an agent "create a task to …". A task can carry a date and the context of the conversation it came from, and Start opens a new conversation with it.${withProjects?' Project reminders appear here too, when a project has one.':''}</p>`}`;
 }
 function bindTaskRows(root){
  root.querySelectorAll('[data-task-check]').forEach(b=>b.onclick=()=>{const t=taskById(b.dataset.taskCheck);if(t)taskAct({action:'update',task:t.id,expected_revision:t.revision,done:!t.done},t.done?'Task reopened':'Task done');});
@@ -121,8 +121,8 @@ function taskSheet(id){
  const facts=[t.dueAt?`<span class="${t.due?'due-label':''}">${esc(taskWhen(t))}</span>`:'<span>No date</span>',t.session?`<span>From ${esc(t.sessionTitle||sessionName(t.session))}</span>`:'',t.directory?`<span>${esc(projName(t.directory))}</span>`:'',`<span>Added ${esc(rel(Date.parse(t.created)))}${t.by==='cli'?' by an agent':''}${t.done?' · Done '+esc(rel(Date.parse(t.doneAt))):''}</span>`].filter(Boolean).join('');
  sh.innerHTML=`<h2>Task</h2><p class="task-text">${esc(t.text)}</p><div class="task-facts">${facts}</div>
   ${t.summary?`<div class="task-summary"><h3>Context</h3>${esc(t.summary)}</div>`:''}
-  ${t.done?'':`<button class="opt" data-start>${IC.plus}<span>Start<span class="sub">A new session with this task as its first message, ready to send</span></span></button>`}
-  ${t.session?`<button class="opt" data-session>${IC.term}<span>Open the session<span class="sub">${esc(t.sessionTitle||sessionName(t.session))}</span></span></button>`:''}
+  ${t.done?'':`<button class="opt" data-start>${IC.plus}<span>Start<span class="sub">A new conversation with this task as its first message, ready to send</span></span></button>`}
+  ${t.session?`<button class="opt" data-session>${IC.term}<span>Open the conversation<span class="sub">${esc(t.sessionTitle||sessionName(t.session))}</span></span></button>`:''}
   <button class="opt" data-done>${t.done?IC.swap:IC.tick}<span>${t.done?'Reopen':'Mark done'}</span></button>
   ${t.done||!t.dueAt?'':`<button class="opt" data-later>${IC.hourglass}<span>Remind later<span class="sub">Pick a new time; it is announced again then</span></span></button>`}
   <button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Text, date and context</span></span></button>
@@ -151,7 +151,7 @@ function taskLaterSheet(t){
 // Start: a New session in the task's workspace with the task as the draft, so one tap of Send begins the work.
 function startTask(t){
  const lines=[t.text];
- if(t.summary)lines.push('','Context from the earlier session:',t.summary);
+ if(t.summary)lines.push('','Context from the earlier conversation:',t.summary);
  lines.push('',`(Pocket task ${t.id}. When it is finished, mark it done with pocket-tasks done ${t.id}.)`);
  saveDraft(NEW_KEY,lines.join('\n'));
  try{localStorage.removeItem('pc-new-start');if(t.directory)localStorage.setItem('pc-lastproj',t.directory);if(t.session)localStorage.setItem('pc-provider',t.session.startsWith('cx:')?'codex':'claude');}catch{}
@@ -162,11 +162,11 @@ function taskEditor(t,{session=null,sessionTitle='',directory=''}={}){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
  const local=iso=>{if(!iso)return '';const d=new Date(iso);const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;};
  const fromSession=!t&&session;
- sh.innerHTML=`<h2>${t?'Edit task':'New task'}</h2>${fromSession?`<p class="sheet-name">${esc(sessionTitle||'This session')}</p>`:''}
+ sh.innerHTML=`<h2>${t?'Edit task':'New task'}</h2>${fromSession?`<p class="sheet-name">${esc(sessionTitle||'This conversation')}</p>`:''}
   <form class="project-form task-form">
    <label class="voice-field">Task<textarea name="text" maxlength="600" rows="2" required placeholder="What needs doing">${esc(t?.text||'')}</textarea></label>
    <div class="task-due-row"><label class="voice-field">Date and time (optional)<input type="datetime-local" name="when" value="${esc(local(t?.dueAt))}"></label><button class="chip" type="button" data-clear-when>No date</button></div>
-   ${fromSession?`<button type="button" class="opt" data-summarize aria-pressed="true"><span class="dot on"></span><span>Include a summary of this session<span class="sub">A few lines on what this session is doing, written by the titles helper, kept with the task</span></span></button><p class="task-writing" role="status" hidden>Writing the summary…</p>`
+   ${fromSession?`<button type="button" class="opt" data-summarize aria-pressed="true"><span class="dot on"></span><span>Include a summary of this conversation<span class="sub">A few lines on what this conversation is doing, written by the titles helper, kept with the task</span></span></button><p class="task-writing" role="status" hidden>Writing the summary…</p>`
     :t?`<label class="voice-field">Context<textarea name="summary" maxlength="2000" rows="4" placeholder="What someone picking this up later needs to know">${esc(t.summary||'')}</textarea></label>`:''}
    <button class="primary" type="submit">${t?'Save changes':'Add task'}</button>
   </form>`;
@@ -182,7 +182,7 @@ function taskEditor(t,{session=null,sessionTitle='',directory=''}={}){
   let summary=t?form.elements.summary?.value.trim()||'':'';
   if(fromSession&&sum?.getAttribute('aria-pressed')==='true'){
    const note=sh.querySelector('.task-writing');note.hidden=false;
-   try{const r=await api('/tasks/summary',{method:'POST',body:JSON.stringify({session,text}),signal:AbortSignal.timeout(100000)});summary=r.summary||'';if(!summary)toast(r.reason==='short'?'The session is too short to summarize; task added without context.':'No summary could be written; task added without context.');}
+   try{const r=await api('/tasks/summary',{method:'POST',body:JSON.stringify({session,text}),signal:AbortSignal.timeout(100000)});summary=r.summary||'';if(!summary)toast(r.reason==='short'?'The conversation is too short to summarize; task added without context.':'No summary could be written; task added without context.');}
    catch{toast('No summary could be written; task added without context.');}
    note.hidden=true;
   }
@@ -203,7 +203,7 @@ function paintChatTask(){
  if(!tasksOn()||!chatId){b.hidden=true;return;}
  b.hidden=false;
  b.innerHTML=b.classList.contains('icon')?IC.task:IC.task+'<span>Add task</span>';
- b.setAttribute('aria-label','Add a task from this session');b.title='Add a task: a to-do with an optional date, kept with this session';
+ b.setAttribute('aria-label','Add a task from this conversation');b.title='Add a task: a to-do with an optional date, kept with this conversation';
  b.onclick=()=>addTaskFromSession((typeof chatSessionRow!=='undefined'&&chatSessionRow)||allSessions.find(r=>r.id===chatId)||{id:chatId,title:chatTitle,cwd:''});
 }
 

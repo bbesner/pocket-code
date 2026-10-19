@@ -144,7 +144,7 @@ test('HTTP: the managed policy and POCKET_CLAUDE_MODELS shape the picker, Settin
   const b=await s.call(`/session/${a.body.id}/message`,{text:'Blocked pick',model:'claude-opus-5-5[1m]',clientMessageId:randomUUID()});
   assert.equal(b.status,202);
   assert.deepEqual([b.body.modelFallback.requested,b.body.modelFallback.reason,b.body.modelFallback.used],['claude-opus-5-5[1m]','policy','default']);
-  assert.equal(b.body.modelFallback.message,"Opus 5.5 is blocked by this computer's Claude Code policy, so this turn uses the default model (Sonnet 5.5).");
+  assert.equal(b.body.modelFallback.message,"Opus 5.5 is blocked by this computer's Claude Code policy, so this reply uses the default model (Sonnet 5.5).");
   await s.waitCalls(2);
   const c=await s.call('/new',{cwd:repo,text:'Unoffered pick',model:'claude-haiku-5-5',clientMessageId:randomUUID()});
   assert.equal(c.body.modelFallback.reason,'not-offered');assert.match(c.body.modelFallback.message,/Haiku 5\.5 is not offered in Settings/);

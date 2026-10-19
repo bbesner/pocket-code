@@ -44,7 +44,7 @@ async function renderProjects(view){
  boardView=view;if(typeof docView!=='undefined')docView=null;
  const kind=view==='projects'?'list':view==='projects/scheduled'?'scheduled':'card';
  const col=`<header class="bar">
-   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
+   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the conversation list">${IC.panel}</button>`}
    <h1><span class="one" id="ptitle">${esc(viewTitle(view))}</span><span class="tag" id="ptag">${kind==='list'?'Tracked work':kind==='scheduled'?'Reminders, due first':'Project'}</span></h1>
    ${kind==='card'?`<button class="icon" id="pmore" aria-label="Project options">${IC.more}</button>`:''}
    ${SOLO?'':`<button class="icon" id="pwin" aria-label="Open in a new window" title="Open in a new window">${IC.external}</button>`}
@@ -83,7 +83,7 @@ function paintProjectsView(){
  if(typeof paintOpenSessions==='function')paintOpenSessions();
 }
 const sessionMarkHTML=id=>{const st=typeof tabState==='function'?tabState(id):null;return st?`<span class="tab-state ${st.kind==='running'?'ember':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:'';};
-const sessionName=id=>(typeof allSessions!=='undefined'&&allSessions.find(s=>s.id===id)?.title)||(typeof openSessions!=='undefined'&&openSessions.find(s=>s.id===id)?.title)||'Session '+id.replace(/^cx:/,'').slice(0,8);
+const sessionName=id=>(typeof allSessions!=='undefined'&&allSessions.find(s=>s.id===id)?.title)||(typeof openSessions!=='undefined'&&openSessions.find(s=>s.id===id)?.title)||'Conversation '+id.replace(/^cx:/,'').slice(0,8);
 function projectRowHTML(p){
  const due=p.dueCount?`<span class="due-label">${p.dueCount===1?'Reminder due':p.dueCount+' reminders due'}</span>`:p.reminders[0]?`<span>Reminder ${esc(fmtDue(p.reminders[0].dueAt))}</span>`:'';
  const steps=p.openTasks?`<span>${p.openTasks} open step${p.openTasks===1?'':'s'}</span>`:'';
@@ -101,7 +101,7 @@ function projectListHTML(){
   ?`<details class="session-group project-group settings-details"><summary><h2>${label} <span>${rows.length}</span></h2></summary>${rows.map(projectRowHTML).join('')}</details>`
   :`<section class="session-group project-group"><h2>${label} <span>${rows.length}</span></h2>${rows.map(projectRowHTML).join('')}</section>`).join('');
  return `<div class="session-home-head"><h2>Projects</h2><span class="project-head-actions"><a class="chip ${due?'due':''}" href="${viewHref(dueListView())}" data-view-link>${dueListView()==='tasks'?'Reminders':'Scheduled'}${due?' · '+due+' due':''}</a><button class="chip" id="pj-track">Track a project</button></span></div>
-  ${boardSnap.projects.length?body:`<p class="sheet-help project-empty">No tracked projects yet. Track one here, or from a session's options, when there is work you want to keep a card for. Agents can keep a card current with <code>pocket-board</code>.</p>`}`;
+  ${boardSnap.projects.length?body:`<p class="sheet-help project-empty">No tracked projects yet. Track one here, or from a conversation's options, when there is work you want to keep a card for. Agents can keep a card current with <code>pocket-board</code>.</p>`}`;
 }
 function scheduledHTML(){
  const rows=boardSnap.scheduled;
@@ -126,13 +126,13 @@ function projectCardHTML(p){
    ${p.tasks.length?`<ul class="task-list">${p.tasks.map(t=>{const rem=p.reminders.find(r=>r.task===t.id);return `<li class="task-row ${t.done?'completed':''}"><label class="task-label"><input type="checkbox" data-task="${esc(t.id)}" ${t.done?'checked':''} ${done?'disabled':''}><span>${esc(t.text)}</span></label>${rem?`<small class="task-meta ${rem.due?'due-label':''}">${rem.due?'Due':'Reminder'} ${esc(fmtDue(rem.dueAt))}</small>`:''}${done?'':`<button class="icon task-more" data-task-more="${esc(t.id)}" aria-label="Options for step ${esc(t.text)}">${IC.more}</button>`}</li>`;}).join('')}</ul>`:''}
    ${done?'':`<form class="task-add" data-task-add><input name="text" maxlength="300" required placeholder="Add a remaining step" aria-label="New step" autocomplete="off"><button class="chip" type="submit">Add</button></form>`}</section>
   ${p.reminders.length?`<section class="project-reminders"><h2>Reminders</h2>${p.reminders.map(r=>`<div class="reminder ${r.due?'due':''}" data-reminder="${esc(r.id)}"><p class="reminder-title">${esc(r.label)}</p><p class="${r.due?'due-label':'project-meta'}">${r.due?'Due · ':''}${esc(fmtDue(r.dueAt))}${r.task?' · on a step':''}</p><div class="reminder-actions"><button class="chip" data-remind-later="${esc(r.id)}">Remind later</button><button class="chip" data-dismiss="${esc(r.id)}">Dismiss</button>${r.due&&p.status==='waiting'?'<button class="chip set" data-resume>Resume project</button>':''}</div></div>`).join('')}</section>`:''}
-  <section class="project-sessions"><h2>Sessions <span>${p.sessions.length||''}</span></h2>
+  <section class="project-sessions"><h2>Conversations <span>${p.sessions.length||''}</span></h2>
    ${p.sessions.length?p.sessions.map(id=>`<div class="session-item linked-session" data-item="${esc(id)}"><a class="row" href="#/chat/${esc(id)}"><span class="body"><span class="title">${sessionMarkHTML(id)}${esc(sessionName(id))}</span><span class="meta">${id.startsWith('cx:')?'Codex':'Claude'}${typeof tabState==='function'&&tabState(id)?' · '+esc(tabState(id).label):''}</span></span></a><button class="session-more icon" data-session-more="${esc(id)}" aria-label="Options for ${esc(sessionName(id))}">${IC.more}</button></div>`).join('')
-   :'<p class="project-empty">No sessions linked. From a session\'s toolbar or options, choose Add project.</p>'}</section>
+   :'<p class="project-empty">No conversations linked. From a conversation\'s toolbar or options, choose Add project.</p>'}</section>
   ${typeof projectDocumentsHTML==='function'?projectDocumentsHTML(p.id):''}
   <section class="project-notes"><form class="task-add" data-note-add><input name="text" maxlength="600" required placeholder="Add a note" aria-label="New note" autocomplete="off"><button class="chip" type="submit">Note</button></form></section>
   <details class="settings-details project-history"><summary>History<span class="summary-meta">${p.history.length}</span></summary><ul>${p.history.slice().reverse().map(h=>`<li><span class="ledger"><span class="name">${esc(fmtDue(h.at))}</span><span class="det">${esc(historyLine(h))}</span></span></li>`).join('')}</ul></details>
-  <div class="project-actions">${done?'<button class="chip set" data-resume>Resume project</button>':`<button class="chip set" data-start>Start session</button><button class="chip" data-edit>Edit</button><button class="chip" data-remind>Remind me</button><button class="chip" data-finish>Finish project</button>`}</div>
+  <div class="project-actions">${done?'<button class="chip set" data-resume>Resume project</button>':`<button class="chip set" data-start>Start conversation</button><button class="chip" data-edit>Edit</button><button class="chip" data-remind>Remind me</button><button class="chip" data-finish>Finish project</button>`}</div>
  </article>`;
 }
 function historyLine(h){
@@ -175,10 +175,10 @@ function projectOptions(id){
  const here=boardView==='projects/'+id;
  sh.innerHTML=`<h2>Project options</h2><p class="sheet-name">${esc(p.name)}</p>
   ${optGroup('Open',[
-   here?'':`<button class="opt" data-open>${IC.folder}<span>Open<span class="sub">${PANE?'In this pane':SOLO?'In this window':'As a tab, like a session'}</span></span></button>`,
+   here?'':`<button class="opt" data-open>${IC.folder}<span>Open<span class="sub">${PANE?'In this pane':SOLO?'In this window':'As a tab, like a conversation'}</span></span></button>`,
    !here&&(PANE?typeof paneSay==='function':!SOLO&&isWide()&&typeof openBeside==='function')?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">${PANE?'In a new pane to the left of this one':'In a pane next to the current view'}</span></span></button>`:'',
    `<button class="opt" data-window>${IC.external}<span>Open in a new window<span class="sub">A browser tab or app window of its own</span></span></button>`])}
-  ${p.status==='done'?'':optGroup('Work on it',[`<button class="opt" data-start>${IC.plus}<span>Start a session<span class="sub">A new session briefed on where the project stands, linked to it</span></span></button>`])}
+  ${p.status==='done'?'':optGroup('Work on it',[`<button class="opt" data-start>${IC.plus}<span>Start a conversation<span class="sub">A new conversation briefed on where the project stands, linked to it</span></span></button>`])}
   ${optGroup('Project',[p.status==='done'?`<button class="opt" data-resume>${IC.up}<span>Resume project<span class="sub">Back to Active, without its old reminders</span></span></button>`:`<button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, summary, next step, waiting for, directory, link</span></span></button>
   <button class="opt" data-remind>${IC.hourglass}<span>Remind me<span class="sub">A reminder for the project, sent once when due</span></span></button>
   ${p.status==='waiting'?`<button class="opt" data-active>${IC.tick}<span>Mark active<span class="sub">No longer waiting on anyone</span></span></button>`:`<button class="opt" data-waiting>${IC.hourglass}<span>Mark waiting<span class="sub">Waiting on someone or something; say who in Edit</span></span></button>`}
@@ -210,8 +210,8 @@ function projectBriefing(p){
  if(notes.length)lines.push('','Recent notes:',...notes.map(h=>`- ${fmtDue(h.at)}: ${h.detail}`));
  if(p.reminders.length)lines.push('','Reminders:',...p.reminders.map(r=>`- ${r.label} (${r.due?'due ':''}${fmtDue(r.dueAt)})`));
  if(p.link)lines.push('','Link: '+p.link);
- if(sessions.length)lines.push('','Earlier sessions on this project, newest last:',...sessions.map(id=>`- ${sessionName(id)} (${id.startsWith('cx:')?'Codex':'Claude'} session ${id})`));
- lines.push('',`(Pocket project ${p.id}; this session is linked to it. When the work reaches a stopping point, keep the card current: pocket-board update -p ${p.id} --summary "…" --next "…", pocket-board task done <step> -p ${p.id}, pocket-board note "…" -p ${p.id}.)`);
+ if(sessions.length)lines.push('','Earlier conversations on this project, newest last:',...sessions.map(id=>`- ${sessionName(id)} (${id.startsWith('cx:')?'Codex':'Claude'} conversation ${id})`));
+ lines.push('',`(Pocket project ${p.id}; this conversation is linked to it. When the work reaches a stopping point, keep the card current: pocket-board update -p ${p.id} --summary "…" --next "…", pocket-board task done <step> -p ${p.id}, pocket-board note "…" -p ${p.id}.)`);
  return lines.join('\n');
 }
 function startProject(p){
@@ -248,14 +248,14 @@ function taskOptions(project,taskId){
 function linkedSessionOptions(project,sessionId){
  const p=projectById(project);if(!p)return;
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
- sh.innerHTML=`<h2>Linked session</h2><p class="sheet-name">${esc(sessionName(sessionId))}</p>
-  <button class="opt" data-open>${IC.folder}<span>Open session</span></button>
+ sh.innerHTML=`<h2>Linked conversation</h2><p class="sheet-name">${esc(sessionName(sessionId))}</p>
+  <button class="opt" data-open>${IC.folder}<span>Open conversation</span></button>
   ${(PANE?typeof paneSay==='function':!SOLO&&isWide()&&typeof openBeside==='function')?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">${PANE?'In a new pane to the left of this card':'Show it next to this card'}</span></span></button>`:''}
-  <button class="opt" data-unlink>${IC.x}<span>Unlink from this project<span class="sub">The session and its history are untouched</span></span></button>`;
+  <button class="opt" data-unlink>${IC.x}<span>Unlink from this project<span class="sub">The conversation and its history are untouched</span></span></button>`;
  const close=()=>closeCurrentSheet?.();
  sh.querySelector('[data-open]').onclick=()=>{close();location.hash='#/chat/'+sessionId;};
  sh.querySelector('[data-beside]')?.addEventListener('click',()=>{close();if(PANE)paneSay('beside',{id:sessionId});else openBeside(sessionId);});
- sh.querySelector('[data-unlink]').onclick=()=>{close();boardAct({action:'unlink-session',project,expected_revision:p.revision,session:sessionId},'Session unlinked');};
+ sh.querySelector('[data-unlink]').onclick=()=>{close();boardAct({action:'unlink-session',project,expected_revision:p.revision,session:sessionId},'Conversation unlinked');};
  mountSheet(scrim,sh);
 }
 function textSheet(title,value,max,onSave){
@@ -269,7 +269,7 @@ function projectEditor(p,{directory='',session=null,onDone}={}){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet project-editor';
  const v=k=>esc(p?.[k]??'');
  sh.innerHTML=`<h2>${p?'Edit project':'Track a project'}</h2>
-  ${p?'':'<p class="sheet-help">A card for work you want to keep track of: where you left off, the next step, remaining steps and reminders. Sessions can be linked to it.</p>'}
+  ${p?'':'<p class="sheet-help">A card for work you want to keep track of: where you left off, the next step, remaining steps and reminders. Conversations can be linked to it.</p>'}
   <form class="project-form">
    <label class="voice-field">Name<input name="name" maxlength="120" required value="${v('name')}" autocomplete="off"></label>
    <label class="voice-field">Where we left off<textarea name="summary" maxlength="600" rows="3">${v('summary')}</textarea></label>
@@ -307,8 +307,8 @@ function reminderSheet(project,task){
 function addSessionToProject(s){
  if(!boardSnap)return loadBoard(true).then(()=>addSessionToProject(s)).catch(e=>toast(e.status===404?'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.':e.message));
  const open=boardSnap.projects.filter(p=>p.status!=='done'&&!p.sessions.includes(s.id));
- const rows=[['__new','Track a new project','A card around this session; its workspace becomes the directory'],...open.map(p=>[p.id,p.name,p.next||p.summary||statusWord[p.status]])];
- sheet('Project for this session',rows,null,v=>{
+ const rows=[['__new','Track a new project','A card around this conversation; its workspace becomes the directory'],...open.map(p=>[p.id,p.name,p.next||p.summary||statusWord[p.status]])];
+ sheet('Project for this conversation',rows,null,v=>{
   if(v==='__new')return projectEditor(null,{directory:s.cwd||'',session:s.id});
   const p=projectById(v);boardAct({action:'link-session',project:v,expected_revision:p.revision,session:s.id},'Added to '+p.name);
  });
@@ -323,7 +323,7 @@ function paintChatProject(s){
  if(!projectsOn()||!chatId){b.hidden=true;return;}
  b.hidden=false;
  const linked=boardSnap?.projects.find(p=>p.status!=='done'&&p.sessions.includes(chatId))||boardSnap?.projects.find(p=>p.sessions.includes(chatId))||null;
- b.innerHTML=b.classList.contains('icon')?IC.folder:IC.folder+'<span>'+esc(linked?linked.name:'Add project')+'</span>';b.setAttribute('aria-label',linked?'Open project: '+linked.name:'Add a project for this session');b.title=linked?'Open the project '+linked.name:'Track this session as a project, or add it to one';
+ b.innerHTML=b.classList.contains('icon')?IC.folder:IC.folder+'<span>'+esc(linked?linked.name:'Add project')+'</span>';b.setAttribute('aria-label',linked?'Open project: '+linked.name:'Add a project for this conversation');b.title=linked?'Open the project '+linked.name:'Track this conversation as a project, or add it to one';
  b.classList.toggle('linked',Boolean(linked));
  b.onclick=()=>{
   const row=chatSessionRow||allSessions.find(r=>r.id===chatId)||{id:chatId,title:chatTitle,cwd:''};

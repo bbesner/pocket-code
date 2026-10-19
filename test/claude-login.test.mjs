@@ -45,7 +45,7 @@ test('one flow handles split output, passes codes only over stdin and verifies i
 });
 
 test('busy work is preserved, cancellation invalidates old codes and expiry kills the child',async()=>{
-  const busy=fixture({busy:()=>true});assert.throws(()=>busy.login.start(),/active turns/);assert.equal(busy.calls.length,0);
+  const busy=fixture({busy:()=>true});assert.throws(()=>busy.login.start(),/active replies/);assert.equal(busy.calls.length,0);
   const {login,child,calls}=fixture({timeoutMs:20});const started=login.start();child.stdout.write(url+'\n');
   login.cancel(started.id);assert.equal(login.active,false);assert.equal(login.snapshot().url,null);assert.ok(calls.includes('SIGTERM'));
   assert.throws(()=>login.submit(started.id,'code'),/no longer/);

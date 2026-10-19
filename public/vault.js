@@ -118,7 +118,7 @@ async function renderVault(view){
  Voice.onLeave?.();
  vaultView=view;vaultPainted='';if(typeof boardView!=='undefined')boardView=null;if(typeof docView!=='undefined')docView=null;if(typeof taskView!=='undefined')taskView=null;
  const col=`<header class="bar">
-   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the session list">${IC.panel}</button>`}
+   ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the conversation list">${IC.panel}</button>`}
    <h1><span class="one" id="vtitle">Vault</span><span class="tag" id="vtag">Secrets agents use without seeing</span></h1>
    ${SOLO?'':`<button class="icon" id="vwin" aria-label="Open in a new window" title="Open in a new window">${IC.external}</button>`}
    ${PANE||SOLO?'':`<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
@@ -180,7 +180,7 @@ function vaultTrashRowHTML(i){
 }
 // A request: which secret, the exact command, where it runs and who asked. Three answers, the approval card's look.
 function vaultRequestHTML(r,where='main'){
- const hid=`vr-${where}-${r.id}`,who=r.session?(r.sessionTitle||(typeof sessionName==='function'?sessionName(r.session):'')||'A session'):'A terminal or code-server';
+ const hid=`vr-${where}-${r.id}`,who=r.session?(r.sessionTitle||(typeof sessionName==='function'?sessionName(r.session):'')||'A conversation'):'A terminal or code-server';
  return `<section class="vault-request" data-request="${esc(r.id)}" aria-labelledby="${esc(hid)}">
   <h3 id="${esc(hid)}"><span class="vault-name">${esc(vaultRequestNames(r))}</span><span class="vault-request-when">${esc(rel(vaultTime(r.created)))}</span></h3>
   <code class="vault-cmd" tabindex="0" title="${esc(vaultCmd(r.argv))}">${esc(vaultCmd(r.argv))}</code>

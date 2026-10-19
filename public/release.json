@@ -1,7 +1,7 @@
 {
-  "version": "1.58.0",
-  "assetV": 119,
+  "version": "1.59.0",
+  "assetV": 120,
   "notes": [
-    "New session uses the same message box as a conversation: model, reasoning and permissions chips above it; Attach, Choose a skill and Save as prompt beside it; the mic, the hands-free headset and the Send arrow on the right. Workspace and agent stay in Edit setup above. A hands-free start reads your instruction back, starts the session after a yes and keeps the conversation going in it."
+    "Plain words: conversations instead of sessions, and each step in plain words (“Saved Proposal.pdf”, “Checked Gmail”) with the raw command or path beside it; Settings → Conversation → Describe steps in plain words turns it off. Approval cards ask a plain question, show the whole command or path, keep the full request behind Show details, and offer Don’t allow or Allow."
   ]
 }
