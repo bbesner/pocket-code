@@ -5,7 +5,8 @@
    Files document; X dismisses; the row menu records Resolved or Not useful, which the watcher reads back on its next
    run. Data comes from /api/inbox; every change goes through /api/inbox/act. */
 const inboxOn=()=>Boolean(window.pocketFeatures?.inbox);
-let inboxSnap=null,inboxAt=0,inboxLoading=null,inboxView=null,inboxFilter='new',inboxQuery='',inboxDismissed=null;
+let inboxSnap=null,inboxAt=0,inboxLoading=null,inboxView=null,inboxFilter='all',inboxQuery='',inboxDismissed=null; // 1.69.2: the list opens on All; reading clears the dot, never the row
+const inboxOpenState=e=>e.state==='new'||e.state==='opened'; // still on the owner's plate: not dismissed, resolved or marked not useful
 const INBOX_GMAIL_MSG='https://mail.google.com/mail/u/0/#all/';
 const inboxById=id=>inboxSnap?.entries.find(e=>e.id===id)||inboxDismissed?.entries.find(e=>e.id===id)||null;
 async function loadInbox(force){
@@ -107,8 +108,8 @@ function inboxListHTML(){
  const chip=(k,label)=>`<button class="chip" data-inbox-filter="${k}" aria-pressed="${inboxFilter===k}">${label}</button>`;
  const groups=[];let day='';
  for(const e of rows){const d=inboxDay(e.at);if(d!==day){day=d;groups.push({day:d,html:[]});}groups[groups.length-1].html.push(inboxRowHTML(e));}
- const empty=inboxFilter==='dismissed'?'Nothing dismissed.':inboxQuery.trim()?'Nothing matches.':inboxFilter==='new'?(inboxSnap.entries.length?'Nothing new. All shows everything Inbox Watch has sent.':'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.'):'Nothing from Inbox Watch yet.';
- return `<div class="session-home-head"><h2>Inbox</h2><span class="project-head-actions">${chip('new',`New${n?` <span class="badge" data-inbox-badge>${n}</span>`:''}`)}${chip('all','All')}${chip('dismissed','Dismissed')}</span></div>
+ const empty=inboxFilter==='dismissed'?'Nothing dismissed.':inboxQuery.trim()?'Nothing matches.':inboxFilter==='new'?(inboxSnap.entries.length?'Nothing unread. All shows everything Inbox Watch has sent.':'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.'):'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.';
+ return `<div class="session-home-head"><h2>Inbox</h2><span class="project-head-actions">${chip('all','All')}${chip('new',`Unread${n?` <span class="badge" data-inbox-badge>${n}</span>`:''}`)}${chip('dismissed','Dismissed')}</span></div>
   <div class="inbox-tools"><input type="search" id="inbox-search" class="inbox-search" placeholder="Search titles and stories" value="${esc(inboxQuery)}" aria-label="Search the inbox">${stale?`<p class="sheet-help inbox-stale">Inbox Watch hasn’t reported since ${esc(inboxDay(inboxSnap.lastReportAt))} ${esc(inboxWhen(inboxSnap.lastReportAt))}.</p>`:''}</div>
   ${groups.length?groups.map(g=>`<section class="session-group project-group"><h2>${esc(g.day)} <span>${g.html.length}</span></h2>${g.html.join('')}</section>`).join(''):`<p class="sheet-help project-empty">${empty}</p>`}`;
 }
@@ -143,9 +144,9 @@ function inboxSheet(id){
 /* ---------- rail, home, badges ---------- */
 function railInboxHTML(){
  if(!inboxSnap)return '<p class="sheet-help">Loading the inbox…</p>';
- const rows=inboxSnap.entries.filter(e=>e.state==='new'),rest=inboxSnap.entries.length-rows.length;
+ const rows=inboxSnap.entries.filter(inboxOpenState).sort((a,b)=>(a.state==='new'?0:1)-(b.state==='new'?0:1)||Date.parse(b.at)-Date.parse(a.at)),rest=inboxSnap.entries.length-rows.length;
  return `<div class="rail-projects rail-inbox"><div class="rail-project-actions"><a class="chip" href="${viewHref('inbox')}" data-view-link>All</a></div>
-  ${rows.length?rows.slice(0,40).map(inboxRowHTML).join(''):'<p class="sheet-help">Nothing new from Inbox Watch.</p>'}
+  ${rows.length?rows.slice(0,40).map(inboxRowHTML).join(''):'<p class="sheet-help">Nothing open from Inbox Watch.</p>'}
   ${rest?`<a class="rail-done-link" href="${viewHref('inbox')}" data-view-link>${rest} more in All</a>`:''}</div>`;
 }
 let railInboxPainted='';
@@ -164,7 +165,7 @@ function paintInboxBadges(){
 function inboxWaitingCards(){
  if(!inboxOn())return [];
  if(!inboxSnap){if(!inboxLoading)loadInbox().then(()=>{if(typeof paintAssistantHome==='function')paintAssistantHome();}).catch(()=>{});return [];} // first paint on a fresh page: fetch, then paint again
- return inboxSnap.entries.filter(e=>e.state==='new'&&e.kind==='alert').slice(0,3).map(e=>`<a class="home-card inbox-card" href="#/inbox/${esc(e.id)}" data-inbox-card="${esc(e.id)}"><span class="home-card-title">${esc(e.title)}</span><span class="home-card-what">Inbox Watch · ${esc(inboxFirst(e.text)||'Open to read')}</span></a>`);
+ return inboxSnap.entries.filter(e=>inboxOpenState(e)&&e.kind==='alert').slice(0,3).map(e=>`<a class="home-card inbox-card" href="#/inbox/${esc(e.id)}" data-inbox-card="${esc(e.id)}"><span class="home-card-title">${esc(e.title)}</span><span class="home-card-what">Inbox Watch · ${esc(inboxFirst(e.text)||'Open to read')}</span></a>`);
 }
 function inboxTick(){if(!inboxOn()||document.visibilityState!=='visible'||!(inboxView||railView()==='inbox'||document.querySelector('[data-inbox-home],[data-inbox-badge],.assistant-home')))return;loadInbox(true).then(()=>{paintInboxView();paintRailInbox();paintInboxBadges();if(typeof paintAssistantHome==='function')paintAssistantHome();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
 setInterval(inboxTick,30000);onListsStale(inboxTick);

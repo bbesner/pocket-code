@@ -508,8 +508,8 @@ link, and the choices: **Start a conversation** (a new conversation briefed with
 evidence; nothing starts until you press Start) or **Open in Files** for a digest or look-ahead, **Open in Gmail**,
 **Resolved** (the situation is over; the watcher stops following it), **Not useful** (the watcher adds
 a line to your standing preferences so it stops alerting on that kind of thing) and **Dismiss**. A
-dismissed, resolved or not-useful entry offers **Restore**. The chips **New**, **All** and
-**Dismissed** filter the list and a search box narrows it by title, story or text. Dismissed entries
+dismissed, resolved or not-useful entry offers **Restore**. The chips **All**, **Unread** and
+**Dismissed** filter the list (All first; reading clears the dot and nothing else, 1.69.2) and a search box narrows it by title, story or text. Dismissed entries
 are kept for 30 days, everything else for 60. When the watcher has not reported in a day the list
 says so.
 

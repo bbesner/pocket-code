@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.69.2] — 2026-10-19 · build 136
+
+- **Reading is not acting.** Opening an entry's sheet marked it read, and the list opened on the New filter, so a row vanished as soon as its sheet closed. The list now opens on **All** (everything but dismissed), the chips read **All · Unread · Dismissed**, the dot marks what is unread, and a row, the rail list and the Assistant-mode **Waiting for you** card stay until you dismiss the entry, mark it resolved or not useful. Asked for by Brad.
+- Migration: none.
+
 ## [1.69.1] — 2026-10-19 · build 135
 
 - **Read first, then decide.** A tap on an Inbox row opened the briefed conversation straight away. It now opens the entry's sheet: the whole text with Gmail links, then **Start a conversation** (a new conversation briefed with the story and the evidence; nothing starts until you press Start) or **Open in Files**, **Open in Gmail**, **Resolved**, **Not useful**, **Dismiss**. The Assistant-mode **Waiting for you** card opens the entry the same way. Asked for by Brad after the first tap on a live alert.
