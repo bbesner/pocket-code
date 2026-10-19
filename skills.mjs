@@ -36,6 +36,14 @@ export function renderSkill(text, command, binName) {
   return text.replace(/<!-- pocket:commands -->[\s\S]*?<!-- \/pocket:commands -->/, block);
 }
 
+// 1.68: the per-turn line that points each agent at its pocket-google file. Sent on every turn, so it reaches
+// installs that keep Pocket's skills out of the agent folders (POCKET_SKILLS=0, e.g. a Codex home shared with a chat app).
+export function googleInstructions(provider, src = SRC) {
+  const file = path.join(src, 'pocket-google', provider === 'codex' ? 'SKILL.codex.md' : 'SKILL.claude.md');
+  const via = provider === 'codex' ? 'the Codex apps (Gmail, Google Calendar, Google Drive)' : 'the Claude connectors (Gmail, Google Calendar, Google Drive)';
+  return `For the user's email, calendar or Google Drive, use ${via} connected in Settings → Connectors; the pocket-google skill (\`${file}\`) has the full procedure. Check once whose Google account is connected. Write every email as a Gmail draft and show it first; send it when the user says so, and never refuse a send they ask for. Ask before sending calendar invitations to other people.`;
+}
+
 // codexRoots: which of `roots` are Codex's; a skill with `files` installs that agent's own SKILL file.
 export function syncSkills({ settings, commands, env = process.env, roots = skillRoots(env), codexRoots = [codexSkillRoot(env)], src = SRC, log = () => {} }) {
   const result = { installed: [], removed: [], skipped: [] };

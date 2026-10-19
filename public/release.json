@@ -1,7 +1,7 @@
 {
-  "version": "1.67.0",
-  "assetV": 131,
+  "version": "1.68.0",
+  "assetV": 132,
   "notes": [
-    "Automatic model choice and one sign-in are set in Settings → Agents & instance: the switch, decision model, key and the model and effort for each level (Automatic follows the newest offered model), and the Access team, audience and emails. The effort picker stops at the policy's ceiling."
+    "The Gmail, Calendar and Drive instructions now reach Claude and Codex with every message, so they work even on servers that keep Pocket's skills out of the agents' skill folders."
   ]
 }

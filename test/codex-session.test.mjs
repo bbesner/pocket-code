@@ -143,6 +143,7 @@ test('Codex threads get the reply-suggestion instruction unless the Codex config
  const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
  assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
  assert.deepEqual(threadCalls(f).map(c=>c.choices),[true]);
+ assert.deepEqual(threadCalls(f).map(c=>c.google),[true],'1.68: Codex threads carry the pocket-google line too');
  const home=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-codex-home-'));t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
  fs.writeFileSync(path.join(home,'config.toml'),'developer_instructions = "Operator rules"\n');
  const g=await fixture(t,18701,{CODEX_HOME:home});

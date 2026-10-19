@@ -40,7 +40,7 @@ import {CLAUDE_MODELS, CATALOG_IDS, managedDir, readManagedPolicy, policyAllows,
 import {ModelRouter, capEffort, tierChoice, TIERS} from './router.mjs';
 import {AccessVerifier} from './access.mjs';
 import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
-import {syncSkills} from './skills.mjs';
+import {syncSkills, googleInstructions} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
 import { StartStore } from './starts.mjs';
@@ -321,7 +321,7 @@ const vaultOpen = (req, res, next) => {
 const AUTO_LOCK_CHOICES = [0, 15, 60, 480, 1440];
 setInterval(() => { try { if (vault && vault.idleLockDue(settings.vaultAutoLockMinutes || 0)) { vault.lock(); log(`vault locked after ${settings.vaultAutoLockMinutes} minutes idle`); } } catch (e) { log('vault idle lock: ' + e.message); } }, Math.max(1000, Number(process.env.POCKET_VAULT_IDLE_CHECK_MS) || 60_000)).unref();
 setInterval(() => { try { if (vault) { const gone = vault.purge(); if (gone.length) log(`vault purged from trash: ${gone.length}`); } } catch (e) { log('vault purge: ' + e.message); } }, 6 * 3600_000).unref();
-codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null, { choices: process.env.POCKET_CHOICES !== '0' }) : '', vaultLive() ? vaultInstructions(VAULT_CLI, threadId ? 'cx:' + threadId : null) : ''].filter(Boolean).join(' '));
+codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null, { choices: process.env.POCKET_CHOICES !== '0' }) : '', vaultLive() ? vaultInstructions(VAULT_CLI, threadId ? 'cx:' + threadId : null) : '', googleInstructions('codex')].filter(Boolean).join(' '));
 const syncAgentSkills = () => syncSkills({ settings: { ...settings, vault: vaultLive() }, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI, vault: VAULT_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks, 1.39: pocket-vault) for every agent on the box
 syncAgentSkills();
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
@@ -1358,7 +1358,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
-  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId, { choices: process.env.POCKET_CHOICES !== '0' }) : '', vaultLive() ? vaultInstructions(VAULT_CLI, sessionId) : ''].filter(Boolean).join(' ');
+  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId, { choices: process.env.POCKET_CHOICES !== '0' }) : '', vaultLive() ? vaultInstructions(VAULT_CLI, sessionId) : '', googleInstructions('claude')].filter(Boolean).join(' ');
   if (extra) args.push('--append-system-prompt', extra);
   args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
   args.push(resume ? '--resume' : '--session-id', sessionId);
@@ -3412,7 +3412,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Automatic model choice and one sign-in are set in Settings → Agents & instance: the switch, decision model, key and the model and effort for each level (Automatic follows the newest offered model), and the Access team, audience and emails. The effort picker stops at the policy's ceiling."];
+const RELEASE_NOTES = ["The Gmail, Calendar and Drive instructions now reach Claude and Codex with every message, so they work even on servers that keep Pocket's skills out of the agents' skill folders."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

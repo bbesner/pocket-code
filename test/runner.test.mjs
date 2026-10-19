@@ -158,6 +158,7 @@ test('turns carry the reply-suggestion instruction; a trailing choices block com
  const id=(await f.call('/new',{cwd:repo,...msg('__CHOICES__ wrap up')})).body.id;
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  assert.equal(f.calls()[0].choices,true,'the CLI was started with the instruction');
+ assert.equal(f.calls()[0].google,true,'1.68: and the pocket-google line, which needs no feature switch');
  const last=(await f.call(`/session/${id}`)).body.messages.filter(m=>m.role==='assistant').at(-1);
  assert.deepEqual(last.blocks,[{t:'text',text:'Tests pass. Should I merge and deploy?'},{t:'choices',options:['Merge and deploy',"Don't merge yet"]}]);
  assert.equal((await f.call(`/session/${id}/search?q=${encodeURIComponent("don't merge")}`)).status<500,true);
@@ -168,6 +169,7 @@ test('POCKET_CHOICES=0 starts the CLI without the instruction',async t=>{
  const id=(await f.call('/new',{cwd:repo,...msg('plain')})).body.id;
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  assert.equal(f.calls()[0].choices,false);
+ assert.equal(f.calls()[0].google,true,'the Google line does not depend on POCKET_CHOICES');
 });
 
 test('a just-sent message shows as pending until the CLI writes it, and never twice',async t=>{

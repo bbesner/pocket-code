@@ -6,7 +6,7 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
 import {setTimeout as sleep} from 'node:timers/promises';
-import {syncSkills,renderSkill,skillRoots,MARKER} from '../skills.mjs';
+import {syncSkills,renderSkill,skillRoots,MARKER,googleInstructions} from '../skills.mjs';
 import {projectInstructions} from '../projects.mjs';
 import {documentInstructions} from '../documents.mjs';
 
@@ -79,6 +79,17 @@ test('skills: pocket-google is always on, with Claude\'s connector file for Clau
   assert.deepEqual(r.skipped,[path.join(codex,'pocket-google')]);
   assert.equal(fs.readFileSync(path.join(codex,'pocket-google','SKILL.md'),'utf8'),'mine');
   assert.deepEqual(syncSkills({settings:{},commands,env:{POCKET_SKILLS:'0'},roots,codexRoots:[codex]}).installed,[]);
+});
+
+test('skills: the per-turn Google line points each agent at its own pocket-google file, and that file exists',()=>{
+  for(const [agent,file,via] of [['claude','SKILL.claude.md','Claude connectors'],['codex','SKILL.codex.md','Codex apps']]){
+    const line=googleInstructions(agent);
+    const m=line.match(/`([^`]+pocket-google[^`]+)`/);assert.ok(m,'names the skill file');
+    assert.equal(path.basename(m[1]),file);assert.ok(fs.existsSync(m[1]),'the path is the repository copy, readable without an installed skill');
+    assert.ok(line.includes(via));assert.match(line,/Settings → Connectors/);
+    assert.match(line,/draft and show it first/);assert.match(line,/never refuse a send/);assert.match(line,/whose Google account/);
+  }
+  assert.doesNotMatch(googleInstructions('claude'),/SKILL\.codex\.md/);
 });
 
 test('skills: roots follow HOME, CLAUDE_CONFIG_DIR and CODEX_HOME; Codex only where it exists',()=>{
