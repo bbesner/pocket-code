@@ -26,7 +26,12 @@ npm ci
 npm run check:release
 npm test
 PUPPETEER_EXECUTABLE_PATH=/path/to/chrome npm run test:browser
+python3 inbox-watch/tests/test_schedule.py
 ```
+
+Inbox Watch's watcher (`inbox-watch/`, Python 3.11+) is part of the repository. Its tests need no mailbox,
+model or network. Keep its prompts and examples free of real people, customers and addresses: they are
+public like everything else here.
 
 The HTTP/provider tests use temporary data and fake CLIs. The browser suite serves
 the actual frontend with synthetic responses, then tests recovery, responsive changes,

@@ -1,11 +1,11 @@
 {
-  "version": "1.71.0",
-  "assetV": 140,
+  "version": "1.72.0",
+  "assetV": 141,
   "notes": [
+    "Inbox Watch's watcher now ships inside Pocket Code (inbox-watch/), versioned and released with the rest, so the Inbox, its settings and the program that fills it are one project.",
     "The Inbox keeps itself tidy: with Settings → Inbox Watch → Keep the Inbox tidy on, the watcher takes off your list what has been resolved or handled since, with the reason, and the list opens on Open, with a Done filter for everything finished.",
     "Inbox digests read cleanly: a digest's headings and bullet lines show as a heading and bullets in its sheet, and the row shows its first real sentence instead of the raw marks.",
     "Inbox Watch has a schedule you set: Settings → Inbox Watch → Schedule, models and cost (or Schedule in the Inbox). Periods with their own days, hours and interval, quiet hours, the digest and look-ahead times, pause, the model and reasoning for decisions and for the look-ahead, a first pass that skips routine mail before the model reads it, and what each day cost. The watcher picks a change up within a minute.",
-    "The + button opens a clean New conversation. A briefing from an Inbox alert, a start link, or a task's or project's Start stayed in the box after you left without starting it, so every later + reopened it; now it is cleared unless you edited it. A draft you typed yourself is still kept.",
-    "Reading an Inbox entry no longer makes it go away: the list opens on All, the dot marks what is unread, and a row or the home card stays until you dismiss it, mark it resolved or not useful."
+    "The + button opens a clean New conversation. A briefing from an Inbox alert, a start link, or a task's or project's Start stayed in the box after you left without starting it, so every later + reopened it; now it is cleared unless you edited it. A draft you typed yourself is still kept."
   ]
 }

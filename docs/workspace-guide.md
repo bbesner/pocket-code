@@ -521,7 +521,7 @@ says so.
 entry; a watcher asks for them (`pocket-inbox feedback`), applies them, and acknowledges them
 (`pocket-inbox ack`), so nothing is applied twice. Dismiss changes nothing on the watcher's side.
 
-**Keep the Inbox tidy (1.71, inbox-monitor's tidy pass).** With *Take finished items off my list* on
+**Keep the Inbox tidy (1.71, the watcher's tidy pass in `inbox-watch/`).** With *Take finished items off my list* on
 (Settings → Inbox Watch, every 1 to 24 hours, never in quiet hours), the watcher checks what is
 still on your list against the mail since and takes off what is finished: **Resolved** when the
 situation is over (an outage that recovered and stayed up, a request that was done), and dismissed as

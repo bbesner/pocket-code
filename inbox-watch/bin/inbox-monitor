@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# inbox-monitor: run the engine with this checkout on the path. Usage: inbox-monitor --config <toml> [run|backfill|replay|notify|check|gmail-auth]
+HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+exec /usr/bin/python3 -c "import sys; sys.path.insert(0, '$HERE'); from inbox_monitor.engine import main; sys.exit(main())" "$@"

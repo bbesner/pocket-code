@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.72.0] — 2026-10-20 · build 141
+
+- **Inbox Watch's watcher is part of Pocket Code.** The program that reads the mailbox, judges it and fills the Inbox (`inbox-monitor` 0.3: the schedule and its periods, model and reasoning choices, the first pass, the tidy pass, cost per call, replay) now lives in [`inbox-watch/`](inbox-watch/README.md) and is versioned and released with Pocket. It still runs beside Pocket on its own timer, with a config file per mailbox. Asked for by Brad ("I meant for this to be all a part of Pocket Code").
+- Imported without its earlier private history. Its prompts and examples use invented names; an owner's own subject boilerplate (a company name, a shared mailbox's prefix) is now the `[owner] noise_words` config key instead of being built in.
+- CI also runs the watcher's tests (`python3 inbox-watch/tests/test_schedule.py`).
+- Migration: none for Pocket. An existing watcher can keep its install or point its launcher at `inbox-watch/` in the Pocket checkout.
+
 ## [1.71.0] — 2026-10-20 · build 140
 
 - **The Inbox keeps itself tidy.** Settings → Inbox Watch gains **Keep the Inbox tidy**: *Take finished items off my list* and how often (every 1, 2, 4, 8, 12 or 24 hours; both modes). With it on, inbox-monitor 0.3's tidy pass checks each open entry against the mail since and takes it off as **Resolved** (the situation is over; the watcher stops following) or dismisses it as **Handled** (someone acted and it waits on someone else; the watcher keeps following), with the reason as the entry's note. It must cite the email that proves it; anything without proof stays. Asked for by Brad after a by-hand cleanup of 46 entries.
