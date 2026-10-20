@@ -563,11 +563,11 @@ about 9:19 AM.").
   cost at API list prices, and the sheet says which applies. Days before the watcher started recording
   read *Not recorded*.
 
-**Save** stores the settings with a revision; the watcher (inbox-monitor 0.3 or later) reads them
+**Save** stores the settings with a revision; the watcher (Inbox Watch's program in `inbox-watch/`, 1.70 or later) reads them
 within a minute and reports which revision it applied, and the status line says so until it has.
 *Use the config file's settings* hands control back to the watcher's own config file. An agent can
 read or change them when you ask (`pocket-inbox watch`, `watch set --every 10`, `watch set --pause`).
-An older watcher has no profile to show; the sheet says it needs inbox-monitor 0.3.
+An older watcher has no profile to show; the sheet says so and asks for the newer watcher.
 
 ## Vault
 
