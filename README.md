@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.70.0 / build 138**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.70.1 / build 139**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -74,7 +74,36 @@ Pocket has two faces on the same server, sessions, Files, Tasks and Vault.
 
 Switch in **Settings → Appearance → Mode** (this Pocket, every device). An
 administrator can set it for an install with `POCKET_ASSISTANT_MODE=on` or lock it with
-`locked`, which is how a seat for an employee is provisioned.
+`locked`, which is how a seat for an employee is provisioned. **If you write code or run
+coding agents, stay in Developer mode; if Pocket is your assistant for office work, use
+Assistant mode.**
+
+![Assistant mode at a desk: Pocket Assistant opens on "What would you like done?", with an Inbox Watch alert and an unfinished conversation waiting above it and the Files, Tasks, Projects, Vault and Inbox chips below](docs/images/assistant-home-desktop.png)
+
+### Inbox Watch: your mailbox, read for you
+
+A watcher beside Pocket reads your Gmail on the schedule you set and interrupts you only when
+an email tells you something the email itself does not: the third outage this week at the same
+site, a reminder that contradicts what the customer asked for, a bill that is now due. Each
+alert lands in **Inbox** with **Start a conversation**, which opens one already briefed with
+the story and the Gmail links. A morning digest and a look-ahead cover the rest.
+**Schedule, models and cost** (1.70) sets when it checks (periods with their own days, hours
+and interval), quiet hours, the digest and look-ahead times, the models, and a **first pass**
+that skips clearly routine mail before the model reads it, and shows what each day cost.
+[More below](#inbox-watch-your-mailbox-read-for-you-165).
+
+<table>
+<tr>
+<td width="33%" valign="top"><img src="docs/images/inbox-mobile.png" alt="Inbox on a phone: an unread alert that a site's gate camera is offline for the third time this week, a morning digest and a look-ahead, each with dismiss and options buttons"></td>
+<td width="33%" valign="top"><img src="docs/images/inbox-watch-schedule-mobile.png" alt="The Inbox Watch sheet: checking every 5 minutes now in Work hours with the next check time, Pause, an interval for the rest of the time and a Work hours period with weekday buttons, from and until times and its own interval"></td>
+<td width="33%" valign="top"><img src="docs/images/inbox-watch-models-mobile.png" alt="Further down the sheet: the first pass switched on with Jev at 80 percent, then seven days of checks, skipped mail, model calls, tokens and cost with a total, and Save"></td>
+</tr>
+<tr>
+<td align="center">What it sent</td>
+<td align="center">When it checks</td>
+<td align="center">First pass and cost</td>
+</tr>
+</table>
 
 ### On your phone, with agents that work with you
 

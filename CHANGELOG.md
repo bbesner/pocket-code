@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.70.1] — 2026-10-20 · build 139
+
+- **Digests read cleanly in Inbox.** A morning digest's text uses `## ` headings and `- ` bullet lines; the sheet showed them as raw marks and the row's preview began "## Worth knowing - …". The sheet now shows the heading in bold and the lines as bullets, and the row shows the first real sentence.
+- **Docs:** the README features Developer mode or Assistant mode (with a picture of Assistant mode) and Inbox Watch (the list, the schedule sheet, the first pass and cost) near the top; the README screenshots were retaken from this build, with invented Inbox entries; the Inbox Watch plan is marked shipped.
+- Migration: none.
+
 ## [1.70.0] — 2026-10-20 · build 138
 
 - **Inbox Watch has a schedule you set.** **Settings → Projects, files, tasks & vault → Inbox Watch → Schedule, models and cost** (or **Schedule** beside the Inbox search box) opens one sheet: **Pause**; how often it checks mail the rest of the time; any number of **periods** (up to 12), each with its own days, hours and interval, including *Don't check* and hours past midnight; quiet hours; the morning digest; the morning and evening look-ahead (or off). Asked for by Brad.

@@ -1,6 +1,6 @@
 # Inbox Watch in Pocket: plan
 
-**Prepared:** October 19, 2026 · **Status:** approved October 19 (all five recommendations), in build · **Built against:** Pocket Code 1.68.1 (build 133) and inbox-monitor 0.1.0
+**Prepared:** October 19, 2026 · **Status:** shipped: the Inbox library in 1.69.0 (October 19) and its schedule, models, first pass and cost settings in 1.70.0 (October 20); inbox-monitor 0.2 and 0.3 on Brad's instance · **Built against:** Pocket Code 1.68.1 (build 133) and inbox-monitor 0.1.0
 
 ## What it is
 

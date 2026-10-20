@@ -1,7 +1,7 @@
 # Documentation image provenance
 
-The seven workspace screenshots below were recaptured from the **1.63.0 / build 124** frontend on
-2026-10-19 with the docs-only browser mode, after 1.59 changed the wording ("conversations", plain steps). They
+The workspace screenshots below were recaptured from the **1.70.1 / build 139** frontend on
+2026-10-20 (the Assistant mode and Inbox Watch images are new; the 1.63 set was retaken) with the docs-only browser mode, after 1.59 changed the wording ("conversations", plain steps). They
 show synthetic sessions, projects, files, tasks and Vault items supplied by the browser
 test fixture, with no production data or model calls. Desktop captures are emulated Chromium
 viewports (1600×1000 for the split view; 1440×900 for Projects, Files and the Vault, cropped to the
@@ -16,6 +16,11 @@ content area because the hero already shows the session rail); phone captures ar
 | `files-desktop.png` | The Files library as a list, with kinds, sharing state and the project a file came from |
 | `tasks-mobile.png` | Tasks on a phone: tasks and project reminders in one list (1.50), due first, one task carrying context from its session |
 | `task-offer-mobile.png` | A reply ending with suggested-reply buttons, the first an agent's task offer (1.37) |
+| `assistant-home-desktop.png` | Assistant mode at a desk (1.60): the message box, Waiting for you with an Inbox Watch alert, the library chips |
+| `assistant-home-mobile.png` | Assistant mode's home on a phone |
+| `inbox-mobile.png` | Inbox (1.69) on a phone: an unread alert, a digest and a look-ahead (invented entries) |
+| `inbox-watch-schedule-mobile.png` | Settings → Inbox Watch (1.70): status, Pause, the default interval and a period |
+| `inbox-watch-models-mobile.png` | The same sheet further down: the first pass and seven days of cost |
 | `vault-desktop.png` | The Vault: an agent's waiting request with Deny, Always allow and Allow once, above five items with their kind, site and Agent access |
 
 Projects, Files, Tasks and the Vault are switched on in the fixture for the capture only. Reproduce the

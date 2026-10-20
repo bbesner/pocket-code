@@ -174,8 +174,13 @@ browser test suite. Report what you find in [issue #87](https://github.com/bbesn
 1. Open the HTTPS address and sign in with the password.
 2. On a phone, choose **Add to Home screen**, then tap the bell to allow notifications.
 3. Start a session: choose the agent, the working directory and the model.
-4. Projects, Files, Tasks and the Vault are off until you switch them on in **Settings →
-   Projects, files, tasks & vault**. Voice is a separate optional install
+4. Choose a mode in **Settings → Appearance → Mode**: **Developer mode** if you write code or run
+   coding agents, **Assistant mode** if Pocket is your assistant for office work (see the
+   [README](../README.md#developer-mode-or-assistant-mode)).
+5. Projects, Files, Tasks, Inbox and the Vault are off until you switch them on in **Settings →
+   Projects, files, tasks & vault**. Inbox shows what an inbox watcher (Inbox Watch, a separate
+   program with its own timer and mailbox access) sends; see the
+   [README](../README.md#inbox-watch-your-mailbox-read-for-you). Voice is a separate optional install
    (`scripts/voice-setup.sh`, see the [README](../README.md#voice-mode-beta)).
 
 ### Limiting the Claude models
