@@ -153,6 +153,7 @@ switch (cmd) {
       lines.push(s.paused ? 'Paused' : s.every ? `Checks every ${s.every} min outside the periods` : 'No checks outside the periods');
       for (const p of s.periods || []) lines.push(`  ${p.name || 'Period'}: days ${p.days.join(',')} ${p.from}–${p.to}, ${p.every ? 'every ' + p.every + ' min' : 'no checks'}`);
       if (s.models) lines.push(`Decisions: ${s.models.decisions?.model} (${s.models.decisions?.reasoning}) · Look-ahead: ${s.models.lookahead?.model} (${s.models.lookahead?.reasoning})`);
+      if (typeof (r.profile?.rules?.text ?? s.rules) === 'string') lines.push(`Your rules: ${(r.profile?.rules?.text ?? s.rules).trim().split('\n').filter(Boolean).length} lines (pocket-inbox watch --json shows them)`);
       if (s.tidy) lines.push(`Tidy: ${s.tidy.enabled ? `every ${s.tidy.every} h, takes resolved and handled entries off the list` : 'off'}`);
       if (s.firstPass) lines.push(`First pass: ${s.firstPass.enabled ? `on, ${s.firstPass.provider}, skips at ${Math.round(s.firstPass.threshold * 100)}% sure` : 'off'}`);
     } else lines.push('The watcher has not reported its settings yet (it needs inbox-monitor 0.3 or later).');

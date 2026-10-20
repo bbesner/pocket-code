@@ -30,7 +30,9 @@ MODELS = {"jev": "~typesafe/jev-latest", "openai": "openai/gpt-6-luna-decisions"
 PROVIDERS = [("jev", "Jev (TypeSafe)"), ("openai", "OpenAI decision model"), ("both", "Both must agree")]
 THRESHOLDS = [0.95, 0.9, 0.8, 0.7]
 INSTRUCTIONS = ("Should the assistant read this email carefully, or is it routine mail it can safely skip? Skip only mail that clearly "
-                "carries nothing {owner} would need to know or act on. When in doubt, review.")
+                "carries nothing {owner} would need to know or act on. If {owner}'s rules ask to hear about this kind of mail, it is review, "
+                "never skip. When in doubt, review.")
+RULES_CHARS = 6000  # the owner's rules ride along with every email (about 1.5k tokens at most)
 CRITERIA = {
     "skip": "Routine automated or bulk mail with nothing to know or do: receipts and successful payment confirmations, order, shipping and "
             "delivery notices, newsletters, marketing and promotions, social or app notifications, verification codes, routine daily or "
@@ -83,8 +85,10 @@ class FirstPass:
         return (f"From: {m['from']}\nTo: {(m.get('to') or '')[:300]}\nSubject: {b['subject']}\nMessages in thread: {b['message_count']}\n"
                 f"Gmail labels: {', '.join(m.get('labels') or [])}\n\n{(m.get('body') or '')[:3000]}")
 
-    def _ask(self, model: str, b: dict, key: str) -> dict:
-        body = {"model": model, "state": {"context": self.context, "email": self.email_text(b)},
+    def _ask(self, model: str, b: dict, key: str, rules: str = "") -> dict:
+        context = self.context + (f"\n\n{self.owner}'s own rules for what they want to hear about (they override the descriptions below):\n"
+                                  f"{rules[:RULES_CHARS]}" if rules.strip() else "")
+        body = {"model": model, "state": {"context": context, "email": self.email_text(b)},
                 "questions": {"triage": {"type": "choice", "instructions": INSTRUCTIONS.format(owner=self.owner), "criteria": CRITERIA}}}
         req = urllib.request.Request(ENDPOINT, data=json.dumps(body).encode(), headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
         t0 = time.time()
@@ -109,7 +113,7 @@ class FirstPass:
         u = j.get("usage") or {}
         return {"p_skip": float((a.get("probabilities") or {}).get("skip", 0)), "cost": u.get("cost"), "ms": int((time.time() - t0) * 1000)}
 
-    def classify(self, b: dict, settings: dict, key: str) -> dict:
+    def classify(self, b: dict, settings: dict, key: str, rules: str = "") -> dict:
         """{skip: bool, p_skip, provider, cost, ms, error}. Errors mean review."""
         provider, threshold = settings["provider"], settings["threshold"]
         names = ["jev", "openai"] if provider == "both" else [provider]
@@ -117,7 +121,7 @@ class FirstPass:
         ps = []
         try:
             for n in names:
-                r = self._ask(self.models[n], b, key)
+                r = self._ask(self.models[n], b, key, rules)
                 ps.append(r["p_skip"])
                 out["cost"] += r["cost"] or 0
                 out["ms"] = max(out["ms"], r["ms"])
@@ -128,10 +132,10 @@ class FirstPass:
         out["skip"] = out["p_skip"] >= threshold
         return out
 
-    def run(self, bundles: list[dict], settings: dict) -> dict[str, dict]:
+    def run(self, bundles: list[dict], settings: dict, rules: str = "") -> dict[str, dict]:
         """thread_id -> result, for the eligible bundles given; empty when there is no key."""
         key = self.key()
         if not key or not bundles:
             return {}
         with cf.ThreadPoolExecutor(min(self.workers, len(bundles))) as pool:
-            return dict(zip((b["thread_id"] for b in bundles), pool.map(lambda b: self.classify(b, settings, key), bundles)))
+            return dict(zip((b["thread_id"] for b in bundles), pool.map(lambda b: self.classify(b, settings, key, rules), bundles)))

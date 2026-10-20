@@ -34,7 +34,7 @@ const checkSince = v => { if (v == null || v === '') return null; const t = Date
 const source = v => line(v, LIMITS.source) || 'inbox-monitor';
 
 // ---- 1.70: Inbox Watch settings. The worker normalizes again; here a bad value is refused with a reason the owner can read.
-export const WATCH = { periods: 12, every: 240, name: 40, model: 80, profileBytes: 24000, reasoning: ['default', 'low', 'medium', 'high', 'xhigh', 'max'], firstPass: ['jev', 'openai', 'both'], tidyEvery: [1, 2, 4, 8, 12, 24] };
+export const WATCH = { periods: 12, every: 240, name: 40, model: 80, profileBytes: 24000, reasoning: ['default', 'low', 'medium', 'high', 'xhigh', 'max'], firstPass: ['jev', 'openai', 'both'], tidyEvery: [1, 2, 4, 8, 12, 24], rules: 8000 };
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 export function checkWatch(raw, profile = null) {
@@ -69,6 +69,11 @@ export function checkWatch(raw, profile = null) {
     if ('enabled' in f) { if (typeof f.enabled !== 'boolean') throw bad('firstPass.enabled is true or false.'); out.firstPass.enabled = f.enabled; }
     if ('provider' in f) { if (!WATCH.firstPass.includes(f.provider)) throw bad(`The first pass is one of ${WATCH.firstPass.join(', ')}.`); out.firstPass.provider = f.provider; }
     if ('threshold' in f) { if (typeof f.threshold !== 'number' || f.threshold < 0.5 || f.threshold > 0.99) throw bad('The first pass confidence is between 0.5 and 0.99.'); out.firstPass.threshold = Math.round(f.threshold * 100) / 100; }
+  }
+  if ('rules' in raw) { // the owner's own rules for the watcher, plain text (1.73)
+    if (typeof raw.rules !== 'string') throw bad('rules is text.');
+    if (raw.rules.length > WATCH.rules) throw bad(`Your rules are over ${WATCH.rules.toLocaleString('en-US')} characters.`);
+    out.rules = raw.rules.replace(/\r\n/g, '\n');
   }
   if ('tidy' in raw) { // take resolved or handled entries off the list (inbox-monitor's tidy pass)
     const t = raw.tidy; if (!t || typeof t !== 'object') throw bad('tidy is {enabled, every}.');

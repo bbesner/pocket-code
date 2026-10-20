@@ -63,7 +63,8 @@ export async function captureDocs({browser,base,rows,dir,conversations,settings,
     const sheet=async(page,scrollTo)=>{await page.waitForSelector('#inbox-watch');await page.click('#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
      await page.waitForFunction(()=>[...document.querySelectorAll('.watch-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
      if(scrollTo)await page.evaluate(s=>{const sh=document.querySelector('.watch-sheet'),el=document.querySelector(s);sh.scrollTop=el.offsetTop-12;},scrollTo);};
-    await shot('inbox-watch-schedule-mobile.png',{mobile:true,url:'/#/inbox',prep:page=>sheet(page,null)});
+    await shot('inbox-watch-rules-mobile.png',{mobile:true,url:'/#/inbox',prep:page=>sheet(page,null)});
+    await shot('inbox-watch-schedule-mobile.png',{mobile:true,url:'/#/inbox',prep:page=>sheet(page,'[aria-labelledby="w-sched-h"]')});
     await shot('inbox-watch-models-mobile.png',{mobile:true,url:'/#/inbox',prep:page=>sheet(page,'[aria-labelledby="w-fp-h"]')});
     settings.assistantMode=true;
     await shot('assistant-home-mobile.png',{mobile:true,url:'/#/',prep:async page=>{await page.waitForSelector('.assistant-home');await page.waitForSelector('#home-waiting .inbox-card');}});

@@ -18,6 +18,8 @@ The shape (JSON in Pocket, the same keys in the TOML as snake_case where noted):
   models        {decisions: {model, reasoning}, lookahead: {model, reasoning}}; reasoning "default" leaves the model's own
   firstPass     {enabled, provider: jev | openai | both, threshold}: a decision model skips routine mail before the judge
                 (firstpass.py; TOML [firstpass])
+  rules         the owner's own rules, plain text (the preferences file): set in Pocket, they replace the file and are read by
+                every turn and by the first pass (engine.sync_rules)
   tidy          {enabled, every}: every so many hours (outside quiet hours) the judge checks the open Inbox entries and takes
                 off what has been resolved or handled (TOML [tidy] enabled, every_hours)
 """
@@ -34,6 +36,7 @@ MAX_PERIODS = 12
 LOOKAHEAD_HOURS = 4
 SLACK_S = 30  # a tick a few seconds early still counts, so a 5-minute interval is not stretched to 6
 TIDY_EVERY = [1, 2, 4, 8, 12, 24]
+RULES_MAX = 8000
 TIME_RX = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 # Model choices per judge kind. Claude Code takes aliases; the other kinds are offered only what the config names.
@@ -137,6 +140,8 @@ def normalize(raw: dict | None, base: dict, models: list[str] | None = None) -> 
                 cur["threshold"] = round(t, 2)
         except (TypeError, ValueError):
             pass
+    if isinstance(raw.get("rules"), str):
+        out["rules"] = raw["rules"][:RULES_MAX]
     td = raw.get("tidy")
     if isinstance(td, dict) and "tidy" in out:
         if "enabled" in td:

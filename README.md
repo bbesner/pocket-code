@@ -17,7 +17,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.72.0 / build 141**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.73.0 / build 142**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -95,19 +95,24 @@ alert lands in **Inbox** with **Start a conversation**, which opens one already 
 the story and the Gmail links. A morning digest and a look-ahead cover the rest.
 **Schedule, models and cost** (1.70) sets when it checks (periods with their own days, hours
 and interval), quiet hours, the digest and look-ahead times, the models, and a **first pass**
-that skips clearly routine mail before the model reads it, and shows what each day cost. With
+that skips clearly routine mail before the model reads it, and shows what each day cost.
+**Your rules** (1.73) are your own words about what you always or never want to hear about
+("tell me about every sale from my web store", "never tell me about cameras that go offline");
+the watcher follows them on every check, and they win over its own judgment. With
 **Keep the Inbox tidy** (1.71) it also takes off your list what has since been resolved or handled,
 saying why, so the Inbox holds only what still needs you.
 [More below](#inbox-watch-your-mailbox-read-for-you-165).
 
 <table>
 <tr>
-<td width="33%" valign="top"><img src="docs/images/inbox-mobile.png" alt="Inbox on a phone: an unread alert that a site's gate camera is offline for the third time this week, a morning digest and a look-ahead, each with dismiss and options buttons"></td>
-<td width="33%" valign="top"><img src="docs/images/inbox-watch-schedule-mobile.png" alt="The Inbox Watch sheet: checking every 5 minutes now in Work hours with the next check time, Pause, an interval for the rest of the time and a Work hours period with weekday buttons, from and until times and its own interval"></td>
-<td width="33%" valign="top"><img src="docs/images/inbox-watch-models-mobile.png" alt="Further down the sheet: the first pass switched on with Jev at 80 percent, then seven days of checks, skipped mail, model calls, tokens and cost with a total, and Save"></td>
+<td width="25%" valign="top"><img src="docs/images/inbox-mobile.png" alt="Inbox on a phone: an unread alert that a site's gate camera is offline for the third time this week, a morning digest and a look-ahead, each with dismiss and options buttons"></td>
+<td width="25%" valign="top"><img src="docs/images/inbox-watch-rules-mobile.png" alt="The Inbox Watch sheet opening on Your rules: a box with the owner's own rules, always tell me about web-store sales over 500 dollars, never newsletters, with a character count"></td>
+<td width="25%" valign="top"><img src="docs/images/inbox-watch-schedule-mobile.png" alt="The Inbox Watch sheet: checking every 5 minutes now in Work hours with the next check time, Pause, an interval for the rest of the time and a Work hours period with weekday buttons, from and until times and its own interval"></td>
+<td width="25%" valign="top"><img src="docs/images/inbox-watch-models-mobile.png" alt="Further down the sheet: the first pass switched on with Jev at 80 percent, then seven days of checks, skipped mail, model calls, tokens and cost with a total, and Save"></td>
 </tr>
 <tr>
 <td align="center">What it sent</td>
+<td align="center">Your rules</td>
 <td align="center">When it checks</td>
 <td align="center">First pass and cost</td>
 </tr>
