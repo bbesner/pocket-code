@@ -26,6 +26,7 @@ jobs:
       - run: npm ci
       - run: npm run check:release
       - run: npm test
+      - run: python3 inbox-watch/tests/test_schedule.py
       - name: Browser and accessibility tests
         shell: bash
         run: |

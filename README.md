@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.71.0 / build 140**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.72.0 / build 141**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -307,8 +307,9 @@ email" or "ignore these notices" sticks. With the **Inbox** library on (1.69), e
 is one list in Pocket: tap **X** to dismiss, or choose **Resolved** or **Not useful** from a row, and
 the watcher applies it on its next run, closing the story or adding a line to your preferences.
 Pocket's part is the Inbox (`pocket-inbox`), the push, the briefed conversation (a start link) and
-Files; the worker ships as its own program, `inbox-monitor`, with a config file per mailbox (owner,
-mailbox, judge, delivery) and a timer.
+Files; the watcher itself ships in this repository, in [`inbox-watch/`](inbox-watch/README.md) (1.72), a
+Python program with a config file per mailbox (owner, mailbox, judge, delivery) that runs beside Pocket on
+its own timer. That folder's README has the setup.
 **Schedule, models and cost** (1.70, Settings → Inbox Watch or **Schedule** in the Inbox) sets when it checks
 (periods with their own days, hours and interval), quiet hours, the digest and look-ahead times, a pause, and in
 Developer mode the model and reasoning for each job, with what each day cost. Mail access is the owner's own Gmail consent, or a Workspace service account for
@@ -608,6 +609,7 @@ npm ci
 npm run check:release
 npm test
 PUPPETEER_EXECUTABLE_PATH=/path/to/chrome npm run test:browser
+python3 inbox-watch/tests/test_schedule.py   # Inbox Watch's watcher (no mailbox or model needed)
 ```
 
 Tests use temporary stores, fake provider CLIs and synthetic browser sessions. They

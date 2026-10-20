@@ -1,0 +1,101 @@
+# inbox-monitor — one file per mailbox. Copy beside a preferences.md and point the timer at it:
+#   inbox-monitor --config /path/to/config.toml tick      (a timer every minute; checks only when one is due; a failed run should email you)
+#   inbox-monitor --config … backfill --days 90           (once, so the judge has mail memory from day one)
+#   inbox-monitor --config … check                        (loads everything, reads the mailbox profile, sends nothing)
+
+[owner]
+name = "Alex"                          # how the judge refers to you
+email = "alex@example.com"             # the mailbox watched; also marks your own replies
+timezone = "America/New_York"          # every time shown to you
+own_domains = ["example.com"]          # your companies' domains (your own senders are not "a vendor")
+# noise_words = ["acme", "support"]    # words in nearly every subject that say nothing about the situation (your company name, a shared mailbox's prefix)
+
+[assistant]
+name = "your assistant"                # the persona the judge speaks as (an OpenClaw agent's name, or anything)
+
+[schedule]                             # defaults; the owner can change all of this in Pocket (Settings → Inbox Watch)
+every = 5                              # minutes between checks outside every period; 0 = none
+# paused = true                        # stop everything until false
+# [[schedule.period]]                  # any number; the first that covers the moment wins
+# name = "Overnight"
+# days = "daily"                       # "daily" | "weekdays" | "weekends" | ["mon", "tue", ...]
+# from = "22:00"                       # local time; to <= from runs past midnight
+# to = "07:00"
+# every = 30
+quiet_hours = [22, 8]                  # hold ordinary alerts from 10 PM to 8 AM; only critical gets through
+digest_hour = 8                        # the morning digest, after quiet hours end
+lookahead = { morning = [8, 12], evening = [17, 22] }   # the two look-ahead windows (hours)
+
+# state_dir = "state"                  # ledger, mail archive, log (relative to this file)
+# preferences_file = "preferences.md"  # your standing preferences, read every turn; edit freely
+# prompts_dir = "prompts"              # override the shipped prompts
+
+[mail]
+provider = "gmail"
+auth = "oauth"                         # "oauth": your own consent (run `inbox-monitor gmail-auth` once)
+oauth_client_file = "google-oauth-client.json"   # an OAuth client of type "Desktop app" from Google Cloud
+oauth_token_file = "state/gmail-token.json"
+# auth = "service_account"             # a Workspace admin's service account with domain-wide delegation
+# service_account_file = "service-account.json"
+
+[judge]
+kind = "claude"                        # openclaw | claude | codex | anthropic
+model = "opus"                         # claude: the Claude Code model alias; the Max plan covers it
+reasoning = "medium"                   # every judge: default | low | medium | high | xhigh (claude --effort, codex model_reasoning_effort, API effort, OpenClaw thinking)
+# prompt_cache = false                 # claude: the default; every bundle is new, so a cache write was paid and never read
+# The claude judge runs isolated: no built-in tools (no shell, files or web), no user settings or hooks, no CLAUDE.md,
+# no saved transcript. It reads untrusted email, so keep it that way; `isolate = false` turns that off.
+# mcp_config = "/home/me/my-inbox/judge-mcp.json"     # MCP servers the judge may reach (e.g. only your memory server)
+# allowed_tools = ["mcp__memstem__memstem_search", "mcp__memstem__memstem_get"]   # read-only tools it may call
+# memory_search = true                 # tell it so
+# kind = "openclaw"; bin = "/usr/bin/openclaw"; config = "/home/me/agent/openclaw.json"; agent = "main"; model = "Astra"; thinking = "medium"
+# kind = "codex"; model = "gpt-5.6-sol"; codex_home = "/home/me/.codex"
+# kind = "anthropic"; model = "claude-opus-5-5"; effort = "medium"; api_key_env = "ANTHROPIC_API_KEY"
+# standing_instruction = "Write in British English."
+
+# [judge.lookahead]                   # optional: a different judge for the twice-daily look-ahead (inherits the keys above)
+# kind = "claude"
+# model = "opus"
+# reasoning = "medium"
+
+# [firstpass]                         # optional: skip routine mail before the judge (see README "First pass")
+# enabled = true
+# provider = "jev"                     # jev | openai | both (skip only when both agree)
+# threshold = 0.8                      # skip at or above this probability of "routine"
+# key_file = "~/.config/openrouter/keys/inbox-monitor.key"   # an OpenRouter key (or key_env = "OPENROUTER_API_KEY")
+# context = "Alex runs a plumbing company. An assistant reads every new email ..."   # what the classifier is told about you
+
+# [tidy]                              # optional: take resolved or handled entries off the owner's Pocket Inbox
+# enabled = true
+# every_hours = 2                      # 1, 2, 4, 8, 12 or 24; never in quiet hours
+
+[pocket]                               # optional: every alert gets a briefed Pocket Code session one tap away
+root = "/home/me/pocket-code"          # the Pocket Code checkout (its scripts/ talk to the running server)
+session_dir = "/home/me"               # where the session starts
+provider = "claude"                    # claude | codex
+
+[[delivery]]                           # one or more; each gets every alert, digest and look-ahead
+kind = "pocket"                        # push to your devices (Pocket Code 1.58.1+); digests and look-aheads go to Files
+root = "/home/me/pocket-code"
+email = false                          # also mail your Pocket notification address
+
+# [[delivery]]
+# kind = "telegram"                    # a bot DM (an OpenClaw agent's own bot makes replies reach the agent)
+# chat_id = "123456789"
+# token_env = "TG_BOT_TOKEN"           # or openclaw_config = "/home/me/agent/openclaw.json"
+# reply_note = "Reply here and I'll handle it."
+
+# [[delivery]]
+# kind = "email"
+# smtp_url = "smtps://me%40example.com:app-password@smtp.gmail.com:465"   # or smtp_url_env = "SMTP_URL"
+# from = "me@example.com"
+# to = "me@example.com"
+
+[briefing]
+# footer = "How to read a message from the session: …"   # appended to every Pocket briefing
+
+# [memory]                             # optional: remember what reached the owner, so any session can find it later
+# kind = "memstem"                     # one record per story the owner was told about (kept current), plus each look-ahead,
+# command = ["memstem", "mcp"]         #   digest and notify-from-another-job, written through MemStem's own memstem_upsert
+# folder = "memories/inbox-watch"      # vault folder; records live in <folder>/<mailbox name>/
+# tags = []                            # extra tags on every record
