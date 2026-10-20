@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.73.1] — 2026-10-20 · build 143
+
+- **Inbox Watch reuses an existing Google sign-in.** With `mail.auth = "oauth"`, the watcher renewed the token for `gmail.readonly` only, so a sign-in granted to another app for broader Gmail access (`gmail.modify`) failed with `invalid_scope`. It now renews with the scopes recorded in the token file and still only reads. Found setting up Inbox Watch for a second mailbox whose assistant already had Gmail access.
+- Migration: none.
+
 ## [1.73.0] — 2026-10-20 · build 142
 
 - **Your rules for Inbox Watch.** Settings → Inbox Watch opens on **Your rules** (both modes): a box for your own words about what you always or never want to hear about. It shows the watcher's preferences file, including the lines **Not useful** added; Save replaces the file (the watcher keeps the previous one) and applies from the next check. Asked for by Brad ("I want to know about every sale", "never tell me about cameras that go down").

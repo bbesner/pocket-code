@@ -9,6 +9,7 @@ Two ways in:
 from __future__ import annotations
 
 import time
+import json
 from pathlib import Path
 
 from googleapiclient.discovery import build
@@ -27,7 +28,13 @@ def credentials(mail: dict, owner_email: str):
         token = Path(mail["oauth_token_file"])
         if not token.exists():
             raise RuntimeError(f"no Gmail token at {token}; run `inbox-monitor gmail-auth` once")
-        creds = Credentials.from_authorized_user_file(str(token), GMAIL_SCOPES)
+        # Renew with the scopes the sign-in was granted: a token reused from another app (granted gmail.modify, say) cannot be
+        # refreshed for gmail.readonly ("invalid_scope"). Only reads are ever made either way.
+        try:
+            granted = json.loads(token.read_text()).get("scopes") or GMAIL_SCOPES
+        except ValueError:
+            granted = GMAIL_SCOPES
+        creds = Credentials.from_authorized_user_file(str(token), granted)
         if not creds.valid:
             from google.auth.transport.requests import Request
             creds.refresh(Request())
