@@ -24,7 +24,7 @@ instructions Pocket gives you name the exact command.
 ```bash
 pocket-inbox list                     # the new (unread) entries, newest first
 pocket-inbox list --state all         # everything except dismissed
-pocket-inbox list --state dismissed   # the Dismissed filter (kept 30 days)
+pocket-inbox list --state dismissed   # dismissed entries (kept 30 days); Pocket's Done filter also shows resolved and not useful
 pocket-inbox list --since 2026-10-19T00:00:00Z
 pocket-inbox show <id>                # one entry in full: text, story, links, note
 ```
@@ -70,6 +70,10 @@ pocket-inbox watch set --pause        # or --resume
 pocket-inbox watch set --file -       # the whole settings object as JSON (periods, quiet hours, digest, look-ahead, models)
 pocket-inbox watch reset              # back to the watcher's own config file
 ```
+
+Inbox Watch can also keep the list tidy on its own (Settings → Inbox Watch → Keep the Inbox tidy): every few
+hours it takes off entries that have been resolved or handled, with the reason in the entry's note, and they show
+under **Done**. An agent asked to "clean up my Inbox" now can still go through `list` and `act` by hand.
 
 The same settings are in Pocket under **Settings → Projects, files, tasks & vault → Inbox Watch
 → Schedule, models and cost**; the watcher picks a change up within a minute. Dollar figures are

@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.70.1 / build 139**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.71.0 / build 140**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -89,7 +89,9 @@ alert lands in **Inbox** with **Start a conversation**, which opens one already 
 the story and the Gmail links. A morning digest and a look-ahead cover the rest.
 **Schedule, models and cost** (1.70) sets when it checks (periods with their own days, hours
 and interval), quiet hours, the digest and look-ahead times, the models, and a **first pass**
-that skips clearly routine mail before the model reads it, and shows what each day cost.
+that skips clearly routine mail before the model reads it, and shows what each day cost. With
+**Keep the Inbox tidy** (1.71) it also takes off your list what has since been resolved or handled,
+saying why, so the Inbox holds only what still needs you.
 [More below](#inbox-watch-your-mailbox-read-for-you-165).
 
 <table>

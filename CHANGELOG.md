@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.71.0] — 2026-10-20 · build 140
+
+- **The Inbox keeps itself tidy.** Settings → Inbox Watch gains **Keep the Inbox tidy**: *Take finished items off my list* and how often (every 1, 2, 4, 8, 12 or 24 hours; both modes). With it on, inbox-monitor 0.3's tidy pass checks each open entry against the mail since and takes it off as **Resolved** (the situation is over; the watcher stops following) or dismisses it as **Handled** (someone acted and it waits on someone else; the watcher keeps following), with the reason as the entry's note. It must cite the email that proves it; anything without proof stays. Asked for by Brad after a by-hand cleanup of 46 entries.
+- **Open, Unread, Done.** The list opens on **Open** (unread and read, nothing finished); **Done** gathers resolved, not useful and dismissed entries, newest first, each row showing why it was finished (the note) instead of the alert's first sentence. The All and Dismissed chips are gone; `/api/inbox?state=all|dismissed` are unchanged.
+- `checkWatch` accepts `tidy: {enabled, every}`; `pocket-inbox watch` prints it.
+- Migration: none.
+- Tests: the Inbox UI check walks Open → Unread → Open, resolves into Done, dismisses there and restores; the Inbox Watch check covers the tidy section in both modes and its save; `test/inbox.test.mjs` covers the tidy validation.
+
 ## [1.70.1] — 2026-10-20 · build 139
 
 - **Digests read cleanly in Inbox.** A morning digest's text uses `## ` headings and `- ` bullet lines; the sheet showed them as raw marks and the row's preview began "## Worth knowing - …". The sheet now shows the heading in bold and the lines as bullets, and the row shows the first real sentence.
