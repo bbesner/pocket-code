@@ -130,6 +130,10 @@ model's own run-to-run variation). Reasoning level made no measurable difference
 medium and high alike. A longer interval batches more threads per call: replaying one day, 10 minutes needed 24% fewer
 calls than 5, 15 minutes 31% fewer, 30 minutes 44% fewer, for the same mail.
 
+Reusing a Google sign-in another app already holds (an assistant connected to the same Gmail) works too: write an
+`authorized_user` token file (`client_id`, `client_secret`, `refresh_token`, `token_uri`, and the `scopes` it was granted)
+and point `oauth_token_file` at it. The watcher renews it with those scopes and only ever reads.
+
 `touch STOP` beside the config pauses everything. `--dry-run` evaluates without sending. `notify --subject … --text …`
 sends one alert through the same channel from any other job.
 

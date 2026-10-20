@@ -1,11 +1,11 @@
 {
-  "version": "1.73.0",
-  "assetV": 142,
+  "version": "1.73.1",
+  "assetV": 143,
   "notes": [
+    "Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads).",
     "Your rules for Inbox Watch: Settings → Inbox Watch opens on a box for your own words about what you always or never want to hear about (\"tell me about every sale\", \"never tell me about cameras that go offline\"). The watcher follows them on every check, and they win over its own judgment.",
     "Inbox Watch's watcher now ships inside Pocket Code (inbox-watch/), versioned and released with the rest, so the Inbox, its settings and the program that fills it are one project.",
     "The Inbox keeps itself tidy: with Settings → Inbox Watch → Keep the Inbox tidy on, the watcher takes off your list what has been resolved or handled since, with the reason, and the list opens on Open, with a Done filter for everything finished.",
-    "Inbox digests read cleanly: a digest's headings and bullet lines show as a heading and bullets in its sheet, and the row shows its first real sentence instead of the raw marks.",
-    "Inbox Watch has a schedule you set: Settings → Inbox Watch → Schedule, models and cost (or Schedule in the Inbox). Periods with their own days, hours and interval, quiet hours, the digest and look-ahead times, pause, the model and reasoning for decisions and for the look-ahead, a first pass that skips routine mail before the model reads it, and what each day cost. The watcher picks a change up within a minute."
+    "Inbox digests read cleanly: a digest's headings and bullet lines show as a heading and bullets in its sheet, and the row shows its first real sentence instead of the raw marks."
   ]
 }
