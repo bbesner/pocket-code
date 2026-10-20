@@ -361,7 +361,7 @@ try{
   throw Object.assign(Error('themes only'),{docsOnly:true});
  }
  if(process.env.POCKET_DOCS_SCREENSHOTS){
-  await captureDocs({browser,base,rows,dir:process.env.POCKET_DOCS_SCREENSHOTS,conversations,settings:fixtureSettings});
+  await captureDocs({browser,base,rows,dir:process.env.POCKET_DOCS_SCREENSHOTS,conversations,settings:fixtureSettings,inboxStore});
   if(process.env.POCKET_DOCS_ONLY){console.log(JSON.stringify({ok:true,docsOnly:true,dir:process.env.POCKET_DOCS_SCREENSHOTS}));process.exitCode=0;throw Object.assign(Error('docs only'),{docsOnly:true});}
  }
  for(const width of [360,390,768,1440]){

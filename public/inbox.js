@@ -31,10 +31,12 @@ const inboxNewCount=()=>inboxSnap?.newCount||0;
 const inboxKindWord=e=>e.kind==='digest'?'digest':e.kind==='lookahead'?'look-ahead':'alert';
 const inboxStateWord=e=>({resolved:'Resolved',not_useful:'Not useful',dismissed:'Dismissed'})[e.state]||'';
 // The watcher writes citations as [label](msg:<gmail id>); they become Gmail links. Plain text otherwise.
+// 1.70.1: a digest's "## Worth knowing" heading and "- " lines read as a heading and bullets, not as raw marks.
 function inboxText(text){
- return esc(text||'').replace(/\[([^\]\n]{1,80})\]\(msg:([0-9a-f]{6,24})\)/g,(m,label,id)=>`<a href="${INBOX_GMAIL_MSG}${id}" target="_blank" rel="noopener">${label}</a>`).replace(/\n/g,'<br>');
+ return esc(text||'').replace(/\[([^\]\n]{1,80})\]\(msg:([0-9a-f]{6,24})\)/g,(m,label,id)=>`<a href="${INBOX_GMAIL_MSG}${id}" target="_blank" rel="noopener">${label}</a>`)
+  .replace(/^#{1,3}[ \t]+(.+)$/gm,'<strong>$1</strong>').replace(/^[ \t]*[-*][ \t]+/gm,'• ').replace(/\n/g,'<br>');
 }
-const inboxFirst=text=>{const t=String(text||'').replace(/\[([^\]\n]{1,80})\]\(msg:[0-9a-f]{6,24}\)/g,'$1').replace(/\s+/g,' ').trim();const m=/^(.{20,220}?[.!?])(\s|$)/.exec(t);return m?m[1]:t.slice(0,220);};
+const inboxFirst=text=>{const t=String(text||'').replace(/\[([^\]\n]{1,80})\]\(msg:[0-9a-f]{6,24}\)/g,'$1').replace(/^#{1,3}[ \t]+.*$/gm,'').replace(/^[ \t]*[-*][ \t]+/gm,'').replace(/\s+/g,' ').trim();const m=/^(.{20,220}?[.!?])(\s|$)/.exec(t);return m?m[1]:t.slice(0,220);};
 const inboxWhen=iso=>{const d=new Date(iso);return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}).replace(' ',' ').toLowerCase();};
 const inboxDay=iso=>{const d=new Date(iso),t=new Date();const same=(a,b)=>a.toDateString()===b.toDateString();const y=new Date(t);y.setDate(t.getDate()-1);return same(d,t)?'Today':same(d,y)?'Yesterday':d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});};
 // Where Open goes: the start link (a Pocket path or this Pocket's own address), the Files document, else the entry itself.
