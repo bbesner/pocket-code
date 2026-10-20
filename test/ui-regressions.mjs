@@ -2450,27 +2450,29 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     for(const w of [390,1440]){
      await page.setViewport({width:w,height:w===390?844:900});await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view .inbox-item');
      assert.equal(await page.$eval('#ktitle',e=>e.textContent),'Inbox');
-     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item',r=>r.map(x=>x.className.match(/state-\w+/)[0])),['state-new','state-opened','state-resolved'],'All opens first, everything but dismissed, at '+w);
+     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item',r=>r.map(x=>x.className.match(/state-\w+/)[0])),['state-new','state-opened'],'1.71: Open opens first: unread and read, nothing finished, at '+w);
      await clickControl(page,'[data-inbox-filter="new"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1);
      assert.deepEqual(await page.$$eval('.inbox-view .inbox-item .title',t=>t.map(x=>x.textContent)),['Pradera dispatch conflict'],'Unread shows the one new alert at '+w);
      assert.ok((await page.$$eval('.inbox-item button',bs=>bs.map(b=>b.getBoundingClientRect().height))).every(h=>h>=44),'44px targets');
-     await clickControl(page,'[data-inbox-filter="all"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===3);
+     await clickControl(page,'[data-inbox-filter="open"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
      assert.match(await page.$eval('.inbox-item.state-new .inbox-text',e=>e.textContent),/Kimberly says/);
      if(w===390)await scan('inbox-all-390');else await scan('inbox-all-1440');
     }
     // 1.69.1: a tap on the row reads it (the sheet), and only the sheet starts a conversation
     await clickControl(page,'.inbox-item.state-new .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet');assert.equal(await page.$eval('.inbox-sheet [data-go]',e=>e.textContent.includes('Start a conversation')),true);await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));
-    // 1.69.2: reading cleared the dot but the row stays in All; the row menu: Resolved; then X: Dismissed shows it and Restore brings it back
-    await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===3&&!document.querySelector('.inbox-view .inbox-item.state-new'));
+    // 1.69.2: reading cleared the dot but the row stays in Open; the row menu: Resolved moves it to Done; X there dismisses; Restore brings it back
+    await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2&&!document.querySelector('.inbox-view .inbox-item.state-new'));
     await clickControl(page,'[data-inbox-more][aria-label="Options for Pradera dispatch conflict"]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
     assert.match(await page.$eval('.inbox-sheet .inbox-body',e=>e.innerHTML),/<a href="https:\/\/mail\.google\.com\/mail\/u\/0\/#all\/1a1540e0de10f879"/,'a citation is a Gmail link');
     assert.deepEqual(await page.evaluate(()=>['[data-go]','a.opt[href^="https://mail.google.com/"]','[data-resolve]','[data-useless]','[data-dismiss]','[data-restore]'].map(q=>Boolean(document.querySelector('.inbox-sheet '+q)))),[true,true,true,true,true,false],'the choices: open, Gmail, Resolved, Not useful, Dismiss; no Restore on a new entry');
     await clickControl(page,'.inbox-sheet [data-resolve]');await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));
-    await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item.state-resolved').length===2,'Pradera joins Circa as resolved');
-    await clickControl(page,'[data-inbox-dismiss][aria-label="Dismiss: Pradera dispatch conflict"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
-    await clickControl(page,'[data-inbox-filter="dismissed"]');await page.waitForSelector('.inbox-item.state-dismissed');
+    await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1,'Pradera leaves Open');
+    await clickControl(page,'[data-inbox-filter="done"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item.state-resolved').length===2,'Done: Pradera joins Circa as resolved');
+    await clickControl(page,'[data-inbox-dismiss][aria-label="Dismiss: Pradera dispatch conflict"]');await page.waitForSelector('.inbox-item.state-dismissed');
+    assert.equal(await page.$$eval('.inbox-view .inbox-item',r=>r.length),2,'Done holds resolved and dismissed alike');
     await clickControl(page,'.inbox-item.state-dismissed [data-inbox-more]');await page.waitForSelector('.inbox-sheet [data-restore]');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));await clickControl(page,'.inbox-sheet [data-restore]');
-    await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));await page.waitForFunction(()=>document.querySelector('.inbox-view .project-empty')?.textContent.includes('Nothing dismissed'));
+    await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-view .inbox-item .title')].map(x=>x.textContent).join()==='Circa alarm timer tests','restored: only Circa is left in Done');
+    await clickControl(page,'[data-inbox-filter="open"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
     // Settings: the switch under the libraries, the push kind under notifications
     await page.setViewport({width:1440,height:900});await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox');
     await page.waitForFunction(()=>document.querySelector('#s-inbox')?.getAttribute('aria-pressed')==='true');assert.match(await page.$eval('#s-inbox-state',e=>e.textContent),/^On: alerts, digests and look-aheads/);
@@ -2497,7 +2499,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
      await page.waitForFunction(()=>[...document.querySelectorAll('.watch-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
      assert.match(await page.$eval('#w-status',e=>e.textContent),/^Checking every 5 minutes now\. Last check .*Using the watcher’s config file\.$/);
-     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Schedule','Quiet hours and summaries','Models','First pass','Cost, last 7 days']);
+     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Schedule','Quiet hours and summaries','Keep the Inbox tidy','Models','First pass','Cost, last 7 days']);
+     assert.equal(await page.$eval('#w-tidy',e=>e.getAttribute('aria-pressed')),'true');assert.equal(await page.$eval('#w-tidy-every',e=>e.value),'2');
      assert.equal(await page.$eval('#w-fp',e=>e.getAttribute('aria-pressed')),'true');assert.equal(await page.$eval('#w-fp-provider',e=>e.value),'jev');assert.equal(await page.$eval('#w-fp-threshold',e=>e.value),'0.8');
      assert.equal(await page.$eval('#w-every',e=>e.value),'5');assert.equal(await page.$$eval('.watch-period',r=>r.length),1,'the config file’s Overnight period');
      assert.deepEqual(await page.$$eval('.watch-period [data-day]',b=>b.map(x=>x.getAttribute('aria-pressed'))),Array(7).fill('true'));
@@ -2515,10 +2518,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.type('.watch-period:last-child .watch-name','Work hours');
     for(const d of [5,6])await clickControl(page,`.watch-period:last-child [data-day="${d}"]`);
     await page.$eval('.watch-period:last-child [data-from]',e=>{e.value='07:00';});await page.$eval('.watch-period:last-child [data-to]',e=>{e.value='19:00';});await page.select('.watch-period:last-child [data-every]','5');
-    await page.select('#w-every','15');await page.select('#w-fp-threshold','0.9');await page.select('#w-fp-provider','both');await page.select('#w-models [data-job="decisions"] [data-model]','haiku');await page.select('#w-la-evening','off');
+    await page.select('#w-every','15');await page.select('#w-fp-threshold','0.9');await page.select('#w-tidy-every','4');await page.select('#w-fp-provider','both');await page.select('#w-models [data-job="decisions"] [data-model]','haiku');await page.select('#w-la-evening','off');
     await clickControl(page,'#w-save');await page.waitForSelector('#w-reset');
     const saved=await page.evaluate(()=>fetch('/api/inbox/watch').then(r=>r.json()));
-    assert.equal(saved.revision,1);assert.equal(saved.settings.every,15);assert.equal(saved.settings.lookahead.evening,null);assert.deepEqual(saved.settings.models.decisions,{model:'haiku',reasoning:'medium'});assert.deepEqual(saved.settings.firstPass,{enabled:true,provider:'both',threshold:0.9});
+    assert.equal(saved.revision,1);assert.equal(saved.settings.every,15);assert.equal(saved.settings.lookahead.evening,null);assert.deepEqual(saved.settings.models.decisions,{model:'haiku',reasoning:'medium'});assert.deepEqual(saved.settings.firstPass,{enabled:true,provider:'both',threshold:0.9});assert.deepEqual(saved.settings.tidy,{enabled:true,every:4});
     assert.deepEqual(saved.settings.periods[1],{name:'Work hours',days:[0,1,2,3,4],from:'07:00',to:'19:00',every:5});
     assert.match(await page.$eval('#w-status',e=>e.textContent),/Your last change reaches the watcher within a minute\./);
     // a period with no day is refused before it leaves the page
@@ -2531,7 +2534,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.keyboard.press('Escape');
     settings.assistantMode=true;await page.setViewport({width:390,height:844});await page.goto(base+'/#/inbox');await page.reload();await page.waitForSelector('#inbox-watch');
     await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
-    assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Schedule','Quiet hours and summaries']);
+    assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Schedule','Quiet hours and summaries','Keep the Inbox tidy']);
     assert.doesNotMatch(await page.$eval('.watch-sheet',e=>e.textContent),/Sonnet|Haiku|Opus|\$/,'no model names or dollars');
     await scan('inbox-watch-assistant-390');
    }finally{Object.assign(settings,before);await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}

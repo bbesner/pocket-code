@@ -510,14 +510,26 @@ link, and the choices: **Start a conversation** (a new conversation briefed with
 evidence; nothing starts until you press Start) or **Open in Files** for a digest or look-ahead, **Open in Gmail**,
 **Resolved** (the situation is over; the watcher stops following it), **Not useful** (the watcher adds
 a line to your standing preferences so it stops alerting on that kind of thing) and **Dismiss**. A
-dismissed, resolved or not-useful entry offers **Restore**. The chips **All**, **Unread** and
-**Dismissed** filter the list (All first; reading clears the dot and nothing else, 1.69.2) and a search box narrows it by title, story or text. Dismissed entries
+dismissed, resolved or not-useful entry offers **Restore**. The chips **Open**, **Unread** and
+**Done** filter the list (1.71): Open, the default, is everything still on your list, read or not
+(reading clears the dot and nothing else); Done holds what is resolved, not useful or dismissed,
+newest first, each row saying why it was finished. A search box narrows it by title, story or text. Dismissed entries
 are kept for 30 days, everything else for 60. When the watcher has not reported in a day the list
 says so.
 
 **What the watcher reads back.** Resolved, Not useful, Dismiss and Restore are recorded with the
 entry; a watcher asks for them (`pocket-inbox feedback`), applies them, and acknowledges them
 (`pocket-inbox ack`), so nothing is applied twice. Dismiss changes nothing on the watcher's side.
+
+**Keep the Inbox tidy (1.71, inbox-monitor's tidy pass).** With *Take finished items off my list* on
+(Settings → Inbox Watch, every 1 to 24 hours, never in quiet hours), the watcher checks what is
+still on your list against the mail since and takes off what is finished: **Resolved** when the
+situation is over (an outage that recovered and stayed up, a request that was done), and dismissed as
+**Handled** when someone acted and it now waits on someone else (you replied, a staff member logged a
+ticket); it keeps following a handled story and alerts again if it changes. It must point to the
+email that proves it; money, security and legal items need explicit proof, and a monitor that went
+quiet after a failure stays open. The reason is the entry's note, shown in Done, and the morning
+digest lists what was taken off. **Restore** puts any of them back.
 
 **In Assistant mode** a new alert also appears as a **Waiting for you** card on home, opening the
 briefed conversation; digests and look-aheads wait in Inbox and Files. **Settings → Notifications &
@@ -540,6 +552,8 @@ about 9:19 AM.").
 - **Models** (Developer mode): the model and reasoning for *Decisions* (every check that finds new
   mail) and the *Look-ahead* (twice a day), from what the watcher offers. *Model default* leaves the
   reasoning to the model.
+- **Keep the Inbox tidy** (both modes): *Take finished items off my list* and how often (see
+  below).
 - **First pass** (Developer mode): *Skip routine mail first*, the classifier (Jev, OpenAI's decision
   model, or both must agree) and how sure it must be (70–95%). Mail it skips is still kept and its
   headline reaches the model; threads you wrote in, threads that mattered before and anything close

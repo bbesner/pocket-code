@@ -8,6 +8,14 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Inbox: Open and Done, and keeping it tidy (1.71)
+
+Same pinned Inbox brief (variance 2, motion 1, density 5). The chips read **Open · Unread · Done**: Open is the default
+(everything still on the list), Done gathers what is finished. A finished row shows its note (why it was finished) in the
+line where an open row shows the alert's first sentence, so Done reads as a log. The settings sheet gains *Keep the Inbox
+tidy* after *Quiet hours and summaries*, in both modes: the set head, a one-line lead, an `.opt` switch and the *How often*
+select in the pair grid; no new colour.
+
 ## Inbox Watch: schedule, models and cost (1.70)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5 in Developer mode (3 / 2 / 3 in

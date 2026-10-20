@@ -5,7 +5,7 @@
    Files document; X dismisses; the row menu records Resolved or Not useful, which the watcher reads back on its next
    run. Data comes from /api/inbox; every change goes through /api/inbox/act. */
 const inboxOn=()=>Boolean(window.pocketFeatures?.inbox);
-let inboxSnap=null,inboxAt=0,inboxLoading=null,inboxView=null,inboxFilter='all',inboxQuery='',inboxDismissed=null; // 1.69.2: the list opens on All; reading clears the dot, never the row
+let inboxSnap=null,inboxAt=0,inboxLoading=null,inboxView=null,inboxFilter='open',inboxQuery='',inboxDismissed=null; // 1.69.2: reading clears the dot, never the row; 1.71: the list opens on Open (unread and read), Done holds the rest
 const inboxOpenState=e=>e.state==='new'||e.state==='opened'; // still on the owner's plate: not dismissed, resolved or marked not useful
 const INBOX_GMAIL_MSG='https://mail.google.com/mail/u/0/#all/';
 const inboxById=id=>inboxSnap?.entries.find(e=>e.id===id)||inboxDismissed?.entries.find(e=>e.id===id)||null;
@@ -73,7 +73,7 @@ async function renderInbox(view){
  if(PANE){$('#pane-main').onclick=()=>paneSay('main',{view});$('#pane-close').onclick=()=>paneSay('close');}
  else if(!SOLO){bindViewBack($('#back'),view);$('#splitb').onclick=chooseBeside;}
  if(!SOLO)$('#kwin').onclick=()=>openInWindow(view);
- try{await loadInbox(true);if(inboxFilter==='dismissed')await loadInboxDismissed();}catch(e){const m=$('#inbox-main');if(m)m.innerHTML=`<p class="sheet-help">The inbox could not load: ${esc(e.message||'error')}</p>`;return;}
+ try{await loadInbox(true);if(inboxFilter==='done')await loadInboxDismissed();}catch(e){const m=$('#inbox-main');if(m)m.innerHTML=`<p class="sheet-help">The inbox could not load: ${esc(e.message||'error')}</p>`;return;}
  paintInboxView();
  const open=/^#\/inbox\/([0-9a-f]{12})$/.exec(location.hash);if(open)inboxSheet(open[1]);
  if(typeof paintOpenSessions==='function')paintOpenSessions();
@@ -87,19 +87,21 @@ function paintInboxView(){
  const q=main.querySelector('#inbox-search'),focus=q&&document.activeElement===q,pos=q?q.selectionStart:0;
  main.innerHTML=html;
  bindInboxRows(main);
- main.querySelectorAll('[data-inbox-filter]').forEach(b=>b.onclick=async()=>{inboxFilter=b.dataset.inboxFilter;if(inboxFilter==='dismissed'&&!inboxDismissed)try{await loadInboxDismissed();}catch{}paintInboxView();});
+ main.querySelectorAll('[data-inbox-filter]').forEach(b=>b.onclick=async()=>{inboxFilter=b.dataset.inboxFilter;if(inboxFilter==='done'&&!inboxDismissed)try{await loadInboxDismissed();}catch{}paintInboxView();});
  main.querySelector('#inbox-watch')?.addEventListener('click',inboxWatchSheet);
  const s=main.querySelector('#inbox-search');if(s){s.oninput=()=>{inboxQuery=s.value;paintInboxView();};if(focus){s.focus();s.setSelectionRange(pos,pos);}}
  paintInboxBadges();
 }
 function inboxRows(){
- const src=inboxFilter==='dismissed'?(inboxDismissed?.entries||[]):inboxSnap.entries.filter(e=>inboxFilter==='all'||e.state==='new');
+ // Done: resolved and not useful (in the main list) with dismissed (fetched on demand), newest first.
+ const src=inboxFilter==='done'?[...inboxSnap.entries.filter(e=>!inboxOpenState(e)),...(inboxDismissed?.entries||[])].sort((a,b)=>Date.parse(b.actedAt||b.at)-Date.parse(a.actedAt||a.at))
+  :inboxSnap.entries.filter(e=>inboxFilter==='new'?e.state==='new':inboxOpenState(e));
  const q=inboxQuery.trim().toLowerCase();
  return q?src.filter(e=>(e.title+' '+(e.story||'')+' '+(e.text||'')).toLowerCase().includes(q)):src;
 }
 function inboxRowHTML(e){
  const facts=[`<span>${esc(inboxWhen(e.at))}</span>`,e.story?`<span>${esc(e.story.replace(/-/g,' '))}</span>`:'',`<span>${inboxKindWord(e)}${e.priority==='critical'?' · critical':''}</span>`,inboxStateWord(e)?`<span>${inboxStateWord(e)}</span>`:''].filter(Boolean).join('<span aria-hidden="true">·</span>');
- const first=inboxFirst(e.text);
+ const first=!inboxOpenState(e)&&e.note?e.note:inboxFirst(e.text); // a finished entry says why it is finished (the tidy pass writes the reason)
  return `<div class="session-item task-item inbox-item state-${esc(e.state)} kind-${esc(e.kind)}" data-item="${esc(e.id)}">
   <button class="task-check inbox-mark" data-inbox-open="${esc(e.id)}" aria-label="Read: ${esc(e.title)}">${e.state==='new'?'<span class="inbox-dot" aria-hidden="true"></span>':e.kind==='alert'?IC.bell:IC.doc}</button>
   <button class="row" data-inbox-open="${esc(e.id)}"><span class="body"><span class="title">${esc(e.title)}</span>${first?`<span class="inbox-text">${esc(first)}</span>`:''}<span class="session-status">${facts}</span></span></button>
@@ -111,8 +113,8 @@ function inboxListHTML(){
  const chip=(k,label)=>`<button class="chip" data-inbox-filter="${k}" aria-pressed="${inboxFilter===k}">${label}</button>`;
  const groups=[];let day='';
  for(const e of rows){const d=inboxDay(e.at);if(d!==day){day=d;groups.push({day:d,html:[]});}groups[groups.length-1].html.push(inboxRowHTML(e));}
- const empty=inboxFilter==='dismissed'?'Nothing dismissed.':inboxQuery.trim()?'Nothing matches.':inboxFilter==='new'?(inboxSnap.entries.length?'Nothing unread. All shows everything Inbox Watch has sent.':'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.'):'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.';
- return `<div class="session-home-head"><h2>Inbox</h2><span class="project-head-actions">${chip('all','All')}${chip('new',`Unread${n?` <span class="badge" data-inbox-badge>${n}</span>`:''}`)}${chip('dismissed','Dismissed')}</span></div>
+ const empty=inboxFilter==='done'?'Nothing finished yet.':inboxQuery.trim()?'Nothing matches.':inboxFilter==='open'&&inboxSnap.entries.length?'Nothing open. Done has everything resolved, not useful or dismissed.':inboxFilter==='new'?(inboxSnap.entries.length?'Nothing unread. Open shows everything still on your list.':'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.'):'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.';
+ return `<div class="session-home-head"><h2>Inbox</h2><span class="project-head-actions">${chip('open','Open')}${chip('new',`Unread${n?` <span class="badge" data-inbox-badge>${n}</span>`:''}`)}${chip('done','Done')}</span></div>
   <div class="inbox-tools"><div class="inbox-tools-row"><input type="search" id="inbox-search" class="inbox-search" placeholder="Search titles and stories" value="${esc(inboxQuery)}" aria-label="Search the inbox"><button class="chip" id="inbox-watch" aria-label="Inbox Watch schedule${assistantMode()?'':', models and cost'}">${IC.sliders}Schedule</button></div>${stale&&!inboxSnap.paused?`<p class="sheet-help inbox-stale">Inbox Watch hasn’t reported since ${esc(inboxDay(inboxSnap.lastReportAt))} ${esc(inboxWhen(inboxSnap.lastReportAt))}.</p>`:''}</div>
   ${groups.length?groups.map(g=>`<section class="session-group project-group"><h2>${esc(g.day)} <span>${g.html.length}</span></h2>${g.html.join('')}</section>`).join(''):`<p class="sheet-help project-empty">${empty}</p>`}`;
 }
@@ -246,6 +248,10 @@ async function inboxWatchSheet(){
    <div class="watch-pair">${watchSelect('w-digest','Morning digest',hours,s.digestHour,watchHour)}</div>
    <div class="watch-pair">${watchSelect('w-la-morning','Morning look-ahead',[null,...hours],s.lookahead?.morning,v=>v===null?'Off':watchHour(v))}${watchSelect('w-la-evening','Evening look-ahead',[null,...hours],s.lookahead?.evening,v=>v===null?'Off':watchHour(v))}</div>
    <p class="title-note">The look-ahead checks what is coming due in the next few days and says so only when something needs you.</p></div>
+  ${s.tidy?`<div class="title-settings model-offer" role="group" aria-labelledby="w-tidy-h"><p class="vault-set-head" id="w-tidy-h">Keep the Inbox tidy</p>
+   <p class="title-note">Inbox Watch checks what is still on your list against the mail since, and takes off what has been resolved or handled, saying why. Restore brings any of them back.</p>
+   <button class="opt" id="w-tidy" aria-pressed="${Boolean(s.tidy.enabled)}"><span class="dot${s.tidy.enabled?' on':''}"></span><span>Take finished items off my list<span class="sub">They move to Done; anything that still needs you stays</span></span></button>
+   <div class="watch-pair">${watchSelect('w-tidy-every','How often',opts.tidyEvery||[1,2,4,8,12,24],s.tidy.every,v=>v===1?'Every hour':v===24?'Once a day':`Every ${v} hours`)}</div></div>`:''}
   ${dev?`<div class="title-settings model-offer" role="group" aria-labelledby="w-models-h"><p class="vault-set-head" id="w-models-h">Models</p>
    <div class="router-levels" id="w-models">${modelRow('decisions','Decisions','Every check that finds new mail')}${modelRow('lookahead','Look-ahead','Twice a day')}</div>
    <p class="title-note">Model default lets the model decide how much to reason.</p></div>
@@ -268,6 +274,7 @@ async function inboxWatchSheet(){
   const rm=e.target.closest('[data-remove]');if(rm){readPeriods();const i=Number(rm.closest('.watch-period').dataset.period);s.periods.splice(i,1);paintPeriods();($w('.watch-period .watch-name')||$w('#w-add')).focus();}
  });
  $w('#w-add').onclick=()=>{readPeriods();s.periods.push({name:'',days:[0,1,2,3,4,5,6],from:'22:00',to:'07:00',every:Math.max(15,s.every||15)});paintPeriods();sh.querySelector('.watch-period:last-child .watch-name')?.focus();};
+ $w('#w-tidy')?.addEventListener('click',e=>{s.tidy.enabled=!s.tidy.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.tidy.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.tidy.enabled);});
  $w('#w-fp')?.addEventListener('click',e=>{s.firstPass.enabled=!s.firstPass.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.firstPass.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.firstPass.enabled);});
  $w('#w-pause').onclick=e=>{s.paused=!s.paused;e.currentTarget.setAttribute('aria-pressed',String(s.paused));e.currentTarget.querySelector('.dot').classList.toggle('on',s.paused);};
  const hourVal=id=>{const v=$w(id).value;return v==='off'?null:Number(v);};
@@ -275,6 +282,7 @@ async function inboxWatchSheet(){
   readPeriods();
   const out={paused:Boolean(s.paused),every:Number($w('#w-every').value),periods:s.periods,quietHours:[hourVal('#w-quiet-from'),hourVal('#w-quiet-to')],digestHour:hourVal('#w-digest'),
    lookahead:{morning:hourVal('#w-la-morning'),evening:hourVal('#w-la-evening')},models:structuredClone(s.models||{})};
+  if(s.tidy)out.tidy={enabled:Boolean(s.tidy.enabled),every:Number($w('#w-tidy-every')?.value||s.tidy.every)};
   if(s.firstPass)out.firstPass={enabled:Boolean(s.firstPass.enabled),provider:$w('#w-fp-provider')?.value||s.firstPass.provider,threshold:Number($w('#w-fp-threshold')?.value||s.firstPass.threshold)};
   sh.querySelectorAll('#w-models [data-job]').forEach(row=>{out.models[row.dataset.job]={model:row.querySelector('[data-model]').value,reasoning:row.querySelector('[data-reasoning]').value};});
   const bad=out.periods.findIndex(x=>!x.days.length||!x.from||!x.to);

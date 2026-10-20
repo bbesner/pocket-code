@@ -56,7 +56,7 @@ export async function captureDocs({browser,base,rows,dir,conversations,settings,
     inboxStore.add({kind:'alert',priority:'high',title:'Northgate gate camera offline again',text:'The Northgate gate camera went offline at 6:12 a.m., the third time this week, and Tuesday’s service report says the power supply was replaced. [Offline notice](msg:1a2b3c4d5e6f) · [Service report](msg:2b3c4d5e6f70) Someone should check whether the new supply is failing before tonight.',story:'northgate-gate-camera',source:'inbox-monitor',url:'/#/start/0123456789ab'},{actor:'cli'});
     inboxStore.act({action:'open',id:lk.id});inboxStore.act({action:'open',id:dg.id});
     inboxStore.setWatch('inbox-monitor',{paused:false,every:10,periods:[{name:'Work hours',days:[0,1,2,3,4],from:'07:00',to:'19:00',every:5},{name:'Overnight',days:[0,1,2,3,4,5,6],from:'22:00',to:'07:00',every:30}],
-     quietHours:[22,8],digestHour:8,lookahead:{morning:8,evening:17},models:{decisions:{model:'sonnet',reasoning:'medium'},lookahead:{model:'opus',reasoning:'medium'}},firstPass:{enabled:true,provider:'jev',threshold:0.8}});
+     quietHours:[22,8],digestHour:8,lookahead:{morning:8,evening:17},models:{decisions:{model:'sonnet',reasoning:'medium'},lookahead:{model:'opus',reasoning:'medium'}},firstPass:{enabled:true,provider:'jev',threshold:0.8},tidy:{enabled:true,every:2}});
     const pr=inboxStore.profiles['inbox-monitor']?.profile;if(pr){pr.applied={from:'pocket',revision:inboxStore.watch['inbox-monitor'].revision};Object.assign(pr.status,{every:5,period:'Work hours'});}
     Object.assign(settings,{inbox:true});
     await shot('inbox-mobile.png',{mobile:true,url:'/#/inbox',prep:async page=>{await page.waitForSelector('.inbox-view .inbox-item');}});
