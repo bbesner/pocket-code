@@ -11,6 +11,12 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
+It has two modes on the same server: **Developer mode**, the full workbench for people running
+coding agents, and **Assistant mode**, a calm message box for people who use Pocket as their work
+assistant (email, quotes, documents) and never want to see the machinery. And it includes
+**Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
+what actually needs you, keeping that list tidy as things get handled.
+
 This checkout documents **1.72.0 / build 141**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.

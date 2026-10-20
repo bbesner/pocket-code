@@ -1,7 +1,7 @@
 # Documentation image provenance
 
-The workspace screenshots below were recaptured from the **1.70.1 / build 139** frontend on
-2026-10-20 (the Assistant mode and Inbox Watch images are new; the 1.63 set was retaken) with the docs-only browser mode, after 1.59 changed the wording ("conversations", plain steps). They
+The workspace screenshots below were recaptured from the **1.71.0 / build 140** frontend on
+2026-10-20 (the Assistant mode and Inbox Watch images are new in 1.70.1; the whole set was retaken with 1.71's Open · Unread · Done chips and Keep the Inbox tidy) with the docs-only browser mode, after 1.59 changed the wording ("conversations", plain steps). They
 show synthetic sessions, projects, files, tasks and Vault items supplied by the browser
 test fixture, with no production data or model calls. Desktop captures are emulated Chromium
 viewports (1600×1000 for the split view; 1440×900 for Projects, Files and the Vault, cropped to the
