@@ -20,7 +20,7 @@ hosted service and not a multi-user team product.
 3. Start a new session in a chosen project directory.
 4. Work across desktop conversations and inspect Results, Queue and Git without losing context.
 
-Four optional features add jobs beside those. They are off until the owner switches them on
+Five optional features add jobs beside those. They are off until the owner switches them on
 in Settings → Projects, files, tasks & vault, and a session works the same without them:
 
 5. Projects: keep where a piece of work stands, its next step, a checklist, reminders and the
@@ -32,10 +32,19 @@ in Settings → Projects, files, tasks & vault, and a session works the same wit
 8. Vault: let agents use credentials by name, in commands and browser logins, without the
    values reaching the model, the transcript or memory, with the owner deciding how much
    they may do without asking.
+9. Inbox: read what the owner's inbox watcher (Inbox Watch) sent, answer it (resolved, not
+   useful, dismiss) so the watcher learns, and set when it checks, which models judge and
+   what it may skip, with what each day cost.
+
+**Two modes (1.60, 1.68.1):** the same server, sessions and libraries, two faces. Developer
+mode is the workbench above. Assistant mode is for people who never write code: it opens on
+"What would you like done?", shows what is waiting, picks the model and describes every step in
+plain words. Coders stay in Developer mode; people who use Pocket as their work assistant use
+Assistant mode.
 
 **Principles:**
 - Bare essentials: sessions, chat, new session. A clean screen, simple navigation, and as
-  much room as possible for the conversation. Projects, Files, Tasks and the Vault are
+  much room as possible for the conversation. Projects, Files, Tasks, Inbox and the Vault are
   off by default and sit beside sessions rather than in front of them.
 - Everything round-trips with the CLIs and editor extensions. No private history.
 - Reading matters more than composing. Assistant text renders as a full-width document,

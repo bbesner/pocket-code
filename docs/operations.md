@@ -196,16 +196,17 @@ an entry until saved or canceled; revisions reject stale concurrent edits. Keep 
 file across upgrades. After a restart, an unowned queue waits for a new turn or Run
 next instruction. Review and remove an uncertain entry before later entries can run.
 
-## Optional libraries: Projects, Files, Tasks and the Vault
+## Optional libraries: Projects, Files, Tasks, Inbox and the Vault
 
-Projects (1.29), Files (1.30; called Documents before 1.34), Tasks (1.36) and the Vault
-(1.39) are off by default. **Settings → Projects, files, tasks & vault** switches each one for
+Projects (1.29), Files (1.30; called Documents before 1.34), Tasks (1.36), the Vault
+(1.39) and Inbox (1.69) are off by default. **Settings → Projects, files, tasks & vault** switches each one for
 the whole instance. The choices are stored as the `projects`, `documents`, `tasks` and `vault`
-booleans in `pocket-settings.json`. While one is off, its API answers 404, and for Files that
+booleans in `pocket-settings.json` (and `inbox` for Inbox). While one is off, its API answers 404, and for Files that
 includes the public and link addresses. Switching off does not delete the records or files.
 Switching the Vault on creates its key when there is none (1.44); see [The Vault](#the-vault).
 
-Their data is in `projects.json`, `documents.json`, `tasks.json`, `vault.enc` with
+Their data is in `projects.json`, `documents.json`, `tasks.json`, `inbox.json` (entries, and
+since 1.70 each watcher's settings and last reported profile), `vault.enc` with
 `vault-audit.jsonl`, and the documents folder
 (`POCKET_DOCUMENTS_DIR`, default `<data dir>/documents`); see
 [State and backups](#state-and-backups). Back these up with the rest of the data
