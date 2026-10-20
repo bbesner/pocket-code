@@ -540,6 +540,11 @@ Schedule, models and cost**, or **Schedule** beside the Inbox search box, opens 
 line says what is in force now ("Checking every 5 minutes now (Work hours). Last check 9:14 AM, next
 about 9:19 AM.").
 
+- **Your rules** (1.73, both modes): your own words about what you always or never want to hear
+  about. The watcher follows them on every check, in the first pass, the look-ahead and the tidy
+  pass, and they win over its own judgment, even for something it would call critical. They are
+  the watcher's preferences file: the box shows it (including lines **Not useful** added), and Save
+  replaces it, the previous version kept on the watcher's side. Up to 8,000 characters.
 - **Pause Inbox Watch** stops mail checks, digests and look-aheads until you turn it off; the list
   then does not call the watcher silent.
 - **Schedule:** an interval for *the rest of the time*, then up to 12 **periods**, each with a name,

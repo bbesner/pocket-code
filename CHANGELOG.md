@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.73.0] — 2026-10-20 · build 142
+
+- **Your rules for Inbox Watch.** Settings → Inbox Watch opens on **Your rules** (both modes): a box for your own words about what you always or never want to hear about. It shows the watcher's preferences file, including the lines **Not useful** added; Save replaces the file (the watcher keeps the previous one) and applies from the next check. Asked for by Brad ("I want to know about every sale", "never tell me about cameras that go down").
+- **The rules win, everywhere.** The watcher now puts the rules at the end of every decision, look-ahead and tidy turn, after the material, with an instruction that they override its own judgment, including what counts as critical; the first pass gets them too, so mail a rule asks to hear about is never skipped. Tested on real past mail: with "never tell me about cameras that go offline" four camera notices went from alert or digest to ignore (two runs each, including one the default sent as an alert); with "tell me about every sale" a merchant receipt went from skipped (0.80) to reviewed (0.01) while a shipping notice stayed skipped. (Placed before a long bundle, as the preferences were until now, a "never" rule lost to the built-in guidance.)
+- `checkWatch` accepts `rules` (text, up to 8,000 characters); `pocket-inbox watch` summarizes them; the skill explains changing them when asked.
+- Migration: none. An existing preferences file appears in the box as it is.
+
 ## [1.72.0] — 2026-10-20 · build 141
 
 - **Inbox Watch's watcher is part of Pocket Code.** The program that reads the mailbox, judges it and fills the Inbox (`inbox-monitor` 0.3: the schedule and its periods, model and reasoning choices, the first pass, the tidy pass, cost per call, replay) now lives in [`inbox-watch/`](inbox-watch/README.md) and is versioned and released with Pocket. It still runs beside Pocket on its own timer, with a config file per mailbox. Asked for by Brad ("I meant for this to be all a part of Pocket Code").

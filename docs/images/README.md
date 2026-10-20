@@ -1,6 +1,6 @@
 # Documentation image provenance
 
-The workspace screenshots below were recaptured from the **1.71.0 / build 140** frontend on
+The workspace screenshots below were recaptured from the **1.73.0 / build 142** frontend on
 2026-10-20 (the Assistant mode and Inbox Watch images are new in 1.70.1; the whole set was retaken with 1.71's Open · Unread · Done chips and Keep the Inbox tidy) with the docs-only browser mode, after 1.59 changed the wording ("conversations", plain steps). They
 show synthetic sessions, projects, files, tasks and Vault items supplied by the browser
 test fixture, with no production data or model calls. Desktop captures are emulated Chromium
@@ -19,6 +19,7 @@ content area because the hero already shows the session rail); phone captures ar
 | `assistant-home-desktop.png` | Assistant mode at a desk (1.60): the message box, Waiting for you with an Inbox Watch alert, the library chips |
 | `assistant-home-mobile.png` | Assistant mode's home on a phone |
 | `inbox-mobile.png` | Inbox (1.69) on a phone: an unread alert, a digest and a look-ahead (invented entries) |
+| `inbox-watch-rules-mobile.png` | Settings → Inbox Watch (1.73) opening on Your rules |
 | `inbox-watch-schedule-mobile.png` | Settings → Inbox Watch (1.70): status, Pause, the default interval and a period |
 | `inbox-watch-models-mobile.png` | The same sheet further down: the first pass and seven days of cost |
 | `vault-desktop.png` | The Vault: an agent's waiting request with Deny, Always allow and Allow once, above five items with their kind, site and Agent access |

@@ -71,6 +71,12 @@ pocket-inbox watch set --file -       # the whole settings object as JSON (perio
 pocket-inbox watch reset              # back to the watcher's own config file
 ```
 
+**Your rules** (Settings → Inbox Watch → Your rules) are the owner's own words about what they always or never want
+to hear about; the watcher follows them on every check and they win over its judgment. When the user asks you to
+change them ("stop telling me about camera outages"), read them with `pocket-inbox watch --json` (`profile.rules.text`),
+add or edit a line, and save the whole settings object with `pocket-inbox watch set --file -` including `rules`. Confirm
+the line you added.
+
 Inbox Watch can also keep the list tidy on its own (Settings → Inbox Watch → Keep the Inbox tidy): every few
 hours it takes off entries that have been resolved or handled, with the reason in the entry's note, and they show
 under **Done**. An agent asked to "clean up my Inbox" now can still go through `list` and `act` by hand.

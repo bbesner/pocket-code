@@ -231,12 +231,18 @@ async function inboxWatchSheet(){
  let s=structuredClone(w.settings||p?.defaults||null);
  if(!s){holder.querySelector('[role=status]').textContent=watchStatus(w);return;}
  s.periods ||= [];
+ // 1.73: the rules box shows the watcher's file (it may have learned lines since), unless a save of yours has not reached it yet
+ const rulesText=typeof w.settings?.rules==='string'&&p?.applied?.revision!==w.revision?w.settings.rules:(p?.rules?.text||'');
  const hours=[...Array(24).keys()],tz=p?.timezone&&p.timezone!==Intl.DateTimeFormat().resolvedOptions().timeZone?` Times are ${p.timezone.split('/').pop().replace(/_/g,' ')} time.`:'';
  const modelRow=(job,name,what)=>{const m=s.models?.[job]||{};const models=opts.models||[];return `<div class="router-level" data-job="${job}"><p class="router-level-name">${name}<span class="sub">${what}</span></p>
    <label class="voice-field">Model<select data-model>${models.map(x=>`<option value="${esc(x.id)}"${x.id===m.model?' selected':''}>${esc(x.label)}</option>`).join('')}</select></label>
    <label class="voice-field">Reasoning<select data-reasoning>${(opts.reasoning||[{id:'default',label:'Model default'}]).map(x=>`<option value="${esc(x.id)}"${x.id===m.reasoning?' selected':''}>${esc(x.label)}</option>`).join('')}</select></label></div>`;};
  const body=`<p class="title-note watch-status" role="status" id="w-status">${esc(watchStatus(w))}</p>
   <button class="opt" id="w-pause" aria-pressed="${Boolean(s.paused)}"><span class="dot${s.paused?' on':''}"></span><span>Pause Inbox Watch<span class="sub">No mail checks, digests or look-aheads until you turn this off</span></span></button>
+  ${p.rules?`<div class="title-settings model-offer" role="group" aria-labelledby="w-rules-h"><p class="vault-set-head" id="w-rules-h">Your rules</p>
+   <p class="title-note" id="w-rules-lead">Tell Inbox Watch what you always or never want to hear about, in your own words. It follows them on every check, in the first pass, the look-ahead and the tidy pass, and they win over its own judgment, even for something it would call critical. <strong>Not useful</strong> adds a line here.</p>
+   <label class="voice-field watch-rules">Rules<textarea id="w-rules" rows="10" maxlength="${p.rules.max||8000}" spellcheck="true" aria-describedby="w-rules-lead w-rules-count" placeholder="${esc('Tell me about every sale from my web store.\nNever alert me about accounts payable unless it is past due.\nNever tell me about cameras that go offline.')}">${esc(rulesText)}</textarea></label>
+   <p class="title-note" id="w-rules-count"></p></div>`:''}
   <div class="title-settings model-offer" role="group" aria-labelledby="w-sched-h"><p class="vault-set-head" id="w-sched-h">Schedule</p>
    <p class="title-note">How often it checks your mail. Inside a period, that period’s interval applies; the rest of the time, this one. When periods overlap, the first listed wins.${esc(tz)}</p>
    ${watchSelect('w-every','The rest of the time',everyChoices,s.every,watchEvery)}
@@ -274,6 +280,8 @@ async function inboxWatchSheet(){
   const rm=e.target.closest('[data-remove]');if(rm){readPeriods();const i=Number(rm.closest('.watch-period').dataset.period);s.periods.splice(i,1);paintPeriods();($w('.watch-period .watch-name')||$w('#w-add')).focus();}
  });
  $w('#w-add').onclick=()=>{readPeriods();s.periods.push({name:'',days:[0,1,2,3,4,5,6],from:'22:00',to:'07:00',every:Math.max(15,s.every||15)});paintPeriods();sh.querySelector('.watch-period:last-child .watch-name')?.focus();};
+ const rulesBox=$w('#w-rules'),rulesCount=()=>{const c=$w('#w-rules-count');if(c&&rulesBox)c.textContent=`${rulesBox.value.length.toLocaleString('en-US')} of ${Number(rulesBox.maxLength).toLocaleString('en-US')} characters`;};
+ rulesBox?.addEventListener('input',rulesCount);rulesCount();
  $w('#w-tidy')?.addEventListener('click',e=>{s.tidy.enabled=!s.tidy.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.tidy.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.tidy.enabled);});
  $w('#w-fp')?.addEventListener('click',e=>{s.firstPass.enabled=!s.firstPass.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.firstPass.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.firstPass.enabled);});
  $w('#w-pause').onclick=e=>{s.paused=!s.paused;e.currentTarget.setAttribute('aria-pressed',String(s.paused));e.currentTarget.querySelector('.dot').classList.toggle('on',s.paused);};
@@ -282,6 +290,7 @@ async function inboxWatchSheet(){
   readPeriods();
   const out={paused:Boolean(s.paused),every:Number($w('#w-every').value),periods:s.periods,quietHours:[hourVal('#w-quiet-from'),hourVal('#w-quiet-to')],digestHour:hourVal('#w-digest'),
    lookahead:{morning:hourVal('#w-la-morning'),evening:hourVal('#w-la-evening')},models:structuredClone(s.models||{})};
+  if(rulesBox)out.rules=rulesBox.value;
   if(s.tidy)out.tidy={enabled:Boolean(s.tidy.enabled),every:Number($w('#w-tidy-every')?.value||s.tidy.every)};
   if(s.firstPass)out.firstPass={enabled:Boolean(s.firstPass.enabled),provider:$w('#w-fp-provider')?.value||s.firstPass.provider,threshold:Number($w('#w-fp-threshold')?.value||s.firstPass.threshold)};
   sh.querySelectorAll('#w-models [data-job]').forEach(row=>{out.models[row.dataset.job]={model:row.querySelector('[data-model]').value,reasoning:row.querySelector('[data-reasoning]').value};});

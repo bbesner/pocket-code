@@ -116,11 +116,12 @@ test('InboxStore: Inbox Watch settings, the watcher\'s profile, revisions and pa
   const ok=checkWatch({paused:false,every:10,periods:[{name:' Overnight ',days:[6,0,0],from:'22:00',to:'07:00',every:30}],quietHours:[22,8],digestHour:8,lookahead:{morning:8,evening:null},models:{decisions:{model:'sonnet',reasoning:'low'}}});
   assert.deepEqual(ok.periods,[{name:'Overnight',days:[0,6],from:'22:00',to:'07:00',every:30}],'days deduplicated and sorted');
   assert.deepEqual(checkWatch({firstPass:{enabled:true,provider:'both',threshold:0.876}}).firstPass,{enabled:true,provider:'both',threshold:0.88});
-  assert.deepEqual(checkWatch({tidy:{enabled:true,every:4}}).tidy,{enabled:true,every:4});assert.equal(ok.lookahead.evening,null);
+  assert.deepEqual(checkWatch({tidy:{enabled:true,every:4}}).tidy,{enabled:true,every:4});
+  assert.equal(checkWatch({rules:'- Never tell me about cameras.\r\n- Tell me about every sale.'}).rules,'- Never tell me about cameras.\n- Tell me about every sale.');assert.equal(ok.lookahead.evening,null);
   for(const [bad,re] of [[{every:-1},/every is whole minutes/],[{every:500},/to 240/],[{periods:[{days:[],from:'01:00',to:'02:00',every:5}]},/Period 1 needs at least one day/],
     [{periods:[{days:[1],from:'1am',to:'02:00',every:5}]},/start and an end time/],[{periods:Array(WATCH.periods+1).fill({days:[1],from:'01:00',to:'02:00',every:5})},/at most 12/],
     [{quietHours:[22]},/quietHours/],[{digestHour:24},/digestHour/],[{lookahead:{morning:'8'}},/morning look-ahead/],[{models:{decisions:{model:'sonnet',reasoning:'huge'}}},/Reasoning is one of/],
-    [{paused:'yes'},/paused is true or false/],[{firstPass:{provider:'grok'}},/first pass is one of jev, openai, both/],[{firstPass:{threshold:0.3}},/between 0.5 and 0.99/],[{firstPass:{enabled:1}},/firstPass.enabled/],[{tidy:{every:3}},/Tidy runs every 1, 2, 4, 8, 12, 24 hours/],[{tidy:{enabled:'on'}},/tidy.enabled/],['x',/settings must be an object/]])
+    [{paused:'yes'},/paused is true or false/],[{firstPass:{provider:'grok'}},/first pass is one of jev, openai, both/],[{firstPass:{threshold:0.3}},/between 0.5 and 0.99/],[{firstPass:{enabled:1}},/firstPass.enabled/],[{tidy:{every:3}},/Tidy runs every 1, 2, 4, 8, 12, 24 hours/],[{rules:5},/rules is text/],[{rules:'x'.repeat(8001)},/over 8,000 characters/],[{tidy:{enabled:'on'}},/tidy.enabled/],['x',/settings must be an object/]])
     assert.throws(()=>checkWatch(bad),e=>e.status===400&&e.code==='bad_watch'&&re.test(e.message),JSON.stringify(bad));
   assert.throws(()=>checkWatch({models:{decisions:{model:'gpt-9'}}},PROFILE),/Choose one of the models/,'only what the watcher offers');
   const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-10-20T12:00:00Z');

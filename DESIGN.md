@@ -8,6 +8,12 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Your rules (1.73)
+
+The first block of the Inbox Watch sheet, both modes: the set head *Your rules*, a lead that says they win and that Not
+useful adds to them, a plain textarea (the field style of *Name*, 200px tall, vertical resize, three example rules as the
+placeholder) and a character count as a `.title-note`. No new colour.
+
 ## Inbox: Open and Done, and keeping it tidy (1.71)
 
 Same pinned Inbox brief (variance 2, motion 1, density 5). The chips read **Open · Unread · Done**: Open is the default

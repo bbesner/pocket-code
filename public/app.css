@@ -1797,3 +1797,8 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 @media (min-width: 600px) { .watch-period { grid-template-columns: repeat(3, minmax(0, 1fr)); } .watch-period .watch-wide { grid-column: auto; } }
 .watch-sheet .title-note { text-wrap: pretty; max-width: 58ch; } /* ch is a digit; prose runs ~1.35 letters per ch */
 .inbox-search::placeholder, .watch-name::placeholder { color: var(--dim); opacity: 1; }
+/* 1.73: Your rules, a plain textarea in the settings' field style */
+.watch-rules textarea { width: 100%; min-height: 200px; resize: vertical; font: inherit; font-size: 15px; line-height: 1.5; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.watch-rules textarea::placeholder { color: var(--dim); opacity: 1; }
+.watch-rules textarea:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.model-offer > .watch-rules { margin: 6px 14px 0; }
