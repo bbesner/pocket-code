@@ -153,11 +153,12 @@ switch (cmd) {
       lines.push(s.paused ? 'Paused' : s.every ? `Checks every ${s.every} min outside the periods` : 'No checks outside the periods');
       for (const p of s.periods || []) lines.push(`  ${p.name || 'Period'}: days ${p.days.join(',')} ${p.from}–${p.to}, ${p.every ? 'every ' + p.every + ' min' : 'no checks'}`);
       if (s.models) lines.push(`Decisions: ${s.models.decisions?.model} (${s.models.decisions?.reasoning}) · Look-ahead: ${s.models.lookahead?.model} (${s.models.lookahead?.reasoning})`);
+      if (s.firstPass) lines.push(`First pass: ${s.firstPass.enabled ? `on, ${s.firstPass.provider}, skips at ${Math.round(s.firstPass.threshold * 100)}% sure` : 'off'}`);
     } else lines.push('The watcher has not reported its settings yet (it needs inbox-monitor 0.3 or later).');
     if (st) lines.push(`Now: ${st.paused ? 'paused' : st.every ? 'every ' + st.every + ' min' : 'no checks'}${st.period ? ' (' + st.period + ')' : ''}; last check ${when(st.lastCheckAt) || 'never'}; next ${when(st.nextCheckAt) || 'none scheduled'}`);
     const since = r.profile?.usage?.since ? Date.parse(r.profile.usage.since) : 0;
     if (days.length) lines.push(`Last ${Math.min(7, days.length)} days (${r.profile.usage.billing === 'plan' ? 'billed to the plan; dollars at API list price' : r.profile.usage.billing === 'api' ? 'billed per token' : 'no price reported'}):`);
-    for (const d of days.slice(0, 7)) lines.push(since && Date.parse(d.date + 'T23:59:59Z') >= since ? `  ${d.date}  ${d.checks} checks  ${d.calls} calls  ${(d.inputTokens + d.outputTokens).toLocaleString('en-US')} tokens${d.costUsd != null ? '  $' + d.costUsd.toFixed(2) : ''}` : `  ${d.date}  ${d.checks} checks  (calls and cost not recorded)`);
+    for (const d of days.slice(0, 7)) lines.push(since && Date.parse(d.date + 'T23:59:59Z') >= since ? `  ${d.date}  ${d.checks} checks  ${d.firstPass?.skipped ? d.firstPass.skipped + ' skipped  ' : ''}${d.calls} calls  ${(d.inputTokens + d.outputTokens).toLocaleString('en-US')} tokens${d.costUsd != null ? '  $' + d.costUsd.toFixed(2) : ''}` : `  ${d.date}  ${d.checks} checks  (calls and cost not recorded)`);
     console.log(lines.join('\n')); break;
   }
   default: die(`Unknown command ${cmd}. Run pocket-inbox help.`);

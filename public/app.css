@@ -1789,7 +1789,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .watch-usage th, .watch-usage td { padding: 9px 6px; text-align: right; border-bottom: 1px solid var(--line); font-weight: 400; }
 .watch-usage th:first-child, .watch-usage td:first-child { text-align: left; padding-left: 0; }
 .watch-usage thead th { font-size: 12px; font-weight: 600; color: var(--dim); }
-.watch-usage tbody th { color: var(--text); }
+.watch-usage tbody th { color: var(--text); white-space: nowrap; }
 .watch-usage tfoot th, .watch-usage tfoot td { font-weight: 600; border-bottom: 0; }
 .watch-usage .watch-unrecorded td[colspan] { text-align: left; color: var(--dim); }
 .watch-sheet #w-usage .title-note { margin: 6px 0 0; }

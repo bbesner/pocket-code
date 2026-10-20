@@ -2,7 +2,7 @@
   "version": "1.70.0",
   "assetV": 138,
   "notes": [
-    "Inbox Watch has a schedule you set: Settings → Inbox Watch → Schedule, models and cost (or Schedule in the Inbox). Periods with their own days, hours and interval, quiet hours, the digest and look-ahead times, pause, the model and reasoning for decisions and for the look-ahead, and what each day cost. The watcher picks a change up within a minute.",
+    "Inbox Watch has a schedule you set: Settings → Inbox Watch → Schedule, models and cost (or Schedule in the Inbox). Periods with their own days, hours and interval, quiet hours, the digest and look-ahead times, pause, the model and reasoning for decisions and for the look-ahead, a first pass that skips routine mail before the model reads it, and what each day cost. The watcher picks a change up within a minute.",
     "The + button opens a clean New conversation. A briefing from an Inbox alert, a start link, or a task's or project's Start stayed in the box after you left without starting it, so every later + reopened it; now it is cleared unless you edited it. A draft you typed yourself is still kept.",
     "Reading an Inbox entry no longer makes it go away: the list opens on All, the dot marks what is unread, and a row or the home card stays until you dismiss it, mark it resolved or not useful.",
     "An Inbox row opens its sheet first: the whole text, Gmail links and the choices. Start a conversation is the deliberate step, as a task's Start is; the Assistant-mode card opens the entry the same way.",

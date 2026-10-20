@@ -2497,13 +2497,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
      await page.waitForFunction(()=>[...document.querySelectorAll('.watch-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
      assert.match(await page.$eval('#w-status',e=>e.textContent),/^Checking every 5 minutes now\. Last check .*Using the watcher’s config file\.$/);
-     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Schedule','Quiet hours and summaries','Models','Cost, last 7 days']);
+     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Schedule','Quiet hours and summaries','Models','First pass','Cost, last 7 days']);
+     assert.equal(await page.$eval('#w-fp',e=>e.getAttribute('aria-pressed')),'true');assert.equal(await page.$eval('#w-fp-provider',e=>e.value),'jev');assert.equal(await page.$eval('#w-fp-threshold',e=>e.value),'0.8');
      assert.equal(await page.$eval('#w-every',e=>e.value),'5');assert.equal(await page.$$eval('.watch-period',r=>r.length),1,'the config file’s Overnight period');
      assert.deepEqual(await page.$$eval('.watch-period [data-day]',b=>b.map(x=>x.getAttribute('aria-pressed'))),Array(7).fill('true'));
      const days=await page.$$eval('.watch-period [data-day]',b=>b.map(x=>{const r=x.getBoundingClientRect();return [Math.round(r.top),r.width>=44&&r.height>=44];}));
      assert.equal(new Set(days.map(d=>d[0])).size,1,'seven days on one row at '+w);assert.ok(days.every(d=>d[1]),'44px day targets at '+w);
-     assert.deepEqual(await page.$$eval('.watch-usage tbody tr',r=>r.map(x=>[...x.cells].map(c=>c.textContent.trim()).join(' '))),['Wed 21 190 150 6.5M $15.62','Tue 20 240 180 8.1M $19.04','Mon 19 277 Not recorded']);
-     assert.equal(await page.$eval('.watch-usage tfoot tr',e=>[...e.cells].map(c=>c.textContent.trim()).filter(Boolean).join(' ')),'Total 330 15M $34.66');
+     assert.deepEqual(await page.$$eval('.watch-usage tbody tr',r=>r.map(x=>[...x.cells].map(c=>c.textContent.trim()).join(' '))),['Wed 21 190 120 150 6.5M $15.62','Tue 20 240 0 180 8.1M $19.04','Mon 19 277 Not recorded']);
+     assert.equal(await page.$eval('.watch-usage tfoot tr',e=>[...e.cells].map(c=>c.textContent.trim()).filter(Boolean).join(' ')),'Total 120 330 15M $34.66');
      await scan('inbox-watch-'+w);
      await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
     }
@@ -2514,10 +2515,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.type('.watch-period:last-child .watch-name','Work hours');
     for(const d of [5,6])await clickControl(page,`.watch-period:last-child [data-day="${d}"]`);
     await page.$eval('.watch-period:last-child [data-from]',e=>{e.value='07:00';});await page.$eval('.watch-period:last-child [data-to]',e=>{e.value='19:00';});await page.select('.watch-period:last-child [data-every]','5');
-    await page.select('#w-every','15');await page.select('#w-models [data-job="decisions"] [data-model]','haiku');await page.select('#w-la-evening','off');
+    await page.select('#w-every','15');await page.select('#w-fp-threshold','0.9');await page.select('#w-fp-provider','both');await page.select('#w-models [data-job="decisions"] [data-model]','haiku');await page.select('#w-la-evening','off');
     await clickControl(page,'#w-save');await page.waitForSelector('#w-reset');
     const saved=await page.evaluate(()=>fetch('/api/inbox/watch').then(r=>r.json()));
-    assert.equal(saved.revision,1);assert.equal(saved.settings.every,15);assert.equal(saved.settings.lookahead.evening,null);assert.deepEqual(saved.settings.models.decisions,{model:'haiku',reasoning:'medium'});
+    assert.equal(saved.revision,1);assert.equal(saved.settings.every,15);assert.equal(saved.settings.lookahead.evening,null);assert.deepEqual(saved.settings.models.decisions,{model:'haiku',reasoning:'medium'});assert.deepEqual(saved.settings.firstPass,{enabled:true,provider:'both',threshold:0.9});
     assert.deepEqual(saved.settings.periods[1],{name:'Work hours',days:[0,1,2,3,4],from:'07:00',to:'19:00',every:5});
     assert.match(await page.$eval('#w-status',e=>e.textContent),/Your last change reaches the watcher within a minute\./);
     // a period with no day is refused before it leaves the page

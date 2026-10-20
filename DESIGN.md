@@ -18,7 +18,8 @@ row under the Inbox Watch switch) and from a **Schedule** chip beside the Inbox 
 blocks (uppercase set head, lead, controls): *Schedule* (the rest-of-the-time `select`, one `.router-level` row per
 period: name input with **Remove**, seven 44px day chips on one grid row with the filter-chip clay when pressed, *From*
 / *Until* time inputs and the interval, three across from 600px), *Quiet hours and summaries* (paired hour selects),
-*Models* (the 1.67 level rows: name with what it is for, Model and Reasoning), *Cost, last 7 days* (a plain table,
+*Models* (the 1.67 level rows: name with what it is for, Model and Reasoning), *First pass* (an `.opt` switch, the
+classifier and confidence selects as a pair), *Cost, last 7 days* (a plain table,
 tabular figures, hairline rows, *Not recorded* in `--dim` before recording began, a bold total). **Save** is the one
 primary; *Use the config file's settings* a chip beneath. Assistant mode drops Models and Cost: no model name or dollar
 figure reaches a seat. Notes cap at 58ch with `text-wrap: pretty`.

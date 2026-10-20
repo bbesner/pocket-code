@@ -207,11 +207,11 @@ function watchUsageHTML(u){
  const days=(u?.days||[]).slice(0,7);
  if(!days.length)return '<p class="title-note">No checks recorded yet.</p>';
  const since=u.since?Date.parse(u.since):0,rec=d=>since&&Date.parse(d.date+'T23:59:59')>=since;
- const tot=days.filter(rec).reduce((a,d)=>({calls:a.calls+d.calls,tokens:a.tokens+d.inputTokens+d.outputTokens,cost:d.costUsd==null?a.cost:(a.cost||0)+d.costUsd}),{calls:0,tokens:0,cost:null});
+ const tot=days.filter(rec).reduce((a,d)=>({skipped:a.skipped+(d.firstPass?.skipped||0),calls:a.calls+d.calls,tokens:a.tokens+d.inputTokens+d.outputTokens,cost:d.costUsd==null?a.cost:(a.cost||0)+d.costUsd}),{skipped:0,calls:0,tokens:0,cost:null});
  const bill=u.billing==='plan'?'Billed to your plan, not per call; the dollars are what the same tokens cost at API list prices.':u.billing==='api'?'Billed per token through an API key, at about these list prices.':'This watcher’s judge does not report a price.';
- return `<p class="title-note">${bill}</p><table class="watch-usage"><thead><tr><th scope="col">Day</th><th scope="col">Checks</th><th scope="col">Calls</th><th scope="col">Tokens</th><th scope="col">Cost</th></tr></thead><tbody>
-  ${days.map(d=>rec(d)?`<tr><th scope="row">${esc(watchDay(d.date))}</th><td>${d.checks}</td><td>${d.calls}</td><td>${watchTokens(d.inputTokens+d.outputTokens)}</td><td>${watchMoney(d.costUsd)}</td></tr>`:`<tr class="watch-unrecorded"><th scope="row">${esc(watchDay(d.date))}</th><td>${d.checks}</td><td colspan="3">Not recorded</td></tr>`).join('')}
-  </tbody>${tot.calls?`<tfoot><tr><th scope="row">Total</th><td></td><td>${tot.calls}</td><td>${watchTokens(tot.tokens)}</td><td>${watchMoney(tot.cost)}</td></tr></tfoot>`:''}</table>
+ return `<p class="title-note">${bill}</p><table class="watch-usage"><thead><tr><th scope="col">Day</th><th scope="col">Checks</th><th scope="col">Skipped</th><th scope="col">Calls</th><th scope="col">Tokens</th><th scope="col">Cost</th></tr></thead><tbody>
+  ${days.map(d=>rec(d)?`<tr><th scope="row">${esc(watchDay(d.date))}</th><td>${d.checks}</td><td>${d.firstPass?.skipped||0}</td><td>${d.calls}</td><td>${watchTokens(d.inputTokens+d.outputTokens)}</td><td>${watchMoney(d.costUsd)}</td></tr>`:`<tr class="watch-unrecorded"><th scope="row">${esc(watchDay(d.date))}</th><td>${d.checks}</td><td colspan="4">Not recorded</td></tr>`).join('')}
+  </tbody>${tot.calls?`<tfoot><tr><th scope="row">Total</th><td></td><td>${tot.skipped}</td><td>${tot.calls}</td><td>${watchTokens(tot.tokens)}</td><td>${watchMoney(tot.cost)}</td></tr></tfoot>`:''}</table>
   ${since?`<p class="title-note">Recorded since ${esc(new Date(since).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:watchTZ}))}.</p>`:''}`;
 }
 async function inboxWatchSheet(){
@@ -247,6 +247,11 @@ async function inboxWatchSheet(){
   ${dev?`<div class="title-settings model-offer" role="group" aria-labelledby="w-models-h"><p class="vault-set-head" id="w-models-h">Models</p>
    <div class="router-levels" id="w-models">${modelRow('decisions','Decisions','Every check that finds new mail')}${modelRow('lookahead','Look-ahead','Twice a day')}</div>
    <p class="title-note">Model default lets the model decide how much to reason.</p></div>
+  ${s.firstPass?`<div class="title-settings model-offer" role="group" aria-labelledby="w-fp-h"><p class="vault-set-head" id="w-fp-h">First pass</p>
+   <p class="title-note">A fast classifier skips mail that is clearly routine (receipts, shipping, newsletters, marketing), so the model reads less. Threads you wrote in, threads that mattered before and anything close to a story it follows are always read, and a skipped email’s headline still reaches the model.</p>
+   <button class="opt" id="w-fp" aria-pressed="${Boolean(s.firstPass.enabled)}"${opts.firstPass?.available===false?' aria-describedby="w-fp-nokey"':''}><span class="dot${s.firstPass.enabled?' on':''}"></span><span>Skip routine mail first<span class="sub">${opts.firstPass?.available===false?'The watcher has no classifier key, so everything is read until one is set':'A few cents a day, even for a busy inbox'}</span></span></button>
+   <div class="watch-pair">${watchSelect('w-fp-provider','Classifier',(opts.firstPass?.providers||[{id:'jev'},{id:'openai'},{id:'both'}]).map(x=>x.id),s.firstPass.provider,v=>({jev:'Jev (TypeSafe)',openai:'OpenAI decision model',both:'Both must agree'})[v]||v)}${watchSelect('w-fp-threshold','Skip when at least',opts.firstPass?.thresholds||[0.95,0.9,0.8,0.7],s.firstPass.threshold,v=>`${Math.round(v*100)}% sure`)}</div>
+   ${opts.firstPass?.available===false?'<p class="title-note" id="w-fp-nokey">Add an OpenRouter key to the watcher’s [firstpass] settings to use it.</p>':''}</div>`:''}
   <div class="title-settings model-offer" role="group" aria-labelledby="w-cost-h"><p class="vault-set-head" id="w-cost-h">Cost, last 7 days</p><div id="w-usage">${watchUsageHTML(p.usage)}</div></div>`:''}
   <p class="vault-field-error" id="w-error" role="alert"></p>
   <div class="watch-actions"><button class="primary" id="w-save">Save</button>${w.settings?'<button class="chip" id="w-reset">Use the config file’s settings</button>':''}</div>`;
@@ -261,12 +266,14 @@ async function inboxWatchSheet(){
   const rm=e.target.closest('[data-remove]');if(rm){readPeriods();const i=Number(rm.closest('.watch-period').dataset.period);s.periods.splice(i,1);paintPeriods();($w('.watch-period .watch-name')||$w('#w-add')).focus();}
  });
  $w('#w-add').onclick=()=>{readPeriods();s.periods.push({name:'',days:[0,1,2,3,4,5,6],from:'22:00',to:'07:00',every:Math.max(15,s.every||15)});paintPeriods();sh.querySelector('.watch-period:last-child .watch-name')?.focus();};
+ $w('#w-fp')?.addEventListener('click',e=>{s.firstPass.enabled=!s.firstPass.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.firstPass.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.firstPass.enabled);});
  $w('#w-pause').onclick=e=>{s.paused=!s.paused;e.currentTarget.setAttribute('aria-pressed',String(s.paused));e.currentTarget.querySelector('.dot').classList.toggle('on',s.paused);};
  const hourVal=id=>{const v=$w(id).value;return v==='off'?null:Number(v);};
  const collect=()=>{
   readPeriods();
   const out={paused:Boolean(s.paused),every:Number($w('#w-every').value),periods:s.periods,quietHours:[hourVal('#w-quiet-from'),hourVal('#w-quiet-to')],digestHour:hourVal('#w-digest'),
    lookahead:{morning:hourVal('#w-la-morning'),evening:hourVal('#w-la-evening')},models:structuredClone(s.models||{})};
+  if(s.firstPass)out.firstPass={enabled:Boolean(s.firstPass.enabled),provider:$w('#w-fp-provider')?.value||s.firstPass.provider,threshold:Number($w('#w-fp-threshold')?.value||s.firstPass.threshold)};
   sh.querySelectorAll('#w-models [data-job]').forEach(row=>{out.models[row.dataset.job]={model:row.querySelector('[data-model]').value,reasoning:row.querySelector('[data-reasoning]').value};});
   const bad=out.periods.findIndex(x=>!x.days.length||!x.from||!x.to);
   if(bad>=0)throw new Error(`Period ${bad+1} needs at least one day and a start and end time.`);

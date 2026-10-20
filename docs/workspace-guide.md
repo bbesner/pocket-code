@@ -540,6 +540,10 @@ about 9:19 AM.").
 - **Models** (Developer mode): the model and reasoning for *Decisions* (every check that finds new
   mail) and the *Look-ahead* (twice a day), from what the watcher offers. *Model default* leaves the
   reasoning to the model.
+- **First pass** (Developer mode): *Skip routine mail first*, the classifier (Jev, OpenAI's decision
+  model, or both must agree) and how sure it must be (70–95%). Mail it skips is still kept and its
+  headline reaches the model; threads you wrote in, threads that mattered before and anything close
+  to a story are never skipped. Shown only when the watcher has a `[firstpass]` table.
 - **Cost, last 7 days** (Developer mode): checks, model calls, tokens and dollars per day, with a
   total. On a Claude or ChatGPT plan nothing is billed per call; the dollars are what the same tokens
   cost at API list prices, and the sheet says which applies. Days before the watcher started recording
