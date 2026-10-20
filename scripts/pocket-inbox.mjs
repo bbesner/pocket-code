@@ -11,7 +11,10 @@
 //   pocket-inbox act <id> <open|dismiss|resolve|not_useful|restore> [--note "…"] [--json]
 //   pocket-inbox feedback [--since <ISO>] [--json]                                           the owner's decisions not yet applied
 //   pocket-inbox ack <id…>                                                                   the worker applied them
-//   pocket-inbox seen [--source <name>]                                                      a heartbeat: the worker ran
+//   pocket-inbox seen [--source <name>] [--profile <path|->]                                 a heartbeat: the worker ran (1.70: with its profile)
+//   pocket-inbox watch [--source <name>] [--json]                                            when the watcher checks, which models judge, cost
+//   pocket-inbox watch set (--file <path|-> | --every <min> | --pause | --resume) [--source <name>]   change them (only when the user asks)
+//   pocket-inbox watch reset [--source <name>]                                               back to the watcher's config file
 // Exit codes: 2 when Pocket is not running here or refused the token, 1 on any other error.
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
 import fs from 'node:fs';
@@ -30,13 +33,13 @@ const argv = process.argv.slice(2);
 const opts = { _: [] };
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
-  if (['--json', '--email', '--no-push'].includes(a)) opts[a.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = true;
+  if (['--json', '--email', '--no-push', '--pause', '--resume'].includes(a)) opts[a.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = true;
   else if (a.startsWith('--')) { const k = a.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase()); opts[k] = argv[++i] ?? ''; }
   else opts._.push(a);
 }
 const [cmd, ...rest] = opts._;
 const die = (msg, code = 1) => { console.error(msg); process.exit(code); };
-if (!cmd || cmd === 'help' || argv.includes('--help')) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 16).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (!cmd || cmd === 'help' || argv.includes('--help')) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 19).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 
 let token = '';
 try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { die(`Pocket Code is not running here (no cli-token in ${dataDir}).`, 2); }
@@ -52,7 +55,8 @@ async function call(p, body) {
   return data;
 }
 const qs = o => { const q = new URLSearchParams(Object.entries(o).filter(([, v]) => v)); return q.size ? '?' + q : ''; };
-const when = v => v ? new Date(v).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+const TZ = env('POCKET_TZ') || undefined; // 1.70: the owner's time zone, as the server's reminders use it
+const when = v => { if (!v) return ''; try { return new Date(v).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: TZ }); } catch { return new Date(v).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }); } };
 const KIND = { alert: 'alert', digest: 'digest', lookahead: 'look-ahead' };
 const STATE = { new: 'new', opened: 'seen', dismissed: 'dismissed', resolved: 'resolved', not_useful: 'not useful' };
 const plain = t => String(t || '').replace(/\[([^\]\n]+)\]\([^)\s]*\)/g, '$1');
@@ -117,8 +121,44 @@ switch (cmd) {
     out(r, `acked ${r.acked}`); break;
   }
   case 'seen': {
-    const r = await call('/api/inbox/seen', { source: opts.source || undefined, ...(opts.at ? { at: opts.at } : {}) });
+    let profile;
+    if (opts.profile !== undefined) { try { profile = JSON.parse(opts.profile === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(opts.profile, 'utf8')); } catch (e) { die(`Could not read the profile: ${e.message}`); } }
+    const r = await call('/api/inbox/seen', { source: opts.source || undefined, ...(opts.at ? { at: opts.at } : {}), ...(profile !== undefined ? { profile } : {}) });
     out(r, 'ok'); break;
+  }
+  case 'watch': {
+    const q = qs({ source: opts.source });
+    if (rest[0] === 'set' || rest[0] === 'reset') {
+      let settings = null;
+      if (rest[0] === 'set') {
+        const cur = await call('/api/inbox/watch' + q);
+        if (opts.file !== undefined) { try { settings = JSON.parse(opts.file === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(opts.file, 'utf8')); } catch (e) { die(`Could not read the settings: ${e.message}`); } }
+        else {
+          settings = structuredClone(cur.settings || cur.profile?.defaults || {});
+          if (opts.every !== undefined) settings.every = Number(opts.every);
+          if (opts.pause) settings.paused = true;
+          if (opts.resume) settings.paused = false;
+          if (opts.every === undefined && !opts.pause && !opts.resume) die('watch set needs --file <path|->, --every <minutes>, --pause or --resume');
+        }
+      }
+      const r = await call('/api/inbox/watch', { source: opts.source || undefined, settings });
+      out(r, `revision ${r.revision}: ${r.settings ? 'saved' : 'back to the watcher\'s config file'}`); break;
+    }
+    if (rest[0]) die(`Unknown watch command ${rest[0]}. Use watch, watch set or watch reset.`);
+    const r = await call('/api/inbox/watch' + q);
+    if (opts.json) { console.log(JSON.stringify({ source: r.source, settings: r.settings, revision: r.revision, updatedAt: r.updatedAt, profile: r.profile }, null, 1)); break; }
+    const s = r.settings || r.profile?.defaults, st = r.profile?.status, days = r.profile?.usage?.days || [];
+    const lines = [`Source: ${r.source}${r.settings ? ` · your settings (revision ${r.revision})` : " · the watcher's config file"}`];
+    if (s) {
+      lines.push(s.paused ? 'Paused' : s.every ? `Checks every ${s.every} min outside the periods` : 'No checks outside the periods');
+      for (const p of s.periods || []) lines.push(`  ${p.name || 'Period'}: days ${p.days.join(',')} ${p.from}–${p.to}, ${p.every ? 'every ' + p.every + ' min' : 'no checks'}`);
+      if (s.models) lines.push(`Decisions: ${s.models.decisions?.model} (${s.models.decisions?.reasoning}) · Look-ahead: ${s.models.lookahead?.model} (${s.models.lookahead?.reasoning})`);
+    } else lines.push('The watcher has not reported its settings yet (it needs inbox-monitor 0.3 or later).');
+    if (st) lines.push(`Now: ${st.paused ? 'paused' : st.every ? 'every ' + st.every + ' min' : 'no checks'}${st.period ? ' (' + st.period + ')' : ''}; last check ${when(st.lastCheckAt) || 'never'}; next ${when(st.nextCheckAt) || 'none scheduled'}`);
+    const since = r.profile?.usage?.since ? Date.parse(r.profile.usage.since) : 0;
+    if (days.length) lines.push(`Last ${Math.min(7, days.length)} days (${r.profile.usage.billing === 'plan' ? 'billed to the plan; dollars at API list price' : r.profile.usage.billing === 'api' ? 'billed per token' : 'no price reported'}):`);
+    for (const d of days.slice(0, 7)) lines.push(since && Date.parse(d.date + 'T23:59:59Z') >= since ? `  ${d.date}  ${d.checks} checks  ${d.calls} calls  ${(d.inputTokens + d.outputTokens).toLocaleString('en-US')} tokens${d.costUsd != null ? '  $' + d.costUsd.toFixed(2) : ''}` : `  ${d.date}  ${d.checks} checks  (calls and cost not recorded)`);
+    console.log(lines.join('\n')); break;
   }
   default: die(`Unknown command ${cmd}. Run pocket-inbox help.`);
 }

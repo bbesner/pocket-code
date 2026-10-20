@@ -1762,3 +1762,38 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .inbox-body { font-size: 15.5px; line-height: 1.55; overflow-wrap: anywhere; }
 .inbox-body a { color: var(--clay); }
 .inbox-card .home-card-what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 1.70: Inbox Watch settings. The 1.67 settings blocks (set head, lead, router-level rows), with periods as rows of
+   day chips and times, and a plain table of what each day cost. No new colour; the pressed day uses the filter-chip clay. */
+.inbox-tools-row { display: flex; gap: 8px; align-items: center; }
+.inbox-tools-row .inbox-search { flex: 1; min-width: 0; }
+.inbox-tools-row .chip { flex: none; }
+.watch-sheet { --sheet-w: 640px; }
+.watch-body > .title-note, .watch-body > .vault-field-error { margin-left: 14px; margin-right: 14px; }
+.watch-sheet .watch-status { margin-bottom: 6px; }
+.watch-sheet #w-pause { margin: 0 0 4px; }
+.watch-periods[hidden] { display: none; }
+.watch-period { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.watch-period-head { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; }
+.watch-name { flex: 1; min-width: 0; min-height: 44px; font: inherit; font-size: 15px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.watch-name:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.watch-days { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(7, minmax(44px, 1fr)); gap: 4px; margin: 2px 0; max-width: 420px; }
+.watch-days .chip { justify-content: center; padding: 4px 0; font-weight: 600; }
+.watch-days .chip[aria-pressed="true"] { color: var(--clay); border-color: var(--clay); background: var(--clay-deep); }
+.watch-wide { grid-column: 1 / -1; }
+.watch-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; margin: 6px 14px 0; }
+.watch-pair .voice-field { margin: 0; }
+.model-offer > .watch-pair + .title-note { margin-top: 4px; }
+@media (max-width: 520px) { .watch-period { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+#w-usage { margin: 0 14px; }
+.watch-usage { width: 100%; margin-top: 6px; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.watch-usage th, .watch-usage td { padding: 9px 6px; text-align: right; border-bottom: 1px solid var(--line); font-weight: 400; }
+.watch-usage th:first-child, .watch-usage td:first-child { text-align: left; padding-left: 0; }
+.watch-usage thead th { font-size: 12px; font-weight: 600; color: var(--dim); }
+.watch-usage tbody th { color: var(--text); }
+.watch-usage tfoot th, .watch-usage tfoot td { font-weight: 600; border-bottom: 0; }
+.watch-usage .watch-unrecorded td[colspan] { text-align: left; color: var(--dim); }
+.watch-sheet #w-usage .title-note { margin: 6px 0 0; }
+.watch-actions { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 14px; }
+@media (min-width: 600px) { .watch-period { grid-template-columns: repeat(3, minmax(0, 1fr)); } .watch-period .watch-wide { grid-column: auto; } }
+.watch-sheet .title-note { text-wrap: pretty; max-width: 58ch; } /* ch is a digit; prose runs ~1.35 letters per ch */
+.inbox-search::placeholder, .watch-name::placeholder { color: var(--dim); opacity: 1; }

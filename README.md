@@ -11,7 +11,7 @@ produce in Files, and use credentials from an encrypted Vault without ever seein
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
-This checkout documents **1.69.3 / build 137**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.70.0 / build 138**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -254,8 +254,8 @@ device, and when you open them, so an item an agent adds shows up without a relo
 
 ### Inbox Watch: your mailbox, read for you (1.65)
 
-Inbox Watch is a small worker that runs beside Pocket on the same server, every five minutes,
-and reads one Gmail mailbox the way a chief of staff would. It keeps a 90-day memory of the
+Inbox Watch is a small worker that runs beside Pocket on the same server, on a schedule you set
+(every five minutes unless you change it), and reads one Gmail mailbox the way a chief of staff would. It keeps a 90-day memory of the
 mail, follows each situation as a story across threads and senders (a camera outage, a
 customer's service visit, a bill with a deadline), notices when the same device, invoice or
 account turns up again, and hands all of that to a model (Claude Code or Codex headless, or an
@@ -277,7 +277,10 @@ is one list in Pocket: tap **X** to dismiss, or choose **Resolved** or **Not use
 the watcher applies it on its next run, closing the story or adding a line to your preferences.
 Pocket's part is the Inbox (`pocket-inbox`), the push, the briefed conversation (a start link) and
 Files; the worker ships as its own program, `inbox-monitor`, with a config file per mailbox (owner,
-mailbox, judge, delivery) and a timer. Mail access is the owner's own Gmail consent, or a Workspace service account for
+mailbox, judge, delivery) and a timer.
+**Schedule, models and cost** (1.70, Settings → Inbox Watch or **Schedule** in the Inbox) sets when it checks
+(periods with their own days, hours and interval), quiet hours, the digest and look-ahead times, a pause, and in
+Developer mode the model and reasoning for each job, with what each day cost. Mail access is the owner's own Gmail consent, or a Workspace service account for
 mailboxes an administrator controls.
 
 ### Answer, approve and steer
@@ -390,7 +393,7 @@ header of each script in `scripts/`; the shipped skills explain when to use them
 | `pocket-docs` | `add <path> [--title] [--project] [--session] [--visibility]`, `list [--q]`, `show <id>`, `share <id> [--expires 7d\|30d\|none]`, `set <id> --visibility private\|link\|public`, `trash <id>`, `restore <id>` |
 | `pocket-tasks` | `add "…" [--due] [--session <id>] [--summary "…"] [--dir]`, `list [--all]`, `show <id>`, `done <id>`, `reopen <id>`, `edit <id> [--clear-due]`, `remove <id>` |
 | `pocket-notify` | `--title "…" --body "…" [--url /#/start/<id> or another Pocket path] [--tag <key>] [--email]` (1.65.0): a push to every device that wants alerts, and an email to the notification address with `--email`; pair it with `pocket-start` so the alert opens a briefed New session |
-| `pocket-inbox` | `add --title "…" (--text "…" \| --file -) [--kind alert\|digest\|lookahead] [--priority] [--story] [--url] [--gmail] [--doc] [--dedupe] [--email]` (1.69): an Inbox entry plus the push; `list [--state new\|all\|dismissed]`, `act <id> open\|dismiss\|resolve\|not_useful\|restore`, `feedback`, `ack <ids>`, `seen` for a watcher applying what the owner decided |
+| `pocket-inbox` | `add --title "…" (--text "…" \| --file -) [--kind alert\|digest\|lookahead] [--priority] [--story] [--url] [--gmail] [--doc] [--dedupe] [--email]` (1.69): an Inbox entry plus the push; `list [--state new\|all\|dismissed]`, `act <id> open\|dismiss\|resolve\|not_useful\|restore`, `feedback`, `ack <ids>`, `seen [--profile -]` for a watcher applying what the owner decided; `watch`, `watch set (--every\|--pause\|--resume\|--file -)`, `watch reset` (1.70) for its schedule and models |
 | `pocket-vault` | `run --env VAR=name[.field] [--cwd] [--timeout] -- <command…>`, `wait <request id>`, `put <name> --kind api_key\|token\|login\|credentials\|note (--from-env VAR\|--from-file path\|--stdin)`, `list`, `show <name>`, `history`. Never prints a value; exits 4 while a request waits for you and 5 when it is refused |
 
 For browser logins, `scripts/pocket-mcp-proxy.mjs` (**Typed by Pocket**, 1.43) sits between an

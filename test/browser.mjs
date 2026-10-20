@@ -112,7 +112,13 @@ const seedInbox=()=>{inboxStore.entries.length=0;inboxStore.sources={};
  const r=inboxStore.add({kind:'alert',title:'Circa alarm timer tests',text:'Ten missed tests since October 13. [Latest](msg:1a151dff1dfb590e)',story:'circa-late-alarm-test',source:'inbox-monitor',url:'/#/start/0123456789ac'},{actor:'cli'});inboxStore.act({action:'resolve',id:r.id});
  const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- SCK WooPayments deductions: the scheduled payout includes $267.48 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
  inboxStore.add({kind:'alert',priority:'high',title:'Pradera dispatch conflict',text:'Kimberly says the visit was supposed to be last night and asks that nobody be dispatched, while the 8:03 notice has Jairon on the way for 9–10. [Call transcript](msg:1a1540e0de10f879) · [Dispatch notice](msg:1a1540b3f8676388) Valentina should reach Jairon before 9 a.m.',story:'pradera-service-scheduling',source:'inbox-monitor',url:'/#/start/0123456789ab',gmail:'https://mail.google.com/mail/u/0/#all/1a1540b3f8676388',dedupe:'pradera|1'},{actor:'cli'});
- inboxStore.seen('inbox-monitor');};
+ inboxStore.seen('inbox-monitor');
+ // 1.70: the watcher's profile, as inbox-monitor 0.3 sends it with its heartbeat; no owner settings yet
+ inboxStore.profiles={};inboxStore.watch={};
+ inboxStore.seen('inbox-monitor',undefined,{version:1,timezone:'America/New_York',defaults:{paused:false,every:5,periods:[{name:'Overnight',days:[0,1,2,3,4,5,6],from:'22:00',to:'07:00',every:30}],quietHours:[22,8],digestHour:8,lookahead:{morning:8,evening:17},models:{decisions:{model:'sonnet',reasoning:'medium'},lookahead:{model:'opus',reasoning:'medium'}}},
+  options:{every:[0,1,2,3,5,10,15,20,30,45,60,90,120,180,240],models:[{id:'haiku',label:'Haiku 5.5'},{id:'sonnet',label:'Sonnet 5.5'},{id:'opus',label:'Opus 5.5'},{id:'fable',label:'Fable 5.1'}],reasoning:[{id:'default',label:'Model default'},{id:'low',label:'Low'},{id:'medium',label:'Medium'},{id:'high',label:'High'}],judge:'claude',maxPeriods:12},
+  applied:{from:'config',revision:null},status:{paused:false,every:5,period:'',lastCheckAt:new Date(Date.now()-120000).toISOString(),nextCheckAt:new Date(Date.now()+180000).toISOString(),backlog:0},
+  usage:{billing:'plan',costBasis:'list',since:'2026-10-20T13:00:00Z',days:[{date:'2026-10-21',checks:190,threads:410,calls:150,failed:0,inputTokens:6400000,cacheWriteTokens:0,cacheReadTokens:0,outputTokens:120000,costUsd:15.62,decisions:{calls:148,costUsd:14.2},lookahead:{calls:2,costUsd:1.42}},{date:'2026-10-20',checks:240,threads:520,calls:180,failed:1,inputTokens:7900000,cacheWriteTokens:0,cacheReadTokens:0,outputTokens:150000,costUsd:19.04,decisions:{calls:178,costUsd:17.5},lookahead:{calls:2,costUsd:1.54}},{date:'2026-10-19',checks:277,threads:543,calls:0,failed:0,inputTokens:0,cacheWriteTokens:0,cacheReadTokens:0,outputTokens:0,costUsd:null,decisions:{calls:0,costUsd:null},lookahead:{calls:0,costUsd:null}}]}});};
 seedBoard();seedTasks();seedInbox();
 // Mirrors the server's titleSettings() (1.20): Claude signed in, Codex without GPT-6-Luna.
 const fixtureTitles=()=>{const using=!fixtureSettings.autoTitles?null:fixtureSettings.titleProvider==='codex'?null:'claude';
@@ -183,6 +189,10 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/inbox')return json({...inboxStore.snapshot({state:url.searchParams.get('state')||'new',since:url.searchParams.get('since')||undefined}),push:{enabled:false},email:Boolean(fixtureSettings.notifyEmail)});
   if(url.pathname==='/api/inbox/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,entry:inboxStore.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message},e.status||400);}}
   if(url.pathname==='/api/inbox/reset'){seedInbox();return json({ok:true});}
+  if(url.pathname==='/api/inbox/watch'){ // 1.70
+   if(req.method==='POST'){let raw='';for await(const c of req)raw+=c;try{const b=JSON.parse(raw);return json({ok:true,...inboxStore.setWatch(b.source||'inbox-monitor',b.settings??null,{actor:'ui'})});}catch(e){return json({error:e.message,code:e.code},e.status||400);}}
+   return json({ok:true,...inboxStore.watchView(url.searchParams.get('source')||'')});
+  }
  }
  if(url.pathname.startsWith('/api/tasks')){ // 1.36
   if(!fixtureSettings.tasks)return json({error:'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'tasks_off'},404);

@@ -86,6 +86,7 @@ function paintInboxView(){
  main.innerHTML=html;
  bindInboxRows(main);
  main.querySelectorAll('[data-inbox-filter]').forEach(b=>b.onclick=async()=>{inboxFilter=b.dataset.inboxFilter;if(inboxFilter==='dismissed'&&!inboxDismissed)try{await loadInboxDismissed();}catch{}paintInboxView();});
+ main.querySelector('#inbox-watch')?.addEventListener('click',inboxWatchSheet);
  const s=main.querySelector('#inbox-search');if(s){s.oninput=()=>{inboxQuery=s.value;paintInboxView();};if(focus){s.focus();s.setSelectionRange(pos,pos);}}
  paintInboxBadges();
 }
@@ -110,7 +111,7 @@ function inboxListHTML(){
  for(const e of rows){const d=inboxDay(e.at);if(d!==day){day=d;groups.push({day:d,html:[]});}groups[groups.length-1].html.push(inboxRowHTML(e));}
  const empty=inboxFilter==='dismissed'?'Nothing dismissed.':inboxQuery.trim()?'Nothing matches.':inboxFilter==='new'?(inboxSnap.entries.length?'Nothing unread. All shows everything Inbox Watch has sent.':'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.'):'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.';
  return `<div class="session-home-head"><h2>Inbox</h2><span class="project-head-actions">${chip('all','All')}${chip('new',`Unread${n?` <span class="badge" data-inbox-badge>${n}</span>`:''}`)}${chip('dismissed','Dismissed')}</span></div>
-  <div class="inbox-tools"><input type="search" id="inbox-search" class="inbox-search" placeholder="Search titles and stories" value="${esc(inboxQuery)}" aria-label="Search the inbox">${stale?`<p class="sheet-help inbox-stale">Inbox Watch hasn’t reported since ${esc(inboxDay(inboxSnap.lastReportAt))} ${esc(inboxWhen(inboxSnap.lastReportAt))}.</p>`:''}</div>
+  <div class="inbox-tools"><div class="inbox-tools-row"><input type="search" id="inbox-search" class="inbox-search" placeholder="Search titles and stories" value="${esc(inboxQuery)}" aria-label="Search the inbox"><button class="chip" id="inbox-watch" aria-label="Inbox Watch schedule${assistantMode()?'':', models and cost'}">${IC.sliders}Schedule</button></div>${stale&&!inboxSnap.paused?`<p class="sheet-help inbox-stale">Inbox Watch hasn’t reported since ${esc(inboxDay(inboxSnap.lastReportAt))} ${esc(inboxWhen(inboxSnap.lastReportAt))}.</p>`:''}</div>
   ${groups.length?groups.map(g=>`<section class="session-group project-group"><h2>${esc(g.day)} <span>${g.html.length}</span></h2>${g.html.join('')}</section>`).join(''):`<p class="sheet-help project-empty">${empty}</p>`}`;
 }
 function bindInboxRows(root){
@@ -169,3 +170,117 @@ function inboxWaitingCards(){
 }
 function inboxTick(){if(!inboxOn()||document.visibilityState!=='visible'||!(inboxView||railView()==='inbox'||document.querySelector('[data-inbox-home],[data-inbox-badge],.assistant-home')))return;loadInbox(true).then(()=>{paintInboxView();paintRailInbox();paintInboxBadges();if(typeof paintAssistantHome==='function')paintAssistantHome();if(typeof paintOpenSessions==='function')paintOpenSessions();}).catch(()=>{});}
 setInterval(inboxTick,30000);onListsStale(inboxTick);
+
+/* ---------- 1.70: Inbox Watch settings: when it checks, quiet hours and summaries, models, cost ----------
+   One sheet, opened from Settings (Schedule, models and cost) or the Inbox header. The watcher's profile (its defaults,
+   the choices it offers, what is in force, what it cost) arrives with its heartbeat; the owner's settings go to
+   /api/inbox/watch and reach the watcher within a minute. Assistant mode shows the schedule only: no model names, no dollars. */
+const WATCH_DAYS=[['M','Monday'],['T','Tuesday'],['W','Wednesday'],['T','Thursday'],['F','Friday'],['S','Saturday'],['S','Sunday']];
+const watchEvery=n=>n===0?'Don’t check':n===1?'Every minute':n<60||n%60?`Every ${n} minutes`:n===60?'Every hour':`Every ${n/60} hours`;
+const watchHour=h=>h===0?'12 AM':h<12?`${h} AM`:h===12?'12 PM':`${h-12} PM`;
+let watchTZ; // the watcher's time zone, so the status reads in the same clock as the periods
+const watchTime=iso=>{if(!iso)return '';try{return new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:watchTZ});}catch{return new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});}};
+const watchTokens=n=>n>=1e6?(n/1e6).toFixed(n>=1e7?0:1)+'M':n>=1e3?Math.round(n/1e3)+'k':String(n||0);
+const watchMoney=v=>v==null?'—':'$'+(v>=100?v.toFixed(0):v.toFixed(2));
+const watchDay=d=>{const t=new Date(d+'T12:00:00');return `${t.toLocaleDateString('en-US',{weekday:'short'})} ${t.getDate()}`;};
+function watchStatus(w){
+ const p=w.profile,st=p?.status;
+ if(!p)return 'Inbox Watch hasn’t reported its settings yet. It needs inbox-monitor 0.3 or later on the server.';
+ const pending=w.settings&&p.applied?.revision!==w.revision?' Your last change reaches the watcher within a minute.':w.settings?'':' Using the watcher’s config file.';
+ if(st?.paused)return 'Paused. Nothing is checked until you resume.'+pending;
+ const now=st?st.every===0?'Not checking now':`Checking ${watchEvery(st.every).toLowerCase()} now`:'';
+ return `${now}${st?.period?` (${st.period})`:''}.${st?.lastCheckAt?` Last check ${watchTime(st.lastCheckAt)}`:''}${st?.nextCheckAt?`, next about ${watchTime(st.nextCheckAt)}.`:st?.lastCheckAt?'.':''}${pending}`;
+}
+function watchSelect(id,label,values,current,word,extra=''){
+ return `<label class="voice-field">${label}<select id="${id}" ${extra}>${values.map(v=>`<option value="${v===null?'off':v}"${v===current||(v===null&&current==null)?' selected':''}>${word(v)}</option>`).join('')}</select></label>`;
+}
+function watchPeriodHTML(p,i,everyChoices){
+ const days=WATCH_DAYS.map(([l,name],d)=>`<button type="button" class="chip" data-day="${d}" aria-pressed="${p.days.includes(d)}" aria-label="${name}">${l}</button>`).join('');
+ return `<div class="router-level watch-period" data-period="${i}">
+  <div class="watch-period-head"><input class="watch-name" type="text" maxlength="40" value="${esc(p.name||'')}" placeholder="Name, e.g. Overnight" aria-label="Period ${i+1} name"><button type="button" class="chip" data-remove aria-label="Remove period ${i+1}">Remove</button></div>
+  <div class="watch-days" role="group" aria-label="Days for period ${i+1}">${days}</div>
+  <label class="voice-field">From<input type="time" step="900" data-from value="${esc(p.from)}"></label>
+  <label class="voice-field">Until<input type="time" step="900" data-to value="${esc(p.to)}"></label>
+  <label class="voice-field watch-wide">Interval<select data-every>${everyChoices.map(v=>`<option value="${v}"${v===p.every?' selected':''}>${watchEvery(v)}</option>`).join('')}</select></label></div>`;
+}
+function watchUsageHTML(u){
+ const days=(u?.days||[]).slice(0,7);
+ if(!days.length)return '<p class="title-note">No checks recorded yet.</p>';
+ const since=u.since?Date.parse(u.since):0,rec=d=>since&&Date.parse(d.date+'T23:59:59')>=since;
+ const tot=days.filter(rec).reduce((a,d)=>({calls:a.calls+d.calls,tokens:a.tokens+d.inputTokens+d.outputTokens,cost:d.costUsd==null?a.cost:(a.cost||0)+d.costUsd}),{calls:0,tokens:0,cost:null});
+ const bill=u.billing==='plan'?'Billed to your plan, not per call; the dollars are what the same tokens cost at API list prices.':u.billing==='api'?'Billed per token through an API key, at about these list prices.':'This watcher’s judge does not report a price.';
+ return `<p class="title-note">${bill}</p><table class="watch-usage"><thead><tr><th scope="col">Day</th><th scope="col">Checks</th><th scope="col">Calls</th><th scope="col">Tokens</th><th scope="col">Cost</th></tr></thead><tbody>
+  ${days.map(d=>rec(d)?`<tr><th scope="row">${esc(watchDay(d.date))}</th><td>${d.checks}</td><td>${d.calls}</td><td>${watchTokens(d.inputTokens+d.outputTokens)}</td><td>${watchMoney(d.costUsd)}</td></tr>`:`<tr class="watch-unrecorded"><th scope="row">${esc(watchDay(d.date))}</th><td>${d.checks}</td><td colspan="3">Not recorded</td></tr>`).join('')}
+  </tbody>${tot.calls?`<tfoot><tr><th scope="row">Total</th><td></td><td>${tot.calls}</td><td>${watchTokens(tot.tokens)}</td><td>${watchMoney(tot.cost)}</td></tr></tfoot>`:''}</table>
+  ${since?`<p class="title-note">Recorded since ${esc(new Date(since).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:watchTZ}))}.</p>`:''}`;
+}
+async function inboxWatchSheet(){
+ const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet watch-sheet';
+ sh.innerHTML='<h2>Inbox Watch</h2><div class="watch-body"><p class="title-note" role="status">Loading…</p></div>';
+ mountSheet(scrim,sh);
+ const holder=sh.querySelector('.watch-body');
+ let w;
+ try{w=await api('/inbox/watch',{signal:AbortSignal.timeout(8000)});}catch(e){if(sh.isConnected)holder.querySelector('[role=status]').textContent='The settings could not load: '+(e.message||'error');return;}
+ if(!sh.isConnected)return;
+ watchTZ=w.profile?.timezone||undefined;
+ const dev=!assistantMode(),p=w.profile,opts=p?.options||{},everyChoices=opts.every||[0,1,2,3,5,10,15,20,30,45,60,90,120,180,240];
+ let s=structuredClone(w.settings||p?.defaults||null);
+ if(!s){holder.querySelector('[role=status]').textContent=watchStatus(w);return;}
+ s.periods ||= [];
+ const hours=[...Array(24).keys()],tz=p?.timezone&&p.timezone!==Intl.DateTimeFormat().resolvedOptions().timeZone?` Times are ${p.timezone.split('/').pop().replace(/_/g,' ')} time.`:'';
+ const modelRow=(job,name,what)=>{const m=s.models?.[job]||{};const models=opts.models||[];return `<div class="router-level" data-job="${job}"><p class="router-level-name">${name}<span class="sub">${what}</span></p>
+   <label class="voice-field">Model<select data-model>${models.map(x=>`<option value="${esc(x.id)}"${x.id===m.model?' selected':''}>${esc(x.label)}</option>`).join('')}</select></label>
+   <label class="voice-field">Reasoning<select data-reasoning>${(opts.reasoning||[{id:'default',label:'Model default'}]).map(x=>`<option value="${esc(x.id)}"${x.id===m.reasoning?' selected':''}>${esc(x.label)}</option>`).join('')}</select></label></div>`;};
+ const body=`<p class="title-note watch-status" role="status" id="w-status">${esc(watchStatus(w))}</p>
+  <button class="opt" id="w-pause" aria-pressed="${Boolean(s.paused)}"><span class="dot${s.paused?' on':''}"></span><span>Pause Inbox Watch<span class="sub">No mail checks, digests or look-aheads until you turn this off</span></span></button>
+  <div class="title-settings model-offer" role="group" aria-labelledby="w-sched-h"><p class="vault-set-head" id="w-sched-h">Schedule</p>
+   <p class="title-note">How often it checks your mail. Inside a period, that period’s interval applies; the rest of the time, this one. When periods overlap, the first listed wins.${esc(tz)}</p>
+   ${watchSelect('w-every','The rest of the time',everyChoices,s.every,watchEvery)}
+   <div class="router-levels watch-periods" id="w-periods"></div>
+   <span class="vault-set-actions"><button type="button" class="chip" id="w-add">${IC.plus}Add a period</button></span></div>
+  <div class="title-settings model-offer" role="group" aria-labelledby="w-times-h"><p class="vault-set-head" id="w-times-h">Quiet hours and summaries</p>
+   <div class="watch-pair">${watchSelect('w-quiet-from','Quiet from',hours,s.quietHours[0],watchHour)}${watchSelect('w-quiet-to','Until',hours,s.quietHours[1],watchHour)}</div>
+   <p class="title-note">In quiet hours only critical alerts reach you; the rest wait for the morning digest.</p>
+   <div class="watch-pair">${watchSelect('w-digest','Morning digest',hours,s.digestHour,watchHour)}</div>
+   <div class="watch-pair">${watchSelect('w-la-morning','Morning look-ahead',[null,...hours],s.lookahead?.morning,v=>v===null?'Off':watchHour(v))}${watchSelect('w-la-evening','Evening look-ahead',[null,...hours],s.lookahead?.evening,v=>v===null?'Off':watchHour(v))}</div>
+   <p class="title-note">The look-ahead checks what is coming due in the next few days and says so only when something needs you.</p></div>
+  ${dev?`<div class="title-settings model-offer" role="group" aria-labelledby="w-models-h"><p class="vault-set-head" id="w-models-h">Models</p>
+   <div class="router-levels" id="w-models">${modelRow('decisions','Decisions','Every check that finds new mail')}${modelRow('lookahead','Look-ahead','Twice a day')}</div>
+   <p class="title-note">Model default lets the model decide how much to reason.</p></div>
+  <div class="title-settings model-offer" role="group" aria-labelledby="w-cost-h"><p class="vault-set-head" id="w-cost-h">Cost, last 7 days</p><div id="w-usage">${watchUsageHTML(p.usage)}</div></div>`:''}
+  <p class="vault-field-error" id="w-error" role="alert"></p>
+  <div class="watch-actions"><button class="primary" id="w-save">Save</button>${w.settings?'<button class="chip" id="w-reset">Use the config file’s settings</button>':''}</div>`;
+ holder.innerHTML=body;
+ const $w=q=>sh.querySelector(q);
+ const paintPeriods=()=>{const el=$w('#w-periods');el.innerHTML=s.periods.map((x,i)=>watchPeriodHTML(x,i,everyChoices)).join('');el.hidden=!s.periods.length;$w('#w-add').disabled=s.periods.length>=(opts.maxPeriods||12);};
+ const readPeriods=()=>{s.periods=[...sh.querySelectorAll('.watch-period')].map(row=>({name:row.querySelector('.watch-name').value.trim(),days:[...row.querySelectorAll('[data-day][aria-pressed="true"]')].map(b=>Number(b.dataset.day)),
+   from:row.querySelector('[data-from]').value,to:row.querySelector('[data-to]').value,every:Number(row.querySelector('[data-every]').value)}));};
+ paintPeriods();
+ $w('#w-periods').addEventListener('click',e=>{
+  const day=e.target.closest('[data-day]');if(day){day.setAttribute('aria-pressed',String(day.getAttribute('aria-pressed')!=='true'));return;}
+  const rm=e.target.closest('[data-remove]');if(rm){readPeriods();const i=Number(rm.closest('.watch-period').dataset.period);s.periods.splice(i,1);paintPeriods();($w('.watch-period .watch-name')||$w('#w-add')).focus();}
+ });
+ $w('#w-add').onclick=()=>{readPeriods();s.periods.push({name:'',days:[0,1,2,3,4,5,6],from:'22:00',to:'07:00',every:Math.max(15,s.every||15)});paintPeriods();sh.querySelector('.watch-period:last-child .watch-name')?.focus();};
+ $w('#w-pause').onclick=e=>{s.paused=!s.paused;e.currentTarget.setAttribute('aria-pressed',String(s.paused));e.currentTarget.querySelector('.dot').classList.toggle('on',s.paused);};
+ const hourVal=id=>{const v=$w(id).value;return v==='off'?null:Number(v);};
+ const collect=()=>{
+  readPeriods();
+  const out={paused:Boolean(s.paused),every:Number($w('#w-every').value),periods:s.periods,quietHours:[hourVal('#w-quiet-from'),hourVal('#w-quiet-to')],digestHour:hourVal('#w-digest'),
+   lookahead:{morning:hourVal('#w-la-morning'),evening:hourVal('#w-la-evening')},models:structuredClone(s.models||{})};
+  sh.querySelectorAll('#w-models [data-job]').forEach(row=>{out.models[row.dataset.job]={model:row.querySelector('[data-model]').value,reasoning:row.querySelector('[data-reasoning]').value};});
+  const bad=out.periods.findIndex(x=>!x.days.length||!x.from||!x.to);
+  if(bad>=0)throw new Error(`Period ${bad+1} needs at least one day and a start and end time.`);
+  return out;
+ };
+ const save=async(settings,done)=>{
+  const err=$w('#w-error');err.textContent='';const btn=$w('#w-save');btn.disabled=true;
+  try{w={...w,...await api('/inbox/watch',{method:'POST',body:JSON.stringify({source:w.source,settings}),signal:AbortSignal.timeout(8000)})};toast(done);
+   if(!settings){closeCurrentSheet?.();return inboxWatchSheet();}
+   $w('#w-status').textContent=watchStatus(w);if(!$w('#w-reset'))$w('.watch-actions').insertAdjacentHTML('beforeend','<button class="chip" id="w-reset">Use the config file’s settings</button>'),bindReset();}
+  catch(e){err.textContent=e.message||'Could not save';}finally{btn.disabled=false;}
+ };
+ $w('#w-save').onclick=()=>{let v;try{v=collect();}catch(e){$w('#w-error').textContent=e.message;return;}save(v,'Saved. Inbox Watch picks it up within a minute');};
+ const bindReset=()=>{const r=$w('#w-reset');if(r)r.onclick=()=>save(null,'Back to the config file’s settings');};bindReset();
+ // While the sheet is open, the status and the cost table keep up; the form is left as you have it.
+ const poll=setInterval(async()=>{if(!sh.isConnected)return clearInterval(poll);try{const n=await api('/inbox/watch?source='+encodeURIComponent(w.source));w={...w,profile:n.profile,revision:n.revision};$w('#w-status').textContent=watchStatus(w);if(dev&&$w('#w-usage'))$w('#w-usage').innerHTML=watchUsageHTML(n.profile?.usage);}catch{}},20000);
+}

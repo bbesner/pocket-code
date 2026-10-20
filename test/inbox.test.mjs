@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
-import {InboxStore,LIMITS,KINDS,PRIORITIES,STATES,ACTIONS,inboxInstructions} from '../inbox.mjs';
+import {InboxStore,LIMITS,KINDS,PRIORITIES,STATES,ACTIONS,WATCH,checkWatch,inboxInstructions} from '../inbox.mjs';
 import {syncSkills} from '../skills.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
@@ -103,6 +103,37 @@ test('InboxStore: dedupe within 24 hours, the state machine with restore, feedba
   clock+=60000;s.seen('nightly');assert.equal(s.snapshot().lastReportAt,s.sources.nightly.lastReportAt,'the latest source wins');
   assert.throws(()=>s.seen('x','not a date'),e=>e.code==='bad_at');
   assert.deepEqual(new InboxStore(file,{now:()=>clock}).sources,s.sources,'persisted');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
+// 1.70: the owner's Inbox Watch settings and the watcher's profile, kept per source.
+const PROFILE={version:1,timezone:'America/New_York',defaults:{paused:false,every:5,periods:[],quietHours:[22,8],digestHour:8,lookahead:{morning:8,evening:17},models:{decisions:{model:'sonnet',reasoning:'medium'},lookahead:{model:'opus',reasoning:'medium'}}},
+  options:{every:[0,5,10,15,30],models:[{id:'sonnet',label:'Sonnet 5.5'},{id:'opus',label:'Opus 5.5'}],reasoning:[{id:'default',label:'Model default'},{id:'medium',label:'Medium'}]},
+  applied:{from:'config',revision:null},status:{paused:false,every:5,period:'',lastCheckAt:'2026-10-20T12:00:00+00:00',nextCheckAt:'2026-10-20T12:05:00+00:00'},
+  usage:{billing:'plan',costBasis:'list',since:'2026-10-20T11:00:00+00:00',days:[{date:'2026-10-20',checks:30,threads:40,calls:12,failed:0,inputTokens:500000,cacheWriteTokens:0,cacheReadTokens:0,outputTokens:9000,costUsd:1.25,decisions:{calls:12,costUsd:1.25},lookahead:{calls:0,costUsd:null}}]}};
+test('InboxStore: Inbox Watch settings, the watcher\'s profile, revisions and paused',()=>{
+  assert.equal(checkWatch(null),null);
+  const ok=checkWatch({paused:false,every:10,periods:[{name:' Overnight ',days:[6,0,0],from:'22:00',to:'07:00',every:30}],quietHours:[22,8],digestHour:8,lookahead:{morning:8,evening:null},models:{decisions:{model:'sonnet',reasoning:'low'}}});
+  assert.deepEqual(ok.periods,[{name:'Overnight',days:[0,6],from:'22:00',to:'07:00',every:30}],'days deduplicated and sorted');assert.equal(ok.lookahead.evening,null);
+  for(const [bad,re] of [[{every:-1},/every is whole minutes/],[{every:500},/to 240/],[{periods:[{days:[],from:'01:00',to:'02:00',every:5}]},/Period 1 needs at least one day/],
+    [{periods:[{days:[1],from:'1am',to:'02:00',every:5}]},/start and an end time/],[{periods:Array(WATCH.periods+1).fill({days:[1],from:'01:00',to:'02:00',every:5})},/at most 12/],
+    [{quietHours:[22]},/quietHours/],[{digestHour:24},/digestHour/],[{lookahead:{morning:'8'}},/morning look-ahead/],[{models:{decisions:{model:'sonnet',reasoning:'huge'}}},/Reasoning is one of/],
+    [{paused:'yes'},/paused is true or false/],['x',/settings must be an object/]])
+    assert.throws(()=>checkWatch(bad),e=>e.status===400&&e.code==='bad_watch'&&re.test(e.message),JSON.stringify(bad));
+  assert.throws(()=>checkWatch({models:{decisions:{model:'gpt-9'}}},PROFILE),/Choose one of the models/,'only what the watcher offers');
+  const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-10-20T12:00:00Z');
+  const s=new InboxStore(file,{now:()=>clock});
+  assert.deepEqual(s.watchView(),{source:'inbox-monitor',settings:null,revision:0,updatedAt:null,by:null,profile:null,profileAt:null,lastReportAt:null});
+  s.seen('inbox-monitor',undefined,PROFILE);assert.deepEqual(s.watchView().profile,PROFILE);assert.equal(s.paused(),false);
+  assert.deepEqual(s.snapshot().sources,{'inbox-monitor':{lastReportAt:'2026-10-20T12:00:00Z'}},'the list stays lean: no profile in it');
+  assert.throws(()=>s.seen('inbox-monitor',undefined,{big:'x'.repeat(WATCH.profileBytes)}),e=>e.code==='bad_profile');
+  let v=s.setWatch('inbox-monitor',{every:15,paused:true});assert.deepEqual([v.revision,v.by,v.settings],[1,'ui',{every:15,paused:true}]);assert.equal(s.paused(),true,'paused as the owner set it');
+  assert.equal(s.snapshot().paused,true);
+  v=s.setWatch('inbox-monitor',{models:{decisions:{model:'opus',reasoning:'default'}}},{actor:'cli'});assert.deepEqual([v.revision,v.by],[2,'cli']);
+  assert.throws(()=>s.setWatch('inbox-monitor',{models:{decisions:{model:'haiku'}}}),/Choose one of the models/);
+  clock+=60000;s.seen('other-watcher',undefined,{...PROFILE,status:{paused:true}});assert.equal(s.watchSource(),'other-watcher','the latest profile is the one Settings shows');
+  v=s.setWatch('inbox-monitor',null);assert.deepEqual([v.revision,v.settings],[3,null],'null goes back to the config file');
+  const again=new InboxStore(file,{now:()=>clock});assert.deepEqual(again.watchView('inbox-monitor'),s.watchView('inbox-monitor'),'persisted');assert.deepEqual(again.watchView('other-watcher').profile.status,{paused:true});
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
@@ -220,6 +251,22 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   out=await cli(['ack',cid,quiet.body.entry.id]);assert.equal(out.stdout.trim(),'acked 2');
   out=await cli(['feedback']);assert.equal(out.stdout.trim(),'No new feedback.');
   out=await cli(['seen','--source','cli-test']);assert.equal(out.stdout.trim(),'ok');assert.ok((await call('/inbox')).body.sources['cli-test']);
+  // 1.70: Inbox Watch settings. The watcher's heartbeat brings its profile; the owner (or an agent when asked) sets; the watcher reads.
+  out=await cli(['watch']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/has not reported its settings yet/);
+  out=await cli(['seen','--source','inbox-monitor','--profile','-'],JSON.stringify(PROFILE));assert.equal(out.code,0,out.stderr);
+  r=await call('/inbox/watch');assert.equal(r.status,200);assert.equal(r.cache,'private, no-store');assert.deepEqual([r.body.source,r.body.settings,r.body.revision],['inbox-monitor',null,0]);assert.deepEqual(r.body.profile,PROFILE);
+  assert.equal((await call('/inbox/watch',null,{...bearer,'cf-connecting-ip':'203.0.113.5'})).status,401,'the token stays on loopback here too');
+  r=await call('/inbox/watch',{settings:{every:7.5}});assert.equal(r.status,400);assert.equal(r.body.code,'bad_watch');
+  r=await call('/inbox/watch',{settings:{...PROFILE.defaults,every:10,periods:[{name:'Overnight',days:[0,1,2,3,4,5,6],from:'22:00',to:'07:00',every:30}]}});
+  assert.equal(r.status,200,JSON.stringify(r.body));assert.equal(r.body.revision,1);assert.equal(r.body.by,'ui');assert.match(logs,/inbox watch settings source=inbox-monitor revision=1 by=ui/);
+  out=await cli(['watch','--json']);const wj=JSON.parse(out.stdout);assert.deepEqual([wj.revision,wj.settings.every,wj.settings.periods[0].every],[1,10,30]);
+  out=await cli(['watch']);assert.match(out.stdout,/your settings \(revision 1\)/);assert.match(out.stdout,/Overnight: days 0,1,2,3,4,5,6 22:00–07:00, every 30 min/);assert.match(out.stdout,/Decisions: sonnet \(medium\)/);assert.match(out.stdout,/2026-10-20  30 checks  12 calls  509,000 tokens  \$1\.25/);
+  out=await cli(['watch','set','--every','15']);assert.equal(out.code,0,out.stderr);assert.equal(out.stdout.trim(),'revision 2: saved');
+  out=await cli(['watch','set','--pause']);assert.equal((await call('/inbox/watch')).body.settings.paused,true);assert.equal((await call('/inbox')).body.paused,true,'a paused watcher is not called silent');
+  assert.deepEqual([(await call('/inbox/watch')).body.settings.every,(await call('/inbox/watch')).body.settings.periods.length],[15,1],'set changes one thing');
+  out=await cli(['watch','set']);assert.equal(out.code,1);assert.match(out.stderr,/needs --file/);
+  out=await cli(['watch','set','--file','-'],'{"models":{"decisions":{"model":"gpt-9"}}}');assert.equal(out.code,1);assert.match(out.stderr,/Choose one of the models/);
+  out=await cli(['watch','reset']);assert.equal(out.stdout.trim(),"revision 4: back to the watcher's config file");assert.equal((await call('/inbox/watch')).body.settings,null);
   out=await cli(['act',cid,'explode']);assert.equal(out.code,1);assert.match(out.stderr,/Unknown action/);
   out=await cli(['add','--title','x']);assert.equal(out.code,1);assert.match(out.stderr,/--text/);
   out=await cli(['show','000000000000']);assert.equal(out.code,1);

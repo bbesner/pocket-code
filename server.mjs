@@ -3048,8 +3048,23 @@ app.post('/api/inbox/ack', requireBoardAuth, inboxOn, (req, res) => {
   catch (e) { inboxError(res, e); }
 });
 app.post('/api/inbox/seen', requireBoardAuth, inboxOn, (req, res) => {
-  try { inboxStore.seen(req.body?.source, req.body?.at ?? undefined); res.json({ ok: true }); }
+  try { inboxStore.seen(req.body?.source, req.body?.at ?? undefined, req.body?.profile ?? undefined); res.json({ ok: true }); }
   catch (e) { inboxError(res, e); }
+});
+// 1.70: when the watcher checks and which models judge. The owner sets them in Settings → Inbox Watch (or an agent, when
+// asked, through pocket-inbox watch set); the worker reads them every minute and reports back in its heartbeat's profile.
+app.get('/api/inbox/watch', requireBoardAuth, inboxOn, (req, res) => {
+  try { res.set('Cache-Control', 'private, no-store').json({ ok: true, ...inboxStore.watchView(typeof req.query.source === 'string' ? req.query.source : '') }); }
+  catch (e) { inboxError(res, e); }
+});
+app.post('/api/inbox/watch', requireBoardAuth, inboxOn, (req, res) => {
+  const actor = req.boardActor || 'ui', b = req.body || {};
+  try {
+    const src = typeof b.source === 'string' && b.source ? b.source : inboxStore.watchSource();
+    const view = inboxStore.setWatch(src, b.settings ?? null, { actor });
+    log(`inbox watch settings source=${view.source} revision=${view.revision} by=${actor}${view.settings ? '' : ' (config file)'}`);
+    res.set('Cache-Control', 'private, no-store').json({ ok: true, ...view });
+  } catch (e) { inboxError(res, e); }
 });
 
 // ---------- 1.39: vault routes ----------
@@ -3494,7 +3509,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["The + button opens a clean New conversation. A briefing from an Inbox alert, a start link, or a task's or project's Start stayed in the box after you left without starting it, so every later + reopened it; now it is cleared unless you edited it. A draft you typed yourself is still kept.", "Reading an Inbox entry no longer makes it go away: the list opens on All, the dot marks what is unread, and a row or the home card stays until you dismiss it, mark it resolved or not useful.", "An Inbox row opens its sheet first: the whole text, Gmail links and the choices. Start a conversation is the deliberate step, as a task's Start is; the Assistant-mode card opens the entry the same way.", "Inbox: a fifth library beside Projects, Files, Tasks and the Vault for what Inbox Watch sends, with Open, Gmail and X on every row and a Resolved / Not useful choice the watcher reads back. The rail shows an icon per library so six fit. Inbox alerts get their own push toggle.", "Settings → Appearance now shows Mode as a choice, Developer mode or Assistant mode, with the one you are in pressed, instead of a single Assistant mode switch that left you guessing what off meant."];
+const RELEASE_NOTES = ["Inbox Watch has a schedule you set: Settings → Inbox Watch → Schedule, models and cost (or Schedule in the Inbox). Periods with their own days, hours and interval, quiet hours, the digest and look-ahead times, pause, the model and reasoning for decisions and for the look-ahead, and what each day cost. The watcher picks a change up within a minute.", "The + button opens a clean New conversation. A briefing from an Inbox alert, a start link, or a task's or project's Start stayed in the box after you left without starting it, so every later + reopened it; now it is cleared unless you edited it. A draft you typed yourself is still kept.", "Reading an Inbox entry no longer makes it go away: the list opens on All, the dot marks what is unread, and a row or the home card stays until you dismiss it, mark it resolved or not useful.", "An Inbox row opens its sheet first: the whole text, Gmail links and the choices. Start a conversation is the deliberate step, as a task's Start is; the Assistant-mode card opens the entry the same way.", "Inbox: a fifth library beside Projects, Files, Tasks and the Vault for what Inbox Watch sends, with Open, Gmail and X on every row and a Resolved / Not useful choice the watcher reads back. The rail shows an icon per library so six fit. Inbox alerts get their own push toggle."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

@@ -8,6 +8,21 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Inbox Watch: schedule, models and cost (1.70)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5 in Developer mode (3 / 2 / 3 in
+Assistant mode); existing tokens, no new colour. Read: one person tuning their inbox watcher, phone first, set once and
+glanced at after. One sheet (`.watch-sheet`, 640px on a desk) opened from Settings (*Schedule, models and cost*, an `.opt`
+row under the Inbox Watch switch) and from a **Schedule** chip beside the Inbox search box. Top to bottom: a status
+`.title-note` that says what is in force now and when the next check is; **Pause** as an `.opt` switch; then the 1.67
+blocks (uppercase set head, lead, controls): *Schedule* (the rest-of-the-time `select`, one `.router-level` row per
+period: name input with **Remove**, seven 44px day chips on one grid row with the filter-chip clay when pressed, *From*
+/ *Until* time inputs and the interval, three across from 600px), *Quiet hours and summaries* (paired hour selects),
+*Models* (the 1.67 level rows: name with what it is for, Model and Reasoning), *Cost, last 7 days* (a plain table,
+tabular figures, hairline rows, *Not recorded* in `--dim` before recording began, a bold total). **Save** is the one
+primary; *Use the config file's settings* a chip beneath. Assistant mode drops Models and Cost: no model name or dollar
+figure reaches a seat. Notes cap at 58ch with `text-wrap: pretty`.
+
 ## Automatic model choice and one sign-in in Settings (1.67)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5; existing tokens, no new

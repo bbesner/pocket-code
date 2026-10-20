@@ -691,6 +691,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <button class="opt" id="s-autokeep" disabled aria-pressed="false"><span class="dot"></span><span>Keep files from replies<span class="sub" id="s-autokeep-state">Loading…</span></span></button>
     <button class="opt" id="s-tasks" disabled aria-pressed="false"><span class="dot"></span><span>Tasks<span class="sub" id="s-tasks-state">Loading the Tasks setting…</span></span></button>
     <button class="opt" id="s-inbox" disabled aria-pressed="false"><span class="dot"></span><span>Inbox Watch<span class="sub" id="s-inbox-state">Loading the Inbox setting…</span></span></button>
+    <button class="opt" id="s-inbox-watch" hidden>${IC.sliders}<span>${assistantMode() ? 'Inbox Watch schedule' : 'Schedule, models and cost'}<span class="sub">${assistantMode() ? 'When it checks your mail, quiet hours, the digest and look-ahead' : 'When Inbox Watch checks your mail, which models judge it, what it cost each day'}</span></span></button>
     <button class="opt" id="s-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault<span class="sub" id="s-vault-state">Loading the Vault setting…</span></span></button>
     <div class="title-settings vault-settings" id="s-vault-restore-wrap" hidden><span class="vault-set-actions"><button class="chip" id="s-vault-restore">${VIC.key}Restore key…</button></span></div>
     <div class="title-settings vault-settings" id="s-vault-more" hidden>
@@ -1092,8 +1093,10 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-inbox'); if (!btn || !srv) return;
     const on = Boolean(srv.inbox);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
+    sh.querySelector('#s-inbox-watch').hidden = !on;
     sh.querySelector('#s-inbox-state').textContent = on ? 'On: alerts, digests and look-aheads from your inbox watcher, in one list; Resolved and Not useful reach the watcher' : 'Off. Turn on to keep what Inbox Watch sends in one list, with a way to tell it when an alert was not useful';
   };
+  sh.querySelector('#s-inbox-watch').onclick = () => inboxWatchSheet(); // 1.70
   sh.querySelector('#s-inbox').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
     try {
