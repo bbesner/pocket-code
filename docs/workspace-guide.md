@@ -19,7 +19,9 @@ Above the box, the setup card names the workspace, the agent with its model and 
 example *Claude Code · Opus 5.5 · High reasoning*) and the permissions. **Edit setup** chooses the agent
 and the workspace; closing it preserves your draft. A custom workspace path must be a directory on the
 server, not your phone. With no default workspace and nothing remembered, the most recent workspace is
-preselected. If something is missing, the reason appears above the box.
+preselected. If something is missing, the reason appears above the box. A briefing put in the box for you (an
+Inbox alert's or start link's, a task's or project's **Start**) stays only for that visit: leave without starting
+and the **+** button opens a clean conversation, unless you edited the briefing (1.69.3). Your own typed draft is kept.
 
 **Saved prompts.** **Save as prompt** keeps the task with its workspace and agent (and, if you
 keep them, model, effort, permissions and Codex mode). Saved prompts show as chips above the task
@@ -520,6 +522,38 @@ entry; a watcher asks for them (`pocket-inbox feedback`), applies them, and ackn
 **In Assistant mode** a new alert also appears as a **Waiting for you** card on home, opening the
 briefed conversation; digests and look-aheads wait in Inbox and Files. **Settings → Notifications &
 voice → Inbox alerts** is the push kind for them, per device, urgent like a due reminder.
+
+**Schedule, models and cost (1.70).** **Settings → Projects, files, tasks & vault → Inbox Watch →
+Schedule, models and cost**, or **Schedule** beside the Inbox search box, opens one sheet. Its first
+line says what is in force now ("Checking every 5 minutes now (Work hours). Last check 9:14 AM, next
+about 9:19 AM.").
+
+- **Pause Inbox Watch** stops mail checks, digests and look-aheads until you turn it off; the list
+  then does not call the watcher silent.
+- **Schedule:** an interval for *the rest of the time*, then up to 12 **periods**, each with a name,
+  its days (seven day buttons), *From* and *Until* (an *Until* earlier than *From* runs past midnight
+  and belongs to the day it started) and its own interval, including *Don't check*. The first period
+  that covers a moment wins. Times are the watcher's time zone, which the sheet names when your
+  device is elsewhere.
+- **Quiet hours and summaries:** quiet hours (only critical alerts reach you inside them), the
+  morning digest, and the morning and evening look-ahead (or *Off*).
+- **Models** (Developer mode): the model and reasoning for *Decisions* (every check that finds new
+  mail) and the *Look-ahead* (twice a day), from what the watcher offers. *Model default* leaves the
+  reasoning to the model.
+- **First pass** (Developer mode): *Skip routine mail first*, the classifier (Jev, OpenAI's decision
+  model, or both must agree) and how sure it must be (70–95%). Mail it skips is still kept and its
+  headline reaches the model; threads you wrote in, threads that mattered before and anything close
+  to a story are never skipped. Shown only when the watcher has a `[firstpass]` table.
+- **Cost, last 7 days** (Developer mode): checks, model calls, tokens and dollars per day, with a
+  total. On a Claude or ChatGPT plan nothing is billed per call; the dollars are what the same tokens
+  cost at API list prices, and the sheet says which applies. Days before the watcher started recording
+  read *Not recorded*.
+
+**Save** stores the settings with a revision; the watcher (inbox-monitor 0.3 or later) reads them
+within a minute and reports which revision it applied, and the status line says so until it has.
+*Use the config file's settings* hands control back to the watcher's own config file. An agent can
+read or change them when you ask (`pocket-inbox watch`, `watch set --every 10`, `watch set --pause`).
+An older watcher has no profile to show; the sheet says it needs inbox-monitor 0.3.
 
 ## Vault
 

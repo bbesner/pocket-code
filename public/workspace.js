@@ -352,7 +352,7 @@ function keyboardHelp(){
 document.addEventListener('keydown',e=>{
  if(!document.getElementById('app')?.querySelector('[data-session-search],#box,#first'))return;
  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openSessionSwitcher();return;}
- if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='l'){e.preventDefault();location.hash='#/new';return;}
+ if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='l'){e.preventDefault();openFreshNew();return;}
  const openId=chatId||currentView();
  if(e.altKey&&['[',']'].includes(e.key)&&openId&&!closeCurrentSheet){const shown=orderedOpenSessions(),index=shown.findIndex(s=>s.id===openId),next=shown[(index+(e.key===']'?1:-1)+shown.length)%shown.length];if(next){e.preventDefault();location.hash=tabHref(next.id);}}
 });

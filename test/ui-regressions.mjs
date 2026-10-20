@@ -51,6 +51,25 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   // A fresh profile and a real HTTP503 from sw.js reproduce the registration failure.
   setMode({workerFailed:true,aboutFailed:true});
   await page.goto(base+'/#/');await page.waitForSelector('#settings');
+  await check('The plus button opens a clean conversation, not a briefing you walked away from',async()=>{
+   const ctx=await browser.createBrowserContext(),ph=await ctx.newPage();
+   try{
+    await ph.setViewport({width:390,height:844,isMobile:true,hasTouch:true});
+    await ph.goto(base+'/#/',{waitUntil:'domcontentloaded'});await ph.waitForSelector('#new');
+    const tapPlus=async()=>{const b=await ph.$eval('#new',e=>{const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};});await ph.touchscreen.tap(b.x,b.y);await ph.waitForSelector('#first');await pause(150);return ph.$eval('#first',e=>e.value);};
+    const briefing='Email alert from the inbox monitor.\n\nSubject: Upside installation confirmation';
+    // An alert's Start a conversation loads its briefing into New; leaving without starting it must not keep it there.
+    await ph.evaluate(t=>{saveBriefing(t);location.hash='#/new';},briefing);await ph.waitForFunction(t=>document.querySelector('#first')?.value===t,{},briefing);
+    await ph.evaluate(()=>{location.hash='#/';});await ph.waitForSelector('#new');
+    assert.equal(await tapPlus(),'','the untouched briefing is gone');
+    // A briefing you edited is your draft now, and a typed draft is kept as before.
+    await ph.evaluate(t=>{saveBriefing(t);saveDraft(NEW_KEY,t+' Also check the invoice.');location.hash='#/';},briefing);await ph.waitForSelector('#new');
+    assert.equal(await tapPlus(),briefing+' Also check the invoice.','an edited briefing stays');
+    await ph.evaluate(()=>{clearDraft(NEW_KEY);location.hash='#/';});await ph.waitForSelector('#new');
+    await ph.evaluate(()=>saveDraft(NEW_KEY,'My own half-written task'));
+    assert.equal(await tapPlus(),'My own half-written task','a typed draft stays');
+   }finally{await ctx.close();}
+  });
   await check('Settings usable when service worker fails; explicit notification fallback',async()=>{
    await clickControl(page,'#settings');await page.waitForSelector('#s-usage',{timeout:1000});
    assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),6);
@@ -2466,6 +2485,56 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.match(await page.$eval('#home-waiting .inbox-card',e=>e.getAttribute('href')),/^#\/inbox\/[0-9a-f]{12}$/,'1.69.1: the card opens the entry to read, not the session');
     await page.mouse.move(1,1);await page.evaluate(()=>document.querySelector('#tip')?.setAttribute('hidden',''));await scan('assistant-home-inbox-390');
    }finally{Object.assign(settings,before);settings.assistantMode=false;await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
+  });
+
+  await check('1.70 Inbox Watch settings: periods, quiet hours and summaries, models and cost; Save reaches the store; Assistant mode shows no models or dollars',async()=>{
+   const settings=settingsState(),before={inbox:settings.inbox,assistantMode:settings.assistantMode},vp=page.viewport();
+   settings.inbox=true;
+   try{
+    await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));
+    for(const w of [390,1440]){
+     await page.setViewport({width:w,height:w===390?844:900});await page.goto(base+'/#/inbox');await page.reload();await page.waitForSelector('.inbox-view #inbox-watch');
+     await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
+     await page.waitForFunction(()=>[...document.querySelectorAll('.watch-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
+     assert.match(await page.$eval('#w-status',e=>e.textContent),/^Checking every 5 minutes now\. Last check .*Using the watcher’s config file\.$/);
+     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Schedule','Quiet hours and summaries','Models','First pass','Cost, last 7 days']);
+     assert.equal(await page.$eval('#w-fp',e=>e.getAttribute('aria-pressed')),'true');assert.equal(await page.$eval('#w-fp-provider',e=>e.value),'jev');assert.equal(await page.$eval('#w-fp-threshold',e=>e.value),'0.8');
+     assert.equal(await page.$eval('#w-every',e=>e.value),'5');assert.equal(await page.$$eval('.watch-period',r=>r.length),1,'the config file’s Overnight period');
+     assert.deepEqual(await page.$$eval('.watch-period [data-day]',b=>b.map(x=>x.getAttribute('aria-pressed'))),Array(7).fill('true'));
+     const days=await page.$$eval('.watch-period [data-day]',b=>b.map(x=>{const r=x.getBoundingClientRect();return [Math.round(r.top),r.width>=44&&r.height>=44];}));
+     assert.equal(new Set(days.map(d=>d[0])).size,1,'seven days on one row at '+w);assert.ok(days.every(d=>d[1]),'44px day targets at '+w);
+     assert.deepEqual(await page.$$eval('.watch-usage tbody tr',r=>r.map(x=>[...x.cells].map(c=>c.textContent.trim()).join(' '))),['Wed 21 190 120 150 6.5M $15.62','Tue 20 240 0 180 8.1M $19.04','Mon 19 277 Not recorded']);
+     assert.equal(await page.$eval('.watch-usage tfoot tr',e=>[...e.cells].map(c=>c.textContent.trim()).filter(Boolean).join(' ')),'Total 120 330 15M $34.66');
+     await scan('inbox-watch-'+w);
+     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
+    }
+    // change things and save: a weekday period, a day off, a slower default, a cheaper decisions model
+    await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-add');
+    await clickControl(page,'#w-add');await page.waitForFunction(()=>document.querySelectorAll('.watch-period').length===2);
+    assert.equal(await page.evaluate(()=>document.activeElement?.classList.contains('watch-name')),true,'focus goes to the new period’s name');
+    await page.type('.watch-period:last-child .watch-name','Work hours');
+    for(const d of [5,6])await clickControl(page,`.watch-period:last-child [data-day="${d}"]`);
+    await page.$eval('.watch-period:last-child [data-from]',e=>{e.value='07:00';});await page.$eval('.watch-period:last-child [data-to]',e=>{e.value='19:00';});await page.select('.watch-period:last-child [data-every]','5');
+    await page.select('#w-every','15');await page.select('#w-fp-threshold','0.9');await page.select('#w-fp-provider','both');await page.select('#w-models [data-job="decisions"] [data-model]','haiku');await page.select('#w-la-evening','off');
+    await clickControl(page,'#w-save');await page.waitForSelector('#w-reset');
+    const saved=await page.evaluate(()=>fetch('/api/inbox/watch').then(r=>r.json()));
+    assert.equal(saved.revision,1);assert.equal(saved.settings.every,15);assert.equal(saved.settings.lookahead.evening,null);assert.deepEqual(saved.settings.models.decisions,{model:'haiku',reasoning:'medium'});assert.deepEqual(saved.settings.firstPass,{enabled:true,provider:'both',threshold:0.9});
+    assert.deepEqual(saved.settings.periods[1],{name:'Work hours',days:[0,1,2,3,4],from:'07:00',to:'19:00',every:5});
+    assert.match(await page.$eval('#w-status',e=>e.textContent),/Your last change reaches the watcher within a minute\./);
+    // a period with no day is refused before it leaves the page
+    for(const d of [0,1,2,3,4])await clickControl(page,`.watch-period:last-child [data-day="${d}"]`);
+    await clickControl(page,'#w-save');await page.waitForFunction(()=>/Period 2 needs at least one day/.test(document.querySelector('#w-error')?.textContent||''));
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
+    // Settings opens the same sheet; Assistant mode keeps the schedule and drops models and cost
+    await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox-watch:not([hidden])');
+    await clickControl(page,'#s-inbox-watch');await page.waitForSelector('.watch-sheet #w-save');assert.ok(await page.$('.watch-sheet .sheet-back'),'Back to Settings');
+    await page.keyboard.press('Escape');
+    settings.assistantMode=true;await page.setViewport({width:390,height:844});await page.goto(base+'/#/inbox');await page.reload();await page.waitForSelector('#inbox-watch');
+    await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
+    assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Schedule','Quiet hours and summaries']);
+    assert.doesNotMatch(await page.$eval('.watch-sheet',e=>e.textContent),/Sonnet|Haiku|Opus|\$/,'no model names or dollars');
+    await scan('inbox-watch-assistant-390');
+   }finally{Object.assign(settings,before);await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
   });
 
   await check('1.68.1 Settings → Appearance: Mode shows Developer mode and Assistant mode with the current one pressed',async()=>{

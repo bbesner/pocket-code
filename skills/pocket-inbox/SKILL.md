@@ -61,6 +61,21 @@ the user said, list them and ask which.
 
 After acting, confirm in one sentence: the entry's title and what you recorded.
 
+## When it checks, which models judge, what it costs
+
+```bash
+pocket-inbox watch                    # the schedule in force, the next check, the models, the last 7 days' calls and cost
+pocket-inbox watch set --every 10     # change one thing, only when the user asks ("check every 10 minutes")
+pocket-inbox watch set --pause        # or --resume
+pocket-inbox watch set --file -       # the whole settings object as JSON (periods, quiet hours, digest, look-ahead, models)
+pocket-inbox watch reset              # back to the watcher's own config file
+```
+
+The same settings are in Pocket under **Settings → Projects, files, tasks & vault → Inbox Watch
+→ Schedule, models and cost**; the watcher picks a change up within a minute. Dollar figures are
+what the tokens would cost at API list prices; on a Claude or ChatGPT plan nothing is billed per
+call, the plan's usage limits are what it draws on. Change settings only when the user asks.
+
 ## Posting to it (jobs on this server)
 
 The inbox watcher and other jobs post entries; an agent in a conversation does not, unless the

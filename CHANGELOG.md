@@ -3,6 +3,21 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.70.0] — 2026-10-20 · build 138
+
+- **Inbox Watch has a schedule you set.** **Settings → Projects, files, tasks & vault → Inbox Watch → Schedule, models and cost** (or **Schedule** beside the Inbox search box) opens one sheet: **Pause**; how often it checks mail the rest of the time; any number of **periods** (up to 12), each with its own days, hours and interval, including *Don't check* and hours past midnight; quiet hours; the morning digest; the morning and evening look-ahead (or off). Asked for by Brad.
+- **Models and reasoning are settings too** (Developer mode): the model and reasoning level for the decisions every check makes, and for the twice-daily look-ahead, from the choices the watcher reports (Haiku, Sonnet, Opus and Fable for a Claude Code judge; *Model default* leaves the reasoning to the model).
+- **First pass** (Developer mode): a fast classifier (TypeSafe Jev, OpenAI's decision model, or both agreeing) skips mail that is clearly routine before the model reads it, with its confidence threshold as a setting. Threads you wrote in, threads that mattered before and anything close to a story it follows are always read, and a skipped email's headline still reaches the model so a payment received or a camera back online can close a story. The cost table gains a **Skipped** column. Needs inbox-monitor 0.3's `[firstpass]` and an OpenRouter key on the watcher's side.
+- **What it cost** (Developer mode): checks, model calls, tokens and dollars per day for the last 7 days, with a total. On a Claude or ChatGPT plan nothing is billed per call; the dollars are what the same tokens cost at API list prices, and the sheet says which applies.
+- **How it works.** The watcher's heartbeat now carries a profile (its defaults from its config file, the choices it offers, what is in force, the next check, usage per day); Pocket keeps it per source. The owner's settings are kept per source with a revision; the watcher (inbox-monitor 0.3+) reads them every minute and reports which revision it applied. `GET/POST /api/inbox/watch` (owner cookie or loopback token, direct loopback only); `pocket-inbox watch`, `watch set (--every|--pause|--resume|--file)`, `watch reset`, and `seen --profile`. *Use the config file's settings* hands control back to the watcher's file. A paused watcher is no longer called silent in the list.
+- Migration: none. `inbox.json` gains `profiles` and `watch`; an older watcher keeps its own timer and ignores both.
+- Tests: `test/inbox.test.mjs` adds the settings validation, the profile and revisions, the routes and the CLI round trip.
+
+## [1.69.3] — 2026-10-19 · build 137
+
+- **The + button opens a clean conversation.** Opening an Inbox alert's *Start a conversation* (or a start link, or a task's or project's **Start**) put its briefing in the New-conversation draft, and leaving without starting kept it there, so every later tap of **+** on the phone opened that old briefing and the only way out was to delete it by hand. The briefing now lasts for that visit: **+** (and the rail's **+**, and Ctrl/Cmd+Shift+L) clears it unless you edited it. A draft you typed yourself is still kept. Reported by Brad.
+- Migration: none. A briefing already stuck in a phone's draft from an earlier version is not marked as one; delete it once and the fix applies from then on.
+
 ## [1.69.2] — 2026-10-19 · build 136
 
 - **Reading is not acting.** Opening an entry's sheet marked it read, and the list opened on the New filter, so a row vanished as soon as its sheet closed. The list now opens on **All** (everything but dismissed), the chips read **All · Unread · Dismissed**, the dot marks what is unread, and a row, the rail list and the Assistant-mode **Waiting for you** card stay until you dismiss the entry, mark it resolved or not useful. Asked for by Brad.
