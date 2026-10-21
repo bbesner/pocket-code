@@ -48,8 +48,8 @@ let token = '';
 try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { if (quiet) process.exit(0); die(`No CLI token at ${path.join(dataDir, 'cli-token')}. Is Pocket Code running from this checkout? (POCKET_DATA_DIR=${dataDir})`); }
 async function call(p, body) {
   let r;
-  try { r = await fetch(base + p, { method: body ? 'POST' : 'GET', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); }
-  catch (e) { if (quiet) process.exit(0); die(`Pocket Code is not reachable at ${base}: ${e.cause?.code || e.message}`); }
+  try { r = await fetch(base + p, { method: body ? 'POST' : 'GET', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(30_000) }); } // 1.73.8: a hung daemon is not waited on for undici's 5 minutes
+  catch (e) { if (quiet) process.exit(0); die(`Pocket Code is not reachable at ${base}: ${e.name === 'TimeoutError' ? 'no answer in 30 seconds' : e.cause?.code || e.message}`); }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
     if (quiet) process.exit(0);

@@ -31,9 +31,12 @@ export function skillRoots(env = process.env) {
   return roots;
 }
 
+// 1.73.8: a path as one shell word: as it is when it is plain, single-quoted otherwise (an install under a folder with a
+// space, common on macOS, used to give agents a command that did not run).
+export const shellArg = p => /^[A-Za-z0-9_./:@%+,=-]+$/.test(String(p)) ? String(p) : `'${String(p).replace(/'/g, `'\\''`)}'`;
 // The repository copy names `pocket-board` / `pocket-docs`; the installed copy says how to run them on this server.
 export function renderSkill(text, command, binName) {
-  const block = `<!-- pocket:commands -->\nOn this server, run \`${binName}\` as \`node ${command}\`. Wherever this skill writes \`${binName}\`, use that command.\n<!-- /pocket:commands -->`;
+  const block = `<!-- pocket:commands -->\nOn this server, run \`${binName}\` as \`node ${shellArg(command)}\`. Wherever this skill writes \`${binName}\`, use that command.\n<!-- /pocket:commands -->`;
   return text.replace(/<!-- pocket:commands -->[\s\S]*?<!-- \/pocket:commands -->/, block);
 }
 
@@ -58,10 +61,11 @@ export function syncSkills({ settings, commands, env = process.env, roots = skil
         const text = fs.readFileSync(path.join(src, s.name, srcFile), 'utf8');
         const body = s.cli ? renderSkill(text, commands[s.cli], BIN[s.cli]) : text;
         const file = path.join(dir, 'SKILL.md');
-        if (ours && fs.readFileSync(file, 'utf8') === body) continue;
+        if (ours && (() => { try { return fs.readFileSync(file, 'utf8') === body; } catch { return false; } })()) continue;
         fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(file + '.tmp', body); fs.renameSync(file + '.tmp', file);
+        // 1.73.8: the marker first, so a failure before the skill file is written leaves a folder Pocket still owns and repairs next time.
         fs.writeFileSync(mark, `Installed by Pocket Code from ${path.join(src, s.name)}.\nPocket rewrites this folder when it starts and removes it when the feature is turned off; edit the source instead.\n`);
+        fs.writeFileSync(file + '.tmp', body); fs.renameSync(file + '.tmp', file);
         result.installed.push(dir);
       } else if (ours) {
         fs.rmSync(dir, { recursive: true, force: true });

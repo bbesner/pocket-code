@@ -2289,12 +2289,19 @@ app.get('/api/session/:id/changes', requireAuth, async (req, res) => {
 // time budget, and says how far it got.
 const MEMSTEM_URL = (process.env.POCKET_MEMSTEM_URL || 'http://127.0.0.1:7821').trim().replace(/\/+$/, '');
 const memstem = { on: process.env.POCKET_MEMSTEM !== '0', checkedAt: 0, ok: false, vault: null };
+// 1.73.8: MemStem's answers are read up to a size limit; a larger one is a failed answer, not a memory spike.
+async function cappedJson(r, max) {
+  const parts = []; let size = 0;
+  for await (const chunk of r.body) { size += chunk.length; if (size > max) { try { await r.body.cancel(); } catch { } throw new Error(`answer larger than ${max} bytes`); } parts.push(Buffer.from(chunk)); }
+  return JSON.parse(Buffer.concat(parts).toString('utf8'));
+}
 async function memstemStatus() {
   if (!memstem.on || Date.now() - memstem.checkedAt < 60_000) return memstem;
   try {
     const r = await fetch(MEMSTEM_URL + '/health', { signal: AbortSignal.timeout(3000) });
-    const j = await r.json();
+    const j = await cappedJson(r, 64 * 1024);
     memstem.ok = r.ok && j?.status !== 'down'; memstem.vault = typeof j?.vault === 'string' ? path.resolve(j.vault) : null;
+    memstem.vaultReal = memstem.vault ? await fsp.realpath(memstem.vault).catch(() => null) : null;
   } catch { memstem.ok = false; }
   memstem.checkedAt = Date.now();
   return memstem;
@@ -2325,7 +2332,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
       const r = await fetch(MEMSTEM_URL + '/search', { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ query: q, limit: 30, types: ['session'] }), signal: AbortSignal.timeout(25_000) });
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      const body = await r.json(), hits = Array.isArray(body) ? body : body.results || [];
+      const body = await cappedJson(r, 8 * 1024 * 1024), hits = Array.isArray(body) ? body : body?.results || [];
       const picked = [], seen = new Set();
       for (const h of hits) {
         const id = sessionIdFromRef(h?.frontmatter?.provenance?.ref, { projectsRoot: PROJECTS_ROOT, codexSessionsRoot: CODEX_SESSIONS_ROOT });
@@ -2336,7 +2343,8 @@ app.get('/api/search', requireAuth, async (req, res) => {
         const s = await describe(id).catch(() => null); if (!s) return null;
         let snip = null;
         const file = ms.vault && typeof h.path === 'string' ? path.resolve(ms.vault, h.path) : null;
-        if (file && file.startsWith(ms.vault + path.sep)) { try { snip = bestSnippet(await readHead(file, 4 * 1024 * 1024), q); } catch { } }
+        // 1.73.8: the file must resolve (links followed) inside the vault and be a regular file; a link out of the vault or a FIFO is skipped.
+        if (file && file.startsWith(ms.vault + path.sep) && ms.vaultReal) { try { const real = await fsp.realpath(file); if (real.startsWith(ms.vaultReal + path.sep) && (await fsp.stat(real)).isFile()) snip = bestSnippet(await readHead(real, 4 * 1024 * 1024), q); } catch { } }
         return searchRow(s, { role: snip?.role || null, snippet: snip?.text || cleanMemstemSnippet(h.snippet), related: !snip });
       }))).filter(Boolean);
       return res.json({ backend: 'memstem', results, tookMs: Date.now() - t0 });
@@ -2761,7 +2769,8 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (createVaultKey) {
     try { // 1.44: create this install's key, keep it in .env, open an empty store and save it
       const k = newVaultKey(); saveVaultKeyToEnv(k); const v = openVault(k); v.save();
-      vault = v; VAULT_KEY_RAW = k; vaultError = ''; createdVaultKey = k; vault.audit({ action: 'key-created', by: 'owner' });
+      vault = v; VAULT_KEY_RAW = k; vaultError = ''; createdVaultKey = k;
+      try { vault.audit({ action: 'key-created', by: 'owner' }); } catch (e) { log(`vault key-created audit row failed: ${e.message}`); } // 1.73.8: the key exists; the owner still gets it
       log('vault key created and saved to .env');
     } catch (e) { log(`vault key creation failed: ${e.message}`); return res.status(e.status || 500).json({ error: e.message, code: e.code || 'vault_key_failed' }); }
   }
@@ -3568,7 +3577,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Programs Pocket starts are now managed as whole groups: a Vault run cannot leave anything running behind it, a hung Codex process is killed so its conversation frees up, reminders are never announced twice by a slow mail server, and a reminder hook that hangs is ended after a minute.", "Every store now checks a change whole and writes it before taking it up: a refused field or a full disk leaves projects, files, tasks, the Vault and Settings exactly as they were, the Vault file is synced to disk on every write, and a failed key rotation keeps the recovery key honest.", "Browser logins are tighter: Pocket types a Vault value into typing and form-filling tools only, withholds screenshots from that browser once a value has been typed (a picture cannot be scrubbed), and scrubs values from object keys, numbers and split log lines too.", "A Vault request now belongs to what it was asked for and to the session that asked: a run the owner allowed cannot be turned into a browser fill, nobody else on the box can continue it, one answer serves one use, and an item made owner-only or removed after the approval no longer releases.", "Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on.", "Vault and Codex hardening: a bare null line from a Codex app-server no longer stops Pocket, the Vault scrubs the JSON spellings PHP and Python write, and locking the Vault while an agent waits answers the agent at once instead of leaving it hanging."];
+const RELEASE_NOTES = ["Small fixes from the review's last batch: trusted actions no longer trust a command with a # comment or a VAR+= prefix, command-line tools stop waiting for an unresponsive Pocket after 30 seconds, connector checks no longer run twice or log CLI output, and Stop clears a Codex turn's question cards at once.", "Programs Pocket starts are now managed as whole groups: a Vault run cannot leave anything running behind it, a hung Codex process is killed so its conversation frees up, reminders are never announced twice by a slow mail server, and a reminder hook that hangs is ended after a minute.", "Every store now checks a change whole and writes it before taking it up: a refused field or a full disk leaves projects, files, tasks, the Vault and Settings exactly as they were, the Vault file is synced to disk on every write, and a failed key rotation keeps the recovery key honest.", "Browser logins are tighter: Pocket types a Vault value into typing and form-filling tools only, withholds screenshots from that browser once a value has been typed (a picture cannot be scrubbed), and scrubs values from object keys, numbers and split log lines too.", "A Vault request now belongs to what it was asked for and to the session that asked: a run the owner allowed cannot be turned into a browser fill, nobody else on the box can continue it, one answer serves one use, and an item made owner-only or removed after the approval no longer releases.", "Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
@@ -3609,22 +3618,28 @@ app.get('/api/environment',requireAuth,async(_req,res)=>{
 // app catalog, so a result is kept for a minute and Refresh asks for a fresh one.
 const connectorCache = { claude: null, codex: null };
 const connectorFresh = hit => hit && Date.now() - hit.at < 60_000;
-async function readConnectors(kind, refresh) {
-  if (!refresh && connectorFresh(connectorCache[kind])) return connectorCache[kind].value;
+// 1.73.8: reads that arrive while one is running share it; two opens no longer run `claude mcp list` twice.
+const connectorReads = { claude: null, codex: null };
+function readConnectors(kind, refresh) {
+  if (!refresh && connectorFresh(connectorCache[kind])) return Promise.resolve(connectorCache[kind].value);
+  if (!connectorReads[kind]) connectorReads[kind] = readConnectorsNow(kind, refresh).finally(() => { connectorReads[kind] = null; });
+  return connectorReads[kind];
+}
+async function readConnectorsNow(kind, refresh) {
   const value = kind === 'claude'
     ? await claudeConnectors({ bin: CLAUDE_BIN, env: spawnEnv(), cwd: HOME, home: HOME, managedDir: MANAGED_DIR, identity: await readClaudeIdentity(CLAUDE_BIN, spawnEnv()) })
     : !CODEX_ON ? { provider: 'codex', available: false, reason: 'Codex is turned off or not installed in Pocket on this server.', items: [] }
     : await codexConnectors({ rpc: codex.appRpc, refresh, account: await codex.accountSummary().catch(() => null) });
   // 1.53.2: a failed read is logged and not kept, so the next open or Refresh tries again.
   const { transient, error, ...shown } = value;
-  if (transient) { log(`connectors: ${kind} read failed: ${error || 'unknown error'}`); connectorCache[kind] = null; return { ...shown, checkedAt: Date.now() }; }
+  if (transient) { log(`connectors: ${kind} read failed: ${shown.reason}`); connectorCache[kind] = null; return { ...shown, checkedAt: Date.now() }; } // 1.73.8: the fixed reason, not the CLI's error text
   connectorCache[kind] = { at: Date.now(), value: { ...shown, checkedAt: Date.now() } };
   return connectorCache[kind].value;
 }
 app.get('/api/connectors', requireAuth, async (req, res) => {
   res.setHeader('Cache-Control', 'private, no-store');
   const refresh = req.query.refresh === '1';
-  const [claude, cx] = await Promise.all(['claude', 'codex'].map(k => readConnectors(k, refresh).catch(e => { log(`connectors: ${k} read threw: ${String(e?.message || e).slice(0, 200)}`); return { provider: k, available: false, reason: 'Status unavailable. Try again.', items: [] }; })));
+  const [claude, cx] = await Promise.all(['claude', 'codex'].map(k => readConnectors(k, refresh).catch(e => { log(`connectors: ${k} read threw ${e?.name || 'an error'}`); return { provider: k, available: false, reason: 'Status unavailable. Try again.', items: [] }; })));
   res.json({ providers: [claude, cx] });
 });
 app.get('/api/claude/activity',requireAuth,(_req,res)=>{

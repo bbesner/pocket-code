@@ -292,3 +292,29 @@ test('adoption signals nothing it cannot prove is its own; the keeper gets the a
  for(const k of ['aaa1','bbb2','ccc3'])assert.equal(fs.existsSync(path.join(logDir,k+'.session.json')),false,'stale records are removed');
  assert.equal(await f.procs(),1,'the real session was still adopted');
 });
+
+// 1.73.8: reads of one thread no longer interleave. Two opens at once each walked the thread into the same cache, and two
+// agents polls each walked it, so an older walk could replace a newer merge; a hand-corrupted row in the transcript cache
+// made the thread unopenable.
+test('concurrent opens and agents polls of one Codex thread share the work; a null row in the cache file is dropped',async t=>{
+ const f=await fixture(t,19821);
+ const itemCalls=()=>{try{return fs.readFileSync(path.join(f.dir,'calls.items'),'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)}catch{return []}};
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id,tid=id.slice(3);
+ assert.ok(await f.until(()=>f.calls().length===1));await sleep(600);
+ const items=[{turnId:'t1',item:{type:'userMessage',id:randomUUID(),content:[{type:'text',text:'hello'}]}}];
+ for(let i=0;i<125;i++)items.push({turnId:'t1',item:{type:'agentMessage',id:randomUUID(),text:'m'+i}});
+ fs.writeFileSync(path.join(f.dir,'sessions',tid+'.items.json'),JSON.stringify(items));
+ let n=itemCalls().length;
+ const [a,b]=await Promise.all([f.call(`/session/${id}`),f.call(`/session/${id}`)]);
+ assert.equal(a.status,200);assert.equal(b.status,200);assert.equal(a.body.messages.length,b.body.messages.length);
+ assert.equal(itemCalls().length-n,5,'one walk of four pages, then one newest page for the second open');
+ n=itemCalls().length;
+ const [x,y]=await Promise.all([f.call(`/session/${id}/agents`),f.call(`/session/${id}/agents`)]);
+ assert.equal(x.status,200);assert.equal(y.status,200);
+ assert.equal(itemCalls().slice(n).filter(c=>!c.desc&&c.cursor==null).length,1,'one walk for two agents polls');
+ await sleep(1300);await f.stop();
+ const cache=path.join(f.dir,'data','codex-transcripts',tid+'.json'),o=JSON.parse(fs.readFileSync(cache,'utf8'));
+ o.entries.splice(1,0,null);fs.writeFileSync(cache,JSON.stringify(o));
+ await f.start();
+ const after=await f.call(`/session/${id}`);assert.equal(after.status,200,'opens with a null row in its cache file');assert.equal(after.body.messages.length,a.body.messages.length);
+});

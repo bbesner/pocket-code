@@ -37,9 +37,11 @@ const LOCK_DIR = path.join(CODEX_HOME, 'thread-writer-locks');
 // usage-state.json so the two providers never race to overwrite one shared file.
 const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
 const USAGE_FILE = path.join(DATA_DIR, 'codex-usage-state.json');
-function loadCodexUsage() { try { return JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')); } catch { return { context: {}, rateLimits: null }; } }
+const plainObject = o => Boolean(o) && typeof o === 'object' && !Array.isArray(o);
+// 1.73.8: a file whose root or `context` is not an object (hand-edited, truncated) reads as empty instead of stopping the daemon at start.
+function loadCodexUsage() { try { const o = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')); if (plainObject(o)) return o; } catch { } return { context: {}, rateLimits: null }; }
 const codexUsage = loadCodexUsage();
-codexUsage.context ??= {};
+if (!plainObject(codexUsage.context)) codexUsage.context = {};
 function saveCodexUsage() {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -141,7 +143,13 @@ class AppServer {
       this.pending.clear();
       this.onExit?.(-1);
     });
-    this.proc.on('exit', code => this._exited(code));
+    // 1.73.8: 'exit' can arrive before the last stdout chunk; wait for stdout to end (at most half a second) so a reply
+    // written just before the process exited still settles its request.
+    this.proc.on('exit', code => {
+      if (this.proc.stdout.readableEnded) return this._exited(code);
+      const t = setTimeout(() => this._exited(code), 500);
+      this.proc.stdout.once('end', () => { clearTimeout(t); setImmediate(() => this._exited(code)); });
+    });
     this.proc.stdin.on('error', () => { }); // EPIPE if it dies mid-write
   }
 
@@ -171,6 +179,7 @@ class AppServer {
   _declineFor(method) { return declineFor(method); }
 
   _exited(code) {
+    if (this.exitedOnce) return; this.exitedOnce = true;
     this.closed = true;
     for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(new Error('app-server exited')); }
     this.pending.clear();
@@ -201,8 +210,10 @@ class AppServer {
         reject(new Error(`${method} timed out`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      try { this._write({ jsonrpc: '2.0', id, method, params }); }
-      catch (e) { this.pending.delete(id); clearTimeout(timer); reject(e); }
+      // 1.73.8: a write that fails (EPIPE, a closed pipe) rejects its request at once instead of at the timeout.
+      const failed = e => { if (!this.pending.has(id)) return; this.pending.delete(id); clearTimeout(timer); reject(e); };
+      try { this._write({ jsonrpc: '2.0', id, method, params }, e => { if (e) failed(e); }); }
+      catch (e) { failed(e); }
     });
   }
 
@@ -217,6 +228,9 @@ class AppServer {
 
   close() {
     this.closed = true;
+    // 1.73.8: requests still waiting are answered now; a process that does not exit would otherwise leave them to their timeouts.
+    for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(new Error('app-server closed')); }
+    this.pending.clear();
     if (this.transport) { this.transport.close(); return; }
     try { this.proc.stdin.end(); } catch { }
     try { this.proc.kill(); } catch { }
@@ -485,7 +499,13 @@ function rememberAgentItem(c, it, i) {
   if (it.id) c.seen.add(it.id);
   if (AGENT_TYPES.has(it.type)) c.byKey.set(it.id || 'history-' + i, it);
 }
-async function agentItems(threadId) {
+// 1.73.8: concurrent reads of one thread share one in-flight read, so an older full walk can no longer replace a newer merge.
+const agentReads = new Map();
+function agentItems(threadId) {
+  if (!agentReads.has(threadId)) agentReads.set(threadId, agentItemsNow(threadId).finally(() => agentReads.delete(threadId)));
+  return agentReads.get(threadId);
+}
+async function agentItemsNow(threadId) {
   const c = agentItemCache.get(threadId);
   if (c && legacyThreads.has(threadId) && Date.now() - c.at < AGENT_LEGACY_MS) return [...c.byKey.values()];
   if (c && !legacyThreads.has(threadId)) {
@@ -535,7 +555,8 @@ function txLoad(threadId) {
   try {
     const o = JSON.parse(fs.readFileSync(txFile(threadId), 'utf8'));
     if (o?.v !== 1 || !Array.isArray(o.entries)) return null;
-    return { entries: o.entries, seen: new Set(o.seen || []), olderCursor: o.olderCursor ?? null, legacy: Boolean(o.legacy), at: o.at || 0, dirty: false };
+    // 1.73.8: a hand-corrupted row is dropped, not thrown on
+    return { entries: o.entries.filter(e => e && typeof e === 'object'), seen: new Set(Array.isArray(o.seen) ? o.seen : []), olderCursor: o.olderCursor ?? null, legacy: Boolean(o.legacy), at: o.at || 0, dirty: false };
   } catch { return null; }
 }
 function txSave(threadId, c) {
@@ -613,10 +634,11 @@ async function txRefresh(threadId, c, need) {
     if (c.empty && fresh.filter(e => e.msg).length >= need) break;
   } while (cursor && !hitKnown && pages < TX_REFRESH_PAGES);
   if (!hitKnown && !c.empty && cursor) { // more than TX_REFRESH_PAGES pages of news: start over
-    c.entries = []; c.seen = new Set(); c.empty = true; c.olderCursor = null;
-    return txRefresh(threadId, c, need);
+    c.entries = []; c.seen = new Set(); c.empty = true; c.olderCursor = null; c.notes = []; // 1.73.8: items noted meanwhile are kept
+    try { return await txRefresh(threadId, c, need); } finally { delete c.notes; }
   }
   fresh.reverse().forEach(e => txPut(c, e));
+  if (c.notes) { for (const e of c.notes) txPut(c, e); delete c.notes; }
   if (c.empty) { c.olderCursor = cursor; delete c.empty; }
   c.at = Date.now(); txSave(threadId, c);
 }
@@ -633,10 +655,19 @@ async function txExtend(threadId, c, need) {
 // A completed item from a turn Pocket runs lands in the cache at once, when the cache exists.
 export function noteCodexItem(threadId, turnId, item) {
   const c = transcripts.get(threadId);
+  if (c?.notes && !c.legacy) { c.notes.push(txEntry({ turnId, item })); return; } // a reset is under way
   if (!c || c.empty || c.legacy) return;
   txPut(c, txEntry({ turnId, item })); c.at = Date.now(); txSave(threadId, c);
 }
-export async function readCodexThread(threadId, maxMsgs = 400) {
+// 1.73.8: reads of one thread run one after another; two at once used to page and reset the same cache across awaits.
+const txReads = new Map();
+export function readCodexThread(threadId, maxMsgs = 400) {
+  const p = (txReads.get(threadId) || Promise.resolve()).catch(() => { }).then(() => readCodexThreadNow(threadId, maxMsgs));
+  txReads.set(threadId, p);
+  p.finally(() => { if (txReads.get(threadId) === p) txReads.delete(threadId); }).catch(() => { });
+  return p;
+}
+async function readCodexThreadNow(threadId, maxMsgs) {
   const c = txGet(threadId);
   if (c.legacy || legacyThreads.has(threadId)) await txLegacy(threadId, c);
   else {
@@ -1176,6 +1207,7 @@ export function stopCodexTurn(threadId) {
   const turn = codexTurns.get(threadId);
   if (!turn) return false;
   turn.stopped = true;
+  turn.questions?.clear(); turn.approvals?.clear(); // 1.73.8: no card stays answerable after Stop, even if the interrupt is ignored
   if (turn.turnId) {
     turn.conn.request('turn/interrupt', { threadId, turnId: turn.turnId }, 20_000)
       .catch(e => { log(`interrupt failed thread=${threadId}: ${e.message}`); closeCodexSession(turn.session, 'interrupt failed'); });

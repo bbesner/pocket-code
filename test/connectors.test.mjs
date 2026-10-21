@@ -68,3 +68,34 @@ test('a Cloudflare bot check from chatgpt.com is named, never dumped; timeouts r
  assert.deepEqual(connectorError(Error('<b>bad</b>   gateway')),{challenge:false,timeout:false,detail:'bad gateway'});
  assert.equal(connectorError(Object.assign(Error('x'),{killed:true})).timeout,true);
 });
+
+// 1.73.8: an install link from the catalog with a user name, password or port is not offered; two status reads at once run
+// one `claude mcp list`; a failed read logs Pocket's own reason, not the CLI's error text.
+test('Codex install links with userinfo or a port fall back to the apps page',()=>{
+ const [gmail,cal,drive]=GOOGLE_CONNECTORS.map(c=>c.codex);
+ const rows=codexConnectorRows({apps:[app(gmail,{installUrl:'https://user:pw@chatgpt.com/apps/x'}),app(cal,{installUrl:'https://chatgpt.com:8443/apps/x'}),app(drive)],accessible:[]});
+ assert.deepEqual(rows.map(r=>r.connectUrl),[CODEX_MANAGE_URL,CODEX_MANAGE_URL,`https://chatgpt.com/apps/x/${drive}`]);
+});
+test('HTTP: concurrent connector reads share one listing; a failed listing is logged without the CLI\'s words',async t=>{
+ const {spawn}=await import('node:child_process');const {createHmac,randomUUID}=await import('node:crypto');
+ const repo=path.resolve(import.meta.dirname,'..'),dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-conn-http-')),fail=path.join(dir,'fail');
+ const secret=randomUUID(),exp=Date.now()+3600000,headers={cookie:'pc_auth='+exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex')};
+ fs.mkdirSync(path.join(dir,'sessions'));fs.mkdirSync(path.join(dir,'home'));
+ let port=19511,child,logs='';
+ const env=()=>({...Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k))),HOME:path.join(dir,'home'),POCKET_SKILLS:'0',PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),FAKE_CLAUDE_MCP_MS:'400',FAKE_CLAUDE_MCP_FAIL:fail});
+ for(let tries=0;tries<4;tries++){
+  child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:env(),stdio:['ignore','pipe','pipe']});child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+  let up=false;for(let i=0;i<100&&child.exitCode===null;i++){try{if((await fetch(`http://127.0.0.1:${port}/api/health`)).ok){up=true;break;}}catch{}await new Promise(r=>setTimeout(r,30));}
+  if(up)break;if(!/EADDRINUSE/.test(logs))throw Error('Test server failed: '+logs);port+=41;logs='';
+ }
+ t.after(async()=>{if(child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}fs.rmSync(dir,{recursive:true,force:true});});
+ const get=q=>fetch(`http://127.0.0.1:${port}/api/connectors${q||''}`,{headers}).then(r=>r.json());
+ const listings=()=>{try{return fs.readFileSync(path.join(dir,'calls.mcp'),'utf8').trim().split('\n').filter(Boolean).length;}catch{return 0;}};
+ const [a,b]=await Promise.all([get(),get()]);
+ assert.equal(listings(),1,'one listing for two reads');assert.deepEqual(a,b);assert.equal(a.providers[0].available,true);
+ fs.writeFileSync(fail,'');
+ const failed=await get('?refresh=1');assert.equal(failed.providers[0].available,false);
+ await new Promise(r=>setTimeout(r,100));
+ assert.match(logs,/connectors: claude read failed: Claude Code could not list its connectors\. Try again\./);
+ assert.doesNotMatch(logs,/sk-fake-connector-secret|upstream said/,'the CLI\'s error text stays out of the log');
+});

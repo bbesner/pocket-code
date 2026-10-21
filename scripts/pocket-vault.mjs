@@ -16,6 +16,7 @@
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
 import fs from 'node:fs';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 const root = path.resolve(import.meta.dirname, '..');
 const envFile = process.env.POCKET_ENV_FILE ?? path.join(root, '.env');
@@ -88,11 +89,13 @@ async function stream(p, body) {
     else if (ev.t === 'exit') { if (ev.truncated) console.error('[output truncated at 1 MB]'); if (ev.timedOut) console.error('[the command was stopped at the timeout]'); process.exit(ev.code ?? (ev.signal ? 128 : 1)); }
     else if (ev.t === 'error') die(ev.message, ev.code === 'owner_only' ? 5 : ev.code === 'vault_locked' ? 3 : 1);
   };
+  const dec = new StringDecoder('utf8'); // 1.73.8: a character split across two chunks is joined, not shown as U+FFFD
   for await (const chunk of r.body) {
-    rem += Buffer.from(chunk).toString('utf8');
+    rem += dec.write(Buffer.from(chunk));
     const lines = rem.split('\n'); rem = lines.pop();
     for (const l of lines) if (l.trim()) handle(JSON.parse(l));
   }
+  rem += dec.end();
   if (rem.trim()) handle(JSON.parse(rem));
   die('The connection ended before the command finished.');
 }

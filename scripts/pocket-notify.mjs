@@ -35,7 +35,7 @@ body = String(body || '').trim();
 const payload = { title, body, url: opts.url || '', tag: opts.tag || '', email: Boolean(opts.email) };
 let r;
 try {
-  r = await fetch(base + '/api/notify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: JSON.stringify(payload) });
+  r = await fetch(base + '/api/notify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: JSON.stringify(payload), signal: AbortSignal.timeout(30_000) }); // 1.73.8
 } catch (e) { die('Pocket Code did not answer at ' + base + ': ' + e.message, 2); }
 const data = await r.json().catch(() => ({}));
 if (!r.ok) die(data.error || ('HTTP ' + r.status), r.status === 401 ? 2 : 1);

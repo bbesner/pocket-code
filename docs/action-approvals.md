@@ -86,10 +86,14 @@ listed ones, compared as written. Pocket shows the card instead when the command
   control character, so chained commands, pipes, substitution, redirection and here-documents
   always ask (inside quotes too);
 - has an unquoted `*`, `?` or `[` (a glob could expand into an option) or an unclosed quote;
-- starts with a `VAR=value` setting, or names the command differently: `/usr/local/bin/techpro-lookup`,
+- has a word that starts with an unquoted `#` (Bash ignores the rest of the line as a comment; 1.73.8);
+- starts with a `VAR=value` or `VAR+=value` setting (`+=` since 1.73.8), or names the command differently: `/usr/local/bin/techpro-lookup`,
   `./techpro-lookup`, `sudo techpro-lookup` or `"techpro-lookup"` do not match `Bash(techpro-lookup:*)`.
   Paths and aliases are not resolved;
 - carries a Bash option other than its description, timeout or background flag.
+
+A rule written that way is refused the same way. `mcp__server__*` covers that server's tools whose
+names contain no `__` (1.73.8), so it cannot reach a second server named `server__other`.
 
 Quoted arguments are fine: `techpro-lookup quote "Acme Corp"` matches. Agents that start a command
 with `cd somewhere &&` get the card; the agent can run the command on its own instead.

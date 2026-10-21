@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
+import { shellArg } from './skills.mjs';
 
 export const KINDS = { '.html': 'html', '.htm': 'html', '.pdf': 'pdf', '.md': 'md', '.txt': 'txt', '.png': 'image', '.jpg': 'image', '.jpeg': 'image', '.gif': 'image', '.webp': 'image', '.csv': 'table', '.tsv': 'table', '.json': 'json', '.docx': 'office', '.xlsx': 'office', '.pptx': 'office', '.mp4': 'video' };
 export const MIME = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.pdf': 'application/pdf', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.csv': 'text/csv; charset=utf-8', '.tsv': 'text/tab-separated-values; charset=utf-8', '.json': 'application/json; charset=utf-8', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation', '.mp4': 'video/mp4' };
@@ -38,6 +39,7 @@ export function titleFor(file, text) {
 }
 // One line for an agent's instructions when Files (the documents feature) is on.
 export function documentInstructions(cli, sessionId) {
+  cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
   const sid = sessionId ? ` --session ${sessionId}` : '';
   return `This Pocket Code keeps a Files library. When the user says files, my files, documents, my documents or docs, they mean this library (not a folder on the server or another drive, unless they name one); the pocket-files skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-files', 'SKILL.md')}\`) has the full procedure. When you produce a deliverable for the user to read (an HTML report or dashboard, a PDF, an image, a Markdown write-up, a CSV or spreadsheet), or the user asks to save something there, keep it with \`node ${cli} add <path>${sid} [--title "…"] [--project <id>]\` so it appears in Pocket's Files, linked to this session; link it to the directory's tracked project when there is one. Files are private unless the user asks to share; use \`node ${cli} share <id>\` for a link only when asked. Mention the file by its title in your reply, not by server path.`;
 }

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import {spawn} from 'node:child_process';
+import {spawn,execFileSync} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
 import {sessionIdFromRef,bestSnippet,queryTerms,cleanMemstemSnippet} from '../search.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -96,4 +96,36 @@ test('HTTP: without MemStem, Pocket finds an exact phrase in recent conversation
   assert.equal(r.body.backend,'pocket');assert.equal(r.body.complete,true);assert.equal(r.body.scanned,2);assert.equal(r.body.total,2);
   assert.deepEqual(r.body.results.map(x=>[x.id,x.role]),[[a,'assistant']]);assert.match(r.body.results[0].snippet,/firmware 5\.2\.1/);
   assert.deepEqual((await f.call('/search?q='+encodeURIComponent('no such phrase anywhere'))).body.results,[]);
+});
+
+// 1.73.8: snippet files must resolve inside MemStem's vault and be regular files (a link out of the vault was read, a FIFO
+// blocked the search), and MemStem's answers are read up to a size limit.
+test('HTTP: MemStem snippets never follow a link out of the vault or open a FIFO; an oversized answer falls back',async t=>{
+  const vault=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-'));fs.mkdirSync(path.join(vault,'sessions'));
+  const outside=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'pocket-outside-')),'secret.md');
+  fs.writeFileSync(outside,'**User:** Avigilon quote OUTSIDE-THE-VAULT text\n');
+  let ms;
+  ms=http.createServer(async(req,res)=>{
+    if(req.url==='/health'){res.end(JSON.stringify({status:'ok',vault}));return;}
+    for await(const _ of req);
+    if(ms.huge){res.write('[');for(let i=0;i<10;i++)res.write(JSON.stringify({pad:'x'.repeat(1<<20)})+',');res.end('{}]');return;}
+    res.end(JSON.stringify(ms.hits||[]));
+  });
+  await new Promise(r=>ms.listen(0,'127.0.0.1',r));
+  t.after(()=>{ms.close();fs.rmSync(vault,{recursive:true,force:true});fs.rmSync(path.dirname(outside),{recursive:true,force:true});});
+  const f=await fixture(t,18791,{POCKET_MEMSTEM_URL:`http://127.0.0.1:${ms.address().port}`});
+  const a=f.seed([{type:'user',message:{role:'user',content:'Review the Avigilon quote'}}]);
+  const b=f.seed([{type:'user',message:{role:'user',content:'Avigilon quote, second pass'}}]);
+  fs.symlinkSync(outside,path.join(vault,'sessions',a+'.md'));
+  execFileSync('mkfifo',[path.join(vault,'sessions',b+'.md')]);
+  const ref=id=>path.join(f.ws,id+'.jsonl');
+  ms.hits=[{type:'session',path:`sessions/${a}.md`,snippet:'from memstem a',frontmatter:{provenance:{ref:ref(a)}}},{type:'session',path:`sessions/${b}.md`,snippet:'from memstem b',frontmatter:{provenance:{ref:ref(b)}}}];
+  const r=await Promise.race([f.call('/search?q='+encodeURIComponent('Avigilon quote')),sleep(5000).then(()=>({timedOut:true}))]);
+  assert.ok(!r.timedOut,'the search answered (a FIFO is not opened)');
+  assert.equal(r.body.backend,'memstem');
+  assert.doesNotMatch(JSON.stringify(r.body),/OUTSIDE-THE-VAULT/,'a link out of the vault is not read');
+  assert.deepEqual(r.body.results.map(x=>x.snippet),['from memstem a','from memstem b']);
+  ms.huge=true;
+  const big=await f.call('/search?q='+encodeURIComponent('Avigilon quote'));
+  assert.equal(big.body.backend,'pocket');assert.match(f.logs(),/memstem search failed, using Pocket's own: answer larger than/);
 });

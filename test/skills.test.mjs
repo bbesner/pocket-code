@@ -138,3 +138,18 @@ test('HTTP: turning Projects and Files on in Settings installs their skills for 
   await set({documents:false});
   assert.equal(has('.claude','pocket-files'),false);assert.ok(has('.claude','pocket-projects'));
 });
+
+// 1.73.8: a folder Pocket marked but whose SKILL.md is missing (a failure between the two writes) is repaired, not skipped
+// forever; the marker is written first. An install path with a space is quoted in the skill and in every agent line.
+test('skills: a marked folder without its skill is repaired; a path with a space is one shell word everywhere',t=>{
+  const dir=tmp();t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const root=path.join(dir,'claude'),skill=path.join(root,'pocket-projects');
+  fs.mkdirSync(skill,{recursive:true});fs.writeFileSync(path.join(skill,MARKER),'Installed by Pocket Code.\n');
+  const r=syncSkills({settings:{projects:true},commands,env:{},roots:[root],codexRoots:[]});
+  assert.ok(r.installed.includes(skill),'repaired');assert.match(fs.readFileSync(path.join(skill,'SKILL.md'),'utf8'),/^---\nname: pocket-projects\n/);
+  const spaced='/Users/Pat Doe/pocket code/scripts/pocket-board.mjs';
+  assert.match(renderSkill('<!-- pocket:commands -->x<!-- /pocket:commands -->',spaced,'pocket-board'),/as `node '\/Users\/Pat Doe\/pocket code\/scripts\/pocket-board\.mjs'`/);
+  assert.match(renderSkill('<!-- pocket:commands -->x<!-- /pocket:commands -->','/srv/pocket/scripts/pocket-board.mjs','pocket-board'),/as `node \/srv\/pocket\/scripts\/pocket-board\.mjs`/,'a plain path is unchanged');
+  for(const line of [projectInstructions(spaced,null),documentInstructions(spaced,null)])assert.match(line,/node '\/Users\/Pat Doe\/pocket code\/scripts\/pocket-board\.mjs'/);
+  assert.match(renderSkill('<!-- pocket:commands -->x<!-- /pocket:commands -->',"/a/it's/p.mjs",'pocket-board'),/node '\/a\/it'\\''s\/p\.mjs'/);
+});

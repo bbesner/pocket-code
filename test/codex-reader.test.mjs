@@ -77,3 +77,17 @@ test('the session transport drains a large backlog in bounded passes without bre
   assert.deepEqual(got, lines, 'every line arrived intact and in order');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// 1.73.8: a request whose write fails is rejected at once (it used to wait for its timeout, 30 s for a list); a usage file
+// whose root is not an object reads as empty (it used to stop the daemon at start).
+test('a failed write rejects its request at once; a malformed usage file does not stop the module loading', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-reader-')); fs.mkdirSync(path.join(dir, 'sessions')); fs.mkdirSync(path.join(dir, 'data'));
+  fs.writeFileSync(path.join(dir, 'data', 'codex-usage-state.json'), 'null');
+  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(POCKET|VAPID|CODEX)_/.test(k))), POCKET_DATA_DIR: path.join(dir, 'data'), POCKET_SESSION_ROOT: path.join(dir, 'sessions'), POCKET_TEST_CALLS: path.join(dir, 'calls'), CODEX_BIN: path.join(repo, 'test/fake-codex.mjs'), FAKE_CODEX_CLOSE_STDIN: '1' };
+  const code = `const c=await import(${JSON.stringify(path.join(repo, 'codex.mjs'))});const t0=Date.now();const e=await c.listCodexSessions(5).then(()=>null,e=>e);process.stdout.write('\\nRESULT '+JSON.stringify({ms:Date.now()-t0,error:e?.message||null})+'\\n');process.exit(0);`;
+  const out = await new Promise((resolve, reject) => execFile(process.execPath, ['--input-type=module', '-e', code], { env, timeout: 40000 }, (e, o, err) => e ? reject(new Error(err || e.message)) : resolve(o)));
+  fs.rmSync(dir, { recursive: true, force: true });
+  const r = JSON.parse(/^RESULT (.*)$/m.exec(out)[1]);
+  assert.match(String(r.error), /EPIPE|closed/, 'the request failed with the write error');
+  assert.ok(r.ms < 5000, `rejected in ${r.ms} ms, not at the 30 s timeout`);
+});

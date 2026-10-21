@@ -74,7 +74,7 @@ export function codexConnectorRows({ apps = [], accessible = [], disabled = [] }
   return GOOGLE_CONNECTORS.map(c => {
     const app = byId.get(c.codex);
     let url = null;
-    try { const u = new URL(app?.installUrl); if (u.protocol === 'https:' && u.hostname === 'chatgpt.com') url = u.href; } catch { }
+    try { const u = new URL(app?.installUrl); if (u.protocol === 'https:' && u.hostname === 'chatgpt.com' && !u.username && !u.password && !u.port) url = u.href; } catch { } // 1.73.8: no userinfo, no port
     const tools = Array.isArray(app?.toolSummaries) ? app.toolSummaries : [];
     return { key: c.key, label: c.label, connectUrl: url || CODEX_MANAGE_URL, tools: tools.length, writeTools: tools.filter(t => t && t.isReadOnly === false).length,
       status: !app ? 'unavailable' : off.has(c.codex) ? 'off' : on.has(c.codex) ? 'connected' : 'not-connected' };

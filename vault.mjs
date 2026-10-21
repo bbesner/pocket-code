@@ -11,6 +11,7 @@ import path from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { signalGroup } from './proctree.mjs';
+import { shellArg } from './skills.mjs';
 
 // Fixed fields by kind; any item may carry custom fields beside them (1.39.1), and `credentials` has only custom ones.
 export const KINDS = { api_key: ['value'], token: ['value'], login: ['username', 'password'], credentials: [], note: ['text'] };
@@ -87,6 +88,7 @@ export const EXPORT_FORMAT = 'pocket-vault-export';
 
 // ---------- what agents are told ----------
 export function vaultInstructions(cli, sessionId) {
+  cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
   return [
     'This Pocket Code keeps a Vault of credentials (API keys, tokens, logins) that agents use by name and never see.',
     `Run commands that need one with \`node ${cli} run --env VAR=<name>[.field] -- <command…>\`: Pocket runs the command with the value in that variable and returns the output with the value scrubbed. Values never appear in arguments, output, files, messages or your context; never print, echo, write down or ask for one.`,
@@ -215,7 +217,9 @@ export class VaultStore {
     const row = { at: iso(this.now()), ...record };
     for (const k of ['argv', 'cwd', 'decision', 'session', 'sessionTitle', 'request', 'name', 'item', 'by', 'action']) if (row[k] === undefined || row[k] === null || row[k] === '') delete row[k];
     const fd = fs.openSync(this.auditFile, 'a', 0o600);
-    try { fs.writeSync(fd, JSON.stringify(row) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    // 1.73.8: a short write is continued, so a row is never left half-written for the next one to merge into.
+    const buf = Buffer.from(JSON.stringify(row) + '\n');
+    try { for (let at = 0; at < buf.length;) { const n = fs.writeSync(fd, buf, at, buf.length - at); if (!(n > 0)) throw new Error('The Vault record could not be written.'); at += n; } fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   }
   // The newest rows, newest first. Owners see everything; an agent sees only its own session's rows.
   auditRows({ item, session, owner = false, limit = 50 } = {}) {
@@ -491,7 +495,8 @@ export class VaultStore {
 // (1.73.3: in the spellings other JSON writers use too, and escaped twice).
 export function needlesFor(values) {
   const out = new Set();
-  for (const v of values) {
+  // 1.73.8: a value with a lone surrogate reaches a child's environment as U+FFFD; that spelling is a form too.
+  for (const v of values.flatMap(x => typeof x === 'string' && x.toWellFormed && x.toWellFormed() !== x ? [x, x.toWellFormed()] : [x])) {
     if (typeof v !== 'string' || v.length < 4) continue; // a 1–3 character value would shred the output; it is not a secret anyone can keep
     out.add(v);
     out.add(Buffer.from(v, 'utf8').toString('base64')); out.add(Buffer.from(v, 'utf8').toString('base64url'));
@@ -507,8 +512,10 @@ export function needlesFor(values) {
   return [...out].filter(Boolean).sort((a, b) => b.length - a.length);
 }
 // A streaming replacer: text arrives in chunks; the tail of each chunk (one less than the longest form) is held
-// back until the next chunk or the end, and the cut is moved past any form that straddles it, so a value split
-// across two chunks is still caught. `table` is [{forms, ph}] with the longest forms first.
+// back until the next chunk or the end, and the cut is moved back to the start of any form that straddles it, so a
+// value split across two chunks is still caught. (1.73.8: it used to move forward past the form, which could leave
+// the start of an overlapping occurrence at the very end with nothing held to complete it.) `table` is [{forms, ph}]
+// with the longest forms first.
 export function makeScrubStream(table) {
   const forms = table.flatMap(p => p.forms), hold = Math.max(0, ...forms.map(f => f.length - 1));
   let carry = '';
@@ -516,7 +523,7 @@ export function makeScrubStream(table) {
   return {
     push(chunk) {
       const t = carry + chunk; let cut = Math.max(0, t.length - hold), moved = true;
-      while (moved) { moved = false; for (const f of forms) { let i = t.indexOf(f, Math.max(0, cut - f.length + 1)); while (i !== -1 && i < cut) { if (i + f.length > cut) { cut = i + f.length; moved = true; } i = t.indexOf(f, i + 1); } } }
+      while (moved) { moved = false; for (const f of forms) { const i = t.indexOf(f, Math.max(0, cut - f.length + 1)); if (i !== -1 && i < cut) { cut = i; moved = true; } } }
       carry = t.slice(cut); return rep(t.slice(0, cut));
     },
     end() { const t = rep(carry); carry = ''; return t; },

@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { shellArg } from './skills.mjs';
 
 export const LIMITS = { name: 120, text: 600, task: 300, projects: 200, tasks: 200, reminders: 50, sessions: 50, history: 200, link: 1024, directory: 1024 };
 export const STATUSES = ['active', 'waiting', 'done'];
@@ -58,6 +59,7 @@ export function parseWhen(input, tz = process.env.POCKET_TZ || Intl.DateTimeForm
 // One line for an agent's instructions when Projects is on: how to track the session as a project when, and only
 // when, the user asks. The CLI path is the install's; the session id is this session's (null when not yet known).
 export function projectInstructions(cli, sessionId) {
+  cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
   const sid = sessionId ? ` --session ${sessionId}` : '';
   return `This Pocket Code tracks projects. Only when the user asks to track this work, make it a project, or add it to one, use the pocket-board command (\`node ${cli}\`); the pocket-projects skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-projects', 'SKILL.md')}\`) has the full procedure, which questions to ask and when to set reminders. Check \`node ${cli} status --all\` first and link this session to a matching project (\`link-session ${sessionId || '<this session id>'} -p <project-id>\`) rather than duplicating it; otherwise run \`node ${cli} track --requested --name "<name>"${sid} --summary … --next …\` from the working directory. Ask at most one question, and set a reminder (\`remind --at\`) only when the user asks or agrees to a time. When a tracked project's work reaches a stopping point, keep its card current with \`update --summary … --next …\`, \`task add|done\` and \`note\`. Never track a project the user did not ask for.`;
 }
