@@ -108,9 +108,14 @@ Use `name.field` for a login (`.username`, `.password`) or any item with more th
 The tool's reply, page snapshots and logs come back with the value replaced by the placeholder.
 If the reply says the Vault is asking the owner, tell them in one line and call the same tool
 again with the same arguments once they allow it. Never read a filled value back out of the
-page (no `browser_evaluate` on the field, no screenshot meant to show it). This only works when
-the browser tool runs through Pocket's relay (`pocket-mcp-proxy`); if the placeholder comes back
-literally typed into the page, the relay is not in place: stop and tell the owner.
+page (no `browser_evaluate` on the field, no screenshot meant to show it). Placeholders work in
+the typing and form-filling tools only (`browser_type`, `browser_fill_form`); a `browser_evaluate`
+or `browser_navigate` that names one is refused. Once a value has been typed, screenshots and
+other pictures from that browser are unavailable for the rest of the session: Pocket cannot
+scrub a value out of a picture, so it returns a note in its place. Use `browser_snapshot` (text)
+to see the page. This only works when the browser tool runs through Pocket's relay
+(`pocket-mcp-proxy`); if the placeholder comes back literally typed into the page, the relay is
+not in place: stop and tell the owner.
 
 ## Pending, refused and off
 

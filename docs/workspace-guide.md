@@ -640,7 +640,8 @@ from a terminal or code-server session on the server follows the same policy and
 [Operations](operations.md)), an agent types `{{vault:ovrc-brad.password}}` where a password goes, and
 Pocket fills the real value on its way to the browser and removes it from everything that comes back,
 so a login works without the password entering the conversation. The same Agent access rules and
-approvals apply, and each fill shows in the item's history.
+approvals apply, and each fill shows in the item's history. Values go into typing and form-filling
+tools only, and once one has been typed the relay returns no screenshots from that browser (1.73.5).
 
 **History.** Every run, request, answer, view of a value, addition, change, removal, restore
 and key rotation is recorded with the session and the command, never with a value. An item's
