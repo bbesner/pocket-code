@@ -93,3 +93,19 @@ test('one sign-in from Settings: validated, on and off live, last sign-in report
   assert.equal(await me(tok('owner@example.test')), false, 'turned off: no sign-in by token');
   a = (await s.call('/settings', { access: null })).body.access; assert.equal(a.source, 'none');
 });
+
+// 1.73.6: a patch is checked whole before any of it applies; a 400 on a later field leaves the earlier ones untouched.
+test('a settings patch is checked whole before any of it applies', async t => {
+  const { call } = await server(t, 18684, {});
+  const before = (await call('/settings')).body;
+  let r = await call('/settings', { projects: !before.projects, tasks: !before.tasks, vaultAccess: before.vaultAccess === 'free' ? 'once' : 'free', notifyEmail: 'not-an-address' });
+  assert.equal(r.status, 400); assert.equal(r.body.code, 'bad_email');
+  let after = (await call('/settings')).body;
+  assert.equal(after.projects, before.projects, 'the toggle before the bad field did not apply'); assert.equal(after.tasks, before.tasks); assert.equal(after.vaultAccess, before.vaultAccess);
+  r = await call('/settings', { router: { enabled: false, provider: 'openai' }, access: { enabled: false }, trustedActions: [{ nonsense: true }] });
+  assert.equal(r.status, 400); assert.equal(r.body.code, 'bad_trusted_action');
+  after = (await call('/settings')).body;
+  assert.deepEqual(after.router, before.router, 'the router was neither changed nor rebuilt'); assert.deepEqual(after.access, before.access);
+  r = await call('/settings', { projects: !before.projects, notifyEmail: 'owner@example.test' }); assert.equal(r.status, 200);
+  assert.equal(r.body.projects, !before.projects, 'a patch that passes applies whole'); assert.equal(r.body.notifyEmail, 'owner@example.test');
+});

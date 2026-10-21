@@ -311,7 +311,16 @@ its own block of `.env` must leave the `POCKET_VAULT_KEY` line alone.
 **Rotation.** Settings → Projects, files, tasks & vault → Vault → **Rotate key** writes the new key to `.env` (with the old one beside it as
 `POCKET_VAULT_KEY_PREVIOUS`), rewrites the store under the new key, then drops the old line, so a crash in between
 still opens the store at the next start. No restart is needed. Backups taken before the rotation still need the old
-key, so keep the old recovery key with them.
+key, so keep the old recovery key with them. A rotation whose store write fails changes nothing (1.73.6): the store, `.env`
+and the recovery key all stay with the old key. A key set in the daemon's process environment (a PM2 ecosystem or systemd
+unit) rather than `.env` cannot be rotated from Settings, since the rotation could only ever write `.env`: the route answers
+409 `vault_key_preset`; move the key into `.env`, remove it from the environment, restart, then rotate.
+
+**Writes (1.73.6).** Every store (the Vault, projects, files, tasks, start links, settings) checks a change whole and writes it
+before installing it in memory, so a refused field or a failed write (disk full, permissions) leaves the record, the file and
+the Files folder as they were; the next save cannot carry a half-applied change. `vault.enc` is also synced to disk (file and
+directory) around its rename, since it is the one file whose loss is every secret at once; the other stores keep the plain
+temp-file-and-rename convention.
 
 **Passphrase mode (1.40).** When the owner sets a passphrase in Settings → Projects, files, tasks & vault → Vault, the store is
 rewritten in format 2: a salt in the header and a key derived from the passphrase with scrypt

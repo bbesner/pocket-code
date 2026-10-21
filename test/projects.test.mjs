@@ -176,3 +176,27 @@ test('HTTP: the board is off until Settings turns it on, the loopback token serv
   out=await cli(['context','--hook']);assert.equal(out.code,0);assert.equal(out.stdout,'','off: the hook stays silent');
   assert.equal((await call('/board')).status,404);
 });
+
+// 1.73.6: a change is computed on a copy of the card, written, then installed; open reminders are never cut on reload; an import skips null rows.
+test('ProjectStore (1.73.6): a failed write leaves the card as it was; open reminders survive a reload; a null row in an import is skipped',()=>{
+  const dir=tmp(),file=path.join(dir,'projects.json');let failNext=false;const write=(f,data)=>{if(failNext){failNext=false;throw Object.assign(new Error('ENOSPC: no space left on device'),{code:'ENOSPC'});}fs.writeFileSync(f,JSON.stringify(data));};
+  const s=new ProjectStore(file,{write});
+  const p=s.act({action:'track',name:'P',requested:true});
+  failNext=true;assert.throws(()=>s.act({action:'update',project:p.id,summary:'new'}),/ENOSPC/);
+  assert.equal(s.get(p.id).summary,'');assert.equal(s.get(p.id).revision,1);assert.equal(s.get(p.id).history.length,1,'no history row for a change that was not written');
+  failNext=true;assert.throws(()=>s.act({action:'task-add',project:p.id,text:'step'}),/ENOSPC/);assert.equal(s.get(p.id).tasks.length,0);
+  failNext=true;assert.throws(()=>s.act({action:'track',name:'Q',requested:true}),/ENOSPC/);assert.equal(s.projects.length,1);
+  assert.throws(()=>s.act({action:'update',project:p.id,name:'Renamed',link:'not a url'}),/full http/);assert.equal(s.get(p.id).name,'P');
+  // More than LIMITS.reminders open reminders (one per step) are all there after a reload.
+  const ids=[];for(let i=0;i<LIMITS.reminders+5;i++)ids.push(s.act({action:'task-add',project:p.id,text:'step '+i}).tasks.at(-1).id);
+  for(const id of ids)s.act({action:'remind',project:p.id,task:id,at:'2030-01-01T09:00Z'});
+  const open=x=>x.reminders.filter(r=>r.state==='open').length;
+  assert.equal(open(s.get(p.id)),LIMITS.reminders+5);assert.equal(open(new ProjectStore(file).get(p.id)),LIMITS.reminders+5,'open reminders survive a reload');
+  // A snapshot with null rows imports the rest; a failed write imports nothing.
+  const b=new ProjectStore(path.join(dir,'p2.json'));
+  const out=b.importSnapshot({projects:[{id:'a',name:'A'},null,{id:'b',name:'B',tasks:[null,{id:'t1',text:'ok'}],reminders:[null],history:[null]}]});
+  assert.deepEqual(out.added,['a','b']);assert.equal(b.get('b').tasks.length,1);assert.equal(b.get('b').reminders.length,0);
+  const c=new ProjectStore(path.join(dir,'p3.json'),{write});failNext=true;
+  assert.throws(()=>c.importSnapshot({projects:[{id:'a',name:'A'}]}),/ENOSPC/);assert.equal(c.projects.length,0);assert.equal(fs.existsSync(path.join(dir,'p3.json')),false);
+  fs.rmSync(dir,{recursive:true,force:true});
+});

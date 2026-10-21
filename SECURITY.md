@@ -118,7 +118,11 @@ directory; keep the recovery key apart from your backups, since a restore withou
 nothing. **Rotate key** writes the new key to `.env` before the store is rewritten, keeping
 the old one as `POCKET_VAULT_KEY_PREVIOUS` only until the rewrite finishes, so a crash in
 between still opens the store. **Restore key** accepts a recovery key only if it opens the
-existing store, and Pocket never creates a new key over an existing store. Keys are shown in
+existing store, and Pocket never creates a new key over an existing store. Since 1.73.6 the
+store takes a new key, salt or item only once the file holds it, so a failed write leaves memory
+and disk agreeing (the recovery key is always the key the store is under), the file is synced
+around its rename, and a key set in the process environment rather than `.env` is refused
+rotation with 409 rather than left as a key the next start will not find. Keys are shown in
 the browser or downloaded by the owner; nothing prints them to a terminal or a log.
 
 **The key in memory.** The daemon reads `POCKET_VAULT_KEY` (and `POCKET_VAULT_KEY_PREVIOUS`,

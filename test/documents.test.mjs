@@ -186,3 +186,22 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   assert.equal((await call('/api/settings',{documents:false})).body.documents,false);
   out=await cli(['list']);assert.equal(out.code,3);assert.equal((await raw('/files/old-public.html')).status,404,'off again: nothing public');
 });
+
+// 1.73.6: the checks come before the copy, and a record changes only once the file holds it.
+test('DocumentStore (1.73.6): a refused add copies nothing; a failed check or write leaves the record and the folder as they were',()=>{
+  const dir=tmp(),docsDir=path.join(dir,'documents'),meta=path.join(dir,'documents.json');let failNext=false;const write=(f,data)=>{if(failNext){failNext=false;throw Object.assign(new Error('ENOSPC: no space left on device'),{code:'ENOSPC'});}fs.writeFileSync(f,JSON.stringify(data));};
+  const s=new DocumentStore(docsDir,meta,{write});
+  const src=path.join(dir,'report.html');fs.writeFileSync(src,'<title>T</title>');
+  assert.throws(()=>s.addFromPath(src,{session:'not-a-session-id',addedBy:'cli'}),/not a session id/);
+  assert.deepEqual(fs.readdirSync(docsDir),[],'nothing was copied');assert.deepEqual(s.list(),[],'so nothing is adopted');
+  assert.throws(()=>s.addFromBuffer('x.txt',Buffer.from('x'),{visibility:'bogus'}),/Visibility/);assert.deepEqual(fs.readdirSync(docsDir),[]);
+  failNext=true;assert.throws(()=>s.addFromPath(src,{addedBy:'cli'}),/ENOSPC/);
+  assert.deepEqual(fs.readdirSync(docsDir),[],'a copy the write could not record is removed');assert.deepEqual(s.list(),[]);
+  const d=s.addFromPath(src,{title:'Good',addedBy:'cli'});assert.deepEqual(fs.readdirSync(docsDir),['report.html']);
+  assert.throws(()=>s.update(d.id,{title:'Changed',visibility:'bogus'}),/Visibility/);
+  assert.equal(s.get(d.id).title,'Good','a title set before a later check failed is not kept');assert.equal(JSON.parse(fs.readFileSync(meta,'utf8')).documents[0].title,'Good');
+  failNext=true;assert.throws(()=>s.update(d.id,{title:'Changed'}),/ENOSPC/);assert.equal(s.get(d.id).title,'Good');
+  failNext=true;assert.throws(()=>s.update(d.id,{visibility:'link'}),/ENOSPC/);assert.equal(s.get(d.id).visibility,'private');assert.equal(s.get(d.id).shareHash,null);
+  failNext=true;assert.throws(()=>s.trash(d.id),/ENOSPC/);assert.equal(s.get(d.id).trashedAt,null,'the record stays in place even though the file moved');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
