@@ -95,3 +95,16 @@ test('the environment list: lines or commas outside parentheses; bad rules are r
  assert.deepEqual(ignored.map(x=>x.rule),['Edit','Bash(x; y)']);
  assert.deepEqual(parseRuleList(''),{rules:[],ignored:[]});
 });
+
+// 1.73.8: Bash ends a command at an unquoted # that starts a word, and VAR+=value is an assignment; an MCP server wildcard
+// stops at the next "__". Each used to be trusted as written.
+test('a bare # word, a VAR+= first word and a double underscore after a server wildcard are not trusted',()=>{
+ const r=['Bash(remove # --dry-run)','Bash(PATH+=/fixture:*)','mcp__safe__*'];
+ assert.equal(parseRule('Bash(remove # --dry-run)').ok,false);assert.equal(commandWords('remove # --dry-run'),null);
+ assert.equal(matchTrusted(['Bash(remove:*)'],'Bash',{command:'remove # --dry-run'}),null,'a prefix rule does not cover a comment either');
+ assert.deepEqual(commandWords('echo a#b'),['echo','a#b'],'a # inside a word is literal');assert.deepEqual(commandWords("echo '#'"),['echo',"'#'"]);
+ assert.equal(parseRule('Bash(PATH+=/fixture:*)').ok,false);assert.equal(commandWords('PATH+=/fixture other-command'),null);
+ assert.equal(matchTrusted(r,'Bash',{command:'PATH+=/fixture other-command'}),null);
+ assert.equal(matchTrusted(r,'mcp__safe__other__delete',{}),null,'mcp__safe__* does not reach server safe__other');
+ assert.equal(matchTrusted(r,'mcp__safe__read_file',{}),'mcp__safe__*');assert.equal(matchTrusted(r,'mcp__safe__tool_',{}),'mcp__safe__*');
+});

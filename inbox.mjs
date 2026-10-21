@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { shellArg } from './skills.mjs';
 
 export const LIMITS = { entries: 500, text: 2000, title: 160, story: 120, source: 60, keepDays: 60, dismissedDays: 30 };
 export const KINDS = ['alert', 'digest', 'lookahead'];
@@ -105,6 +106,7 @@ function checkProfile(p) {
 // The agent's one line while Inbox Watch is on. It reads the list when the user asks about it and records a decision only
 // when the user makes one; it never dismisses or resolves on its own judgment.
 export function inboxInstructions(cli, sessionId) {
+  cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
   void sessionId; // entries are not tied to a session; the argument keeps the shape of the other instruction lines
   return `This Pocket Code keeps Inbox Watch: the alerts, digests and look-aheads the user's inbox watcher sent. \`node ${cli} list\` shows the new ones (\`--state all\` for the rest, \`show <id>\` for one in full), and \`node ${cli} act <id> resolve|not_useful|dismiss\` records what the user decided; act only when the user asks. The pocket-inbox skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-inbox', 'SKILL.md')}\`) has the procedure.`;
 }

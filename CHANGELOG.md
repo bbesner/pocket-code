@@ -3,6 +3,17 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.73.8] — 2026-10-21 · build 150
+
+- **The Low batch.** The last batch from the 2026-10-21 triage of Casey's review: the Low rows that PRs 1.73.3 to 1.73.7 left open, each a small change.
+  - **Trusted actions** (`trusted.mjs`): a word starting with an unquoted `#` (Bash ignores the rest of the line) and a `VAR+=value` first word are no longer one plain command, so they show the card, and a rule written that way is refused; `mcp__server__*` covers tool names without `__`, so it cannot reach a server named `server__other`. [S2-D3-1, S2-D3-2, S2-D3-3]
+  - **Vault** (`vault.mjs`, `scripts/pocket-vault.mjs`, `server.mjs`): an audit row is written whole even when the disk takes it in pieces; a value with a lone surrogate is also scrubbed in the U+FFFD spelling a command sees; the streaming scrubber's cut moves back to the start of a value that straddles it, so a value that overlaps itself is scrubbed as it would be in the whole text; the CLI decodes a run's stream across chunk boundaries; switching the Vault on answers with the new key even when its audit row could not be written. [S2-B3r2-2, S2-B4r2-5, S2-B4r-1, S2-B7-1, S2-B5R3-CREATE]
+  - **Connectors and MemStem** (`connectors.mjs`, `server.mjs`): a ChatGPT install link with a user name, password or port is not offered; two status reads at once share one `claude mcp list`; a failed read logs Pocket's own reason, not the CLI's error text; MemStem's answers are read up to a limit (64 KB health, 8 MB search); a snippet file must resolve inside MemStem's vault with links followed and be a regular file (a link out of the vault was read, a FIFO stopped the search). [S2-E1-1, S2-E2-COALESCE, S2-E2-LOG, S2-M1-2, S2-M1-3]
+  - **Codex** (`codex.mjs`): a request whose write fails is rejected at once; closing a connection rejects the requests still waiting; the reader waits for its output to end (up to half a second) before treating an exit as final, so a reply written just before exit still counts; Stop clears the turn's question and approval cards; two reads of one thread (opens, agents polls) share or queue their work instead of paging into one cache at once, and items noted during a cache reset are kept; a hand-corrupted transcript cache row or usage file reads as empty instead of failing. [S2-F2-2, S2-F2-3, S2-F2-7, S2-F7-2, S2-F3-1, S2-F4-1, S2-F4-3, S2-F5-3]
+  - **Skills and commands** (`skills.mjs` and the agent lines): the skill folder's marker is written before the skill, and a marked folder missing its skill is repaired; an install path with a space or a quote is shell-quoted in skills and in the per-turn lines; `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-start`, `pocket-inbox` and `pocket-notify` stop waiting for the daemon after 30 seconds. [S2-C4-2, S2-C4-3, S2-C1-3]
+  Operators: a saved trusted rule with a bare `#` word or a `VAR+=` first word is now refused (logged and skipped). See docs/action-approvals.md and docs/operations.md.
+- Migration: none.
+
 ## [1.73.7] — 2026-10-21 · build 149
 
 - **Child processes and lifecycles.** The fifth batch from the 2026-10-21 triage of Casey's review (SUMMARY items 7, 12, 13, 14 and the high lane's groups 7, 10, 11). Pocket managed the programs it starts one pid at a time; now it manages them as groups and proves a recorded pid is its own before signalling it:

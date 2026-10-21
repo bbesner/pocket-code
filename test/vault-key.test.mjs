@@ -114,3 +114,26 @@ test('HTTP: a Vault key set in the process environment is not rotated',async t=>
   assert.equal(decryptStore([parseKey(key)],fs.readFileSync(path.join(dir,'data','vault.enc'))).items[0].name,'zoho-books','the store is still under the environment key');
   assert.equal((await call('/vault/recovery-key',{})).body.key,key);
 });
+// 1.73.8: the key and the store were written, then the key-created audit row failed: the owner got a 500 and no key, though
+// the key existed. Now the owner still gets the key and the failure is logged.
+test('HTTP: switching the Vault on returns the new key even when its audit row cannot be written',async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vkey-audit-'));let port=19191;
+  const secret=randomUUID(),exp=Date.now()+3600000,cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
+  const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
+  const envFile=path.join(dir,'.env');fs.writeFileSync(envFile,'# test install\n');
+  fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});fs.mkdirSync(path.join(dir,'data','vault-audit.jsonl'),{recursive:true}); // a folder where the audit file goes
+  let child,logs='';
+  const start=async()=>{
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:envFile,POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
+   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
+   throw Error('Test server failed: '+logs);
+  };
+  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  await start();
+  const r=await fetch(`http://127.0.0.1:${port}/api/settings`,{method:'POST',headers,body:JSON.stringify({vault:true})});const body=await r.json();
+  assert.equal(r.status,200,JSON.stringify(body));assert.equal(body.vault,true);assert.equal(parseKey(body.recoveryKey).length,32);
+  assert.equal(keyLine(fs.readFileSync(envFile,'utf8')),body.recoveryKey,'the key handed back is the one saved');
+  assert.match(logs,/vault key-created audit row failed/);
+});

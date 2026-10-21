@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
-import {VaultStore,parseKey,newKey,encryptStore,decryptStore,storeHeader,deriveKey,scrubber,needlesFor,runWithSecrets,vaultInstructions,LIMITS,EXPORT_FORMAT} from '../vault.mjs';
+import {VaultStore,parseKey,newKey,encryptStore,decryptStore,storeHeader,deriveKey,scrubber,needlesFor,makeScrubStream,runWithSecrets,vaultInstructions,LIMITS,EXPORT_FORMAT} from '../vault.mjs';
 import {agentEnv} from '../environment.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
@@ -792,4 +792,39 @@ test('validate then commit (1.73.6): a failed check or write leaves the store, i
   assert.equal(s.byName('good'),null,'the valid item before the bad one was not kept');
   assert.deepEqual(s.importBundle(bundle([{name:'good',kind:'token',values:{value:'good-value-1234'}},null]),'export passphrase 1'),{added:1,skipped:[]});
   for(const x of [d,d2,d3])fs.rmSync(x,{recursive:true,force:true});
+});
+// 1.73.8, the Low batch. A short write in audit() left half a row for the next one to merge into; a value with a lone surrogate
+// reached the child as U+FFFD, a spelling no form matched; and the streaming cut moved forward past an occurrence, which for
+// a value that overlaps itself could publish the start of the next occurrence with nothing held to complete it.
+test('audit rows survive short writes',()=>{
+  const dir=tmp(),s=new VaultStore(path.join(dir,'vault.enc'),{key:parseKey(newKey())}),real=fs.writeSync;
+  fs.writeSync=(fd,buf,off,len,...rest)=>typeof buf==='string'?real(fd,buf.slice(0,7)):real(fd,buf,off??0,Math.min(len??buf.length,7),...rest);
+  try{s.audit({action:'first',by:'owner'});s.audit({action:'second',by:'owner'});}finally{fs.writeSync=real;}
+  assert.deepEqual(s.auditRows({owner:true}).map(r=>r.action).filter(a=>a==='first'||a==='second'),['second','first']);
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+test('a value with a lone surrogate is scrubbed in the spelling the child sees',async()=>{
+  const dir=tmp();let out='';
+  const r=await runWithSecrets({argv:['sh','-c','printf %s "$TOKEN"'],cwd:dir,env:{PATH:process.env.PATH},secrets:{TOKEN:'ab\ud800cdef'},onOut:t=>out+=t});
+  assert.equal(r.code,0);assert.equal(out,'{{vault}}');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+test('the streaming scrubber gives the whole-text result for values that overlap themselves, however the text is cut',()=>{
+  for(const [v,text,max] of [['ffff','fffffffffffffcb',4],['abc123abc123','abc123abc123abc123abc123abc123',8]]){
+    const forms=needlesFor([v]);let whole=text;for(const f of forms)whole=whole.split(f).join('{{v}}');
+    const run=sizes=>{const st=makeScrubStream([{forms,ph:'{{v}}'}]);let out='',i=0;for(const n of sizes){out+=st.push(text.slice(i,i+n));i+=n;}return out+st.end();};
+    if(v==='ffff')assert.equal(run([2,4,4,1,3,2]),whole,'the cut that used to publish a raw run');
+    for(let t=0;t<3000;t++){const sizes=[];for(let n=0;n<text.length;){const k=1+Math.floor(Math.random()*max);sizes.push(k);n+=k;}assert.equal(run(sizes),whole,'chunks '+sizes.join(','));}
+  }
+});
+// 1.73.8: the CLI decoded each chunk of a run's stream on its own, so a character split across two chunks printed as U+FFFD.
+test('pocket-vault run prints a character that arrives split across two chunks whole',async t=>{
+  const http=await import('node:http');
+  const dir=tmp();fs.mkdirSync(path.join(dir,'data'));fs.writeFileSync(path.join(dir,'data','cli-token'),'test-token');
+  const line=Buffer.from(JSON.stringify({t:'out',s:'café ✓\n'})+'\n'+JSON.stringify({t:'exit',code:0})+'\n');
+  const cut=line.indexOf(Buffer.from('é'))+1; // inside the two bytes of é
+  const server=http.createServer((req,res)=>{req.resume();res.writeHead(200,{'content-type':'application/x-ndjson'});res.write(line.subarray(0,cut));setTimeout(()=>res.end(line.subarray(cut)),100);});
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>{server.close();fs.rmSync(dir,{recursive:true,force:true});});
+  const out=await new Promise(res=>execFile(process.execPath,[path.join(repo,'scripts/pocket-vault.mjs'),'run','--env','T=x','--','true'],{cwd:dir,env:{...cleanEnv(),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),POCKET_URL:`http://127.0.0.1:${server.address().port}`}},(e,stdout)=>res({code:e?e.code:0,stdout})));
+  assert.equal(out.code,0);assert.equal(out.stdout,'café ✓\n');
 });

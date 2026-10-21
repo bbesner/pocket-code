@@ -24,10 +24,10 @@ const BASH_KEYS = new Set(['command', 'description', 'timeout', 'run_in_backgrou
 // Anything that can join, nest, redirect or substitute commands, escape a character, or start
 // a new line. Tab is the only control character allowed (it separates words).
 const SHELL_SYNTAX = /[;&|`$()<>{}\\\u0000-\u0008\u000a-\u001f\u007f]/;
-const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\+?=/; // 1.73.8: VAR+=value is an assignment too
 const MCP_EXACT = /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+$/;
 const MCP_SERVER = /^[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*$/; // no "__", which separates server and tool
-const MCP_TOOL_REST = /^[A-Za-z0-9-][A-Za-z0-9_-]*$/;
+const MCP_TOOL_REST = /^[A-Za-z0-9-](?:[A-Za-z0-9-]|_(?!_))*$/; // 1.73.8: no "__", so mcp__safe__* cannot reach a server named safe__other
 
 const SYNTAX_HELP = 'Use Bash(command:*), Bash(exact command), mcp__server__tool, mcp__server__* or WebSearch.';
 
@@ -42,6 +42,7 @@ export function commandWords(command) {
     if (quote) { cur += ch; if (ch === quote) quote = ''; continue; }
     if (ch === ' ' || ch === '\t') { if (inWord) { words.push(cur); cur = ''; inWord = false; } continue; }
     if (ch === '*' || ch === '?' || ch === '[') return null; // an unquoted glob could expand to an option
+    if (ch === '#' && !inWord) return null; // 1.73.8: an unquoted # starting a word begins a comment; Bash runs only what precedes it
     inWord = true; cur += ch;
     if (ch === "'" || ch === '"') quote = ch;
   }

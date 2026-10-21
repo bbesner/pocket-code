@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { parseWhen } from './projects.mjs';
+import { shellArg } from './skills.mjs';
 
 export const LIMITS = { text: 600, summary: 2000, tasks: 500, title: 160 };
 export const ACTIONS = ['add', 'update', 'remove'];
@@ -22,6 +23,7 @@ const checkDirectory = dir => { if (!dir) return ''; if (!path.isAbsolute(dir)) 
 // the agent's offer of one. 1.37: at a natural follow-up point the agent may offer once, as a suggested-reply button when
 // Pocket shows them, and an accepted offer is filed with the session, a summary the agent writes and any agreed time.
 export function taskInstructions(cli, sessionId, { choices = true } = {}) {
+  cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
   const sid = sessionId ? ` --session ${sessionId}` : ' --dir "<working directory>"';
   const offer = choices
     ? 'offer it once as a suggested reply: one option in the `choices` block that ends your reply, written as the user would say it and naming what and when (for example "Remind me Nov 7 to recheck the numbers" or "Add a task to test the fix"). If the reply would not otherwise end with choices, ask in one short line whether to add it and list that option with one to decline.'

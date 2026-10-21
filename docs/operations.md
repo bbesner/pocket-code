@@ -15,6 +15,10 @@ data directory, in `$TMPDIR/pocket-code-pipes-<uid>/<install>/` (or `POCKET_PIPE
 a recursive search of the install can never open one and swallow what Pocket sends. Keep the daemon, CLI/MCP
 processes and their data on the same host and OS account.
 
+The command-line tools (`pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-start`, `pocket-inbox`, `pocket-notify`)
+give up after 30 seconds without an answer from the daemon (1.73.8; before, undici's five-minute
+header timeout was the only bound, so a hung daemon held an agent's session start that long).
+
 The supplied [PM2 ecosystem file](../ecosystem.config.cjs) sets `treekill: false`.
 Always start/restart from that file. Another supervisor needs equivalent child-process
 preservation. This supports a Pocket daemon restart; it does not keep programs alive
