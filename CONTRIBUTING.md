@@ -27,6 +27,7 @@ npm run check:release
 npm test
 PUPPETEER_EXECUTABLE_PATH=/path/to/chrome npm run test:browser
 python3 inbox-watch/tests/test_schedule.py
+python3 inbox-watch/tests/test_connector.py
 ```
 
 Inbox Watch's watcher (`inbox-watch/`, Python 3.11+) is part of the repository. Its tests need no mailbox,

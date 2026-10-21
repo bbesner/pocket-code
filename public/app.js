@@ -3501,7 +3501,7 @@ async function route() {
   rememberViewNavigation(location.hash || '#/');
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { const me = await api('/me'); window.pocketFeatures = me.features || {}; applyAssistantMode(); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } loadSecretGuard(); } // 1.20.1: 200 {ok:false} when signed out
+  try { const me = await api('/me?tz=' + encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || '')); window.pocketFeatures = me.features || {}; applyAssistantMode(); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } loadSecretGuard(); } // 1.20.1: 200 {ok:false} when signed out
   catch (e) { // 401 rendered the login; anything else (offline, deploy restart) gets a retry view
     if (e.message !== 'login') renderUnreachable(e);
     reportWorkspaceChrome(); return;

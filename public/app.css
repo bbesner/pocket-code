@@ -1759,6 +1759,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .inbox-search { width: 100%; min-height: 44px; font: inherit; font-size: 15px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
 .inbox-search:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
 .inbox-stale { margin-top: 8px; color: var(--warn); }
+.inbox-runner { margin-top: 8px; }
 .inbox-body { font-size: 15.5px; line-height: 1.55; overflow-wrap: anywhere; }
 .inbox-body a { color: var(--clay); }
 .inbox-card .home-card-what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

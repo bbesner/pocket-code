@@ -65,6 +65,10 @@ class Gmail:
         self.baseline_query = baseline_query
         self.archive_query = archive_query
 
+    @staticmethod
+    def cursor_ok(cursor: str) -> bool:
+        return str(cursor).isdigit()
+
     def profile_history_id(self) -> str:
         return str(self.u.getProfile(userId="me").execute()["historyId"])
 

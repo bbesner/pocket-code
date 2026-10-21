@@ -108,14 +108,24 @@ function inboxRowHTML(e){
   ${e.state==='dismissed'?'':`<button class="session-more icon inbox-x" data-inbox-dismiss="${esc(e.id)}" aria-label="Dismiss: ${esc(e.title)}" title="Dismiss">${IC.x}</button>`}
   <button class="session-more icon" data-inbox-more="${esc(e.id)}" aria-label="Options for ${esc(e.title)}">${IC.more}</button></div>`;
 }
+/* 1.74: what Pocket's own watcher is doing (inbox-runner.mjs), when that is the reason the list is empty or stale. */
+function inboxRunnerLine(r){
+ if(!r||!r.managed)return '';
+ const box=r.mailbox?` for ${esc(r.mailbox)}`:'';
+ if(r.state==='waiting')return esc(r.message||'Inbox Watch starts once Pocket knows your time zone. Open Pocket Code on your phone or computer.');
+ if(r.state==='setting-up')return `Setting up Inbox Watch${box}. ${esc(r.message||'')}`;
+ if(r.state==='needs-connector')return 'Inbox Watch can’t read your mail yet. Connect Gmail in Settings → Connectors, using the account Claude Code is signed in with. It starts by itself once Gmail is connected.';
+ if(r.state==='error')return `Inbox Watch couldn’t check your mail${box}: ${esc(r.message||'unknown error')}. It tries again every minute.`;
+ return '';
+}
 function inboxListHTML(){
  const rows=inboxRows(),n=inboxNewCount(),last=inboxSnap.lastReportAt?Date.parse(inboxSnap.lastReportAt):0,stale=last&&Date.now()-last>24*3600000;
  const chip=(k,label)=>`<button class="chip" data-inbox-filter="${k}" aria-pressed="${inboxFilter===k}">${label}</button>`;
  const groups=[];let day='';
  for(const e of rows){const d=inboxDay(e.at);if(d!==day){day=d;groups.push({day:d,html:[]});}groups[groups.length-1].html.push(inboxRowHTML(e));}
- const empty=inboxFilter==='done'?'Nothing finished yet.':inboxQuery.trim()?'Nothing matches.':inboxFilter==='open'&&inboxSnap.entries.length?'Nothing open. Done has everything resolved, not useful or dismissed.':inboxFilter==='new'?(inboxSnap.entries.length?'Nothing unread. Open shows everything still on your list.':'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.'):'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.';
+ const empty=inboxFilter==='done'?'Nothing finished yet.':inboxQuery.trim()?'Nothing matches.':inboxFilter==='open'&&inboxSnap.entries.length?'Nothing open. Done has everything resolved, not useful or dismissed.':inboxFilter==='new'?(inboxSnap.entries.length?'Nothing unread. Open shows everything still on your list.':(inboxSnap.runner?.state==='running'&&inboxSnap.runner.mailbox?`Watching ${esc(inboxSnap.runner.mailbox)}. Nothing needs you yet: it sends an alert only when an email tells you something the email itself doesn’t.`:'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.')):'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.';
  return `<div class="session-home-head"><h2>Inbox</h2><span class="project-head-actions">${chip('open','Open')}${chip('new',`Unread${n?` <span class="badge" data-inbox-badge>${n}</span>`:''}`)}${chip('done','Done')}</span></div>
-  <div class="inbox-tools"><div class="inbox-tools-row"><input type="search" id="inbox-search" class="inbox-search" placeholder="Search titles and stories" value="${esc(inboxQuery)}" aria-label="Search the inbox"><button class="chip" id="inbox-watch" aria-label="Inbox Watch schedule${assistantMode()?'':', models and cost'}">${IC.sliders}Schedule</button></div>${stale&&!inboxSnap.paused?`<p class="sheet-help inbox-stale">Inbox Watch hasn’t reported since ${esc(inboxDay(inboxSnap.lastReportAt))} ${esc(inboxWhen(inboxSnap.lastReportAt))}.</p>`:''}</div>
+  <div class="inbox-tools"><div class="inbox-tools-row"><input type="search" id="inbox-search" class="inbox-search" placeholder="Search titles and stories" value="${esc(inboxQuery)}" aria-label="Search the inbox"><button class="chip" id="inbox-watch" aria-label="Inbox Watch schedule${assistantMode()?'':', models and cost'}">${IC.sliders}Schedule</button></div>${inboxRunnerLine(inboxSnap.runner)?`<p class="sheet-help${['needs-connector','error'].includes(inboxSnap.runner.state)?' inbox-stale':' inbox-runner'}" role="status">${inboxRunnerLine(inboxSnap.runner)}</p>`:stale&&!inboxSnap.paused?`<p class="sheet-help inbox-stale">Inbox Watch hasn’t reported since ${esc(inboxDay(inboxSnap.lastReportAt))} ${esc(inboxWhen(inboxSnap.lastReportAt))}.</p>`:''}</div>
   ${groups.length?groups.map(g=>`<section class="session-group project-group"><h2>${esc(g.day)} <span>${g.html.length}</span></h2>${g.html.join('')}</section>`).join(''):`<p class="sheet-help project-empty">${empty}</p>`}`;
 }
 function bindInboxRows(root){

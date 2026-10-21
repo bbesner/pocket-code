@@ -1,0 +1,203 @@
+"""The connector mail source against a fake `claude` that answers the way Claude Code's stream-json does.
+
+    python3 -m pytest tests/test_connector.py      (or: python3 tests/test_connector.py)
+
+No mailbox, model or network: the fake reads the requested calls from the prompt and answers from a JSON mailbox file.
+"""
+import json
+import os
+import stat
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from inbox_monitor import mail_connector as C  # noqa: E402
+
+FAKE = r'''#!/usr/bin/env python3
+import json, os, re, sys
+args = sys.argv[1:]
+box = json.load(open(os.environ["FAKE_BOX"]))
+log = open(os.environ["FAKE_LOG"], "a"); log.write(json.dumps(args) + "\n"); log.close()
+prompt = sys.stdin.read()
+calls = json.loads(prompt[prompt.index("["):])
+def emit(e): print(json.dumps(e))
+tools = [] if box.get("no_connector") else ["mcp__claude_ai_Gmail__" + t for t in ("search_threads", "get_thread", "get_message", "send_message")]
+emit({"type": "system", "subtype": "init", "tools": tools})
+skip = box.get("skip_first", 0) if len(open(os.environ["FAKE_LOG"]).readlines()) == 1 else 0  # only the first run skips
+for i, c in enumerate(calls):
+    if i < skip:
+        continue
+    tid = f"tu{i}"
+    emit({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tid, "name": c["tool"], "input": c["input"]}]}})
+    name = c["tool"].rsplit("__", 1)[-1]
+    if name == "search_threads":
+        q = c["input"]["query"]
+        threads = [t for t in box["threads"] if (m := re.search(r"after:(\d+)", q)) is None or max(int(x["internalDate"]) for x in t["messages"]) / 1000 > int(m.group(1))]
+        if "in:sent" in q:
+            threads = [t for t in box["threads"] if any("SENT" in x["labelIds"] for x in t["messages"])]
+        res = {"threads": [{"id": t["id"], "messageCount": len(t["messages"]), "messages": [{k: v for k, v in t["messages"][-1].items() if k != "plaintextBody"}]} for t in threads]}
+    else:
+        t = next((t for t in box["threads"] if t["id"] == c["input"].get("threadId")), None)
+        if t is None:
+            emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tid, "is_error": True, "content": "Thread not found"}]}})
+            continue
+        res = {"id": t["id"], "messageCount": len(t["messages"]), "messages": t["messages"]}
+    emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tid, "content": [{"type": "text", "text": json.dumps(res)}]}]},
+          "tool_use_result": {"structuredContent": res}})
+emit({"type": "assistant", "message": {"content": [{"type": "text", "text": "DONE"}]}})
+emit({"type": "result", "subtype": "success", "result": "DONE", "total_cost_usd": 0.002, "duration_ms": 900, "usage": {"input_tokens": 1200, "output_tokens": 20}})
+'''
+
+
+def msg(mid, tid, ts, sender="Pat Doe <pat@vendor.example>", labels=("INBOX",), body="The invoice is attached."):
+    return {"id": mid, "threadId": tid, "internalDate": str(ts * 1000), "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),
+            "labelIds": list(labels), "sender": sender, "toRecipients": ["Alex <alex@example.com>"], "subject": "Invoice 42",
+            "snippet": body[:40], "plaintextBody": body}
+
+
+class Box:
+    def __init__(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="conn-test-"))
+        self.bin = self.dir / "claude"
+        self.bin.write_text(FAKE)
+        self.bin.chmod(self.bin.stat().st_mode | stat.S_IEXEC)
+        self.file, self.log = self.dir / "box.json", self.dir / "calls.log"
+        os.environ["FAKE_BOX"], os.environ["FAKE_LOG"] = str(self.file), str(self.log)
+        self.data = {"threads": []}
+        self.save()
+
+    def save(self):
+        self.file.write_text(json.dumps(self.data))
+
+    def mail(self, **kw):
+        return C.ConnectorMail({"provider": "connector", "bin": str(self.bin), **kw}, "alex@example.com", "newer_than:2d", "", self.dir)
+
+    def argv(self):
+        return [json.loads(x) for x in self.log.read_text().splitlines()]
+
+
+def test_changed_threads_sees_new_messages_once():
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now - 60)]}]
+    b.save()
+    m = b.mail()
+    changed, cur, rebase = m.changed_threads(f"t:{now - 300}")
+    assert changed == {"t1"} and cur.startswith("t:") and rebase is False
+    changed, _, _ = m.changed_threads(cur)
+    assert changed == set(), "a thread with nothing new is not changed again"
+    b.data["threads"][0]["messages"].append(msg("m2", "t1", now))
+    b.save()
+    changed, _, _ = m.changed_threads(cur)
+    assert changed == {"t1"}
+
+
+def test_spam_and_promotions_alone_do_not_count():
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t9", "messages": [msg("m9", "t9", now - 10, labels=("CATEGORY_PROMOTIONS",))]}]
+    b.save()
+    assert b.mail().changed_threads(f"t:{now - 300}")[0] == set()
+
+
+def test_thread_raw_reads_like_the_gmail_api():
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now - 60, body="Please confirm the install date.")]}]
+    b.save()
+    raw = b.mail().thread_raw("t1")
+    assert raw[0]["id"] == "m1" and raw[0]["threadId"] == "t1" and raw[0]["internalDate"] == str((now - 60) * 1000)
+    from inbox_monitor import engine as E
+    E.MAILBOX = "alex@example.com"
+    row = E.parse_message(raw[0])
+    assert row["subject"] == "Invoice 42" and row["sender"].startswith("Pat Doe") and "install date" in row["body"]
+    assert row["ts"] == now - 60 and row["from_brad"] == 0
+
+
+def test_missing_thread_is_a_404():
+    b = Box()
+    try:
+        b.mail().thread_raw("nope")
+    except C.MailError as e:
+        assert e.resp.status == 404
+    else:
+        raise AssertionError("expected a 404")
+
+
+def test_prefetch_batches_threads_into_few_calls():
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": f"t{i}", "messages": [msg(f"m{i}", f"t{i}", now - i)]} for i in range(10)]
+    b.save()
+    m = b.mail()
+    m.prefetch_threads([f"t{i}" for i in range(10)])
+    assert len(b.argv()) == 2, "10 threads at 8 per call is two calls"
+    m.thread_raw("t3")
+    assert len(b.argv()) == 2, "a prefetched thread costs no further call"
+
+
+def test_skipped_calls_are_retried():
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now)]}, {"id": "t2", "messages": [msg("m2", "t2", now)]}]
+    b.data["skip_first"] = 1
+    b.save()
+    m = b.mail()
+    m.prefetch_threads(["t1", "t2"])
+    assert len(b.argv()) == 2 and "t1" in m._cache and "t2" in m._cache
+
+
+def test_the_call_is_locked_to_read_tools():
+    b = Box()
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", int(time.time()))]}]
+    b.save()
+    m = b.mail()
+    m.thread_raw("t1")
+    argv = b.argv()[0]
+    assert argv[argv.index("--tools") + 1] == ""
+    assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
+    denied = argv[argv.index("--disallowedTools") + 1].split(",")
+    assert "mcp__claude_ai_Gmail__send_message" in denied and "mcp__claude_ai_Gmail__trash_thread" in denied and "mcp__claude_ai_Google_Drive" in denied
+    assert set(argv[argv.index("--allowedTools") + 1].split(",")) == set(C.READ_TOOLS)
+    settings = json.loads(argv[argv.index("--settings") + 1])
+    hook = settings["hooks"]["PreToolUse"][0]
+    assert hook["matcher"] == "*"
+    guard = m.fetch.guard
+    import subprocess
+    for tool, allowed in (("mcp__claude_ai_Gmail__get_thread", True), ("mcp__claude_ai_Gmail__send_message", False), ("Bash", False)):
+        r = subprocess.run([sys.executable, "-I", str(guard)], input=json.dumps({"tool_name": tool}), capture_output=True, text=True)
+        decided = json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] if r.stdout.strip() else "allow"
+        assert (decided == "allow") == allowed, (tool, decided)
+
+
+def test_no_connector_says_how_to_fix_it():
+    b = Box()
+    b.data["no_connector"] = True
+    b.save()
+    try:
+        b.mail().changed_threads(f"t:{int(time.time())}")
+    except C.MailError as e:
+        assert e.resp.status == 401 and "Connectors" in str(e)
+    else:
+        raise AssertionError("expected a 401")
+
+
+def test_whoami_is_the_sender_of_sent_mail():
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now, sender="Alex Rivera <Alex@Example.com>", labels=("SENT",))]}]
+    b.save()
+    assert b.mail().whoami() == {"email": "alex@example.com", "name": "Alex Rivera"}
+
+
+def test_cursors_do_not_cross_sources():
+    assert C.ConnectorMail.cursor_ok("t:1790000000") and not C.ConnectorMail.cursor_ok("123456")
+
+
+if __name__ == "__main__":
+    for name, fn in list(globals().items()):
+        if name.startswith("test_"):
+            fn()
+            print("ok", name)
