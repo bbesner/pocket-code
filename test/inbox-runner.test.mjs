@@ -35,7 +35,7 @@ function rig({ sources = {}, tz = 'America/New_York', box = {} } = {}) {
   fs.writeFileSync(boxFile, JSON.stringify(box));
   const data = path.join(dir, 'data'); fs.mkdirSync(data);
   const settings = { inbox: true, ownerTimezone: tz }, logs = [], pushes = [];
-  const runner = new InboxRunner({ dataDir: data, appDir: repo, claudeBin: bin, sessionDir: dir, settings: () => settings, store: { sources }, log: m => logs.push(m),
+  const runner = new InboxRunner({ dataDir: data, appDir: repo, claudeBin: bin, sessionDir: dir, home: dir, settings: () => settings, store: { sources }, log: m => logs.push(m),
     notify: (t, b) => pushes.push([t, b]), env: () => ({ ...process.env, FAKE_BOX: boxFile, POCKET_DATA_DIR: data, HOME: dir }) });
   return { dir, data, runner, settings, logs, pushes, boxFile };
 }
@@ -70,6 +70,8 @@ test('sets up from the connector, starts from now, then ticks', async () => {
   assert.match(cfg, /timezone = "America\/New_York"/);
   assert.match(cfg, /provider = "connector"/);
   assert.match(cfg, /\[judge\]\nkind = "claude"/);
+  assert.match(cfg, /docs_dir = ".*inbox-watch\/files"/); // Files keeps only files in the home directory
+
   assert.equal(r.runner.status().state, 'setting-up');
   assert.equal(r.runner.status().mailbox, 'alex@example.com');
   await r.runner.step(); // --baseline-only
@@ -80,6 +82,10 @@ test('sets up from the connector, starts from now, then ticks', async () => {
   r.runner.retime(r.settings.ownerTimezone);
   assert.match(fs.readFileSync(path.join(r.data, 'inbox-watch', 'config.toml'), 'utf8'), /timezone = "America\/Chicago"/);
   assert.equal(r.runner.state.timezone, 'America/Chicago');
+  const file = path.join(r.data, 'inbox-watch', 'config.toml'); // a config from before docs_dir gains it
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^docs_dir = .*\n/m, ''));
+  r.runner.checked = false; r.runner.upgradeConfig();
+  assert.match(fs.readFileSync(file, 'utf8'), /root = .*\ndocs_dir = ".*inbox-watch\/files"\nemail = false/);
 });
 
 test('no Gmail connector says what to connect', async () => {

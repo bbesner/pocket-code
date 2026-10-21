@@ -18,12 +18,15 @@ const BACKFILL_DAYS = 14; // the connector reads a thread per call slot; two wee
 const toml = v => JSON.stringify(String(v)); // TOML basic strings take JSON's escapes
 
 export class InboxRunner {
-  constructor({ dataDir, appDir, claudeBin, sessionDir, env, settings, store, log, notify, python = 'python3', now = () => Date.now() }) {
-    Object.assign(this, { appDir, claudeBin, sessionDir, env, settings, store, log, notify, python, now });
+  constructor({ dataDir, appDir, claudeBin, sessionDir, env, settings, store, log, notify, python = 'python3', home = process.env.HOME || '', now = () => Date.now() }) {
+    Object.assign(this, { appDir, claudeBin, sessionDir, env, settings, store, log, notify, python, home, now });
     this.dir = path.join(dataDir, 'inbox-watch');
     this.config = path.join(this.dir, 'config.toml');
     this.statusFile = path.join(this.dir, 'status.json');
     this.watchDir = path.join(appDir, 'inbox-watch');
+    // Digests and look-aheads are kept in Files, which takes only files in the home directory outside hidden folders.
+    const inside = path.join(this.dir, 'files');
+    this.docsDir = home && inside.startsWith(home + path.sep) && !path.relative(home, inside).split(path.sep).some(p => p.startsWith('.')) ? inside : path.join(home, 'inbox-watch-files');
     this.busy = null; // { proc, startedAt, what }
     this.state = this.readStatus();
   }
@@ -56,6 +59,7 @@ export class InboxRunner {
       return;
     }
     if (!fs.existsSync(this.config)) return this.setup();
+    if (!this.checked) this.upgradeConfig();
     if (s.ownerTimezone && this.state.timezone && s.ownerTimezone !== this.state.timezone) this.retime(s.ownerTimezone);
     if (!this.state.baselined) return this.baseline();
     if (this.state.backfill === 'due') return this.backfill();
@@ -103,7 +107,7 @@ export class InboxRunner {
       const msg = who.error || errLine(r) || 'The Gmail connector did not answer.';
       return this.setStatus({ state: who.status === 401 ? 'needs-connector' : 'error', message: msg });
     }
-    const key = [path.join(process.env.HOME || '', '.config', 'openrouter', 'keys', 'inbox-monitor.key')].find(f => fs.existsSync(f));
+    const key = [path.join(this.home, '.config', 'openrouter', 'keys', 'inbox-monitor.key')].find(f => fs.existsSync(f));
     const name = who.name || who.email.split('@')[0];
     const lines = [
       `# Inbox Watch for ${who.email}, written by Pocket Code on ${new Date(this.now()).toISOString().slice(0, 10)}.`,
@@ -120,7 +124,7 @@ export class InboxRunner {
       `key_file = ${toml(key || '~/.config/openrouter/keys/inbox-monitor.key')}`, 'key_env = "OPENROUTER_API_KEY"', '',
       '[tidy]', 'enabled = true', 'every_hours = 2', '',
       '[pocket]', `root = ${toml(this.appDir)}`, `session_dir = ${toml(this.sessionDir)}`, 'provider = "claude"', '',
-      '[[delivery]]', 'kind = "pocket"', `root = ${toml(this.appDir)}`, 'email = false', '',
+      '[[delivery]]', 'kind = "pocket"', `root = ${toml(this.appDir)}`, `docs_dir = ${toml(this.docsDir)}`, 'email = false', '',
     ];
     const prefs = path.join(this.dir, 'preferences.md');
     if (!fs.existsSync(prefs)) fs.writeFileSync(prefs, '');
@@ -128,6 +132,15 @@ export class InboxRunner {
     fs.renameSync(this.config + '.tmp', this.config);
     this.log(`inbox runner: set up for ${who.email} (${tz})`);
     this.setStatus({ state: 'setting-up', mailbox: who.email, timezone: tz, message: 'Starting from now…', baselined: false });
+  }
+
+  // Keys a config written by an earlier runner lacks (1.74.0 before docs_dir: look-aheads were written to /tmp, which Files refuses).
+  upgradeConfig() {
+    this.checked = true;
+    const text = fs.readFileSync(this.config, 'utf8');
+    if (!/^# Inbox Watch for .*written by Pocket Code/m.test(text) || /^docs_dir = /m.test(text)) return;
+    const next = text.replace(/^(\[\[delivery\]\]\nkind = "pocket"\nroot = .*)$/m, `$1\ndocs_dir = ${toml(this.docsDir)}`);
+    if (next !== text) { fs.writeFileSync(this.config + '.tmp', next); fs.renameSync(this.config + '.tmp', this.config); this.log('inbox runner: config gains docs_dir'); }
   }
 
   // The owner signed in from another time zone (or the first one was a guess): the digest and quiet hours follow them.
