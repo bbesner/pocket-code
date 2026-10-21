@@ -223,6 +223,13 @@ test('scrubber: every form of a value, across chunk boundaries; short values are
   let out='';for(const chunk of ['token=sk-live-hun','ter2-0123456789ab','cdef; b64=',Buffer.from(SECRET).toString('base64'),' url=',encodeURIComponent('P@ss word "quoted"'),' json=',JSON.stringify('P@ss word "quoted"'),' done'])out+=s.push(chunk);out+=s.end();
   assert.equal(out,'token={{vault}}; b64={{vault}} url={{vault}} json="{{vault}}" done');
   const one=scrubber(['abcdef']);assert.equal(one.push('x')+one.push('abc')+one.push('def')+one.push('y')+one.end(),'x{{vault}}y');
+  // 1.73.3: the spellings other JSON writers use. PHP's json_encode escapes "/", Python's json.dumps writes non-ASCII as \uXXXX, and a JSON
+  // string carried inside another JSON string is escaped twice; none of them matched before.
+  const php=scrubber(['abc/def+ghi']);assert.equal(php.push('{"token":"abc\\/def+ghi"}')+php.end(),'{"token":"{{vault}}"}','PHP json_encode');
+  const py=scrubber(['clé-secrète-1234']);assert.equal(py.push('"cl\\u00e9-secr\\u00e8te-1234"')+py.end(),'"{{vault}}"','Python json.dumps');
+  const both=scrubber(['clé/x-1234']);assert.equal(both.push('"cl\\u00e9\\/x-1234"')+both.end(),'"{{vault}}"','PHP does both at once');
+  const twice=scrubber(['a"b/c-1234']);assert.equal(twice.push(JSON.stringify(JSON.stringify('a"b/c-1234')))+twice.end(),'"\\"{{vault}}\\""','a JSON string inside a JSON string');
+  const split=scrubber(['abc/def+ghi']);assert.equal(split.push('x=abc\\')+split.push('/def+ghi;')+split.end(),'x={{vault}};','the new forms cross chunk boundaries like the others');
 });
 
 test('runWithSecrets: the value is in the child environment only, scrubbed from both streams; timeout, cap and a missing binary',async()=>{
@@ -234,6 +241,20 @@ test('runWithSecrets: the value is in the child environment only, scrubbed from 
   r=await run(['sh','-c','yes | head -c 50000; echo END'],{maxOutput:1000});assert.equal(r.truncated,true);assert.ok(r.out.length<=1000);assert.doesNotMatch(r.out,/END/);
   r=await run(['/nonexistent/binary']);assert.match(r.error,/ENOENT/);
   const ac=new AbortController();const p=run(['sh','-c','sleep 5'],{signal:ac.signal});setTimeout(()=>ac.abort(),100);r=await p;assert.notEqual(r.code,0);
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
+// 1.73.3: lock() used to wake a waiter with an unanswered row; the run route then showed the agent a TypeError and the fill
+// route threw from an async handler and never answered. Now the row is answered "locked" first.
+test('lock() answers a waiting request locked, so a continuation meets a decision and never an unanswered row',async()=>{
+  const dir=tmp(),s=new VaultStore(path.join(dir,'vault.enc'),{key:parseKey(newKey())});
+  s.act({action:'add',name:'alpha',kind:'token',values:{value:SECRET}});
+  s.setPassphrase('correct horse battery','correct horse battery');
+  const bound=s.resolveBindings({T:'alpha'}),cmd=s.checkCommand(['true'],dir),need=s.decide(bound,cmd);assert.equal(need.length,1);
+  const r=s.request({bound,cmd,need,env:{T:'alpha'},by:'agent'});
+  const waiting=s.waitAnswer(r.id,5000);
+  s.lock();
+  const answered=await waiting;assert.equal(answered.answer.decision,'locked');assert.equal(s.requests.size,0);
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
@@ -249,7 +270,7 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});fs.mkdirSync(path.join(dir,'data'),{recursive:true});
   let child,logs='';
   const start=async(withKey)=>{
-   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),...(withKey?{POCKET_VAULT_KEY:key}:{})},stdio:['ignore','pipe','pipe']});
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),POCKET_SMTP_URL:'file:'+path.join(dir,'mail.jsonl'),POCKET_SMTP_FROM:'pocket@example.test',POCKET_ROUTER_KEY:'router-key-not-real',...(withKey?{POCKET_VAULT_KEY:key}:{})},stdio:['ignore','pipe','pipe']});
    child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
    for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
    if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start(withKey);}
@@ -277,6 +298,8 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   assert.equal((await call('/new',{cwd:repo,text:'Before',provider:'claude',clientMessageId:randomUUID()})).status,202);
   for(let i=0;i<50&&calls().length<1;i++)await sleep(50);
   assert.equal(calls().at(-1).vault,false,'no vault line while off');assert.equal(calls().at(-1).vaultKeySeen,false,'the key is never in a runner environment');
+  assert.deepEqual(calls().at(-1).daemonSecretsSeen,[],'1.73.3: nor the SMTP address, the sender or the router key');
+  assert.equal('vault' in ((await call('/me',null,{})).body.features||{}),false,'1.73.3: signed out, /api/me does not say which modules are on');
   assert.ok(calls().at(-1).runnerToken,'every runner carries a runner token');assert.equal(calls().at(-1).sessionEnv,calls().at(-1).id);
   for(let i=0;i<60&&!/turn done/.test(logs);i++)await sleep(50); // the first turn must finish: only idle runners restart
   st=await call('/settings',{vault:true});assert.equal(st.status,200);assert.equal(st.body.vault,true);assert.equal(st.body.vaultReady,true);
@@ -312,9 +335,10 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   assert.equal(JSON.stringify(snap.body).includes('hunter2'),false);assert.equal(JSON.stringify(snap.body).includes('P@ss'),false);assert.equal(JSON.stringify(snap.body).includes('owner note'),false,'agents never see notes');
   assert.equal(snap.body.trash.length,0);
   // A run against an auto item: scrubbed output, exit code, no key or daemon secret in the child.
-  let r=await streamCall('/vault/run',{argv:['sh','-c','echo "u=$U p=$P"; printf %s "$P" | base64; env | grep -c "POCKET_VAULT_KEY\\|POCKET_PASSWORD\\|POCKET_SECRET" || true; exit 2'],cwd:dir,env:{U:'vendor-portal.username',P:'vendor-portal.password'}},agent);
+  let r=await streamCall('/vault/run',{argv:['sh','-c','echo "u=$U p=$P"; printf %s "$P" | base64; env | grep -c "POCKET_VAULT_KEY\\|POCKET_PASSWORD\\|POCKET_SECRET\\|POCKET_SMTP_URL\\|POCKET_SMTP_FROM\\|POCKET_ROUTER_KEY" || true; exit 2'],cwd:dir,env:{U:'vendor-portal.username',P:'vendor-portal.password'}},agent);
   assert.equal(r.status,200);const out=r.events.filter(e=>e.t==='out').map(e=>e.s).join('');
   assert.equal(out,'u={{vault:vendor-portal}} p={{vault:vendor-portal}}\n{{vault:vendor-portal}}\n0\n',JSON.stringify(r.events));assert.equal(r.events.at(-1).t,'exit');assert.equal(r.events.at(-1).code,2);
+  r=await streamCall('/vault/run',{argv:['true'],cwd:dir,env:{U:'vendor-portal.username'}},{...bearer,'x-pocket-runner':'not-a-token'});assert.equal(r.events[0].t,'start','1.73.3: an unknown runner token of any length is a terminal caller, not an error');
   // Owner-only: refused with a code the CLI maps to exit 5.
   r=await streamCall('/vault/run',{argv:['true'],cwd:dir,env:{B:'bank'}},agent);assert.equal(r.events.at(-1).t,'error');assert.equal(r.events.at(-1).code,'owner_only');
   // Ask policy: a request appears, the owner answers "always", the run proceeds; the recipe then runs without asking.
@@ -445,6 +469,46 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   assert.equal((await call('/settings',{vault:false})).body.vault,false);
   o=await cli(['list']);assert.equal(o.code,3);assert.match(o.stderr,/Settings → Projects, files, tasks & vault/);
   assert.equal((await call('/vault')).status,404);
+});
+
+// 1.73.3: locking the Vault while agents wait. Before, the run route reported a TypeError to the agent and the fill route
+// never answered at all (an async Express 4 handler threw), so the relay's tool call hung for minutes.
+test('HTTP: a lock while a run and a fill wait for the owner answers both at once, as locked',async t=>{
+  const dir=tmp();let port=19731;
+  const secret=randomUUID(),exp=Date.now()+3600000,key=newKey();
+  const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
+  const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
+  fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});fs.mkdirSync(path.join(dir,'data'),{recursive:true});
+  let child,logs='';
+  const start=async()=>{
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),POCKET_VAULT_KEY:key},stdio:['ignore','pipe','pipe']});
+   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
+   throw Error('Test server failed: '+logs);
+  };
+  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
+  const streamCall=async(p,body,h)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:'POST',headers:h,body:JSON.stringify(body)});if(!r.ok)return {status:r.status,events:[],body:await r.json().catch(()=>({}))};const text=await r.text();return {status:r.status,events:text.trim().split('\n').filter(Boolean).map(l=>JSON.parse(l))};};
+  await start();
+  const bearer={'content-type':'application/json',authorization:'Bearer '+fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim()};
+  assert.equal((await call('/settings',{vault:true})).body.vault,true);
+  assert.equal((await call('/vault/act',{action:'add',name:'alpha',kind:'token',values:{value:SECRET}})).status,200,'asks once per command');
+  assert.equal((await call('/vault/passphrase',{action:'set',passphrase:'correct horse battery',confirm:'correct horse battery'})).status,200);
+  // A run and a fill, each waiting for the owner's answer.
+  const run=streamCall('/vault/run',{argv:['sh','-c','echo "t=$T"'],cwd:dir,env:{T:'alpha'},wait:60},bearer);
+  const fill=call('/vault/release',{refs:['alpha'],server:'browser',tool:'type',cwd:dir,wait:60},bearer);
+  let reqs=[];for(let i=0;i<80&&reqs.length<2;i++){await sleep(50);reqs=(await call('/vault')).body.requests;}
+  assert.equal(reqs.length,2,'both are pending');
+  const t0=Date.now();assert.equal((await call('/vault/lock',{})).status,200);
+  const r=await run;assert.equal(r.events.at(-1).t,'error',JSON.stringify(r.events));assert.equal(r.events.at(-1).code,'vault_locked');assert.match(r.events.at(-1).message,/locked/);
+  const f=await fill;assert.equal(f.status,423,JSON.stringify(f.body));assert.equal(f.body.code,'vault_locked');assert.equal('values' in f.body,false);
+  assert.ok(Date.now()-t0<3000,'both answered at once, not after a timeout');
+  assert.doesNotMatch(logs,/TypeError|unhandled rejection/);
+  assert.equal((await call('/health')).status,200);
+  assert.equal((await call('/vault')).body.requests.length,0,'nothing left pending');
+  // The requests cannot be continued after the lock either.
+  assert.equal((await call('/vault/release',{request:reqs[1].id},bearer)).status,423,'the store is locked');
 });
 
 // 1.44.2: the owner corrects a value in place. The editor's Show loads the saved value (an owner view, recorded), the

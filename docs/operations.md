@@ -240,7 +240,9 @@ service worker with the signed-in cookie.
 in the mail use `POCKET_PUBLIC_URL`, or the address the owner last signed in from
 (`publicUrl` in `pocket-settings.json`). `POCKET_SMTP_URL=file:/path` appends each message
 as a JSON line instead of sending; the tests use it. `/api/notify/test-email` sends a test
-message to the saved address.
+message to the saved address. The daemon reads `POCKET_SMTP_URL` and `POCKET_SMTP_FROM` at start and
+removes them from its environment (1.73.3), as it does the Vault key, so no agent turn, hook, keeper or
+Vault run inherits the mail password; `POCKET_ROUTER_KEY` is handled the same way.
 
 The hook is a shell command line, started with the same environment as agent turns (Pocket's own secrets removed, 1.37.1), that reads
 one JSON object on standard input. A project reminder carries `project`, `projectName`,
@@ -351,7 +353,9 @@ For each tool call that names a placeholder, the relay asks `POST /api/vault/rel
 from its environment, so the fill is tied to the session) under the Agent access policy, with the command recorded as
 `pocket-fill <server> <tool>`; it types the values into the call and scrubs every value it has released (all forms)
 from the server's replies, notifications and stderr for the rest of its life. `POCKET_VAULT_FILL_WAIT` (seconds,
-default 90) is how long a fill waits for an approval before telling the agent to call again. The values pass through
+default 90) is how long a fill waits for an approval before telling the agent to call again; the relay gives the daemon
+that long plus 15 seconds to answer (1.73.3). If the owner locks the Vault while a request is waiting, the run is told so
+(`pocket-vault` exits 3) and the fill is answered `423 vault_locked`; neither can be continued afterwards. The values pass through
 the relay and the browser tool, which run as the same OS user as the agent; the model and the transcript never see
 them. A Claude Code PreToolUse hook could rewrite the call too, but Claude Code records hook output in the transcript
 file, so the relay is the only clean path.

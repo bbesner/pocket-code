@@ -1,12 +1,12 @@
 {
-  "version": "1.73.2",
-  "assetV": 144,
+  "version": "1.73.3",
+  "assetV": 145,
   "notes": [
+    "Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on.",
+    "Vault and Codex hardening: a bare null line from a Codex app-server no longer stops Pocket, the Vault scrubs the JSON spellings PHP and Python write, and locking the Vault while an agent waits answers the agent at once instead of leaving it hanging.",
     "Sessions no longer get stuck when another agent searches Pocket's folder: each session's input pipe now lives in a private folder outside it, so a search can't swallow its approvals, messages or Stop.",
     "Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads).",
     "Your rules for Inbox Watch: Settings → Inbox Watch opens on a box for your own words about what you always or never want to hear about (\"tell me about every sale\", \"never tell me about cameras that go offline\"). The watcher follows them on every check, and they win over its own judgment.",
-    "Inbox Watch's watcher now ships inside Pocket Code (inbox-watch/), versioned and released with the rest, so the Inbox, its settings and the program that fills it are one project.",
-    "The Inbox keeps itself tidy: with Settings → Inbox Watch → Keep the Inbox tidy on, the watcher takes off your list what has been resolved or handled since, with the reason, and the list opens on Open, with a Done filter for everything finished.",
-    "Inbox digests read cleanly: a digest's headings and bullet lines show as a heading and bullets in its sheet, and the row shows its first real sentence instead of the raw marks."
+    "Inbox Watch's watcher now ships inside Pocket Code (inbox-watch/), versioned and released with the rest, so the Inbox, its settings and the program that fills it are one project."
   ]
 }

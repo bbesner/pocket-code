@@ -4,8 +4,9 @@ test('account status returns only whitelisted identity metadata',()=>{
  assert.deepEqual(Object.keys(row).sort(),['provider','signedIn','method','email','plan'].sort());assert.doesNotMatch(JSON.stringify(row),/never return/);
 });
 test('agent turns never inherit the daemon login, cookie or push secrets',()=>{
- const env=agentEnv({PATH:'/bin',POCKET_PASSWORD:'p',POCKET_SECRET:'s',VAPID_PRIVATE:'v',POCKET_VAULT_KEY:'k',VAPID_PUBLIC:'pub',POCKET_SESSION_ROOT:'/x'});
- assert.deepEqual(env,{PATH:'/bin',VAPID_PUBLIC:'pub',POCKET_SESSION_ROOT:'/x'});
+ const env=agentEnv({PATH:'/bin',POCKET_PASSWORD:'p',POCKET_SECRET:'s',VAPID_PRIVATE:'v',POCKET_VAULT_KEY:'k',POCKET_VAULT_KEY_PREVIOUS:'k0',VAPID_PUBLIC:'pub',POCKET_SESSION_ROOT:'/x',
+  POCKET_SMTP_URL:'smtps://pocket:mail-password-not-real@smtp.example.test:465',POCKET_SMTP_FROM:'pocket@example.test',POCKET_ROUTER_KEY:'router-key-not-real',POCKET_ROUTER_KEY_FILE:'/x/router.key'});
+ assert.deepEqual(env,{PATH:'/bin',VAPID_PUBLIC:'pub',POCKET_SESSION_ROOT:'/x',POCKET_ROUTER_KEY_FILE:'/x/router.key'},'1.73.3: the SMTP address (it carries the mail password), the sender and the router key stay with the daemon; a key file path is not a value');
 });
 test('a signed-out CLI (exit 1 with a status) reads as signed out, not unknown',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-auth-'));const bin=path.join(dir,'claude');
