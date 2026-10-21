@@ -28,14 +28,27 @@ for i, c in enumerate(calls):
 emit({"type": "result", "subtype": "success", "result": "DONE", "total_cost_usd": 0.001, "duration_ms": 10, "usage": {"input_tokens": 10, "output_tokens": 1}})
 `;
 
-function rig({ sources = {}, tz = 'America/New_York', box = {} } = {}) {
+const FAKE_CODEX = `#!/usr/bin/env python3
+import json, sys
+if __import__("os").environ.get("FAKE_CODEX_NO_GMAIL"):
+    print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "No Gmail tool."}})); sys.exit()
+print(json.dumps({"type": "item.completed", "item": {"type": "mcp_tool_call", "tool": "gmail.get_profile", "arguments": {}, "status": "completed",
+    "result": {"structured_content": {"email": "alex@example.com", "name": "Alex Rivera"}}}}))
+print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 1}}))
+`;
+
+function rig({ sources = {}, tz = 'America/New_York', box = {}, claude = true, codex = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inbox-runner-'));
   const bin = path.join(dir, 'claude'), boxFile = path.join(dir, 'box.json');
   fs.writeFileSync(bin, FAKE, { mode: 0o755 });
   fs.writeFileSync(boxFile, JSON.stringify(box));
   const data = path.join(dir, 'data'); fs.mkdirSync(data);
   const settings = { inbox: true, ownerTimezone: tz }, logs = [], pushes = [];
-  const runner = new InboxRunner({ dataDir: data, appDir: repo, claudeBin: bin, sessionDir: dir, home: dir, settings: () => settings, store: { sources }, log: m => logs.push(m),
+  const codexBin = path.join(dir, 'codex');
+  fs.writeFileSync(codexBin, FAKE_CODEX, { mode: 0o755 });
+  fs.mkdirSync(path.join(dir, '.codex')); fs.writeFileSync(path.join(dir, '.codex', 'auth.json'), '{}');
+  const runner = new InboxRunner({ dataDir: data, appDir: repo, claudeBin: claude ? bin : path.join(dir, 'no-claude'), codexBin: codex ? codexBin : null,
+    codexHome: path.join(dir, '.codex'), sessionDir: dir, home: dir, settings: () => settings, store: { sources }, log: m => logs.push(m),
     notify: (t, b) => pushes.push([t, b]), env: () => ({ ...process.env, FAKE_BOX: boxFile, POCKET_DATA_DIR: data, HOME: dir }) });
   return { dir, data, runner, settings, logs, pushes, boxFile };
 }
@@ -94,4 +107,35 @@ test('no Gmail connector says what to connect', async () => {
   const s = r.runner.status();
   assert.equal(s.state, 'needs-connector');
   assert.match(s.message, /Connectors/);
+});
+
+test('a Codex-only server reads Gmail and judges with Codex', async () => {
+  const r = rig({ claude: false, codex: true });
+  await r.runner.step();
+  const cfg = fs.readFileSync(path.join(r.data, 'inbox-watch-data', 'config.toml'), 'utf8');
+  assert.match(cfg, /email = "alex@example.com"/);
+  assert.match(cfg, /agent = "codex"\nbin = .*\nmodel = "gpt-6-luna"/);
+  assert.match(cfg, /\[judge\]\nkind = "codex"/);
+  assert.match(cfg, /\[pocket\][^[]*provider = "codex"/);
+  assert.doesNotMatch(cfg, /fallback_agent/);
+  assert.equal(r.runner.status().agent, 'codex');
+});
+
+test('with both, Claude reads and Codex is the fallback', async () => {
+  const r = rig({ claude: true, codex: true });
+  await r.runner.step();
+  const cfg = fs.readFileSync(path.join(r.data, 'inbox-watch-data', 'config.toml'), 'utf8');
+  assert.match(cfg, /agent = "claude"/);
+  assert.match(cfg, /fallback_agent = "codex"/);
+  assert.match(cfg, /\[mail\.fallback\]\nbin = .*codex"\nmodel = "gpt-6-luna"/);
+  assert.match(cfg, /\[judge\]\nkind = "claude"/);
+  assert.deepEqual([r.runner.status().agent, r.runner.status().fallback], ['claude', 'codex']);
+});
+
+test('neither connected: says to connect Gmail', async () => {
+  const r = rig({ claude: true, codex: true, box: { no_connector: true } });
+  process.env.FAKE_CODEX_NO_GMAIL = '1';
+  try { await r.runner.step(); } finally { delete process.env.FAKE_CODEX_NO_GMAIL; }
+  assert.equal(r.runner.status().state, 'needs-connector');
+  assert.match(r.runner.status().message, /Claude Code or Codex/);
 });

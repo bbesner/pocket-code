@@ -88,8 +88,8 @@ Assistant mode.**
 
 ### Inbox Watch: your mailbox, read for you
 
-Turn it on and Pocket reads your Gmail, through the Gmail connector you already linked to Claude Code
-(1.74: nothing to install or sign in to), on the schedule you set, and interrupts you only when
+Turn it on and Pocket reads your Gmail, through the Gmail connector you already linked to Claude Code or
+Codex (1.74: nothing to install or sign in to), on the schedule you set, and interrupts you only when
 an email tells you something the email itself does not: the third outage this week at the same
 site, a reminder that contradicts what the customer asked for, a bill that is now due. Each
 alert lands in **Inbox** with **Start a conversation**, which opens one already briefed with
@@ -321,12 +321,12 @@ the watcher applies it on its next run, closing the story or adding a line to yo
 Pocket's part is the Inbox (`pocket-inbox`), the push, the briefed conversation (a start link) and
 Files; the watcher itself ships in this repository, in [`inbox-watch/`](inbox-watch/README.md) (1.72).
 **Since 1.74 Pocket runs it**: switching Inbox Watch on is the whole setup. Pocket finds your mailbox through
-Claude Code's Gmail connector (claude.ai → Settings → Connectors; **Settings → Connectors** in Pocket links there),
+Claude Code's Gmail connector or Codex's Gmail app (**Settings → Connectors** in Pocket links to both),
 writes the watcher's config under `<data dir>/inbox-watch-data/`, starts from now, loads two weeks of mail as its memory,
 and runs the watcher every minute; the watcher checks mail only when your schedule says a check is due. The
 Inbox says what it is doing while it sets up, and what to connect when Gmail is missing. A watcher installed by
 hand (its own config and timer, as in that folder's README) is left alone. The connector's reads go through a
-`claude -p` call that may use only Gmail's three read tools. `POCKET_INBOX_RUNNER=0` turns the runner off.
+`claude -p` or `codex exec` call that may use only Gmail's read tools; with both connected, one stands in for the other. `POCKET_INBOX_RUNNER=0` turns the runner off.
 **Schedule, models and cost** (1.70, Settings → Inbox Watch or **Schedule** in the Inbox) sets when it checks
 (periods with their own days, hours and interval), quiet hours, the digest and look-ahead times, a pause, and in
 Developer mode the model and reasoning for each job, with what each day cost. Mail access is Claude Code's Gmail connector (the default since 1.74), the owner's own Gmail consent, or a

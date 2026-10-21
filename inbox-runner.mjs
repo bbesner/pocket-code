@@ -18,8 +18,8 @@ const BACKFILL_DAYS = 14; // the connector reads a thread per call slot; two wee
 const toml = v => JSON.stringify(String(v)); // TOML basic strings take JSON's escapes
 
 export class InboxRunner {
-  constructor({ dataDir, appDir, claudeBin, sessionDir, env, settings, store, log, notify, python = 'python3', home = process.env.HOME || '', now = () => Date.now() }) {
-    Object.assign(this, { appDir, claudeBin, sessionDir, env, settings, store, log, notify, python, home, now });
+  constructor({ dataDir, appDir, claudeBin, codexBin = null, codexHome = null, sessionDir, env, settings, store, log, notify, python = 'python3', home = process.env.HOME || '', now = () => Date.now() }) {
+    Object.assign(this, { appDir, claudeBin, codexBin, codexHome, sessionDir, env, settings, store, log, notify, python, home, now });
     this.dir = path.join(dataDir, 'inbox-watch-data'); // not 'inbox-watch': the default data dir is the checkout, which has the watcher's code there
     this.config = path.join(this.dir, 'config.toml');
     this.statusFile = path.join(this.dir, 'status.json');
@@ -44,8 +44,8 @@ export class InboxRunner {
     const s = this.settings();
     if (!s.inbox) return { managed: false, state: 'off' };
     if (this.external()) return { managed: false, state: 'external' };
-    const { state = 'waiting', message = null, mailbox = null, at = null, lastOkAt = null, failures = 0 } = this.state;
-    return { managed: true, state, message, mailbox, at, lastOkAt, failures, running: this.busy?.what || null };
+    const { state = 'waiting', message = null, mailbox = null, agent = null, fallback = null, at = null, lastOkAt = null, failures = 0 } = this.state;
+    return { managed: true, state, message, mailbox, agent, fallback, at, lastOkAt, failures, running: this.busy?.what || null };
   }
 
   start() { this.timer = setInterval(() => this.step().catch(e => this.log(`inbox runner: ${e.message}`)), MINUTE); this.timer.unref?.(); setTimeout(() => this.step().catch(() => {}), 5000).unref?.(); }
@@ -95,18 +95,36 @@ export class InboxRunner {
     });
   }
 
+  // Which agent can read the mailbox: Claude Code's Gmail connector first (Haiku fetches, no bot checks), then Codex's Gmail
+  // app. Both on the same mailbox: the other is the fallback. The judge is Claude when Claude Code runs here, else Codex.
   async setup() {
     const s = this.settings(), tz = s.ownerTimezone;
     if (!tz) { if (this.state.state !== 'waiting') this.setStatus({ state: 'waiting', message: 'Open Pocket Code once on your phone or computer so Inbox Watch knows your time zone.' }); return; }
-    fs.mkdirSync(path.join(this.dir, 'state'), { recursive: true });
+    const stateDir = path.join(this.dir, 'state');
+    fs.mkdirSync(stateDir, { recursive: true });
     this.setStatus({ state: 'setting-up', message: 'Finding your mailbox through the Gmail connector…' });
-    const r = await this.run('setup', ['whoami', '--state', path.join(this.dir, 'state'), '--bin', this.claudeBin], { module: 'inbox_monitor.mail_connector', config: false });
-    let who = {};
-    try { who = JSON.parse(lastLine(r.out) || '{}'); } catch { }
-    if (!who.ok) {
-      const msg = who.error || errLine(r) || 'The Gmail connector did not answer.';
-      return this.setStatus({ state: who.status === 401 ? 'needs-connector' : 'error', message: msg });
+    const found = [], failed = {};
+    for (const [agent, bin] of [['claude', this.claudeBin], ['codex', this.codexBin]]) {
+      if (!bin) continue;
+      const r = await this.run('setup', ['whoami', '--agent', agent, '--state', stateDir, '--bin', bin], { module: 'inbox_monitor.mail_connector', config: false });
+      let who = {};
+      try { who = JSON.parse(lastLine(r.out) || '{}'); } catch { }
+      if (who.ok) found.push({ agent, bin, who }); else failed[agent] = { status: who.status, error: who.error || errLine(r) };
     }
+    if (!found.length) {
+      const none = Object.values(failed).every(f => f.status === 401 || f.status === 500);
+      const msg = none ? 'Gmail isn’t connected to Claude Code or Codex on this server. Connect it in Settings → Connectors.' : (failed.claude?.error || failed.codex?.error || 'The Gmail connector did not answer.');
+      return this.setStatus({ state: none ? 'needs-connector' : 'error', message: msg });
+    }
+    const [main] = found, who = main.who;
+    const backup = found.find(f => f.agent !== main.agent && f.who.email === who.email);
+    const claudeRuns = found.some(f => f.agent === 'claude') || failed.claude?.status === 401; // signed in, just no Gmail connector
+    const mailKeys = f => f.agent === 'codex'
+      ? [`bin = ${toml(f.bin)}`, 'model = "gpt-6-luna"', 'reasoning = "low"', ...(this.codexHome ? [`codex_home = ${toml(this.codexHome)}`] : [])]
+      : [`bin = ${toml(f.bin)}`, 'model = "haiku"'];
+    const judge = claudeRuns
+      ? ['[judge]', 'kind = "claude"', `bin = ${toml(this.claudeBin)}`, 'model = "sonnet"', 'reasoning = "medium"', 'timeout = 300']
+      : ['[judge]', 'kind = "codex"', `bin = ${toml(this.codexBin)}`, 'model = "gpt-6-sol"', 'reasoning = "medium"', 'timeout = 300   # isolated: its own CODEX_HOME, no apps'];
     const key = [path.join(this.home, '.config', 'openrouter', 'keys', 'inbox-monitor.key')].find(f => fs.existsSync(f));
     const name = who.name || who.email.split('@')[0];
     const lines = [
@@ -116,22 +134,23 @@ export class InboxRunner {
       '[owner]', `name = ${toml(name)}`, `email = ${toml(who.email)}`, `timezone = ${toml(tz)}`, '',
       '[assistant]', 'name = "Pocket Assistant"', '',
       '[schedule]', 'every = 5', 'quiet_hours = [22, 8]', 'digest_hour = 8', 'lookahead = { morning = [8, 12], evening = [17, 22] }', '',
-      '[mail]', 'provider = "connector"            # the Gmail connector linked to Claude Code (Settings → Connectors)', 'agent = "claude"',
-      `bin = ${toml(this.claudeBin)}`, 'model = "haiku"                    # only fetches; the judge below reads', '',
-      '[judge]', 'kind = "claude"', `bin = ${toml(this.claudeBin)}`, 'model = "sonnet"', 'reasoning = "medium"', 'timeout = 300', '',
+      '[mail]', `provider = "connector"            # Gmail through ${main.agent === 'codex' ? 'Codex’s Gmail app' : 'Claude Code’s Gmail connector'} (Settings → Connectors)`,
+      `agent = ${toml(main.agent)}`, ...mailKeys(main), ...(backup ? [`fallback_agent = ${toml(backup.agent)}   # when a read fails (a bot check, a timeout)`] : []), '',
+      ...(backup ? ['[mail.fallback]', ...mailKeys(backup), ''] : []),
+      ...judge, '',
       '[firstpass]                          # skips routine mail before the judge; needs an OpenRouter key',
       'enabled = true', 'provider = "jev"', 'threshold = 0.8', 'timeout = 20',
       `key_file = ${toml(key || '~/.config/openrouter/keys/inbox-monitor.key')}`, 'key_env = "OPENROUTER_API_KEY"', '',
       '[tidy]', 'enabled = true', 'every_hours = 2', '',
-      '[pocket]', `root = ${toml(this.appDir)}`, `session_dir = ${toml(this.sessionDir)}`, 'provider = "claude"', '',
+      '[pocket]', `root = ${toml(this.appDir)}`, `session_dir = ${toml(this.sessionDir)}`, `provider = ${toml(claudeRuns ? 'claude' : 'codex')}`, '',
       '[[delivery]]', 'kind = "pocket"', `root = ${toml(this.appDir)}`, `docs_dir = ${toml(this.docsDir)}`, 'email = false', '',
     ];
     const prefs = path.join(this.dir, 'preferences.md');
     if (!fs.existsSync(prefs)) fs.writeFileSync(prefs, '');
     fs.writeFileSync(this.config + '.tmp', lines.join('\n'));
     fs.renameSync(this.config + '.tmp', this.config);
-    this.log(`inbox runner: set up for ${who.email} (${tz})`);
-    this.setStatus({ state: 'setting-up', mailbox: who.email, timezone: tz, message: 'Starting from now…', baselined: false });
+    this.log(`inbox runner: set up for ${who.email} (${tz}); mail via ${main.agent}${backup ? ', fallback ' + backup.agent : ''}; judge ${claudeRuns ? 'claude' : 'codex'}`);
+    this.setStatus({ state: 'setting-up', mailbox: who.email, timezone: tz, agent: main.agent, fallback: backup?.agent || null, message: 'Starting from now…', baselined: false });
   }
 
   // Keys a config written by an earlier runner lacks (1.74.0 before docs_dir: look-aheads were written to /tmp, which Files refuses).

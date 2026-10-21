@@ -196,6 +196,84 @@ def test_cursors_do_not_cross_sources():
     assert C.ConnectorMail.cursor_ok("t:1790000000") and not C.ConnectorMail.cursor_ok("123456")
 
 
+FAKE_CODEX = r"""#!/usr/bin/env python3
+import json, os, re, sys
+args = sys.argv[1:]
+box = json.load(open(os.environ["FAKE_BOX"]))
+log = open(os.environ["FAKE_LOG"], "a"); log.write(json.dumps({"argv": args, "home": os.environ.get("CODEX_HOME")}) + "\n"); log.close()
+prompt = args[-1]
+def emit(e): print(json.dumps(e))
+if box.get("codex_bot_check"):
+    emit({"type": "turn.failed", "error": {"message": "unexpected status 403 Forbidden: cloudflare challenge"}}); sys.exit(1)
+m = re.search(r"Call gmail_(\w+) exactly once(?: with these arguments: (\{.*\}))?\.", prompt)
+tool, a = m.group(1), json.loads(m.group(2) or "{}")
+if tool == "get_profile":
+    res = {"email": "Alex@Example.com", "name": "Alex Rivera"}
+elif tool == "search_emails":
+    res = {"emails": [{"id": x["id"], "thread_id": t["id"], "from_": x["sender"], "labels": x["labelIds"]} for t in box["threads"] for x in t["messages"][-1:]]}
+else:
+    res = {"responses": [{"id": t["id"], "messages": [{"id": x["id"], "thread_id": t["id"], "label_ids": x["labelIds"], "internal_date": x["internalDate"],
+            "snippet": x["snippet"], "payload": {"mime_type": "multipart/alternative", "headers": [{"name": "From", "value": x["sender"]}, {"name": "Subject", "value": x["subject"]}],
+            "body": {"content": None}, "parts": [{"mime_type": "text/plain", "body": {"content": x["plaintextBody"]}, "parts": []}]}} for x in t["messages"]]}
+            for t in box["threads"] if t["id"] in a.get("thread_ids", [])]}
+emit({"type": "item.completed", "item": {"type": "mcp_tool_call", "server": "codex_apps", "tool": "gmail." + tool, "arguments": a, "status": "completed",
+      "result": {"content": [{"type": "text", "text": "ok"}], "structured_content": res}}})
+emit({"type": "item.completed", "item": {"type": "agent_message", "text": "DONE"}})
+emit({"type": "turn.completed", "usage": {"input_tokens": 3000, "cached_input_tokens": 1000, "output_tokens": 20}})
+"""
+
+
+def codex_box():
+    b = Box()
+    b.codex = b.dir / "codex"
+    b.codex.write_text(FAKE_CODEX)
+    b.codex.chmod(b.codex.stat().st_mode | stat.S_IEXEC)
+    (b.dir / "codex-src").mkdir()
+    (b.dir / "codex-src" / "auth.json").write_text("{}")
+    return b
+
+
+def test_codex_reads_and_locks_down():
+    b = codex_box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now - 60, body="Codex body text.")]}]
+    b.save()
+    m = C.ConnectorMail({"agent": "codex", "bin": str(b.codex), "codex_home": str(b.dir / "codex-src")}, "alex@example.com", "", "", b.dir)
+    assert m.whoami() == {"email": "alex@example.com", "name": "Alex Rivera"}
+    changed, cur, _ = m.changed_threads(f"t:{now - 300}")
+    assert changed == {"t1"} and m.changed_threads(cur)[0] == set()
+    from inbox_monitor import engine as E
+    E.MAILBOX = "alex@example.com"
+    row = E.parse_message(m.thread_raw("t1")[0])
+    assert row["subject"] == "Invoice 42" and "Codex body text" in row["body"] and row["ts"] == now - 60
+    home = Path(b.argv()[0]["home"])
+    cfg = (home / "config.toml").read_text()
+    assert (home / "auth.json").is_symlink() and os.readlink(home / "auth.json") == str(b.dir / "codex-src" / "auth.json")
+    assert "[apps._default]\nenabled = false" in cfg and "default_tools_enabled = false" in cfg and "destructive_enabled = false" in cfg
+    assert "shell_tool = false" in cfg and 'sandbox_mode = "read-only"' in cfg
+    assert all(f".tools.{t}]\nenabled = true" in cfg for t in C.CODEX_READS) and "send_email" not in cfg
+
+
+def test_codex_bot_check_is_a_503_and_claude_takes_over():
+    b = codex_box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now - 60)]}]
+    b.data["codex_bot_check"] = True
+    b.save()
+    alone = C.ConnectorMail({"agent": "codex", "bin": str(b.codex), "codex_home": str(b.dir / "codex-src")}, "", "", "", b.dir)
+    try:
+        alone.changed_threads(f"t:{now - 300}")
+    except C.MailError as e:
+        assert e.resp.status == 503
+    else:
+        raise AssertionError("expected a 503")
+    logs = []
+    both = C.ConnectorMail({"agent": "codex", "bin": str(b.codex), "codex_home": str(b.dir / "codex-src"), "fallback_agent": "claude",
+                            "fallback": {"bin": str(b.bin)}}, "", "", "", b.dir, log=logs.append)
+    assert both.changed_threads(f"t:{now - 300}")[0] == {"t1"}
+    assert any("using ClaudeConnector" in x for x in logs)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -212,7 +212,7 @@ def gmail_client():
         def on_call(purpose: str, fetcher, n: int) -> None:
             if USAGE_DB is not None:
                 record_call(USAGE_DB, purpose, fetcher, 0, n, bool(getattr(fetcher, "last_usage", None)), CURRENT_RUN)
-        return ConnectorMail(CFG.mail, MAILBOX, BASELINE_QUERY, ARCHIVE_QUERY, STATE, on_call)
+        return ConnectorMail(CFG.mail, MAILBOX, BASELINE_QUERY, ARCHIVE_QUERY, STATE, on_call, log)
     from .mail_gmail import Gmail
     return Gmail(CFG.mail, MAILBOX, BASELINE_QUERY, ARCHIVE_QUERY)
 
