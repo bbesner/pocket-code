@@ -70,6 +70,21 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await tapPlus(),'My own half-written task','a typed draft stays');
    }finally{await ctx.close();}
   });
+  await check('The plus pressed on New conversation itself starts over (desktop)',async()=>{
+   const ctx=await browser.createBrowserContext(),pd=await ctx.newPage();
+   try{
+    await pd.setViewport({width:1440,height:900});
+    await pd.goto(base+'/#/new',{waitUntil:'domcontentloaded'});await pd.waitForSelector('#first');await pd.waitForSelector('#railnew');
+    await pd.evaluate(()=>{saveDraft(NEW_KEY,'Yesterday\'s half-written task');localStorage.setItem('pc-attachments-'+NEW_KEY,JSON.stringify([{path:'/tmp/old.png',name:'old.png'}]));localStorage.setItem('pc-new-start',JSON.stringify({project:'p1',projectName:'Old project'}));route();});
+    await pd.waitForFunction(()=>document.querySelector('#first')?.value==='Yesterday\'s half-written task');
+    await clickControl(pd,'#railnew');
+    await pd.waitForFunction(()=>document.querySelector('#first')?.value==='');
+    assert.equal(await pd.evaluate(()=>location.hash),'#/new');
+    assert.equal(await pd.evaluate(()=>loadAttachments(NEW_KEY).length),0,'old attachments are gone');
+    assert.equal(await pd.evaluate(()=>localStorage.getItem('pc-new-start')),null,'the old project link is gone');
+    await pd.waitForFunction(()=>document.activeElement?.id==='first');
+   }finally{await ctx.close();}
+  });
   await check('Settings usable when service worker fails; explicit notification fallback',async()=>{
    await clickControl(page,'#settings');await page.waitForSelector('#s-usage',{timeout:1000});
    assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),6);
