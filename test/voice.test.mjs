@@ -105,6 +105,41 @@ test('voice service: not installed, custom engine, transcribe, speak, idle stop 
   } finally { delete process.env.FAKE_VOICE_FAIL; }
 });
 
+// 1.73.7: the sidecar's lifecycle. A malformed POCKET_VOICE_COMMAND used to stop the daemon from booting; a junk idle time
+// gave a 1 ms timer; stop() missed an engine still starting; a late exit of an earlier start cleared a newer one, so a third
+// call spawned a second engine; and SIGTERM was never followed by SIGKILL.
+test('voice service: bad settings turn voice off or fall back; stop reaches a starting engine; one engine per start; SIGKILL follows SIGTERM', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pv-')), pids = path.join(dir, 'pids');
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const gone = async (pid, ms = 2000) => { for (let i = 0; i < ms / 50 && alive(pid); i++) await sleep(50); return !alive(pid); };
+  const started = () => fs.existsSync(pids) ? fs.readFileSync(pids, 'utf8').trim().split('\n').filter(Boolean).map(Number) : [];
+  process.env.POCKET_VOICE_COMMAND = '["node", "unterminated';
+  try { const bad = new VoiceService(); assert.equal(bad.status().available, false); assert.match(bad.status().reason, /POCKET_VOICE_COMMAND is not valid JSON/); }
+  finally { delete process.env.POCKET_VOICE_COMMAND; }
+  for (const idleMs of [NaN, 0, -5]) assert.equal(new VoiceService({ command: fake, idleMs }).idleMs, 15 * 60000, `idle ${idleMs} falls back to the default`);
+  Object.assign(process.env, { FAKE_VOICE_PIDFILE: pids, FAKE_VOICE_SLOW: '400' });
+  try {
+    const v = new VoiceService({ command: fake });
+    const first = v.ensure().catch(e => e);
+    for (let i = 0; i < 40 && !started().length; i++) await sleep(25);
+    const [a] = started(); assert.ok(a, 'the first engine started');
+    v.stop();
+    assert.ok(await gone(a), 'stop() ends an engine that is still starting');
+    await sleep(100);
+    const second = v.ensure(), third = v.ensure();
+    const [p2, p3] = await Promise.all([second, third]);
+    assert.equal(p2, p3, 'both calls share the new engine'); assert.equal(started().length, 2, 'the stopped start exiting late did not open a second one');
+    assert.match((await first).message, /stopped|exited/);
+    assert.equal(v.status().lastError, undefined, 'the late exit did not mark the running engine failed');
+    v.stop();
+    process.env.FAKE_VOICE_STUBBORN = '1'; process.env.FAKE_VOICE_SLOW = '0';
+    const s = new VoiceService({ command: fake }); await s.ensure();
+    const stubborn = started().at(-1); s.stop();
+    await sleep(1000); assert.ok(alive(stubborn), 'it ignored SIGTERM');
+    assert.ok(await gone(stubborn, 6000), 'SIGKILL followed');
+  } finally { for (const k of ['FAKE_VOICE_PIDFILE', 'FAKE_VOICE_SLOW', 'FAKE_VOICE_STUBBORN']) delete process.env[k]; fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('HTTP: voice routes require login, report availability and round-trip audio', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-voice-')); let port = 18461, logs = '';
   const secret = randomUUID(), exp = Date.now() + 3600000;

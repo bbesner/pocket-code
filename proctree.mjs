@@ -57,3 +57,19 @@ export function commandLine(pid, { proc = HAS_PROC, run = runPs } = {}) {
   if (proc) { try { return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8'); } catch { return ''; } }
   try { return run(['-o', 'command=', '-p', String(pid)]).trim(); } catch { return ''; }
 }
+
+// 1.73.7: Pocket's short jobs (Vault runs, thumbnail renderers, reminder hooks) are spawned detached, each the leader
+// of its own process group, so a timeout or a stop reaches everything the job started and not just its first process.
+// Signals the process alone only on Windows, which has no groups: elsewhere the leader may be gone and its pid reused.
+// True when a signal was delivered.
+export function signalGroup(pid, sig) {
+  if (!pid) return false;
+  try { process.kill(process.platform === 'win32' ? pid : -pid, sig); return true; } catch { return false; }
+}
+// 1.73.7: proof that a pid recorded earlier is still the same process: this boot's id and the process's start time
+// (clock ticks since boot, /proc/<pid>/stat field 22). Both are null without /proc, and then nothing is proved.
+export const BOOT_ID = (() => { try { return fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim() || null; } catch { return null; } })();
+export function startTime(pid) {
+  if (!pid || !HAS_PROC) return null;
+  try { const s = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); return s.slice(s.lastIndexOf(')') + 2).split(' ')[19] || null; } catch { return null; }
+}

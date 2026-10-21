@@ -244,6 +244,29 @@ test('runWithSecrets: the value is in the child environment only, scrubbed from 
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+// 1.73.7: a run is a process group. Before, a timeout signalled only the direct child and the run resolved on 'close', so a
+// grandchild holding stdout kept the run (and its slot) open until it chose to exit, with the value in its environment; and
+// anything the command left running after it exited stayed alive.
+test('runWithSecrets: timeout, abort and the command\'s own exit end everything it started, promptly',async()=>{
+  const dir=tmp(),pidFile=path.join(dir,'pid');
+  const alive=pid=>{try{process.kill(pid,0);return true;}catch{return false;}};
+  const gone=async pid=>{for(let i=0;i<40&&alive(pid);i++)await new Promise(r=>setTimeout(r,50));return !alive(pid);};
+  const run=(argv,extra={})=>{const t0=Date.now();return runWithSecrets({argv,cwd:dir,env:{PATH:process.env.PATH,HOME:dir},secrets:{TOKEN:SECRET},...extra}).then(r=>({...r,ms:Date.now()-t0}));};
+  const grandchild=()=>Number(fs.readFileSync(pidFile,'utf8'));
+  // A grandchild holds stdout: the timeout still ends the run, and the grandchild with it.
+  let r=await run(['sh','-c',`sleep 6 & echo $! > ${pidFile}; wait`],{timeoutMs:500});
+  assert.equal(r.timedOut,true);assert.ok(r.ms<3000,`timed out run resolved in ${r.ms} ms`);assert.ok(await gone(grandchild()),'the grandchild was ended');
+  // The command exits and leaves a background job holding stdout, then one that let go of its pipes.
+  r=await run(['sh','-c',`sleep 6 & echo $! > ${pidFile}; exit 0`]);
+  assert.equal(r.code,0);assert.ok(r.ms<3000,`run resolved in ${r.ms} ms`);assert.ok(await gone(grandchild()),'the job holding stdout was ended');
+  r=await run(['sh','-c',`sleep 6 >/dev/null 2>&1 & echo $! > ${pidFile}; exit 0`]);
+  assert.equal(r.code,0);assert.ok(await gone(grandchild()),'a run cannot leave a daemon behind');
+  // Abort reaches the grandchild too.
+  const ac=new AbortController();const p=run(['sh','-c',`sleep 6 & echo $! > ${pidFile}; wait`],{signal:ac.signal});setTimeout(()=>ac.abort(),300);
+  r=await p;assert.ok(r.ms<3000,`aborted run resolved in ${r.ms} ms`);assert.ok(await gone(grandchild()));
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
 // 1.73.3: lock() used to wake a waiter with an unanswered row; the run route then showed the agent a TypeError and the fill
 // route threw from an async handler and never answered. Now the row is answered "locked" first.
 test('lock() answers a waiting request locked, so a continuation meets a decision and never an unanswered row',async()=>{

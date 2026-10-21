@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { signalGroup } from './proctree.mjs';
 
 // Fixed fields by kind; any item may carry custom fields beside them (1.39.1), and `credentials` has only custom ones.
 export const KINDS = { api_key: ['value'], token: ['value'], login: ['username', 'password'], credentials: [], note: ['text'] };
@@ -526,22 +527,33 @@ export function scrubber(values, placeholder = '{{vault}}') { return makeScrubSt
 // ---------- the run ----------
 // Spawns the command with the secrets in its environment (never its arguments), no TTY, output piped through the
 // scrubber and capped. `onOut`/`onErr` get scrubbed text as it arrives. Resolves when the child is gone.
+// 1.73.7: the command leads its own process group. Timeout, abort and the output cap signal the whole group (TERM, then
+// KILL after five seconds), and so does the command's own exit: whatever it started and left running is ended, so a run
+// cannot leave a daemon behind holding the values or the output pipes. The run resolves within about two seconds of the
+// command's exit even if something outside the group still holds a pipe.
 export function runWithSecrets({ argv, cwd, env, secrets, placeholders, timeoutMs = LIMITS.timeoutDefault * 1000, maxOutput = LIMITS.output, onOut = () => {}, onErr = () => {}, signal }) {
   return new Promise(resolve => {
     // One replacer per stream: every form of every value becomes that value's own placeholder, longest values first.
     const table = Object.values(secrets).map(v => ({ forms: needlesFor([v]), ph: placeholders?.[v] ? `{{vault:${placeholders[v]}}}` : '{{vault}}' })).filter(p => p.forms.length).sort((a, b) => b.forms[0].length - a.forms[0].length);
     const out = makeScrubStream(table), err = makeScrubStream(table);
-    let total = 0, truncated = false, done = false, timedOut = false, child;
-    const finish = (code, signalName, error) => { if (done) return; done = true; clearTimeout(timer); signal?.removeEventListener?.('abort', abort); resolve({ code, signal: signalName, truncated, timedOut, error }); };
-    const abort = () => { if (child && child.exitCode === null) { try { child.kill('SIGTERM'); } catch { } setTimeout(() => { try { child.kill('SIGKILL'); } catch { } }, 5000).unref(); } };
+    let total = 0, truncated = false, done = false, timedOut = false, child, exited = null, grace = null, aborted = false;
+    const group = sig => signalGroup(child?.pid, sig);
+    const finish = (code, signalName, error) => { if (done) return; done = true; clearTimeout(timer); clearTimeout(grace); signal?.removeEventListener?.('abort', abort); resolve({ code, signal: signalName, truncated, timedOut, error }); };
+    const abort = () => { if (!child?.pid || aborted || done) return; aborted = true; group('SIGTERM'); setTimeout(() => group('SIGKILL'), 5000).unref(); };
     const timer = setTimeout(() => { timedOut = true; abort(); }, timeoutMs);
     signal?.addEventListener?.('abort', abort);
-    try { child = spawn(argv[0], argv.slice(1), { cwd, env: { ...env, ...secrets }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }); }
+    try { child = spawn(argv[0], argv.slice(1), { cwd, env: { ...env, ...secrets }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: true }); }
     catch (e) { return finish(null, null, e.message); }
     child.on('error', e => finish(null, null, e.message));
     const emit = (fn, text) => { if (!text) return; total += text.length; if (total > maxOutput) { if (!truncated) { truncated = true; fn(text.slice(0, Math.max(0, text.length - (total - maxOutput)))); abort(); } return; } fn(text); };
+    const settle = (code, sig) => { if (done) return; emit(onOut, out.end()); emit(onErr, err.end()); finish(code, sig, null); };
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     child.stdout.on('data', c => emit(onOut, out.push(c))); child.stderr.on('data', c => emit(onErr, err.push(c)));
-    child.on('close', (code, sig) => { emit(onOut, out.end()); emit(onErr, err.end()); finish(code, sig, null); });
+    // The command is done: end what it left in its group, give the pipes a second to drain, then stop waiting for them.
+    child.on('exit', (code, sig) => {
+      exited = [code, sig]; group('SIGTERM');
+      grace = setTimeout(() => { group('SIGKILL'); grace = setTimeout(() => { child.stdout.destroy(); child.stderr.destroy(); settle(...exited); }, 1000); }, 1000);
+    });
+    child.on('close', (code, sig) => settle(...(exited || [code, sig])));
   });
 }

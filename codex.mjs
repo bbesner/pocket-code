@@ -25,7 +25,7 @@ import os from 'node:os';
 import {QuestionInbox} from './questions.mjs';
 import {ApprovalInbox,codexApproval,codexPermissionSettings} from './approvals.mjs';
 import {estimateWindow} from './usage.mjs';
-import {descendantCpu} from './proctree.mjs';
+import {descendantCpu,signalGroup,BOOT_ID,startTime,commandLine} from './proctree.mjs';
 import { pipeDirs, ensurePipeDir } from './pipes.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import { rolloutState, contextUsed, cachedTokens, TTL_CODEX, TTL_CODEX_NOTE } from './codex-rollout.mjs';
@@ -242,7 +242,7 @@ async function readConn() {
   // null out its replacement
   const r = reader = new AppServer({ name: 'reader' });
   r.onExit = code => { log(`reader exited (${code}) — will respawn on next read`); if (reader === r) reader = null; };
-  readerReady = r.init().catch(e => { log(`reader init failed: ${e.message}`); if (reader === r) reader = null; throw e; });
+  readerReady = r.init().catch(e => { log(`reader init failed: ${e.message}`); r.close(); if (reader === r) reader = null; throw e; }); // 1.73.7: close it, or a wedged one keeps running
   await readerReady;
   return r;
 }
@@ -251,7 +251,7 @@ async function rpc(method, params, timeoutMs) {
   try { return await c.request(method, params, timeoutMs); }
   catch (e) {
     if (/closed|exited/.test(e.message)) { // one transparent retry across a respawn
-      reader = null;
+      if (reader === c) reader = null; // 1.73.7: only the failed one; a concurrent retry may already have a live replacement
       const c2 = await readConn();
       return c2.request(method, params, timeoutMs);
     }
@@ -695,8 +695,9 @@ const cxFiles = key => ({
   meta: path.join(CX_LOG_DIR, key + '.session.json'),
 });
 const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const DRAIN_MAX = 1 << 20;
 
-function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore = 0 }) {
+export function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore = 0 }) { // exported for tests
   const stale = new Map(); // requests logged before a restart, minus those the log shows resolved
   const t = {
     pid, keeperPid, key, files, writer, offset, rem: '', onData: null, onExit: null, exited: false,
@@ -708,11 +709,15 @@ function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore 
       if (size <= t.offset) return;
       const fh = fs.openSync(files.out, 'r');
       try {
-        const buf = Buffer.alloc(size - t.offset);
-        fs.readSync(fh, buf, 0, buf.length, t.offset);
+        // 1.73.7: at most DRAIN_MAX per pass, cut on a character boundary; the next 150 ms pass reads on. A long log read on
+        // adoption no longer stalls the daemon in one synchronous read.
+        let n = Math.min(size - t.offset, DRAIN_MAX);
+        const buf = Buffer.alloc(n);
+        fs.readSync(fh, buf, 0, n, t.offset);
+        if (n < size - t.offset) { let k = n; while (k > 0 && (buf[k - 1] & 0xC0) === 0x80) k--; if (k > 0 && buf[k - 1] >= 0xC0) k--; if (k > 0) n = k; }
         let at = t.offset - Buffer.byteLength(t.rem);
-        t.offset = size;
-        const lines = (t.rem + buf.toString('utf8')).split('\n');
+        t.offset += n;
+        const lines = (t.rem + buf.toString('utf8', 0, n)).split('\n');
         t.rem = lines.pop() ?? '';
         for (const l of lines) {
           const lineAt = at; at += Buffer.byteLength(l) + 1;
@@ -735,7 +740,7 @@ function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore 
       if (t.exited) return;
       t.exited = true;
       clearInterval(t.timer); clearInterval(t.poll);
-      try { t.drain(); } catch (e) { log(`codex transport drain failed: ${e.message}`); }
+      try { let last = -1; while (t.offset !== last) { last = t.offset; t.drain(); } } catch (e) { log(`codex transport drain failed: ${e.message}`); }
       try { writer.destroy(); } catch { }
       try { process.kill(-keeperPid, 'SIGTERM'); } catch { }
       for (const f of [files.fifo, files.meta]) { try { fs.unlinkSync(f); } catch { } }
@@ -762,11 +767,12 @@ function spawnTransport(extraEnv = {}) {
   const proc = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], { stdio: [inFd, outFd, errFd], detached: true, env: { ...agentEnv(process.env), ...extraEnv } });
   fs.closeSync(inFd); fs.closeSync(outFd); fs.closeSync(errFd);
   proc.unref();
-  const keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'] });
+  const keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'], env: agentEnv(process.env) }); // 1.73.7: not the daemon's secrets
   keeper.unref();
   const writer = fs.createWriteStream(null, { fd: hold });
   writer.on('error', () => { });
   const t = makeTransport({ pid: proc.pid, keeperPid: keeper.pid, key, files, writer, offset: 0 });
+  t.pidStart = startTime(proc.pid); t.keeperStart = startTime(keeper.pid);
   proc.on('exit', code => t.exit(code));
   proc.on('error', () => t.exit(-1));
   return t;
@@ -776,13 +782,24 @@ function writeSessionMeta(s) {
   const t = s.conn?.transport, turn = s.turn;
   if (!t || !s.threadId || s.exited) return;
   const meta = {
-    threadId: s.threadId, pid: t.pid, keeperPid: t.keeperPid, key: t.key, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort, runnerToken: s.runnerToken || null,
+    threadId: s.threadId, pid: t.pid, keeperPid: t.keeperPid, key: t.key, bootId: BOOT_ID, pidStart: t.pidStart ?? null, keeperStart: t.keeperStart ?? null, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort, runnerToken: s.runnerToken || null,
     turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode } : null,
     waitingForInput: Boolean(turn && (turn.questions?.list().length || turn.approvals?.list().length || turn.inputUnavailable || turn.approvalUnavailable)),
     waitingForApproval: Boolean(turn?.approvals?.list().length || turn?.approvalUnavailable),
   };
-  try { fs.writeFileSync(t.files.meta, JSON.stringify(meta), { mode: 0o600 }); } catch { }
+  // 1.73.7: written whole and renamed into place; a torn file could not be adopted and its app-server kept the writer lock.
+  try { fs.writeFileSync(t.files.meta + '.tmp', JSON.stringify(meta), { mode: 0o600 }); fs.renameSync(t.files.meta + '.tmp', t.files.meta); } catch { }
 }
+// 1.73.7: a recorded pid is signalled or adopted only when it is provably the process Pocket started: same boot (boot id, or
+// for a pre-1.73.7 file, written after this boot began) and, when recorded, the same start time. After a reboot the kernel
+// reuses pids, and a stale file used to make Pocket SIGTERM unrelated process groups at boot.
+const BOOTED_AT = (() => { try { const btime = /^btime (\d+)/m.exec(fs.readFileSync('/proc/stat', 'utf8')); return btime ? Number(btime[1]) * 1000 : null; } catch { return null; } })();
+function sameBoot(m, file) {
+  if (m.bootId) return m.bootId === BOOT_ID;
+  if (BOOTED_AT == null) return false;
+  try { return fs.statSync(file).mtimeMs > BOOTED_AT; } catch { return false; }
+}
+const sameProcess = (pid, start, legacy) => Boolean(pid) && pidAlive(pid) && (start ? startTime(pid) === start : legacy);
 
 // After a Pocket restart: reattach to session processes that are still running and sweep
 // files nothing uses. `hooksFor(threadId)` supplies the server's per-thread callbacks.
@@ -791,12 +808,14 @@ export function adoptCodexSessions(hooksFor) {
   const live = new Set();
   for (const f of entries.filter(n => n.endsWith('.session.json'))) {
     let m; try { m = JSON.parse(fs.readFileSync(path.join(CX_LOG_DIR, f), 'utf8')); } catch { continue; }
+    if (!m || typeof m !== 'object' || typeof m.key !== 'string' || !/^[a-z0-9]+$/.test(m.key)) continue;
     const files = cxFiles(m.key);
-    let cmd = ''; try { cmd = fs.readFileSync(`/proc/${m.pid}/cmdline`, 'utf8'); } catch { }
-    if (!m.threadId || !m.pid || !pidAlive(m.pid) || !cmd.includes('app-server')) {
-      try { process.kill(-m.keeperPid, 'SIGTERM'); } catch { }
+    const boot = sameBoot(m, path.join(CX_LOG_DIR, f)), legacy = !m.bootId;
+    const ours = boot && sameProcess(m.pid, m.pidStart, legacy) && commandLine(m.pid).includes('app-server');
+    if (!m.threadId || !ours) {
+      if (boot && sameProcess(m.keeperPid, m.keeperStart, legacy) && commandLine(m.keeperPid).includes('pocket-keeper')) signalGroup(m.keeperPid, 'SIGTERM');
       for (const x of [files.meta, files.fifo, files.legacyFifo]) { try { fs.unlinkSync(x); } catch { } }
-      log(`codex session ended while the server was down thread=${m.threadId}`);
+      log(`codex session ended while the server was down thread=${m.threadId}${boot ? '' : ' (from an earlier boot; nothing signalled)'}`);
       continue;
     }
     let writer;
@@ -806,6 +825,7 @@ export function adoptCodexSessions(hooksFor) {
     let size = 0; try { size = fs.statSync(files.out).size; } catch { }
     const offset = m.turn ? Math.min(m.turn.offset || 0, size) : size;
     const t = makeTransport({ pid: m.pid, keeperPid: m.keeperPid, key: m.key, files, writer, offset, skipBefore: size });
+    t.pidStart = m.pidStart ?? startTime(m.pid); t.keeperStart = m.keeperStart ?? (commandLine(m.keeperPid).includes('pocket-keeper') ? startTime(m.keeperPid) : null);
     t.poll = setInterval(() => { if (!pidAlive(m.pid)) t.exit(null); }, 1000);
     const s = { threadId: m.threadId, approvalMode: m.approvalMode, cwd: m.cwd, model: m.model, effort: m.effort, turn: null, hooks: hooksFor(m.threadId), lastActivityAt: Date.now(), runnerToken: typeof m.runnerToken === 'string' ? m.runnerToken : null };
     wireSession(s, new AppServer({ name: `codex ${m.threadId}`, transport: t, onNotify: (method, params) => onSessionNotify(s, method, params), onRequest: request => onSessionRequest(s, request) }));
@@ -869,7 +889,17 @@ export function closeCodexSession(s, why) {
     s.closing = true;
     clearTimeout(s.idleTimer);
     log(`codex session closing thread=${s.threadId} pid=${s.conn.pid} reason=${why}`);
-    s.closed = new Promise(resolve => { s.exitResolve = resolve; setTimeout(resolve, 5000); });
+    // 1.73.7: an app-server that ignores SIGTERM is killed after 5 s (it held the thread's writer lock, so later turns got 423),
+    // and the close resolves on its exit or 2 s after that.
+    s.closed = new Promise(resolve => {
+      s.exitResolve = resolve;
+      setTimeout(() => {
+        if (s.exited) return resolve();
+        log(`codex session did not exit after SIGTERM; killing thread=${s.threadId} pid=${s.conn.pid}`);
+        signalGroup(s.conn.pid, 'SIGKILL'); if (s.conn.transport?.keeperPid) signalGroup(s.conn.transport.keeperPid, 'SIGKILL');
+        setTimeout(() => { if (!s.exited) log(`codex session still running after SIGKILL thread=${s.threadId} pid=${s.conn.pid}`); resolve(); }, 2000);
+      }, 5000);
+    });
     try { process.kill(-s.conn.pid, 'SIGTERM'); } catch { } // its MCP servers go with it
     s.conn.close();
   }

@@ -86,6 +86,8 @@ process environment writable only by the operator. Since 1.37.1 the hook gets th
 filtered environment as agent processes, without `POCKET_PASSWORD`, `POCKET_SECRET` or
 `VAPID_PRIVATE` (before that it inherited them). Use a trusted command, and have it
 treat the reminder text as untrusted data, because an agent or a person can write it.
+Since 1.73.7 each run is ended, with everything it started, after
+`POCKET_REMINDER_HOOK_TIMEOUT_MS` (default 60000) and when the daemon exits.
 
 **Agent skills.** While a library is on, Pocket writes a skill into the Claude Code and
 Codex skill folders of the service's user so agents know how to use it. It only changes
@@ -136,7 +138,10 @@ item (an existing name is refused, so an agent cannot replace a credential), rea
 session's history, and ask the daemon to run a command with values in that command's
 environment. The daemon starts the command itself, passes values only in the environment,
 never in arguments, and returns the output with each value and its base64 and URL-encoded
-forms replaced by `{{vault:name}}`. Reading a value, changing or removing an item, changing its
+forms replaced by `{{vault:name}}`. The command leads its own process group (1.73.7): when it
+exits, times out, passes the output cap or is stopped, everything still in that group is ended, so a
+run cannot leave a daemon behind with the values in its environment. A program that deliberately
+leaves the group (`setsid`, a double fork into a new session) is not followed. Reading a value, changing or removing an item, changing its
 policy or recipes, answering requests and rotating the key need the owner's login cookie.
 
 **What runs.** **Agent access** in Settings (1.41) sets the default, and each item can

@@ -246,3 +246,49 @@ test('a non-object JSON frame from the app-server is ignored; the daemon and the
  assert.equal((await s.call('/health')).status,200,'the daemon is still up');
  assert.doesNotMatch(s.logs(),/drain failed|TypeError/);
 });
+
+// 1.73.7: closing a session escalates. Before, a hung app-server that ignored SIGTERM kept running (and kept the thread's
+// writer lock) after the close resolved.
+test('closing a Codex session kills an app-server that ignores SIGTERM',async t=>{
+ const f=await fixture(t,19781,{FAKE_CODEX_STUBBORN:'1'});
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
+ assert.equal((await f.call(`/session/${id}/release`,{})).body.released,true);
+ await sleep(1500);assert.equal(await f.procs(),1,'it ignored SIGTERM');
+ assert.ok(await f.until(async()=>await f.procs()===0,9000),'killed after the grace period');
+ assert.match(f.logs(),/did not exit after SIGTERM; killing/);
+});
+
+// 1.73.7: the session record proves which process it names. Before, a stale record after a reboot made Pocket SIGTERM whatever
+// process group now had the recorded pid; the keeper inherited the daemon's secrets; the record was rewritten in place.
+const BOOT=(()=>{try{return fs.readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim();}catch{return null;}})();
+test('adoption signals nothing it cannot prove is its own; the keeper gets the agent environment; the record is replaced whole',{skip:!BOOT&&'needs /proc'},async t=>{
+ const f=await fixture(t,19791);
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
+ const logDir=path.join(f.dir,'data','turnlogs-codex'),metaFile=fs.readdirSync(logDir).find(n=>n.endsWith('.session.json'));
+ const meta=()=>JSON.parse(fs.readFileSync(path.join(logDir,metaFile),'utf8'));
+ const m=meta();assert.equal(m.bootId,BOOT);assert.match(String(m.pidStart),/^\d+$/);assert.match(String(m.keeperStart),/^\d+$/);
+ const environ=fs.readFileSync(`/proc/${m.keeperPid}/environ`,'utf8').split('\0');
+ assert.ok(!environ.some(e=>/^POCKET_(PASSWORD|SECRET)=/.test(e)),'the keeper does not carry the daemon secrets');
+ const inode=fs.statSync(path.join(logDir,metaFile)).ino;
+ assert.equal((await f.call(`/session/${id}/message`,msg('again'))).status,202);
+ assert.ok(await f.until(async()=>f.calls().length===2&&await f.idle(id)));
+ assert.notEqual(fs.statSync(path.join(logDir,metaFile)).ino,inode,'rewritten through a temporary file and a rename');
+ assert.ok(!fs.readdirSync(logDir).some(n=>n.endsWith('.tmp')));
+ // Stale records: from another boot, with the wrong start times, and a pre-1.73.7 record written before this boot.
+ await f.stop();
+ const live=[];const proc=tag=>{const p=spawn('sh',['-c','sleep 30; :',tag],{detached:true,stdio:'ignore'});live.push(p.pid);return p.pid;};
+ t.after(()=>{for(const p of live){try{process.kill(-p,'SIGKILL');}catch{}}});
+ const plant=(key,extra,old)=>{const file=path.join(logDir,key+'.session.json');fs.writeFileSync(file,JSON.stringify({threadId:'stale-'+key,pid:proc('app-server'),keeperPid:proc('pocket-keeper'),key,approvalMode:'review',cwd:repo,turn:null,...extra}));if(old)fs.utimesSync(file,new Date('2001-01-01'),new Date('2001-01-01'));};
+ plant('aaa1',{bootId:'00000000-0000-0000-0000-000000000000'});
+ plant('bbb2',{bootId:BOOT,pidStart:'1',keeperStart:'1'});
+ plant('ccc3',{},true);
+ await sleep(200);await f.start();
+ await sleep(800);
+ for(const p of live)assert.ok((()=>{try{process.kill(p,0);return true;}catch{return false;}})(),`process ${p} was not signalled`);
+ assert.match(f.logs(),/thread=stale-aaa1 \(from an earlier boot; nothing signalled\)/);assert.match(f.logs(),/thread=stale-ccc3 \(from an earlier boot/);
+ assert.match(f.logs(),/codex session ended while the server was down thread=stale-bbb2$/m);
+ for(const k of ['aaa1','bbb2','ccc3'])assert.equal(fs.existsSync(path.join(logDir,k+'.session.json')),false,'stale records are removed');
+ assert.equal(await f.procs(),1,'the real session was still adopted');
+});

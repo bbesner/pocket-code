@@ -29,7 +29,13 @@ function takeLock(id){
   fs.writeFileSync(f,String(process.pid));held.add(id);return true;
 }
 process.on('exit',()=>{for(const id of held){try{fs.unlinkSync(path.join(lockDir,id))}catch{}}});
-for(const sig of ['SIGTERM','SIGINT'])process.on(sig,()=>process.exit(0));
+// FAKE_CODEX_STUBBORN ignores SIGTERM and stays up after stdin ends (a hung app-server); FAKE_CODEX_PIDS records each process;
+// FAKE_CODEX_INIT_FAIL / FAKE_CODEX_DIE_ON name marker files: while one exists, the next initialize fails / thread/list exits.
+const stubborn=Boolean(process.env.FAKE_CODEX_STUBBORN);
+for(const sig of ['SIGTERM','SIGINT'])process.on(sig,()=>{if(!stubborn)process.exit(0);});
+if(stubborn)setInterval(()=>{},1000);
+if(process.env.FAKE_CODEX_PIDS)fs.appendFileSync(process.env.FAKE_CODEX_PIDS,process.pid+'\n');
+const takeMarker=f=>{if(!f)return false;try{fs.unlinkSync(f);return true;}catch{return false;}};
 setInterval(()=>{if(!fs.existsSync(root))process.exit(0)},300).unref();
 const send=o=>process.stdout.write(JSON.stringify(o)+'\n');
 const notify=(method,params)=>send({jsonrpc:'2.0',method,params});
@@ -41,7 +47,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const p=m.params||{};
   if(m.method==='thread/start'||m.method==='thread/resume')fs.appendFileSync(calls+'.threads',JSON.stringify({method:m.method,choices:/`choices`/.test(p.developerInstructions||''),projects:/pocket-board/.test(p.developerInstructions||''),documents:/pocket-docs/.test(p.developerInstructions||''),google:/pocket-google\/SKILL\.codex\.md/.test(p.developerInstructions||'')})+'\n');
   switch(m.method){
-    case 'initialize':return reply(m.id,{});
+    case 'initialize':if(takeMarker(process.env.FAKE_CODEX_INIT_FAIL))return fail(m.id,'initialize refused');return reply(m.id,{});
     case 'thread/start':{const id=randomUUID();takeLock(id);return reply(m.id,{thread:{id},model:'gpt-test',reasoningEffort:null});}
     case 'thread/resume':
       if(!takeLock(p.threadId))return fail(m.id,`thread ${p.threadId} already has an active writer`);
@@ -89,7 +95,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       const page=data.slice(from,from+limit),end=from+page.length;
       return reply(m.id,{data:page,nextCursor:end<data.length?JSON.stringify({o:end,desc:p.sortDirection==='desc'}):null});
     }
-    case 'thread/list':case 'model/list':case 'skills/list':return reply(m.id,{data:[],nextCursor:null});
+    case 'thread/list':if(takeMarker(process.env.FAKE_CODEX_DIE_ON))process.exit(0);
+    case 'model/list':case 'skills/list':return reply(m.id,{data:[],nextCursor:null});
     case 'thread/read':return reply(m.id,{thread:{id:p.threadId,turns:[],preview:'',cwd:process.cwd()}});
     default:return fail(m.id,'unsupported in fake codex: '+m.method);
   }

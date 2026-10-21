@@ -134,3 +134,57 @@ test('HTTP: push preferences per device, the notification settings, and due and 
   await sleep(900);
   assert.equal(hookLines().filter(l=>l.ahead).length,2,'the day-before notices were not repeated');
 });
+
+// 1.73.7: reminder runs and hooks. Before, a run slower than the check interval (a slow mail server) overlapped the next one,
+// and items the first run had not reached yet were announced twice; an item given a new time while an earlier one was being
+// sent was marked with its old time, so its new notice was lost; and a hook ran with no time limit, outliving the daemon.
+test('HTTP: reminder runs do not overlap, skip an item changed mid-run, and hooks are timed and ended with the daemon',async t=>{
+  const net=await import('node:net');
+  const dir=tmp();let port=19431;
+  const secret='notify-overlap',exp=Date.now()+3600000;
+  const headers={'content-type':'application/json',cookie:'pc_auth='+exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex')};
+  // A mail server that accepts and hangs up after 700 ms: every send takes that long and fails.
+  const smtp=net.createServer(sock=>setTimeout(()=>sock.destroy(),700));await new Promise(r=>smtp.listen(0,'127.0.0.1',r));
+  const hookLog=path.join(dir,'hook.log'),hook=path.join(dir,'hook.mjs'),pids=path.join(dir,'pids');
+  fs.writeFileSync(hook,`import fs from 'node:fs';import {spawn} from 'node:child_process';let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{fs.appendFileSync(${JSON.stringify(hookLog)},d+'\\n');
+    if(/"text":"Hang/.test(d)){const c=spawn('sleep',['30'],{stdio:'ignore'});fs.appendFileSync(${JSON.stringify(pids)},process.pid+' '+c.pid+'\\n');setInterval(()=>{},1000);}});`);
+  fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});fs.mkdirSync(path.join(dir,'data'),{recursive:true});
+  const seed=new TaskStore(path.join(dir,'data','tasks.json'));const past=new Date(Date.now()-60000).toISOString();
+  const ids=Object.fromEntries(['A','B','C'].map(x=>[x,seed.act({action:'add',text:'Item '+x,dueAt:past}).id]));
+  fs.writeFileSync(path.join(dir,'data','pocket-settings.json'),JSON.stringify({tasks:true,projects:false,notifyEmail:'owner@example.test'}));
+  let child,logs='';
+  t.after(async()=>{if(child&&child.exitCode===null)child.kill('SIGKILL');smtp.close();for(const l of (fs.existsSync(pids)?fs.readFileSync(pids,'utf8'):'').split(/\s+/).filter(Boolean)){try{process.kill(Number(l),'SIGKILL');}catch{}}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  const start=async()=>{
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),POCKET_REMINDER_HOOK:`${process.execPath} ${hook}`,POCKET_REMINDER_CHECK_MS:'300',POCKET_REMINDER_HOOK_TIMEOUT_MS:'1500',POCKET_SMTP_URL:`smtp://127.0.0.1:${smtp.address().port}`,POCKET_SMTP_FROM:'pocket@example.test'},stdio:['ignore','pipe','pipe']});
+   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
+   throw Error('Test server failed: '+logs);
+  };
+  const call=async(p,body)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
+  const hooked=text=>fs.existsSync(hookLog)?fs.readFileSync(hookLog,'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter(l=>l.text===text).length:0;
+  const alive=pid=>{try{process.kill(pid,0);return true;}catch{return false;}};
+  await start();
+  for(let i=0;i<100&&!hooked('Item A');i++)await sleep(20);
+  const later=new Date(Date.now()+86400000).toISOString();
+  assert.equal((await call('/tasks/act',{action:'update',task:ids.C,dueAt:later})).status,200,'C gets a new time while A is being mailed');
+  for(let i=0;i<100&&!hooked('Item B');i++)await sleep(50);
+  await sleep(2000);
+  assert.deepEqual(['Item A','Item B','Item C'].map(hooked),[1,1,0],'A and B once each; C, rescheduled, not with its old time');
+  const c=(await call('/tasks')).body.tasks.find(x=>x.id===ids.C);assert.equal(Date.parse(c.dueAt),Math.floor(Date.parse(later)/1000)*1000);assert.ok(!c.notifiedAt,'C is still waiting for its new time');
+  // A hook that hangs, with a child of its own: both are ended after the time limit.
+  assert.equal((await call('/tasks/act',{action:'add',text:'Hang one',dueAt:new Date(Date.now()-1000).toISOString()})).status,200);
+  for(let i=0;i<100&&!fs.existsSync(pids);i++)await sleep(50);
+  const [hookPid,sleepPid]=fs.readFileSync(pids,'utf8').trim().split(' ').map(Number);
+  assert.ok(alive(hookPid)&&alive(sleepPid));
+  for(let i=0;i<80&&(alive(hookPid)||alive(sleepPid));i++)await sleep(50);
+  assert.ok(!alive(hookPid)&&!alive(sleepPid),'the hook and its child were ended after the time limit');assert.match(logs,/reminder hook still running after 1500 ms; ending it/);
+  // A hook still running when the daemon exits is ended with it.
+  fs.rmSync(pids);
+  assert.equal((await call('/tasks/act',{action:'add',text:'Hang two',dueAt:new Date(Date.now()-1000).toISOString()})).status,200);
+  for(let i=0;i<100&&!fs.existsSync(pids);i++)await sleep(50);
+  const [hook2,sleep2]=fs.readFileSync(pids,'utf8').trim().split(' ').map(Number);
+  const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;
+  for(let i=0;i<20&&(alive(hook2)||alive(sleep2));i++)await sleep(50);
+  assert.ok(!alive(hook2)&&!alive(sleep2),'ended when the daemon exited');
+});
