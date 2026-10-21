@@ -17,7 +17,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.73.8 / build 150**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.74.0 / build 151**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -88,7 +88,8 @@ Assistant mode.**
 
 ### Inbox Watch: your mailbox, read for you
 
-A watcher beside Pocket reads your Gmail on the schedule you set and interrupts you only when
+Turn it on and Pocket reads your Gmail, through the Gmail connector you already linked to Claude Code or
+Codex (1.74: nothing to install or sign in to), on the schedule you set, and interrupts you only when
 an email tells you something the email itself does not: the third outage this week at the same
 site, a reminder that contradicts what the customer asked for, a bill that is now due. Each
 alert lands in **Inbox** with **Start a conversation**, which opens one already briefed with
@@ -318,13 +319,18 @@ email" or "ignore these notices" sticks. With the **Inbox** library on (1.69), e
 is one list in Pocket: tap **X** to dismiss, or choose **Resolved** or **Not useful** from a row, and
 the watcher applies it on its next run, closing the story or adding a line to your preferences.
 Pocket's part is the Inbox (`pocket-inbox`), the push, the briefed conversation (a start link) and
-Files; the watcher itself ships in this repository, in [`inbox-watch/`](inbox-watch/README.md) (1.72), a
-Python program with a config file per mailbox (owner, mailbox, judge, delivery) that runs beside Pocket on
-its own timer. That folder's README has the setup.
+Files; the watcher itself ships in this repository, in [`inbox-watch/`](inbox-watch/README.md) (1.72).
+**Since 1.74 Pocket runs it**: switching Inbox Watch on is the whole setup. Pocket finds your mailbox through
+Claude Code's Gmail connector or Codex's Gmail app (**Settings → Connectors** in Pocket links to both),
+writes the watcher's config under `<data dir>/inbox-watch-data/`, starts from now, loads two weeks of mail as its memory,
+and runs the watcher every minute; the watcher checks mail only when your schedule says a check is due. The
+Inbox says what it is doing while it sets up, and what to connect when Gmail is missing. A watcher installed by
+hand (its own config and timer, as in that folder's README) is left alone. The connector's reads go through a
+`claude -p` or `codex exec` call that may use only Gmail's read tools; with both connected, one stands in for the other. `POCKET_INBOX_RUNNER=0` turns the runner off.
 **Schedule, models and cost** (1.70, Settings → Inbox Watch or **Schedule** in the Inbox) sets when it checks
 (periods with their own days, hours and interval), quiet hours, the digest and look-ahead times, a pause, and in
-Developer mode the model and reasoning for each job, with what each day cost. Mail access is the owner's own Gmail consent, or a Workspace service account for
-mailboxes an administrator controls.
+Developer mode the model and reasoning for each job, with what each day cost. Mail access is Claude Code's Gmail connector (the default since 1.74), the owner's own Gmail consent, or a
+Workspace service account for mailboxes an administrator controls.
 
 ### Answer, approve and steer
 
@@ -622,6 +628,7 @@ npm run check:release
 npm test
 PUPPETEER_EXECUTABLE_PATH=/path/to/chrome npm run test:browser
 python3 inbox-watch/tests/test_schedule.py   # Inbox Watch's watcher (no mailbox or model needed)
+python3 inbox-watch/tests/test_connector.py
 ```
 
 Tests use temporary stores, fake provider CLIs and synthetic browser sessions. They

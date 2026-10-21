@@ -45,6 +45,7 @@ import {syncSkills, googleInstructions} from './skills.mjs';
 import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
 import {InboxStore, inboxInstructions} from './inbox.mjs';
+import { InboxRunner } from './inbox-runner.mjs';
 import { StartStore } from './starts.mjs';
 import {Thumbnailer} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
@@ -245,7 +246,7 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // Claude Code itself — read the CLI/code-server's custom-title/ai-title records from the
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
-const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, inbox: false, vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null, trustedActions: null }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default); 1.56: trustedActions (null = the server default)
+const SETTINGS_DEFAULTS = { titleSync: false, projects: false, documents: false, tasks: false, inbox: false, ownerTimezone: '', vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null, trustedActions: null }; // 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default); 1.56: trustedActions (null = the server default)
 const loadSettings = () => { try { return { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { ...SETTINGS_DEFAULTS }; } };
 let settings = loadSettings();
 const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
@@ -291,6 +292,10 @@ const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
 const inboxStore = new InboxStore(path.join(DATA_DIR, 'inbox.json'));
 const INBOX_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-inbox.mjs');
 const inboxOn = (_req, res, next) => settings.inbox ? next() : res.status(404).json({ error: 'Inbox Watch is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'inbox_off' });
+// 1.74: Pocket runs the watcher itself (inbox-runner.mjs) unless one installed by hand already reports here. POCKET_INBOX_RUNNER=0 turns it off.
+const inboxRunner = new InboxRunner({ dataDir: DATA_DIR, appDir: import.meta.dirname, claudeBin: CLAUDE_BIN, codexBin: process.env.POCKET_CODEX === '0' ? null : codex.CODEX_BIN, codexHome: process.env.CODEX_HOME || path.join(HOME, '.codex'), sessionDir: HOME, env: () => spawnEnv(), settings: () => settings,
+  store: inboxStore, log: m => log(m), notify: (title, body) => pushRaw(title, body, { tag: 'inbox-runner', url: '/#/inbox', kind: 'alerts' }).catch(e => log(`inbox runner push: ${e.message}`)) });
+if (process.env.POCKET_INBOX_RUNNER !== '0') inboxRunner.start();
 // ---------- 1.57: start links ----------
 // A briefing an agent or a job hands to Pocket (starts.mjs): <data dir>/starts.json. POST /api/start with the loopback token
 // (or the owner's cookie) stores it and answers with an id and a URL; opening #/start/<id> signed in puts the briefing in New
@@ -1899,7 +1904,7 @@ app.post('/api/login', (req, res) => {
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
 // 1.73.3: signed out, the reply names only the mode (the sign-in page says Pocket Assistant or Pocket Code); which modules are on is for the owner.
-app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) learnPublicUrl(req); return res.json({ ok, features: ok ? { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked } : { assistantMode: assistantOn() } }); });
+app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) { learnPublicUrl(req); learnTimezone(req.query.tz); } return res.json({ ok, features: ok ? { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked } : { assistantMode: assistantOn() } }); });
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -3036,6 +3041,12 @@ app.post('/api/tasks/summary', requireAuth, tasksOn, async (req, res) => {
   res.json(r ? { summary: r.summary, model: r.model, provider } : { summary: null, reason: 'failed' });
 });
 
+// 1.74: the owner's time zone, from the browser they sign in with (Inbox Watch's digest, quiet hours and look-ahead follow it).
+function learnTimezone(tz) {
+  if (typeof tz !== 'string' || !tz || tz.length > 64 || tz === settings.ownerTimezone) return;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return; }
+  settings.ownerTimezone = tz; saveSettings(); log(`owner time zone: ${tz}`);
+}
 // ---------- 1.69: inbox routes ----------
 // Inbox Watch: the owner's cookie or the loopback token (a direct loopback request only, as for Tasks and start links).
 // POST /api/inbox is the worker's one call: the entry, the push (kind alerts, urgent) and, when asked, the email.
@@ -3060,7 +3071,7 @@ app.get('/api/inbox', requireBoardAuth, inboxOn, (req, res) => {
   try {
     const state = typeof req.query.state === 'string' && req.query.state ? req.query.state : 'new';
     const since = typeof req.query.since === 'string' ? req.query.since : undefined;
-    res.set('Cache-Control', 'private, no-store').json({ ...inboxStore.snapshot({ state, since }), push: { enabled: pushReady }, email: emailOn() });
+    res.set('Cache-Control', 'private, no-store').json({ ...inboxStore.snapshot({ state, since }), push: { enabled: pushReady }, email: emailOn(), runner: inboxRunner.status() });
   } catch (e) { inboxError(res, e); }
 });
 app.post('/api/inbox', requireBoardAuth, inboxOn, async (req, res) => {
@@ -3577,7 +3588,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Small fixes from the review's last batch: trusted actions no longer trust a command with a # comment or a VAR+= prefix, command-line tools stop waiting for an unresponsive Pocket after 30 seconds, connector checks no longer run twice or log CLI output, and Stop clears a Codex turn's question cards at once.", "Programs Pocket starts are now managed as whole groups: a Vault run cannot leave anything running behind it, a hung Codex process is killed so its conversation frees up, reminders are never announced twice by a slow mail server, and a reminder hook that hangs is ended after a minute.", "Every store now checks a change whole and writes it before taking it up: a refused field or a full disk leaves projects, files, tasks, the Vault and Settings exactly as they were, the Vault file is synced to disk on every write, and a failed key rotation keeps the recovery key honest.", "Browser logins are tighter: Pocket types a Vault value into typing and form-filling tools only, withholds screenshots from that browser once a value has been typed (a picture cannot be scrubbed), and scrubs values from object keys, numbers and split log lines too.", "A Vault request now belongs to what it was asked for and to the session that asked: a run the owner allowed cannot be turned into a browser fill, nobody else on the box can continue it, one answer serves one use, and an item made owner-only or removed after the approval no longer releases.", "Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on."];
+const RELEASE_NOTES = ["Inbox Watch sets itself up: turn it on and Pocket reads your mail through the Gmail connector you already linked to Claude Code or Codex, starts from now, and checks on the schedule you set, with no config file, Google sign-in or timer to install. The Inbox says what it is doing, and what to connect if Gmail is missing.", "Small fixes from the review's last batch: trusted actions no longer trust a command with a # comment or a VAR+= prefix, command-line tools stop waiting for an unresponsive Pocket after 30 seconds, connector checks no longer run twice or log CLI output, and Stop clears a Codex turn's question cards at once.", "Programs Pocket starts are now managed as whole groups: a Vault run cannot leave anything running behind it, a hung Codex process is killed so its conversation frees up, reminders are never announced twice by a slow mail server, and a reminder hook that hangs is ended after a minute.", "Every store now checks a change whole and writes it before taking it up: a refused field or a full disk leaves projects, files, tasks, the Vault and Settings exactly as they were, the Vault file is synced to disk on every write, and a failed key rotation keeps the recovery key honest.", "Browser logins are tighter: Pocket types a Vault value into typing and form-filling tools only, withholds screenshots from that browser once a value has been typed (a picture cannot be scrubbed), and scrubs values from object keys, numbers and split log lines too.", "A Vault request now belongs to what it was asked for and to the session that asked: a run the owner allowed cannot be turned into a browser fill, nobody else on the box can continue it, one answer serves one use, and an item made owner-only or removed after the approval no longer releases."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

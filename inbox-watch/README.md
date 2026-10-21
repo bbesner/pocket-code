@@ -35,6 +35,32 @@ memory is the archive and the story ledger, so a fresh process per call works as
 | `codex` | `codex exec --json --ephemeral` | Codex CLI headless, one process per call. |
 | `anthropic` | the Claude API (official SDK) | `claude-opus-5-5` by default, adaptive thinking, explicit effort, server-side refusal fallback. |
 
+## Mail sources
+
+| `mail.provider` | How it reads | Needs |
+|---|---|---|
+| `connector` (1.74) | The agent's own Gmail connector: `agent = "claude"` (claude.ai → Settings → Connectors, one short `claude -p` per batch of reads) or `agent = "codex"` (the Gmail app at chatgpt.com/apps, one short `codex exec`); `fallback_agent` + `[mail.fallback]` name the other for when a read fails | That agent signed in with Gmail connected. Nothing else: no Google client, token or Google libraries. |
+| `gmail` | Gmail's API with the history cursor | `auth = "oauth"` (a Desktop-app OAuth client and `gmail-auth` once) or `auth = "service_account"` (Workspace domain-wide delegation), plus `requirements.txt` |
+
+**The connector source** (`mail_connector.py`). The connector has no history API, so a check searches
+`after:<last check - 15 min>` and counts a thread as changed when its newest message is one the watcher has not seen
+(`connector_seen` in `mail.sqlite`). Threads are read eight to a call; the fetch model (`mail.model`, Haiku by default)
+only makes the calls, and the watcher takes each tool's JSON from the stream, so no message is retyped or summarized.
+Fetch calls are kept in `judge_calls` as `fetch` / `search` and counted in the day's cost.
+The call has to load the user's Claude Code settings (claude.ai connectors load with nothing less), and those may allow
+every Gmail tool, send included, or bypass permissions. So it gets no built-in tools, `--disallowedTools` for every Gmail
+write tool and the other connectors, and a PreToolUse hook that refuses anything outside `search_threads`, `get_thread`
+and `get_message`. A judge's lookups are threads searched and read the same way. Through **Codex** (`agent = "codex"`, `gpt-6-luna` at low reasoning by default) the reads are `gmail_search_emails`
+and `gmail_batch_read_email_threads` in a CODEX_HOME of the watcher's own (`state/connector/codex-home`: a link to the
+owner's `auth.json` and a config with every app but Gmail off, every Gmail tool but the seven reads off, destructive
+tools off, no shell, plugins or memories, read-only sandbox), with results taken from each call's `structured_content`.
+chatgpt.com sometimes answers cloud servers with a bot check: that read fails as a 503 and, with a fallback agent, the
+other agent reads instead. A Codex call carries ~30k tokens of Codex's own instructions (about half cached), so on a
+ChatGPT plan it uses more of the allowance than a Claude fetch does. A **Codex judge** now runs isolated the same way
+by default (`state/judge-codex-home`, every app off: the owner's Gmail app may allow sending, and the judge reads
+untrusted mail); an explicit `codex_home` is used as is. `check` reports whose mailbox the
+connector reads. `python3 -m inbox_monitor.mail_connector whoami` prints it as JSON (what Pocket runs before it writes a config).
+
 ## Deliveries
 
 | `delivery.kind` | Alerts | Digest and look-ahead |
@@ -55,6 +81,11 @@ the story changes or they mark it resolved, plus each look-ahead, each digest an
 written. `remember --all` writes the backlog at once; every run does the rest.
 
 ## Set up an instance
+
+**With Pocket Code 1.74 or later you don't:** switching Inbox Watch on in Pocket sets up and runs a connector watcher
+for the owner's mailbox (config under `<data dir>/inbox-watch-data/`). Set one up by hand for anything Pocket's does not
+cover: another mailbox, the Gmail API, a different judge or delivery. Pocket leaves a watcher that reports under
+its own config alone.
 
 ```bash
 W=~/pocket-code/inbox-watch                                          # this folder, in your Pocket Code checkout
@@ -152,5 +183,6 @@ Simulated clock, separate ledger, nothing sent; the judge sees only mail that ex
 - `inbox_monitor/schedule.py` — the settings shape, periods, the interval in force and the next check.
 - `inbox_monitor/judges.py`, `delivery.py`, `memory_sink.py`, `mail_gmail.py`, `config.py` — the adapters and the TOML loader.
 - `tests/test_schedule.py` — the schedule rules (`python3 tests/test_schedule.py`).
+- `tests/test_connector.py` — the connector mail source against a fake `claude` (`python3 tests/test_connector.py`).
 - `inbox_monitor/prompts/decide.md`, `lookahead.md` — the judge's instructions, with `{owner}`, `{assistant}`, `{owner_email}`, `{memory_note}` filled from the config.
 - `examples/config.example.toml` — every key.

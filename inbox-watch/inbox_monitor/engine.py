@@ -42,7 +42,12 @@ from . import schedule as schedmod
 from .delivery import CITE_RX, GMAIL_THREAD_URL, cite_html, make_deliveries, start_link
 from .firstpass import FirstPass
 from .judges import make_judge
-from .mail_gmail import Gmail, HttpError, oauth_consent
+from .mail_connector import ConnectorMail, MailError
+try:  # Google's client only for mail.provider = "gmail"; a connector install needs none of it
+    from googleapiclient.errors import HttpError
+except ImportError:  # pragma: no cover - depends on the machine
+    HttpError = MailError
+MAIL_ERRORS = (HttpError, MailError)
 from .memory_sink import make_memory
 
 # Set by configure(): paths, owner, clock, judge and deliveries. Module globals so the engine reads like one program.
@@ -201,7 +206,14 @@ def load_settings(fetch: bool = True) -> None:
         return apply_settings(DEFAULTS, "config", None)
 
 
-def gmail_client() -> Gmail:
+def gmail_client():
+    """The mail source: Gmail's API (`provider = "gmail"`) or the agent's own Gmail connector (`provider = "connector"`)."""
+    if CFG.mail.get("provider", "gmail") == "connector":
+        def on_call(purpose: str, fetcher, n: int) -> None:
+            if USAGE_DB is not None:
+                record_call(USAGE_DB, purpose, fetcher, 0, n, bool(getattr(fetcher, "last_usage", None)), CURRENT_RUN)
+        return ConnectorMail(CFG.mail, MAILBOX, BASELINE_QUERY, ARCHIVE_QUERY, STATE, on_call, log)
+    from .mail_gmail import Gmail
     return Gmail(CFG.mail, MAILBOX, BASELINE_QUERY, ARCHIVE_QUERY)
 
 
@@ -1043,7 +1055,7 @@ def run_lookups(gmail: Gmail, archive: Archive, lookups: list, until: int, cap: 
         q = lk["query"].strip()[:200]
         try:
             ids = gmail.search_ids(f"({q}) before:{until + 1} -in:spam -in:trash", 25)
-        except HttpError as e:
+        except MAIL_ERRORS as e:
             results.append({"query": q, "error": f"search failed ({e.resp.status})", "results": []})
             continue
         have = archive.known(ids)
@@ -1469,11 +1481,16 @@ def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_id
     evaluated = notified = 0
     error = None
     bundles = []
+    if fetch_live and hasattr(gmail, "prefetch_threads"):
+        try:
+            gmail.prefetch_threads(thread_ids)  # the connector reads them a batch per call, not one call each
+        except MAIL_ERRORS as e:
+            log(f"prefetch: {e}")
     for tid in thread_ids:
         if fetch_live:
             try:
                 archive.add([parse_message(m) for m in gmail.thread_raw(tid)])
-            except HttpError as e:
+            except MAIL_ERRORS as e:
                 log(f"thread {tid}: {e.resp.status}")
                 if e.resp.status in (404, 403):
                     store.db.execute("delete from backlog where thread_id=?", (tid,))
@@ -1914,6 +1931,7 @@ def usage_summary(store: Store, days: int = 14) -> list[dict]:
     def blank(d: str) -> dict:
         return {"date": d, "checks": 0, "threads": 0, "calls": 0, "failed": 0, "inputTokens": 0, "cacheWriteTokens": 0, "cacheReadTokens": 0,
                 "outputTokens": 0, "costUsd": None, "decisions": {"calls": 0, "costUsd": None}, "lookahead": {"calls": 0, "costUsd": None},
+                "fetch": {"calls": 0, "costUsd": None},
                 "firstPass": {"checked": 0, "skipped": 0, "costUsd": None}}
     for r in store.db.execute("select started_at, evaluated from runs where started_at>=?", (since,)):
         d = out.setdefault(day(r["started_at"]), blank(day(r["started_at"])))
@@ -1925,7 +1943,8 @@ def usage_summary(store: Store, days: int = 14) -> list[dict]:
         d["failed"] += 0 if r["ok"] else 1
         for k, col in (("inputTokens", "input_tokens"), ("cacheWriteTokens", "cache_write_tokens"), ("cacheReadTokens", "cache_read_tokens"), ("outputTokens", "output_tokens")):
             d[k] += r[col] or 0
-        job = d["lookahead"] if (r["purpose"] or "").startswith("lookahead") else d["decisions"]
+        purpose = r["purpose"] or ""
+        job = d["lookahead"] if purpose.startswith("lookahead") else d["fetch"] if purpose in ("fetch", "search") else d["decisions"]
         job["calls"] += 1
         if r["cost_usd"] is not None:
             d["costUsd"] = round((d["costUsd"] or 0) + r["cost_usd"], 4)
@@ -2031,6 +2050,9 @@ def run(dry_run: bool, baseline_only: bool, why: str = "") -> int:
     try:
         apply_feedback(store)
         cursor = store.get("history_cursor")
+        if cursor and not gmail.cursor_ok(cursor):
+            log(f"cursor {cursor} belongs to another mail source; starting over")
+            cursor = None
         head = gmail.profile_history_id()
         if cursor:
             threads, new_cursor, rebase = gmail.changed_threads(cursor)
@@ -2204,6 +2226,7 @@ def _main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     cfg = cfgmod.load(args.config)
     if args.cmd == "gmail-auth":
+        from .mail_gmail import oauth_consent
         print(f"token written to {oauth_consent(cfg.mail)}")
         return 0
     configure(cfg)
@@ -2250,6 +2273,9 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "check":
         g = gmail_client()
+        if hasattr(g, "whoami"):  # the connector: prove a read works and that it is the configured mailbox
+            who = g.whoami().get("email") or "unknown"
+            print(f"connector reads the mailbox of {who}" + ("" if who == MAILBOX else f" (configured: {MAILBOX})"))
         print(f"settings ({SETTINGS_FROM}): {schedmod.describe(SETTINGS)}")
         print(f"mailbox {MAILBOX}: history id {g.profile_history_id()}; judge: {JUDGE.describe()}{' / look-ahead: ' + LOOKAHEAD_JUDGE.describe() if LOOKAHEAD_JUDGE else ''}; deliveries: {[d.kind for d in DELIVERIES] or 'none'}; memory: {MEMORY.kind if MEMORY else 'none'}; state {STATE}")
         return 0

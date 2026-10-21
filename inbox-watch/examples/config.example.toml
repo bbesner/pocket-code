@@ -37,6 +37,10 @@ oauth_client_file = "google-oauth-client.json"   # an OAuth client of type "Desk
 oauth_token_file = "state/gmail-token.json"
 # auth = "service_account"             # a Workspace admin's service account with domain-wide delegation
 # service_account_file = "service-account.json"
+# provider = "connector"              # instead: Claude Code's own Gmail connector (claude.ai → Settings → Connectors); no auth keys
+# agent = "claude"
+# model = "haiku"                      # the model that makes the read calls (the judge below still decides)
+# bin = "claude"
 
 [judge]
 kind = "claude"                        # openclaw | claude | codex | anthropic

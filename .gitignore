@@ -38,6 +38,11 @@ vault-audit.jsonl
 projects.json*
 documents.json*
 tasks.json*
+
+# Inbox Watch (1.69-1.74): what the watcher sent, start-link briefings (both quote private mail), and the watcher Pocket runs
+inbox.json*
+starts.json*
+inbox-watch-data/
 saved-prompts.json*
 /documents/
 

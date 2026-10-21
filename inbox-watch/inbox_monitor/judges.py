@@ -211,8 +211,17 @@ class ClaudeJudge(Judge):
 
 
 class CodexJudge(Judge):
-    """Codex CLI headless, no session files, no sandboxed commands needed (the judge only reads and writes JSON)."""
+    """Codex CLI headless, no session files, no sandboxed commands needed (the judge only reads and writes JSON).
+
+    Isolated by default (2026-10-21): without an explicit `codex_home` it runs in its own CODEX_HOME beside the state,
+    holding only a link to the owner's sign-in (`auth.json`) and a config with every ChatGPT app off (the owner's Gmail
+    app may allow sending, and the judge reads untrusted email), no shell, plugins or memories. An explicit
+    `codex_home` is used as is; `isolate = false` uses the owner's own."""
     name = "codex"
+    LOCKED = ('# Written by Inbox Watch for the judge: no apps, no shell. Rewritten on every start.\n'
+              'approval_policy = "never"\nsandbox_mode = "read-only"\nweb_search = "disabled"\n\n'
+              '[features]\nshell_tool = false\nunified_exec = false\nplugins = false\nmemories = false\napps = false\n\n'
+              '[apps._default]\nenabled = false\n')
 
     def __init__(self, cfg: dict, state_dir: Path):
         self.bin = cfg.get("bin", "codex")
@@ -220,8 +229,23 @@ class CodexJudge(Judge):
         self.timeout = int(cfg.get("timeout", 300))
         self.cwd = cfg.get("cwd") or str(state_dir)
         self.codex_home = cfg.get("codex_home")
+        if not self.codex_home and cfg.get("isolate", True):
+            self.codex_home = str(self.locked_home(state_dir))
         self.reasoning = effort(cfg)  # minimal | low | medium | high | xhigh, as model_reasoning_effort; None = the default
         self.args = list(cfg.get("args", []))
+
+    @classmethod
+    def locked_home(cls, state_dir: Path) -> Path:
+        home = state_dir / "judge-codex-home"
+        home.mkdir(parents=True, exist_ok=True)
+        src = Path(os.path.expanduser(os.environ.get("CODEX_HOME") or "~/.codex")) / "auth.json"
+        link = home / "auth.json"
+        if link.is_symlink() and os.readlink(link) != str(src):
+            link.unlink()
+        if not link.is_symlink():
+            link.symlink_to(src)
+        (home / "config.toml").write_text(cls.LOCKED)
+        return home
 
     def ask(self, message: str, *, tag: str = "", day: str = "") -> str:
         env = dict(os.environ)
