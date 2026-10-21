@@ -32,6 +32,8 @@ function checkSession(id) {
   if (!SESSION_RE.test(s)) throw fail('That is not a session id.');
   return s;
 }
+// A project keeps every open reminder and the last ten settled ones once past the cap; the same rule on reload as on `remind`.
+const trimReminders = list => list.length > LIMITS.reminders ? list.filter(r => r.state === 'open').concat(list.filter(r => r.state !== 'open').slice(-10)) : list;
 export function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'project';
 }
@@ -76,10 +78,13 @@ export class ProjectStore {
       enrollment: p.enrollment === 'suggested' ? 'suggested' : 'requested',
       sessions: arr(p.sessions, LIMITS.sessions).filter(s => SESSION_RE.test(s)),
       tasks: arr(p.tasks, LIMITS.tasks).filter(t => t && t.id && typeof t.text === 'string'),
-      reminders: arr(p.reminders, LIMITS.reminders).filter(r => r && r.id && r.dueAt).map(r => ({ ...r, aheadNotifiedAt: r.aheadNotifiedAt || null })),
+      reminders: trimReminders((Array.isArray(p.reminders) ? p.reminders : []).filter(r => r && r.id && r.dueAt).map(r => ({ ...r, aheadNotifiedAt: r.aheadNotifiedAt || null }))), // 1.73.6: open reminders are never cut on reload
       history: arr(p.history, LIMITS.history) };
   }
-  save() { this.write(this.file, { version: 1, projects: this.projects }); }
+  // 1.73.6: a change is computed on a copy of the card, written, and installed only once the file holds it; a failed check
+  // or write leaves the card as it was.
+  save(projects = this.projects) { this.write(this.file, { version: 1, projects }); }
+  commit(projects) { this.save(projects); this.projects = projects; }
   get(id) { const p = this.projects.find(x => x.id === id); if (!p) throw fail('That project does not exist.', 404); return p; }
 
   // The card as the UI and CLI see it: open reminders carry `due`, the project carries `dueCount`.
@@ -106,9 +111,9 @@ export class ProjectStore {
     }
     return best;
   }
-  uniqueId(name) {
+  uniqueId(name, among = this.projects) {
     const base = slugify(name); let id = base, n = 2;
-    while (this.projects.some(p => p.id === id)) id = `${base}-${n++}`;
+    while (among.some(p => p.id === id)) id = `${base}-${n++}`;
     return id;
   }
   history(p, actor, action, detail, at) {
@@ -123,9 +128,10 @@ export class ProjectStore {
     if (!ACTIONS.includes(action)) throw fail('Unknown action.');
     const at = iso(this.now());
     if (action === 'track') return this.track(input, actor, at);
-    const p = this.get(str(input.project, 80));
-    if (input.expected_revision != null && Number(input.expected_revision) !== p.revision) throw fail('This project changed since you loaded it. Review the current card and try again.', 409, { project: this.view(p) });
-    if (p.status === 'done' && !['update', 'note', 'link-session', 'unlink-session'].includes(action)) throw fail('This project is finished. Resume it first.', 409, { project: this.view(p) });
+    const live = this.get(str(input.project, 80));
+    if (input.expected_revision != null && Number(input.expected_revision) !== live.revision) throw fail('This project changed since you loaded it. Review the current card and try again.', 409, { project: this.view(live) });
+    if (live.status === 'done' && !['update', 'note', 'link-session', 'unlink-session'].includes(action)) throw fail('This project is finished. Resume it first.', 409, { project: this.view(live) });
+    const p = structuredClone(live);
     switch (action) {
       case 'update': {
         const changes = {};
@@ -166,7 +172,7 @@ export class ProjectStore {
         // One open reminder per project or per step: a new one replaces it (that is how "Remind later" works).
         for (const r of p.reminders) if (r.state === 'open' && (r.task || null) === task) { r.state = 'replaced'; r.updated = at; }
         p.reminders.push({ id: shortId(), task, label, dueAt, state: 'open', notifiedAt: null, aheadNotifiedAt: null, created: at, updated: at });
-        if (p.reminders.length > LIMITS.reminders) p.reminders = p.reminders.filter(r => r.state === 'open').concat(p.reminders.filter(r => r.state !== 'open').slice(-10));
+        p.reminders = trimReminders(p.reminders);
         this.history(p, actor, 'reminder-set', { at: dueAt, label }, at); this.touch(p, at, { verified: false }); break;
       }
       case 'reminder-dismiss': {
@@ -189,7 +195,7 @@ export class ProjectStore {
         break;
       }
     }
-    this.save();
+    this.commit(this.projects.map(x => x === live ? p : x));
     return this.view(p);
   }
   track(input, actor, at) {
@@ -200,7 +206,7 @@ export class ProjectStore {
       created: at, updated: at, verified: at, revision: 1, enrollment: input.requested === false ? 'suggested' : 'requested', tasks: [], reminders: [], history: [] };
     if (input.session) p.sessions.push(checkSession(input.session));
     this.history(p, actor, 'tracked', { name, enrollment: p.enrollment }, at);
-    this.projects.push(p); this.save();
+    this.commit([...this.projects, p]);
     return this.view(p);
   }
 
@@ -208,9 +214,11 @@ export class ProjectStore {
   due(now = this.now()) {
     return this.projects.flatMap(p => p.reminders.filter(r => r.state === 'open' && !r.notifiedAt && Date.parse(r.dueAt) <= now).map(r => ({ project: p.id, projectName: p.name, reminder: r.id, label: r.label, dueAt: r.dueAt, task: r.task, taskText: r.task ? p.tasks.find(t => t.id === r.task)?.text || '' : '' })));
   }
-  markNotified(projectId, reminderId, now = this.now()) {
-    const r = this.get(projectId).reminders.find(x => x.id === reminderId); if (!r) return;
-    r.notifiedAt = iso(now); this.save();
+  markNotified(projectId, reminderId, now = this.now()) { this.markReminder(projectId, reminderId, { notifiedAt: iso(now) }); }
+  markReminder(projectId, reminderId, patch) {
+    const live = this.get(projectId); if (!live.reminders.some(x => x.id === reminderId)) return;
+    const p = { ...live, reminders: live.reminders.map(x => x.id === reminderId ? { ...x, ...patch } : x) };
+    this.commit(this.projects.map(x => x === live ? p : x));
   }
   // 1.50: the day-before notice for open reminders within `aheadMs` of their time and not yet due. A reminder set
   // less than `aheadMs` ahead gets no notice; the due announcement covers it.
@@ -218,22 +226,21 @@ export class ProjectStore {
     return this.projects.flatMap(p => p.reminders.filter(r => r.state === 'open' && !r.aheadNotifiedAt && Date.parse(r.dueAt) > now && Date.parse(r.dueAt) - aheadMs <= now && Date.parse(r.created) <= Date.parse(r.dueAt) - aheadMs)
       .map(r => ({ project: p.id, projectName: p.name, reminder: r.id, label: r.label, dueAt: r.dueAt, task: r.task, taskText: r.task ? p.tasks.find(t => t.id === r.task)?.text || '' : '' })));
   }
-  markAheadNotified(projectId, reminderId, now = this.now()) {
-    const r = this.get(projectId).reminders.find(x => x.id === reminderId); if (!r) return;
-    r.aheadNotifiedAt = iso(now); this.save();
-  }
+  markAheadNotified(projectId, reminderId, now = this.now()) { this.markReminder(projectId, reminderId, { aheadNotifiedAt: iso(now) }); }
 
 
   // One-time import of a Mission Control board snapshot (`board snapshot` JSON, version 2). Existing ids are skipped.
   importSnapshot(snap, { actor = 'import' } = {}) {
     const rows = Array.isArray(snap?.projects) ? snap.projects : null;
     if (!rows) throw fail('That is not a board snapshot.');
-    const at = iso(this.now()), added = [], skipped = [];
+    const at = iso(this.now()), added = [], skipped = [], next = [...this.projects];
     const when = v => { const t = Date.parse(v); return Number.isNaN(t) ? at : iso(t); };
+    const objects = v => (Array.isArray(v) ? v : []).filter(x => x && typeof x === 'object'); // 1.73.6: a null row in a list is skipped, not a crash
     for (const r of rows) {
-      const id = str(r.id, 80) || this.uniqueId(str(r.name, LIMITS.name) || 'project');
+      if (!r || typeof r !== 'object') continue;
+      const id = str(r.id, 80) || this.uniqueId(str(r.name, LIMITS.name) || 'project', next);
       if (!str(r.name, LIMITS.name)) { skipped.push({ id, reason: 'no name' }); continue; }
-      if (this.projects.some(p => p.id === id)) { skipped.push({ id, reason: 'already here' }); continue; }
+      if (next.some(p => p.id === id)) { skipped.push({ id, reason: 'already here' }); continue; }
       let link = '', directory = '';
       try { link = checkLink(str(r.link, LIMITS.link)); } catch { }
       try { directory = checkDirectory(str(r.directory, LIMITS.directory)); } catch { }
@@ -241,14 +248,14 @@ export class ProjectStore {
         status: STATUSES.includes(r.status) ? r.status : 'active', directory, link, sessions: [],
         created: when(r.created), updated: when(r.updated), verified: when(r.verified), revision: Number.isInteger(r.revision) && r.revision > 0 ? r.revision : 1,
         enrollment: /suggest/.test(String(r.enrollment)) ? 'suggested' : 'requested',
-        tasks: (Array.isArray(r.tasks) ? r.tasks : []).slice(0, LIMITS.tasks).map(t => ({ id: str(t.id, 40) || shortId(), text: str(t.text, LIMITS.task), done: Boolean(t.done), created: when(t.created), updated: when(t.updated) })).filter(t => t.text),
-        reminders: (Array.isArray(r.reminders) ? r.reminders : []).slice(0, LIMITS.reminders).map(x => ({ id: str(x.id, 40) || shortId(), task: x.task ? str(x.task, 40) : null, label: str(x.label, LIMITS.text) || `Revisit ${r.name}`, dueAt: when(x.due_at ?? x.dueAt), state: x.state === 'open' || x.state == null ? 'open' : 'cancelled', notifiedAt: x.notified_at ?? x.notifiedAt ?? null, created: when(x.created ?? x.updated), updated: when(x.updated) })),
-        history: (Array.isArray(r.history) ? r.history : []).slice(-LIMITS.history + 1).map(h => ({ at: when(h.at), actor: str(h.actor, 40) || 'import', action: str(h.action, 40) || 'note', detail: typeof h.detail === 'string' ? h.detail.slice(0, LIMITS.text) : JSON.stringify(h.detail ?? '').slice(0, LIMITS.text) })) };
+        tasks: objects(r.tasks).slice(0, LIMITS.tasks).map(t => ({ id: str(t.id, 40) || shortId(), text: str(t.text, LIMITS.task), done: Boolean(t.done), created: when(t.created), updated: when(t.updated) })).filter(t => t.text),
+        reminders: objects(r.reminders).slice(0, LIMITS.reminders).map(x => ({ id: str(x.id, 40) || shortId(), task: x.task ? str(x.task, 40) : null, label: str(x.label, LIMITS.text) || `Revisit ${r.name}`, dueAt: when(x.due_at ?? x.dueAt), state: x.state === 'open' || x.state == null ? 'open' : 'cancelled', notifiedAt: x.notified_at ?? x.notifiedAt ?? null, created: when(x.created ?? x.updated), updated: when(x.updated) })),
+        history: objects(r.history).slice(-LIMITS.history + 1).map(h => ({ at: when(h.at), actor: str(h.actor, 40) || 'import', action: str(h.action, 40) || 'note', detail: typeof h.detail === 'string' ? h.detail.slice(0, LIMITS.text) : JSON.stringify(h.detail ?? '').slice(0, LIMITS.text) })) };
       p.reminders = p.reminders.filter(x => !x.task || p.tasks.some(t => t.id === x.task));
       this.history(p, actor, 'imported', { from: 'mission-control', revision: p.revision }, at);
-      this.projects.push(p); added.push(id);
+      next.push(p); added.push(id);
     }
-    if (added.length) this.save();
+    if (added.length) this.commit(next);
     return { added, skipped };
   }
 }

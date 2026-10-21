@@ -49,7 +49,9 @@ export class TaskStore {
       session: SESSION_RE.test(t.session || '') ? t.session : null, sessionTitle: str(t.sessionTitle, LIMITS.title), directory: t.directory || '', summary: str(t.summary, LIMITS.summary),
       notifiedAt: t.notifiedAt || null, aheadNotifiedAt: t.aheadNotifiedAt || null, dueSetAt: t.dueSetAt || t.created || null, revision: Number.isInteger(t.revision) && t.revision > 0 ? t.revision : 1 };
   }
-  save() { this.write(this.file, { version: 1, tasks: this.tasks }); }
+  // 1.73.6: a change is computed on a copy, written, and installed only once the file holds it; a failed write changes nothing.
+  save(tasks = this.tasks) { this.write(this.file, { version: 1, tasks }); }
+  commit(tasks) { this.save(tasks); this.tasks = tasks; }
   get(id) { const t = this.tasks.find(x => x.id === id); if (!t) throw fail('That task does not exist.', 404); return t; }
 
   // The task as the UI and CLI see it: `due` says whether a dated, open task has come due.
@@ -74,13 +76,13 @@ export class TaskStore {
       const t = { id: shortId(), text, dueAt: input.dueAt ? parseWhen(input.dueAt) : null, done: false, doneAt: null,
         session: input.session ? checkSession(input.session) : null, sessionTitle: str(input.sessionTitle, LIMITS.title), directory: checkDirectory(str(input.directory, 1024)),
         summary: str(input.summary, LIMITS.summary), by: actor, created: at, updated: at, notifiedAt: null, aheadNotifiedAt: null, dueSetAt: at, revision: 1 };
-      this.tasks.push(t); this.save();
+      this.commit([...this.tasks, t]);
       return this.view(t);
     }
-    const t = this.get(str(input.task, 40));
-    if (input.expected_revision != null && Number(input.expected_revision) !== t.revision) throw fail('This task changed since you loaded it. Review it and try again.', 409, { task: this.view(t) });
-    if (action === 'remove') { this.tasks = this.tasks.filter(x => x !== t); this.save(); return { ...this.view(t), removed: true }; }
-    let changed = false;
+    const live = this.get(str(input.task, 40));
+    if (input.expected_revision != null && Number(input.expected_revision) !== live.revision) throw fail('This task changed since you loaded it. Review it and try again.', 409, { task: this.view(live) });
+    if (action === 'remove') { this.commit(this.tasks.filter(x => x !== live)); return { ...this.view(live), removed: true }; }
+    const t = { ...live }; let changed = false;
     if ('text' in input) { const text = str(input.text, LIMITS.text).replace(/\s+/g, ' '); if (!text) throw fail('The task needs some text.'); t.text = text; changed = true; }
     if ('dueAt' in input) { const dueAt = input.dueAt ? parseWhen(input.dueAt) : null; if (dueAt !== t.dueAt) { t.dueAt = dueAt; t.notifiedAt = null; t.aheadNotifiedAt = null; t.dueSetAt = at; } changed = true; } // a new time is announced again
     if ('summary' in input) { t.summary = str(input.summary, LIMITS.summary); changed = true; }
@@ -88,7 +90,7 @@ export class TaskStore {
     if ('directory' in input) { t.directory = checkDirectory(str(input.directory, 1024)); changed = true; }
     if ('done' in input) { const done = Boolean(input.done); if (done !== t.done) { t.done = done; t.doneAt = done ? at : null; } changed = true; }
     if (!changed) throw fail('Nothing to change.');
-    this.touch(t); this.save();
+    this.touch(t); this.commit(this.tasks.map(x => x === live ? t : x));
     return this.view(t);
   }
 
@@ -96,12 +98,12 @@ export class TaskStore {
   due(now = this.now()) {
     return this.tasks.filter(t => !t.done && t.dueAt && !t.notifiedAt && Date.parse(t.dueAt) <= now).map(t => ({ task: t.id, text: t.text, dueAt: t.dueAt, session: t.session }));
   }
-  markNotified(id, now = this.now()) { const t = this.get(id); t.notifiedAt = iso(now); this.save(); }
+  markNotified(id, now = this.now()) { const t = this.get(id); this.commit(this.tasks.map(x => x === t ? { ...t, notifiedAt: iso(now) } : x)); }
   // 1.50: the day-before notice. Dated tasks within `aheadMs` of their time, not yet due, not yet given the notice.
   // A task whose time was set less than `aheadMs` ahead gets no notice: the due announcement is enough.
   dueAhead(aheadMs, now = this.now()) {
     return this.tasks.filter(t => !t.done && t.dueAt && !t.aheadNotifiedAt && Date.parse(t.dueAt) > now && Date.parse(t.dueAt) - aheadMs <= now && Date.parse(t.dueSetAt || t.created) <= Date.parse(t.dueAt) - aheadMs)
       .map(t => ({ task: t.id, text: t.text, dueAt: t.dueAt, session: t.session }));
   }
-  markAheadNotified(id, now = this.now()) { const t = this.get(id); t.aheadNotifiedAt = iso(now); this.save(); }
+  markAheadNotified(id, now = this.now()) { const t = this.get(id); this.commit(this.tasks.map(x => x === t ? { ...t, aheadNotifiedAt: iso(now) } : x)); }
 }

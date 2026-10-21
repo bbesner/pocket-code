@@ -22,14 +22,13 @@ export class StartStore {
     this.entries = [];
     try { const d = JSON.parse(fs.readFileSync(file, 'utf8')); if (Array.isArray(d.entries)) this.entries = d.entries; } catch { }
   }
-  save() { this.write(this.file, { version: 1, entries: this.entries }); }
-  purge() {
-    const t = this.now();
-    const before = this.entries.length;
-    this.entries = this.entries.filter(e => Date.parse(e.expiresAt) > t);
-    if (this.entries.length > LIMITS.entries) this.entries = this.entries.slice(this.entries.length - LIMITS.entries);
-    return before - this.entries.length;
+  save(entries = this.entries) { this.write(this.file, { version: 1, entries }); }
+  // The live list without expired entries and within the cap (newest kept); nothing changes here.
+  pruned() {
+    const t = this.now(), live = this.entries.filter(e => Date.parse(e.expiresAt) > t);
+    return live.length > LIMITS.entries ? live.slice(live.length - LIMITS.entries) : live;
   }
+  purge() { const next = this.pruned(), n = this.entries.length - next.length; this.entries = next; return n; }
   // body: { text, directory?, provider?, title?, ttlDays? } → the stored entry. The caller decides who may add.
   add(body, { actor = 'ui' } = {}) {
     const text = str(body.text, LIMITS.text);
@@ -43,14 +42,15 @@ export class StartStore {
     let ttl = body.ttlDays === undefined || body.ttlDays === '' ? LIMITS.ttlDaysDefault : Number(body.ttlDays);
     if (!Number.isFinite(ttl) || ttl < 1 || ttl > LIMITS.ttlDaysMax) throw fail(`The link must last 1 to ${LIMITS.ttlDaysMax} days.`);
     ttl = Math.round(ttl);
-    this.purge();
+    // 1.73.6: the next list is written first and installed once the file holds it; a failed write leaves no entry readable.
+    const next = this.pruned();
     let id;
-    do { id = randomBytes(6).toString('hex'); } while (this.entries.some(e => e.id === id));
+    do { id = randomBytes(6).toString('hex'); } while (next.some(e => e.id === id));
     const t = this.now();
     const entry = { id, text, directory, provider, title, by: actor, createdAt: iso(t), expiresAt: iso(t + ttl * 86400_000) };
-    this.entries.push(entry);
-    if (this.entries.length > LIMITS.entries) this.entries.splice(0, this.entries.length - LIMITS.entries);
-    this.save();
+    next.push(entry);
+    if (next.length > LIMITS.entries) next.splice(0, next.length - LIMITS.entries);
+    this.save(next); this.entries = next;
     return entry;
   }
   get(id) {

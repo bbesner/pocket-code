@@ -105,7 +105,13 @@ export class VaultStore {
     this.file = file; this.envKey = key; this.keys = key ? [key, ...oldKeys] : []; this.salt = null;
     this.auditFile = auditFile || path.join(path.dirname(file), 'vault-audit.jsonl');
     this.now = now || Date.now; this.log = log;
-    this.write = write || ((f, buf) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, buf, { mode: 0o600 }); fs.renameSync(tmp, f); });
+    // 1.73.6: the one file whose loss is every secret at once is synced before and after the rename (the other stores keep tmp+rename alone).
+    this.write = write || ((f, buf) => {
+      fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp';
+      const fd = fs.openSync(tmp, 'w', 0o600); try { fs.writeSync(fd, buf); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      fs.renameSync(tmp, f);
+      let dir = null; try { dir = fs.openSync(path.dirname(f), 'r'); fs.fsyncSync(dir); } catch { } finally { if (dir !== null) fs.closeSync(dir); }
+    });
     this.requests = new Map(); // id -> request (pending ones live in memory only; they expire in minutes)
     this.running = 0; this.items = null; this.lastActivityAt = this.now();
     this.access = () => 'once'; // the server points this at the Agent access setting
@@ -123,9 +129,11 @@ export class VaultStore {
   // key and every item. Switching modes rewrites the file under the other key.
   unlock(passphrase) {
     if (!this.locked) return true;
-    const k = deriveKey(passphrase, this.salt);
-    let data; try { data = decryptStore([k], fs.readFileSync(this.file)); } catch { this.audit({ action: 'unlock-failed', by: 'owner' }); throw fail('Wrong passphrase.', 401); }
-    this.keys = [k]; this.load(data); this.audit({ action: 'unlock', by: 'owner' }); return true;
+    // 1.73.6: the salt comes from the file being opened, not from memory, so it is always the one the file was written with.
+    const buf = fs.readFileSync(this.file), h = storeHeader(buf), salt = h.version === 2 ? Buffer.from(h.salt) : this.salt;
+    const k = deriveKey(passphrase, salt);
+    let data; try { data = decryptStore([k], buf); } catch { this.audit({ action: 'unlock-failed', by: 'owner' }); throw fail('Wrong passphrase.', 401); }
+    this.salt = salt; this.keys = [k]; this.load(data); this.audit({ action: 'unlock', by: 'owner' }); return true;
   }
   lock() {
     if (this.mode !== 'passphrase') throw fail('The Vault is opened by the server key; set a passphrase to be able to lock it.');
@@ -141,7 +149,8 @@ export class VaultStore {
     this.open();
     if (String(passphrase) !== String(confirm)) throw fail('The passphrases do not match.');
     const salt = randomBytes(16), k = deriveKey(passphrase, salt);
-    this.salt = salt; this.keys = [k]; this.save(); this.audit({ action: 'passphrase-set', by: 'owner' });
+    this.save({ key: k, salt }); this.salt = salt; this.keys = [k]; // 1.73.6: the new material is taken up only once the file holds it
+    this.audit({ action: 'passphrase-set', by: 'owner' });
   }
   checkPassphrase(passphrase) { if (this.mode !== 'passphrase') return false; try { decryptStore([deriveKey(passphrase, this.salt)], fs.readFileSync(this.file)); return true; } catch { return false; } }
   removePassphrase(passphrase) {
@@ -149,13 +158,17 @@ export class VaultStore {
     if (this.mode !== 'passphrase') throw fail('The Vault is not protected by a passphrase.');
     if (!this.envKey) throw fail('POCKET_VAULT_KEY is not set, so the Vault cannot go back to the server key.', 409, { code: 'vault_no_key' });
     try { decryptStore([deriveKey(passphrase, this.salt)], fs.readFileSync(this.file)); } catch { throw fail('Wrong passphrase.', 401); }
-    this.salt = null; this.keys = [this.envKey]; this.save(); this.audit({ action: 'passphrase-removed', by: 'owner' });
+    this.save({ key: this.envKey, salt: null }); this.salt = null; this.keys = [this.envKey]; this.audit({ action: 'passphrase-removed', by: 'owner' });
   }
   // Idle lock: the owner's setting, in minutes; 0 never.
   idleLockDue(minutes, now = this.now()) { return this.mode === 'passphrase' && !this.locked && minutes > 0 && now - this.lastActivityAt >= minutes * 60_000; }
-  save() { this.open(); this.write(this.file, encryptStore(this.keys[0], { version: STORE_SCHEMA, savedAt: iso(this.now()), items: this.items }, { salt: this.salt })); }
+  // 1.73.6: writes a state and changes nothing in memory: every change computes its next items (and key or salt) on a copy,
+  // writes them, and installs them only once the file holds them, so a failed write leaves memory and disk agreeing.
+  save({ items = this.items, key = this.keys[0], salt = this.salt } = {}) { this.open(); this.write(this.file, encryptStore(key, { version: STORE_SCHEMA, savedAt: iso(this.now()), items }, { salt })); }
+  // The live list with one item replaced by its edited copy (or removed when `next` is null).
+  withItem(i, next) { return next ? this.items.map(x => x === i ? next : x) : this.items.filter(x => x !== i); }
   // Rotation (key mode): the store is rewritten under the new key; the old one stays accepted until the daemon restarts with the new .env.
-  rotate(newKeyRaw) { this.open(); if (this.mode !== 'key') throw fail('Rotation applies to the server key; the Vault is protected by a passphrase.'); const k = parseKey(newKeyRaw); this.keys = [k, ...this.keys]; this.envKey = k; this.save(); return k; }
+  rotate(newKeyRaw) { this.open(); if (this.mode !== 'key') throw fail('Rotation applies to the server key; the Vault is protected by a passphrase.'); const k = parseKey(newKeyRaw); this.save({ key: k }); this.keys = [k, ...this.keys]; this.envKey = k; return k; }
   // Export: every item (values included) as a format-2 file under a passphrase of its own; import merges by name.
   exportBundle(passphrase, confirm) {
     this.open();
@@ -171,17 +184,19 @@ export class VaultStore {
     if (h.version !== 2) throw fail('That is not a Vault export file.');
     let data; try { data = decryptStore([deriveKey(passphrase, h.salt)], buf); } catch (e) { throw fail(e.message === 'Wrong passphrase.' ? 'Wrong passphrase.' : 'That is not a Vault export file.'); }
     if (data?.format !== EXPORT_FORMAT || !Array.isArray(data.items)) throw fail('That is not a Vault export file.');
-    const skipped = [], added = [], legacy = !(data.version >= STORE_SCHEMA);
+    const skipped = [], added = [], legacy = !(data.version >= STORE_SCHEMA), next = [...this.items];
     for (const raw of data.items) {
+      if (!raw || typeof raw !== 'object') continue;
       const i = this.normalize({ ...raw, ...(legacy && raw.policy === 'ask' ? { policy: 'default' } : {}), id: shortId(), lastUsedAt: null, lastUsedBy: null, trashedAt: null });
       if (!NAME_RE.test(i.name || '')) continue;
-      if (this.items.some(x => x.name === i.name)) { skipped.push(i.name); continue; }
-      if (this.items.length >= LIMITS.items) throw fail(`You can keep up to ${LIMITS.items} items.`, 409);
+      if (next.some(x => x.name === i.name)) { skipped.push(i.name); continue; }
+      if (next.length >= LIMITS.items) throw fail(`You can keep up to ${LIMITS.items} items.`, 409);
+      try { this.checkValues({ kind: i.kind, custom: [] }, i.values, { all: false }); } catch (e) { throw fail(`${i.name}: ${e.message}`); } // 1.73.6: an export is held to the same value rules
       i.created = i.created || iso(this.now()); i.updated = iso(this.now()); i.revision = 1;
-      this.items.push(i); added.push(i.name);
+      next.push(i); added.push(i.name);
     }
-    if (added.length) this.save();
     this.audit({ action: 'import', by: 'owner', decision: `${added.length} added, ${skipped.length} skipped` });
+    if (added.length) { this.save({ items: next }); this.items = next; }
     return { added: added.length, skipped };
   }
   normalize(i) {
@@ -253,7 +268,7 @@ export class VaultStore {
         policy: owner && POLICIES.includes(input.policy) ? input.policy : 'default', recipes: [], expiresAt: this.checkWhen(input.expiresAt),
         created: at, updated: at, by, lastUsedAt: null, lastUsedBy: null, trashedAt: null, revision: 1 };
       this.audit({ action: 'put', item: item.id, name, by, session, sessionTitle });
-      this.items.push(item); this.save();
+      const next = [...this.items, item]; this.save({ items: next }); this.items = next;
       return this.view(item, { owner });
     }
     if (action === 'answer') {
@@ -261,21 +276,24 @@ export class VaultStore {
       return this.answer(str(input.request, 40), str(input.decision, 10));
     }
     if (!owner) throw fail('Agents cannot change items. Ask the owner.', 403);
-    const i = this.get(str(input.item, 40));
-    if (input.expected_revision != null && Number(input.expected_revision) !== i.revision) throw fail('This item changed since you loaded it. Review it and try again.', 409, { item: this.view(i, { owner }) });
-    if (action === 'remove') { if (i.trashedAt) throw fail('Already removed.'); i.trashedAt = at; this.touch(i); this.audit({ action: 'remove', item: i.id, name: i.name, by }); this.save(); return { ...this.view(i, { owner }), removed: true }; }
+    const live = this.get(str(input.item, 40));
+    if (input.expected_revision != null && Number(input.expected_revision) !== live.revision) throw fail('This item changed since you loaded it. Review it and try again.', 409, { item: this.view(live, { owner }) });
+    // 1.73.6: the edit is made on a copy; the copy replaces the item only once the file holds it, so a check that fails
+    // halfway (or a write that fails) leaves the item as it was.
+    const i = structuredClone(live), commit = () => { const next = this.withItem(live, i); this.save({ items: next }); this.items = next; };
+    if (action === 'remove') { if (i.trashedAt) throw fail('Already removed.'); i.trashedAt = at; this.touch(i); this.audit({ action: 'remove', item: i.id, name: i.name, by }); commit(); return { ...this.view(i, { owner }), removed: true }; }
     if (action === 'restore') {
       if (!i.trashedAt) throw fail('This item is not removed.');
-      if (this.items.some(x => x !== i && x.name === i.name && !x.trashedAt)) throw fail('Another item now has that name. Rename it first.', 409);
-      i.trashedAt = null; this.touch(i); this.audit({ action: 'restore', item: i.id, name: i.name, by }); this.save(); return this.view(i, { owner });
+      if (this.items.some(x => x !== live && x.name === i.name && !x.trashedAt)) throw fail('Another item now has that name. Rename it first.', 409);
+      i.trashedAt = null; this.touch(i); this.audit({ action: 'restore', item: i.id, name: i.name, by }); commit(); return this.view(i, { owner });
     }
     if (action === 'recipe-remove') {
       const id = str(input.recipe, 40); if (!i.recipes.some(r => r.id === id)) throw fail('That approved command does not exist.', 404);
-      i.recipes = i.recipes.filter(r => r.id !== id); this.touch(i); this.audit({ action: 'update', item: i.id, name: i.name, by, decision: 'recipe-removed' }); this.save(); return this.view(i, { owner });
+      i.recipes = i.recipes.filter(r => r.id !== id); this.touch(i); this.audit({ action: 'update', item: i.id, name: i.name, by, decision: 'recipe-removed' }); commit(); return this.view(i, { owner });
     }
     let changed = false;
     const touched = []; // field names an edit changed, added or removed: recorded in the audit, never a value
-    if ('name' in input) { const name = str(input.name, LIMITS.name + 1).toLowerCase(); if (!NAME_RE.test(name)) throw fail('The name must be 1 to 64 characters: lower-case letters, digits and hyphens.'); if (this.items.some(x => x !== i && x.name === name)) throw fail('An item with that name already exists.', 409); i.name = name; changed = true; }
+    if ('name' in input) { const name = str(input.name, LIMITS.name + 1).toLowerCase(); if (!NAME_RE.test(name)) throw fail('The name must be 1 to 64 characters: lower-case letters, digits and hyphens.'); if (this.items.some(x => x !== live && x.name === name)) throw fail('An item with that name already exists.', 409); i.name = name; changed = true; }
     if (Array.isArray(input.removeFields)) { // custom fields only; a fixed field cannot be dropped
       for (const f of input.removeFields.map(x => str(x, 40))) { if (!i.custom.includes(f)) throw fail(`${f} is not a custom field of this item.`); i.custom = i.custom.filter(x => x !== f); delete i.values[f]; touched.push(f); changed = true; }
     }
@@ -291,7 +309,7 @@ export class VaultStore {
     if ('policy' in input) { if (!POLICIES.includes(input.policy)) throw fail('The policy must be default, auto, ask, every or owner.'); i.policy = input.policy; changed = true; }
     if ('expiresAt' in input) { i.expiresAt = this.checkWhen(input.expiresAt); changed = true; }
     if (!changed) throw fail('Nothing to change.');
-    this.touch(i); this.audit({ action: 'update', item: i.id, name: i.name, by, ...(touched.length ? { fields: [...new Set(touched)] } : {}) }); this.save();
+    this.touch(i); this.audit({ action: 'update', item: i.id, name: i.name, by, ...(touched.length ? { fields: [...new Set(touched)] } : {}) }); commit();
     return this.view(i, { owner });
   }
   // Fixed fields are required on add; any other key is a custom field (named by the rule, not clashing with a fixed one).
@@ -359,7 +377,8 @@ export class VaultStore {
   // What the policies say about running this command with these items: 'run', or 'ask' with the items that need the owner's word.
   decide(bound, cmd) {
     const need = [];
-    for (const { item } of new Map(bound.map(b => [b.item.id, b])).values()) {
+    for (const { item: boundItem } of new Map(bound.map(b => [b.item.id, b])).values()) {
+      const item = this.items.find(x => x.id === boundItem.id) || boundItem; // 1.73.6: an edit replaces the item object; the policy read is the one in the store now
       const p = this.effective(item);
       if (p === 'owner') throw fail(`${item.name} is for the owner only; agents cannot use it. Ask the owner to change its policy.`, 403, { code: 'owner_only' });
       if (p === 'every' || (p === 'ask' && !item.recipes.some(r => VaultStore.sameCommand(r, cmd)))) need.push(item);
@@ -417,12 +436,18 @@ export class VaultStore {
     const r = this.requests.get(id); if (!r) throw fail('That request does not exist or has expired.', 404);
     if (r.answer) throw fail('That request was already answered.', 409);
     if (!['once', 'always', 'deny'].includes(decision)) throw fail('Answer once, always or deny.');
-    r.answer = { decision, at: iso(this.now()) };
+    const answer = { decision, at: iso(this.now()) };
+    // 1.73.6: the recipes an Always saves are written first; the row is answered, and its waiters woken, only once they are on disk.
+    let next = null;
     if (decision === 'always') {
-      for (const id of r.items) { const i = this.items.find(x => x.id === id); if (!i || i.trashedAt || this.effective(i) === 'every') continue; if (!i.recipes.some(x => VaultStore.sameCommand(x, r))) { i.recipes.push({ id: shortId(), argv: r.argv, cwd: r.cwd, action: r.action, created: r.answer.at }); if (i.recipes.length > LIMITS.recipes) i.recipes.shift(); this.touch(i); } }
-      this.save();
+      next = this.items.map(live => {
+        if (!r.items.includes(live.id) || live.trashedAt || this.effective(live) === 'every' || live.recipes.some(x => VaultStore.sameCommand(x, r))) return live;
+        const i = structuredClone(live); i.recipes.push({ id: shortId(), argv: r.argv, cwd: r.cwd, action: r.action, created: answer.at }); if (i.recipes.length > LIMITS.recipes) i.recipes.shift(); this.touch(i); return i;
+      });
     }
     this.audit({ action: 'request-answered', request: r.id, item: r.items[0], name: r.itemNames.join(','), by: 'owner', decision, session: r.session, sessionTitle: r.sessionTitle, argv: r.argv, cwd: r.cwd });
+    if (next) { this.save({ items: next }); this.items = next; }
+    r.answer = answer;
     for (const w of r.waiters.splice(0)) w(r);
     return this.requestView(r);
   }
@@ -445,8 +470,8 @@ export class VaultStore {
     const items = [...new Map(bound.map(b => [b.item.id, b.item])).values()];
     for (const item of items) this.audit({ action, item: item.id, name: item.name, by, session, sessionTitle, argv: cmd.argv, cwd: cmd.cwd, request });
     const at = iso(this.now());
-    for (const item of items) { item.lastUsedAt = at; item.lastUsedBy = { session, sessionTitle, kind: by }; }
-    this.save();
+    const next = this.items.map(live => items.includes(live) ? { ...live, lastUsedAt: at, lastUsedBy: { session, sessionTitle, kind: by } } : live);
+    this.save({ items: next }); this.items = next;
     const secrets = {}; for (const b of bound) secrets[b.v] = b.item.values[b.field];
     return secrets;
   }
@@ -454,7 +479,7 @@ export class VaultStore {
   purge(now = this.now()) {
     if (this.locked) { this.expireRequests(now); return []; }
     const gone = this.items.filter(i => i.trashedAt && Date.parse(i.trashedAt) + LIMITS.trashDays * 86400_000 <= now);
-    if (gone.length) { this.items = this.items.filter(i => !gone.includes(i)); this.save(); }
+    if (gone.length) { const next = this.items.filter(i => !gone.includes(i)); this.save({ items: next }); this.items = next; }
     this.expireRequests(now);
     return gone.map(i => i.name);
   }

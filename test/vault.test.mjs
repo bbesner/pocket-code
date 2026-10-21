@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
-import {VaultStore,parseKey,newKey,encryptStore,decryptStore,storeHeader,deriveKey,scrubber,needlesFor,runWithSecrets,vaultInstructions,LIMITS} from '../vault.mjs';
+import {VaultStore,parseKey,newKey,encryptStore,decryptStore,storeHeader,deriveKey,scrubber,needlesFor,runWithSecrets,vaultInstructions,LIMITS,EXPORT_FORMAT} from '../vault.mjs';
 import {agentEnv} from '../environment.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
@@ -431,7 +431,7 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   rows=(await call('/vault/audit?item='+made.body.item.id)).body.rows;assert.ok(rows.length>=3);assert.ok(rows.every(x=>x.item===made.body.item.id));
   // Rotation (1.44) saves the new key to .env before rewriting the store; with no .env to write (this server runs with
   // POCKET_ENV_FILE empty) it refuses rather than leave a key nobody saved. The saved path is in vault-key.test.mjs.
-  const rot=await call('/vault/rotate',{});assert.equal(rot.status,409);assert.match(rot.body.error,/no \.env file/);
+  const rot=await call('/vault/rotate',{});assert.equal(rot.status,409);assert.equal(rot.body.code,'vault_key_preset','1.73.6: a key set in the process environment is rotated where it is set');
   assert.equal((await call('/vault/rotate',{},bearer)).status,401);
   assert.equal((await call('/vault')).body.items.length,4,'the store is untouched');
   // The CLI, as an agent inside the session.
@@ -716,4 +716,57 @@ test('HTTP in-place edit (1.44.2): the owner loads and saves a field; the token 
   assert.ok(hist.body.rows.filter(r=>r.action==='owner-view').length>=4,'every load is recorded');
   const audit=fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8');
   for(const v of ['sinch-secret','sinch-key-','Authorization'])assert.equal(audit.includes(v)||logs.includes(v),false,'no value in the audit or the log: '+v);
+});
+
+// 1.73.6: every change is computed on a copy, written, then installed; the passphrase salt and the key are taken up only once
+// the file holds them; unlock reads the salt from the file; the file and its directory are synced on every write.
+test('validate then commit (1.73.6): a failed check or write leaves the store, its salt and its key as they were; the file is synced',async()=>{
+  const d=tmp(),s=new VaultStore(path.join(d,'vault.enc'),{key:parseKey(newKey())});
+  const a=s.act({action:'add',name:'alpha',kind:'token',values:{value:SECRET}});
+  assert.throws(()=>s.act({action:'update',item:a.id,name:'renamed',removeFields:['nope']}),/not a custom field/);
+  assert.equal(s.get(a.id).name,'alpha','a rename before a failed check is not kept');assert.equal(s.get(a.id).revision,1);
+  s.act({action:'update',item:a.id,tags:['x']});
+  assert.equal(new VaultStore(path.join(d,'vault.enc'),{key:s.keys[0]}).items[0].name,'alpha','and an unrelated later save does not carry it');
+  // The default writer syncs the file and its directory (the audit row syncs its own file).
+  const synced=[],orig=fs.fsyncSync;fs.fsyncSync=fd=>{synced.push(fd);return orig(fd);};
+  try{s.act({action:'update',item:a.id,notes:'n'});}finally{fs.fsyncSync=orig;}
+  assert.ok(synced.length>=3,'audit row, store file and its directory');
+  // A writer that fails: memory stays with the disk.
+  let failNext=false;const write=(f,buf)=>{if(failNext){failNext=false;throw Object.assign(new Error('ENOSPC: no space left on device'),{code:'ENOSPC'});}fs.writeFileSync(f+'.tmp',buf,{mode:0o600});fs.renameSync(f+'.tmp',f);};
+  const d2=tmp(),file=path.join(d2,'vault.enc'),k0=newKey(),w=new VaultStore(file,{key:parseKey(k0),write});w.access=()=>'once';
+  const b=w.act({action:'add',name:'beta',kind:'token',values:{value:SECRET}});
+  failNext=true;assert.throws(()=>w.act({action:'add',name:'gamma',kind:'token',values:{value:'gamma-secret-1234'}}),/ENOSPC/);
+  assert.equal(w.items.length,1,'memory is not ahead of disk');assert.equal(w.byName('gamma'),null);
+  failNext=true;assert.throws(()=>w.act({action:'update',item:b.id,tags:['t']}),/ENOSPC/);assert.deepEqual(w.get(b.id).tags,[]);assert.equal(w.get(b.id).revision,1);
+  failNext=true;assert.throws(()=>w.act({action:'remove',item:b.id}),/ENOSPC/);assert.equal(w.get(b.id).trashedAt,null);
+  // A rotation whose write fails keeps the old key everywhere; the next save is still under it.
+  const k1=newKey();failNext=true;assert.throws(()=>w.rotate(k1),/ENOSPC/);
+  assert.ok(w.keys[0].equals(parseKey(k0)),'the key in memory is the old one');assert.ok(w.envKey.equals(parseKey(k0)),'and so is the recovery key');
+  w.act({action:'update',item:b.id,tags:['later']});
+  assert.equal(decryptStore([parseKey(k0)],fs.readFileSync(file)).items[0].name,'beta','the next save is under the old key');assert.throws(()=>decryptStore([parseKey(k1)],fs.readFileSync(file)));
+  assert.ok(w.rotate(k1).equals(parseKey(k1)));assert.equal(decryptStore([parseKey(k1)],fs.readFileSync(file)).items[0].name,'beta','a rotation that writes takes effect');
+  // An Always whose recipe write fails leaves the request unanswered and its waiters waiting; the owner answers again.
+  const bound=w.resolveBindings({T:'beta'}),cmd=w.checkCommand(['true'],d2),r=w.request({bound,cmd,need:w.decide(bound,cmd),env:{T:'beta'}});
+  let woken=0;const waiting=w.waitAnswer(r.id,5000).then(()=>{woken++;});
+  failNext=true;assert.throws(()=>w.answer(r.id,'always'),/ENOSPC/);
+  assert.equal(w.requests.get(r.id).answer,null,'the row stays unanswered');assert.equal(w.get(b.id).recipes.length,0,'no recipe in memory');await sleep(20);assert.equal(woken,0);
+  assert.equal(w.answer(r.id,'always').pending,false,'the owner can answer again');assert.equal(w.get(b.id).recipes.length,1);await waiting;assert.equal(woken,1);
+  assert.equal(decryptStore([parseKey(k1)],fs.readFileSync(file)).items[0].recipes.length,1);
+  // A passphrase change whose write fails leaves the salt the file has, so the old passphrase still opens it after a lock.
+  const d3=tmp(),f3=path.join(d3,'vault.enc'),p=new VaultStore(f3,{key:parseKey(newKey()),write});
+  p.act({action:'add',name:'alpha',kind:'token',values:{value:SECRET}});
+  p.setPassphrase('old passphrase 123','old passphrase 123');const salt0=Buffer.from(p.salt);
+  failNext=true;assert.throws(()=>p.setPassphrase('new passphrase 456','new passphrase 456'),/ENOSPC/);
+  assert.ok(p.salt.equals(salt0),'the salt in memory is the one on disk');assert.ok(p.salt.equals(storeHeader(fs.readFileSync(f3)).salt));
+  p.lock();assert.throws(()=>p.unlock('new passphrase 456'),/Wrong passphrase/);assert.equal(p.unlock('old passphrase 123'),true,'the old passphrase opens it after a lock');
+  // unlock reads the salt from the file: a store rewritten under another salt (a restore from backup, say) opens with its own passphrase.
+  const q=new VaultStore(f3,{key:null});const other=path.join(d3,'other.enc'),o=new VaultStore(other,{key:parseKey(newKey())});
+  o.act({action:'add',name:'omega',kind:'token',values:{value:'omega-secret-1234'}});o.setPassphrase('other passphrase 789','other passphrase 789');
+  fs.copyFileSync(other,f3);assert.equal(q.unlock('other passphrase 789'),true);assert.equal(q.items[0].name,'omega');
+  // An import is checked whole: a bad value anywhere adds nothing, and a null row is skipped.
+  const salt=Buffer.alloc(16,3),bundle=items=>encryptStore(deriveKey('export passphrase 1','export passphrase 1'.length>0?salt:salt),{format:EXPORT_FORMAT,version:2,items},{salt});
+  assert.throws(()=>s.importBundle(bundle([{name:'good',kind:'token',values:{value:'good-value-1234'}},null,{name:'bad',kind:'token',values:{value:'{{vault:other}}'}}]),'export passphrase 1'),/bad: The value looks like a placeholder/);
+  assert.equal(s.byName('good'),null,'the valid item before the bad one was not kept');
+  assert.deepEqual(s.importBundle(bundle([{name:'good',kind:'token',values:{value:'good-value-1234'}},null]),'export passphrase 1'),{added:1,skipped:[]});
+  for(const x of [d,d2,d3])fs.rmSync(x,{recursive:true,force:true});
 });

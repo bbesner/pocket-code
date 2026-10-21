@@ -3,6 +3,16 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.73.6] — 2026-10-21 · build 148
+
+- **Validate, write, then install.** The fourth batch from the 2026-10-21 triage of Casey's review (SUMMARY items 6, 8, 10, 11). Every store applied a change field by field on the live record and saved last, so a check that failed on a later field left the earlier ones applied in memory for the next save to persist, and a failed write (disk full, permissions) left memory ahead of disk. Now each store computes the next state on a copy, writes it, and installs it only once the file holds it:
+  - **Vault** (`vault.mjs`): adds, edits, removals, restores, recipe removals, releases, purges and imports; a passphrase change or a key rotation takes up the new salt or key only after the write, so a failed passphrase change no longer leaves a salt neither passphrase opens until restart, and a failed rotation no longer lets the next ordinary save rewrite the store under a key the owner was told had failed; `unlock` reads the salt from the file it opens; an *Always* answer writes its recipes before the request is marked answered and its waiters woken; an import is checked whole (values held to the same rules as an add; null rows skipped). `vault.enc` is synced to disk, file and directory, around its rename; the other stores keep temp-file-and-rename. [S2-B2-1, S2-B2-2, S2-B3-9, S2-B3r3-1, S2-B3r4-1, S2-B3r5-1, S2-B5-ROTATE, S2-B5R2-KEY, S2-B2-3, S2-B3r5-2]
+  - **The key routes** (`server.mjs`): the recovery key is the key the store is written under (`vault.envKey`), not the daemon's copy of `.env`; a rotation whose store write fails puts `.env` back to the old key; a `POCKET_VAULT_KEY` set in the daemon's process environment rather than `.env` makes rotate (and a switch-on that would create a key) answer 409 `vault_key_preset` instead of writing a key the next start will not read. [S2-B5R-ENV]
+  - **Settings** (`POST /api/settings`): every field is checked into a next object first; nothing is assigned, rebuilt (router, Access) or written until all of them pass. [S2-S1-2]
+  - **Projects, files, tasks, start links**: the same copy-write-install shape in `projects.mjs`, `tasks.mjs`, `documents.mjs` and `starts.mjs`; `pocket-docs add` checks the session id, visibility and the library limit before copying the file in (a refused add no longer leaves a stray file for the next listing to adopt), and a copy whose record cannot be written is removed; a project's open reminders are no longer cut to 50 on reload; a board import skips null rows instead of crashing. [S2-A1-1, S2-A6-1, S2-A6-2, S2-A3-1, S2-C5-1, S2-A1-2]
+  Operators: `DocumentStore.record()` no longer pushes into the list (callers commit it); `decide()` reads an item's policy as it is in the store now. See docs/operations.md "Writes" and SECURITY.md "At rest".
+- Migration: none. Files on disk keep their formats.
+
 ## [1.73.5] — 2026-10-21 · build 147
 
 - **The browser relay fills less and scrubs more.** The third batch from the 2026-10-21 triage of Casey's review (SUMMARY item 4), all in `scripts/pocket-mcp-proxy.mjs`:

@@ -50,7 +50,11 @@ export class DocumentStore {
     let d = {}; try { d = JSON.parse(fs.readFileSync(metaFile, 'utf8')); } catch { }
     this.documents = Array.isArray(d.documents) ? d.documents.filter(r => r && typeof r.id === 'string' && typeof r.file === 'string') : [];
   }
-  save() { this.write(this.file, { version: 1, documents: this.documents }); }
+  // 1.73.6: a change is computed on a copy of the record, written, and installed only once the file holds it; the checks
+  // come before any file is copied, so a refused add leaves nothing in the folder for the scan to adopt.
+  save(documents = this.documents) { this.write(this.file, { version: 1, documents }); }
+  commit(documents) { this.save(documents); this.documents = documents; }
+  replace(live, next) { return this.documents.map(x => x === live ? next : x); }
   get(id) { const r = this.documents.find(x => x.id === id); if (!r) throw fail('That file does not exist.', 404); return r; }
   trashDir() { return path.join(this.dir, '.trash'); }
   filePath(r) { return r.trashedAt ? path.join(this.trashDir(), r.id + '-' + r.file) : path.join(this.dir, r.file); }
@@ -64,32 +68,36 @@ export class DocumentStore {
     while (this.documents.some(r => r.file === file && r.id !== except) || fs.existsSync(path.join(this.dir, file))) file = `${stem}-${n++}${ext}`;
     return file;
   }
-  record(file, { title, project, session, visibility, addedBy, size, at, source }) {
-    if (this.documents.length >= LIMITS.documents) throw fail(`The Files library holds up to ${LIMITS.documents} files.`, 409);
+  // What a new record must satisfy; checked before a file is copied in. `count` is the library size the record would join.
+  check({ session, visibility } = {}, count = this.documents.length) {
+    if (count >= LIMITS.documents) throw fail(`The Files library holds up to ${LIMITS.documents} files.`, 409);
     if (session && !SESSION_RE.test(session)) throw fail('That is not a session id.');
     if (visibility && !VISIBILITIES.includes(visibility)) throw fail('Visibility must be private, link or public.');
+  }
+  // A new record (not yet in the list: the caller writes the list it joins, then installs it).
+  record(file, { title, project, session, visibility, addedBy, size, at, source }, count) {
+    this.check({ session, visibility }, count);
     const r = { id: randomBytes(6).toString('hex'), file, title: str(title, LIMITS.title) || titleFor(file, this.peek(path.join(this.dir, file))), kind: kindOf(file), size, added: at, addedBy, updated: at, session: session || null, project: str(project, 80) || null, visibility: visibility || 'private', share: null, shareHash: null, trashedAt: null };
     if (source) r.source = String(source).slice(0, 1000); // 1.61: the kept file's original path
     this.pendingToken = r.visibility === 'link' ? this.mintShare(r, null) : null;
-    this.documents.push(r);
     return r;
   }
   peek(p) { try { return kindOf(p) === 'html' || kindOf(p) === 'md' ? fs.readFileSync(p, 'utf8').slice(0, 20000) : ''; } catch { return ''; } }
   // Files in the folder that have no record become private records (addedBy: folder). Missing files are flagged, never dropped.
   scan() {
-    let changed = false;
+    let changed = false, next = [...this.documents];
     const known = new Set(this.documents.filter(r => !r.trashedAt).map(r => r.file));
     let names = []; try { names = fs.readdirSync(this.dir); } catch { }
     for (const name of names.sort()) {
       if (name.startsWith('.') || known.has(name) || !kindOf(name)) continue;
-      if (this.documents.length >= LIMITS.documents) break;
+      if (next.length >= LIMITS.documents) break;
       let st; try { st = fs.statSync(path.join(this.dir, name)); } catch { continue; }
       if (!st.isFile()) continue;
-      this.record(name, { addedBy: 'folder', size: st.size, at: iso(st.mtimeMs) });
+      next.push(this.record(name, { addedBy: 'folder', size: st.size, at: iso(st.mtimeMs) }, next.length));
       changed = true;
     }
-    for (const r of this.documents) { const missing = !fs.existsSync(this.filePath(r)); if (Boolean(r.missing) !== missing) { r.missing = missing || undefined; if (!missing) delete r.missing; changed = true; } }
-    if (changed) this.save();
+    next = next.map(r => { const missing = !fs.existsSync(this.filePath(r)); if (Boolean(r.missing) === missing) return r; changed = true; const { missing: _, ...rest } = r; return missing ? { ...rest, missing: true } : rest; });
+    if (changed) this.commit(next);
     return changed;
   }
   list({ project = '', q = '', trashed = false } = {}) {
@@ -102,18 +110,24 @@ export class DocumentStore {
   addFromPath(src, opts = {}) {
     const name = safeName(src); if (!name) throw fail('That file type cannot be kept in Files.');
     const st = fs.statSync(src); if (!st.isFile()) throw fail('That is not a file.');
-    const file = this.uniqueFile(name), at = iso(this.now());
-    fs.copyFileSync(src, path.join(this.dir, file)); fs.chmodSync(path.join(this.dir, file), 0o600);
-    const r = this.record(file, { ...opts, size: st.size, at }), token = this.pendingToken;
-    this.save(); return { ...this.view(r), ...(token ? { token } : {}) };
+    this.check(opts);
+    const file = this.uniqueFile(name), at = iso(this.now()), dest = path.join(this.dir, file);
+    fs.copyFileSync(src, dest); fs.chmodSync(dest, 0o600);
+    return this.keep(dest, this.record(file, { ...opts, size: st.size, at }));
+  }
+  // The new record joins the list on disk, then in memory; if the write fails the copied file goes too.
+  keep(dest, r) {
+    const token = this.pendingToken;
+    try { this.commit([...this.documents, r]); } catch (e) { try { fs.unlinkSync(dest); } catch { } throw e; }
+    return { ...this.view(r), ...(token ? { token } : {}) };
   }
   addFromBuffer(name, buffer, opts = {}) {
     const safe = safeName(name); if (!safe) throw fail('That file type cannot be kept in Files.');
     if (!buffer?.length) throw fail('The upload is empty.');
-    const file = this.uniqueFile(safe), at = iso(this.now());
-    fs.writeFileSync(path.join(this.dir, file), buffer, { mode: 0o600 });
-    const r = this.record(file, { ...opts, size: buffer.length, at }), token = this.pendingToken;
-    this.save(); return { ...this.view(r), ...(token ? { token } : {}) };
+    this.check(opts);
+    const file = this.uniqueFile(safe), at = iso(this.now()), dest = path.join(this.dir, file);
+    fs.writeFileSync(dest, buffer, { mode: 0o600 });
+    return this.keep(dest, this.record(file, { ...opts, size: buffer.length, at }));
   }
   mintShare(r, expiresAt) {
     const token = randomBytes(32).toString('base64url');
@@ -121,8 +135,8 @@ export class DocumentStore {
     return token;
   }
   update(id, input, { actor = 'ui' } = {}) {
-    const r = this.get(id); if (r.trashedAt) throw fail('This file is in the trash. Restore it first.', 409);
-    const at = iso(this.now()); let token = null;
+    const live = this.get(id); if (live.trashedAt) throw fail('This file is in the trash. Restore it first.', 409);
+    const r = structuredClone(live), at = iso(this.now()); let token = null;
     if ('title' in input) { const t = str(input.title, LIMITS.title); if (!t) throw fail('Give the file a title.'); r.title = t; }
     if ('project' in input) r.project = str(input.project, 80) || null;
     if ('session' in input) { const s = str(input.session, 64); if (s && !SESSION_RE.test(s)) throw fail('That is not a session id.'); r.session = s || null; }
@@ -136,25 +150,25 @@ export class DocumentStore {
       }
     }
     if (input.action === 'reshare') { if (r.visibility !== 'link') throw fail('Only a file shared by link has a share link.'); token = this.mintShare(r, r.share?.expiresAt || null); }
-    r.updated = at; r.updatedBy = actor; this.save();
+    r.updated = at; r.updatedBy = actor; this.commit(this.replace(live, r));
     return { ...this.view(r), ...(token ? { token } : {}) };
   }
+  // Trash and restore move the file first, then the record (a bulk step installs each record and saves once at the end).
   trash(id, { save = true } = {}) {
-    const r = this.get(id); if (r.trashedAt) return this.view(r);
+    const live = this.get(id); if (live.trashedAt) return this.view(live);
     fs.mkdirSync(this.trashDir(), { recursive: true });
-    const from = path.join(this.dir, r.file), at = iso(this.now());
-    r.trashedAt = at; r.updated = at;
-    try { fs.renameSync(from, this.filePath(r)); } catch (e) { if (e.code !== 'ENOENT') { r.trashedAt = null; throw e; } }
-    r.share = null; r.shareHash = null; r.visibility = 'private'; // a trashed document is reachable by nobody
-    if (save) this.save();
+    const from = path.join(this.dir, live.file), at = iso(this.now());
+    const r = { ...live, trashedAt: at, updated: at, share: null, shareHash: null, visibility: 'private' }; // a trashed document is reachable by nobody
+    try { fs.renameSync(from, this.filePath(r)); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    const next = this.replace(live, r); if (save) this.commit(next); else this.documents = next;
     return this.view(r);
   }
   restore(id, { save = true } = {}) {
-    const r = this.get(id); if (!r.trashedAt) return this.view(r);
-    const from = this.filePath(r), file = this.uniqueFile(r.file, r.id);
-    r.trashedAt = null; r.file = file; r.updated = iso(this.now());
+    const live = this.get(id); if (!live.trashedAt) return this.view(live);
+    const from = this.filePath(live), file = this.uniqueFile(live.file, live.id);
+    const r = { ...live, trashedAt: null, file, updated: iso(this.now()) };
     try { fs.renameSync(from, path.join(this.dir, file)); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-    if (save) this.save();
+    const next = this.replace(live, r); if (save) this.commit(next); else this.documents = next;
     return this.view(r);
   }
   // 1.45: Delete forever. Only a file already in the trash; the file, its thumbnails and the record go now.
@@ -220,19 +234,19 @@ export class DocumentStore {
   // record are adopted private by the scan. Names the metadata lists that are not in the folder are reported.
   importMeta(meta) {
     if (!meta || typeof meta !== 'object' || Array.isArray(meta)) throw fail('That is not a documents metadata file.');
-    const at = iso(this.now()), links = [], missing = [], counts = { public: 0, link: 0, private: 0, skipped: 0 };
+    const at = iso(this.now()), links = [], missing = [], counts = { public: 0, link: 0, private: 0, skipped: 0 }, next = [...this.documents];
     for (const [name, m] of Object.entries(meta)) {
       if (!m || typeof m !== 'object') continue;
       const file = path.basename(name);
-      if (this.documents.some(r => r.file === file)) { counts.skipped++; continue; }
+      if (next.some(r => r.file === file)) { counts.skipped++; continue; }
       let st; try { st = fs.statSync(path.join(this.dir, file)); } catch { missing.push(file); continue; }
       if (!st.isFile() || !kindOf(file)) { missing.push(file); continue; }
       const visibility = m.visibility === 'public' ? 'public' : m.access === 'techpro' ? 'link' : 'private';
-      const r = this.record(file, { addedBy: 'import', size: st.size, at: m.updated && !Number.isNaN(Date.parse(m.updated)) ? iso(Date.parse(m.updated)) : iso(st.mtimeMs), visibility });
-      counts[visibility]++;
+      const r = this.record(file, { addedBy: 'import', size: st.size, at: m.updated && !Number.isNaN(Date.parse(m.updated)) ? iso(Date.parse(m.updated)) : iso(st.mtimeMs), visibility }, next.length);
+      next.push(r); counts[visibility]++;
       if (visibility === 'link') links.push({ id: r.id, file, url: r.share.url });
     }
-    this.save();
+    this.commit(next);
     const before = this.documents.length; this.scan();
     return { counts, links, missing, adopted: this.documents.length - before };
   }

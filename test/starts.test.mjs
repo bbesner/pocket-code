@@ -80,3 +80,14 @@ test('HTTP: the token and the cookie write and read over loopback, the tunnel an
   assert.equal((await cli(['show','0123456789ab'])).code,2,'an unknown id exits 2');
   assert.match(logs,/start link [0-9a-f]{12} by cli/);
 });
+
+// 1.73.6: the next list is written first and installed once the file holds it.
+test('StartStore (1.73.6): a failed write leaves no entry readable',()=>{
+  const dir=tmp(),file=path.join(dir,'starts.json');let failNext=false;const write=(f,data)=>{if(failNext){failNext=false;throw Object.assign(new Error('ENOSPC: no space left on device'),{code:'ENOSPC'});}fs.writeFileSync(f,JSON.stringify(data));};
+  const s=new StartStore(file,{write});
+  const a=s.add({text:'first'});
+  failNext=true;assert.throws(()=>s.add({text:'second'}),/ENOSPC/);
+  assert.equal(s.entries.length,1,'the entry the write could not keep is not readable');assert.ok(s.get(a.id));
+  assert.equal(new StartStore(file).entries.length,1);
+  fs.rmSync(dir,{recursive:true,force:true});
+});

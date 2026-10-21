@@ -53,6 +53,9 @@ import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithS
 // ---------- config ----------
 const HOME = os.homedir();
 const ENV_FILE = process.env.POCKET_ENV_FILE ?? path.join(import.meta.dirname, '.env');
+// 1.73.6: a Vault key set in the process environment (PM2 ecosystem, systemd) wins over .env, and a rotation could only ever
+// write .env; so such a key is rotated or created where it is set, and the routes say so instead of leaving a store no key opens.
+const VAULT_KEY_PRESET = Boolean(process.env.POCKET_VAULT_KEY);
 for (const line of (fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8').split('\n') : [])) {
   const m = line.match(/^([A-Z_]+)=(.*)$/);
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
@@ -2638,21 +2641,25 @@ app.get('/api/settings', requireAuth, async (_req, res) => {
   res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, autoKeepActive: autoKeepOn(), router: routerView(), access: accessView(), vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings() });
 });
 app.post('/api/settings', requireAuth, (req, res) => {
-  if (typeof req.body?.assistantMode === 'boolean') {
-    if (assistantLocked && !req.body.assistantMode) return res.status(409).json({ error: 'Assistant mode is locked on for this Pocket.' });
-    settings.assistantMode = req.body.assistantMode;
+  // 1.73.6: every field is checked into `next` first; nothing is assigned, rebuilt or written until all of them pass, so a
+  // 400 on a later field leaves the earlier ones untouched and the next save cannot persist half a patch.
+  const b = req.body || {}, next = {}, unset = new Set();
+  let routerKey, routerTouched = false, accessTouched = false; // routerKey: undefined untouched, '' remove, else the key to save
+  if (typeof b.assistantMode === 'boolean') {
+    if (assistantLocked && !b.assistantMode) return res.status(409).json({ error: 'Assistant mode is locked on for this Pocket.' });
+    next.assistantMode = b.assistantMode;
   }
-  if (typeof req.body?.autoKeepFiles === 'boolean') settings.autoKeepFiles = req.body.autoKeepFiles;
+  if (typeof b.autoKeepFiles === 'boolean') next.autoKeepFiles = b.autoKeepFiles;
   // 1.67: automatic model choice and one sign-in, from Settings.
-  const rb = req.body?.router;
+  const rb = b.router;
   if (rb !== undefined) {
-    if (rb === null) { delete settings.router; try { fs.rmSync(ROUTER_KEY_FILE, { force: true }); } catch { } }
+    if (rb === null) { unset.add('router'); routerKey = ''; routerTouched = true; }
     else if (typeof rb === 'object' && !Array.isArray(rb)) {
-      const next = { ...(settings.router || {}) };
-      if (typeof rb.enabled === 'boolean') next.enabled = rb.enabled;
-      if (rb.provider !== undefined) { if (!ROUTER_PROVIDERS.includes(rb.provider)) return res.status(400).json({ error: 'Choose Jev or OpenAI.' }); next.provider = rb.provider; }
+      const r = { ...(settings.router || {}) };
+      if (typeof rb.enabled === 'boolean') r.enabled = rb.enabled;
+      if (rb.provider !== undefined) { if (!ROUTER_PROVIDERS.includes(rb.provider)) return res.status(400).json({ error: 'Choose Jev or OpenAI.' }); r.provider = rb.provider; }
       if (rb.levels !== undefined) {
-        if (rb.levels === null) delete next.levels;
+        if (rb.levels === null) delete r.levels;
         else {
           const lv = {};
           for (const t of TIERS) {
@@ -2662,85 +2669,89 @@ app.post('/api/settings', requireAuth, (req, res) => {
             if (model !== 'auto' && !isOffered(model)) return res.status(400).json({ error: `${t.label}: that model is not offered on this Pocket.` });
             if (model !== 'auto' || effort !== 'auto') lv[t.key] = { model, effort };
           }
-          if (Object.keys(lv).length) next.levels = lv; else delete next.levels;
+          if (Object.keys(lv).length) r.levels = lv; else delete r.levels;
         }
       }
       if (rb.key !== undefined) {
         const k = String(rb.key || '').trim();
         if (k && (k.length > 400 || !/^[\x21-\x7e]+$/.test(k))) return res.status(400).json({ error: 'That does not look like an API key.' });
-        if (k) { const tmp = ROUTER_KEY_FILE + '.tmp'; fs.writeFileSync(tmp, k, { mode: 0o600 }); fs.chmodSync(tmp, 0o600); fs.renameSync(tmp, ROUTER_KEY_FILE); } else fs.rmSync(ROUTER_KEY_FILE, { force: true });
+        routerKey = k;
       }
-      if (next.enabled && !routerSavedKey() && !ROUTER_ENV.key) return res.status(400).json({ error: 'Add a key first: automatic model choice needs one.' });
-      settings.router = next;
+      const keyAfter = routerKey !== undefined ? Boolean(routerKey) : routerSavedKey();
+      if (r.enabled && !keyAfter && !ROUTER_ENV.key) return res.status(400).json({ error: 'Add a key first: automatic model choice needs one.' });
+      next.router = r; routerTouched = true;
     }
-    buildRouter();
   }
-  const ab = req.body?.access;
+  const ab = b.access;
   if (ab !== undefined) {
-    if (ab === null) delete settings.access;
+    if (ab === null) { unset.add('access'); accessTouched = true; }
     else if (typeof ab === 'object' && !Array.isArray(ab)) {
-      if (ab.enabled === false) settings.access = { enabled: false };
+      if (ab.enabled === false) next.access = { enabled: false };
       else {
         const team = String(ab.team || '').trim().toLowerCase(), aud = String(ab.aud || '').trim();
         const emails = (Array.isArray(ab.emails) ? ab.emails : String(ab.emails || '').split(/[\s,]+/)).map(e => String(e).trim().toLowerCase()).filter(Boolean);
         if (!/^[a-z0-9-]{1,63}$/.test(team)) return res.status(400).json({ error: 'The team name is the part before .cloudflareaccess.com.' });
         if (!/^[A-Za-z0-9]{16,128}$/.test(aud)) return res.status(400).json({ error: 'The audience tag is the long code on the Access application’s Overview.' });
         if (!emails.length || emails.length > 50 || emails.some(e => !/^[\x21-\x7e]+@[\x21-\x7e]+\.[a-z]{2,}$/.test(e))) return res.status(400).json({ error: 'List the emails that may sign in this way, separated by commas.' });
-        settings.access = { enabled: true, team, aud, emails };
+        next.access = { enabled: true, team, aud, emails };
       }
+      accessTouched = true;
     }
-    buildAccess();
   }
-  if (typeof req.body?.titleSync === 'boolean') settings.titleSync = req.body.titleSync;
-  if (typeof req.body?.autoTitles === 'boolean') settings.autoTitles = req.body.autoTitles;
-  if (['auto', 'claude', 'codex'].includes(req.body?.titleProvider)) settings.titleProvider = req.body.titleProvider;
-  if (typeof req.body?.awaySummaries === 'boolean') settings.awaySummaries = req.body.awaySummaries;
-  if (typeof req.body?.liveTitles === 'boolean') settings.liveTitles = req.body.liveTitles;
-  if (typeof req.body?.projects === 'boolean') settings.projects = req.body.projects;
-  if (typeof req.body?.documents === 'boolean') settings.documents = req.body.documents;
-  if (typeof req.body?.tasks === 'boolean') settings.tasks = req.body.tasks;
-  if (typeof req.body?.inbox === 'boolean') settings.inbox = req.body.inbox; // 1.69
-  if (req.body?.remindAhead === 0 || req.body?.remindAhead === 24) settings.remindAhead = req.body.remindAhead; // 1.50: the day-before notice
-  if (typeof req.body?.notifyEmail === 'string') { const to = req.body.notifyEmail.trim(); if (to && !looksLikeEmail(to)) return res.status(400).json({ error: 'That does not look like an email address.', code: 'bad_email' }); settings.notifyEmail = to; }
-  if (req.body && 'offeredClaudeModels' in req.body) { // 1.52: null = back to POCKET_CLAUDE_MODELS (or every model)
-    const v = req.body.offeredClaudeModels;
-    if (v === null) settings.offeredClaudeModels = null;
+  for (const k of ['titleSync', 'autoTitles', 'awaySummaries', 'liveTitles', 'projects', 'documents', 'tasks', 'inbox', 'secretGuard']) if (typeof b[k] === 'boolean') next[k] = b[k]; // inbox 1.69, secretGuard 1.42
+  if (['auto', 'claude', 'codex'].includes(b.titleProvider)) next.titleProvider = b.titleProvider;
+  if (b.remindAhead === 0 || b.remindAhead === 24) next.remindAhead = b.remindAhead; // 1.50: the day-before notice
+  if (typeof b.notifyEmail === 'string') { const to = b.notifyEmail.trim(); if (to && !looksLikeEmail(to)) return res.status(400).json({ error: 'That does not look like an email address.', code: 'bad_email' }); next.notifyEmail = to; }
+  if ('offeredClaudeModels' in b) { // 1.52: null = back to POCKET_CLAUDE_MODELS (or every model)
+    const v = b.offeredClaudeModels;
+    if (v === null) next.offeredClaudeModels = null;
     else {
       if (!Array.isArray(v) || v.length > 50 || v.some(x => typeof x !== 'string' || !CATALOG_IDS.has(x))) return res.status(400).json({ error: 'Choose models from the list.', code: 'bad_models' });
       const ids = [...new Set(v)], offer = resolveOffer({ saved: ids, policy: modelPolicy() });
       if (!offer.offered.length && offer.models.some(m => !m.blocked)) return res.status(400).json({ error: 'Keep at least one model on.', code: 'no_models' });
-      settings.offeredClaudeModels = CLAUDE_MODELS.map(m => m.id).filter(id => ids.includes(id));
+      next.offeredClaudeModels = CLAUDE_MODELS.map(m => m.id).filter(id => ids.includes(id));
     }
-    log(`claude models offered: ${claudeOffer().offered.join(',') || '(none)'} (${claudeOffer().source})`);
   }
-  if (req.body && 'trustedActions' in req.body) { // 1.56: null = back to POCKET_TRUSTED_ACTIONS (or none)
-    const v = req.body.trustedActions;
-    if (v === null) settings.trustedActions = null;
+  if ('trustedActions' in b) { // 1.56: null = back to POCKET_TRUSTED_ACTIONS (or none)
+    const v = b.trustedActions;
+    if (v === null) next.trustedActions = null;
     else {
       const checked = validateRules(v);
       if (checked.error) return res.status(400).json({ error: checked.error, code: 'bad_trusted_action', rule: checked.rule ?? null, index: checked.index ?? null });
-      settings.trustedActions = checked.rules;
+      next.trustedActions = checked.rules;
     }
-    log(`trusted actions: ${trustedRules().length} rule(s) (${trustedSettings().source})`);
   }
-  let vaultToggled = false, createdVaultKey = '';
-  if (typeof req.body?.vault === 'boolean' && req.body.vault !== settings.vault) { // 1.39: on needs the key; a change restarts idle runners so the rules reach them
-    if (req.body.vault && !vault) {
+  let vaultToggled = false, createVaultKey = false;
+  if (typeof b.vault === 'boolean' && b.vault !== settings.vault) { // 1.39: on needs the key; a change restarts idle runners so the rules reach them
+    if (b.vault && !vault) {
       if (vaultNeedsKey()) return res.status(409).json({ error: 'This Vault exists but its key is missing on this server. Restore it from your recovery key.', code: 'vault_needs_key' });
+      if (VAULT_KEY_PRESET) return res.status(409).json({ error: `The Vault cannot be opened with the POCKET_VAULT_KEY set in the daemon's environment: ${vaultError}`, code: 'vault_key_preset' }); // 1.73.6
       if (!vaultCanCreateKey()) return res.status(409).json({ error: `The Vault cannot be opened: ${vaultError}`, code: 'vault_no_key' });
-      try { // 1.44: create this install's key, keep it in .env, open an empty store and save it
-        const k = newVaultKey(); saveVaultKeyToEnv(k); const v = openVault(k); v.save();
-        vault = v; VAULT_KEY_RAW = k; vaultError = ''; createdVaultKey = k; vault.audit({ action: 'key-created', by: 'owner' });
-        log('vault key created and saved to .env');
-      } catch (e) { log(`vault key creation failed: ${e.message}`); return res.status(e.status || 500).json({ error: e.message, code: e.code || 'vault_key_failed' }); }
+      createVaultKey = true;
     }
-    settings.vault = req.body.vault; vaultToggled = true;
+    next.vault = b.vault; vaultToggled = true;
   }
-  if (AUTO_LOCK_CHOICES.includes(Number(req.body?.vaultAutoLockMinutes))) settings.vaultAutoLockMinutes = Number(req.body.vaultAutoLockMinutes); // 1.40
-  if (typeof req.body?.secretGuard === 'boolean') settings.secretGuard = req.body.secretGuard; // 1.42
-  if (VAULT_ACCESS.includes(req.body?.vaultAccess)) { if (settings.vaultAccess !== req.body.vaultAccess) log(`vault agent access: ${settings.vaultAccess} -> ${req.body.vaultAccess}`); settings.vaultAccess = req.body.vaultAccess; } // 1.41
+  if (AUTO_LOCK_CHOICES.includes(Number(b.vaultAutoLockMinutes))) next.vaultAutoLockMinutes = Number(b.vaultAutoLockMinutes); // 1.40
+  if (VAULT_ACCESS.includes(b.vaultAccess)) next.vaultAccess = b.vaultAccess; // 1.41
+  // Everything passed: the side effects that can still fail come first (the Vault key), then the patch is applied once.
+  let createdVaultKey = '';
+  if (createVaultKey) {
+    try { // 1.44: create this install's key, keep it in .env, open an empty store and save it
+      const k = newVaultKey(); saveVaultKeyToEnv(k); const v = openVault(k); v.save();
+      vault = v; VAULT_KEY_RAW = k; vaultError = ''; createdVaultKey = k; vault.audit({ action: 'key-created', by: 'owner' });
+      log('vault key created and saved to .env');
+    } catch (e) { log(`vault key creation failed: ${e.message}`); return res.status(e.status || 500).json({ error: e.message, code: e.code || 'vault_key_failed' }); }
+  }
+  if (routerKey !== undefined) { if (routerKey) { const tmp = ROUTER_KEY_FILE + '.tmp'; fs.writeFileSync(tmp, routerKey, { mode: 0o600 }); fs.chmodSync(tmp, 0o600); fs.renameSync(tmp, ROUTER_KEY_FILE); } else try { fs.rmSync(ROUTER_KEY_FILE, { force: true }); } catch { } }
+  if (next.vaultAccess !== undefined && settings.vaultAccess !== next.vaultAccess) log(`vault agent access: ${settings.vaultAccess} -> ${next.vaultAccess}`);
+  for (const k of unset) delete settings[k];
+  Object.assign(settings, next);
+  if (routerTouched) buildRouter();
+  if (accessTouched) buildAccess();
+  if ('offeredClaudeModels' in next) log(`claude models offered: ${claudeOffer().offered.join(',') || '(none)'} (${claudeOffer().source})`);
+  if ('trustedActions' in next) log(`trusted actions: ${trustedRules().length} rule(s) (${trustedSettings().source})`);
   saveSettings();
-  if (typeof req.body?.projects === 'boolean' || typeof req.body?.documents === 'boolean' || typeof req.body?.tasks === 'boolean' || typeof req.body?.inbox === 'boolean' || vaultToggled) syncAgentSkills();
+  if (['projects', 'documents', 'tasks', 'inbox'].some(k => k in next) || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
   log(`settings updated: assistantMode=${assistantOn()} titleSync=${settings.titleSync} autoTitles=${settings.autoTitles} titleProvider=${settings.titleProvider} awaySummaries=${settings.awaySummaries} liveTitles=${settings.liveTitles} projects=${settings.projects} documents=${settings.documents} tasks=${settings.tasks} inbox=${settings.inbox} vault=${settings.vault} vaultAccess=${settings.vaultAccess} secretGuard=${settings.secretGuard !== false}`);
   res.json({ ...settings, assistantMode: assistantOn(), assistantLocked, autoKeepActive: autoKeepOn(), router: routerView(), access: accessView(), vault: vaultLive(), vaultReady: vaultReady(), vaultError: vaultError || null, vaultMode: vault ? vault.mode : null, vaultLocked: vault ? vault.locked : false, vaultKeyPresent: Boolean(VAULT_KEY_RAW), vaultCanCreateKey: vaultCanCreateKey(), vaultNeedsKey: vaultNeedsKey(), codexInstructionsOverridden: CODEX_ON && codex.instructionsOverridden(), titles: titleSettings(), email: emailSettings(), claudeModels: claudeModelSettings(), trusted: trustedSettings(), ...(createdVaultKey ? { recoveryKey: createdVaultKey } : {}) });
@@ -3195,21 +3206,27 @@ app.get('/api/vault/audit', requireBoardAuth, vaultOn, vaultOpen, vaultNoStore, 
 // Rotation: the store is rewritten under a new key, shown once; the old key keeps working until the daemon restarts with the new .env.
 app.post('/api/vault/rotate', requireAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (_req, res) => {
   if (vault.mode !== 'key') return res.status(400).json({ error: 'Rotation applies to the server key; the Vault is protected by a passphrase.' });
+  if (VAULT_KEY_PRESET) return res.status(409).json({ error: 'POCKET_VAULT_KEY is set in the daemon\'s environment, not in .env, so a rotation could not be kept. Move the key into .env, remove it from the environment, restart Pocket, then rotate.', code: 'vault_key_preset' }); // 1.73.6
   const key = newVaultKey(), old = VAULT_KEY_RAW;
+  let rotated = false;
   try {
     saveVaultKeyToEnv(key, { previous: old }); // both keys saved before the store changes, so a crash between still opens it
-    vault.rotate(key); VAULT_KEY_RAW = key;
+    vault.rotate(key); rotated = true; VAULT_KEY_RAW = key; // 1.73.6: the store takes the new key only once the file holds it
     saveVaultKeyToEnv(key);                   // the store is rewritten: the old key goes
-  } catch (e) { log(`vault key rotation failed: ${e.message}`); return res.status(e.status || 500).json({ error: e.message }); }
+  } catch (e) {
+    log(`vault key rotation failed: ${e.message}`);
+    if (!rotated) try { saveVaultKeyToEnv(old); } catch { } // the store is still under the old key: .env goes back to it
+    return res.status(e.status || 500).json({ error: e.message });
+  }
   vault.audit({ action: 'rotate', by: 'owner' });
   log('vault key rotated and saved to .env');
   res.json({ key, saved: true });
 });
 // 1.44: the owner can take a copy of the key at any time (recorded); and restore a missing one from that copy.
 app.post('/api/vault/recovery-key', requireAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (_req, res) => {
-  if (vault.mode !== 'key' || !VAULT_KEY_RAW) return res.status(400).json({ error: 'The Vault is protected by a passphrase; there is no server key to save.' });
+  if (vault.mode !== 'key' || !vault.envKey) return res.status(400).json({ error: 'The Vault is protected by a passphrase; there is no server key to save.' });
   vault.audit({ action: 'recovery-key-view', by: 'owner' });
-  res.json({ key: normalKey(VAULT_KEY_RAW) });
+  res.json({ key: vault.envKey.toString('base64') }); // 1.73.6: the key the store is written under, whatever a failed rotation left elsewhere
 });
 app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, res) => {
   const ip = req.get('cf-connecting-ip') || req.socket.remoteAddress || '';
@@ -3528,7 +3545,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Browser logins are tighter: Pocket types a Vault value into typing and form-filling tools only, withholds screenshots from that browser once a value has been typed (a picture cannot be scrubbed), and scrubs values from object keys, numbers and split log lines too.", "A Vault request now belongs to what it was asked for and to the session that asked: a run the owner allowed cannot be turned into a browser fill, nobody else on the box can continue it, one answer serves one use, and an item made owner-only or removed after the approval no longer releases.", "Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on.", "Vault and Codex hardening: a bare null line from a Codex app-server no longer stops Pocket, the Vault scrubs the JSON spellings PHP and Python write, and locking the Vault while an agent waits answers the agent at once instead of leaving it hanging.", "Sessions no longer get stuck when another agent searches Pocket's folder: each session's input pipe now lives in a private folder outside it, so a search can't swallow its approvals, messages or Stop.", "Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads)."];
+const RELEASE_NOTES = ["Every store now checks a change whole and writes it before taking it up: a refused field or a full disk leaves projects, files, tasks, the Vault and Settings exactly as they were, the Vault file is synced to disk on every write, and a failed key rotation keeps the recovery key honest.", "Browser logins are tighter: Pocket types a Vault value into typing and form-filling tools only, withholds screenshots from that browser once a value has been typed (a picture cannot be scrubbed), and scrubs values from object keys, numbers and split log lines too.", "A Vault request now belongs to what it was asked for and to the session that asked: a run the owner allowed cannot be turned into a browser fill, nobody else on the box can continue it, one answer serves one use, and an item made owner-only or removed after the approval no longer releases.", "Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on.", "Vault and Codex hardening: a bare null line from a Codex app-server no longer stops Pocket, the Vault scrubs the JSON spellings PHP and Python write, and locking the Vault while an agent waits answers the agent at once instead of leaving it hanging.", "Sessions no longer get stuck when another agent searches Pocket's folder: each session's input pipe now lives in a private folder outside it, so a search can't swallow its approvals, messages or Stop."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

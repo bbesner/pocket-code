@@ -172,3 +172,19 @@ test('HTTP: tasks are off until Settings turns them on, the loopback token serve
   out=await cli(['list']);assert.equal(out.code,3);assert.match(out.stderr,/Settings → Projects, files, tasks & vault/);
   assert.equal((await call('/tasks')).status,404);
 });
+
+// 1.73.6: a change is computed on a copy, written, then installed; a check that fails after an earlier field, or a write that fails, leaves the list as it was.
+test('TaskStore (1.73.6): a failed check or write leaves the list as it was',()=>{
+  const dir=tmp(),file=path.join(dir,'tasks.json');let failNext=false;const write=(f,data)=>{if(failNext){failNext=false;throw Object.assign(new Error('ENOSPC: no space left on device'),{code:'ENOSPC'});}fs.writeFileSync(f,JSON.stringify(data));};
+  const s=new TaskStore(file,{write});
+  const t=s.act({action:'add',text:'original'},{actor:'cli'});
+  assert.throws(()=>s.act({action:'update',task:t.id,text:'changed',dueAt:'not a time'}),/Use a time like/);
+  assert.equal(s.get(t.id).text,'original');assert.equal(s.get(t.id).revision,1);assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).tasks[0].text,'original');
+  failNext=true;assert.throws(()=>s.act({action:'add',text:'second'}),/ENOSPC/);
+  assert.equal(s.tasks.length,1,'memory is not ahead of disk');assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).tasks.length,1);
+  failNext=true;assert.throws(()=>s.act({action:'update',task:t.id,done:true}),/ENOSPC/);assert.equal(s.get(t.id).done,false);assert.equal(s.get(t.id).revision,1);
+  failNext=true;assert.throws(()=>s.act({action:'remove',task:t.id}),/ENOSPC/);assert.equal(s.tasks.length,1);
+  failNext=true;assert.throws(()=>s.markNotified(t.id),/ENOSPC/);assert.equal(s.get(t.id).notifiedAt,null);
+  s.act({action:'update',task:t.id,text:'edited'});assert.equal(new TaskStore(file).get(t.id).text,'edited','a good change is written and installed');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
