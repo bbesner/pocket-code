@@ -3091,11 +3091,12 @@ function vaultCaller(req) {
   if (req.boardActor !== 'cli') return { actor: 'owner', session: null, sessionTitle: '' };
   const token = String(req.get('x-pocket-runner') || '');
   if (token) {
-    for (const r of runners.values()) if (sameToken(r.runnerToken, token) && !r.exited) return { actor: 'agent', session: r.sessionId, sessionTitle: sessionName(r.sessionId) };
+    const tokenHash = createHash('sha256').update(token).digest('hex'); // 1.73.4: recorded on the request row, never the token itself
+    for (const r of runners.values()) if (sameToken(r.runnerToken, token) && !r.exited) return { actor: 'agent', session: r.sessionId, sessionTitle: sessionName(r.sessionId), tokenHash };
     const cx = CODEX_ON ? codex.sessionForRunnerToken(token) : null;
-    if (cx) return { actor: 'agent', session: 'cx:' + cx.threadId, sessionTitle: sessionName('cx:' + cx.threadId) };
+    if (cx) return { actor: 'agent', session: 'cx:' + cx.threadId, sessionTitle: sessionName('cx:' + cx.threadId), tokenHash };
   }
-  return { actor: 'terminal', session: null, sessionTitle: '' };
+  return { actor: 'terminal', session: null, sessionTitle: '', tokenHash: null };
 }
 const sessionName = id => { const m = smeta[id]; return (m && typeof m.name === 'string' && m.name) || ''; };
 // 1.41: the owner can answer a pending request in the conversation that raised it: "Allow zoho-books for this command",
@@ -3234,14 +3235,12 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
   try {
     let reqRow = null, bound, cmd;
     if (existing) {
-      reqRow = vault.requests.get(existing); if (!reqRow) { send({ t: 'error', message: 'That request does not exist or has expired.' }); return end(); }
-      if (reqRow.consumed) { send({ t: 'error', message: 'That request was already used.' }); return end(); }
-      cmd = { argv: reqRow.argv, cwd: reqRow.cwd }; bound = vault.resolveBindings(reqRow.env);
+      reqRow = vault.continuation(existing, { action: 'run', caller: c }); // 1.73.4: this caller's own run request, not yet used; anything else is refused before the wait
     } else {
-      bound = vault.resolveBindings(env); cmd = vault.checkCommand(argv, cwd);
+      bound = vault.resolveBindings(env); cmd = { ...vault.checkCommand(argv, cwd), action: 'run' };
       const need = vault.decide(bound, cmd);
       if (need.length) {
-        reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor });
+        reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor, tokenHash: c.tokenHash });
         send({ t: 'request', id: reqRow.id, items: reqRow.itemNames });
         const devices = await pushRaw('Vault request', `${reqRow.itemNames.join(', ')}: allow \`${cmd.argv.join(' ').slice(0, 80)}\`?`, { tag: 'vault:' + reqRow.id, url: '/#/vault/requests', kind: 'vault', vaultRequest: reqRow.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
         log(`vault request=${reqRow.id} items=${reqRow.itemNames.join(',')} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
@@ -3254,9 +3253,9 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
       if (!answered) { send({ t: 'pending', id: reqRow.id }); return end(); }
       if (answered.answer.decision === 'deny' || answered.answer.decision === 'expired') { send({ t: 'denied', message: answered.answer.decision === 'deny' ? 'The owner did not allow this command.' : 'The request expired before the owner answered.' }); return end(); }
       if (answered.answer.decision === 'locked') { send({ t: 'error', message: 'The Vault was locked before the owner answered. Ask the owner to unlock it in Pocket Code, then try again.', code: 'vault_locked' }); return end(); } // 1.73.3
-      reqRow.consumed = true;
     }
-    if (vaultRuns.size >= VAULT_LIMITS.concurrent) { send({ t: 'error', message: 'Too many vault runs at once; try again in a moment.' }); return end(); }
+    if (vaultRuns.size >= VAULT_LIMITS.concurrent) { send({ t: 'error', message: 'Too many vault runs at once; try again in a moment.' }); return end(); } // 1.73.4: before the approval is used up
+    if (reqRow) ({ bound, cmd } = vault.claim(reqRow.id, { action: 'run', caller: c })); // 1.73.4: rebinds by item id, re-decides, marks the row used, all in one synchronous step
     const secrets = vault.release(bound, cmd, { session: c.session, sessionTitle: c.sessionTitle, by: c.actor, request: reqRow?.id || null });
     const placeholders = {}; for (const b of bound) placeholders[b.item.values[b.field]] = b.item.name;
     send({ t: 'start' });
@@ -3286,20 +3285,17 @@ app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin,
   try {
     let reqRow = null, bound, cmd, refs;
     if (b.request) {
-      reqRow = vault.requests.get(String(b.request));
-      if (!reqRow) return res.status(404).json({ error: 'That request does not exist or has expired.' });
-      if (reqRow.consumed) return res.status(409).json({ error: 'That request was already used.' });
+      reqRow = vault.continuation(String(b.request), { action: 'fill', caller: c }); // 1.73.4: this caller's own fill request, not yet used
       refs = Object.keys(reqRow.env).sort((x, y) => Number(x.slice(1)) - Number(y.slice(1))).map(k => reqRow.env[k]);
-      bound = vault.resolveBindings(reqRow.env); cmd = { argv: reqRow.argv, cwd: reqRow.cwd };
     } else {
       refs = Array.isArray(b.refs) ? b.refs.map(String).slice(0, 32) : [];
       const server = name(b.server), tool = name(b.tool);
       if (!refs.length || !server || !tool) return res.status(400).json({ error: 'Give refs, server and tool.' });
       const env = Object.fromEntries(refs.map((r, i) => ['V' + i, r]));
-      bound = vault.resolveBindings(env); cmd = vault.checkCommand(['pocket-fill', server, tool], b.cwd || HOME);
+      bound = vault.resolveBindings(env); cmd = { ...vault.checkCommand(['pocket-fill', server, tool], b.cwd || HOME), action: 'fill' };
       const need = vault.decide(bound, cmd);
       if (need.length) {
-        reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor });
+        reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor, tokenHash: c.tokenHash });
         const devices = await pushRaw('Vault request', `${reqRow.itemNames.join(', ')}: fill into ${tool}?`, { tag: 'vault:' + reqRow.id, url: '/#/vault/requests', kind: 'vault', vaultRequest: reqRow.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
         log(`vault fill request=${reqRow.id} items=${reqRow.itemNames.join(',')} tool=${tool} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
       }
@@ -3309,7 +3305,7 @@ app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin,
       if (!answered) return res.json({ pending: true, request: reqRow.id, items: reqRow.itemNames });
       if (answered.answer.decision === 'deny' || answered.answer.decision === 'expired') return res.status(403).json({ denied: true, error: answered.answer.decision === 'deny' ? 'The owner did not allow this fill.' : 'The request expired before the owner answered.' });
       if (answered.answer.decision === 'locked') return res.status(423).json({ error: 'The Vault was locked before the owner answered. Ask the owner to unlock it in Pocket Code, then call the tool again.', code: 'vault_locked' }); // 1.73.3
-      reqRow.consumed = true;
+      ({ bound, cmd } = vault.claim(reqRow.id, { action: 'fill', caller: c })); // 1.73.4
     }
     const secrets = vault.release(bound, cmd, { session: c.session, sessionTitle: c.sessionTitle, by: c.actor, request: reqRow?.id || null, action: 'fill' });
     const values = {}; refs.forEach((r, i) => { values[r] = secrets['V' + i]; });
@@ -3532,7 +3528,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on.", "Vault and Codex hardening: a bare null line from a Codex app-server no longer stops Pocket, the Vault scrubs the JSON spellings PHP and Python write, and locking the Vault while an agent waits answers the agent at once instead of leaving it hanging.", "Sessions no longer get stuck when another agent searches Pocket's folder: each session's input pipe now lives in a private folder outside it, so a search can't swallow its approvals, messages or Stop.", "Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads).", "Your rules for Inbox Watch: Settings → Inbox Watch opens on a box for your own words about what you always or never want to hear about (\"tell me about every sale\", \"never tell me about cameras that go offline\"). The watcher follows them on every check, and they win over its own judgment.", "Inbox Watch's watcher now ships inside Pocket Code (inbox-watch/), versioned and released with the rest, so the Inbox, its settings and the program that fills it are one project."];
+const RELEASE_NOTES = ["A Vault request now belongs to what it was asked for and to the session that asked: a run the owner allowed cannot be turned into a browser fill, nobody else on the box can continue it, one answer serves one use, and an item made owner-only or removed after the approval no longer releases.", "Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on.", "Vault and Codex hardening: a bare null line from a Codex app-server no longer stops Pocket, the Vault scrubs the JSON spellings PHP and Python write, and locking the Vault while an agent waits answers the agent at once instead of leaving it hanging.", "Sessions no longer get stuck when another agent searches Pocket's folder: each session's input pipe now lives in a private folder outside it, so a search can't swallow its approvals, messages or Stop.", "Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads).", "Your rules for Inbox Watch: Settings → Inbox Watch opens on a box for your own words about what you always or never want to hear about (\"tell me about every sale\", \"never tell me about cameras that go offline\"). The watcher follows them on every check, and they win over its own judgment."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

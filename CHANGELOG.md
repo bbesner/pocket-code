@@ -3,6 +3,17 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.73.4] — 2026-10-21 · build 146
+
+- **A Vault request is bound to what it is for and to who raised it.** The second batch from the 2026-10-21 triage of Casey's review (SUMMARY item 2). A pending request was looked up by its id alone when continued (`pocket-vault wait`, or the browser relay calling again after the owner allowed), so a run the owner allowed could be continued through the fill route and come back in plaintext, any holder of the CLI token who learned the id could continue someone else's request, two continuations of one answer both released, nothing re-checked an item's policy after the approval, a full run table used the approval up without a run, and an *Always allow* on a browser fill also covered a run of the literal command (and the reverse). Now:
+  - a request records its kind of use (`action`: run or fill), every binding by item id, and its caller (actor, session, and the SHA-256 of the runner token when there is one); views never show the caller;
+  - a continuation must be the same kind of use, by the same caller, and not yet used; that is checked before waiting on the answer and again, in one synchronous step, after it: the bindings are resolved again by item id against the store as it is now, the policy decision is re-run (an item made owner-only since refuses; a removed item or field, or an item that now needs an approval the answer did not cover, sends the agent back to ask; a renamed item still releases), and the row is marked used;
+  - the run table's capacity check comes before the approval is used, so a full table leaves it for the next try;
+  - recipes record the kind of use; a recipe saved before this version is read from its command (`pocket-fill …` is a fill);
+  - answers and waits sweep expired requests first, and a new request never lands on an existing id.
+  Operators: a terminal or code-server call (CLI token, no runner token) keeps working and shares the one identity `terminal`; see SECURITY.md. [S2-B3r-1, S2-B3-1, S2-B3-3, S2-B3-2, S2-B3r2-1, S2-B5-CAP, S2-B3-5, S2-B3-8]
+- Migration: none. Pending requests live in memory only; recipes saved earlier keep working.
+
 ## [1.73.3] — 2026-10-21 · build 145
 
 - **Secrets, crashes and scrub forms.** The first batch of fixes from the 2026-10-21 triage of Casey's review of 1.58.0 against 1.73.2 (his row ids in brackets):

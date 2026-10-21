@@ -258,6 +258,71 @@ test('lock() answers a waiting request locked, so a continuation meets a decisio
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+// 1.73.4: a request is bound to what it is for and to who raised it. Before, a continuation was looked up by id alone: a run the
+// owner allowed (output scrubbed) could be continued as a browser fill (plaintext to the caller), any CLI-token holder with the
+// id could continue it, two continuations of one answer both released, nothing re-checked the policy after the approval, and an
+// Always recipe did not know a fill from a run.
+test('request binding (1.73.4): action, caller, one use, the policy as it is now, recipes that know a fill from a run, expiry swept',async()=>{
+  const dir=tmp(),s=new VaultStore(path.join(dir,'vault.enc'),{key:parseKey(newKey())});
+  const alpha=s.act({action:'add',name:'alpha',kind:'token',values:{value:SECRET}});
+  const beta=s.act({action:'add',name:'beta',kind:'token',values:{value:'beta-secret-value-5678'},policy:'auto'});
+  const agentA={actor:'agent',session:S1,tokenHash:'a'.repeat(64)},agentB={actor:'agent',session:'22222222-2222-4222-8222-222222222222',tokenHash:'b'.repeat(64)},terminal={actor:'terminal',session:null,tokenHash:null};
+  const raise=(env,cmd,caller)=>{const bound=s.resolveBindings(env),need=s.decide(bound,cmd);assert.ok(need.length,'needs the owner');return s.request({bound,cmd,need,env,session:caller.session,by:caller.actor,tokenHash:caller.tokenHash});};
+  const run={...s.checkCommand(['true'],dir),action:'run'},fill={...s.checkCommand(['pocket-fill','browser','type'],dir),action:'fill'};
+  // The run-to-fill crossover: a run the owner allowed cannot be claimed as a fill.
+  let r=raise({V0:'alpha'},run,agentA);assert.equal(r.action,'run');assert.deepEqual(r.caller,{actor:'agent',session:S1,tokenHash:'a'.repeat(64)});
+  assert.equal(JSON.stringify(s.requestView(r)).includes('tokenHash'),false,'views never carry the caller');assert.equal(s.requestView(r).action,'run');
+  s.answer(r.id,'once');
+  assert.throws(()=>s.claim(r.id,{action:'fill',caller:agentA}),e=>e.status===409&&/for a command, not a browser fill/.test(e.message));
+  // A foreign caller: another session, or a terminal, cannot continue it; the same session from a restarted process (new token) can.
+  assert.throws(()=>s.continuation(r.id,{action:'run',caller:agentB}),e=>e.status===403&&/another session/.test(e.message));
+  assert.throws(()=>s.continuation(r.id,{action:'run',caller:terminal}),e=>e.status===403);
+  assert.equal(s.requests.get(r.id).consumed,false,'refusals do not use the answer up');
+  const claimed=s.claim(r.id,{action:'run',caller:{...agentA,tokenHash:'c'.repeat(64)}});
+  assert.equal(claimed.bound[0].item.name,'alpha');assert.equal(claimed.bound[0].v,'V0');assert.deepEqual(claimed.cmd,{argv:['true'],cwd:run.cwd,action:'run'});
+  // One answer, one use.
+  assert.throws(()=>s.claim(r.id,{action:'run',caller:agentA}),e=>e.status===409&&/already used/.test(e.message));
+  // Two continuations racing on one answer: both wake, exactly one claims.
+  r=raise({V0:'alpha'},run,agentA);
+  const w1=s.waitAnswer(r.id,5000),w2=s.waitAnswer(r.id,5000);s.answer(r.id,'once');await Promise.all([w1,w2]);
+  const results=[1,2].map(()=>{try{s.claim(r.id,{action:'run',caller:agentA});return 'released';}catch(e){return e.message;}});
+  assert.deepEqual(results.sort(),['That request was already used.','released']);
+  // Terminal callers share one identity.
+  r=raise({V0:'alpha'},run,terminal);s.answer(r.id,'once');assert.equal(s.claim(r.id,{action:'run',caller:{actor:'terminal',session:null,tokenHash:null}}).bound.length,1);
+  // The policy as it is now: owner-only after the approval refuses; a removed item refuses; a renamed item still releases (bound by id).
+  r=raise({T:'alpha'},run,agentA);s.answer(r.id,'once');
+  s.act({action:'update',item:alpha.id,policy:'owner'});assert.throws(()=>s.claim(r.id,{action:'run',caller:agentA}),e=>e.status===403&&e.code==='owner_only');
+  s.act({action:'update',item:alpha.id,policy:'default',name:'alpha-renamed'});assert.equal(s.requests.get(r.id).consumed,false);
+  assert.equal(s.claim(r.id,{action:'run',caller:agentA}).bound[0].item.name,'alpha-renamed');
+  r=raise({T:'alpha-renamed'},run,agentA);s.answer(r.id,'once');s.act({action:'remove',item:alpha.id});
+  assert.throws(()=>s.claim(r.id,{action:'run',caller:agentA}),e=>e.status===409&&e.code==='request_stale');
+  s.act({action:'restore',item:alpha.id});
+  // An item that was free when the owner was asked and asks now: the answer did not cover it.
+  r=raise({T:'alpha-renamed',B:'beta'},run,agentA);assert.deepEqual(r.itemNames,['alpha-renamed']);assert.equal(r.bindings.length,2);s.answer(r.id,'once');
+  s.act({action:'update',item:beta.id,policy:'ask'});assert.throws(()=>s.claim(r.id,{action:'run',caller:agentA}),e=>e.status===409&&/policy changed/.test(e.message));
+  s.act({action:'update',item:beta.id,policy:'auto'});assert.equal(s.claim(r.id,{action:'run',caller:agentA}).bound.length,2);
+  // Recipes: Always on a fill saves a fill recipe; the same literal command as a run still asks, and the reverse. A recipe saved
+  // before 1.73.4 carries no action and is read from its argv.
+  r=raise({V0:'alpha-renamed'},fill,agentA);assert.equal(r.action,'fill');s.answer(r.id,'always');
+  const item=s.get(alpha.id);assert.equal(item.recipes.length,1);assert.equal(item.recipes[0].action,'fill');
+  assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),fill).length,0,'the fill is approved');
+  assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),{...fill,action:'run'}).length,1,'the literal command as a run is not');
+  item.recipes=[{id:'legacy',argv:['pocket-fill','browser','type'],cwd:fill.cwd,created:'2026-01-01T00:00:00.000Z'}];
+  assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),fill).length,0,'a legacy fill recipe is a fill');
+  assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),{...fill,action:'run'}).length,1);
+  item.recipes=[{id:'legacy2',argv:['true'],cwd:run.cwd,created:'2026-01-01T00:00:00.000Z'}];
+  assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),run).length,0,'a legacy run recipe is a run');
+  assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),{...run,action:'fill'}).length,1);
+  // Expiry is swept on answer and wait, not only on the next snapshot.
+  let clock=Date.parse('2026-10-21T12:00:00Z');const s2=new VaultStore(path.join(dir,'v2.enc'),{key:parseKey(newKey()),now:()=>clock});
+  s2.act({action:'add',name:'gamma',kind:'token',values:{value:'gamma-secret-value-1'}});
+  const b2=s2.resolveBindings({G:'gamma'}),c2={...s2.checkCommand(['true'],dir),action:'run'};const r2=s2.request({bound:b2,cmd:c2,need:s2.decide(b2,c2),env:{G:'gamma'},by:'agent',session:S1});
+  clock+=LIMITS.requestTtlMs+1;
+  assert.throws(()=>s2.answer(r2.id,'once'),e=>e.status===404,'an expired request cannot be answered');
+  assert.throws(()=>s2.waitAnswer(r2.id,10),e=>e.status===404,'nor waited on');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
 test('agentEnv removes the vault key with the other daemon secrets',()=>{
   assert.deepEqual(agentEnv({PATH:'/bin',POCKET_VAULT_KEY:'k',POCKET_PASSWORD:'p'}),{PATH:'/bin'});
 });
@@ -509,6 +574,63 @@ test('HTTP: a lock while a run and a fill wait for the owner answers both at onc
   assert.equal((await call('/vault')).body.requests.length,0,'nothing left pending');
   // The requests cannot be continued after the lock either.
   assert.equal((await call('/vault/release',{request:reqs[1].id},bearer)).status,423,'the store is locked');
+});
+
+// 1.73.4 through the routes: the run-to-fill crossover (plaintext from a run approval), a foreign caller, the reverse crossover,
+// one use per answer, and a full run table that must leave the approval unused.
+test('HTTP: a request continues only as what it is, by who raised it, and once; a full run table leaves the approval for later',async t=>{
+  const dir=tmp();let port=19811;
+  const secret=randomUUID(),exp=Date.now()+3600000,key=newKey();
+  const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
+  const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
+  fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});fs.mkdirSync(path.join(dir,'data'),{recursive:true});
+  let child,logs='';
+  const start=async()=>{
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),POCKET_VAULT_KEY:key},stdio:['ignore','pipe','pipe']});
+   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
+   throw Error('Test server failed: '+logs);
+  };
+  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
+  const streamCall=async(p,body,h)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:'POST',headers:h,body:JSON.stringify(body)});if(!r.ok)return {status:r.status,events:[],body:await r.json().catch(()=>({}))};const text=await r.text();return {status:r.status,events:text.trim().split('\n').filter(Boolean).map(l=>JSON.parse(l))};};
+  const calls=()=>fs.existsSync(path.join(dir,'calls'))?fs.readFileSync(path.join(dir,'calls'),'utf8').trim().split('\n').map(JSON.parse):[];
+  await start();
+  const bearer={'content-type':'application/json',authorization:'Bearer '+fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim()};
+  assert.equal((await call('/settings',{vault:true})).body.vault,true);
+  assert.equal((await call('/vault/act',{action:'add',name:'alpha',kind:'token',values:{value:SECRET}})).status,200,'asks once per command');
+  assert.equal((await call('/vault/act',{action:'add',name:'free',kind:'token',values:{value:'free-secret-value-1'},policy:'auto'})).status,200);
+  // An agent inside a Pocket session, known by its runner token.
+  assert.equal((await call('/new',{cwd:repo,text:'Hello',provider:'claude',clientMessageId:randomUUID()})).status,202);
+  for(let i=0;i<60&&calls().length<1;i++)await sleep(50);
+  const agent={...bearer,'x-pocket-runner':calls().at(-1).runnerToken};
+  // The agent asks to run; the owner allows.
+  let r=await streamCall('/vault/run',{argv:['sh','-c','echo "t=$V0"'],cwd:dir,env:{V0:'alpha'},wait:1},agent);assert.equal(r.events.at(-1).t,'pending');const id=r.events.at(-1).id;
+  assert.equal((await call('/vault').then(x=>x.body.requests[0])).action,'run');
+  assert.equal((await call('/vault/act',{action:'answer',request:id,decision:'once'})).status,200);
+  // The crossover: continued through the fill route, the approved run would have come back in plaintext. Refused, no values.
+  let f=await call('/vault/release',{request:id},agent);assert.equal(f.status,409,JSON.stringify(f.body));assert.match(f.body.error,/for a command, not a browser fill/);assert.equal('values' in f.body,false);
+  // A foreign caller (the terminal, which has the CLI token and the id) cannot continue it.
+  r=await streamCall('/vault/wait',{request:id},bearer);assert.equal(r.events.at(-1).t,'error');assert.match(r.events.at(-1).message,/another session/);
+  // The run table is full: the approval is not used up by the refusal.
+  const sleepers=Array.from({length:LIMITS.concurrent},()=>streamCall('/vault/run',{argv:['sleep','1.5'],cwd:dir,env:{F:'free'}},bearer));await sleep(400);
+  r=await streamCall('/vault/wait',{request:id},agent);assert.equal(r.events.at(-1).t,'error');assert.match(r.events.at(-1).message,/Too many vault runs/);
+  await Promise.all(sleepers);
+  r=await streamCall('/vault/wait',{request:id},agent);assert.equal(r.events.filter(e=>e.t==='out').map(e=>e.s).join(''),'t={{vault:alpha}}\n','the right caller, once the table has room');assert.equal(r.events.at(-1).code,0);
+  r=await streamCall('/vault/wait',{request:id},agent);assert.equal(r.events.at(-1).t,'error');assert.match(r.events.at(-1).message,/already used/);
+  // The reverse: a fill the terminal asked for cannot be continued as a run, nor by the agent; the terminal fills it once.
+  f=await call('/vault/release',{refs:['alpha'],server:'browser',tool:'type',cwd:dir,wait:1},bearer);assert.equal(f.body.pending,true);const id2=f.body.request;
+  assert.equal((await call('/vault/act',{action:'answer',request:id2,decision:'once'})).status,200);
+  r=await streamCall('/vault/wait',{request:id2},bearer);assert.equal(r.events.at(-1).t,'error');assert.match(r.events.at(-1).message,/for a browser fill, not a command/);
+  f=await call('/vault/release',{request:id2},agent);assert.equal(f.status,403);assert.match(f.body.error,/another session/);
+  f=await call('/vault/release',{request:id2},bearer);assert.equal(f.status,200,JSON.stringify(f.body));assert.equal(f.body.values.alpha,SECRET);
+  f=await call('/vault/release',{request:id2},bearer);assert.equal(f.status,409);assert.match(f.body.error,/already used/);
+  // The audit: one run and one fill, each with its request; no value.
+  const audit=fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(audit.filter(x=>x.action==='run'&&x.request===id).length,1);assert.equal(audit.filter(x=>x.action==='fill'&&x.request===id2).length,1);
+  assert.equal(fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8').includes(SECRET),false);
+  assert.doesNotMatch(logs,/TypeError|unhandled rejection/);
 });
 
 // 1.44.2: the owner corrects a value in place. The editor's Show loads the saved value (an owner view, recorded), the

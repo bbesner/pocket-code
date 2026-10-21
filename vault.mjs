@@ -222,7 +222,7 @@ export class VaultStore {
     const eff = this.effective(i);
     return { ...rest, fields: fieldNames(i), custom: i.custom, effectivePolicy: eff, policyWord: POLICY_WORDS[eff], ...(owner ? { notes } : {}), expiring: Boolean(i.expiresAt) && Date.parse(i.expiresAt) - now < 14 * 86400_000 };
   }
-  requestView(r) { const { env, waiters, ...rest } = r; return { ...rest, pending: !r.answer, allowAlways: r.allowAlways !== false }; }
+  requestView(r) { const { env, waiters, caller, bindings, ...rest } = r; return { ...rest, pending: !r.answer, allowAlways: r.allowAlways !== false }; }
   // The policy that applies to an item now: its own, or the Agent access setting's when it follows the default.
   effective(i) { if (i.policy !== 'default') return i.policy; const a = this.access(); return ACCESS_POLICY[ACCESS.includes(a) ? a : 'once']; }
   snapshot({ owner = false, now = this.now() } = {}) {
@@ -353,7 +353,9 @@ export class VaultStore {
     if (!st.isDirectory()) throw fail('The working directory is not a directory.');
     return { argv: argv.map(String), cwd: path.normalize(dir).replace(/\/+$/, '') || '/' };
   }
-  static sameCommand(a, b) { return a.cwd === b.cwd && a.argv.length === b.argv.length && a.argv.every((x, k) => x === b.argv[k]); }
+  // 1.73.4: a command is a run or a browser fill; a recipe saved before 1.73.4 carries no action and is read from its argv.
+  static actionOf(x) { return x?.action === 'fill' || (!x?.action && x?.argv?.[0] === 'pocket-fill') ? 'fill' : 'run'; }
+  static sameCommand(a, b) { return a.cwd === b.cwd && VaultStore.actionOf(a) === VaultStore.actionOf(b) && a.argv.length === b.argv.length && a.argv.every((x, k) => x === b.argv[k]); }
   // What the policies say about running this command with these items: 'run', or 'ask' with the items that need the owner's word.
   decide(bound, cmd) {
     const need = [];
@@ -364,22 +366,60 @@ export class VaultStore {
     }
     return need;
   }
-  // A request for the owner: one per command, naming every item that needs approval.
-  request({ bound, cmd, need, env, session = null, sessionTitle = '', by = 'agent' }) {
+  // A request for the owner: one per command, naming every item that needs approval. 1.73.4: the row also records the kind
+  // of use (`action`: run or fill), every binding by item id, and the caller (actor, session, and the SHA-256 of the runner
+  // token when there is one), so a continuation can be held to the same use by the same caller.
+  request({ bound, cmd, need, env, session = null, sessionTitle = '', by = 'agent', tokenHash = null }) {
     this.expireRequests();
     const now = this.now();
-    const r = { id: shortId(), items: need.map(i => i.id), itemNames: need.map(i => i.name), argv: cmd.argv, cwd: cmd.cwd, env, session, sessionTitle, by, created: iso(now), expiresAt: iso(now + LIMITS.requestTtlMs), answer: null, consumed: false, waiters: [], allowAlways: need.every(i => this.effective(i) !== 'every') };
+    let id = shortId(); for (let n = 0; this.requests.has(id); n++) { if (n >= 8) throw fail('Could not number the request; try again.', 500); id = shortId(); } // never over an existing row
+    const r = { id, action: VaultStore.actionOf(cmd), items: need.map(i => i.id), itemNames: need.map(i => i.name), argv: cmd.argv, cwd: cmd.cwd, env, session, sessionTitle, by, created: iso(now), expiresAt: iso(now + LIMITS.requestTtlMs), answer: null, consumed: false, waiters: [], allowAlways: need.every(i => this.effective(i) !== 'every'),
+      bindings: bound.map(b => ({ v: b.v, item: b.item.id, name: b.item.name, field: b.field })), caller: { actor: by, session, tokenHash } };
     this.audit({ action: 'request', request: r.id, item: need[0].id, name: need.map(i => i.name).join(','), by, session, sessionTitle, argv: cmd.argv, cwd: cmd.cwd });
     this.requests.set(r.id, r);
     return r;
   }
+  // 1.73.4: who may continue a request. An agent inside a Pocket session is its session (the token the daemon put in that
+  // process names it; a restarted process of the same session still counts); terminal and code-server callers share the one
+  // identity `terminal`, since nothing tells them apart.
+  static sameCaller(a, b) { return (a?.actor || 'terminal') === (b?.actor || 'terminal') && (a?.session || null) === (b?.session || null); }
+  // The continuation of a request (pocket-vault wait, or the relay calling again with the id): the row must exist, be the same
+  // kind of use, belong to this caller and not be used up. Checked before waiting on the answer, and again inside claim().
+  continuation(id, { action = 'run', caller = null } = {}) {
+    this.open(); this.expireRequests();
+    const r = this.requests.get(String(id)); if (!r) throw fail('That request does not exist or has expired.', 404);
+    if (r.action !== action) throw fail(r.action === 'fill' ? 'That request is for a browser fill, not a command.' : 'That request is for a command, not a browser fill.', 409, { code: 'request_mismatch' });
+    if (!VaultStore.sameCaller(r.caller, caller)) throw fail('That request was raised by another session.', 403, { code: 'request_mismatch' });
+    if (r.consumed) throw fail('That request was already used.', 409, { code: 'request_used' });
+    return r;
+  }
+  // The one step between the owner's answer and the release, synchronous so that two continuations of one answer cannot
+  // both pass: the bindings are resolved again by item id against the store as it is now (a removed item or field voids the
+  // approval; a renamed item does not), the policy decision is run again (an item that is now the owner's only refuses; one
+  // that now needs approval and was not in the answered set sends the agent back to ask), and the row is marked used.
+  claim(id, { action = 'run', caller = null } = {}) {
+    const r = this.continuation(id, { action, caller });
+    if (!r.answer || !['once', 'always'].includes(r.answer.decision)) throw fail('The owner has not allowed that request.', 409);
+    const bound = [];
+    for (const b of r.bindings) {
+      const item = this.items.find(x => x.id === b.item);
+      if (!item || item.trashedAt || !fieldNames(item).includes(b.field)) throw fail(`${b.name} changed since the owner was asked; ask again.`, 409, { code: 'request_stale' });
+      bound.push({ v: b.v, item, field: b.field });
+    }
+    const cmd = { argv: r.argv, cwd: r.cwd, action: r.action };
+    const need = this.decide(bound, cmd);
+    if (need.some(i => !r.items.includes(i.id))) throw fail('A policy changed since the owner was asked; ask again.', 409, { code: 'request_stale' });
+    r.consumed = true;
+    return { request: r, bound, cmd };
+  }
   answer(id, decision) {
+    this.expireRequests();
     const r = this.requests.get(id); if (!r) throw fail('That request does not exist or has expired.', 404);
     if (r.answer) throw fail('That request was already answered.', 409);
     if (!['once', 'always', 'deny'].includes(decision)) throw fail('Answer once, always or deny.');
     r.answer = { decision, at: iso(this.now()) };
     if (decision === 'always') {
-      for (const id of r.items) { const i = this.items.find(x => x.id === id); if (!i || i.trashedAt || this.effective(i) === 'every') continue; if (!i.recipes.some(x => VaultStore.sameCommand(x, r))) { i.recipes.push({ id: shortId(), argv: r.argv, cwd: r.cwd, created: r.answer.at }); if (i.recipes.length > LIMITS.recipes) i.recipes.shift(); this.touch(i); } }
+      for (const id of r.items) { const i = this.items.find(x => x.id === id); if (!i || i.trashedAt || this.effective(i) === 'every') continue; if (!i.recipes.some(x => VaultStore.sameCommand(x, r))) { i.recipes.push({ id: shortId(), argv: r.argv, cwd: r.cwd, action: r.action, created: r.answer.at }); if (i.recipes.length > LIMITS.recipes) i.recipes.shift(); this.touch(i); } }
       this.save();
     }
     this.audit({ action: 'request-answered', request: r.id, item: r.items[0], name: r.itemNames.join(','), by: 'owner', decision, session: r.session, sessionTitle: r.sessionTitle, argv: r.argv, cwd: r.cwd });
@@ -390,6 +430,7 @@ export class VaultStore {
   pendingFor(session) { this.expireRequests(); return [...this.requests.values()].filter(r => !r.answer && r.session && r.session === session); }
   // Resolves with the request once answered, or null when `ms` pass first.
   waitAnswer(id, ms) {
+    this.expireRequests();
     const r = this.requests.get(id); if (!r) throw fail('That request does not exist or has expired.', 404);
     if (r.answer) return Promise.resolve(r);
     return new Promise(resolve => { const t = setTimeout(() => { r.waiters = r.waiters.filter(w => w !== done); resolve(null); }, ms); const done = () => { clearTimeout(t); resolve(r); }; r.waiters.push(done); });
