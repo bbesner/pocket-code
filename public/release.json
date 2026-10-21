@@ -1,12 +1,12 @@
 {
- "version": "1.75.0",
+ "version": "1.75.1",
  "assetV": 152,
  "notes": [
+  "Inbox Watch's Pocket Inbox label now also works through Claude Code's Gmail connector, as long as Gmail was connected with permission to manage mail; if it was connected read-only, Settings says so and what to do, and Codex's Gmail app writes the label instead when it is connected too.",
   "Inbox: Check now, beside All and Schedule, has Inbox Watch check your mail right away whatever its schedule, so a schedule of Don’t check now means on demand only. What’s on your list also carries a Pocket Inbox label in Gmail, both ways: label an email there and it comes here with a summary; finish it here and the label comes off. Inbox Watch’s own instructions no longer assume any industry: your rules, now explained in italics, are where you make it yours.",
   "Inbox Watch sets itself up: turn it on and Pocket reads your mail through the Gmail connector you already linked to Claude Code or Codex, starts from now, and checks on the schedule you set, with no config file, Google sign-in or timer to install. The Inbox says what it is doing, and what to connect if Gmail is missing.",
   "Small fixes from the review's last batch: trusted actions no longer trust a command with a # comment or a VAR+= prefix, command-line tools stop waiting for an unresponsive Pocket after 30 seconds, connector checks no longer run twice or log CLI output, and Stop clears a Codex turn's question cards at once.",
   "Programs Pocket starts are now managed as whole groups: a Vault run cannot leave anything running behind it, a hung Codex process is killed so its conversation frees up, reminders are never announced twice by a slow mail server, and a reminder hook that hangs is ended after a minute.",
-  "Every store now checks a change whole and writes it before taking it up: a refused field or a full disk leaves projects, files, tasks, the Vault and Settings exactly as they were, the Vault file is synced to disk on every write, and a failed key rotation keeps the recovery key honest.",
-  "Browser logins are tighter: Pocket types a Vault value into typing and form-filling tools only, withholds screenshots from that browser once a value has been typed (a picture cannot be scrubbed), and scrubs values from object keys, numbers and split log lines too."
+  "Every store now checks a change whole and writes it before taking it up: a refused field or a full disk leaves projects, files, tasks, the Vault and Settings exactly as they were, the Vault file is synced to disk on every write, and a failed key rotation keeps the recovery key honest."
  ]
 }

@@ -146,6 +146,7 @@ export class InboxRunner {
       '[tidy]', 'enabled = true', 'every_hours = 2', '',
       '[pocket]', `root = ${toml(this.appDir)}`, `session_dir = ${toml(this.sessionDir)}`, `provider = ${toml(claudeRuns ? 'claude' : 'codex')}`, '',
       '[[delivery]]', 'kind = "pocket"', `root = ${toml(this.appDir)}`, `docs_dir = ${toml(this.docsDir)}`, 'email = false', '',
+      '[gmail_label]                          # 1.75: the Pocket Inbox label in Gmail, kept in step with the Inbox both ways', 'enabled = true', '',
     ];
     const prefs = path.join(this.dir, 'preferences.md');
     if (!fs.existsSync(prefs)) fs.writeFileSync(prefs, '');

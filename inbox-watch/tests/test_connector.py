@@ -7,6 +7,7 @@ No mailbox, model or network: the fake reads the requested calls from the prompt
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -23,7 +24,7 @@ log = open(os.environ["FAKE_LOG"], "a"); log.write(json.dumps(args) + "\n"); log
 prompt = sys.stdin.read()
 calls = json.loads(prompt[prompt.index("["):])
 def emit(e): print(json.dumps(e))
-tools = [] if box.get("no_connector") else ["mcp__claude_ai_Gmail__" + t for t in ("search_threads", "get_thread", "get_message", "send_message")]
+tools = [] if box.get("no_connector") else ["mcp__claude_ai_Gmail__" + t for t in ("search_threads", "get_thread", "get_message", "send_message", "list_labels", "create_label", "label_thread", "unlabel_thread")]
 emit({"type": "system", "subtype": "init", "tools": tools})
 skip = box.get("skip_first", 0) if len(open(os.environ["FAKE_LOG"]).readlines()) == 1 else 0  # only the first run skips
 for i, c in enumerate(calls):
@@ -32,7 +33,17 @@ for i, c in enumerate(calls):
     tid = f"tu{i}"
     emit({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tid, "name": c["tool"], "input": c["input"]}]}})
     name = c["tool"].rsplit("__", 1)[-1]
-    if name == "search_threads":
+    if name in ("label_thread", "unlabel_thread", "create_label") and box.get("read_only_grant"):
+        emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tid, "is_error": True, "content": "Insufficient scope: required https://mail.google.com/"}]}})
+        continue
+    elif name == "list_labels":
+        res = {"labels": [{"id": "INBOX", "name": "INBOX"}] + [{"id": i, "name": n} for n, i in box.get("labels", {}).items()]}
+    elif name == "create_label":
+        box.setdefault("labels", {})[c["input"]["displayName"]] = "Label_9"; json.dump(box, open(os.environ["FAKE_BOX"], "w"))
+        res = {"id": "Label_9", "name": c["input"]["displayName"]}
+    elif name in ("label_thread", "unlabel_thread"):
+        res = {"id": c["input"]["threadId"], "labelIds": c["input"]["labelIds"]}
+    elif name == "search_threads":
         q = c["input"]["query"]
         threads = [t for t in box["threads"] if (m := re.search(r"after:(\d+)", q)) is None or max(int(x["internalDate"]) for x in t["messages"]) / 1000 > int(m.group(1))]
         if "in:sent" in q:
@@ -83,7 +94,54 @@ def test_codex_labels_in_a_home_of_their_own():
     b.save()
     assert m.label_threads([("t1", ["Pocket Inbox"], [])]) == set(), "a call with other arguments than asked does not count"
     claude = Box().mail()
-    assert "can't change labels" in claude.label_access()
+    assert claude.label_access() is None, "1.75.1: Claude's connector changes labels too"
+
+
+def test_claude_labels_locked_down():
+    b = Box()
+    m = b.mail()
+    assert m.label_id("Pocket Inbox") == "Label_9", "made when missing"
+    n = len(b.argv())
+    assert m.label_id("Pocket Inbox") == "Label_9" and len(b.argv()) == n, "remembered: no second lookup"
+    assert m.label_threads([("t1", ["Label_9"], []), ("t2", [], ["Label_9"])]) == {"t1", "t2"}
+    args = b.argv()[-1]
+    allowed = args[args.index("--allowedTools") + 1].split(",")
+    assert sorted(allowed) == sorted(C.LABEL_TOOLS) and "send_message" not in allowed
+    blocked = args[args.index("--disallowedTools") + 1].split(",")
+    assert C.PREFIX + "send_message" in blocked and C.PREFIX + "get_thread" in blocked and C.PREFIX + "label_thread" not in blocked
+    w = m.fetch
+    guard = lambda tool, inp: subprocess.run(["python3", "-I", str(w.label_guard)], input=json.dumps({"tool_name": C.PREFIX + tool, "tool_input": inp}),
+                                             capture_output=True, text=True).stdout
+    assert guard("label_thread", {"threadId": "t1", "labelIds": ["Label_9"]}) == "", "the asked-for change passes"
+    assert "deny" in guard("label_thread", {"threadId": "t7", "labelIds": ["Label_9"]}), "another thread is refused"
+    assert "deny" in guard("label_thread", {"threadId": "t1", "labelIds": ["TRASH"]}), "another label is refused"
+    assert "deny" in guard("send_message", {"to": "x@example.com"}), "anything else is refused"
+    assert "deny" in guard("create_label", {"displayName": "Other"})
+    b.data["read_only_grant"] = True
+    b.save()
+    try:
+        m.label_threads([("t1", ["Label_9"], [])])
+        raise AssertionError("a read-only grant must raise")
+    except C.MailError as e:
+        assert e.resp.status == 403 and "reconnect Gmail" in str(e), "a read-only grant says what to do"
+
+
+def test_claude_read_only_falls_back_to_codex_for_labels():
+    b = codex_box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now - 60)]}]
+    b.data["read_only_grant"] = True
+    b.save()
+    m = C.ConnectorMail({"agent": "claude", "bin": str(b.bin), "fallback_agent": "codex", "fallback": {"bin": str(b.codex), "codex_home": str(b.dir / "codex-src")}},
+                        "alex@example.com", "", "", b.dir)
+    m.db.execute("create table if not exists mail(message_id text primary key, thread_id text, ts integer)")
+    m.db.execute("insert or replace into mail values('m1','t1',?)", (now - 60,))
+    m.db.commit()
+    lid = m.label_id("Pocket Inbox")
+    assert lid == "Pocket Inbox", "Claude may not even make the label (Damon's grant, 2026-10-21): Codex does, by name"
+    assert m.label_threads([("t1", [lid], [])]) == {"t1"}, "the change went through Codex instead"
+    sent = b.argv()[-1]
+    assert Path(sent["home"]).name == "codex-home-label" and '"add_label_names": ["Pocket Inbox"]' in sent["argv"][-1], "by name, in Codex's label home"
 
 
 class Box:
