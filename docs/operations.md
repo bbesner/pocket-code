@@ -26,6 +26,13 @@ idle closure. A separate default 30-minute stall watchdog replaces the old two-h
 wall-clock cap. It considers stream activity, pending questions/approvals and CPU
 activity from programs started by the turn; reported Claude background jobs are exempt.
 Codex is interrupted first and its process is closed if the interruption is unanswered.
+Closing a Codex session sends SIGTERM to the app-server's process group and, since 1.73.7,
+SIGKILL five seconds later if it is still running, so a hung app-server no longer keeps the
+thread's writer lock. A session record (`turnlogs-codex/*.session.json`) carries the boot id
+and the start times of the app-server and its keeper (1.73.7); after a restart Pocket adopts or
+signals a recorded process only when both match, so a record left from before a reboot is
+removed without signalling whatever process now has that pid. Records written before 1.73.7
+count as this boot's only when the file is newer than the boot.
 
 `POCKET_MAX_PROCESSES` defaults to 8 and reclaims the longest-idle eligible process
 before starting another. It is a **soft target**: active work is not evicted, and a
@@ -219,7 +226,11 @@ comes due: by web push to the devices that chose *Due tasks and reminders* (ever
 for subscriptions saved before 1.50), by `POCKET_REMINDER_HOOK` if set, and by email when
 `POCKET_SMTP_URL` is set and Settings names an address. Pocket marks the item as
 announced before sending, so a crash mid-send does not announce it twice, and a failed
-hook or mail is logged but not retried. With **Notice a day before** on in Settings
+hook or mail is logged but not retried. Since 1.73.7 one check runs at a time (a slow push
+or mail server no longer lets the next check announce the same items again), an item done,
+removed or given a new time while an earlier one was being sent is skipped, and each hook
+run is ended with everything it started after `POCKET_REMINDER_HOOK_TIMEOUT_MS` (default
+60000) or when the daemon exits; the log keeps the last 4 KB of its stderr. With **Notice a day before** on in Settings
 (`remindAhead: 24` in `pocket-settings.json`), a second announcement goes out 24 hours
 ahead, marked `ahead: true` for the hook, for items that were set at least a day ahead.
 Due items are checked every `POCKET_REMINDER_CHECK_MS` (default 60000, minimum 250), with
@@ -341,6 +352,10 @@ names are new and skips the rest. Both are owner-only, cookie routes, and record
 the filtered agent environment plus the bound values, no terminal, output piped back through
 a filter that replaces each value (and its base64 and URL-encoded forms) with
 `{{vault:name}}`. Output is capped at 1 MB and a run is stopped after 10 minutes by default.
+Since 1.73.7 the command leads its own process group, and its exit, the timeout, the cap or a
+stop ends everything still in it (TERM, then KILL after five seconds); the run finishes within
+about two seconds of the command's exit. A command that starts a background service expecting
+it to outlive the run will see that service stopped: a Vault run cannot leave a daemon behind.
 The command runs with the daemon's permissions, outside any sandbox the agent's CLI applies.
 Under Codex's Review mode the read-only sandbox cannot reach the daemon, so `pocket-vault
 run` works only under Full access there.
@@ -434,6 +449,10 @@ the Whisper `small.en` and Kokoro models into `POCKET_VOICE_HOME` (default
 
 - **Lifecycle.** Pocket starts `voice/voice_server.py` on the first voice request, bound to
   `127.0.0.1` on a random port, and stops it after `POCKET_VOICE_IDLE_MS` (15 minutes) without use.
+  A value that is not a positive number means the default (1.73.7). A stop sends SIGTERM, then
+  SIGKILL after five seconds, and reaches an engine that is still starting. A malformed
+  `POCKET_VOICE_COMMAND` turns voice off with the reason in `/api/voice/status` instead of stopping
+  the daemon from starting.
   The engine exits on its own if Pocket stops. Loading takes a few seconds; the first request after
   idle waits for it.
 - **Resources.** About 1 GB of RAM while loaded; each request uses up to 4 CPU threads for

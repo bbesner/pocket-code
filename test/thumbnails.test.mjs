@@ -69,6 +69,26 @@ test('Thumbnailer: capabilities follow the tools; one picture per file version; 
   store.trash(by('deck.pdf').id);assert.equal(await t.get(by('deck.pdf')),null);
   fs.rmSync(dir,{recursive:true,force:true});
 });
+// 1.73.7: renderers run in their own process group. Before, the time budget signalled only the renderer itself and the job
+// waited for its pipes to close, so a helper process it started (Chrome has several) held the job until it chose to exit.
+test('Thumbnailer: the time budget and the renderer\'s exit end everything the renderer started',async()=>{
+  const dir=tmp();const docsDir=path.join(dir,'docs');fs.mkdirSync(docsDir);
+  fs.writeFileSync(path.join(docsDir,'a.html'),'<p>a</p>');fs.writeFileSync(path.join(docsDir,'b.html'),'<p>b</p>');
+  const store=new DocumentStore(docsDir,path.join(dir,'documents.json'));store.scan();const by=f=>store.documents.find(d=>d.file===f);
+  const pidFile=path.join(dir,'helper.pid'),alive=pid=>{try{process.kill(pid,0);return true;}catch{return false;}};
+  const gone=async pid=>{for(let i=0;i<40&&alive(pid);i++)await sleep(50);return !alive(pid);};
+  // A Chrome that starts a helper holding its stderr, then either hangs or writes the picture and exits.
+  const chrome=hang=>{const p=path.join(dir,hang?'chrome-hang':'chrome-leave');fs.writeFileSync(p,'#!'+process.execPath+`\nconst fs=require('fs'),{spawn}=require('child_process');const h=spawn('sleep',['6'],{stdio:['ignore','ignore','inherit']});fs.writeFileSync(${JSON.stringify(pidFile)},String(h.pid));`+(hang?'setInterval(()=>{},1000);':`fs.writeFileSync(process.argv.find(a=>a.startsWith('--screenshot=')).slice(13),Buffer.from(${JSON.stringify([...PNG])}));process.exit(0);`));fs.chmodSync(p,0o700);return p;};
+  let t0=Date.now();
+  const hung=new Thumbnailer(store,{tools:{chrome:chrome(true),pdftoppm:null,convert:null},timeoutMs:400,log:()=>{}});
+  assert.equal(await hung.get(by('a.html')),null,'over budget: no picture');assert.ok(Date.now()-t0<3000,`a hung renderer was given up in ${Date.now()-t0} ms`);
+  assert.ok(await gone(Number(fs.readFileSync(pidFile,'utf8'))),'its helper was ended too');
+  t0=Date.now();
+  const left=new Thumbnailer(store,{tools:{chrome:chrome(false),pdftoppm:null,convert:null},timeoutMs:5000});
+  assert.equal((await left.get(by('b.html'))).type,'image/png');assert.ok(Date.now()-t0<3000,`the picture came in ${Date.now()-t0} ms`);
+  assert.ok(await gone(Number(fs.readFileSync(pidFile,'utf8'))),'a helper left behind by a finished renderer is ended');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
 test('HTTP: /thumb needs the login, says which kinds it can picture, serves the picture with private caching, 404 for the rest',async t=>{
   const dir=tmp();let port=19311;
   const secret=randomUUID(),exp=Date.now()+3600000;const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');

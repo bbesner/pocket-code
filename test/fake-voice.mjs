@@ -1,6 +1,10 @@
 // Stand-in for voice/voice_server.py: same HTTP API, no models. Transcribes any audio as a fixed phrase
 // (or FAKE_VOICE_TEXT), echoes the vocabulary hint, and returns a tiny valid WAV for speech.
 import http from 'node:http';
+import fs from 'node:fs';
+// FAKE_VOICE_PIDFILE records each engine started; FAKE_VOICE_SLOW delays readiness (ms); FAKE_VOICE_STUBBORN ignores SIGTERM.
+if (process.env.FAKE_VOICE_PIDFILE) fs.appendFileSync(process.env.FAKE_VOICE_PIDFILE, process.pid + '\n');
+if (process.env.FAKE_VOICE_STUBBORN) process.on('SIGTERM', () => { });
 if (process.env.FAKE_VOICE_FAIL) { console.error('fake engine failed to load'); process.exit(3); }
 const wav = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(40), Buffer.alloc(3200)]);
 const server = http.createServer((req, res) => {
@@ -16,6 +20,6 @@ const server = http.createServer((req, res) => {
     res.statusCode = 404; res.end('{}');
   });
 });
-server.listen(0, '127.0.0.1', () => console.log(JSON.stringify({ ready: true, port: server.address().port, stt: 'fake' })));
+setTimeout(() => server.listen(0, '127.0.0.1', () => console.log(JSON.stringify({ ready: true, port: server.address().port, stt: 'fake' }))), Number(process.env.FAKE_VOICE_SLOW) || 0);
 // Like the real sidecar: exit when the parent goes away (SIGTERM to Pocket does not run exit handlers).
 const parent = process.ppid; setInterval(() => { if (process.ppid !== parent) process.exit(0); }, 500).unref();

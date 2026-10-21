@@ -8,8 +8,9 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { agentEnv } from './environment.mjs';
+import { signalGroup } from './proctree.mjs';
 
 export const THUMB = { width: 480, height: 300 };
 const CHROME_PATHS = ['/opt/google/chrome/chrome', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium'];
@@ -24,8 +25,19 @@ export function findTools(env = process.env) {
     convert: pick('POCKET_CONVERT', [onPath('convert'), onPath('magick')]),
   };
 }
+// 1.73.7: each renderer leads its own process group. The time budget kills the group, and the renderer's exit sweeps
+// whatever it left behind (Chrome's helpers), so a wedged renderer cannot hold the work folder or a job slot.
 const run = (bin, args, { timeout, cwd }) => new Promise((resolve, reject) => {
-  execFile(bin, args, { timeout, cwd, maxBuffer: 1 << 20, windowsHide: true, env: agentEnv(process.env) }, (err, stdout, stderr) => err ? reject(Object.assign(err, { stderr: String(stderr).slice(-2000) })) : resolve());
+  let stderr = '', timedOut = false, child;
+  try { child = spawn(bin, args, { cwd, detached: true, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, env: agentEnv(process.env) }); }
+  catch (e) { return reject(e); }
+  const timer = setTimeout(() => { timedOut = true; signalGroup(child.pid, 'SIGKILL'); }, timeout);
+  child.stderr.on('data', b => { stderr = (stderr + b).slice(-2000); });
+  child.on('error', e => { clearTimeout(timer); reject(Object.assign(e, { stderr })); });
+  child.on('exit', (code, sig) => {
+    clearTimeout(timer); signalGroup(child.pid, 'SIGKILL');
+    if (code === 0) resolve(); else reject(Object.assign(new Error(timedOut ? `timed out after ${timeout} ms` : `exited ${code ?? sig}`), { stderr }));
+  });
 });
 
 export class Thumbnailer {

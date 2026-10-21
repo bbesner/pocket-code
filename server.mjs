@@ -22,7 +22,7 @@ import { FollowupQueue } from './queue.mjs';
 import {workspaceStatus,workspaceDiff} from './workspace.mjs';
 import {readClaudeIdentity,agentEnv} from './environment.mjs';
 import {QuestionInbox} from './questions.mjs';
-import {descendantCpu, commandLine} from './proctree.mjs';
+import {descendantCpu, commandLine, signalGroup} from './proctree.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 import {parseRuleList, validateRules, matchTrusted} from './trusted.mjs';
 import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
@@ -382,11 +382,20 @@ async function mailDue(item, { ahead = false } = {}) {
 }
 // 1.37.1: the hook gets the same environment as agent turns, without the daemon's secrets (login password,
 // cookie-signing key, push private key). It is an operator's own command, but it has no use for them.
+// 1.73.7: each run leads its own process group, keeps the last 4 KB of stderr, is killed (with everything it started) after
+// POCKET_REMINDER_HOOK_TIMEOUT_MS (default 60 s), and is ended when the daemon exits. Work the hook leaves running in the
+// background after it exits is its own business.
+const REMINDER_HOOK_TIMEOUT_MS = Math.max(100, Number(process.env.POCKET_REMINDER_HOOK_TIMEOUT_MS) || 60_000);
+const reminderHooks = new Set();
+process.on('exit', () => { for (const pid of reminderHooks) signalGroup(pid, 'SIGTERM'); });
 function runReminderHook(payload) {
-  const child = spawn(REMINDER_HOOK, { shell: true, env: agentEnv(process.env), stdio: ['pipe', 'ignore', 'pipe'] });
-  let err = ''; child.stderr.on('data', b => { err += b; });
-  child.on('exit', code => { if (code) log(`reminder hook exited ${code}: ${err.trim().slice(0, 300)}`); });
-  child.on('error', e => log(`reminder hook failed: ${e.message}`));
+  const child = spawn(REMINDER_HOOK, { shell: true, env: agentEnv(process.env), stdio: ['pipe', 'ignore', 'pipe'], detached: true });
+  if (child.pid) reminderHooks.add(child.pid);
+  let err = ''; child.stderr.on('data', b => { err = (err + b).slice(-4096); });
+  const timer = setTimeout(() => { log(`reminder hook still running after ${REMINDER_HOOK_TIMEOUT_MS} ms; ending it`); signalGroup(child.pid, 'SIGTERM'); setTimeout(() => signalGroup(child.pid, 'SIGKILL'), 5000).unref(); }, REMINDER_HOOK_TIMEOUT_MS);
+  timer.unref();
+  child.on('exit', (code, sig) => { clearTimeout(timer); reminderHooks.delete(child.pid); if (code || sig) log(`reminder hook exited ${code ?? sig}: ${err.trim().slice(-300)}`); });
+  child.on('error', e => { clearTimeout(timer); reminderHooks.delete(child.pid); log(`reminder hook failed: ${e.message}`); });
   child.stdin.on('error', () => { }); child.stdin.end(JSON.stringify(payload));
 }
 // The count a device's app icon shows: due tasks and due project reminders together (1.50).
@@ -394,10 +403,21 @@ const dueTotal = () => (settings.tasks ? taskStore.snapshot().dueCount : 0) + (s
 const AHEAD_MS = () => (Number(settings.remindAhead) === 24 ? 24 : 0) * 3600_000;
 // One announcement per due item: push (with Tomorrow / Done actions the service worker answers), the hook, email.
 // With "a day before" on, a second, earlier notice goes out 24 hours ahead, marked `ahead`.
+// 1.73.7: one run at a time (a slow push or mail server used to let the next tick announce the items this run had not
+// reached yet, twice), and each item is checked against the store again right before it is marked: one done, deleted or
+// given a new time while an earlier item was being sent is skipped, so its new notice is not lost.
+let announcing = false;
+async function announceRemindersOnce() {
+  if (announcing) return;
+  announcing = true;
+  try { await announceReminders(); } finally { announcing = false; }
+}
+const stillDue = (list, key, item) => list.some(x => x[key] === item[key] && x.dueAt === item.dueAt);
 async function announceReminders() {
   const ahead = AHEAD_MS();
   if (settings.tasks) {
     for (const t of taskStore.due()) { // 1.36: a dated task, once, with a link to the list
+      if (!stillDue(taskStore.due(), 'task', t)) continue;
       taskStore.markNotified(t.task);
       const url = '/#/tasks', payload = { kind: 'task', ...t, url };
       const devices = await pushRaw('Task due', t.text, { tag: 'task:' + t.task, url, kind: 'reminders', badge: dueTotal(), snooze: { task: t.task }, actions: [{ action: 'later', title: 'Tomorrow' }, { action: 'done', title: 'Done' }] });
@@ -406,6 +426,7 @@ async function announceReminders() {
       log(`task due task=${t.task} push=${devices ?? 'off'} hook=${REMINDER_HOOK ? 'yes' : 'no'} mail=${mailed ? 'yes' : 'no'}`);
     }
     if (ahead) for (const t of taskStore.dueAhead(ahead)) {
+      if (!stillDue(taskStore.dueAhead(ahead), 'task', t)) continue;
       taskStore.markAheadNotified(t.task);
       const url = '/#/tasks', payload = { kind: 'task', ...t, url, ahead: true };
       const devices = await pushRaw('Task due tomorrow', t.text, { tag: 'task-ahead:' + t.task, url, kind: 'reminders' });
@@ -416,6 +437,7 @@ async function announceReminders() {
   }
   if (!settings.projects) return;
   for (const r of board.due()) {
+    if (!stillDue(board.due(), 'reminder', r)) continue;
     board.markNotified(r.project, r.reminder); // first, so a crash mid-send never announces it twice
     const url = '/#/projects/' + r.project, payload = { ...r, url };
     const devices = await pushRaw(`Reminder: ${r.projectName}`, r.label, { tag: 'reminder:' + r.reminder, url, kind: 'reminders', badge: dueTotal(), snooze: { project: r.project, reminder: r.reminder, task: r.task || null, label: r.label }, actions: [{ action: 'later', title: 'Tomorrow' }] });
@@ -424,6 +446,7 @@ async function announceReminders() {
     log(`reminder due project=${r.project} reminder=${r.reminder} push=${devices ?? 'off'} hook=${REMINDER_HOOK ? 'yes' : 'no'} mail=${mailed ? 'yes' : 'no'}`);
   }
   if (ahead) for (const r of board.dueAhead(ahead)) {
+    if (!stillDue(board.dueAhead(ahead), 'reminder', r)) continue;
     board.markAheadNotified(r.project, r.reminder);
     const url = '/#/projects/' + r.project, payload = { ...r, url, ahead: true };
     const devices = await pushRaw(`Reminder tomorrow: ${r.projectName}`, r.label, { tag: 'reminder-ahead:' + r.reminder, url, kind: 'reminders' });
@@ -433,8 +456,8 @@ async function announceReminders() {
   }
 }
 const REMINDER_CHECK_MS = Math.max(250, Number(process.env.POCKET_REMINDER_CHECK_MS) || 60_000);
-setInterval(() => announceReminders().catch(e => log('reminders: ' + e.message)), REMINDER_CHECK_MS).unref();
-setTimeout(() => announceReminders().catch(e => log('reminders: ' + e.message)), Math.min(5_000, REMINDER_CHECK_MS)).unref();
+setInterval(() => announceRemindersOnce().catch(e => log('reminders: ' + e.message)), REMINDER_CHECK_MS).unref();
+setTimeout(() => announceRemindersOnce().catch(e => log('reminders: ' + e.message)), Math.min(5_000, REMINDER_CHECK_MS)).unref();
 
 const setSmeta = (id, patch) => {
   const m = { ...smeta[id], ...patch };
@@ -3545,7 +3568,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Every store now checks a change whole and writes it before taking it up: a refused field or a full disk leaves projects, files, tasks, the Vault and Settings exactly as they were, the Vault file is synced to disk on every write, and a failed key rotation keeps the recovery key honest.", "Browser logins are tighter: Pocket types a Vault value into typing and form-filling tools only, withholds screenshots from that browser once a value has been typed (a picture cannot be scrubbed), and scrubs values from object keys, numbers and split log lines too.", "A Vault request now belongs to what it was asked for and to the session that asked: a run the owner allowed cannot be turned into a browser fill, nobody else on the box can continue it, one answer serves one use, and an item made owner-only or removed after the approval no longer releases.", "Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on.", "Vault and Codex hardening: a bare null line from a Codex app-server no longer stops Pocket, the Vault scrubs the JSON spellings PHP and Python write, and locking the Vault while an agent waits answers the agent at once instead of leaving it hanging.", "Sessions no longer get stuck when another agent searches Pocket's folder: each session's input pipe now lives in a private folder outside it, so a search can't swallow its approvals, messages or Stop."];
+const RELEASE_NOTES = ["Programs Pocket starts are now managed as whole groups: a Vault run cannot leave anything running behind it, a hung Codex process is killed so its conversation frees up, reminders are never announced twice by a slow mail server, and a reminder hook that hangs is ended after a minute.", "Every store now checks a change whole and writes it before taking it up: a refused field or a full disk leaves projects, files, tasks, the Vault and Settings exactly as they were, the Vault file is synced to disk on every write, and a failed key rotation keeps the recovery key honest.", "Browser logins are tighter: Pocket types a Vault value into typing and form-filling tools only, withholds screenshots from that browser once a value has been typed (a picture cannot be scrubbed), and scrubs values from object keys, numbers and split log lines too.", "A Vault request now belongs to what it was asked for and to the session that asked: a run the owner allowed cannot be turned into a browser fill, nobody else on the box can continue it, one answer serves one use, and an item made owner-only or removed after the approval no longer releases.", "Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on.", "Vault and Codex hardening: a bare null line from a Codex app-server no longer stops Pocket, the Vault scrubs the JSON spellings PHP and Python write, and locking the Vault while an agent waits answers the agent at once instead of leaving it hanging."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
