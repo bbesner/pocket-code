@@ -14,6 +14,12 @@ The first block of the Inbox Watch sheet, both modes: the set head *Your rules*,
 useful adds to them, a plain textarea (the field style of *Name*, 200px tall, vertical resize, three example rules as the
 placeholder) and a character count as a `.title-note`. No new colour.
 
+## Inbox: the read mark (1.75.2)
+
+Same pinned Inbox brief. Each row's mark is one eye in the 44px `.task-check` slot: clay at a 2.2 stroke while unread,
+the row's `--dim` once opened. It replaced a clay dot that became a bell or a page, which read as two controls doing one
+thing. Opening the entry is reading it; the eye goes quiet as the sheet opens.
+
 ## Inbox: Open and Done, and keeping it tidy (1.71)
 
 Same pinned Inbox brief (variance 2, motion 1, density 5). The chips read **Open · Unread · Done**: Open is the default

@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.75.2] — 2026-10-21 · build 153
+
+- **The Inbox's read mark is an eye.** Each entry showed a clay dot while unread, then a bell (an alert) or a page (a digest or look-ahead) once read, which read as two different controls that did the same thing. It is now one eye: clay while unread, the row's `--dim` once the entry has been opened. The mark and the row both open the entry, as before; its label says Unread or Read. Asked for by Brad.
+- **Opening is reading, at once.** The entry turns read the moment its sheet opens, not when the server answers, and a list fetched before the server took the read up can no longer bring the unread mark back (`inboxReadHere` in `public/inbox.js`).
+- Migration: none.
+
 ## [1.75.1] — 2026-10-21 · build 152
 
 - **The Pocket Inbox label through Claude Code's Gmail connector.** `mail_connector.py`: `ClaudeConnector.label_id` (finds the label with `list_labels`, makes it with `create_label` when missing, remembers the id in `state/connector/label-ids.json`) and `change_threads` (`label_thread` / `unlabel_thread` for whole threads in one run). Each label run allows those four tools only, blocks every other Gmail and connector tool, and a PreToolUse hook passes a call only with the label name, label ids and thread ids the program asked for. Tested live on a second mailbox: lookups and the lockdown work; that connector had been granted read-only by Google ("insufficient scope"), which is now reported as such.

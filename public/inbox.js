@@ -7,13 +7,14 @@
 const inboxOn=()=>Boolean(window.pocketFeatures?.inbox);
 let inboxSnap=null,inboxAt=0,inboxLoading=null,inboxView=null,inboxFilter='open',inboxQuery='',inboxDismissed=null; // 1.69.2: reading clears the dot, never the row; 1.71: the list opens on Open (unread and read), Done holds the rest
 let inboxCheck=null; // 1.75: Check now on its way: {at, source, until, before} until the watcher reports it done
+const inboxReadHere=new Set(); // 1.75.2: opened on this device; reads as read at once, and a list fetched before the server took it up cannot bring the unread mark back
 const inboxOpenState=e=>e.state==='new'||e.state==='opened'; // still on the owner's plate: not dismissed, resolved or marked not useful
 const INBOX_GMAIL_MSG='https://mail.google.com/mail/u/0/#all/';
 const inboxById=id=>inboxSnap?.entries.find(e=>e.id===id)||inboxDismissed?.entries.find(e=>e.id===id)||null;
 async function loadInbox(force){
  if(!force&&inboxSnap&&Date.now()-inboxAt<4000)return inboxSnap;
  if(inboxLoading)return inboxLoading;
- inboxLoading=api('/inbox?state=all',{signal:AbortSignal.timeout(8000)}).then(s=>{inboxSnap=s;inboxAt=Date.now();return s;}).finally(()=>{inboxLoading=null;});
+ inboxLoading=api('/inbox?state=all',{signal:AbortSignal.timeout(8000)}).then(s=>{for(const e of s.entries)if(inboxReadHere.has(e.id)){if(e.state==='new')e.state='opened';else inboxReadHere.delete(e.id);}s.newCount=s.entries.filter(x=>x.state==='new').length;inboxSnap=s;inboxAt=Date.now();return s;}).finally(()=>{inboxLoading=null;});
  return inboxLoading;
 }
 async function loadInboxDismissed(){inboxDismissed=await api('/inbox?state=dismissed',{signal:AbortSignal.timeout(8000)});return inboxDismissed;}
@@ -23,6 +24,12 @@ function mergeInbox(e){
  const target=e.state==='dismissed'?inboxDismissed:inboxSnap;
  if(target){target.entries.push(e);target.entries.sort((a,b)=>Date.parse(b.at)-Date.parse(a.at));}
  if(inboxSnap)inboxSnap.newCount=inboxSnap.entries.filter(x=>x.state==='new').length;
+}
+// Opening an entry is reading it: the eye goes quiet now, and the server is told after.
+function inboxMarkRead(e){
+ inboxReadHere.add(e.id);e.state='opened';if(inboxSnap)inboxSnap.newCount=inboxSnap.entries.filter(x=>x.state==='new').length;
+ paintInboxView();paintRailInbox();paintInboxBadges();if(typeof paintAssistantHome==='function')paintAssistantHome();
+ inboxAct({action:'open',id:e.id});
 }
 async function inboxAct(body,done){
  try{const r=await api('/inbox/act',{method:'POST',body:JSON.stringify(body)});mergeInbox(r.entry);if(done)toast(done);paintInboxView();paintRailInbox();paintInboxBadges();if(typeof paintAssistantHome==='function')paintAssistantHome();return r.entry;}
@@ -51,7 +58,7 @@ function inboxTarget(e){
 }
 function inboxOpen(id){
  const e=inboxById(id);if(!e)return;
- if(e.state==='new')inboxAct({action:'open',id});
+ if(e.state==='new')inboxMarkRead(e);
  const t=inboxTarget(e);
  if(!t)return inboxSheet(id);
  if(/^https?:\/\//.test(t))window.open(t,'_blank','noopener');else location.hash=t;
@@ -104,7 +111,7 @@ function inboxRowHTML(e){
  const facts=[`<span>${esc(inboxWhen(e.at))}</span>`,e.story?`<span>${esc(e.story.replace(/-/g,' '))}</span>`:'',`<span>${inboxKindWord(e)}${e.priority==='critical'?' · critical':''}</span>`,inboxStateWord(e)?`<span>${inboxStateWord(e)}</span>`:''].filter(Boolean).join('<span aria-hidden="true">·</span>');
  const first=!inboxOpenState(e)&&e.note?e.note:inboxFirst(e.text); // a finished entry says why it is finished (the tidy pass writes the reason)
  return `<div class="session-item task-item inbox-item state-${esc(e.state)} kind-${esc(e.kind)}" data-item="${esc(e.id)}">
-  <button class="task-check inbox-mark" data-inbox-open="${esc(e.id)}" aria-label="Read: ${esc(e.title)}">${e.state==='new'?'<span class="inbox-dot" aria-hidden="true"></span>':e.kind==='alert'?IC.bell:IC.doc}</button>
+  <button class="task-check inbox-mark" data-inbox-open="${esc(e.id)}" aria-label="${e.state==='new'?'Unread':'Read'}: ${esc(e.title)}" title="${e.state==='new'?'Unread':'Read'}">${IC.eye}</button>
   <button class="row" data-inbox-open="${esc(e.id)}"><span class="body"><span class="title">${esc(e.title)}</span>${first?`<span class="inbox-text">${esc(first)}</span>`:''}<span class="session-status">${facts}</span></span></button>
   ${e.state==='dismissed'?'':`<button class="session-more icon inbox-x" data-inbox-dismiss="${esc(e.id)}" aria-label="Dismiss: ${esc(e.title)}" title="Dismiss">${IC.x}</button>`}
   <button class="session-more icon" data-inbox-more="${esc(e.id)}" aria-label="Options for ${esc(e.title)}">${IC.more}</button></div>`;
@@ -184,7 +191,7 @@ function inboxSheet(id){
  sh.querySelector('[data-useless]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'not_useful',id},'Noted: not useful');});
  sh.querySelector('[data-dismiss]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'dismiss',id},'Dismissed');});
  sh.querySelector('[data-restore]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'restore',id},'Restored');});
- if(e.state==='new')inboxAct({action:'open',id});
+ if(e.state==='new')inboxMarkRead(e);
  mountSheet(scrim,sh);
 }
 
