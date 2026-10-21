@@ -147,6 +147,15 @@ own messages in that session count. Under Review actions the owner also approves
 is why asking is the default. Calls from a terminal or code-server session on the host follow
 the same rules and are recorded as `terminal`.
 
+**Requests are bound (1.73.4).** A pending request belongs to the kind of use it was raised for (a
+command run, or a browser fill) and to the session that raised it: `pocket-vault wait` or the relay's
+retry from another session is refused, a run cannot be continued as a fill or the reverse, one answer
+serves one continuation, and the items' policies are checked again at that moment, so an item made
+owner-only or removed after the approval no longer releases. Terminal and code-server calls carry the
+CLI token and no runner token, so they share one identity, `terminal`: any such process on the host
+can continue a request another terminal process raised. An agent that needs an identity of its own
+runs inside a Pocket session.
+
 **Browser fills (1.43).** `scripts/pocket-mcp-proxy.mjs` relays an agent's browser tool and
 asks `/api/vault/release` for each `{{vault:name.field}}` it finds in a tool call, under the
 same rules; a fill is recorded as such. The value goes only into the call to the browser tool

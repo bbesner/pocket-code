@@ -338,7 +338,7 @@ run` works only under Full access there.
 
 **Requests.** A command that needs the owner's approval is pushed to the owner's devices as a
 "Vault request" (with web push configured) and waits in the Vault view. A request is answered
-once and expires after 15 minutes. A pending request lives in the daemon's memory only (a restart drops it; the agent is told the request no longer exists); the recipes an answer of *Always allow* saves are kept inside `vault.enc`.
+once and expires after 15 minutes. A pending request lives in the daemon's memory only (a restart drops it; the agent is told the request no longer exists); the recipes an answer of *Always allow* saves are kept inside `vault.enc`. A request records what it is for (`action`: `run` or `fill`) and who raised it (1.73.4); a continuation (`POST /api/vault/wait`, or `/api/vault/release` with `request`) is refused with 409 `request_mismatch` for the other kind of use, 403 `request_mismatch` from another session, 409 `request_used` once it has been used, and 409 `request_stale` when an item or a policy changed since the answer. Recipes carry the action; older ones are read from their command.
 
 **Typed by Pocket (1.43).** `scripts/pocket-mcp-proxy.mjs [--name <server>] -- <MCP server command…>` is a
 stdio MCP relay. Wrap a browser tool with it so agents can fill `{{vault:name.field}}` into web forms:
