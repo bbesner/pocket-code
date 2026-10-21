@@ -3,6 +3,16 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.73.5] — 2026-10-21 · build 147
+
+- **The browser relay fills less and scrubs more.** The third batch from the 2026-10-21 triage of Casey's review (SUMMARY item 4), all in `scripts/pocket-mcp-proxy.mjs`:
+  - **Pictures are withheld once a value has been typed.** Image, audio and blob content passed the relay untouched, so a screenshot taken after a fill showed the typed value to the model whenever the page rendered it. From the first fill on, such content is replaced by a note for the rest of the relay's life; text snapshots still work. [S2-B8-2]
+  - **Values go into fill tools only.** Any tool call naming a placeholder was filled, `browser_evaluate` and `browser_navigate` included. Now only `browser_type`, `browser_fill_form`, `type` and `fill` are filled, or the list in `POCKET_VAULT_FILL_TOOLS`; another tool that names a placeholder is refused and never reaches the server. [S2-B8-4]
+  - **Scrubbing covers object keys, numbers and booleans** that spell a value, not only strings; a value the owner changes between two fills stays on the scrub list under its earlier spelling; and the server's stderr goes through the streaming scrubber (decoded as UTF-8, a value split across two chunks is still caught; half a second of silence flushes the held tail). [S2-B8-1, S2-B4r2-3, S2-B8-6, S2-B4r2-4]
+  - **Hygiene.** The server starts without any of the daemon's own secrets (the same list `agentEnv` keeps from agent turns, `POCKET_VAULT_KEY_PREVIOUS`, the mail address and the router key included); an answer from the daemon that is not one string per placeholder types nothing; calls that need a release run one at a time and a client that closes while one waits still gets its answer; a signal passed to the server is followed by SIGKILL after five seconds. [S2-B8-5, S2-B8-7, S2-B8-8, S2-B8-3]
+  Operators: a relay in front of a server whose fill tools have other names needs `POCKET_VAULT_FILL_TOOLS`; agents are told (skill and instructions) that screenshots are unavailable after a fill. `DAEMON_SECRETS` is now exported from `environment.mjs`.
+- Migration: none.
+
 ## [1.73.4] — 2026-10-21 · build 146
 
 - **A Vault request is bound to what it is for and to who raised it.** The second batch from the 2026-10-21 triage of Casey's review (SUMMARY item 2). A pending request was looked up by its id alone when continued (`pocket-vault wait`, or the browser relay calling again after the owner allowed), so a run the owner allowed could be continued through the fill route and come back in plaintext, any holder of the CLI token who learned the id could continue someone else's request, two continuations of one answer both released, nothing re-checked an item's policy after the approval, a full run table used the approval up without a run, and an *Always allow* on a browser fill also covered a run of the literal command (and the reverse). Now:

@@ -159,7 +159,11 @@ runs inside a Pocket session.
 **Browser fills (1.43).** `scripts/pocket-mcp-proxy.mjs` relays an agent's browser tool and
 asks `/api/vault/release` for each `{{vault:name.field}}` it finds in a tool call, under the
 same rules; a fill is recorded as such. The value goes only into the call to the browser tool
-and is replaced by the placeholder in everything the tool sends back. A page the agent is
+and is replaced by the placeholder in everything the tool sends back. Values are typed into
+fill tools only (1.73.5: `browser_type`, `browser_fill_form`, `type`, `fill`, or the list in
+`POCKET_VAULT_FILL_TOOLS`), never handed to `browser_evaluate` or put in an address; and once a
+value has been typed, the relay withholds images, audio and blobs from that server for the rest
+of its life, because a screenshot of the page cannot be scrubbed. A page the agent is
 driving can still read what was typed into it, so allow fills only on sites you trust with
 that login. The relay and the commands find the daemon through `<data dir>/cli-url` (1.43.1),
 never an inherited `PORT`.

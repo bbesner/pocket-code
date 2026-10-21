@@ -351,10 +351,17 @@ claude mcp add playwright -s user -- node /path/to/pocket-code/scripts/pocket-mc
 
 For each tool call that names a placeholder, the relay asks `POST /api/vault/release` (CLI token, plus the runner token
 from its environment, so the fill is tied to the session) under the Agent access policy, with the command recorded as
-`pocket-fill <server> <tool>`; it types the values into the call and scrubs every value it has released (all forms)
-from the server's replies, notifications and stderr for the rest of its life. `POCKET_VAULT_FILL_WAIT` (seconds,
-default 90) is how long a fill waits for an approval before telling the agent to call again; the relay gives the daemon
-that long plus 15 seconds to answer (1.73.3). If the owner locks the Vault while a request is waiting, the run is told so
+`pocket-fill <server> <tool>`; it types the values into the call and scrubs every value it has released (all forms,
+in strings, object keys and numbers; values the owner has since changed stay on the list) from the server's replies,
+notifications and stderr for the rest of its life. Values go into fill tools only (1.73.5): `browser_type`,
+`browser_fill_form`, `type` and `fill` by default, or the comma-separated list in `POCKET_VAULT_FILL_TOOLS` for another
+server; a `browser_evaluate` or `browser_navigate` that names a placeholder is refused and never reaches the server.
+Once a value has been typed, image, audio and blob content from the server is replaced by a note for the rest of the
+relay's life, since a screenshot of a page showing the value cannot be scrubbed; text snapshots still work.
+`POCKET_VAULT_FILL_WAIT` (seconds, default 90) is how long a fill waits for an approval before telling the agent to
+call again; the relay gives the daemon that long plus 15 seconds to answer (1.73.3), refuses an answer that is not one
+string per placeholder, and starts the server without any of the daemon's own secrets (the same list `agentEnv` keeps
+from agent turns). A signal sent to the relay is passed to the server and followed by SIGKILL five seconds later. If the owner locks the Vault while a request is waiting, the run is told so
 (`pocket-vault` exits 3) and the fill is answered `423 vault_locked`; neither can be continued afterwards. The values pass through
 the relay and the browser tool, which run as the same OS user as the agent; the model and the transcript never see
 them. A Claude Code PreToolUse hook could rewrite the call too, but Claude Code records hook output in the transcript

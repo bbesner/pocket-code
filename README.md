@@ -17,7 +17,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.73.4 / build 146**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.73.5 / build 147**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -527,6 +527,7 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_TZ` | no | Time zone for `pocket-board` reminder and `pocket-tasks --due` times given without an offset, e.g. `America/New_York`. Default: the server's zone. |
 | `POCKET_URL` | no | Base address the `pocket-board`, `pocket-docs`, `pocket-tasks` and `pocket-vault` commands and the browser relay use to reach the server. Default: the address the daemon writes to `<data dir>/cli-url`, then `PORT` from this checkout's `.env`. |
 | `POCKET_VAULT_FILL_WAIT` | no | Seconds the browser relay (`scripts/pocket-mcp-proxy.mjs`) waits for your answer to a fill request before telling the agent to try again. Default `90`. |
+| `POCKET_VAULT_FILL_TOOLS` | no | The tools the browser relay may type a Vault value into, comma-separated (1.73.5). Default `browser_type,browser_fill_form,type,fill`; a call to any other tool that names a placeholder is refused. |
 | `POCKET_PUBLIC_URL` | no | Makes the share addresses `pocket-docs` prints absolute, e.g. `https://pocket.example.com`. |
 | `POCKET_REMINDER_CHECK_MS` | no | How often due reminders and tasks are checked. Default 60000 (one minute); mainly for tests. |
 | `POCKET_VOICE_COMMAND` | no | A JSON array that replaces the command starting the voice engine. For tests and custom engines. |

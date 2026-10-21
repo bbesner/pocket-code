@@ -1,12 +1,12 @@
 {
-  "version": "1.73.4",
-  "assetV": 146,
+  "version": "1.73.5",
+  "assetV": 147,
   "notes": [
+    "Browser logins are tighter: Pocket types a Vault value into typing and form-filling tools only, withholds screenshots from that browser once a value has been typed (a picture cannot be scrubbed), and scrubs values from object keys, numbers and split log lines too.",
     "A Vault request now belongs to what it was asked for and to the session that asked: a run the owner allowed cannot be turned into a browser fill, nobody else on the box can continue it, one answer serves one use, and an item made owner-only or removed after the approval no longer releases.",
     "Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on.",
     "Vault and Codex hardening: a bare null line from a Codex app-server no longer stops Pocket, the Vault scrubs the JSON spellings PHP and Python write, and locking the Vault while an agent waits answers the agent at once instead of leaving it hanging.",
     "Sessions no longer get stuck when another agent searches Pocket's folder: each session's input pipe now lives in a private folder outside it, so a search can't swallow its approvals, messages or Stop.",
-    "Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads).",
-    "Your rules for Inbox Watch: Settings → Inbox Watch opens on a box for your own words about what you always or never want to hear about (\"tell me about every sale\", \"never tell me about cameras that go offline\"). The watcher follows them on every check, and they win over its own judgment."
+    "Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads)."
   ]
 }
