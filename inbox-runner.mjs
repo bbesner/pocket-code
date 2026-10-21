@@ -50,6 +50,8 @@ export class InboxRunner {
 
   start() { this.timer = setInterval(() => this.step().catch(e => this.log(`inbox runner: ${e.message}`)), MINUTE); this.timer.unref?.(); setTimeout(() => this.step().catch(() => {}), 5000).unref?.(); }
   stop() { clearInterval(this.timer); this.busy?.proc.kill('SIGTERM'); }
+  // 1.75: Check now. Run the tick at once rather than at the next minute; a run already under way takes the request up after it.
+  kick() { if (!this.busy && this.timer) this.step().catch(e => this.log(`inbox runner: ${e.message}`)); }
 
   async step() {
     const s = this.settings();

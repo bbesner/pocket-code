@@ -2473,6 +2473,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await clickControl(page,'.inbox-item.state-dismissed [data-inbox-more]');await page.waitForSelector('.inbox-sheet [data-restore]');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));await clickControl(page,'.inbox-sheet [data-restore]');
     await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-view .inbox-item .title')].map(x=>x.textContent).join()==='Circa alarm timer tests','restored: only Circa is left in Done');
     await clickControl(page,'[data-inbox-filter="open"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
+    // 1.75: Check now, beside Schedule in the view and beside All in the rail; busy until the watcher reports it done
+    assert.equal(await page.evaluate(()=>{const d=document.createElement('div');d.innerHTML=railInboxHTML();return [...d.querySelector('.rail-project-actions').children].map(x=>x.textContent.trim()).join('|');}),'All|Check now','the rail: Check now beside All');
+    assert.equal(await page.$eval('.inbox-tools-row',e=>[...e.querySelectorAll('.chip')].map(x=>x.textContent.trim()).join('|')),'Check now|Schedule');
+    await clickControl(page,'.inbox-view [data-inbox-check]');
+    await page.waitForFunction(()=>[...document.querySelectorAll('[data-inbox-check]')].every(b=>b.getAttribute('aria-busy')==='true'&&b.disabled&&b.textContent.trim()==='Checking…'),{},'both chips busy');
+    await page.evaluate(()=>fetch('/api/inbox/check-done',{method:'POST'}));
+    await page.waitForFunction(()=>document.querySelector('.inbox-view [data-inbox-check]:not([aria-busy])')&&/Checked\. One new item\./.test(document.querySelector('#toast')?.textContent||''),{timeout:15000});
+    await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-view .inbox-item .title')].some(t=>t.textContent==='Added in Gmail: quote request'),{},'the list reloads with what the check found');
     // Settings: the switch under the libraries, the push kind under notifications
     await page.setViewport({width:1440,height:900});await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox');
     await page.waitForFunction(()=>document.querySelector('#s-inbox')?.getAttribute('aria-pressed')==='true');assert.match(await page.$eval('#s-inbox-state',e=>e.textContent),/^On: alerts, digests and look-aheads/);
@@ -2499,7 +2507,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
      await page.waitForFunction(()=>[...document.querySelectorAll('.watch-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
      assert.match(await page.$eval('#w-status',e=>e.textContent),/^Checking every 5 minutes now\. Last check .*Using the watcher’s config file\.$/);
-     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Your rules','Schedule','Quiet hours and summaries','Keep the Inbox tidy','Models','First pass','Cost, last 7 days']);
+     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Your rules','Your list in Gmail','Schedule','Quiet hours and summaries','Keep the Inbox tidy','Models','First pass','Cost, last 7 days']);
+     assert.equal(await page.$eval('#w-label',e=>e.getAttribute('aria-pressed')),'true','1.75: the Pocket Inbox label, on by default');assert.match(await page.$eval('#w-label',e=>e.textContent),/Keep a Pocket Inbox label in Gmail/);assert.equal(await page.$('#w-label-off'),null);
+     assert.equal(await page.$eval('#w-rules',e=>getComputedStyle(e,'::placeholder').fontStyle),'italic','the placeholder reads as guidance');
+     assert.match(await page.$eval('#w-rules',e=>e.placeholder),/^Write your instructions here/);
      assert.match(await page.$eval('#w-rules',e=>e.value),/Every sale from the web store over \$500/,'the box shows the watcher\'s rules');
      assert.match(await page.$eval('#w-rules-count',e=>e.textContent),/^\d+ of 8,000 characters$/);
      assert.equal(await page.$eval('#w-tidy',e=>e.getAttribute('aria-pressed')),'true');assert.equal(await page.$eval('#w-tidy-every',e=>e.value),'2');
@@ -2521,9 +2532,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     for(const d of [5,6])await clickControl(page,`.watch-period:last-child [data-day="${d}"]`);
     await page.$eval('.watch-period:last-child [data-from]',e=>{e.value='07:00';});await page.$eval('.watch-period:last-child [data-to]',e=>{e.value='19:00';});await page.select('.watch-period:last-child [data-every]','5');
     await page.select('#w-every','15');await page.select('#w-fp-threshold','0.9');await page.select('#w-tidy-every','4');await page.$eval('#w-rules',e=>{e.focus();e.setSelectionRange(e.value.length,e.value.length);});await page.keyboard.type('- Never tell me about cameras that go offline.\n');await page.select('#w-fp-provider','both');await page.select('#w-models [data-job="decisions"] [data-model]','haiku');await page.select('#w-la-evening','off');
+    await clickControl(page,'#w-label');
     await clickControl(page,'#w-save');await page.waitForSelector('#w-reset');
     const saved=await page.evaluate(()=>fetch('/api/inbox/watch').then(r=>r.json()));
     assert.equal(saved.revision,1);assert.equal(saved.settings.every,15);assert.equal(saved.settings.lookahead.evening,null);assert.deepEqual(saved.settings.models.decisions,{model:'haiku',reasoning:'medium'});assert.deepEqual(saved.settings.firstPass,{enabled:true,provider:'both',threshold:0.9});assert.deepEqual(saved.settings.tidy,{enabled:true,every:4});assert.match(saved.settings.rules,/Every sale from the web store over \$500[\s\S]*Never tell me about cameras that go offline\./,'the rules are saved with the settings');
+    assert.deepEqual(saved.settings.gmailLabel,{enabled:false},'1.75: turned off and saved');
     assert.deepEqual(saved.settings.periods[1],{name:'Work hours',days:[0,1,2,3,4],from:'07:00',to:'19:00',every:5});
     assert.match(await page.$eval('#w-status',e=>e.textContent),/Your last change reaches the watcher within a minute\./);
     // a period with no day is refused before it leaves the page
@@ -2536,7 +2549,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.keyboard.press('Escape');
     settings.assistantMode=true;await page.setViewport({width:390,height:844});await page.goto(base+'/#/inbox');await page.reload();await page.waitForSelector('#inbox-watch');
     await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
-    assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Your rules','Schedule','Quiet hours and summaries','Keep the Inbox tidy']);
+    assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Your rules','Your list in Gmail','Schedule','Quiet hours and summaries','Keep the Inbox tidy']);
     assert.doesNotMatch(await page.$eval('.watch-sheet',e=>{const c=e.cloneNode(true);c.querySelector('#w-rules')?.remove();return c.textContent;}),/Sonnet|Haiku|Opus|\$/,'no model names or dollars (the owner\'s own rules may mention money)');
     await scan('inbox-watch-assistant-390');
    }finally{Object.assign(settings,before);await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}

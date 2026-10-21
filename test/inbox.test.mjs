@@ -117,16 +117,17 @@ test('InboxStore: Inbox Watch settings, the watcher\'s profile, revisions and pa
   assert.deepEqual(ok.periods,[{name:'Overnight',days:[0,6],from:'22:00',to:'07:00',every:30}],'days deduplicated and sorted');
   assert.deepEqual(checkWatch({firstPass:{enabled:true,provider:'both',threshold:0.876}}).firstPass,{enabled:true,provider:'both',threshold:0.88});
   assert.deepEqual(checkWatch({tidy:{enabled:true,every:4}}).tidy,{enabled:true,every:4});
+  assert.deepEqual(checkWatch({gmailLabel:{enabled:false}}).gmailLabel,{enabled:false},'1.75: the Pocket Inbox label in Gmail');
   assert.equal(checkWatch({rules:'- Never tell me about cameras.\r\n- Tell me about every sale.'}).rules,'- Never tell me about cameras.\n- Tell me about every sale.');assert.equal(ok.lookahead.evening,null);
   for(const [bad,re] of [[{every:-1},/every is whole minutes/],[{every:500},/to 240/],[{periods:[{days:[],from:'01:00',to:'02:00',every:5}]},/Period 1 needs at least one day/],
     [{periods:[{days:[1],from:'1am',to:'02:00',every:5}]},/start and an end time/],[{periods:Array(WATCH.periods+1).fill({days:[1],from:'01:00',to:'02:00',every:5})},/at most 12/],
     [{quietHours:[22]},/quietHours/],[{digestHour:24},/digestHour/],[{lookahead:{morning:'8'}},/morning look-ahead/],[{models:{decisions:{model:'sonnet',reasoning:'huge'}}},/Reasoning is one of/],
-    [{paused:'yes'},/paused is true or false/],[{firstPass:{provider:'grok'}},/first pass is one of jev, openai, both/],[{firstPass:{threshold:0.3}},/between 0.5 and 0.99/],[{firstPass:{enabled:1}},/firstPass.enabled/],[{tidy:{every:3}},/Tidy runs every 1, 2, 4, 8, 12, 24 hours/],[{rules:5},/rules is text/],[{rules:'x'.repeat(8001)},/over 8,000 characters/],[{tidy:{enabled:'on'}},/tidy.enabled/],['x',/settings must be an object/]])
+    [{paused:'yes'},/paused is true or false/],[{firstPass:{provider:'grok'}},/first pass is one of jev, openai, both/],[{firstPass:{threshold:0.3}},/between 0.5 and 0.99/],[{firstPass:{enabled:1}},/firstPass.enabled/],[{tidy:{every:3}},/Tidy runs every 1, 2, 4, 8, 12, 24 hours/],[{rules:5},/rules is text/],[{rules:'x'.repeat(8001)},/over 8,000 characters/],[{tidy:{enabled:'on'}},/tidy.enabled/],[{gmailLabel:{enabled:'yes'}},/gmailLabel is/],[{gmailLabel:true},/gmailLabel is/],['x',/settings must be an object/]])
     assert.throws(()=>checkWatch(bad),e=>e.status===400&&e.code==='bad_watch'&&re.test(e.message),JSON.stringify(bad));
   assert.throws(()=>checkWatch({models:{decisions:{model:'gpt-9'}}},PROFILE),/Choose one of the models/,'only what the watcher offers');
   const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-10-20T12:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
-  assert.deepEqual(s.watchView(),{source:'inbox-monitor',settings:null,revision:0,updatedAt:null,by:null,profile:null,profileAt:null,lastReportAt:null});
+  assert.deepEqual(s.watchView(),{source:'inbox-monitor',settings:null,revision:0,updatedAt:null,by:null,profile:null,profileAt:null,lastReportAt:null,checkRequestedAt:null});
   s.seen('inbox-monitor',undefined,PROFILE);assert.deepEqual(s.watchView().profile,PROFILE);assert.equal(s.paused(),false);
   assert.deepEqual(s.snapshot().sources,{'inbox-monitor':{lastReportAt:'2026-10-20T12:00:00Z'}},'the list stays lean: no profile in it');
   assert.throws(()=>s.seen('inbox-monitor',undefined,{big:'x'.repeat(WATCH.profileBytes)}),e=>e.code==='bad_profile');
@@ -136,6 +137,13 @@ test('InboxStore: Inbox Watch settings, the watcher\'s profile, revisions and pa
   assert.throws(()=>s.setWatch('inbox-monitor',{models:{decisions:{model:'haiku'}}}),/Choose one of the models/);
   clock+=60000;s.seen('other-watcher',undefined,{...PROFILE,status:{paused:true}});assert.equal(s.watchSource(),'other-watcher','the latest profile is the one Settings shows');
   v=s.setWatch('inbox-monitor',null);assert.deepEqual([v.revision,v.settings],[3,null],'null goes back to the config file');
+  // 1.75: Check now. One request until the watcher reports it done (or ten minutes pass); then a press is a new one.
+  v=s.requestCheck('inbox-monitor');const first=v.checkRequestedAt;assert.equal(first,'2026-10-20T12:01:00Z');
+  clock+=5000;assert.equal(s.requestCheck('inbox-monitor').checkRequestedAt,first,'a second press while it is on its way changes nothing');
+  s.seen('inbox-monitor',undefined,{...PROFILE,status:{checkRequestDone:first}});
+  assert.equal(s.requestCheck('inbox-monitor').checkRequestedAt,'2026-10-20T12:01:05Z','done: a new request');
+  clock+=11*60000;assert.equal(s.requestCheck('inbox-monitor').checkRequestedAt,'2026-10-20T12:12:05Z','never taken up in ten minutes: a new request');
+  assert.equal(s.watchView('inbox-monitor').checkRequestedAt,'2026-10-20T12:12:05Z');
   const again=new InboxStore(file,{now:()=>clock});assert.deepEqual(again.watchView('inbox-monitor'),s.watchView('inbox-monitor'),'persisted');assert.deepEqual(again.watchView('other-watcher').profile.status,{paused:true});
   fs.rmSync(dir,{recursive:true,force:true});
 });
@@ -270,6 +278,10 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   out=await cli(['watch','set']);assert.equal(out.code,1);assert.match(out.stderr,/needs --file/);
   out=await cli(['watch','set','--file','-'],'{"models":{"decisions":{"model":"gpt-9"}}}');assert.equal(out.code,1);assert.match(out.stderr,/Choose one of the models/);
   out=await cli(['watch','reset']);assert.equal(out.stdout.trim(),"revision 4: back to the watcher's config file");assert.equal((await call('/inbox/watch')).body.settings,null);
+  // 1.75: Check now, from the Inbox (cookie) and from the CLI; the watcher reads the request with its settings.
+  r=await call('/inbox/check',{});assert.equal(r.status,200,JSON.stringify(r.body));assert.match(r.body.checkRequestedAt,/^\d{4}-\d\d-\d\dT/);assert.match(logs,/inbox check now source=inbox-monitor at=\S+ by=ui/);
+  out=await cli(['watch','--json']);assert.equal(JSON.parse(out.stdout).checkRequestedAt,r.body.checkRequestedAt,'the watcher sees the request');
+  out=await cli(['check']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/asked inbox-monitor to check now/);
   out=await cli(['act',cid,'explode']);assert.equal(out.code,1);assert.match(out.stderr,/Unknown action/);
   out=await cli(['add','--title','x']);assert.equal(out.code,1);assert.match(out.stderr,/--text/);
   out=await cli(['show','000000000000']);assert.equal(out.code,1);

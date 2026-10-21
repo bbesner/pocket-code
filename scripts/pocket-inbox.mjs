@@ -15,6 +15,7 @@
 //   pocket-inbox watch [--source <name>] [--json]                                            when the watcher checks, which models judge, cost
 //   pocket-inbox watch set (--file <path|-> | --every <min> | --pause | --resume) [--source <name>]   change them (only when the user asks)
 //   pocket-inbox watch reset [--source <name>]                                               back to the watcher's config file
+//   pocket-inbox check [--source <name>] [--json]                                            check mail now (1.75): the watcher takes it up within a minute
 // Exit codes: 2 when Pocket is not running here or refused the token, 1 on any other error.
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
 import fs from 'node:fs';
@@ -39,7 +40,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 const [cmd, ...rest] = opts._;
 const die = (msg, code = 1) => { console.error(msg); process.exit(code); };
-if (!cmd || cmd === 'help' || argv.includes('--help')) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 19).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (!cmd || cmd === 'help' || argv.includes('--help')) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 20).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 
 let token = '';
 try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { die(`Pocket Code is not running here (no cli-token in ${dataDir}).`, 2); }
@@ -146,7 +147,7 @@ switch (cmd) {
     }
     if (rest[0]) die(`Unknown watch command ${rest[0]}. Use watch, watch set or watch reset.`);
     const r = await call('/api/inbox/watch' + q);
-    if (opts.json) { console.log(JSON.stringify({ source: r.source, settings: r.settings, revision: r.revision, updatedAt: r.updatedAt, profile: r.profile }, null, 1)); break; }
+    if (opts.json) { console.log(JSON.stringify({ source: r.source, settings: r.settings, revision: r.revision, updatedAt: r.updatedAt, checkRequestedAt: r.checkRequestedAt, profile: r.profile }, null, 1)); break; }
     const s = r.settings || r.profile?.defaults, st = r.profile?.status, days = r.profile?.usage?.days || [];
     const lines = [`Source: ${r.source}${r.settings ? ` · your settings (revision ${r.revision})` : " · the watcher's config file"}`];
     if (s) {
@@ -155,6 +156,7 @@ switch (cmd) {
       if (s.models) lines.push(`Decisions: ${s.models.decisions?.model} (${s.models.decisions?.reasoning}) · Look-ahead: ${s.models.lookahead?.model} (${s.models.lookahead?.reasoning})`);
       if (typeof (r.profile?.rules?.text ?? s.rules) === 'string') lines.push(`Your rules: ${(r.profile?.rules?.text ?? s.rules).trim().split('\n').filter(Boolean).length} lines (pocket-inbox watch --json shows them)`);
       if (s.tidy) lines.push(`Tidy: ${s.tidy.enabled ? `every ${s.tidy.every} h, takes resolved and handled entries off the list` : 'off'}`);
+      if (s.gmailLabel) lines.push(`Gmail label: ${s.gmailLabel.enabled ? `${r.profile?.options?.gmailLabel?.name || 'Pocket Inbox'}, kept in step with this list${r.profile?.options?.gmailLabel?.available === false ? ' (not available: ' + (r.profile.options.gmailLabel.reason || 'no write access') + ')' : ''}` : 'off'}`);
       if (s.firstPass) lines.push(`First pass: ${s.firstPass.enabled ? `on, ${s.firstPass.provider}, skips at ${Math.round(s.firstPass.threshold * 100)}% sure` : 'off'}`);
     } else lines.push('The watcher has not reported its settings yet (it needs inbox-monitor 0.3 or later).');
     if (st) lines.push(`Now: ${st.paused ? 'paused' : st.every ? 'every ' + st.every + ' min' : 'no checks'}${st.period ? ' (' + st.period + ')' : ''}; last check ${when(st.lastCheckAt) || 'never'}; next ${when(st.nextCheckAt) || 'none scheduled'}`);
@@ -162,6 +164,10 @@ switch (cmd) {
     if (days.length) lines.push(`Last ${Math.min(7, days.length)} days (${r.profile.usage.billing === 'plan' ? 'billed to the plan; dollars at API list price' : r.profile.usage.billing === 'api' ? 'billed per token' : 'no price reported'}):`);
     for (const d of days.slice(0, 7)) lines.push(since && Date.parse(d.date + 'T23:59:59Z') >= since ? `  ${d.date}  ${d.checks} checks  ${d.firstPass?.skipped ? d.firstPass.skipped + ' skipped  ' : ''}${d.calls} calls  ${(d.inputTokens + d.outputTokens).toLocaleString('en-US')} tokens${d.costUsd != null ? '  $' + d.costUsd.toFixed(2) : ''}` : `  ${d.date}  ${d.checks} checks  (calls and cost not recorded)`);
     console.log(lines.join('\n')); break;
+  }
+  case 'check': { // 1.75: the same as Check now in the Inbox
+    const r = await call('/api/inbox/check', { source: opts.source || undefined });
+    out(r, `asked ${r.source} to check now (${r.checkRequestedAt}); it takes it up within a minute${r.lastReportAt ? '' : ', once it is running (it has not reported yet)'}`); break;
   }
   default: die(`Unknown command ${cmd}. Run pocket-inbox help.`);
 }

@@ -38,6 +38,7 @@ class Config:
     memory: dict = field(default_factory=dict)  # [memory]: where surfaced items are remembered (empty = nowhere)
     schedule: dict = field(default_factory=dict)
     firstpass: dict = field(default_factory=dict)
+    gmail_label: dict = field(default_factory=dict)  # [gmail_label]: the Pocket Inbox label kept in step with the Inbox (enabled, default true; name)
     tidy: dict = field(default_factory=dict)  # [tidy]: take resolved or handled entries off the owner's Inbox  # [firstpass]: skip routine mail before the judge (firstpass.py)  # [schedule] as written: every, paused, [[schedule.period]] (see schedule.py)
 
     def quiet(self, hour: int) -> bool:
@@ -96,4 +97,5 @@ def load(path: str | os.PathLike) -> Config:
         schedule=dict(sched),
         firstpass=dict(raw.get("firstpass", {})),
         tidy=dict(raw.get("tidy", {})),
+        gmail_label=dict(raw.get("gmail_label", {})),
     )

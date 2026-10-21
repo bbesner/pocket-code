@@ -28,6 +28,7 @@ jobs:
       - run: npm test
       - run: python3 inbox-watch/tests/test_schedule.py
       - run: python3 inbox-watch/tests/test_connector.py
+      - run: python3 inbox-watch/tests/test_label.py
       - name: Browser and accessibility tests
         shell: bash
         run: |

@@ -73,6 +73,10 @@ reasoning = "medium"                   # every judge: default | low | medium | h
 # enabled = true
 # every_hours = 2                      # 1, 2, 4, 8, 12 or 24; never in quiet hours
 
+# [gmail_label]                       # the owner's open Pocket Inbox entries carry this label in Gmail, both ways
+# enabled = true                       # the default; false turns it off (also a Pocket setting). Needs gmail.modify
+# name = "Pocket Inbox"
+
 [pocket]                               # optional: every alert gets a briefed Pocket Code session one tap away
 root = "/home/me/pocket-code"          # the Pocket Code checkout (its scripts/ talk to the running server)
 session_dir = "/home/me"               # where the session starts

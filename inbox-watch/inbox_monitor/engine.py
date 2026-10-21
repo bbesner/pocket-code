@@ -69,6 +69,7 @@ SETTINGS_REVISION = None
 FIRSTPASS: FirstPass | None = None  # the decision model that skips routine mail before the judge ([firstpass])
 USAGE_DB: sqlite3.Connection | None = None  # where judge_calls rows go (the live ledger, or the replay's)
 CURRENT_RUN: int | None = None
+CHECK_REQUEST: str | None = None  # when the owner last pressed Check now in Pocket (Pocket's timestamp), from the settings read
 
 
 def configure(cfg: cfgmod.Config) -> None:
@@ -97,7 +98,8 @@ def configure(cfg: cfgmod.Config) -> None:
     STOP.update(noise)
     LINK_GENERIC.update(noise)
     cfg.state_dir.mkdir(parents=True, exist_ok=True)
-    g["DEFAULTS"] = schedmod.from_config(cfg.schedule, cfg.judge, cfg.quiet_hours, cfg.digest_hour, cfg.lookahead, cfg.firstpass, cfg.tidy)
+    g["DEFAULTS"] = schedmod.from_config(cfg.schedule, cfg.judge, cfg.quiet_hours, cfg.digest_hour, cfg.lookahead, cfg.firstpass, cfg.tidy,
+                                         cfg.gmail_label)
     g["FIRSTPASS"] = FirstPass(cfg.firstpass, cfg.owner_name, cfg.firstpass.get("context") or
                                f"{cfg.owner_name} receives business email. An assistant reads every new email in the inbox and decides whether "
                                f"{cfg.owner_name} needs to know anything. Most mail is routine.", log)
@@ -192,6 +194,7 @@ def load_settings(fetch: bool = True) -> None:
             log(f"pocket settings unavailable ({str(ex)[:160]}); using the last copy")
             w = None
         if w is not None:
+            globals()["CHECK_REQUEST"] = w.get("checkRequestedAt") or None
             if w.get("settings"):
                 watch_cache().write_text(json.dumps({"revision": w.get("revision"), "settings": w["settings"], "at": iso()}))
                 if isinstance(w["settings"].get("rules"), str):
@@ -248,6 +251,11 @@ HEARTBEAT_IDLE_S = 30 * 60
 TIDY_MIN_AGE_S = 30 * 60   # an entry this young stays put: the owner may not have seen it yet
 TIDY_PER_CALL = 40
 TIDY_MAIL_PER_ENTRY = 8
+# The Pocket Inbox label (setting `gmailLabel`, 1.75): the owner's open Inbox entries carry it in Gmail, both ways.
+LABEL_NAME = "Pocket Inbox"
+LABEL_CAP = 300  # labelled threads read per sync
+LABEL_ACCESS_S = 6 * 3600  # how long a "can it write the label?" answer is trusted
+LABEL_SEEN: set[str] | None = None  # the labelled threads this check's first sync found; the end-of-run pass reuses them
 GMAIL_THREAD_RX = re.compile(r"#(?:all|inbox|sent)/([0-9a-f]{12,20})")  # between checks, still tell Pocket the watcher is alive this often
 
 SCHEMA = """
@@ -277,6 +285,7 @@ create index if not exists firstpass_log_at on firstpass_log(at);
 create table if not exists tidy_log(id integer primary key autoincrement, at text, entry_id text, issue_key text, title text, verdict text,
   reason text, evidence text, acted integer);
 create index if not exists tidy_log_entry on tidy_log(entry_id);
+create table if not exists label_sync(thread_id text primary key, state text, at text);
 """
 ISSUE_COLUMNS = {"title": "text", "unknowns": "text", "memory_at": "text"}
 ALERT_COLUMNS = {"memory_at": "text"}
@@ -498,7 +507,7 @@ def chunks(seq: list, n: int):
 
 
 LINK_GENERIC = STOP | set("""service call calls way scheduled schedule assessment support tech conversation contacts sms name
-captured request cameras camera install invoice payment quote estimate form completion work customer site system order
+captured request install invoice payment quote estimate form completion work customer site system order
 account status online offline recovered recovery""".split())
 
 
@@ -817,8 +826,8 @@ class Archive:
         return out
 
     def recurring(self, text: str, thread_id: str, until: int, days: int = RELATED_DAYS) -> list[dict]:
-        """Identifiers in this email (camera and device names, service-call, invoice, ticket and account numbers) that
-        also appear in earlier emails, newest first. Identifiers seen in too many emails (site codes) carry no signal."""
+        """Identifiers in this email (device names, order, invoice, ticket and account numbers) that also appear in
+        earlier emails, newest first. Identifiers seen in too many emails (a location or company code) carry no signal."""
         out = []
         for ident in identifiers(text)[:IDENT_MAX]:
             phrase = '"' + " ".join(re.findall(r"[A-Za-z0-9]+", ident)) + '"'
@@ -1038,13 +1047,14 @@ def preamble(prompt_text: str) -> str:
 
 def rules_tail() -> str:
     """The owner's rules, last in every turn so they are the final word (2026-10-20: placed before a long bundle, a 'never'
-    rule lost to the built-in guidance on a repeat camera outage)."""
+    rule lost to the built-in guidance on a repeat outage)."""
     prefs = PREFS_FILE.read_text() if PREFS_FILE.exists() else ""
     if not prefs.strip():
         return ""
     return (f"\n## {OWNER}'s rules (these win)\n{OWNER} wrote these, or they were learned from {OWNER}'s Not useful. They override the "
             f"guidance at the top and your own judgment, including what counts as critical: when a rule says never, it is never "
-            f"(answer `ignore`, no digest line); when it says always, it is always.\n\n{prefs.strip()}\n\n"
+            f"(answer `ignore`, no digest line); when it says always, it is always. One exception: a thread marked `added_in_gmail` "
+            f"is one {OWNER} put on their list by hand in Gmail, so it is `notify` whatever these say.\n\n{prefs.strip()}\n\n"
             f"Before you answer, check every decision against these rules and change any that breaks one.\n")
 
 
@@ -1408,7 +1418,7 @@ def firstpass_eligible(store: Store, b: dict, stories: list[tuple[str, set]], co
     """Code decides what may be skipped at all; the classifier only decides among these. Never: a thread the owner wrote in,
     one already judged worth more than ignore, one linked to a story, or one that closely matches a story touched this week
     (the backtest's wrong skips were loop-closers: a payment received, a link back up, an issue RESOLVED)."""
-    if any(m.get("from_owner") for m in b["messages"]):
+    if b.get("added_in_gmail") or any(m.get("from_owner") for m in b["messages"]):
         return False
     tid = b["thread_id"]
     if store.db.execute("select 1 from decisions where thread_id=? and action!='ignore' limit 1", (tid,)).fetchone():
@@ -1475,6 +1485,184 @@ def pending_skims(store: Store) -> list[dict]:
              "at": iso_to_et(r["at"])} for r in rows]
 
 
+# ---------------------------------------------------------------- the Pocket Inbox label in Gmail (1.75)
+# The owner's open Inbox entries and one Gmail label kept in step, both ways. `label_sync` remembers the threads known to be
+# on both sides ("synced"), and the ones the owner labelled that wait for the judge ("incoming") or were judged ("judged"):
+#   on the list, labelled ......................... in step
+#   on the list, not labelled ..................... synced before: the owner took the label off in Gmail -> dismiss the entry;
+#                                                    otherwise -> add the label
+#   labelled, not on the list ..................... synced before: finished in Pocket -> remove the label;
+#                                                    unknown: the owner labelled it in Gmail -> judge it (and keep it in INBOX)
+# The first sync after the setting is turned on only adds labels: what was labelled before is left alone.
+def label_on() -> bool:
+    return bool((SETTINGS.get("gmailLabel") or {}).get("enabled"))
+
+
+def label_name() -> str:
+    return str((CFG.gmail_label or {}).get("name") or LABEL_NAME)
+
+
+def label_status(store: Store, gmail=None) -> dict:
+    """{available, name, reason}: can this watcher write the label (asked of Gmail now and then, remembered between)."""
+    out = {"name": label_name(), "available": None, "reason": None}
+    try:
+        cached = json.loads(store.get("label_access") or "null")
+    except ValueError:
+        cached = None
+    age = (now_utc() - dt.datetime.fromisoformat(cached["at"])).total_seconds() if cached else None
+    fresh = age is not None and age < (LABEL_ACCESS_S if cached["reason"] is None else 30 * 60)  # a refusal is asked again sooner
+    if gmail is not None and not fresh:
+        if not hasattr(gmail, "label_thread"):
+            why = "this mail source reads Gmail only (the connector); the label needs the Gmail API with write access"
+        else:
+            why = gmail.label_access()
+        cached = {"at": iso(), "reason": why}
+        store.set("label_access", json.dumps(cached))
+    if cached:
+        out["available"], out["reason"] = cached["reason"] is None, cached["reason"]
+    return out
+
+
+def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool = False) -> set[str]:
+    """One pass of the table above. Returns the threads the owner labelled in Gmail that this check should judge
+    (only when bring_in; the end-of-run pass reuses the first pass's search and just labels the alerts this run sent).
+    A mail source may ask for syncs no closer than `label_sync_min_s` (the connector: each search is a model call);
+    Check now forces one. Never fails the check."""
+    g = globals()
+    if bring_in:
+        g["LABEL_SEEN"] = None
+    elif LABEL_SEEN is None:
+        return set()
+    if not label_on() or MODE.replay:
+        if store.get("label_baseline"):
+            store.db.execute("delete from meta where key='label_baseline'")
+            store.db.execute("delete from label_sync")
+            store.commit()
+        return set()
+    d = pocket_inbox()
+    if d is None or not getattr(d, "inbox", True) or not label_status(store, gmail)["available"]:
+        return set()  # without Pocket's Inbox an empty list would read as "everything finished"
+    name, incoming = label_name(), set()
+    gap = int(getattr(gmail, "label_sync_min_s", 0) or 0)
+    last = store.get("label_sync_at")
+    if bring_in and gap and not force and last and (now_utc() - dt.datetime.fromisoformat(last)).total_seconds() < gap:
+        return set()
+    try:
+        label = gmail.label_id(name, create=not dry_run)
+        if label is None:
+            log(f"label [dry-run]: would create the {name!r} label")
+            return set()
+        labelled = gmail.labelled_threads(label, LABEL_CAP) if bring_in else set(LABEL_SEEN)
+        if bring_in:
+            g["LABEL_SEEN"] = labelled
+            store.set("label_sync_at", iso())
+        listed: dict[str, list[str]] = {}
+        for e in d.inbox_open():
+            m = GMAIL_THREAD_RX.search(e.get("gmail") or "")
+            if m:
+                listed.setdefault(m.group(1), []).append(e["id"])
+    except Exception as ex:  # noqa: BLE001
+        log(f"label sync skipped: {str(ex)[:200]}")
+        return set()
+    known = {r["thread_id"]: r["state"] for r in store.db.execute("select thread_id, state from label_sync")}
+    baseline = not store.get("label_baseline")
+    adds, removes, brings, dismiss = [], [], [], []
+    for tid, ids in listed.items():
+        if tid in labelled:
+            if known.get(tid) != "synced":
+                mark_label(store, tid, "synced")
+        elif tid in known and not baseline:
+            dismiss.append((tid, ids))  # the owner took the label off in Gmail: the entry leaves the list
+        else:
+            adds.append(tid)
+    for tid in labelled - set(listed):
+        state = known.get(tid)
+        if state == "synced" and not baseline:
+            removes.append(tid)  # finished in Pocket: the label comes off
+        elif state in ("incoming", "judged"):
+            continue
+        elif baseline:
+            mark_label(store, tid, "judged")  # labelled before the sync began: left as it is
+        elif bring_in:
+            brings.append(tid)  # the owner labelled it in Gmail: judged at this check, and kept in their inbox
+    for tid in set(known) - labelled - set(listed):  # gone from both sides
+        if known[tid] != "incoming":
+            mark_label(store, tid, None)
+    changes = [(t, [label], []) for t in adds] + [(t, [], [label]) for t in removes] + [(t, ["INBOX"], []) for t in brings]
+    if dry_run:
+        for t, a, r in changes:
+            log(f"label [dry-run]: thread {t} +{a} -{r}")
+        for t, ids in dismiss:
+            log(f"label [dry-run]: would dismiss {ids} (label taken off thread {t})")
+        return set()
+    ok: set[str] = set()
+    if changes:
+        try:
+            ok = gmail.label_threads(changes)
+        except Exception as ex:  # noqa: BLE001 - what did not go through is tried again at the next sync
+            log(f"label changes failed: {str(ex)[:200]}")
+    for t in adds:
+        if t in ok:
+            mark_label(store, t, "synced")
+    for t in removes:
+        if t in ok:
+            mark_label(store, t, None)
+    for t in brings:  # judged even if putting it back in INBOX failed
+        mark_label(store, t, "incoming")
+        incoming.add(t)
+    dismissed = 0
+    for tid, ids in dismiss:
+        for eid in ids:
+            try:
+                d.act(eid, "dismiss", f"The {name} label was taken off in Gmail.")
+                dismissed += 1
+            except Exception as ex:  # noqa: BLE001
+                log(f"label: could not dismiss entry {eid}: {str(ex)[:160]}")
+        mark_label(store, tid, None)
+    if baseline:
+        store.set("label_baseline", iso())
+    store.commit()
+    failed = len(changes) - len(ok)
+    if changes or dismiss or baseline:
+        log(f"label {name!r}: {len([t for t in adds if t in ok])} added, {len([t for t in removes if t in ok])} removed, {dismissed} dismissed "
+            f"in Pocket, {len(incoming)} new from Gmail{f', {failed} not changed (next sync tries again)' if failed else ''}"
+            f"{' (first sync)' if baseline else ''}")
+    return incoming
+
+
+def mark_label(store: Store, tid: str, state: str | None) -> None:
+    if state is None:
+        store.db.execute("delete from label_sync where thread_id=?", (tid,))
+    else:
+        store.db.execute("insert into label_sync(thread_id,state,at) values(?,?,?) on conflict(thread_id) do update set state=excluded.state, at=excluded.at",
+                         (tid, state, iso()))
+
+
+def mark_added(store: Store, bundles: list[dict]) -> None:
+    """Flag the bundles the owner labelled in Gmail (label_sync checked they are not on the list)."""
+    want = {r["thread_id"] for r in store.db.execute("select thread_id from label_sync where state='incoming'")}
+    for b in bundles:
+        if b["thread_id"] in want:
+            b["added_in_gmail"] = True
+
+
+def added_decision(d: dict, th: dict) -> None:
+    """The owner put this thread on their list in Gmail: it becomes an alert whatever the judge chose, in the judge's words
+    when it gave some."""
+    newest = th["messages"][-1]
+    if not d.get("evidence"):
+        d["evidence"] = [{"message_id": newest["message_id"], "excerpt": ""}]
+    d["new_fact"] = d.get("new_fact") or f"{OWNER} added this to their list in Gmail."
+    if d["action"] != "notify" or not d.get("user_message"):
+        d["user_message"] = d.get("user_message") or f"You added this in Gmail: {th['subject']}, from {newest.get('from', 'unknown sender')}."
+        d["action"] = "notify"
+    d["confidence"] = max(d["confidence"], NOTIFY_MIN_CONFIDENCE)
+    if d.get("priority") == "low":
+        d["priority"] = "normal"
+    if d.get("status") == "resolved":
+        d["status"] = "open"
+
+
 def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_ids: list[str], until: int, dry_run: bool,
             fetch_live: bool, cursor_note: str = "") -> tuple[int, int, str | None]:
     """Evaluate threads and act on the judge's decisions. Returns (evaluated, notified, error)."""
@@ -1508,6 +1696,7 @@ def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_id
         else:
             store.db.execute("delete from backlog where thread_id=?", (tid,))
     store.commit()
+    mark_added(store, bundles)
     bundles = first_pass(store, run_id, bundles, cursor_note)
     by_thread = {b["thread_id"]: b for b in bundles}
     related_all = {b["thread_id"]: archive.related(b["subject"], b["messages"][-1]["from"], b["thread_id"], until, body=b["messages"][-1]["body"])
@@ -1553,9 +1742,18 @@ def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, ba
     if decisions is None:
         raise AriError(last_error or "ari: no decisions")
     log(f"ari evaluated {len(batch)} threads in {time.time() - t0:.1f}s -> {[(d['action'], d['issue_key']) for d in decisions]}")
+    decided = {d["thread_id"] for d in decisions}
+    for b in batch:  # a thread the owner added in Gmail that the judge left out still goes on the list
+        if b.get("added_in_gmail") and b["thread_id"] not in decided:
+            decisions.append(validate_story_fields({"thread_id": b["thread_id"], "action": "notify", "issue_key": norm_key(None, b["thread_id"]),
+                                                    "title": b["subject"], "confidence": NOTIFY_MIN_CONFIDENCE}, set()))
     for d in decisions:
         skim = d.pop("_skim", None)
         th = by_thread.get(d["thread_id"]) or {"thread_id": d["thread_id"], "subject": skim["subject"], "messages": [{"from": skim["from"], "message_id": skim["message_id"]}]}
+        added = bool(th.get("added_in_gmail"))
+        if added:
+            added_decision(d, th)
+            store.db.execute("update label_sync set state='judged', at=? where thread_id=? and state='incoming'", (iso(), d["thread_id"]))
         store.record_decision(run_id, d["thread_id"], d)
         ev_ids = [e["message_id"] for e in d["evidence"]]
         if d["action"] in ("notify", "digest", "update"):
@@ -1566,8 +1764,8 @@ def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, ba
         title = d.get("title") or (store.story(d["issue_key"]) or {"title": None})["title"] or th["subject"]
         fact_hash = hashlib.sha1(d["new_fact"].encode()).hexdigest()[:10]
         if d["action"] == "notify" and d["confidence"] >= NOTIFY_MIN_CONFIDENCE and d.get("user_message"):
-            hold = in_quiet_hours() and d["priority"] != "critical"
-            key = f"{d['issue_key']}|{fact_hash}"
+            hold = in_quiet_hours() and d["priority"] != "critical" and not added  # the owner added it just now: they are awake
+            key = f"{d['issue_key']}|added|{th['messages'][-1]['message_id']}" if added else f"{d['issue_key']}|{fact_hash}"
             waiting = store.undelivered_alert(d["issue_key"])
             if waiting is not None:
                 if store.merge_alert(waiting, key, d, title, th["messages"][-1]["from"]):
@@ -1979,11 +2177,13 @@ def profile(store: Store) -> dict:
     last = last_check(store)
     every, period = schedmod.interval_at(SETTINGS, now)
     nxt = schedmod.next_check(SETTINGS, now, last)
-    return {"version": 1, "engine": f"inbox-monitor {__version__}", "timezone": CFG.timezone, "defaults": DEFAULTS, "options": judge_options(),
+    return {"version": 1, "engine": f"inbox-monitor {__version__}", "timezone": CFG.timezone, "defaults": DEFAULTS,
+            "options": {**judge_options(), "gmailLabel": label_status(store)},
             "applied": {"from": SETTINGS_FROM, "revision": SETTINGS_REVISION},
             "rules": {"text": rules_text()[:schedmod.RULES_MAX], "max": schedmod.RULES_MAX},
             "status": {"paused": SETTINGS["paused"], "every": every, "period": period, "lastCheckAt": iso(last) if last else None,
-                       "nextCheckAt": iso(nxt) if nxt else None, "backlog": store.db.execute("select count(*) c from backlog").fetchone()["c"],
+                       "nextCheckAt": iso(nxt) if nxt else None, "checkRequestDone": store.get("check_request_done"),
+                       "backlog": store.db.execute("select count(*) c from backlog").fetchone()["c"],
                        "judges": {"decisions": JUDGE.describe(), "lookahead": LOOKAHEAD_JUDGE.describe()}},
             "usage": {"billing": billing(), "costBasis": "list", "since": store.db.execute("select min(at) a from judge_calls").fetchone()["a"],
                       "days": usage_summary(store)}}
@@ -2014,6 +2214,9 @@ def tick(dry_run: bool) -> int:
             f"decisions {JUDGE.describe()}; look-ahead {LOOKAHEAD_JUDGE.describe()}")
         store.set("applied_settings", applied)
         store.commit()
+    if CHECK_REQUEST and CHECK_REQUEST not in (store.get("check_request_done"), store.get("check_request_taken")):
+        store.db.close()
+        return run(dry_run, False, why="Check now in Pocket", request=CHECK_REQUEST)
     due, why = check_due(store)
     if due:
         store.db.close()
@@ -2025,7 +2228,7 @@ def tick(dry_run: bool) -> int:
     return 0
 
 
-def run(dry_run: bool, baseline_only: bool, why: str = "") -> int:
+def run(dry_run: bool, baseline_only: bool, why: str = "", request: str | None = None) -> int:
     if STOP_FILE.exists():
         log("STOP file present; exiting")
         return 0
@@ -2041,6 +2244,8 @@ def run(dry_run: bool, baseline_only: bool, why: str = "") -> int:
     archive = Archive()
     run_id = store.start_run()
     store.set("last_check_at", iso())
+    if request:  # Check now: taken up once this run holds the lock, reported done in the heartbeat at its end
+        store.set("check_request_taken", request)
     store.commit()
     g = globals()
     g["USAGE_DB"], g["CURRENT_RUN"] = store.db, run_id
@@ -2064,6 +2269,10 @@ def run(dry_run: bool, baseline_only: bool, why: str = "") -> int:
             log("first run: baseline from the last 2 days")
             threads = gmail.baseline_threads()
             new_cursor = head
+        added = label_sync(store, gmail, bring_in=not baseline_only, dry_run=dry_run, force=bool(request))
+        if added - set(threads):
+            log(f"label: {len(added - set(threads))} thread(s) added in Gmail join the check")
+        threads = set(threads) | added
         changed_n = len(threads)
         log(f"changed threads: {changed_n} (cursor {cursor} -> {new_cursor})")
         if baseline_only:
@@ -2089,6 +2298,8 @@ def run(dry_run: bool, baseline_only: bool, why: str = "") -> int:
                 tidy(store, archive, dry_run)
             except Exception as ex:  # noqa: BLE001 - a failed tidy never fails the check
                 log(f"tidy failed: {ex}")
+        if notified:
+            label_sync(store, gmail, bring_in=False, dry_run=dry_run)  # the alerts this run sent get the label now
         if not dry_run:
             sync_memory(store)
     except Exception as e:  # noqa: BLE001
@@ -2097,6 +2308,8 @@ def run(dry_run: bool, baseline_only: bool, why: str = "") -> int:
         raise
     finally:
         store.finish_run(run_id, changed=changed_n, evaluated=evaluated, notified=notified, error=error)
+        if request:
+            store.set("check_request_done", request)
         store.commit()
         spent = store.db.execute("select count(*) n, sum(cost_usd) c from judge_calls where run_id=?", (run_id,)).fetchone()
         cost = f" calls={spent['n']}" + (f" cost=${spent['c']:.3f}" if spent["c"] is not None else "") if spent["n"] else ""
@@ -2227,7 +2440,7 @@ def _main(argv: list[str] | None = None) -> int:
     cfg = cfgmod.load(args.config)
     if args.cmd == "gmail-auth":
         from .mail_gmail import oauth_consent
-        print(f"token written to {oauth_consent(cfg.mail)}")
+        print(f"token written to {oauth_consent(cfg.mail, label=bool(cfg.gmail_label.get('enabled', True)))}")
         return 0
     configure(cfg)
     if args.cmd in (None, "tick", "notify", "settings", "check", "tidy"):

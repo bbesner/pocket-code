@@ -250,7 +250,7 @@ class PocketPush(Delivery):
         self._json(self._node("pocket-inbox.mjs", ["act", entry_id, action, "--note", note[:290], "--json"]), "pocket-inbox act")
 
     def watch(self) -> dict | None:
-        """The owner's Inbox Watch settings from Pocket (1.70+): {settings: {...} or None, revision}. None when this Pocket
+        """The owner's Inbox Watch settings from Pocket (1.70+): {settings: {...} or None, revision, checkRequestedAt (1.75: Check now)}. None when this Pocket
         has no such settings (older, or the Inbox library off), so the config's apply; raises when Pocket did not answer."""
         if not self.inbox:
             return None
@@ -261,7 +261,7 @@ class PocketPush(Delivery):
                 return None
             raise RuntimeError(err[:300] or f"pocket-inbox watch exited {r.returncode}")
         d = json.loads(r.stdout)
-        return {"settings": d.get("settings"), "revision": d.get("revision")} if isinstance(d, dict) else None
+        return {"settings": d.get("settings"), "revision": d.get("revision"), "checkRequestedAt": d.get("checkRequestedAt")} if isinstance(d, dict) else None
 
     # ---- Pocket 1.65–1.68: pushes and Files
     def _push(self, title: str, body: str, url: str | None, tag: str) -> str | None:
