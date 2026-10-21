@@ -2373,11 +2373,20 @@ const clearDraft = id => { try { localStorage.removeItem(draftKey(id)); } catch 
 const briefingKey = () => 'pc-new-briefing-' + NEW_KEY;
 const saveBriefing = text => { saveDraft(NEW_KEY, text); writeLocal(briefingKey(), text); };
 function openFreshNew(hash = '#/new') {
+  const here = location.hash === hash || (hash === '#/' && !location.hash);
+  // The plus pressed on the New conversation screen itself starts over: setting the hash it already has did nothing,
+  // so a desktop left on New kept its old draft and the button looked dead. The agent and workspace stay; a start
+  // still being delivered is never dropped. Reported by Brad.
+  if (here && document.getElementById('first') && !loadOutbox(NEW_KEY)) {
+    clearDraft(NEW_KEY);
+    try { ['pc-new-start', briefingKey(), 'pc-attachments-' + NEW_KEY].forEach(k => localStorage.removeItem(k)); } catch { }
+    return Promise.resolve(route()).then(() => document.getElementById('first')?.focus());
+  }
   const brief = readLocal(briefingKey(), null);
   if (brief !== null && !loadOutbox(NEW_KEY)) {
     if (loadDraft(NEW_KEY) === brief) { clearDraft(NEW_KEY); try { localStorage.removeItem('pc-new-start'); } catch { } }
     try { localStorage.removeItem(briefingKey()); } catch { }
-    if (location.hash === hash || (hash === '#/' && !location.hash)) return route();
+    if (here) return route();
   }
   location.hash = hash;
 }
