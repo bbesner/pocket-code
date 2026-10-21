@@ -526,7 +526,7 @@ Gmail inbox as well. Give an email that label in Gmail (Label as, or Move to: ei
 next check puts it on your list with a summary, like any alert; take the label off in Gmail and the entry leaves the list
 (as dismissed); resolve, dismiss or mark one not useful here and the label comes off. The first sync labels what is already
 open and leaves alone anything you labelled before it began. Turn it off in Settings → Inbox Watch → Your list in Gmail.
-It needs Gmail write access: the Gmail API with `gmail.modify`, or Codex's Gmail app; Claude Code's Gmail connector cannot change labels yet, and Settings says so.
+It needs Gmail write access: the Gmail API with `gmail.modify`, Codex's Gmail app, or Claude Code's Gmail connector connected with permission to manage mail. A sign-in that may only read shows the reason in Settings; with both connectors, Codex writes the label when Claude's may only read.
 
 **What the watcher reads back.** Resolved, Not useful, Dismiss and Restore are recorded with the
 entry; a watcher asks for them (`pocket-inbox feedback`), applies them, and acknowledges them

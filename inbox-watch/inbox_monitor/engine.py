@@ -1563,6 +1563,7 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
                 listed.setdefault(m.group(1), []).append(e["id"])
     except Exception as ex:  # noqa: BLE001
         log(f"label sync skipped: {str(ex)[:200]}")
+        label_refused(store, ex)
         return set()
     known = {r["thread_id"]: r["state"] for r in store.db.execute("select thread_id, state from label_sync")}
     baseline = not store.get("label_baseline")
@@ -1601,6 +1602,7 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
             ok = gmail.label_threads(changes)
         except Exception as ex:  # noqa: BLE001 - what did not go through is tried again at the next sync
             log(f"label changes failed: {str(ex)[:200]}")
+            label_refused(store, ex)
     for t in adds:
         if t in ok:
             mark_label(store, t, "synced")
@@ -1628,6 +1630,14 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
             f"in Pocket, {len(incoming)} new from Gmail{f', {failed} not changed (next sync tries again)' if failed else ''}"
             f"{' (first sync)' if baseline else ''}")
     return incoming
+
+
+def label_refused(store: Store, ex: Exception) -> None:
+    """Gmail refused the write itself (a read-only grant): Settings shows why, and the sync is tried again in 30 minutes."""
+    status = getattr(getattr(ex, "resp", None), "status", None)
+    if status == 403 or "insufficient" in str(ex).lower():
+        store.set("label_access", json.dumps({"at": iso(), "reason": str(ex)[:200]}))
+        store.commit()
 
 
 def mark_label(store: Store, tid: str, state: str | None) -> None:

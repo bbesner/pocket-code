@@ -82,6 +82,7 @@ test('sets up from the connector, starts from now, then ticks', async () => {
   assert.match(cfg, /name = "Alex Rivera"/);
   assert.match(cfg, /timezone = "America\/New_York"/);
   assert.match(cfg, /provider = "connector"/);
+  assert.match(cfg, /\[gmail_label\][^\n]*\nenabled = true/, '1.75.1: the label is on from the start');
   assert.match(cfg, /\[judge\]\nkind = "claude"/);
   assert.match(cfg, /docs_dir = ".*inbox-watch-data\/files"/); // Files keeps only files in the home directory
 

@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.75.1] — 2026-10-21 · build 152
+
+- **The Pocket Inbox label through Claude Code's Gmail connector.** `mail_connector.py`: `ClaudeConnector.label_id` (finds the label with `list_labels`, makes it with `create_label` when missing, remembers the id in `state/connector/label-ids.json`) and `change_threads` (`label_thread` / `unlabel_thread` for whole threads in one run). Each label run allows those four tools only, blocks every other Gmail and connector tool, and a PreToolUse hook passes a call only with the label name, label ids and thread ids the program asked for. Tested live on a second mailbox: lookups and the lockdown work; that connector had been granted read-only by Google ("insufficient scope"), which is now reported as such.
+- **A read-only grant says so.** "Insufficient scope" from the connector becomes a 403 with what to do (reconnect Gmail in claude.ai and allow everything it asks for); the engine records it (`label_refused`), Settings shows the label as unavailable with that reason, and the sync asks again after 30 minutes. With Codex as the other transport, the change goes through Codex's Gmail app instead, by name.
+- **Set up with the label on.** A config Pocket's runner writes now carries `[gmail_label] enabled = true` (it was already the default).
+- Migration: none.
+- Tests: `test_connector.py` (Claude label lookups made once, the run's allowed and blocked tools, the hook refusing another thread, another label or another tool, a read-only grant raising with what to do, the Codex fallback by name); `test_label.py` (a refusal reaching Settings); `test/inbox-runner.test.mjs` (the label line in a new config).
+
 ## [1.75.0] — 2026-10-21 · build 152
 
 - **Check now.** The Inbox has a Check now chip beside All (in the side list) and beside Schedule (in the Inbox view). Pocket records the request (`POST /api/inbox/check`, `pocket-inbox check`) and hands it to the watcher with its settings; the watcher runs a check on its next one-minute tick whatever the schedule says, paused included, and reports it done in its heartbeat (`status.checkRequestDone`). Pocket's own runner (1.74) runs the tick at once. The chip stays busy until the watcher reports, then the list reloads and says how many new items the check found. A second press while one is on its way changes nothing; a request never taken up is replaced after ten minutes. With the schedule set to Don’t check, Inbox Watch now checks only on demand (plus the morning digest and any look-ahead left on), and Settings says so.

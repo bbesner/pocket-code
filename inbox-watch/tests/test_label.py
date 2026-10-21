@@ -163,6 +163,19 @@ def test_connector_syncs_are_spaced():
     assert E.label_sync(store, g, bring_in=True, dry_run=False, force=True) == {B} and len(searches) == 2, "Check now forces one"
 
 
+def test_read_only_grant_shows_in_settings():
+    store, g, p = setup()
+    from inbox_monitor.mail_connector import MailError
+    def refuse(changes):
+        raise MailError(403, "Gmail let this Claude Code connector read mail but not change labels; reconnect Gmail")
+    g.label_threads = refuse
+    p.entry("e1", A)
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    st = E.label_status(store)
+    assert st["available"] is False and "reconnect Gmail" in st["reason"], st
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == set(), "refused: no further tries until the answer is 30 minutes old"
+
+
 def test_check_now_runs_once():
     setup()
     calls = []

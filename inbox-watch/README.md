@@ -154,7 +154,7 @@ change can be told apart; the first sync only adds labels. Writes need `gmail.mo
 `gmail-auth` again for an OAuth sign-in); nothing but that label, and INBOX for a thread the owner labelled, is ever changed.
 Through the connector (1.74) the label goes through Codex's Gmail app: a second locked Codex home whose only tool is
 `apply_labels_to_emails`, called from a prompt that holds message ids and the label name, never email text; a call made with
-other arguments than asked does not count. Claude Code's Gmail connector cannot change labels here yet (Settings says so).
+other arguments than asked does not count. Through Claude Code's Gmail connector (1.75.1) a run of its own allows only `list_labels`, `create_label`, `label_thread` and `unlabel_thread`, and a PreToolUse hook passes only the label name, label ids and thread ids the program asked for; the label's id is remembered (`state/connector/label-ids.json`). A connector Google granted read-only answers "insufficient scope": Settings shows it with what to do, the sync tries again every 30 minutes, and with Codex as the other transport the change goes through Codex instead.
 
 **Neutral instructions.** `prompts/` assume nothing about the owner's work or industry. Everything specific to a person
 (what matters, what doesn't, their systems, their staff, their thresholds) belongs in their rules (the preferences file, or
