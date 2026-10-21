@@ -86,7 +86,7 @@ async function stream(p, body) {
     else if (ev.t === 'pending') { console.error(`pending ${ev.id}\nThe owner has not answered yet. Say so, and continue with: pocket-vault wait ${ev.id}`); process.exit(4); }
     else if (ev.t === 'denied') { console.error(ev.message || 'The owner did not allow this command.'); process.exit(5); }
     else if (ev.t === 'exit') { if (ev.truncated) console.error('[output truncated at 1 MB]'); if (ev.timedOut) console.error('[the command was stopped at the timeout]'); process.exit(ev.code ?? (ev.signal ? 128 : 1)); }
-    else if (ev.t === 'error') die(ev.message, ev.code === 'owner_only' ? 5 : 1);
+    else if (ev.t === 'error') die(ev.message, ev.code === 'owner_only' ? 5 : ev.code === 'vault_locked' ? 3 : 1);
   };
   for await (const chunk of r.body) {
     rem += Buffer.from(chunk).toString('utf8');

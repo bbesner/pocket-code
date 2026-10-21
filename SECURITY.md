@@ -123,7 +123,8 @@ the browser or downloaded by the owner; nothing prints them to a terminal or a l
 
 **The key in memory.** The daemon reads `POCKET_VAULT_KEY` (and `POCKET_VAULT_KEY_PREVIOUS`,
 when present) at start and deletes them from its own environment, so agent turns, helper models, hooks and every other process it starts
-cannot inherit it.
+cannot inherit it. Since 1.73.3 the same is done for `POCKET_SMTP_URL` (its URL carries the mail password), `POCKET_SMTP_FROM`
+and `POCKET_ROUTER_KEY`; the daemon's own login, cookie and push secrets were never passed on.
 
 **What agents can do.** An agent has no way to read a value. It can list items (names,
 kinds, URLs, tags, policy, expiry, last use; never values or the owner's notes), create a new

@@ -60,7 +60,8 @@ async function release(refs, tool, retried = false) {
   const key = tool + '\u0000' + refs.join('\u0000'), request = pendingByRefs.get(key);
   let r, data, raw = '';
   try {
-    r = await fetch(base + '/api/vault/release', { method: 'POST', headers: headers(), body: JSON.stringify(request ? { request, wait: WAIT } : { refs, server: serverName, tool, cwd: process.cwd(), wait: WAIT }) });
+    // 1.73.3: bounded by the wait plus a margin; a daemon that never answers (it used to, when the Vault was locked mid-request) no longer hangs the tool call.
+    r = await fetch(base + '/api/vault/release', { method: 'POST', headers: headers(), body: JSON.stringify(request ? { request, wait: WAIT } : { refs, server: serverName, tool, cwd: process.cwd(), wait: WAIT }), signal: AbortSignal.timeout((WAIT + 15) * 1000) });
     raw = await r.text(); try { data = JSON.parse(raw); } catch { data = null; }
   }
   catch (e) { return { error: `Pocket Code is not reachable, so the Vault could not fill ${refs.join(', ')}: ${e.cause?.code || e.message}` }; }

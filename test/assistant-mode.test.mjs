@@ -56,6 +56,7 @@ test('POCKET_ASSISTANT_MODE=locked: always on, Settings refuses to turn it off, 
   const s = await server(t, 18677, { POCKET_ASSISTANT_MODE: 'locked' });
   const signedOut = (await s.call('/me', null, false)).body;
   assert.equal(signedOut.ok, false); assert.equal(signedOut.features.assistantMode, true, 'the sign-in page can say Pocket Assistant');
+  assert.deepEqual(Object.keys(signedOut.features), ['assistantMode'], '1.73.3: signed out, nothing else about the install is told');
   const off = await s.call('/settings', { assistantMode: false });
   assert.equal(off.status, 409); assert.match(off.body.error, /locked/);
   const st = (await s.call('/settings')).body;

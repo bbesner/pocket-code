@@ -51,6 +51,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       fs.appendFileSync(calls+'.codex',JSON.stringify({threadId:p.threadId,pid:process.pid,text,model:p.model,collaborationModel:p.collaborationMode?.settings?.model})+'\n');
       reply(m.id,{turn:{id:turnId}});
       notify('turn/started',{turnId});
+      // __NULLFRAME__: lines that parse as JSON but are not objects (a real app-server once wrote a bare `null`).
+      if(text.includes('__NULLFRAME__'))for(const raw of ['null','1','"str"','[]','true'])process.stdout.write(raw+'\n');
       // __LATEUSER__: like Pocket's reader process, the history has the user message only a moment after turn/start
       // returns. __ATTACHNOTE__: stored with the note Codex keeps after the text when files are attached.
       if(text.includes('__LATEUSER__'))setTimeout(()=>{

@@ -18,7 +18,7 @@
 import {AgentActivity} from './subagents.mjs';
 import {agentEnv} from './environment.mjs';
 import { spawn, execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -149,6 +149,7 @@ class AppServer {
     for (const line of this.lines.push(chunk)) {
       if (!line.trim()) continue;
       let m; try { m = JSON.parse(line); } catch { continue; }
+      if (!m || typeof m !== 'object' || Array.isArray(m)) continue; // 1.73.3: `null`, a number or a string parses but is not a frame
       if (m.id != null && (m.result !== undefined || m.error !== undefined)) {
         const p = this.pending.get(m.id);
         if (!p) continue;
@@ -734,14 +735,15 @@ function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore 
       if (t.exited) return;
       t.exited = true;
       clearInterval(t.timer); clearInterval(t.poll);
-      t.drain();
+      try { t.drain(); } catch (e) { log(`codex transport drain failed: ${e.message}`); }
       try { writer.destroy(); } catch { }
       try { process.kill(-keeperPid, 'SIGTERM'); } catch { }
       for (const f of [files.fifo, files.meta]) { try { fs.unlinkSync(f); } catch { } }
       t.onExit?.(code);
     },
   };
-  t.timer = setInterval(() => t.drain(), 150);
+  // 1.73.3: a throw inside a timer is an uncaught exception that would take the daemon down; it costs the frame, not the process.
+  t.timer = setInterval(() => { try { t.drain(); } catch (e) { log(`codex transport drain failed: ${e.message}`); } }, 150);
   return t;
 }
 
@@ -855,8 +857,9 @@ function scheduleIdle(s) {
 
 // Resolves once the app-server has exited, i.e. the writer lock is free again.
 // 1.39: the session a runner token belongs to, for pocket-vault calls made from inside a Codex turn.
+const sameToken = (a, b) => Boolean(a && b) && timingSafeEqual(createHash('sha256').update(String(a)).digest(), createHash('sha256').update(String(b)).digest()); // 1.73.3: constant time
 export function sessionForRunnerToken(token) {
-  for (const s of codexSessions.values()) if (s.runnerToken && s.runnerToken === token && !s.exited) return s;
+  for (const s of codexSessions.values()) if (sameToken(s.runnerToken, token) && !s.exited) return s;
   return null;
 }
 export function closeCodexSession(s, why) {

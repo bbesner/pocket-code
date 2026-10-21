@@ -130,7 +130,11 @@ export class VaultStore {
   lock() {
     if (this.mode !== 'passphrase') throw fail('The Vault is opened by the server key; set a passphrase to be able to lock it.');
     if (this.locked) return;
-    this.items = null; this.keys = []; for (const r of this.requests.values()) for (const w of r.waiters.splice(0)) w(r); this.requests.clear();
+    this.items = null; this.keys = [];
+    // 1.73.3: a request still waiting is answered "locked" before its waiters wake, so no continuation meets an unanswered row.
+    const at = iso(this.now());
+    for (const r of this.requests.values()) { if (!r.answer) r.answer = { decision: 'locked', at }; for (const w of r.waiters.splice(0)) w(r); }
+    this.requests.clear();
     this.audit({ action: 'lock', by: 'owner' });
   }
   setPassphrase(passphrase, confirm) {
@@ -416,7 +420,8 @@ export class VaultStore {
 }
 
 // ---------- scrubbing ----------
-// Every form a value is likely to take in a program's output: as typed, base64, base64url, URL-encoded, JSON-escaped.
+// Every form a value is likely to take in a program's output: as typed, base64, base64url, URL-encoded, JSON-escaped
+// (1.73.3: in the spellings other JSON writers use too, and escaped twice).
 export function needlesFor(values) {
   const out = new Set();
   for (const v of values) {
@@ -425,6 +430,12 @@ export function needlesFor(values) {
     out.add(Buffer.from(v, 'utf8').toString('base64')); out.add(Buffer.from(v, 'utf8').toString('base64url'));
     try { const e = encodeURIComponent(v); if (e !== v) out.add(e); } catch { }
     const j = JSON.stringify(v).slice(1, -1); if (j !== v) out.add(j);
+    // PHP's json_encode writes "/" as "\/" and, like Python's json.dumps, non-ASCII as \uXXXX; a JSON string carried inside
+    // another JSON string (a log line, an API body echoed back) is escaped once more.
+    const slashed = j.replace(/\//g, '\\/'); if (slashed !== j) out.add(slashed);
+    const ascii = t => t.replace(/[^\x00-\x7f]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+    for (const t of [j, slashed]) { const a = ascii(t); if (a !== t) out.add(a); }
+    const twice = JSON.stringify(j).slice(1, -1); if (twice !== j) out.add(twice);
   }
   return [...out].filter(Boolean).sort((a, b) => b.length - a.length);
 }

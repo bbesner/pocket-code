@@ -64,6 +64,12 @@ delete process.env.POCKET_VAULT_KEY;
 // 1.44: the key a rotation is replacing, kept only for the moment between saving the new key and rewriting the store.
 const VAULT_KEY_PREVIOUS = process.env.POCKET_VAULT_KEY_PREVIOUS || '';
 delete process.env.POCKET_VAULT_KEY_PREVIOUS;
+// 1.73.3: the SMTP address (its URL carries the mail password), the sender and the router key are read once and removed
+// the same way: they are the daemon's alone, and every agent turn, hook, keeper and Vault child inherits what is left.
+const SMTP_URL = process.env.POCKET_SMTP_URL || '';
+const SMTP_FROM = process.env.POCKET_SMTP_FROM || '';
+const ROUTER_KEY = process.env.POCKET_ROUTER_KEY || '';
+for (const k of ['POCKET_SMTP_URL', 'POCKET_SMTP_FROM', 'POCKET_ROUTER_KEY']) delete process.env[k];
 const PROJECTS_ROOT = process.env.POCKET_SESSION_ROOT || path.join(HOME, '.claude', 'projects');
 const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -352,7 +358,7 @@ const boardOn = (_req, res, next) => settings.projects ? next() : res.status(404
 const REMINDER_HOOK = process.env.POCKET_REMINDER_HOOK || '';
 // 1.50: email for due reminders and tasks, when the operator set POCKET_SMTP_URL and the owner named an address in
 // Settings → Notifications. Links in the mail use POCKET_PUBLIC_URL, or the address the owner last signed in from.
-const mailer = (() => { try { return createMailer(process.env.POCKET_SMTP_URL, { from: process.env.POCKET_SMTP_FROM, log }); } catch (e) { log(`mail: ${e.message}`); return { configured: false, error: e.message, from: '', describe: () => e.message, send: async () => { throw e; } }; } })();
+const mailer = (() => { try { return createMailer(SMTP_URL, { from: SMTP_FROM, log }); } catch (e) { log(`mail: ${e.message}`); return { configured: false, error: e.message, from: '', describe: () => e.message, send: async () => { throw e; } }; } })();
 if (mailer.configured) log(`mail: ${mailer.describe()}`);
 const emailOn = () => mailer.configured && looksLikeEmail(settings.notifyEmail);
 const publicBase = () => (process.env.POCKET_PUBLIC_URL || settings.publicUrl || '').replace(/\/$/, '');
@@ -460,7 +466,7 @@ const autoKeepOn = () => Boolean(settings.documents) && (assistantOn() || settin
 // 1.67: everything here can also be set in Settings → Agents & instance → Automatic model choice; a choice saved
 // there wins over the environment, and its key lives in <data dir>/router-key (0600), never in pocket-settings.json.
 const ROUTER_ENV = { provider: (process.env.POCKET_ROUTER || 'off').trim().toLowerCase(),
-  key: (() => { const k = (process.env.POCKET_ROUTER_KEY || '').trim(); if (k) return k; const f = (process.env.POCKET_ROUTER_KEY_FILE || '').trim(); try { return f ? fs.readFileSync(f, 'utf8').trim() : ''; } catch { return ''; } })() };
+  key: (() => { const k = ROUTER_KEY.trim(); if (k) return k; const f = (process.env.POCKET_ROUTER_KEY_FILE || '').trim(); try { return f ? fs.readFileSync(f, 'utf8').trim() : ''; } catch { return ''; } })() };
 const ROUTER_KEY_FILE = path.join(DATA_DIR, 'router-key');
 const routerSavedKey = () => { try { return fs.readFileSync(ROUTER_KEY_FILE, 'utf8').trim(); } catch { return ''; } };
 const ROUTER_PROVIDERS = ['jev', 'openai'];
@@ -1866,7 +1872,8 @@ app.post('/api/login', (req, res) => {
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
-app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) learnPublicUrl(req); return res.json({ ok, features: { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked } }); });
+// 1.73.3: signed out, the reply names only the mode (the sign-in page says Pocket Assistant or Pocket Code); which modules are on is for the owner.
+app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) learnPublicUrl(req); return res.json({ ok, features: ok ? { projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked } : { assistantMode: assistantOn() } }); });
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -3078,11 +3085,13 @@ app.post('/api/inbox/watch', requireBoardAuth, inboxOn, (req, res) => {
 // ---------- 1.39: vault routes ----------
 // Who is calling: the owner (cookie), an agent inside a Pocket session (CLI token plus the runner token Pocket put in
 // its environment), or a terminal/code-server agent (CLI token alone). Owner-only routes take the cookie only.
+// 1.73.3: tokens are compared in constant time on their digests, so lengths and early mismatches say nothing.
+const sameToken = (a, b) => Boolean(a && b) && timingSafeEqual(createHash('sha256').update(String(a)).digest(), createHash('sha256').update(String(b)).digest());
 function vaultCaller(req) {
   if (req.boardActor !== 'cli') return { actor: 'owner', session: null, sessionTitle: '' };
   const token = String(req.get('x-pocket-runner') || '');
   if (token) {
-    for (const r of runners.values()) if (r.runnerToken && r.runnerToken === token && !r.exited) return { actor: 'agent', session: r.sessionId, sessionTitle: sessionName(r.sessionId) };
+    for (const r of runners.values()) if (sameToken(r.runnerToken, token) && !r.exited) return { actor: 'agent', session: r.sessionId, sessionTitle: sessionName(r.sessionId) };
     const cx = CODEX_ON ? codex.sessionForRunnerToken(token) : null;
     if (cx) return { actor: 'agent', session: 'cx:' + cx.threadId, sessionTitle: sessionName('cx:' + cx.threadId) };
   }
@@ -3244,6 +3253,7 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
       if (ac.signal.aborted) return end();
       if (!answered) { send({ t: 'pending', id: reqRow.id }); return end(); }
       if (answered.answer.decision === 'deny' || answered.answer.decision === 'expired') { send({ t: 'denied', message: answered.answer.decision === 'deny' ? 'The owner did not allow this command.' : 'The request expired before the owner answered.' }); return end(); }
+      if (answered.answer.decision === 'locked') { send({ t: 'error', message: 'The Vault was locked before the owner answered. Ask the owner to unlock it in Pocket Code, then try again.', code: 'vault_locked' }); return end(); } // 1.73.3
       reqRow.consumed = true;
     }
     if (vaultRuns.size >= VAULT_LIMITS.concurrent) { send({ t: 'error', message: 'Too many vault runs at once; try again in a moment.' }); return end(); }
@@ -3298,13 +3308,18 @@ app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin,
       const answered = await vault.waitAnswer(reqRow.id, Math.min(VAULT_LIMITS.waitMax, Math.max(1, Number(b.wait) || 90)) * 1000);
       if (!answered) return res.json({ pending: true, request: reqRow.id, items: reqRow.itemNames });
       if (answered.answer.decision === 'deny' || answered.answer.decision === 'expired') return res.status(403).json({ denied: true, error: answered.answer.decision === 'deny' ? 'The owner did not allow this fill.' : 'The request expired before the owner answered.' });
+      if (answered.answer.decision === 'locked') return res.status(423).json({ error: 'The Vault was locked before the owner answered. Ask the owner to unlock it in Pocket Code, then call the tool again.', code: 'vault_locked' }); // 1.73.3
       reqRow.consumed = true;
     }
     const secrets = vault.release(bound, cmd, { session: c.session, sessionTitle: c.sessionTitle, by: c.actor, request: reqRow?.id || null, action: 'fill' });
     const values = {}; refs.forEach((r, i) => { values[r] = secrets['V' + i]; });
     log(`vault fill tool=${cmd.argv[2]} items=${[...new Set(bound.map(x => x.item.name))].join(',')} by ${c.actor}${c.session ? ' session=' + c.session : ''}`);
     res.json({ ok: true, values });
-  } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) }); }
+  } catch (e) {
+    // 1.73.3: Express 4 does not catch a rejection from an async route; a bare throw here left the relay waiting on a response that never came.
+    if (!e.status) { log(`vault fill failed: ${e.stack || e.message}`); return res.status(500).json({ error: 'The Vault could not fill that value; see the server log.' }); }
+    res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) });
+  }
 });
 app.post('/api/vault/wait', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (req, res) => vaultRun(req, res, { request: String(req.body?.request || ''), wait: req.body?.wait }));
 
@@ -3517,7 +3532,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Sessions no longer get stuck when another agent searches Pocket's folder: each session's input pipe now lives in a private folder outside it, so a search can't swallow its approvals, messages or Stop.","Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads).", "Your rules for Inbox Watch: Settings → Inbox Watch opens on a box for your own words about what you always or never want to hear about (\"tell me about every sale\", \"never tell me about cameras that go offline\"). The watcher follows them on every check, and they win over its own judgment.", "Inbox Watch's watcher now ships inside Pocket Code (inbox-watch/), versioned and released with the rest, so the Inbox, its settings and the program that fills it are one project.", "The Inbox keeps itself tidy: with Settings → Inbox Watch → Keep the Inbox tidy on, the watcher takes off your list what has been resolved or handled since, with the reason, and the list opens on Open, with a Done filter for everything finished.", "Inbox digests read cleanly: a digest's headings and bullet lines show as a heading and bullets in its sheet, and the row shows its first real sentence instead of the raw marks."];
+const RELEASE_NOTES = ["Daemon secrets stay with the daemon: the mail password (inside POCKET_SMTP_URL) and the router key no longer reach agent turns, hooks or Vault runs, and a signed-out visitor is no longer told which modules are on.", "Vault and Codex hardening: a bare null line from a Codex app-server no longer stops Pocket, the Vault scrubs the JSON spellings PHP and Python write, and locking the Vault while an agent waits answers the agent at once instead of leaving it hanging.", "Sessions no longer get stuck when another agent searches Pocket's folder: each session's input pipe now lives in a private folder outside it, so a search can't swallow its approvals, messages or Stop.", "Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads).", "Your rules for Inbox Watch: Settings → Inbox Watch opens on a box for your own words about what you always or never want to hear about (\"tell me about every sale\", \"never tell me about cameras that go offline\"). The watcher follows them on every check, and they win over its own judgment.", "Inbox Watch's watcher now ships inside Pocket Code (inbox-watch/), versioned and released with the rest, so the Inbox, its settings and the program that fills it are one project."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

@@ -236,3 +236,13 @@ test('a just-sent Codex message shows as pending until the reader has it, and ne
   assert.equal((await users()).some(m=>m.pending),false,'nothing pending once the turn ends');
  }
 });
+
+// 1.73.3: a line that parses as JSON but is not an object (a real app-server wrote a bare `null`) threw inside the reader's
+// timer and took the whole daemon down.
+test('a non-object JSON frame from the app-server is ignored; the daemon and the turn carry on',async t=>{
+ const s=await fixture(t,19771);
+ const made=await s.call('/new',{cwd:repo,provider:'codex',...msg('__NULLFRAME__ hello')});assert.equal(made.status,202);
+ assert.ok(await s.until(async()=>s.calls().length===1&&await s.idle(made.body.id)),'the turn finished: '+s.logs().slice(-600));
+ assert.equal((await s.call('/health')).status,200,'the daemon is still up');
+ assert.doesNotMatch(s.logs(),/drain failed|TypeError/);
+});

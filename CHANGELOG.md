@@ -3,6 +3,17 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.73.3] — 2026-10-21 · build 145
+
+- **Secrets, crashes and scrub forms.** The first batch of fixes from the 2026-10-21 triage of Casey's review of 1.58.0 against 1.73.2 (his row ids in brackets):
+  - **The mail password and the router key stay with the daemon.** `.env` was copied into the process environment and only the login, cookie, push and Vault keys were removed again, so `POCKET_SMTP_URL` (its URL carries the SMTP password), `POCKET_SMTP_FROM` and `POCKET_ROUTER_KEY` reached every agent turn, hook, keeper and `pocket-vault run` child. They are now read once at start and removed, as the Vault key already was. Operators: a hook or agent that read them from its environment no longer can; nothing else changes. [S2-S1-1]
+  - **A bare `null` from a Codex app-server no longer stops the daemon.** A stdout line that parses as JSON but is not an object threw inside the reader's timer and the process exited with every open stream. Such lines are skipped, and the timer catches whatever else a frame throws. [S2-F2-1]
+  - **Scrubbing knows the other JSON spellings.** PHP's `json_encode` writes `/` as `\/`, Python's `json.dumps` writes non-ASCII as `\uXXXX`, and a JSON string inside a JSON string is escaped twice; a run's output in any of those forms passed unscrubbed. All three are now forms of every value, in the streams and in the browser relay. [S2-B4r4-1, S2-B4r3-2]
+  - **Locking the Vault while agents wait.** A lock woke waiting requests with no answer: the run showed the agent a TypeError and the fill route never answered, so the browser relay's tool call hung for minutes. Waiting requests are now answered *locked* (the run reports it and `pocket-vault` exits 3; the fill answers `423 vault_locked`), the fill route answers 500 instead of hanging on anything unexpected, and the relay's request to the daemon times out after the wait plus 15 seconds. [S2-B3-4]
+  - **Signed out, `/api/me` says only which mode the install is in** (the name the sign-in page shows); which modules are on is told after sign-in. [S2-G3-1]
+  - **Runner tokens are compared in constant time** on their digests, as the CLI token is. [S2-B5a-1]
+- Migration: none.
+
 ## [1.73.2] — 2026-10-20 · build 144
 
 - **A search can no longer stall a session.** Each session's input pipe (the named pipe Pocket writes approvals, messages and Stop into) sat in `turnlogs/` beside the logs. An agent searching that folder for a session id opened a running session's pipe and kept reading it, so from then on the session's approval, a message sent to it and every Stop went to the search; the session waited on an approval it never received. Pipes now live in a private folder outside the data directory, `$TMPDIR/pocket-code-pipes-<uid>/<install>/{claude,codex}` (mode `0700`, one per install so two daemons never sweep each other's pipes), or under `POCKET_PIPE_DIR` when set. Found on 2026-10-20 when a quote session sat for 15 minutes after its approval was allowed.

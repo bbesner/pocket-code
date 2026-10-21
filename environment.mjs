@@ -12,7 +12,7 @@ export async function readClaudeIdentity(bin,env){
 }
 // Pocket's own secrets stay in the daemon: agent turns, their tools and subprocesses
 // never need the login password, cookie-signing key or push private key.
-const DAEMON_SECRETS=['POCKET_PASSWORD','POCKET_SECRET','VAPID_PRIVATE','POCKET_VAULT_KEY','POCKET_VAULT_KEY_PREVIOUS']; // 1.39: the vault key is also removed from process.env at boot
+const DAEMON_SECRETS=['POCKET_PASSWORD','POCKET_SECRET','VAPID_PRIVATE','POCKET_VAULT_KEY','POCKET_VAULT_KEY_PREVIOUS','POCKET_SMTP_URL','POCKET_SMTP_FROM','POCKET_ROUTER_KEY']; // 1.39: the vault key is also removed from process.env at boot; 1.73.3: so are the SMTP address (its URL carries the mail password) and the router key
 export function agentEnv(env=process.env){
  const out={...env};
  for(const k of DAEMON_SECRETS)delete out[k];
