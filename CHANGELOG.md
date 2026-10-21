@@ -3,6 +3,11 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.73.2] — 2026-10-20 · build 144
+
+- **A search can no longer stall a session.** Each session's input pipe (the named pipe Pocket writes approvals, messages and Stop into) sat in `turnlogs/` beside the logs. An agent searching that folder for a session id opened a running session's pipe and kept reading it, so from then on the session's approval, a message sent to it and every Stop went to the search; the session waited on an approval it never received. Pipes now live in a private folder outside the data directory, `$TMPDIR/pocket-code-pipes-<uid>/<install>/{claude,codex}` (mode `0700`, one per install so two daemons never sweep each other's pipes), or under `POCKET_PIPE_DIR` when set. Found on 2026-10-20 when a quote session sat for 15 minutes after its approval was allowed.
+- Migration: none. A session process started by an older version keeps its pipe in `turnlogs/` and is adopted from there after the restart; new processes use the new folder.
+
 ## [1.73.1] — 2026-10-20 · build 143
 
 - **Inbox Watch reuses an existing Google sign-in.** With `mail.auth = "oauth"`, the watcher renewed the token for `gmail.readonly` only, so a sign-in granted to another app for broader Gmail access (`gmail.modify`) failed with `invalid_scope`. It now renews with the scopes recorded in the token file and still only reads. Found setting up Inbox Watch for a second mailbox whose assistant already had Gmail access.

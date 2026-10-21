@@ -17,6 +17,7 @@ import * as codex from './codex.mjs';
 import { DeliveryReceipts, withDeliveryReceipt } from './delivery.mjs';
 import { sessionState, prioritizeSessions } from './session-state.mjs';
 import { collectResults } from './results.mjs';
+import { pipeDirs, ensurePipeDir } from './pipes.mjs';
 import { FollowupQueue } from './queue.mjs';
 import {workspaceStatus,workspaceDiff} from './workspace.mjs';
 import {readClaudeIdentity,agentEnv} from './environment.mjs';
@@ -1130,6 +1131,8 @@ process.on('exit', () => claudeLogin.dispose());
 for (const signal of ['SIGINT','SIGTERM']) process.once(signal, () => { claudeLogin.dispose(); process.exit(0); });
 const TURNLOG_DIR = path.join(DATA_DIR, 'turnlogs');
 fs.mkdirSync(TURNLOG_DIR, { recursive: true });
+// 1.73.2: input pipes live outside the data directory (pipes.mjs); pre-1.73.2 runners keep theirs in turnlogs/.
+const PIPES = pipeDirs(DATA_DIR), PIPE_DIR = PIPES.claude;
 const turnFiles = id => ({
   out: path.join(TURNLOG_DIR, id + '.out.ndjson'),
   err: path.join(TURNLOG_DIR, id + '.err.log'),
@@ -1140,7 +1143,8 @@ const turnFiles = id => ({
 const runnerFiles = (id, key) => ({
   out: path.join(TURNLOG_DIR, `${id}.${key}.out.ndjson`),
   err: path.join(TURNLOG_DIR, `${id}.${key}.err.log`),
-  fifo: path.join(TURNLOG_DIR, `${id}.${key}.in.fifo`),
+  fifo: path.join(PIPE_DIR, `${id}.${key}.in.fifo`),
+  legacyFifo: path.join(TURNLOG_DIR, `${id}.${key}.in.fifo`),
   meta: path.join(TURNLOG_DIR, `${id}.${key}.runner.json`),
 });
 
@@ -1372,6 +1376,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const key = Date.now().toString(36);
   const files = runnerFiles(sessionId, key);
   for (const file of [files.out, files.err]) { fs.writeFileSync(file, '', { mode: 0o600 }); fs.chmodSync(file, 0o600); }
+  ensurePipeDir(PIPE_DIR, PIPES.top);
   execFileSync('mkfifo', ['-m', '600', files.fifo]);
   // O_RDWR never blocks on a FIFO, and while it is open the read end opens without blocking too.
   const hold = fs.openSync(files.fifo, fs.constants.O_RDWR);
@@ -1745,6 +1750,7 @@ function adoptOrphans() {
       const files = runnerFiles(m.sessionId, m.key);
       if (m.sessionId && m.pid && m.key && pidAlive(m.pid) && isTurnProc(m.pid, m.sessionId)) {
         let writer = null;
+        if (!fs.existsSync(files.fifo) && fs.existsSync(files.legacyFifo)) files.fifo = files.legacyFifo; // started before 1.73.2
         try { writer = fs.createWriteStream(null, { fd: fs.openSync(files.fifo, fs.constants.O_RDWR) }); writer.on('error', () => { }); } catch { }
         let size = 0; try { size = fs.statSync(files.out).size; } catch { }
         const r = {
@@ -1774,7 +1780,7 @@ function adoptOrphans() {
         log(`adopted session process session=${m.sessionId} pid=${m.pid} turn=${Boolean(m.turn)}`);
       } else {
         try { process.kill(-m.keeperPid, 'SIGTERM'); } catch { }
-        for (const x of [full, files.fifo]) { try { fs.unlinkSync(x); } catch { } }
+        for (const x of [full, files.fifo, files.legacyFifo]) { try { fs.unlinkSync(x); } catch { } }
         if (m.sessionId) log(`session process ended while server was down session=${m.sessionId}`);
       }
     } else if (f.endsWith('.turn.json')) {
@@ -1807,6 +1813,8 @@ function adoptOrphans() {
       try { if (Date.now() - fs.statSync(full).mtimeMs > 48 * 3600_000) fs.unlinkSync(full); } catch { }
     }
   }
+  let pipes = []; try { pipes = fs.readdirSync(PIPE_DIR); } catch { }
+  for (const f of pipes) if (f.endsWith('.in.fifo') && ![...live].some(p => f.startsWith(p))) { try { fs.unlinkSync(path.join(PIPE_DIR, f)); } catch { } }
 }
 adoptOrphans();
 
@@ -3509,7 +3517,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads).", "Your rules for Inbox Watch: Settings → Inbox Watch opens on a box for your own words about what you always or never want to hear about (\"tell me about every sale\", \"never tell me about cameras that go offline\"). The watcher follows them on every check, and they win over its own judgment.", "Inbox Watch's watcher now ships inside Pocket Code (inbox-watch/), versioned and released with the rest, so the Inbox, its settings and the program that fills it are one project.", "The Inbox keeps itself tidy: with Settings → Inbox Watch → Keep the Inbox tidy on, the watcher takes off your list what has been resolved or handled since, with the reason, and the list opens on Open, with a Done filter for everything finished.", "Inbox digests read cleanly: a digest's headings and bullet lines show as a heading and bullets in its sheet, and the row shows its first real sentence instead of the raw marks."];
+const RELEASE_NOTES = ["Sessions no longer get stuck when another agent searches Pocket's folder: each session's input pipe now lives in a private folder outside it, so a search can't swallow its approvals, messages or Stop.","Inbox Watch can reuse a Google sign-in another app already holds for the same mailbox: it renews the sign-in with the access it was granted (and still only reads).", "Your rules for Inbox Watch: Settings → Inbox Watch opens on a box for your own words about what you always or never want to hear about (\"tell me about every sale\", \"never tell me about cameras that go offline\"). The watcher follows them on every check, and they win over its own judgment.", "Inbox Watch's watcher now ships inside Pocket Code (inbox-watch/), versioned and released with the rest, so the Inbox, its settings and the program that fills it are one project.", "The Inbox keeps itself tidy: with Settings → Inbox Watch → Keep the Inbox tidy on, the watcher takes off your list what has been resolved or handled since, with the reason, and the list opens on Open, with a Done filter for everything finished.", "Inbox digests read cleanly: a digest's headings and bullet lines show as a heading and bullets in its sheet, and the row shows its first real sentence instead of the raw marks."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
