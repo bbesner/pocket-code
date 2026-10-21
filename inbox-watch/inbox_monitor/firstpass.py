@@ -38,7 +38,7 @@ CRITERIA = {
             "delivery notices, newsletters, marketing and promotions, social or app notifications, verification codes, routine daily or "
             "weekly reports that show nothing wrong.",
     "review": "Anything that could matter: a person writing, a customer, vendor or employee issue, money owed, failed, declined or unusual, "
-              "a deadline, a renewal or cancellation, a security, fraud, outage or camera-offline alert, a problem in a report, legal, tax, "
+              "a deadline, a renewal or cancellation, a security, fraud or outage alert, a problem in a report, legal, tax, "
               "banking, insurance or account notices, anything unusual.",
 }
 

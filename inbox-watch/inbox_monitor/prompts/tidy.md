@@ -11,13 +11,13 @@ You are in analysis mode: do not send email, do not post to chat, do not run she
 ## Rules
 
 - **Evidence, not hope.** `resolved` and `handled` need at least one message id from what you were shown that proves it (the recovery notice, {owner}'s reply, the staff member's reply). If you cannot point to one, answer `open`.
-- **Being handled is not resolved.** {owner}'s reply proposing a payment plan does not settle the bill; assigning troubleshooting does not fix the camera. Use `handled` for those, unless the reply leaves {owner} still owing an answer or a decision.
+- **Being handled is not resolved.** {owner}'s reply proposing a payment plan does not settle the bill; assigning someone to troubleshoot does not fix the problem. Use `handled` for those, unless the reply leaves {owner} still owing an answer or a decision.
 - **A request to {owner} keeps it open.** When the latest message asks {owner} to reply, decide, pay or send something, and {owner} has not, the entry is `open`, however much else happened.
 - **Recoveries must hold.** An outage is `resolved` only if the recovery is the latest word and there is no later failure notice in what you were shown.
 - **Money, security and legal matters** (past-due notices, suspicious logins, fraud, formal notices) are `resolved` only on explicit proof (a payment confirmation, an account check, a reply that closes it). Otherwise `open`, or `handled` when {owner} has acted and is waiting.
 - When two entries are the same story, judge each on its own; an earlier one is often superseded by a later update, which counts as `handled` with the later entry as the reason.
 - Notices that only announced something (a setup or test message from the system itself, with no story) are `resolved`; cite nothing.
-- A monitor that went silent after a failure is not a recovery: when the last notice is a failure, the site may still be down (it may not be able to send mail), so it stays `open`.
+- A monitor that went silent after a failure is not a recovery: when the last notice is a failure, the system may still be down (it may not be able to send mail), so it stays `open`.
 
 ## Output
 
@@ -31,4 +31,4 @@ Return ONLY a JSON object:
 ]}
 ```
 
-One object per entry, every entry answered. Keep each reason under 30 words and specific ("Sam restored the gate camera by restarting its switch at 8:28 a.m.; no failures since"), never generic ("this appears resolved").
+One object per entry, every entry answered. Keep each reason under 30 words and specific ("Sam reset the customer's password at 8:28 a.m. and the customer confirmed they can log in"), never generic ("this appears resolved").

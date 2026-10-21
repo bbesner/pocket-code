@@ -517,6 +517,17 @@ newest first, each row saying why it was finished. A search box narrows it by ti
 are kept for 30 days, everything else for 60. When the watcher has not reported in a day the list
 says so.
 
+**Check now (1.75)** sits beside **All** in the rail and beside **Schedule** in the Inbox view. It asks the watcher
+to check mail at once, whatever its schedule (paused included); the watcher takes it up within a minute (at once
+when Pocket runs it) and the chip shows *Checking…* until it reports back, then the list reloads and a note says
+how many new items the check found. Set the schedule to *Don't check* to have Inbox Watch check only on demand.
+**Your list in Gmail (1.75)**: everything open in the Inbox carries a *Pocket Inbox* label in Gmail, and stays in your
+Gmail inbox as well. Give an email that label in Gmail (Label as, or Move to: either way it stays in your inbox) and the
+next check puts it on your list with a summary, like any alert; take the label off in Gmail and the entry leaves the list
+(as dismissed); resolve, dismiss or mark one not useful here and the label comes off. The first sync labels what is already
+open and leaves alone anything you labelled before it began. Turn it off in Settings → Inbox Watch → Your list in Gmail.
+It needs Gmail write access: the Gmail API with `gmail.modify`, or Codex's Gmail app; Claude Code's Gmail connector cannot change labels yet, and Settings says so.
+
 **What the watcher reads back.** Resolved, Not useful, Dismiss and Restore are recorded with the
 entry; a watcher asks for them (`pocket-inbox feedback`), applies them, and acknowledges them
 (`pocket-inbox ack`), so nothing is applied twice. Dismiss changes nothing on the watcher's side.

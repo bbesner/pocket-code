@@ -22,6 +22,8 @@ The shape (JSON in Pocket, the same keys in the TOML as snake_case where noted):
                 every turn and by the first pass (engine.sync_rules)
   tidy          {enabled, every}: every so many hours (outside quiet hours) the judge checks the open Inbox entries and takes
                 off what has been resolved or handled (TOML [tidy] enabled, every_hours)
+  gmailLabel    {enabled}: the owner's open Inbox entries carry a "Pocket Inbox" label in Gmail; labelling a thread there puts it on
+                the list, taking the label off takes it off (TOML [gmail_label] enabled, name; on by default; needs gmail.modify)
 """
 from __future__ import annotations
 
@@ -151,6 +153,9 @@ def normalize(raw: dict | None, base: dict, models: list[str] | None = None) -> 
                 out["tidy"]["every"] = int(td.get("every", out["tidy"]["every"]))
         except (TypeError, ValueError):
             pass
+    gl = raw.get("gmailLabel")
+    if isinstance(gl, dict) and "gmailLabel" in out and "enabled" in gl:
+        out["gmailLabel"]["enabled"] = bool(gl["enabled"])
     m = raw.get("models")
     if isinstance(m, dict):
         for job in ("decisions", "lookahead"):
@@ -160,7 +165,7 @@ def normalize(raw: dict | None, base: dict, models: list[str] | None = None) -> 
 
 
 def from_config(sched: dict, judge: dict, quiet_hours, digest_hour: int, lookahead: dict, firstpass: dict | None = None,
-                tidy: dict | None = None) -> dict:
+                tidy: dict | None = None, gmail_label: dict | None = None) -> dict:
     """The defaults: what the config file says, in the settings shape."""
     la_judge = judge.get("lookahead") if isinstance(judge.get("lookahead"), dict) else {}
     base = {
@@ -180,6 +185,8 @@ def from_config(sched: dict, judge: dict, quiet_hours, digest_hour: int, lookahe
     if tidy is not None:
         every = tidy.get("every_hours", 2)
         base["tidy"] = {"enabled": bool(tidy.get("enabled", False)), "every": every if every in TIDY_EVERY else 2}
+    if gmail_label is not None:
+        base["gmailLabel"] = {"enabled": bool(gmail_label.get("enabled", True))}
     return normalize({"periods": sched.get("period", sched.get("periods", []))}, base)
 
 

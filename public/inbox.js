@@ -6,6 +6,7 @@
    run. Data comes from /api/inbox; every change goes through /api/inbox/act. */
 const inboxOn=()=>Boolean(window.pocketFeatures?.inbox);
 let inboxSnap=null,inboxAt=0,inboxLoading=null,inboxView=null,inboxFilter='open',inboxQuery='',inboxDismissed=null; // 1.69.2: reading clears the dot, never the row; 1.71: the list opens on Open (unread and read), Done holds the rest
+let inboxCheck=null; // 1.75: Check now on its way: {at, source, until, before} until the watcher reports it done
 const inboxOpenState=e=>e.state==='new'||e.state==='opened'; // still on the owner's plate: not dismissed, resolved or marked not useful
 const INBOX_GMAIL_MSG='https://mail.google.com/mail/u/0/#all/';
 const inboxById=id=>inboxSnap?.entries.find(e=>e.id===id)||inboxDismissed?.entries.find(e=>e.id===id)||null;
@@ -125,13 +126,44 @@ function inboxListHTML(){
  for(const e of rows){const d=inboxDay(e.at);if(d!==day){day=d;groups.push({day:d,html:[]});}groups[groups.length-1].html.push(inboxRowHTML(e));}
  const empty=inboxFilter==='done'?'Nothing finished yet.':inboxQuery.trim()?'Nothing matches.':inboxFilter==='open'&&inboxSnap.entries.length?'Nothing open. Done has everything resolved, not useful or dismissed.':inboxFilter==='new'?(inboxSnap.entries.length?'Nothing unread. Open shows everything still on your list.':(inboxSnap.runner?.state==='running'&&inboxSnap.runner.mailbox?`Watching ${esc(inboxSnap.runner.mailbox)}. Nothing needs you yet: it sends an alert only when an email tells you something the email itself doesn’t.`:'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.')):'Nothing from Inbox Watch yet. It sends an alert only when an email tells you something the email itself doesn’t.';
  return `<div class="session-home-head"><h2>Inbox</h2><span class="project-head-actions">${chip('open','Open')}${chip('new',`Unread${n?` <span class="badge" data-inbox-badge>${n}</span>`:''}`)}${chip('done','Done')}</span></div>
-  <div class="inbox-tools"><div class="inbox-tools-row"><input type="search" id="inbox-search" class="inbox-search" placeholder="Search titles and stories" value="${esc(inboxQuery)}" aria-label="Search the inbox"><button class="chip" id="inbox-watch" aria-label="Inbox Watch schedule${assistantMode()?'':', models and cost'}">${IC.sliders}Schedule</button></div>${inboxRunnerLine(inboxSnap.runner)?`<p class="sheet-help${['needs-connector','error'].includes(inboxSnap.runner.state)?' inbox-stale':' inbox-runner'}" role="status">${inboxRunnerLine(inboxSnap.runner)}</p>`:stale&&!inboxSnap.paused?`<p class="sheet-help inbox-stale">Inbox Watch hasn’t reported since ${esc(inboxDay(inboxSnap.lastReportAt))} ${esc(inboxWhen(inboxSnap.lastReportAt))}.</p>`:''}</div>
+  <div class="inbox-tools"><div class="inbox-tools-row"><input type="search" id="inbox-search" class="inbox-search" placeholder="Search titles and stories" value="${esc(inboxQuery)}" aria-label="Search the inbox">${inboxCheckChip()}<button class="chip" id="inbox-watch" aria-label="Inbox Watch schedule${assistantMode()?'':', models and cost'}">${IC.sliders}Schedule</button></div>${inboxRunnerLine(inboxSnap.runner)?`<p class="sheet-help${['needs-connector','error'].includes(inboxSnap.runner.state)?' inbox-stale':' inbox-runner'}" role="status">${inboxRunnerLine(inboxSnap.runner)}</p>`:stale&&!inboxSnap.paused?`<p class="sheet-help inbox-stale">Inbox Watch hasn’t reported since ${esc(inboxDay(inboxSnap.lastReportAt))} ${esc(inboxWhen(inboxSnap.lastReportAt))}.</p>`:''}</div>
   ${groups.length?groups.map(g=>`<section class="session-group project-group"><h2>${esc(g.day)} <span>${g.html.length}</span></h2>${g.html.join('')}</section>`).join(''):`<p class="sheet-help project-empty">${empty}</p>`}`;
 }
 function bindInboxRows(root){
+ root.querySelectorAll('[data-inbox-check]').forEach(b=>b.onclick=inboxCheckNow);
  root.querySelectorAll('[data-inbox-open]').forEach(b=>b.onclick=()=>inboxSheet(b.dataset.inboxOpen)); // 1.69.1: read first; the sheet starts the conversation
  root.querySelectorAll('[data-inbox-dismiss]').forEach(b=>b.onclick=()=>inboxAct({action:'dismiss',id:b.dataset.inboxDismiss},'Dismissed'));
  root.querySelectorAll('[data-inbox-more]').forEach(b=>b.onclick=()=>inboxSheet(b.dataset.inboxMore));
+}
+
+/* ---------- 1.75: Check now ----------
+   Asks the watcher to check mail now, whatever its schedule (so a schedule of Don't check means on demand only). Pocket
+   records the request; the watcher takes it up on its next one-minute tick and reports it done in its heartbeat. The chip
+   stays busy until then, and the list reloads with whatever the check found. */
+const inboxCheckChip=()=>`<button class="chip inbox-check" data-inbox-check${inboxCheck?' aria-busy="true" disabled':''} aria-label="${inboxCheck?'Checking your mail':'Check mail now'}" title="Check mail now">${IC.refresh}<span class="inbox-check-label">${inboxCheck?'Checking…':'Check now'}</span></button>`;
+function paintInboxCheck(){paintInboxView();paintRailInbox();}
+async function inboxCheckNow(){
+ if(inboxCheck)return;
+ let w;
+ try{w=await api('/inbox/check',{method:'POST',body:'{}',signal:AbortSignal.timeout(8000)});}catch(e){toast(e.message||'Could not ask Inbox Watch to check');return;}
+ if(!w.lastReportAt&&!w.profile){toast('Inbox Watch hasn’t reported yet, so nothing is reading your mail. The check runs once it starts.');return;}
+ inboxCheck={at:w.checkRequestedAt,source:w.source,until:Date.now()+6*60000,before:new Set((inboxSnap?.entries||[]).map(e=>e.id))};
+ paintInboxCheck();toast('Checking your mail. New alerts show up here when it’s done.');
+ while(inboxCheck){
+  await new Promise(r=>setTimeout(r,5000));
+  const c=inboxCheck;if(!c)return;
+  let n=null;try{n=await api('/inbox/watch?source='+encodeURIComponent(c.source),{signal:AbortSignal.timeout(8000)});}catch{}
+  const done=n?.profile?.status?.checkRequestDone;
+  if(done&&Date.parse(done)>=Date.parse(c.at)){
+   inboxCheck=null;
+   try{await loadInbox(true);}catch{}
+   const fresh=(inboxSnap?.entries||[]).filter(e=>!c.before.has(e.id)).length;
+   paintInboxCheck();paintInboxBadges();if(typeof paintAssistantHome==='function')paintAssistantHome();
+   toast(fresh?`Checked. ${fresh===1?'One new item':fresh+' new items'}.`:'Checked. Nothing new needs you.');
+   return;
+  }
+  if(Date.now()>c.until){inboxCheck=null;paintInboxCheck();toast('Inbox Watch hasn’t finished the check yet. Anything it finds will show up here.');return;}
+ }
 }
 
 /* ---------- one entry: the sheet with the whole text and the choices ---------- */
@@ -160,7 +192,7 @@ function inboxSheet(id){
 function railInboxHTML(){
  if(!inboxSnap)return '<p class="sheet-help">Loading the inbox…</p>';
  const rows=inboxSnap.entries.filter(inboxOpenState).sort((a,b)=>(a.state==='new'?0:1)-(b.state==='new'?0:1)||Date.parse(b.at)-Date.parse(a.at)),rest=inboxSnap.entries.length-rows.length;
- return `<div class="rail-projects rail-inbox"><div class="rail-project-actions"><a class="chip" href="${viewHref('inbox')}" data-view-link>All</a></div>
+ return `<div class="rail-projects rail-inbox"><div class="rail-project-actions"><a class="chip" href="${viewHref('inbox')}" data-view-link>All</a>${inboxCheckChip()}</div>
   ${rows.length?rows.slice(0,40).map(inboxRowHTML).join(''):'<p class="sheet-help">Nothing open from Inbox Watch.</p>'}
   ${rest?`<a class="rail-done-link" href="${viewHref('inbox')}" data-view-link>${rest} more in All</a>`:''}</div>`;
 }
@@ -250,11 +282,14 @@ async function inboxWatchSheet(){
  const body=`<p class="title-note watch-status" role="status" id="w-status">${esc(watchStatus(w))}</p>
   <button class="opt" id="w-pause" aria-pressed="${Boolean(s.paused)}"><span class="dot${s.paused?' on':''}"></span><span>Pause Inbox Watch<span class="sub">No mail checks, digests or look-aheads until you turn this off</span></span></button>
   ${p.rules?`<div class="title-settings model-offer" role="group" aria-labelledby="w-rules-h"><p class="vault-set-head" id="w-rules-h">Your rules</p>
-   <p class="title-note" id="w-rules-lead">Tell Inbox Watch what you always or never want to hear about, in your own words. It follows them on every check, in the first pass, the look-ahead and the tidy pass, and they win over its own judgment, even for something it would call critical. <strong>Not useful</strong> adds a line here.</p>
-   <label class="voice-field watch-rules">Rules<textarea id="w-rules" rows="10" maxlength="${p.rules.max||8000}" spellcheck="true" aria-describedby="w-rules-lead w-rules-count" placeholder="${esc('Tell me about every sale from my web store.\nNever alert me about accounts payable unless it is past due.\nNever tell me about cameras that go offline.')}">${esc(rulesText)}</textarea></label>
+   <p class="title-note" id="w-rules-lead">Your instructions to Inbox Watch, in your own words: what matters to you, what doesn’t, and any rules of your own. It follows them on every check, in the first pass, the look-ahead and the tidy pass, and they win over its own judgment, even for something it would call critical. <strong>Not useful</strong> adds a line here.</p>
+   <label class="voice-field watch-rules">Rules<textarea id="w-rules" rows="10" maxlength="${p.rules.max||8000}" spellcheck="true" aria-describedby="w-rules-lead w-rules-count" placeholder="${esc('Write your instructions here. For example:\nWho I am: I run a landscaping company; my office manager does scheduling.\nWhat matters: Tell me when a customer asks for a quote.\nWhat doesn’t: Never alert me about newsletters or receipts.\nMy rules: Anything from my accountant is high priority.')}">${esc(rulesText)}</textarea></label>
    <p class="title-note" id="w-rules-count"></p></div>`:''}
+  ${s.gmailLabel?(()=>{const gl=opts.gmailLabel||{},name=esc(gl.name||'Pocket Inbox'),off=gl.available===false;return `<div class="title-settings model-offer" role="group" aria-labelledby="w-label-h"><p class="vault-set-head" id="w-label-h">Your list in Gmail</p>
+   <button class="opt" id="w-label" aria-pressed="${Boolean(s.gmailLabel.enabled)}"${off?' aria-describedby="w-label-off"':''}><span class="dot${s.gmailLabel.enabled?' on':''}"></span><span>Keep a ${name} label in Gmail<span class="sub">Everything on this list carries the label in Gmail and stays in your inbox. Give an email the label and it comes here with a summary; take it off and it leaves this list.</span></span></button>
+   ${off?`<p class="title-note" id="w-label-off">Inbox Watch can only read this mailbox, so it can’t add the label yet: ${esc(gl.reason||'it has no Gmail write access')}.</p>`:''}</div>`;})():''}
   <div class="title-settings model-offer" role="group" aria-labelledby="w-sched-h"><p class="vault-set-head" id="w-sched-h">Schedule</p>
-   <p class="title-note">How often it checks your mail. Inside a period, that period’s interval applies; the rest of the time, this one. When periods overlap, the first listed wins.${esc(tz)}</p>
+   <p class="title-note">How often it checks your mail. Inside a period, that period’s interval applies; the rest of the time, this one. When periods overlap, the first listed wins. <strong>Check now</strong> in the Inbox checks at any time, so Don’t check means on demand only.${esc(tz)}</p>
    ${watchSelect('w-every','The rest of the time',everyChoices,s.every,watchEvery)}
    <div class="router-levels watch-periods" id="w-periods"></div>
    <span class="vault-set-actions"><button type="button" class="chip" id="w-add">${IC.plus}Add a period</button></span></div>
@@ -293,6 +328,7 @@ async function inboxWatchSheet(){
  const rulesBox=$w('#w-rules'),rulesCount=()=>{const c=$w('#w-rules-count');if(c&&rulesBox)c.textContent=`${rulesBox.value.length.toLocaleString('en-US')} of ${Number(rulesBox.maxLength).toLocaleString('en-US')} characters`;};
  rulesBox?.addEventListener('input',rulesCount);rulesCount();
  $w('#w-tidy')?.addEventListener('click',e=>{s.tidy.enabled=!s.tidy.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.tidy.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.tidy.enabled);});
+ $w('#w-label')?.addEventListener('click',e=>{s.gmailLabel.enabled=!s.gmailLabel.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.gmailLabel.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.gmailLabel.enabled);});
  $w('#w-fp')?.addEventListener('click',e=>{s.firstPass.enabled=!s.firstPass.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.firstPass.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.firstPass.enabled);});
  $w('#w-pause').onclick=e=>{s.paused=!s.paused;e.currentTarget.setAttribute('aria-pressed',String(s.paused));e.currentTarget.querySelector('.dot').classList.toggle('on',s.paused);};
  const hourVal=id=>{const v=$w(id).value;return v==='off'?null:Number(v);};
@@ -301,6 +337,7 @@ async function inboxWatchSheet(){
   const out={paused:Boolean(s.paused),every:Number($w('#w-every').value),periods:s.periods,quietHours:[hourVal('#w-quiet-from'),hourVal('#w-quiet-to')],digestHour:hourVal('#w-digest'),
    lookahead:{morning:hourVal('#w-la-morning'),evening:hourVal('#w-la-evening')},models:structuredClone(s.models||{})};
   if(rulesBox)out.rules=rulesBox.value;
+  if(s.gmailLabel)out.gmailLabel={enabled:Boolean(s.gmailLabel.enabled)};
   if(s.tidy)out.tidy={enabled:Boolean(s.tidy.enabled),every:Number($w('#w-tidy-every')?.value||s.tidy.every)};
   if(s.firstPass)out.firstPass={enabled:Boolean(s.firstPass.enabled),provider:$w('#w-fp-provider')?.value||s.firstPass.provider,threshold:Number($w('#w-fp-threshold')?.value||s.firstPass.threshold)};
   sh.querySelectorAll('#w-models [data-job]').forEach(row=>{out.models[row.dataset.job]={model:row.querySelector('[data-model]').value,reasoning:row.querySelector('[data-reasoning]').value};});

@@ -69,11 +69,12 @@ pocket-inbox watch set --every 10     # change one thing, only when the user ask
 pocket-inbox watch set --pause        # or --resume
 pocket-inbox watch set --file -       # the whole settings object as JSON (periods, quiet hours, digest, look-ahead, models)
 pocket-inbox watch reset              # back to the watcher's own config file
+pocket-inbox check                    # check mail now, whatever the schedule (when the user asks: "check my email now")
 ```
 
 **Your rules** (Settings → Inbox Watch → Your rules) are the owner's own words about what they always or never want
 to hear about; the watcher follows them on every check and they win over its judgment. When the user asks you to
-change them ("stop telling me about camera outages"), read them with `pocket-inbox watch --json` (`profile.rules.text`),
+change them ("stop telling me about shipping notices"), read them with `pocket-inbox watch --json` (`profile.rules.text`),
 add or edit a line, and save the whole settings object with `pocket-inbox watch set --file -` including `rules`. Confirm
 the line you added.
 

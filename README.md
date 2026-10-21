@@ -17,7 +17,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.74.0 / build 151**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.75.0 / build 152**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -98,7 +98,7 @@ the story and the Gmail links. A morning digest and a look-ahead cover the rest.
 and interval), quiet hours, the digest and look-ahead times, the models, and a **first pass**
 that skips clearly routine mail before the model reads it, and shows what each day cost.
 **Your rules** (1.73) are your own words about what you always or never want to hear about
-("tell me about every sale from my web store", "never tell me about cameras that go offline");
+("tell me about every sale from my web store", "never tell me about shipping notices");
 the watcher follows them on every check, and they win over its own judgment. With
 **Keep the Inbox tidy** (1.71) it also takes off your list what has since been resolved or handled,
 saying why, so the Inbox holds only what still needs you.
@@ -299,8 +299,8 @@ device, and when you open them, so an item an agent adds shows up without a relo
 
 Inbox Watch is a small worker that runs beside Pocket on the same server, on a schedule you set
 (every five minutes unless you change it), and reads one Gmail mailbox the way a chief of staff would. It keeps a 90-day memory of the
-mail, follows each situation as a story across threads and senders (a camera outage, a
-customer's service visit, a bill with a deadline), notices when the same device, invoice or
+mail, follows each situation as a story across threads and senders (an order on its way, a
+customer's request, a bill with a deadline), notices when the same device, invoice or
 account turns up again, and hands all of that to a model (Claude Code or Codex headless, or an
 OpenClaw agent) to decide what deserves you. What it sends:
 
@@ -329,7 +329,13 @@ hand (its own config and timer, as in that folder's README) is left alone. The c
 `claude -p` or `codex exec` call that may use only Gmail's read tools; with both connected, one stands in for the other. `POCKET_INBOX_RUNNER=0` turns the runner off.
 **Schedule, models and cost** (1.70, Settings → Inbox Watch or **Schedule** in the Inbox) sets when it checks
 (periods with their own days, hours and interval), quiet hours, the digest and look-ahead times, a pause, and in
-Developer mode the model and reasoning for each job, with what each day cost. Mail access is Claude Code's Gmail connector (the default since 1.74), the owner's own Gmail consent, or a
+Developer mode the model and reasoning for each job, with what each day cost. **Check now** (1.75, beside All and
+Schedule in the Inbox) has it check right away whatever the schedule, so a schedule of *Don't check* means on demand only.
+**Your list in Gmail** (1.75, on by default) keeps a *Pocket Inbox* label in Gmail on everything open in the Inbox,
+and the emails stay in your Gmail inbox too. Give an email that label in Gmail and it comes to the Inbox with a summary at the
+next check; take it off and it leaves the list; finish an item in Pocket and the label comes off. It needs Gmail write
+access (`gmail.modify`; only that one label is ever changed), so it works with the Gmail API sign-ins and with Codex's Gmail app; not yet with Claude Code's Gmail connector.
+The watcher's built-in instructions assume nothing about your work or industry; **Your rules** are where you make it yours. Mail access is Claude Code's Gmail connector (the default since 1.74), the owner's own Gmail consent, or a
 Workspace service account for mailboxes an administrator controls.
 
 ### Answer, approve and steer

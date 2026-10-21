@@ -57,6 +57,35 @@ def msg(mid, tid, ts, sender="Pat Doe <pat@vendor.example>", labels=("INBOX",), 
             "snippet": body[:40], "plaintextBody": body}
 
 
+def test_codex_labels_in_a_home_of_their_own():
+    b = codex_box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now - 120), msg("m2", "t1", now - 60)]}, {"id": "t2", "messages": [msg("m3", "t2", now - 30)]}]
+    b.save()
+    m = C.ConnectorMail({"agent": "codex", "bin": str(b.codex), "codex_home": str(b.dir / "codex-src")}, "alex@example.com", "", "", b.dir)
+    assert m.label_access() is None and m.label_id("Pocket Inbox") == "Pocket Inbox"
+    assert m.labelled_threads("Pocket Inbox", 50) == {"t1", "t2"}
+    assert "label:pocket-inbox" in b.argv()[-1]["argv"][-1], "searched by the label's Gmail name"
+    m.db.execute("create table if not exists mail(message_id text primary key, thread_id text, ts integer)")
+    m.db.executemany("insert or replace into mail values(?,?,?)", [("m1", "t1", now - 120), ("m2", "t1", now - 60), ("m3", "t2", now - 30)])
+    m.db.commit()
+    ok = m.label_threads([("t1", ["Pocket Inbox"], []), ("t2", [], ["Pocket Inbox"]), ("t9", ["Pocket Inbox"], [])])
+    assert ok == {"t1", "t2"}, "a thread with no known message is skipped"
+    run = b.argv()[-1]
+    sent = json.loads(run["argv"][-1].split("in order: ", 1)[1].split("]. Make no", 1)[0] + "]")
+    assert sent[0]["message_ids"] == ["m2"] and sent[0]["create_missing_labels"] is True, "added on the newest message"
+    assert sorted(sent[1]["message_ids"]) == ["m3"] and sent[1]["remove_label_names"] == ["Pocket Inbox"]
+    home = Path(run["home"])
+    cfg = (home / "config.toml").read_text()
+    assert home.name == "codex-home-label" and ".tools.apply_labels_to_emails]\nenabled = true" in cfg
+    assert not any(f".tools.{t}]" in cfg for t in C.CODEX_READS) and "send_email" not in cfg and "destructive_enabled = false" in cfg
+    b.data["codex_label_tamper"] = True
+    b.save()
+    assert m.label_threads([("t1", ["Pocket Inbox"], [])]) == set(), "a call with other arguments than asked does not count"
+    claude = Box().mail()
+    assert "can't change labels" in claude.label_access()
+
+
 class Box:
     def __init__(self):
         self.dir = Path(tempfile.mkdtemp(prefix="conn-test-"))
@@ -205,6 +234,15 @@ prompt = args[-1]
 def emit(e): print(json.dumps(e))
 if box.get("codex_bot_check"):
     emit({"type": "turn.failed", "error": {"message": "unexpected status 403 Forbidden: cloudflare challenge"}}); sys.exit(1)
+lab = re.search(r"Call gmail_apply_labels_to_emails once for each of these argument objects, exactly as given, in order: (\[.*\])\.", prompt)
+if lab:  # 1.75: label changes, one call per item; box["codex_label_tamper"] makes the model swap a label name
+    for i, a in enumerate(json.loads(lab.group(1))):
+        if box.get("codex_label_tamper") and i == 0:
+            a = {**a, "add_label_names": ["SPAM"]}
+        emit({"type": "item.completed", "item": {"type": "mcp_tool_call", "server": "codex_apps", "tool": "gmail.apply_labels_to_emails", "arguments": a,
+              "status": "completed", "result": {"structured_content": {"success": True, "added_label_ids": a["add_label_names"], "removed_label_ids": a["remove_label_names"]}}}})
+    emit({"type": "turn.completed", "usage": {"input_tokens": 900, "output_tokens": 10}})
+    sys.exit(0)
 m = re.search(r"Call gmail_(\w+) exactly once(?: with these arguments: (\{.*\}))?\.", prompt)
 tool, a = m.group(1), json.loads(m.group(2) or "{}")
 if tool == "get_profile":

@@ -7,7 +7,7 @@ timer; Pocket is where the owner reads, answers and sets it up (Settings → Inb
 
 An inbox watcher with a model as the judge. On the schedule you set (every five minutes by default) it syncs one Gmail mailbox, hands the changed threads to
 a judge together with everything it already knows (a 90-day mail archive, the open stories with their timelines, the
-alerts already sent, repeat sightings of the same cameras, invoices and account numbers), and delivers only what
+alerts already sent, the same orders, invoices, devices and account numbers turning up again), and delivers only what
 deserves attention, with a briefed Pocket Code session one tap away. Twice a day it looks ahead at what is due.
 
 Built from the author's own inbox monitor (October 2026) and generalized so it runs for anyone: the owner, the
@@ -138,6 +138,27 @@ decision turn as `skimmed_routine`, where the judge may only `update` a story fr
 up). Any error means the judge reads it. Settings: on/off, the classifier and the confidence threshold (Pocket or the
 TOML). Every check is in `firstpass_log`; `usage` shows how many were skipped per day. Backtest (996 decisions): no alert
 skipped at 0.8–0.9 with the rules; at 5-minute checks, ~18% (0.9) to ~22% (0.8) lower cost.
+
+**Check now (Pocket 1.75).** Pocket's Inbox has a Check now chip (`pocket-inbox check`). The request reaches the watcher
+with its settings (`checkRequestedAt`); `tick` runs a check for it at once, whatever the schedule says, paused included,
+and the heartbeat reports it done (`status.checkRequestDone`). With `every = 0` and no periods, the watcher checks only
+on demand (and with the digest and look-aheads).
+
+**The Pocket Inbox label (`[gmail_label]`, on by default; also a Pocket setting).** The owner's open Inbox entries and
+one Gmail label (`name`, default "Pocket Inbox", created when missing) are kept in step at every check, both ways. An entry
+whose thread lacks the label gets it; a thread the owner labelled in Gmail that is not on the list is judged at that check
+(marked `added_in_gmail`; code makes it an alert, not held for quiet hours, never skipped by the first pass) and put back in
+INBOX if it was moved out; a label taken off in Gmail dismisses the entry; an entry finished in Pocket (resolved, not useful,
+dismissed, tidied) loses the label. `label_sync` in monitor.sqlite remembers which threads were in step, so the two kinds of
+change can be told apart; the first sync only adds labels. Writes need `gmail.modify` (the service account's delegation, or
+`gmail-auth` again for an OAuth sign-in); nothing but that label, and INBOX for a thread the owner labelled, is ever changed.
+Through the connector (1.74) the label goes through Codex's Gmail app: a second locked Codex home whose only tool is
+`apply_labels_to_emails`, called from a prompt that holds message ids and the label name, never email text; a call made with
+other arguments than asked does not count. Claude Code's Gmail connector cannot change labels here yet (Settings says so).
+
+**Neutral instructions.** `prompts/` assume nothing about the owner's work or industry. Everything specific to a person
+(what matters, what doesn't, their systems, their staff, their thresholds) belongs in their rules (the preferences file, or
+Settings → Inbox Watch → Your rules).
 
 **Tidy (optional, `[tidy]`).** Every few hours outside quiet hours (`every_hours`, default 2; also a Pocket setting) the
 watcher takes off the owner's Inbox what no longer needs them. Code first: an older entry on a story with a newer one is

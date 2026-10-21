@@ -6,6 +6,8 @@
 // 1.70: per source, the owner's settings for the watcher (when it checks, which models judge) and the watcher's profile
 // (its defaults, the choices it offers, what is in force, what it cost per day), which it sends with every heartbeat.
 // The worker reads the settings back each minute; with none stored it uses its own config file.
+// 1.75: Check now. The owner's request is a time stamp per source, handed to the worker with the settings; the worker runs a
+// check on its next tick whatever the schedule says and reports the stamp back as done in its heartbeat.
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -82,6 +84,10 @@ export function checkWatch(raw, profile = null) {
     if ('enabled' in t) { if (typeof t.enabled !== 'boolean') throw bad('tidy.enabled is true or false.'); out.tidy.enabled = t.enabled; }
     if ('every' in t) { if (!WATCH.tidyEvery.includes(t.every)) throw bad(`Tidy runs every ${WATCH.tidyEvery.join(', ')} hours.`); out.tidy.every = t.every; }
   }
+  if ('gmailLabel' in raw) { // 1.75: the Pocket Inbox label in Gmail, kept in step with this list both ways
+    const g = raw.gmailLabel; if (!g || typeof g !== 'object' || typeof g.enabled !== 'boolean') throw bad('gmailLabel is {enabled: true or false}.');
+    out.gmailLabel = { enabled: g.enabled };
+  }
   if ('models' in raw) {
     const m = raw.models; if (!m || typeof m !== 'object') throw bad('models is {decisions, lookahead}.');
     const offered = Array.isArray(profile?.options?.models) ? profile.options.models.map(x => x?.id).filter(Boolean) : null;
@@ -121,13 +127,14 @@ export class InboxStore {
     this.entries = Array.isArray(d.entries) ? d.entries.filter(e => e && typeof e.id === 'string' && typeof e.title === 'string' && !Number.isNaN(ms(e.at))).map(e => this.normalize(e)) : [];
     this.sources = {};
     if (d.sources && typeof d.sources === 'object') for (const [k, v] of Object.entries(d.sources)) if (v && !Number.isNaN(ms(v.lastReportAt))) this.sources[source(k)] = { lastReportAt: v.lastReportAt };
-    this.profiles = {}; this.watch = {};
+    this.profiles = {}; this.watch = {}; this.checks = {};
     if (d.profiles && typeof d.profiles === 'object') for (const [k, v] of Object.entries(d.profiles)) if (v && typeof v === 'object' && v.profile && typeof v.profile === 'object') this.profiles[source(k)] = { at: v.at || null, profile: v.profile };
     if (d.watch && typeof d.watch === 'object') for (const [k, v] of Object.entries(d.watch)) {
       if (!v || typeof v !== 'object') continue;
       let settings = null; try { settings = checkWatch(v.settings ?? null); } catch { settings = null; }
       this.watch[source(k)] = { settings, revision: Number.isInteger(v.revision) && v.revision > 0 ? v.revision : 1, updatedAt: v.updatedAt || null, by: v.by === 'cli' ? 'cli' : 'ui' };
     }
+    if (d.checks && typeof d.checks === 'object') for (const [k, v] of Object.entries(d.checks)) if (v && !Number.isNaN(ms(v.at))) this.checks[source(k)] = { at: v.at };
   }
   // A file from an earlier build, or edited by hand, comes back with every field the UI reads.
   normalize(e) {
@@ -138,7 +145,7 @@ export class InboxStore {
       state: ok(e.state, STATES, 'new'), at: e.at, seenAt: e.seenAt || null, actedAt: e.actedAt || null, ackedAt: e.ackedAt || null, note: str(e.note, NOTE_MAX),
       by: e.by === 'ui' ? 'ui' : 'cli', actedBy: e.actedBy === 'ui' || e.actedBy === 'cli' ? e.actedBy : null, revision: Number.isInteger(e.revision) && e.revision > 0 ? e.revision : 1, lastAction: typeof e.lastAction === 'string' ? e.lastAction : null };
   }
-  save() { this.write(this.file, { version: 1, entries: this.entries, sources: this.sources, profiles: this.profiles, watch: this.watch }); }
+  save() { this.write(this.file, { version: 1, entries: this.entries, sources: this.sources, profiles: this.profiles, watch: this.watch, checks: this.checks }); }
   get(id) { const e = this.entries.find(x => x.id === id); if (!e) throw fail('That Inbox entry does not exist.', 404, { code: 'inbox_missing' }); return e; }
   view(e) { return { ...e, new: e.state === 'new' }; }
   lastReportAt() { let best = null; for (const s of Object.values(this.sources)) if (!best || ms(s.lastReportAt) > ms(best)) best = s.lastReportAt; return best; }
@@ -248,7 +255,15 @@ export class InboxStore {
   watchView(src) {
     const key = src ? source(src) : this.watchSource(), w = this.watch[key] || { settings: null, revision: 0, updatedAt: null, by: null };
     return { source: key, settings: w.settings, revision: w.revision, updatedAt: w.updatedAt, by: w.by, profile: this.profiles[key]?.profile || null,
-      profileAt: this.profiles[key]?.at || null, lastReportAt: this.sources[key]?.lastReportAt || null };
+      profileAt: this.profiles[key]?.at || null, lastReportAt: this.sources[key]?.lastReportAt || null, checkRequestedAt: this.checks[key]?.at || null };
+  }
+  // 1.75: Check now. A second press while the first is still on its way changes nothing; once the watcher reports it done
+  // (or ten minutes on, if it never does) a press is a new request.
+  requestCheck(src) {
+    const key = src ? source(src) : this.watchSource(), at = iso(this.now()), prev = this.checks[key]?.at;
+    const done = this.profiles[key]?.profile?.status?.checkRequestDone;
+    if (!prev || (done && ms(done) >= ms(prev)) || this.now() - ms(prev) > 10 * 60_000) { this.checks[key] = { at: prev && ms(prev) >= ms(at) ? iso(ms(prev) + 1000) : at }; this.save(); }
+    return this.watchView(key);
   }
   // null goes back to the watcher's config file. Each save is a new revision; the worker reports which one it applied.
   setWatch(src, settings, { actor = 'ui' } = {}) {
