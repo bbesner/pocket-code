@@ -75,7 +75,7 @@ written. `remember --all` writes the backlog at once; every run does the rest.
 ## Set up an instance
 
 **With Pocket Code 1.74 or later you don't:** switching Inbox Watch on in Pocket sets up and runs a connector watcher
-for the owner's mailbox (config under `<data dir>/inbox-watch/`). Set one up by hand for anything Pocket's does not
+for the owner's mailbox (config under `<data dir>/inbox-watch-data/`). Set one up by hand for anything Pocket's does not
 cover: another mailbox, the Gmail API, a different judge or delivery. Pocket leaves a watcher that reports under
 its own config alone.
 

@@ -44,33 +44,33 @@ test('a hand-installed watcher is left alone', async () => {
   const r = rig({ sources: { 'inbox-monitor': { lastReportAt: new Date().toISOString() } } });
   assert.deepEqual(r.runner.status(), { managed: false, state: 'external' });
   await r.runner.step();
-  assert.equal(fs.existsSync(path.join(r.data, 'inbox-watch', 'config.toml')), false);
+  assert.equal(fs.existsSync(path.join(r.data, 'inbox-watch-data', 'config.toml')), false);
 });
 
 test('off when Inbox Watch is off', async () => {
   const r = rig(); r.settings.inbox = false;
   assert.deepEqual(r.runner.status(), { managed: false, state: 'off' });
   await r.runner.step();
-  assert.equal(fs.existsSync(path.join(r.data, 'inbox-watch')), false);
+  assert.equal(fs.existsSync(path.join(r.data, 'inbox-watch-data')), false);
 });
 
 test('waits for the owner\'s time zone', async () => {
   const r = rig({ tz: '' });
   await r.runner.step();
   assert.equal(r.runner.status().state, 'waiting');
-  assert.equal(fs.existsSync(path.join(r.data, 'inbox-watch', 'config.toml')), false);
+  assert.equal(fs.existsSync(path.join(r.data, 'inbox-watch-data', 'config.toml')), false);
 });
 
 test('sets up from the connector, starts from now, then ticks', async () => {
   const r = rig();
   await r.runner.step();
-  const cfg = fs.readFileSync(path.join(r.data, 'inbox-watch', 'config.toml'), 'utf8');
+  const cfg = fs.readFileSync(path.join(r.data, 'inbox-watch-data', 'config.toml'), 'utf8');
   assert.match(cfg, /email = "alex@example.com"/);
   assert.match(cfg, /name = "Alex Rivera"/);
   assert.match(cfg, /timezone = "America\/New_York"/);
   assert.match(cfg, /provider = "connector"/);
   assert.match(cfg, /\[judge\]\nkind = "claude"/);
-  assert.match(cfg, /docs_dir = ".*inbox-watch\/files"/); // Files keeps only files in the home directory
+  assert.match(cfg, /docs_dir = ".*inbox-watch-data\/files"/); // Files keeps only files in the home directory
 
   assert.equal(r.runner.status().state, 'setting-up');
   assert.equal(r.runner.status().mailbox, 'alex@example.com');
@@ -80,12 +80,12 @@ test('sets up from the connector, starts from now, then ticks', async () => {
   assert.equal(r.runner.state.backfill, 'due');
   r.settings.ownerTimezone = 'America/Chicago'; // signed in from elsewhere
   r.runner.retime(r.settings.ownerTimezone);
-  assert.match(fs.readFileSync(path.join(r.data, 'inbox-watch', 'config.toml'), 'utf8'), /timezone = "America\/Chicago"/);
+  assert.match(fs.readFileSync(path.join(r.data, 'inbox-watch-data', 'config.toml'), 'utf8'), /timezone = "America\/Chicago"/);
   assert.equal(r.runner.state.timezone, 'America/Chicago');
-  const file = path.join(r.data, 'inbox-watch', 'config.toml'); // a config from before docs_dir gains it
+  const file = path.join(r.data, 'inbox-watch-data', 'config.toml'); // a config from before docs_dir gains it
   fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^docs_dir = .*\n/m, ''));
   r.runner.checked = false; r.runner.upgradeConfig();
-  assert.match(fs.readFileSync(file, 'utf8'), /root = .*\ndocs_dir = ".*inbox-watch\/files"\nemail = false/);
+  assert.match(fs.readFileSync(file, 'utf8'), /root = .*\ndocs_dir = ".*inbox-watch-data\/files"\nemail = false/);
 });
 
 test('no Gmail connector says what to connect', async () => {

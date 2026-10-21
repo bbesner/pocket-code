@@ -1,5 +1,5 @@
 // 1.74: Pocket runs Inbox Watch's watcher itself. Turning Inbox Watch on is the whole setup: when no other watcher reports
-// to this Pocket, the runner writes a config for the owner's mailbox under <data dir>/inbox-watch/, reads mail through
+// to this Pocket, the runner writes a config for the owner's mailbox under <data dir>/inbox-watch-data/, reads mail through
 // the Gmail connector the owner already linked to Claude Code (inbox-watch's mail_connector.py: no Google client, token
 // or service account), starts from now, and then runs the watcher's `tick` every minute, which checks mail only when
 // the schedule set in Settings → Inbox Watch says a check is due. A watcher installed by hand (its own config and
@@ -20,7 +20,7 @@ const toml = v => JSON.stringify(String(v)); // TOML basic strings take JSON's e
 export class InboxRunner {
   constructor({ dataDir, appDir, claudeBin, sessionDir, env, settings, store, log, notify, python = 'python3', home = process.env.HOME || '', now = () => Date.now() }) {
     Object.assign(this, { appDir, claudeBin, sessionDir, env, settings, store, log, notify, python, home, now });
-    this.dir = path.join(dataDir, 'inbox-watch');
+    this.dir = path.join(dataDir, 'inbox-watch-data'); // not 'inbox-watch': the default data dir is the checkout, which has the watcher's code there
     this.config = path.join(this.dir, 'config.toml');
     this.statusFile = path.join(this.dir, 'status.json');
     this.watchDir = path.join(appDir, 'inbox-watch');

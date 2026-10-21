@@ -322,7 +322,7 @@ Pocket's part is the Inbox (`pocket-inbox`), the push, the briefed conversation 
 Files; the watcher itself ships in this repository, in [`inbox-watch/`](inbox-watch/README.md) (1.72).
 **Since 1.74 Pocket runs it**: switching Inbox Watch on is the whole setup. Pocket finds your mailbox through
 Claude Code's Gmail connector (claude.ai → Settings → Connectors; **Settings → Connectors** in Pocket links there),
-writes the watcher's config under `<data dir>/inbox-watch/`, starts from now, loads two weeks of mail as its memory,
+writes the watcher's config under `<data dir>/inbox-watch-data/`, starts from now, loads two weeks of mail as its memory,
 and runs the watcher every minute; the watcher checks mail only when your schedule says a check is due. The
 Inbox says what it is doing while it sets up, and what to connect when Gmail is missing. A watcher installed by
 hand (its own config and timer, as in that folder's README) is left alone. The connector's reads go through a
