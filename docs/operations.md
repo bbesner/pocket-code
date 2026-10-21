@@ -10,7 +10,9 @@ guide covers what happens after that.
 
 A Claude session keeps a detached CLI process with stream input. A Codex thread keeps
 an app-server. Pocket records runner metadata and output, and uses named input pipes
-so a restarted daemon can reattach to surviving processes. Keep the daemon, CLI/MCP
+so a restarted daemon can reattach to surviving processes. The pipes live outside the
+data directory, in `$TMPDIR/pocket-code-pipes-<uid>/<install>/` (or `POCKET_PIPE_DIR`), so
+a recursive search of the install can never open one and swallow what Pocket sends. Keep the daemon, CLI/MCP
 processes and their data on the same host and OS account.
 
 The supplied [PM2 ecosystem file](../ecosystem.config.cjs) sets `treekill: false`.

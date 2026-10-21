@@ -124,6 +124,30 @@ test('a restart reattaches to the live process through its input pipe',async t=>
  assert.equal(f.pids().size,1,'the restarted server wrote into the same process');
 });
 
+// 1.73.2: a recursive search of the data directory opened a session's pipe and swallowed its
+// approvals, messages and stops, so pipes live outside it; pre-1.73.2 runners are still adopted.
+test('input pipes live outside the data directory; a pre-1.73.2 pipe in turnlogs is still adopted',async t=>{
+ const pipes=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-pipes-'));t.after(()=>fs.rmSync(pipes,{recursive:true,force:true}));
+ const f=await fixture(t,18398,{POCKET_PIPE_DIR:pipes});
+ const turnlogs=path.join(f.dir,'data','turnlogs'),fifos=d=>{try{return fs.readdirSync(d).filter(n=>n.endsWith('.in.fifo'))}catch{return []}};
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ assert.deepEqual(fifos(turnlogs),[],'no pipe in the data directory');
+ const [pipe]=fifos(path.join(pipes,'claude'));
+ assert.ok(pipe?.startsWith(id+'.'),'the pipe is in the pipe directory');
+ assert.equal(fs.statSync(path.join(pipes,'claude')).mode&0o777,0o700);
+ // An older server left its runner's pipe in turnlogs/: move it there and restart.
+ await f.stop();
+ fs.renameSync(path.join(pipes,'claude',pipe),path.join(turnlogs,pipe));
+ fs.writeFileSync(path.join(pipes,'claude','gone.0.in.fifo'),''); // a leftover nothing owns is swept
+ await f.start();
+ assert.equal((await f.health()).processes,1,'process adopted through the legacy pipe');
+ assert.ok(!fs.existsSync(path.join(pipes,'claude','gone.0.in.fifo')),'unowned pipe swept');
+ assert.equal((await f.call(`/session/${id}/message`,msg('after upgrade'))).status,202);
+ assert.ok(await f.until(async()=>f.calls().length===2&&await f.state(id)==='finished'));
+ assert.equal(f.pids().size,1,'the upgraded server wrote into the same process');
+});
+
 test('refuses while another app is mid-turn; a later message starts a fresh process',async t=>{
  const f=await fixture(t,18396);
  const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;

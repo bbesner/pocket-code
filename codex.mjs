@@ -26,6 +26,7 @@ import {QuestionInbox} from './questions.mjs';
 import {ApprovalInbox,codexApproval,codexPermissionSettings} from './approvals.mjs';
 import {estimateWindow} from './usage.mjs';
 import {descendantCpu} from './proctree.mjs';
+import { pipeDirs, ensurePipeDir } from './pipes.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import { rolloutState, contextUsed, cachedTokens, TTL_CODEX, TTL_CODEX_NOTE } from './codex-rollout.mjs';
 
@@ -683,11 +684,14 @@ export function codexTurnActive(threadId) { return codexTurns.has(threadId); }
 // server, so a Pocket restart doesn't end them (with plain pipes the app-server exits
 // within a second of losing its parent — verified 2026-10-04). A keeper process holds
 // the pipe's write end open across restarts; closing = kill keeper + end our end → EOF.
-// Own directory: the Claude side's startup sweep removes pipes it doesn't own.
+// Own directories: the Claude side's startup sweep removes pipes it doesn't own. 1.73.2: the
+// pipes live outside the data directory (pipes.mjs); pre-1.73.2 sessions keep theirs here.
 const CX_LOG_DIR = path.join(DATA_DIR, 'turnlogs-codex');
+const CX_PIPES = pipeDirs(DATA_DIR), CX_PIPE_DIR = CX_PIPES.codex;
 const cxFiles = key => ({
   out: path.join(CX_LOG_DIR, key + '.out.ndjson'), err: path.join(CX_LOG_DIR, key + '.err.log'),
-  fifo: path.join(CX_LOG_DIR, key + '.in.fifo'), meta: path.join(CX_LOG_DIR, key + '.session.json'),
+  fifo: path.join(CX_PIPE_DIR, key + '.in.fifo'), legacyFifo: path.join(CX_LOG_DIR, key + '.in.fifo'),
+  meta: path.join(CX_LOG_DIR, key + '.session.json'),
 });
 const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
@@ -748,6 +752,7 @@ function spawnTransport(extraEnv = {}) {
   const key = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const files = cxFiles(key);
   for (const f of [files.out, files.err]) fs.writeFileSync(f, '', { mode: 0o600 });
+  ensurePipeDir(CX_PIPE_DIR, CX_PIPES.top);
   execFileSync('mkfifo', ['-m', '600', files.fifo]);
   const hold = fs.openSync(files.fifo, fs.constants.O_RDWR); // never blocks; lets the read end open
   const inFd = fs.openSync(files.fifo, 'r');
@@ -788,11 +793,12 @@ export function adoptCodexSessions(hooksFor) {
     let cmd = ''; try { cmd = fs.readFileSync(`/proc/${m.pid}/cmdline`, 'utf8'); } catch { }
     if (!m.threadId || !m.pid || !pidAlive(m.pid) || !cmd.includes('app-server')) {
       try { process.kill(-m.keeperPid, 'SIGTERM'); } catch { }
-      for (const x of [files.meta, files.fifo]) { try { fs.unlinkSync(x); } catch { } }
+      for (const x of [files.meta, files.fifo, files.legacyFifo]) { try { fs.unlinkSync(x); } catch { } }
       log(`codex session ended while the server was down thread=${m.threadId}`);
       continue;
     }
     let writer;
+    if (!fs.existsSync(files.fifo) && fs.existsSync(files.legacyFifo)) files.fifo = files.legacyFifo; // started before 1.73.2
     try { writer = fs.createWriteStream(null, { fd: fs.openSync(files.fifo, fs.constants.O_RDWR) }); writer.on('error', () => { }); }
     catch { try { process.kill(-m.pid, 'SIGTERM'); } catch { } continue; } // unreachable: let it go
     let size = 0; try { size = fs.statSync(files.out).size; } catch { }
@@ -819,6 +825,8 @@ export function adoptCodexSessions(hooksFor) {
     if (f.endsWith('.in.fifo')) { try { fs.unlinkSync(full); } catch { } continue; }
     if (/\.(out\.ndjson|err\.log)$/.test(f)) { try { if (Date.now() - fs.statSync(full).mtimeMs > 48 * 3600_000) fs.unlinkSync(full); } catch { } }
   }
+  let pipes = []; try { pipes = fs.readdirSync(CX_PIPE_DIR); } catch { }
+  for (const f of pipes) if (f.endsWith('.in.fifo') && !live.has(f.split('.')[0])) { try { fs.unlinkSync(path.join(CX_PIPE_DIR, f)); } catch { } }
 }
 
 function finish(turn, ev) {
