@@ -56,6 +56,7 @@ export class InboxRunner {
       return;
     }
     if (!fs.existsSync(this.config)) return this.setup();
+    if (s.ownerTimezone && this.state.timezone && s.ownerTimezone !== this.state.timezone) this.retime(s.ownerTimezone);
     if (!this.state.baselined) return this.baseline();
     if (this.state.backfill === 'due') return this.backfill();
     const r = await this.run('tick', ['tick']);
@@ -126,7 +127,14 @@ export class InboxRunner {
     fs.writeFileSync(this.config + '.tmp', lines.join('\n'));
     fs.renameSync(this.config + '.tmp', this.config);
     this.log(`inbox runner: set up for ${who.email} (${tz})`);
-    this.setStatus({ state: 'setting-up', mailbox: who.email, message: 'Starting from now…', baselined: false });
+    this.setStatus({ state: 'setting-up', mailbox: who.email, timezone: tz, message: 'Starting from now…', baselined: false });
+  }
+
+  // The owner signed in from another time zone (or the first one was a guess): the digest and quiet hours follow them.
+  retime(tz) {
+    const text = fs.readFileSync(this.config, 'utf8'), next = text.replace(/^timezone = ".*"$/m, `timezone = ${toml(tz)}`);
+    if (next !== text) { fs.writeFileSync(this.config + '.tmp', next); fs.renameSync(this.config + '.tmp', this.config); this.log(`inbox runner: time zone now ${tz}`); }
+    this.setStatus({ timezone: tz });
   }
 
   // Start from now: what is already in the mailbox is not news. Then two weeks of mail as the judge's memory, in the background of the next steps.

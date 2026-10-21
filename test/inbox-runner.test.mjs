@@ -76,6 +76,10 @@ test('sets up from the connector, starts from now, then ticks', async () => {
   assert.equal(r.runner.status().state, 'running', JSON.stringify(r.runner.state));
   assert.equal(r.runner.state.baselined, true);
   assert.equal(r.runner.state.backfill, 'due');
+  r.settings.ownerTimezone = 'America/Chicago'; // signed in from elsewhere
+  r.runner.retime(r.settings.ownerTimezone);
+  assert.match(fs.readFileSync(path.join(r.data, 'inbox-watch', 'config.toml'), 'utf8'), /timezone = "America\/Chicago"/);
+  assert.equal(r.runner.state.timezone, 'America/Chicago');
 });
 
 test('no Gmail connector says what to connect', async () => {
