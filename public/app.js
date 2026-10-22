@@ -32,7 +32,6 @@ const IC = {
   info: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
   gauge: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14a8 8 0 0116 0M12 14l3.5-4.5"/><circle cx="12" cy="14" r="1.6"/></svg>',
   bell: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10a6 6 0 0112 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6zM10 19.5a2.2 2.2 0 004 0"/></svg>',
-  eye: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   bellOff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10a6 6 0 0112 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6zM10 19.5a2.2 2.2 0 004 0M4 4l16 16"/></svg>',
   search: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>',
   panel: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/></svg>',
@@ -3231,12 +3230,13 @@ async function openSkills(provider,cwd,box) {
 /* ---------- new session ---------- */
 // 1.57: #/start/<id> — a briefing handed to Pocket by an agent or a job (POST /api/start, pocket-start add). Loads it into
 // New session's draft with the workspace and agent it names, then goes there; the session starts only when the owner taps Start.
+// 1.77: pc-new-start carries the link's id to /api/new, so the Inbox entry that sent it can show the conversation.
 async function openStartLink(id) {
   if (!/^[0-9a-f]{12}$/.test(id)) { toast('That start link is not valid.'); location.replace('#/new'); return; }
   try {
     const s = await api('/start/' + id);
     saveBriefing(s.text || '');
-    try { localStorage.removeItem('pc-new-start'); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
+    try { writeLocal('pc-new-start', { start: id }); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
   } catch (e) { if (e.message === 'login') return; toast(e.status === 404 ? 'That start link has expired.' : 'Could not load the start link.'); }
   location.replace('#/new');
 }
@@ -3492,7 +3492,7 @@ async function renderNew({ home = false } = {}) {
     $('#start-hint').hidden = true;
     $('#start').disabled = true; $('#start').setAttribute('aria-label', 'Starting…');
     try {
-      const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts(), ...(startFrom?.project ? { project: startFrom.project, projectName: startFrom.projectName || '' } : {}) };
+      const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts(), ...(startFrom?.project ? { project: startFrom.project, projectName: startFrom.projectName || '' } : {}), ...(startFrom?.start ? { start: startFrom.start } : {}) };
       const saved = loadOutbox(NEW_KEY);
       if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) { toast('Retry the saved new conversation request before changing it.'); return false; }
       newPending = saved || { payload, clientMessageId: crypto.randomUUID(), ...(allowSecrets ? { allowSecrets: true } : {}) };

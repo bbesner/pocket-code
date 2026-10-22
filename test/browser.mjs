@@ -179,6 +179,7 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname.endsWith('/pin')){let raw='';for await(const c of req)raw+=c;const r=rows.find(x=>x.id===decodeURIComponent(url.pathname.split('/').at(-2)));if(r){if(JSON.parse(raw||'{}').pinned)r.pinned=true;else{delete r.pinned;delete r.pinOrder;}}return json({ok:true,pinned:Boolean(r?.pinned)});}
  if(url.pathname==='/api/pins/order'){let raw='';for await(const c of req)raw+=c;const ids=JSON.parse(raw||'{}').ids||[];pinOrders.push(ids);ids.forEach((id,i)=>{const r=rows.find(x=>x.id===id);if(r?.pinned)r.pinOrder=i;});return json({ok:true,order:ids});}
+ if(url.pathname.startsWith('/api/start/'))return /^\/api\/start\/[0-9a-f]{12}$/.test(url.pathname)?json({ok:true,id:url.pathname.slice(11),text:'Pradera: Kimberly asks that nobody be dispatched. Reach Jairon before 9 a.m.',directory:'/workspaces/warehouse',provider:'claude'}):json({error:'missing'},404); // 1.57 start links; 1.77 the Inbox briefing
  if(url.pathname==='/api/projects')return json(uiModes.lockedWorkspace?{projects:['/workspaces/warehouse'],defaultCwd:'/workspaces/warehouse',locked:true}:{projects:['/workspaces/warehouse','/workspaces/products']}); // 1.55: lockedWorkspace = one folder, nothing to choose
  if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}]});
  if(url.pathname==='/api/claude/models')return json(Array.isArray(fixtureSettings.offeredClaudeModels)?{models:fixtureOffer(fixtureSettings.offeredClaudeModels).models.filter(m=>m.offered).map(({id,label,sub})=>({id,label,sub})),defaultLabel:'Test agent',limited:true}:{models:[{id:'test',label:'Test agent'},{id:'claude-opus-5-5[1m]',label:'Opus 5.5'}],defaultLabel:'Test agent'});
@@ -299,7 +300,7 @@ const server=http.createServer(async(req,res)=>{
   const held=secretRefusal(body);if(held)return json(held,422);
   if(!receipts.has(body.clientMessageId)){
    dispatches++;const id='66666666-6666-4666-8666-666666666666';
-   rows.push({...idle,id,title:body.text});conversations.set(id,[{role:'user',text:body.text}]);receipts.set(body.clientMessageId,{id});
+   rows.push({...idle,id,title:body.text});conversations.set(id,[{role:'user',text:body.text}]);receipts.set(body.clientMessageId,{id});if(body.start)inboxStore.linkStart(body.start,id); // 1.77: as the server does
    if(body.project)try{board.act({action:'link-session',project:body.project,session:id},{actor:'ui'});}catch{} // 1.49, as the server does
   }
   if(failNext){req.socket.destroy();return;}return json(receipts.get(body.clientMessageId),202);

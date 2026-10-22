@@ -2585,6 +2585,12 @@ function linkStartedSession(project, id) {
   try { board.act({ action: 'link-session', project: String(project).slice(0, 80), session: id }, { actor: 'ui' }); log(`board link-session project=${project} session=${id} (started from the card)`); }
   catch (e) { log(`project link skipped project=${project} session=${id}: ${e.message}`); }
 }
+// 1.77: started from a start link (an Inbox alert's briefing): the Inbox entries that open that link remember the session.
+function linkStartLink(start, id) {
+  if (!start || !settings.inbox) return;
+  try { for (const e of inboxStore.linkStart(String(start), id)) log(`inbox link-session id=${e.id} session=${id} (started from its start link)`); }
+  catch (e) { log(`inbox link skipped start=${start} session=${id}: ${e.message}`); }
+}
 app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   let cwd = String(req.body?.cwd || '').trim();
   if (LOCK_CWD && cwd !== DEFAULT_CWD) { if (cwd) log(`new session asked for ${cwd}; this Pocket starts every session in ${DEFAULT_CWD}`); cwd = DEFAULT_CWD; } // 1.55
@@ -2599,6 +2605,7 @@ app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secre
       const turn = await startCodexFromApi({ threadId: null, cwd, text, body: req.body });
       if (!req.body?.project) try { promptStore.recordRecent({ text, cwd, provider: 'codex' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
       linkStartedSession(req.body?.project, codex.CX + turn.threadId);
+      linkStartLink(req.body?.start, codex.CX + turn.threadId);
       return res.status(202).json({ id: codex.CX + turn.threadId });
     } catch (e) { return res.status(500).json({ error: String(e.message) }); }
   }
@@ -2612,6 +2619,7 @@ app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secre
     const turn = startTurn({ sessionId: id, cwd, text, resume: false, ...opts });
     if (!req.body?.project) try { promptStore.recordRecent({ text, cwd, provider: 'claude' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
     linkStartedSession(req.body?.project, id);
+    linkStartLink(req.body?.start, id);
     res.status(202).json({ id, ...(turn.modelFallback ? { modelFallback: turn.modelFallback } : {}) });
   } catch (e) {
     res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) });
@@ -3630,7 +3638,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Projects in the sidebar switch is now a flag, a goal with a next step, so no two entries share a shape. Suggested by Damon.", "The Vault, Files and Codex transcripts close four faults Casey found while re-checking 1.73.2: a public or share link no longer follows a symlink that replaced the stored file; a key rotation that stopped half-way is rolled back at start, so a passphrase set and later removed never moves the Vault to a key you were not shown; a Codex command keeps its exit code when a transcript page arrives late; and a Vault audit row that failed part-way no longer hides the next one.", "The switch at the top of the sidebar names every entry under its icon (Chats, Projects, Files, Tasks, Vault, Inbox), with a distinct icon for each, when the sidebar is 300px or wider. Whatever the main area shows is underlined in orange, so Files opened in a tab is marked while the sidebar keeps listing your chats.", "A message you type while Claude or Codex is waiting on a question no longer gets stuck behind it: the question is skipped and the agent reads your message in the same reply. The message box says so while a question waits; to answer instead, use the banner.", "Inbox Watch reads your memory: before it decides on an email, and when it tidies your Inbox, it searches your past sessions and notes, so work you did outside email counts. A bug you already fixed in a session no longer comes in as a new alert, and an alert you settled in a session comes off your list with the session as the reason.", "When Claude or Codex asks you something, the banner above the conversation is now amber, Pocket's colour for waiting on you, with an Answer button and the number of questions, and says the reply is paused until you answer. It looked like a message before and was easy to read past. Approvals get the same banner with a Review button."];
+const RELEASE_NOTES = ["Inbox: the dot beside an alert says whether you have read it (orange, or a ring once read) and taps to mark it read or unread. An alert you started a conversation from shows a speech bubble that opens that conversation, and its options offer Open the conversation before Start another. Suggested by Damon.", "Projects in the sidebar switch is now a flag, a goal with a next step, so no two entries share a shape. Suggested by Damon.", "The Vault, Files and Codex transcripts close four faults Casey found while re-checking 1.73.2: a public or share link no longer follows a symlink that replaced the stored file; a key rotation that stopped half-way is rolled back at start, so a passphrase set and later removed never moves the Vault to a key you were not shown; a Codex command keeps its exit code when a transcript page arrives late; and a Vault audit row that failed part-way no longer hides the next one.", "The switch at the top of the sidebar names every entry under its icon (Chats, Projects, Files, Tasks, Vault, Inbox), with a distinct icon for each, when the sidebar is 300px or wider. Whatever the main area shows is underlined in orange, so Files opened in a tab is marked while the sidebar keeps listing your chats.", "A message you type while Claude or Codex is waiting on a question no longer gets stuck behind it: the question is skipped and the agent reads your message in the same reply. The message box says so while a question waits; to answer instead, use the banner.", "Inbox Watch reads your memory: before it decides on an email, and when it tidies your Inbox, it searches your past sessions and notes, so work you did outside email counts. A bug you already fixed in a session no longer comes in as a new alert, and an alert you settled in a session comes off your list with the session as the reason."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

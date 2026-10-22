@@ -19,7 +19,7 @@ const DAY=86400000,GMAIL='https://mail.google.com/mail/u/0/#all/19a2b3c4d5e6f708
 test('InboxStore: the contract, normalizing input, limits and the instructions line',()=>{
   assert.deepEqual(LIMITS,{entries:500,text:2000,title:160,story:120,source:60,keepDays:60,dismissedDays:30});
   assert.deepEqual(KINDS,['alert','digest','lookahead']);assert.deepEqual(PRIORITIES,['critical','high','normal','low']);
-  assert.deepEqual(STATES,['new','opened','dismissed','resolved','not_useful']);assert.deepEqual(ACTIONS,['open','dismiss','resolve','not_useful','restore']);
+  assert.deepEqual(STATES,['new','opened','dismissed','resolved','not_useful']);assert.deepEqual(ACTIONS,['open','unread','dismiss','resolve','not_useful','restore']);
   const dir=tmp(),file=path.join(dir,'inbox.json');const clock=Date.parse('2026-10-19T12:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
   const e=s.add({title:'  Pradera needs   dispatch\nattention ',text:'Jairon is on the way [Kimberly](msg:19a2b3) says it was last night.',story:'Pradera service-call story',url:'/#/start/0123456789ab',gmail:GMAIL});
@@ -103,6 +103,38 @@ test('InboxStore: dedupe within 24 hours, the state machine with restore, feedba
   clock+=60000;s.seen('nightly');assert.equal(s.snapshot().lastReportAt,s.sources.nightly.lastReportAt,'the latest source wins');
   assert.throws(()=>s.seen('x','not a date'),e=>e.code==='bad_at');
   assert.deepEqual(new InboxStore(file,{now:()=>clock}).sources,s.sources,'persisted');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
+// 1.77: marking unread, and the conversations started from an entry's start link.
+test('InboxStore: unread takes an open back, and a session started from a start link is remembered on its entries',()=>{
+  const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-10-22T16:00:00Z');
+  const s=new InboxStore(file,{now:()=>clock});
+  const a=s.add({title:'PHP2 advisory',url:'/#/start/0123456789ab'}),b=s.add({title:'Churches images',url:'https://pocket.example/#/start/0123456789ab'});
+  const c=s.add({title:'Digest',doc:'4897fe3220c8'}),d=s.add({title:'Other link',url:'/#/start/0123456789ac'});
+  // unread: opened → new, seenAt kept; idempotent; a finished entry stays finished.
+  s.act({action:'open',id:c.id});clock+=1000;let r=s.act({action:'unread',id:c.id});
+  assert.deepEqual([r.state,r.new,r.revision,Boolean(r.seenAt)],['new',true,3,true]);
+  assert.equal(s.act({action:'unread',id:c.id}).revision,3,'unread twice is once');
+  assert.equal(s.act({action:'unread',id:d.id}).revision,1,'an unread entry stays as it is');
+  s.act({action:'resolve',id:d.id});assert.equal(s.act({action:'unread',id:d.id}).state,'resolved','restore it first');
+  assert.deepEqual(s.feedback().map(f=>f.id),[d.id],'unread is not feedback');
+  // linkStart: every entry whose link ends in that start id, path or full address; it is read once started from.
+  clock+=1000;let linked=s.linkStart('0123456789ab','5f0c1f8e-2d3b-4c5a-9e7f-0a1b2c3d4e5f');
+  assert.deepEqual(linked.map(e=>e.id).sort(),[a.id,b.id].sort());
+  assert.deepEqual(linked.map(e=>e.state),['opened','opened']);
+  assert.deepEqual(s.get(a.id).sessions,[{id:'5f0c1f8e-2d3b-4c5a-9e7f-0a1b2c3d4e5f',at:'2026-10-22T16:00:02Z'}]);
+  assert.deepEqual(s.get(c.id).sessions,[],'an entry without that link is untouched');
+  assert.deepEqual(s.linkStart('0123456789ab','5f0c1f8e-2d3b-4c5a-9e7f-0a1b2c3d4e5f'),[],'the same session twice is once');
+  for(const [start,sess] of [['nope','5f0c1f8e-2d3b-4c5a-9e7f-0a1b2c3d4e5f'],['0123456789ab','../etc'],['0123456789ab',''],['ffffffffffff','5f0c1f8e-2d3b-4c5a-9e7f-0a1b2c3d4e5f']])assert.deepEqual(s.linkStart(start,sess),[]);
+  // At most five, newest last; Codex ids keep their prefix; it survives a reload and a hand-edited file.
+  for(let i=0;i<6;i++){clock+=1000;s.linkStart('0123456789ab','cx:019a2b3c-4d5e-6f70-8192-a3b4c5d6e7f'+i);}
+  assert.equal(s.get(a.id).sessions.length,5);assert.equal(s.get(a.id).sessions.at(-1).id,'cx:019a2b3c-4d5e-6f70-8192-a3b4c5d6e7f5');
+  const raw=JSON.parse(fs.readFileSync(file,'utf8'));raw.entries.find(e=>e.id===b.id).sessions=[{id:'bad id!',at:'2026-10-22T16:00:00Z'},{id:'5f0c1f8e-2d3b-4c5a-9e7f-0a1b2c3d4e5f'},'x',{id:'cx:abcdef12-0000',at:'2026-10-22T16:00:00Z'}];
+  raw.entries.find(e=>e.id===c.id).sessions=undefined;fs.writeFileSync(file,JSON.stringify(raw));
+  const back=new InboxStore(file,{now:()=>clock});
+  assert.deepEqual(back.get(b.id).sessions,[{id:'cx:abcdef12-0000',at:'2026-10-22T16:00:00Z'}],'only well-formed links come back');
+  assert.deepEqual(back.get(c.id).sessions,[],'an older file reads as none');assert.equal(back.get(a.id).sessions.length,5);
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
@@ -290,6 +322,11 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   out=await cli(['list'],undefined,{POCKET_DATA_DIR:path.join(dir,'stale')});assert.equal(out.code,2,'a refused token');
   // With no address saved, asking for email says off; after the restart the feature stays on.
   fs.writeFileSync(path.join(dir,'data','pocket-settings.json'),JSON.stringify({...JSON.parse(fs.readFileSync(path.join(dir,'data','pocket-settings.json'),'utf8')),notifyEmail:''}));
+  // 1.77: a conversation started from an entry's start link is remembered on the entry; a bad link id starts it anyway.
+  const begun=await call('/new',{cwd:repo,text:'Handle Pradera',provider:'claude',start:'0123456789ab',clientMessageId:randomUUID()});assert.equal(begun.status,202,JSON.stringify(begun.body));
+  r=await call('/inbox?state=all');assert.deepEqual(r.body.entries.find(x=>x.id===e.id).sessions.map(x=>x.id),[begun.body.id]);
+  assert.match(logs,new RegExp(`inbox link-session id=${e.id} session=${begun.body.id}`));
+  assert.equal((await call('/new',{cwd:repo,text:'No link',provider:'claude',start:'../x',clientMessageId:randomUUID()})).status,202,'a bad start id is ignored');
   await stop();await start();bearer={'content-type':'application/json',authorization:'Bearer '+tokenOf()};
   r=await call('/inbox',{title:'No address',text:'x',email:true},bearer);assert.equal(r.status,200);assert.equal(r.body.mail,'off');
   assert.equal((await call('/inbox?state=all')).body.entries.length,3,'kept across a restart');

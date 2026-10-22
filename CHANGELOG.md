@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.0] — 2026-10-22 · build 158
+
+- **Inbox: the read mark is a dot, and it does something.** The eye beside each entry looked the same read or unread unless you knew the shade, and tapping it only opened the entry, as the row does. It is now a dot level with the title: filled clay while unread, a dim ring once read. Tapping it marks the entry read or unread (new action `unread`: opened → new; a finished entry stays finished) and opens nothing. Suggested by Damon.
+- **Inbox: the conversation you started from an alert.** Starting a conversation from an entry's briefing used to leave no trace on the entry, so a second tap started a duplicate. New now carries the start link's id to `/api/new` (`start`), and every Inbox entry that opens that link remembers the session (`sessions`, at most five, newest last; an unread entry becomes read). The row shows a speech bubble under the dot that opens the latest one, and the entry's options lead with **Open the conversation** (when it started; "the latest of N" when there are several) and offer **Start another conversation**. Conversations started before 1.77 are not linked. Suggested by Damon.
+- Migration: none. Older `inbox.json` entries read as having no conversations.
+- Tests: `test/inbox.test.mjs` (unread, the start-link session record, its limits and a hand-edited file; `/api/new` with `start` over HTTP); the browser suite marks Pradera unread and read with the dot, starts a conversation from its briefing, checks the start id reaches `/api/new`, then the bubble, its 44px target and the sheet's two options.
+
 ## [1.76.4] — 2026-10-22 · build 157
 
 - **Projects is a flag.** In the rail switch, Projects' three-column board was still a box beside the Files page and the Inbox envelope. It is now a pole with a pennant (Damon's glyph, `IC.railProjects`): a goal with a next step, and a silhouette no other entry shares. Damon also proposed a paper clip for Files; not taken, because the paper clip already means Attach in the composer and attachment lines in a conversation. Suggested by Damon.
