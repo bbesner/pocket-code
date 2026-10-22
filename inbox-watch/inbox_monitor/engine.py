@@ -1264,8 +1264,9 @@ def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, hel
 
 
 # ---------------------------------------------------------------- scheduled: morning release, look-ahead, digest
-def release_held(store: Store, dry_run: bool) -> list[sqlite3.Row]:
-    """After quiet hours: send held alerts, skipping ones whose story resolved overnight. Returns rows for the digest."""
+def release_held(store: Store, dry_run: bool, everything: bool = False) -> list[sqlite3.Row]:
+    """After quiet hours: send held alerts, skipping ones whose story resolved overnight. Returns rows for the digest.
+    everything (Check now): the owner is up and asking, so every held alert goes out now, whatever its priority."""
     held = store.pending(("notify",), ("held",))
     for_digest = []
     sent = 0
@@ -1275,7 +1276,7 @@ def release_held(store: Store, dry_run: bool) -> list[sqlite3.Row]:
             store.mark_sent(a["id"], None, None, "superseded")
             for_digest.append(a)
             continue
-        if a["priority"] in ("critical", "high") and sent < HELD_SEND_CAP:  # ordinary held alerts read better as one digest
+        if everything or (a["priority"] in ("critical", "high") and sent < HELD_SEND_CAP):  # ordinary held alerts read better as one digest
             deliver(store, a["id"], None, dry_run, held_note=True)
             sent += 1
         else:
@@ -1674,8 +1675,9 @@ def added_decision(d: dict, th: dict) -> None:
 
 
 def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_ids: list[str], until: int, dry_run: bool,
-            fetch_live: bool, cursor_note: str = "") -> tuple[int, int, str | None]:
-    """Evaluate threads and act on the judge's decisions. Returns (evaluated, notified, error)."""
+            fetch_live: bool, cursor_note: str = "", awake: bool = False) -> tuple[int, int, str | None]:
+    """Evaluate threads and act on the judge's decisions. Returns (evaluated, notified, error).
+    awake (Check now): the owner asked for this check, so quiet hours hold nothing back."""
     evaluated = notified = 0
     error = None
     bundles = []
@@ -1774,7 +1776,7 @@ def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, ba
         title = d.get("title") or (store.story(d["issue_key"]) or {"title": None})["title"] or th["subject"]
         fact_hash = hashlib.sha1(d["new_fact"].encode()).hexdigest()[:10]
         if d["action"] == "notify" and d["confidence"] >= NOTIFY_MIN_CONFIDENCE and d.get("user_message"):
-            hold = in_quiet_hours() and d["priority"] != "critical" and not added  # the owner added it just now: they are awake
+            hold = in_quiet_hours() and d["priority"] != "critical" and not added and not awake  # added or Check now: they are awake
             key = f"{d['issue_key']}|added|{th['messages'][-1]['message_id']}" if added else f"{d['issue_key']}|{fact_hash}"
             waiting = store.undelivered_alert(d["issue_key"])
             if waiting is not None:
@@ -2300,7 +2302,10 @@ def run(dry_run: bool, baseline_only: bool, why: str = "", request: str | None =
         remaining = store.db.execute("select count(*) c from backlog").fetchone()["c"] - len(todo)
         if remaining:
             log(f"backlog: {remaining} more threads wait for the next runs")
-        evaluated, notified, error = process(store, archive, gmail, run_id, todo, now_ts() + 60, dry_run, fetch_live=True, cursor_note=new_cursor)
+        evaluated, notified, error = process(store, archive, gmail, run_id, todo, now_ts() + 60, dry_run, fetch_live=True, cursor_note=new_cursor,
+                                             awake=bool(request))
+        if request:  # Check now: what quiet hours were holding goes out with this check, not at the digest hour
+            release_held(store, dry_run, everything=True)
         scheduled(store, archive, gmail, dry_run)
         store.commit()
         if tidy_due(store):

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from inbox_monitor import config as cfgmod  # noqa: E402
 from inbox_monitor import engine as E  # noqa: E402
 
+RUN = E.run  # test_check_now_runs_once stands in for it
 A, B, Z = "18f0aa01b2c3d4e5", "18f0aa01b2c3d4e6", "18f0aa01b2c3d4e7"  # Gmail thread ids are hex
 
 
@@ -47,6 +48,7 @@ class FakeGmail:
 
 class FakePocket:
     inbox = True
+    kind = "pocket"
 
     def __init__(self):
         self.entries = []  # open entries: {id, gmail}
@@ -190,6 +192,39 @@ def test_check_now_runs_once():
     store.commit()
     E.tick(False)
     assert len(calls) == 1, "done: not again"
+
+
+def test_check_now_skips_quiet_hours():
+    _, _, p = setup()
+    store = E.Store(E.DB_PATH)  # the run's own store
+    sent = []
+    p.send_alert = lambda a, pocket_url=None, held_note=False: sent.append((a["subject"], held_note)) or "e"
+    for i, prio in enumerate(("high", "normal", "low")):
+        store.queue_alert(f"k{i}", issue_key=f"s{i}", thread_id=A, kind="notify", priority=prio, text="t", next_step=None,
+                          subject=f"held {prio}", sender="x@example.com", status="held")
+    store.commit()
+    seen = {}
+    saved = {k: getattr(E, k) for k in ("apply_feedback", "gmail_client", "label_sync", "process", "scheduled", "tidy_due", "sync_memory", "heartbeat")}
+
+    class G:
+        cursor_ok = staticmethod(lambda c: True)
+        profile_history_id = staticmethod(lambda: "2")
+        changed_threads = staticmethod(lambda c: ([], "2", False))
+        baseline_threads = staticmethod(lambda q=None: [])
+    try:
+        E.apply_feedback = E.sync_memory = E.heartbeat = lambda s: None
+        E.gmail_client = lambda: G()
+        E.label_sync = lambda *a, **k: set()
+        E.process = lambda *a, **k: seen.update(k) or (0, 0, None)
+        E.scheduled = lambda *a: None
+        E.tidy_due = lambda s: False
+        RUN(False, False, why="Check now in Pocket", request="2026-10-22T10:31:37Z")
+    finally:
+        for k, v in saved.items():
+            setattr(E, k, v)
+    assert seen.get("awake") is True, "the check's own decisions are not held"
+    assert sorted(sent) == [("held high", True), ("held low", True), ("held normal", True)], sent
+    assert not E.Store(E.DB_PATH).pending(("notify",), ("held",)), "nothing left waiting for the digest hour"
 
 
 if __name__ == "__main__":
