@@ -8,6 +8,16 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Waiting-on-you banners (1.75.4)
+
+The question and approval banners under the conversation header are a thing to do, not a notice. Same pinned Operate
+brief (variance 2, motion 2, density unchanged). `--warn` carries it, because amber already means waiting on you (tab
+mark, status bar): 1px `--warn` border, fill `--warn` 12% over `--surface` (18% on hover), a 22px drawn mark in `--warn`
+(question mark; info mark for approvals), a 15px/600 title naming what is waiting with its count, a 13.5px `--dim` note
+saying whether the reply is paused, and a 36px `--warn` button in `--on-warn` ink (**Answer**, **Answer all**,
+**Review**, **Retry**) with a chevron. The whole banner is the control. Not clay-deep: that is your own message's
+material, which is why the old banner read as one. Not green: `--ok` means working or done. Below 420px the mark goes.
+
 ## Your rules (1.73)
 
 The first block of the Inbox Watch sheet, both modes: the set head *Your rules*, a lead that says they win and that Not

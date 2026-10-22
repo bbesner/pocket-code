@@ -35,6 +35,8 @@ const IC = {
   task: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>',
   up1: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg>',
   down1: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg>',
+  fwd1: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6l6 6-6 6"/></svg>',
+  ask: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6M12 17v.5"/></svg>',
   diff: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10.5 10.5h4M12.5 8.5v4M10.5 16h4"/></svg>',
   snow: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21L12 3M12 6.4l2.5 -2.1M12 6.4l-2.5 -2.1M19.8 16.5L4.2 7.5M7.2 9.2l-0.6 -3.2M7.2 9.2l-3 1.1M19.8 7.5L4.2 16.5M7.2 14.8l-3 -1.1M7.2 14.8l-0.6 3.2M12 17.6l-2.5 2.1M12 17.6l2.5 2.1M16.8 14.8l0.6 3.2M16.8 14.8l3 -1.1M16.8 9.2l3 1.1M16.8 9.2l0.6 -3.2"/></svg>',
   hourglass: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12M6 20.5h12M7.5 3.5c0 5 9 4.5 9 8.5s-9 3.5-9 8.5M16.5 3.5c0 5-9 4.5-9 8.5s9 3.5 9 8.5"/></svg>',
@@ -445,6 +447,12 @@ function toolIcon(name) {
 
 /* ---------- tiny helpers ---------- */
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// 1.75.4: the question and approval banners are something to do, not a notice: --warn (Pocket's "waiting on you"),
+// what is waiting, whether the reply is paused, and an Answer/Review button. The whole banner opens the sheet.
+function paintWaitBanner(b,{title,note='',cta,mark=IC.ask}){
+  if(!b)return;
+  b.innerHTML=`<span class="wb-mark">${mark}</span><span class="wb-text"><span class="wb-title">${esc(title)}</span>${note?`<span class="wb-note">${esc(note)}</span>`:''}</span><span class="wb-cta">${esc(cta)}${IC.fwd1}</span>`;
+}
 // code block with its own copy affordance — selecting text on a touchscreen is miserable
 const codeHTML = t => `<div class="codewrap"><button class="copybtn" data-copy aria-label="Copy code">${IC.copy}</button><pre><code>${esc(t)}</code></pre></div>`;
 function md(src) { return PocketFormat.render(src, chatId); }
@@ -1577,8 +1585,8 @@ function paintSessionPanels() {
   });
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
   const current = allSessions.find(s => s.id === chatId);
-  const qb=$('#questions-open');if(qb)qb.hidden=!current?.state?.questions;
-  const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals)ab.textContent=(current.state.label||'Action needs approval')+' · Review';}
+  const qb=$('#questions-open');if(qb){qb.hidden=!current?.state?.questions;if(!qb.hidden&&!qb.querySelector('.wb-cta'))paintWaitBanner(qb,{title:(String(chatId).startsWith('cx:')?'Codex':'Claude')+' is waiting for your answer',note:current.state.label==='Needs your answer'?'The reply is paused until you answer.':'',cta:'Answer'});} // refreshQuestions fills in the count
+  const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals)paintWaitBanner(ab,{title:current.state.label||'Action needs approval',note:current.state.label==='Needs approval'?'The reply is paused until you allow or deny it.':'',cta:'Review',mark:IC.info});}
   if (current && $('#chat-statebar') && !sessionsStale) markRead(chatId, current.state); // 1.35: the header's run status names the state; no second copy
   const queueButton=$('#queue-open');if(queueButton)queueButton.textContent='Queue'+(current?.state?.queued?' ('+current.state.queued+')':'');
   if(current?.state?.confirmed&&['finished','failed','stopped','ended'].includes(current.state.kind)&&!sessionsStale&&!loadOutbox(chatId)){deliveryNotices.delete(chatId);paintDelivery(chatId);}
