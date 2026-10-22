@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.76.4] — 2026-10-22 · build 157
+
+- **Projects is a flag.** In the rail switch, Projects' three-column board was still a box beside the Files page and the Inbox envelope. It is now a pole with a pennant (Damon's glyph, `IC.railProjects`): a goal with a next step, and a silhouette no other entry shares. Damon also proposed a paper clip for Files; not taken, because the paper clip already means Attach in the composer and attachment lines in a conversation. Suggested by Damon.
+- Migration: none.
+- Tests: none new (a glyph change); the rail checks from 1.76.2 cover the switch.
+
 ## [1.76.3] — 2026-10-22 · build 156
 
 - **Four faults from Casey's re-check of 1.73.2, each with his test.** Casey Sardoss re-checked the security and data-loss rows of his list against 1.73.2 and sent tests for the ones still there; 1.73.3 to 1.73.8 had closed all but these four, which are fixed here, with his tests adapted into the suite.
