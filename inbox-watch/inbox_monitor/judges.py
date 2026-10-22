@@ -161,7 +161,7 @@ class ClaudeJudge(Judge):
         env = {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")}
         if not self.prompt_cache:
             env["DISABLE_PROMPT_CACHING"] = "1"
-        cmd = [self.bin, "-p", "--output-format", "json", "--model", self.model]
+        cmd = [self.bin, "-p", "--output-format", "stream-json", "--verbose", "--model", self.model]  # the stream shows each tool call
         if self.isolate:
             cmd += self.ISOLATION
         if self.mcp_config:
@@ -175,14 +175,43 @@ class ClaudeJudge(Judge):
         r = subprocess.run(cmd, input=message, capture_output=True, text=True, timeout=self.timeout, env=env, cwd=self.cwd)
         if r.returncode != 0:
             raise RuntimeError(f"claude exited {r.returncode}: {r.stderr[-800:] or r.stdout[-800:]}")
-        try:
-            data = json.loads(r.stdout)
-        except json.JSONDecodeError:
+        data, tools = self.parse_stream(r.stdout)
+        if data is None:
             return r.stdout
         self.last_usage = self.usage(data)
+        self.last_usage.update(turns=data.get("num_turns"), tools=tools)
         if data.get("is_error"):
             raise RuntimeError(f"claude: {str(data.get('result'))[:400]}")
         return str(data.get("result") or "")
+
+    @staticmethod
+    def parse_stream(out: str) -> tuple[dict | None, list[dict] | None]:
+        """The run's result event and the tool calls the judge made ({name, input}, input clipped), from Claude Code's
+        stream-json. A single JSON object (`--output-format json`) is read too, with no tool calls known."""
+        result, tools = None, []
+        for line in out.splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if ev.get("type") == "result":
+                result = ev
+            elif ev.get("type") == "assistant":
+                for b in (ev.get("message") or {}).get("content") or []:
+                    if isinstance(b, dict) and b.get("type") == "tool_use":
+                        args = b.get("input") if isinstance(b.get("input"), dict) else {}
+                        tools.append({"name": str(b.get("name") or "").replace("mcp__memstem__", ""),
+                                      "input": {k: (v[:200] if isinstance(v, str) else v) for k, v in args.items()}})
+        if result is None:
+            try:
+                result = json.loads(out)
+            except json.JSONDecodeError:
+                return None, []
+            return (result if isinstance(result, dict) else None), None
+        return result, tools
 
     def usage(self, data: dict) -> dict:
         """Tokens across every model the call used (Claude Code also runs a small Haiku pass), the reported list-price cost."""
