@@ -13,7 +13,8 @@ clay ember that breathes while Claude works.
 Pinned Operate brief (variance 2, motion 1, density tight). With five or more entries the switch is a row of equal
 columns, each a 20px glyph over an 11px/600 name, and takes the rail head's first row (actions wrap to the second);
 idle entries in `--text` 72% over `--surface`, pressed in `--text` on `--raised`, hover a 55% `--raised` wash. One
-silhouette per entry (bubble, board, page, circle, lock, envelope); the folder is the workspace glyph, not Projects.
+silhouette per entry (bubble, flag, page, circle, lock, envelope; the flag since 1.76.4); the folder is the workspace
+glyph, not Projects, and the paper clip means Attach, not Files.
 Below 300px of rail it is icons with only the pressed entry named. Pressed = the rail's list; `aria-current` = the
 main area's view, drawn as a 16×2px clay bar under the entry when the two differ. No new colour.
 
