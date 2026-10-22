@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.75.4] — 2026-10-22 · build 154
+
+- **A question looks like something to answer.** When Claude or Codex asked a question, the banner above the conversation used the clay-deep fill and clay hairline of your own messages and read "Claude has a question · Answer", so it passed for a notice. Damon read past it, typed into the composer instead, and his session sat waiting on the unanswered card for over twenty minutes. The banner now uses `--warn`, Pocket's colour for waiting on you (the same amber as the tab mark and the *Needs your answer* status): a tinted fill and amber border, a drawn question mark, the count ("Claude has 3 questions for you"), a line saying whether the reply is paused ("The reply is paused until you answer.", or that the agent keeps working for a non-blocking Codex question) and an amber **Answer** (**Answer all** for several) button with a chevron. The whole banner still opens the question sheet. Approvals use the same banner with an info mark and **Review**. Green was considered and not used: in Pocket green (`--ok`) means working or done, the opposite of "this needs you". Below 420px the mark is dropped so the text keeps its width. Reported by Damon, via Brad.
+- Migration: none.
+- Tests: `test/browser.mjs` checks the question banner's title, note and Answer button before opening the sheet and runs an axe scan on it (`question-banner-mobile`).
+
 ## [1.75.3] — 2026-10-22 · build 153
 
 - **Check now skips quiet hours.** A check the owner asks for in the Inbox no longer holds its alerts for the morning: the check's own decisions go out at once whatever the hour (`process(..., awake=True)`), and every alert quiet hours were holding goes out with it, whatever its priority (`release_held(..., everything=True)`; one whose story resolved since is dropped as before). Scheduled checks keep quiet hours as they were. Asked for by Brad ("if someone hits refresh then they obviously want the alerts at that point").

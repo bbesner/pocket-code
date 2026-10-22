@@ -358,8 +358,12 @@ document.addEventListener('keydown',e=>{
 });
 
 async function refreshQuestions(id){
- try{const d=await api('/session/'+encodeURIComponent(id)+'/questions');if(chatId!==id)return;const b=$('#questions-open');if(b){b.hidden=!d.requests.length&&!d.interrupted;b.textContent=d.interrupted?'Question interrupted · Review':(String(id).startsWith('cx:')?'Codex':'Claude')+' has '+(d.requests.length===1?'a question':d.requests.length+' questions')+' · Answer';}}
- catch{if(chatId===id&&$('#questions-open')&&!$('#questions-open').hidden)$('#questions-open').textContent='Question status unavailable · Retry';}
+ try{const d=await api('/session/'+encodeURIComponent(id)+'/questions');if(chatId!==id)return;const b=$('#questions-open');if(b){
+  const who=String(id).startsWith('cx:')?'Codex':'Claude',n=d.requests.reduce((t,r)=>t+(r.questions?.length||1),0);
+  b.hidden=!d.requests.length&&!d.interrupted;
+  paintWaitBanner(b,d.interrupted?{title:'Question interrupted',note:'The server restarted while '+who+' was waiting for your answer.',cta:'Review'}
+   :{title:who+(n===1?' has a question for you':' has '+n+' questions for you'),note:d.requests.some(r=>r.blocking!==false)?'The reply is paused until you answer.':who+' keeps working while it waits.',cta:n===1?'Answer':'Answer all'});}}
+ catch{if(chatId===id&&$('#questions-open')&&!$('#questions-open').hidden)paintWaitBanner($('#questions-open'),{title:'Question status unavailable',cta:'Retry'});}
 }
 async function openQuestions(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet question-sheet';sh.innerHTML='<h2>Agent questions</h2><div data-questions role="status">Loading…</div>';mountSheet(scrim,sh);

@@ -727,7 +727,21 @@ header.bar { gap: 2px; padding-inline: 8px; }
 @media(min-width:1280px) { .split:has(.workspace-dock) .rail { max-width:300px; } }
 @media(max-width:1279px) { .workspace-dock { display:none; } }
 @media(max-width:899px) { .rail,.railgrip,.open-sessions { display:none; } }
-.question-banner { flex:none;margin:8px 16px;padding:12px;text-align:left;min-height:44px;border:1px solid var(--clay);border-radius:10px;background:var(--clay-deep);color:var(--text);font:600 14px/1.5 system-ui;cursor:pointer; }
+/* 1.75.4: waiting-on-you banners (questions, approvals) read as something to do, not a notice. They were the
+   clay-deep of a user message, so they passed for one; now --warn, Pocket's "needs you" colour, with an Answer/Review button. */
+.question-banner { flex:none;display:flex;align-items:center;gap:12px;margin:8px 16px;padding:10px 10px 10px 14px;min-height:56px;text-align:left;border:1px solid var(--warn);border-radius:10px;background:color-mix(in srgb,var(--warn) 12%,var(--surface));color:var(--text);font:inherit;cursor:pointer;transition:background-color .15s ease-out; }
+.question-banner:hover { background:color-mix(in srgb,var(--warn) 18%,var(--surface)); }
+.question-banner:focus-visible { outline:2px solid var(--warn);outline-offset:2px; }
+.question-banner .wb-mark { flex:none;display:grid;color:var(--warn); }
+.question-banner .wb-mark .i { width:22px;height:22px; }
+.question-banner .wb-text { flex:1;min-width:0;display:flex;flex-direction:column;gap:2px; }
+.question-banner .wb-title { font:600 15px/1.35 system-ui; }
+.question-banner .wb-note { font-size:13.5px;line-height:1.4;color:var(--dim); }
+.question-banner .wb-cta { flex:none;display:inline-flex;align-items:center;gap:4px;min-height:36px;padding:0 10px 0 14px;border-radius:8px;background:var(--warn);color:var(--on-warn);font:650 14.5px/1 system-ui;white-space:nowrap; }
+.question-banner .wb-cta .i { width:16px;height:16px;stroke-width:2.2; }
+.question-banner:hover .wb-cta { background:color-mix(in srgb,var(--warn) 88%,var(--text)); }
+@media (max-width: 420px) { .question-banner { gap:10px;padding-left:12px; } .question-banner .wb-mark { display:none; } .question-banner .wb-title { text-wrap:pretty; } }
+@media (prefers-reduced-motion: reduce) { .question-banner { transition:none; } }
 .question-banner[hidden] { display:none; }.state-input { color:var(--warn); }
 .question-sheet { max-width:680px; }
 .question-form fieldset { border:0;padding:0;margin:0 0 24px;min-width:0; }

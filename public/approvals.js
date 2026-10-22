@@ -46,9 +46,10 @@ async function refreshApprovals(id){
   const d=await api('/session/'+encodeURIComponent(id)+'/approvals');if(chatId!==id)return;
   const b=$('#approvals-open');if(!b)return;
   b.hidden=!d.interrupted&&!d.requests.length;
-  b.textContent=d.interrupted?'Approval connection interrupted · Review':d.requests.some(r=>r.status==='uncertain')?'Approval delivery uncertain · Review':d.requests.length===1?'Waiting for your OK · Review':d.requests.length+' requests waiting for your OK · Review';
+  const n=d.requests.length,plain=!d.interrupted&&!d.requests.some(r=>r.status==='uncertain');
+  paintWaitBanner(b,{title:d.interrupted?'Approval connection interrupted':!plain?'Approval delivery uncertain':n===1?'Waiting for your OK':n+' requests waiting for your OK',note:plain?'The reply is paused until you allow or deny it.':'',cta:'Review',mark:IC.info});
   const label=$('#work-label');if(label)label.textContent=!b.hidden?'Waiting for your OK':'Working';
- }catch{if(chatId===id&&$('#approvals-open')){$('#approvals-open').hidden=false;$('#approvals-open').textContent='Approval status unavailable · Retry';}}
+ }catch{if(chatId===id&&$('#approvals-open')){$('#approvals-open').hidden=false;paintWaitBanner($('#approvals-open'),{title:'Approval status unavailable',cta:'Retry',mark:IC.info});}}
 }
 async function openApprovals(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet approvals-sheet';

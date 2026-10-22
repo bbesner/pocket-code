@@ -476,6 +476,9 @@ try{
  questionRequests=[{id:'request-1',blocking:true,questions:[{id:'format',header:'Format',question:'Which format should the report use?',options:[{label:'CSV',description:'For spreadsheets'},{label:'PDF',description:'For reading'}]}]}];
  rows[1].state={kind:'input',label:'Needs your answer',questions:1};
  await p.goto(base+'/#/chat/'+rows[1].id);await p.waitForSelector('#questions-open:not([hidden])');
+ // 1.75.4: the banner says what is waiting, that the reply is paused, and carries an Answer button
+ await p.waitForFunction(()=>{const b=document.querySelector('#questions-open');return b?.querySelector('.wb-title')?.textContent==='Codex has a question for you'&&b.querySelector('.wb-note')?.textContent==='The reply is paused until you answer.'&&b.querySelector('.wb-cta')?.textContent==='Answer';});
+ await p.screenshot({path:path.join(out,'question-banner-mobile.png')});await scan('question-banner-mobile');
  await clickControl(p,'#questions-open');await p.waitForSelector('.question-form');
  await p.screenshot({path:path.join(out,'native-question-mobile.png')});await scan('native-question-mobile');
  await clickControl(p,'.question-form [type=submit]');assert.match(await p.$eval('.question-error',e=>e.textContent),/Answer each/);
