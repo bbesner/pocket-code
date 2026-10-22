@@ -137,3 +137,47 @@ test('HTTP: switching the Vault on returns the new key even when its audit row c
   assert.equal(keyLine(fs.readFileSync(envFile,'utf8')),body.recoveryKey,'the key handed back is the one saved');
   assert.match(logs,/vault key-created audit row failed/);
 });
+
+// 1.76.3: a rotation stopped between its two .env saves (a crash, a failed store write) left the new key in .env with the previous
+// one beside it, and the store under the previous one. Setting a passphrase in that state, then removing it after a restart,
+// re-encrypted the store under the new key, which the owner was never shown. Now the daemon rolls .env back to the key that
+// opened the store, and the recovery key the owner saved keeps opening vault.enc.
+test('HTTP: an unfinished rotation is rolled back at start, so a passphrase set and removed never moves the Vault to an undisclosed key',async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vkey-'));let port=19161;
+  const secret=randomUUID(),exp=Date.now()+3600000,cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
+  const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
+  const envFile=path.join(dir,'.env');fs.writeFileSync(envFile,'# test install\n');
+  fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});fs.mkdirSync(path.join(dir,'data'),{recursive:true});
+  let child,logs='';
+  const start=async()=>{
+   logs='';child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:envFile,POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
+   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;return start();}
+   throw Error('Test server failed: '+logs);
+  };
+  const stop=async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}};
+  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  const call=async(p,body)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:'POST',headers,body:JSON.stringify(body)});return {status:r.status,body:await r.json().catch(()=>({}))};};
+  const phrase='correct horse battery';
+  await start();
+  const on=await call('/settings',{vault:true});assert.equal(on.status,200,JSON.stringify(on.body));
+  const told=on.body.recoveryKey;assert.equal(parseKey(told).length,32,'the owner is given the recovery key');
+  assert.equal((await call('/vault/act',{action:'add',name:'billing',kind:'token',values:{value:'sk-live-hunter2-0123456789abcdef'}})).status,200);
+  // A rotation stopped between its two .env saves: the new key and the previous one in .env; the store still under the previous one.
+  await stop();
+  const proposal=Buffer.alloc(32,7).toString('base64');
+  fs.writeFileSync(envFile,fs.readFileSync(envFile,'utf8').replace(`POCKET_VAULT_KEY=${told}`,`POCKET_VAULT_KEY=${proposal}\nPOCKET_VAULT_KEY_PREVIOUS=${told}`));
+  await start();
+  assert.match(logs,/unfinished key rotation was rolled back/);
+  const env=fs.readFileSync(envFile,'utf8');assert.equal(keyLine(env),told,'.env is back to the key the store is written under');assert.doesNotMatch(env,/POCKET_VAULT_KEY_PREVIOUS/);
+  assert.equal((await call('/vault/recovery-key',{})).body.key,told,'the recovery key is the one the owner has');
+  assert.equal((await call('/vault/passphrase',{action:'set',passphrase:phrase,confirm:phrase})).status,200);
+  await stop();await start();
+  assert.equal((await call('/vault/unlock',{passphrase:phrase})).status,200);
+  assert.equal((await call('/vault/passphrase',{action:'remove',passphrase:phrase})).status,200);
+  await stop();
+  const opened=decryptStore([parseKey(told)],fs.readFileSync(path.join(dir,'data','vault.enc')));
+  assert.equal(opened.items[0].name,'billing','the recovery key the owner saved still opens the store');
+  assert.throws(()=>decryptStore([parseKey(proposal)],fs.readFileSync(path.join(dir,'data','vault.enc'))),'the undisclosed key opens nothing');
+});

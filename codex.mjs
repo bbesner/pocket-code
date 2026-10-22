@@ -622,6 +622,14 @@ async function txLegacy(threadId, c) {
 // gains its exit code when it completes) or the thread ends. A fresh cache stops after
 // `need` messages and remembers where to continue backwards.
 async function txRefresh(threadId, c, need) {
+  if (c.notes) return txRefreshNow(threadId, c, need); // the inner pass of a reset
+  // 1.76.3: an item noted while a page is on its way is applied after the pages, so the page's older copy (a command still
+  // running) cannot replace the completed one. Before, the held page won and no later refresh reread it.
+  c.notes = [];
+  try { await txRefreshNow(threadId, c, need); }
+  finally { const notes = c.notes; delete c.notes; if (notes.length && !c.empty) { for (const e of notes) txPut(c, e); c.at = Date.now(); txSave(threadId, c); } }
+}
+async function txRefreshNow(threadId, c, need) {
   const fresh = [];
   let cursor = null, pages = 0, hitKnown = false;
   do {
@@ -634,11 +642,10 @@ async function txRefresh(threadId, c, need) {
     if (c.empty && fresh.filter(e => e.msg).length >= need) break;
   } while (cursor && !hitKnown && pages < TX_REFRESH_PAGES);
   if (!hitKnown && !c.empty && cursor) { // more than TX_REFRESH_PAGES pages of news: start over
-    c.entries = []; c.seen = new Set(); c.empty = true; c.olderCursor = null; c.notes = []; // 1.73.8: items noted meanwhile are kept
-    try { return await txRefresh(threadId, c, need); } finally { delete c.notes; }
+    c.entries = []; c.seen = new Set(); c.empty = true; c.olderCursor = null; // 1.73.8: items noted meanwhile are kept (c.notes, applied by txRefresh)
+    return txRefreshNow(threadId, c, need);
   }
   fresh.reverse().forEach(e => txPut(c, e));
-  if (c.notes) { for (const e of c.notes) txPut(c, e); delete c.notes; }
   if (c.empty) { c.olderCursor = cursor; delete c.empty; }
   c.at = Date.now(); txSave(threadId, c);
 }
@@ -655,7 +662,7 @@ async function txExtend(threadId, c, need) {
 // A completed item from a turn Pocket runs lands in the cache at once, when the cache exists.
 export function noteCodexItem(threadId, turnId, item) {
   const c = transcripts.get(threadId);
-  if (c?.notes && !c.legacy) { c.notes.push(txEntry({ turnId, item })); return; } // a reset is under way
+  if (c?.notes && !c.legacy) { c.notes.push(txEntry({ turnId, item })); return; } // a refresh is under way: applied once its pages are in
   if (!c || c.empty || c.legacy) return;
   txPut(c, txEntry({ turnId, item })); c.at = Date.now(); txSave(threadId, c);
 }

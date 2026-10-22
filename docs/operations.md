@@ -329,7 +329,10 @@ still opens the store at the next start. No restart is needed. Backups taken bef
 key, so keep the old recovery key with them. A rotation whose store write fails changes nothing (1.73.6): the store, `.env`
 and the recovery key all stay with the old key. A key set in the daemon's process environment (a PM2 ecosystem or systemd
 unit) rather than `.env` cannot be rotated from Settings, since the rotation could only ever write `.env`: the route answers
-409 `vault_key_preset`; move the key into `.env`, remove it from the environment, restart, then rotate.
+409 `vault_key_preset`; move the key into `.env`, remove it from the environment, restart, then rotate. Since 1.76.3 a rotation
+that stopped between its two `.env` saves is rolled back at the next start: the store remembers which key opened it, `.env` goes
+back to that key and the log says *an unfinished key rotation was rolled back*, so the recovery key the owner has is always the
+key the store is under. (With the key in the process environment the store stays under `POCKET_VAULT_KEY_PREVIOUS` and the log says so.)
 
 **Writes (1.73.6).** Every store (the Vault, projects, files, tasks, start links, settings) checks a change whole and writes it
 before installing it in memory, so a refused field or a failed write (disk full, permissions) leaves the record, the file and

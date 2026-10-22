@@ -105,7 +105,7 @@ export class VaultStore {
   // pending a restart. A format-2 file (passphrase mode) starts LOCKED: nothing is decrypted until unlock(passphrase).
   constructor(file, { key = null, oldKeys = [], auditFile, now, write, log = () => {} } = {}) {
     if (key != null && (!Buffer.isBuffer(key) || key.length !== 32)) throw new Error('A 32-byte key is required.');
-    this.file = file; this.envKey = key; this.keys = key ? [key, ...oldKeys] : []; this.salt = null;
+    this.file = file; this.envKey = key; this.keys = key ? [key, ...oldKeys] : []; this.salt = null; this.openedWith = null;
     this.auditFile = auditFile || path.join(path.dirname(file), 'vault-audit.jsonl');
     this.now = now || Date.now; this.log = log;
     // 1.73.6: the one file whose loss is every secret at once is synced before and after the rename (the other stores keep tmp+rename alone).
@@ -122,7 +122,11 @@ export class VaultStore {
     const buf = fs.readFileSync(file), h = storeHeader(buf);
     if (h.version === 2) { this.salt = Buffer.from(h.salt); return; } // locked until the owner unlocks it
     if (!key) throw new Error('POCKET_VAULT_KEY is not set.');
-    this.load(decryptStore(this.keys, buf)); // throws: the daemon reports "cannot be opened" and serves nothing
+    // 1.76.3: the key that opened the store is remembered: when it is a previous key, a rotation stopped between its two
+    // .env saves, and the daemon rolls .env back to it rather than carry a key the owner was never shown.
+    let data = null; for (const k of this.keys) { try { data = decryptStore([k], buf); this.openedWith = k; break; } catch { } }
+    if (!data) decryptStore(this.keys, buf); // throws: the daemon reports "cannot be opened" and serves nothing
+    this.load(data);
   }
   load(data) { const legacy = !(data.version >= STORE_SCHEMA); this.items = (Array.isArray(data.items) ? data.items : []).filter(i => i && typeof i.id === 'string' && NAME_RE.test(i.name || '')).map(i => this.normalize(legacy && i.policy === 'ask' ? { ...i, policy: 'default' } : i)); this.lastActivityAt = this.now(); }
   get mode() { return this.salt ? 'passphrase' : 'key'; }
@@ -216,9 +220,13 @@ export class VaultStore {
   audit(record) {
     const row = { at: iso(this.now()), ...record };
     for (const k of ['argv', 'cwd', 'decision', 'session', 'sessionTitle', 'request', 'name', 'item', 'by', 'action']) if (row[k] === undefined || row[k] === null || row[k] === '') delete row[k];
-    const fd = fs.openSync(this.auditFile, 'a', 0o600);
+    const fd = fs.openSync(this.auditFile, 'a+', 0o600);
     // 1.73.8: a short write is continued, so a row is never left half-written for the next one to merge into.
-    const buf = Buffer.from(JSON.stringify(row) + '\n');
+    // 1.76.3: an append that failed part-way (a full disk, an I/O error) still leaves a torn row with no newline; the next row
+    // starts on a line of its own, so the torn one is the only line lost.
+    let lead = '';
+    try { const { size } = fs.fstatSync(fd); if (size > 0) { const last = Buffer.alloc(1); fs.readSync(fd, last, 0, 1, size - 1); if (last[0] !== 0x0a) lead = '\n'; } } catch { }
+    const buf = Buffer.from(lead + JSON.stringify(row) + '\n');
     try { for (let at = 0; at < buf.length;) { const n = fs.writeSync(fd, buf, at, buf.length - at); if (!(n > 0)) throw new Error('The Vault record could not be written.'); at += n; } fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   }
   // The newest rows, newest first. Owners see everything; an agent sees only its own session's rows.

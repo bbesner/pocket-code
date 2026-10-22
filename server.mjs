@@ -313,6 +313,14 @@ let vault = null, vaultError = '';
 const VAULT_FILE = path.join(DATA_DIR, 'vault.enc');
 const openVault = (keyRaw, oldRaw = '') => { const v = new VaultStore(VAULT_FILE, { key: keyRaw ? parseKey(keyRaw) : null, oldKeys: oldRaw ? [parseKey(oldRaw)] : [], log }); v.access = () => settings.vaultAccess; return v; }; // 1.41: Agent access
 try { vault = openVault(VAULT_KEY_RAW, VAULT_KEY_PREVIOUS); } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); }
+// 1.76.3: a rotation that stopped between its two .env saves left POCKET_VAULT_KEY holding a key the owner was never shown, with
+// the previous one beside it and the store still under the previous one. The store's key is the one that opened it: .env goes
+// back to it, so a passphrase set and later removed, the recovery key and the next rotation all use the key the owner has.
+if (vault && vault.openedWith && vault.envKey && !vault.openedWith.equals(vault.envKey)) {
+  vault.envKey = vault.openedWith; vault.keys = [vault.openedWith]; VAULT_KEY_RAW = vault.openedWith.toString('base64');
+  if (VAULT_KEY_PRESET) log('vault: POCKET_VAULT_KEY in the environment is not the key the store is written under; POCKET_VAULT_KEY_PREVIOUS is. The store stays under the previous key.');
+  else try { saveVaultKeyToEnv(VAULT_KEY_RAW); log('vault: an unfinished key rotation was rolled back; .env holds the key the store is written under'); } catch (e) { log(`vault: an unfinished key rotation could not be rolled back in .env: ${e.message}`); }
+}
 // 1.44: Pocket keeps the key itself. Switching the Vault on with no key and no store creates one and saves it to this
 // install's .env (mode 0600, the file backups already leave out); a store whose key went missing is restored from the
 // owner's recovery key, never recreated. Rotation saves the new key the same way, with the previous one kept beside it
@@ -3415,7 +3423,18 @@ function sendDocument(res, r, { download = false, framed = false } = {}) {
   res.setHeader('Content-Security-Policy', r.kind === 'html' ? `sandbox allow-scripts allow-popups allow-downloads allow-forms; ${ancestors}` : `default-src 'none'; style-src 'unsafe-inline'; ${ancestors}`);
   res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(r.file)}`);
   res.type(mimeOf(r.file));
-  res.sendFile(docs.filePath(r), { dotfiles: 'allow', headers: { 'Content-Type': mimeOf(r.file) } }, err => { if (err && !res.headersSent) res.status(err.code === 'ENOENT' ? 404 : 503).end(); });
+  const file = storedDocument(r); if (!file) return res.status(404).end();
+  res.sendFile(file, { dotfiles: 'allow', headers: { 'Content-Type': mimeOf(r.file) } }, err => { if (err && !res.headersSent) res.status(err.code === 'ENOENT' ? 404 : 503).end(); });
+}
+// 1.76.3: the stored copy is sent only when it is a regular file inside the library reached through no link. A stored file
+// replaced by a symlink (anything running as the daemon's user can do it) used to serve the link's target on a public link.
+function storedDocument(r) {
+  const p = docs.filePath(r);
+  try {
+    if (fs.lstatSync(p).isSymbolicLink()) return null;
+    const real = fs.realpathSync(p), root = fs.realpathSync(docs.dir);
+    return real.startsWith(root + path.sep) && fs.statSync(real).isFile() ? real : null;
+  } catch { return null; }
 }
 // A source path an agent or the Results panel may hand in: a regular file under the home directory, outside dot-directories.
 async function documentSource(p) {
@@ -3611,7 +3630,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["The switch at the top of the sidebar names every entry under its icon (Chats, Projects, Files, Tasks, Vault, Inbox), with a distinct icon for each, when the sidebar is 300px or wider. Whatever the main area shows is underlined in orange, so Files opened in a tab is marked while the sidebar keeps listing your chats.", "A message you type while Claude or Codex is waiting on a question no longer gets stuck behind it: the question is skipped and the agent reads your message in the same reply. The message box says so while a question waits; to answer instead, use the banner.", "Inbox Watch reads your memory: before it decides on an email, and when it tidies your Inbox, it searches your past sessions and notes, so work you did outside email counts. A bug you already fixed in a session no longer comes in as a new alert, and an alert you settled in a session comes off your list with the session as the reason.", "When Claude or Codex asks you something, the banner above the conversation is now amber, Pocket's colour for waiting on you, with an Answer button and the number of questions, and says the reply is paused until you answer. It looked like a message before and was easy to read past. Approvals get the same banner with a Review button.", "Inbox: Check now no longer waits for quiet hours. Pressing it delivers whatever quiet hours were holding and anything the check itself finds, at any hour, since you are evidently awake and asking.", "Inbox: each entry's mark is now an eye, orange while unread and grey once read, in place of the dot, bell and page; opening an entry counts as reading it and the eye changes the moment the sheet opens."];
+const RELEASE_NOTES = ["The Vault, Files and Codex transcripts close four faults Casey found while re-checking 1.73.2: a public or share link no longer follows a symlink that replaced the stored file; a key rotation that stopped half-way is rolled back at start, so a passphrase set and later removed never moves the Vault to a key you were not shown; a Codex command keeps its exit code when a transcript page arrives late; and a Vault audit row that failed part-way no longer hides the next one.", "The switch at the top of the sidebar names every entry under its icon (Chats, Projects, Files, Tasks, Vault, Inbox), with a distinct icon for each, when the sidebar is 300px or wider. Whatever the main area shows is underlined in orange, so Files opened in a tab is marked while the sidebar keeps listing your chats.", "A message you type while Claude or Codex is waiting on a question no longer gets stuck behind it: the question is skipped and the agent reads your message in the same reply. The message box says so while a question waits; to answer instead, use the banner.", "Inbox Watch reads your memory: before it decides on an email, and when it tidies your Inbox, it searches your past sessions and notes, so work you did outside email counts. A bug you already fixed in a session no longer comes in as a new alert, and an alert you settled in a session comes off your list with the session as the reason.", "When Claude or Codex asks you something, the banner above the conversation is now amber, Pocket's colour for waiting on you, with an Answer button and the number of questions, and says the reply is paused until you answer. It looked like a message before and was easy to read past. Approvals get the same banner with a Review button.", "Inbox: Check now no longer waits for quiet hours. Pressing it delivers whatever quiet hours were holding and anything the check itself finds, at any hour, since you are evidently awake and asking."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

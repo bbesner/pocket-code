@@ -68,6 +68,8 @@ login, so an outside viewer can open a link or public file only if the proxy let
 paths through to Pocket; otherwise the proxy will ask them to sign in first. Private files
 and the rest of the app stay behind Pocket's own login whatever the proxy allows, since
 Pocket checks its cookie itself. Test a link in a private window before you send it.
+Since 1.76.3 a public, shared or signed-in file is sent only when the stored copy is a regular
+file inside the library reached through no link; a stored copy replaced by a symlink answers 404.
 
 **CLI token.** The `pocket-board`, `pocket-docs`, `pocket-tasks` and `pocket-vault` commands
 use a bearer token that the daemon writes to `cli-token` in the data directory (mode `0600`)
@@ -124,8 +126,11 @@ existing store, and Pocket never creates a new key over an existing store. Since
 store takes a new key, salt or item only once the file holds it, so a failed write leaves memory
 and disk agreeing (the recovery key is always the key the store is under), the file is synced
 around its rename, and a key set in the process environment rather than `.env` is refused
-rotation with 409 rather than left as a key the next start will not find. Keys are shown in
-the browser or downloaded by the owner; nothing prints them to a terminal or a log.
+rotation with 409 rather than left as a key the next start will not find. Since 1.76.3 a
+rotation that stopped between its two `.env` saves is rolled back at the next start to the key
+that opened the store, so a passphrase set and later removed never moves the store to a key the
+owner was not shown. Keys are shown in the browser or downloaded by the owner; nothing prints
+them to a terminal or a log.
 
 **The key in memory.** The daemon reads `POCKET_VAULT_KEY` (and `POCKET_VAULT_KEY_PREVIOUS`,
 when present) at start and deletes them from its own environment, so agent turns, helper models, hooks and every other process it starts
