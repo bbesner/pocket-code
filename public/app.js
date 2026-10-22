@@ -9,6 +9,13 @@ const IC = {
   inbox: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-7.5h11L20 13v6H4zM4 13h5l1.5 2.5h3L15 13h5"/></svg>', // 1.69
   vault: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>', // 1.69: the rail's Vault entry
   chat: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H10l-4 3.5v-3.5H5z"/></svg>', // 1.69
+  // 1.76.2: the rail switch's own glyphs, one silhouette each (a bubble, a board, a page, a circle, a lock, an envelope),
+  // since a folder, a page, a checkbox and a tray all read as the same small box. The folder stays the workspace glyph.
+  railChats: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h15v10.5h-8.5l-4.5 3.8v-3.8h-2z"/><path d="M8.5 9.5h7M8.5 12.5h4.5"/></svg>',
+  railProjects: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15M15 4.5v15M6 8h1.5M11.8 8h1.2M17.2 8h1M6 11h1.5"/></svg>',
+  railFiles: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3h7.5l4.5 4.5V21h-12z"/><path d="M14 3v4.5h4.5M9.5 12h6M9.5 15.5h6"/></svg>',
+  railTasks: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M8.3 12.3l2.6 2.6 4.9-5.3"/></svg>',
+  railInbox: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M4 7l8 6 8-6"/></svg>',
   plus: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   refresh: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 11-2.2-5.3M19.5 4.5V9H15"/></svg>', // 1.75: Inbox Check now
   up: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V6M6 12l6-6 6 6"/></svg>',
@@ -2398,13 +2405,23 @@ const railW = () => Math.min(480, Math.max(220, Number(localStorage.getItem('pc-
 // 1.29: with Projects on, the rail head switches between the session list and the project list.
 const filesButtonOpens = () => { const v = readLocal('pc-files-button', 'rail'); return ['rail', 'tab', 'beside'].includes(v) ? v : 'rail'; };
 const railView = () => { const v = readLocal('pc-rail-view', 'sessions'); return v === 'projects' && projectsOn() ? 'projects' : v === 'documents' && documentsOn() ? 'documents' : v === 'tasks' && tasksOn() ? 'tasks' : v === 'vault' && vaultOn() ? 'vault' : v === 'inbox' && inboxOn() ? 'inbox' : 'sessions'; }; // 1.39: vault; 1.69: inbox
+// Which rail entry the main area belongs to: a conversation or the list is Chats, a library view its own entry.
+function mainAreaView() {
+  const h = location.hash || '#/';
+  if (h.startsWith('#/chat/') || h === '#/all' || (h === '#/' && !assistantMode())) return 'sessions';
+  const m = h.match(/^#\/(projects|documents|tasks|vault|inbox)(?:[/?]|$)/);
+  return m ? m[1] : null;
+}
 function railSwitchHTML() {
   if (!projectsOn() && !documentsOn() && !tasksOn() && !vaultOn() && !inboxOn()) return '<span>Conversations</span>';
   const v = railView();
   // 1.69: each entry is an icon with its name; with five or more entries the rail shows the name only on the pressed one
   // (the icon, aria-label and title carry it for the rest), so Inbox fits beside the other four.
-  const seg = (key, icon, label, badge) => `<button data-rail-view="${key}" aria-pressed="${v === key}" aria-label="${label}" title="${label}">${icon}<span class="rail-label">${label}</span>${badge ? `<span class="badge" ${badge} hidden></span>` : ''}</button>`;
-  const segs = [seg('sessions', IC.chat, 'Chats'), projectsOn() ? seg('projects', IC.folder, 'Projects', 'data-projects-badge') : '', documentsOn() ? seg('documents', IC.doc, 'Files') : '', tasksOn() ? seg('tasks', IC.task, 'Tasks', 'data-tasks-badge') : '', vaultOn() ? seg('vault', IC.vault, 'Vault', 'data-vault-badge') : '', inboxOn() ? seg('inbox', IC.inbox, 'Inbox', 'data-inbox-badge') : ''].filter(Boolean);
+  // 1.76.2: the pressed entry is the rail's list; aria-current marks what the main area shows (a clay bar when the two
+  // differ), so Files opened in a tab is marked while the rail keeps listing chats. Reported by Damon.
+  const main = mainAreaView();
+  const seg = (key, icon, label, badge) => `<button data-rail-view="${key}" aria-pressed="${v === key}"${main === key ? ' aria-current="page"' : ''} aria-label="${label}" title="${label}">${icon}<span class="rail-label">${label}</span>${badge ? `<span class="badge" ${badge} hidden></span>` : ''}</button>`;
+  const segs = [seg('sessions', IC.railChats, 'Chats'), projectsOn() ? seg('projects', IC.railProjects, 'Projects', 'data-projects-badge') : '', documentsOn() ? seg('documents', IC.railFiles, 'Files') : '', tasksOn() ? seg('tasks', IC.railTasks, 'Tasks', 'data-tasks-badge') : '', vaultOn() ? seg('vault', IC.vault, 'Vault', 'data-vault-badge') : '', inboxOn() ? seg('inbox', IC.railInbox, 'Inbox', 'data-inbox-badge') : ''].filter(Boolean);
   return `<div class="rail-switch${segs.length >= 5 ? ' many' : ''}" role="group" aria-label="Browse conversations, projects, files, tasks, the vault or the inbox">${segs.join('')}</div>`;
 }
 function withShell(colHtml) { // desktop: session rail + resize grip beside the content column

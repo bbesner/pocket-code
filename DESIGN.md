@@ -8,6 +8,15 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Rail switch: named entries and the main area's mark (1.76.2)
+
+Pinned Operate brief (variance 2, motion 1, density tight). With five or more entries the switch is a row of equal
+columns, each a 20px glyph over an 11px/600 name, and takes the rail head's first row (actions wrap to the second);
+idle entries in `--text` 72% over `--surface`, pressed in `--text` on `--raised`, hover a 55% `--raised` wash. One
+silhouette per entry (bubble, board, page, circle, lock, envelope); the folder is the workspace glyph, not Projects.
+Below 300px of rail it is icons with only the pressed entry named. Pressed = the rail's list; `aria-current` = the
+main area's view, drawn as a 16×2px clay bar under the entry when the two differ. No new colour.
+
 ## Waiting-on-you banners (1.75.4)
 
 The question and approval banners under the conversation header are a thing to do, not a notice. Same pinned Operate
