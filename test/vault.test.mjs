@@ -803,6 +803,18 @@ test('audit rows survive short writes',()=>{
   assert.deepEqual(s.auditRows({owner:true}).map(r=>r.action).filter(a=>a==='first'||a==='second'),['second','first']);
   fs.rmSync(dir,{recursive:true,force:true});
 });
+// 1.76.3: an append that fails part-way (EIO, a full disk) leaves a torn row with no newline; the next row used to be glued to it,
+// the line no longer parsed, and the audit silently lost a release that happened. Now the next row starts on its own line.
+test('a torn audit append does not hide the next release from the audit',()=>{
+  const dir=tmp(),s=new VaultStore(path.join(dir,'vault.enc'),{key:parseKey(newKey())}),real=fs.writeSync;
+  s.act({action:'add',name:'billing',kind:'token',values:{value:SECRET},policy:'auto'});
+  const bound=s.resolveBindings({T:'billing'}),cmd=s.checkCommand(['node','sync.mjs'],dir);
+  fs.writeSync=(fd,buf,off,len,...rest)=>{fs.writeSync=real;real(fd,buf,off??0,Math.min(len??buf.length,40),...rest);throw Object.assign(new Error('EIO: i/o error, write'),{code:'EIO'});};
+  try{assert.throws(()=>s.release(bound,cmd,{session:S1,by:'agent'}),/EIO/,'the failed audit stops the release');}finally{fs.writeSync=real;}
+  assert.deepEqual(s.release(bound,cmd,{session:S1,by:'agent'}),{T:SECRET},'the retry releases the value');
+  assert.deepEqual(s.auditRows({owner:true}).map(r=>r.action),['run','put'],'the successful release is in the audit; only the torn row is lost');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
 test('a value with a lone surrogate is scrubbed in the spelling the child sees',async()=>{
   const dir=tmp();let out='';
   const r=await runWithSecrets({argv:['sh','-c','printf %s "$TOKEN"'],cwd:dir,env:{PATH:process.env.PATH},secrets:{TOKEN:'ab\ud800cdef'},onOut:t=>out+=t});

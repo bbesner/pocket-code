@@ -141,6 +141,11 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   const pub=await call('/api/documents/'+dash.id,{visibility:'public'});assert.equal(pub.body.url,'/files/dashboard.html');
   const pf=await raw('/files/dashboard.html');assert.equal(pf.status,200);assert.match(pf.headers.get('content-security-policy'),/^sandbox allow-scripts[^;]*; frame-ancestors 'none'$/);assert.match(pf.text,/<script>/,'the document is sent as itself');
   assert.equal((await raw('/files/../server.mjs')).status,404);assert.equal((await raw('/files/.trash')).status,404);
+  // 1.76.3: the stored copy replaced by a symlink (anything running as the daemon's user can do it) serves nothing, to nobody: not the link's target.
+  const stored=path.join(docsDir,'dashboard.html'),storedBytes=fs.readFileSync(stored);fs.rmSync(stored);fs.symlinkSync(path.join(repo,'server.mjs'),stored);
+  const viaLink=await raw('/files/dashboard.html');assert.equal(viaLink.status,404,'a public link does not follow a link out of the library');assert.doesNotMatch(viaLink.text,/import /);
+  assert.equal((await raw('/api/documents/'+dash.id+'/raw',headers)).status,404,'nor does the signed-in viewer');
+  fs.rmSync(stored);fs.writeFileSync(stored,storedBytes);assert.equal((await raw('/files/dashboard.html')).status,200,'the real file is served again');
   const rev=await call('/api/documents/'+added.body.id,{visibility:'private'});assert.equal(rev.body.share,null);assert.equal((await raw('/share/'+added.body.token)).status,404,'revoked');
   // Keep as document from a session's Results: only a file the session referenced.
   const sid=(await call('/api/new',{cwd:okDir,text:'Write a report',provider:'claude',clientMessageId:randomUUID()})).body.id;

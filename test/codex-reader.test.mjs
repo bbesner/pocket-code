@@ -91,3 +91,46 @@ test('a failed write rejects its request at once; a malformed usage file does no
   assert.match(String(r.error), /EPIPE|closed/, 'the request failed with the write error');
   assert.ok(r.ms < 5000, `rejected in ${r.ms} ms, not at the 30 s timeout`);
 });
+
+// 1.76.3: readCodexThread refreshes from the newest pages, and the cache is updated when a page's reply arrives. A turn's
+// completed item noted (noteCodexItem) while that page was on its way used to be put back to the page's older state, and once
+// newer items covered that page no later refresh reread it: a command stayed shown as running. Noted items now win over the page.
+test('a completed item noted while a page is on its way is not undone by that page', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-reader-')); fs.mkdirSync(path.join(dir, 'data'));
+  // A Codex app-server whose thread/items/list reads items.json when asked and, while a file named "hold" exists, keeps the answer back.
+  fs.writeFileSync(path.join(dir, 'codex'), `#!/usr/bin/env node
+import fs from 'node:fs';import path from 'node:path';import readline from 'node:readline';
+const dir=process.env.FAKE_DIR,sleep=ms=>new Promise(r=>setTimeout(r,ms));fs.writeFileSync(path.join(dir,'pid'),String(process.pid));
+const send=o=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',...o})+'\\n');
+readline.createInterface({input:process.stdin}).on('line',async line=>{
+  const m=JSON.parse(line);if(m.id==null)return;
+  if(m.method!=='thread/items/list')return send({id:m.id,result:{}});
+  const p=m.params,all=JSON.parse(fs.readFileSync(path.join(dir,'items.json'),'utf8')).reverse();
+  const from=p.cursor?Number(p.cursor):0,page=all.slice(from,from+p.limit);
+  if(fs.existsSync(path.join(dir,'hold'))){fs.writeFileSync(path.join(dir,'asked'),'');while(fs.existsSync(path.join(dir,'hold')))await sleep(20);}
+  send({id:m.id,result:{data:page,nextCursor:from+page.length<all.length?String(from+page.length):null}});
+}).on('close',()=>process.exit(0));`, { mode: 0o755 });
+  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(POCKET|VAPID|CODEX)_/.test(k))), POCKET_DATA_DIR: path.join(dir, 'data'), CODEX_BIN: path.join(dir, 'codex'), FAKE_DIR: dir, CODEX_HOME: path.join(dir, 'codex-home') };
+  const code = `import fs from 'node:fs';import path from 'node:path';
+const {readCodexThread,noteCodexItem}=await import(${JSON.stringify(path.join(repo, 'codex.mjs'))});
+const dir=${JSON.stringify(dir)},sleep=ms=>new Promise(r=>setTimeout(r,ms)),thread='019a0000-0000-7000-8000-000000000001';
+const items=list=>fs.writeFileSync(path.join(dir,'items.json'),JSON.stringify(list));
+const user={type:'userMessage',id:'u1',content:[{type:'text',text:'Run the build'}]},running={type:'commandExecution',id:'c1',command:'make build',exitCode:null};
+items([user]);const first=(await readCodexThread(thread)).msgs.length;
+items([user,running]);fs.writeFileSync(path.join(dir,'hold'),'');
+const refresh=readCodexThread(thread);
+let asked=false;for(let i=0;i<250&&!asked;i++){asked=fs.existsSync(path.join(dir,'asked'));if(!asked)await sleep(20);}
+const finished={...running,exitCode:2};noteCodexItem(thread,null,finished);
+fs.rmSync(path.join(dir,'hold'));const held=JSON.stringify((await refresh).msgs);
+const replies=Array.from({length:40},(_,i)=>({type:'agentMessage',id:'a'+i,text:'Step '+i+' done.'}));
+for(const r of replies)noteCodexItem(thread,null,r);items([user,finished,...replies]);
+const later=JSON.stringify((await readCodexThread(thread)).msgs);
+process.stdout.write('\\nRESULT '+JSON.stringify({first,asked,held,later})+'\\n');process.exit(0);`;
+  const out = await new Promise((resolve, reject) => execFile(process.execPath, ['--input-type=module', '-e', code], { env, timeout: 40000 }, (e, o, err) => e ? reject(new Error(err || e.message)) : resolve(o)));
+  try { process.kill(Number(fs.readFileSync(path.join(dir, 'pid'), 'utf8'))); } catch { }
+  fs.rmSync(dir, { recursive: true, force: true });
+  const r = JSON.parse(/^RESULT (.*)$/m.exec(out)[1]);
+  assert.equal(r.first, 1, 'the conversation is cached');assert.equal(r.asked, true, 'the refresh reached the app-server');
+  assert.match(r.held, /make build \(exit 2\)/, 'the refresh whose page was held shows the command completed');
+  assert.match(r.later, /make build \(exit 2\)/, 'the command keeps its exit code once newer items cover its page');
+});
