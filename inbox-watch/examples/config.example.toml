@@ -107,3 +107,7 @@ email = false                          # also mail your Pocket notification addr
 # command = ["memstem", "mcp"]         #   digest and notify-from-another-job, written through MemStem's own memstem_upsert
 # folder = "memories/inbox-watch"      # vault folder; records live in <folder>/<mailbox name>/
 # tags = []                            # extra tags on every record
+# search = false                       # also read memory back: the worker searches it per thread and per Inbox entry, so
+#                                      #   the judge sees work done outside email (a bug fixed in a session, a call made)
+# search_exclude = []                  # more path prefixes to leave out (the watcher's own folder always is)
+# search_exclude_titles = []           # regexes for titles of standing background files that match every search

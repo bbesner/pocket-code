@@ -1,12 +1,12 @@
 {
- "version": "1.75.4",
+ "version": "1.76.0",
  "assetV": 154,
  "notes": [
+  "Inbox Watch reads your memory: before it decides on an email, and when it tidies your Inbox, it searches your past sessions and notes, so work you did outside email counts. A bug you already fixed in a session no longer comes in as a new alert, and an alert you settled in a session comes off your list with the session as the reason.",
   "When Claude or Codex asks you something, the banner above the conversation is now amber, Pocket's colour for waiting on you, with an Answer button and the number of questions, and says the reply is paused until you answer. It looked like a message before and was easy to read past. Approvals get the same banner with a Review button.",
   "Inbox: Check now no longer waits for quiet hours. Pressing it delivers whatever quiet hours were holding and anything the check itself finds, at any hour, since you are evidently awake and asking.",
   "Inbox: each entry's mark is now an eye, orange while unread and grey once read, in place of the dot, bell and page; opening an entry counts as reading it and the eye changes the moment the sheet opens.",
   "Inbox Watch's Pocket Inbox label now also works through Claude Code's Gmail connector, as long as Gmail was connected with permission to manage mail; if it was connected read-only, Settings says so and what to do, and Codex's Gmail app writes the label instead when it is connected too.",
-  "Inbox: Check now, beside All and Schedule, has Inbox Watch check your mail right away whatever its schedule, so a schedule of Don’t check now means on demand only. What’s on your list also carries a Pocket Inbox label in Gmail, both ways: label an email there and it comes here with a summary; finish it here and the label comes off. Inbox Watch’s own instructions no longer assume any industry: your rules, now explained in italics, are where you make it yours.",
-  "Inbox Watch sets itself up: turn it on and Pocket reads your mail through the Gmail connector you already linked to Claude Code or Codex, starts from now, and checks on the schedule you set, with no config file, Google sign-in or timer to install. The Inbox says what it is doing, and what to connect if Gmail is missing."
+  "Inbox: Check now, beside All and Schedule, has Inbox Watch check your mail right away whatever its schedule, so a schedule of Don’t check now means on demand only. What’s on your list also carries a Pocket Inbox label in Gmail, both ways: label an email there and it comes here with a summary; finish it here and the label comes off. Inbox Watch’s own instructions no longer assume any industry: your rules, now explained in italics, are where you make it yours."
  ]
 }

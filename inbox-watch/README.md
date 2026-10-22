@@ -16,7 +16,7 @@ mailbox, the judge and the delivery are a TOML file. The engine is the same for 
 ## The shape
 
 ```
-Gmail history ──► backlog ──► bundles (+ related mail, stories, seen_before) ──► judge ──► decisions
+Gmail history ──► backlog ──► bundles (+ related mail, stories, seen_before, memory) ──► judge ──► decisions
                                                                                           │
                             stories + timelines + alerts (sqlite) ◄───────────────────────┘
                                                                                           │
@@ -31,7 +31,7 @@ memory is the archive and the story ledger, so a fresh process per call works as
 | `judge.kind` | What runs | Notes |
 |---|---|---|
 | `openclaw` | `openclaw agent --agent … --model …` | The owner's own assistant, with its memory and tools. Sessions rotate every 6 calls. |
-| `claude` | `claude -p --output-format json` | Claude Code headless, one process per call; the Max plan covers it. Isolated by default: no built-in tools, no user settings, hooks or CLAUDE.md, no saved transcript. `mcp_config` + `allowed_tools` give it memory. |
+| `claude` | `claude -p --output-format stream-json` | Claude Code headless, one process per call; the Max plan covers it. Isolated by default: no built-in tools, no user settings, hooks or CLAUDE.md, no saved transcript. `mcp_config` + `allowed_tools` give it memory. |
 | `codex` | `codex exec --json --ephemeral` | Codex CLI headless, one process per call. |
 | `anthropic` | the Claude API (official SDK) | `claude-opus-5-5` by default, adaptive thinking, explicit effort, server-side refusal fallback. |
 
@@ -79,6 +79,20 @@ were told about (its state, every alert and digest line they got, the dated time
 the story changes or they mark it resolved, plus each look-ahead, each digest and each alert another job sent through
 `notify`. Records have stable ids, so a story is one record however often it changes. Mail that was ignored is not
 written. `remember --all` writes the backlog at once; every run does the rest.
+
+**Reading it back (`search = true`).** The worker also searches the owner's memory itself, so the judge sees what
+happened outside email: before each decision, per thread (subject, the sender's name and company, identifiers like order
+or ticket numbers), and in the tidy pass, per open entry (title and alert text, work from six hours before the alert
+on). Up to three items each, marked `after: true` when written after the email or alert: a session where the owner fixed
+the bug a report is about, called the customer back, made the decision. The decision judge treats a later item as "already
+handled" (an `update`, not an alert) and never as evidence; the tidy pass may cite one (`mem:<id>`) as proof that an entry
+is resolved or handled. The watcher's own records are left out, and so are titles matching `search_exclude_titles`
+(standing background files that match everything). Replays never see an item written after the simulated moment. A
+failing search turns memory off for that check, never fails it.
+
+**What the judge looked up.** With the `claude` judge, each call's turns and tool calls (the memory searches it chose to
+make, with their queries) are kept in `judge_calls` (`turns`, `tool_calls`, `tools`), beside `memory_items`, the number of
+items the worker gave it.
 
 ## Set up an instance
 
@@ -202,7 +216,8 @@ Simulated clock, separate ledger, nothing sent; the judge sees only mail that ex
 
 - `inbox_monitor/engine.py` — sync, archive, stories, research, batching, decisions, dedupe, quiet hours, digest, look-ahead, replay.
 - `inbox_monitor/schedule.py` — the settings shape, periods, the interval in force and the next check.
-- `inbox_monitor/judges.py`, `delivery.py`, `memory_sink.py`, `mail_gmail.py`, `config.py` — the adapters and the TOML loader.
+- `inbox_monitor/judges.py`, `delivery.py`, `memory_sink.py`, `memory_search.py`, `mail_gmail.py`, `config.py` — the adapters and the TOML loader.
+- `tests/test_memory.py` — memory in decisions and in the tidy pass, and the judge's tool calls in the ledger (`python3 tests/test_memory.py`).
 - `tests/test_schedule.py` — the schedule rules (`python3 tests/test_schedule.py`).
 - `tests/test_connector.py` — the connector mail source against a fake `claude` (`python3 tests/test_connector.py`).
 - `inbox_monitor/prompts/decide.md`, `lookahead.md` — the judge's instructions, with `{owner}`, `{assistant}`, `{owner_email}`, `{memory_note}` filled from the config.
