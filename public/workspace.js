@@ -357,10 +357,14 @@ document.addEventListener('keydown',e=>{
  if(e.altKey&&['[',']'].includes(e.key)&&openId&&!closeCurrentSheet){const shown=orderedOpenSessions(),index=shown.findIndex(s=>s.id===openId),next=shown[(index+(e.key===']'?1:-1)+shown.length)%shown.length];if(next){e.preventDefault();location.hash=tabHref(next.id);}}
 });
 
+const SKIP_PH='Answer above, or type here to skip the questions…';
 async function refreshQuestions(id){
  try{const d=await api('/session/'+encodeURIComponent(id)+'/questions');if(chatId!==id)return;const b=$('#questions-open');if(b){
   const who=String(id).startsWith('cx:')?'Codex':'Claude',n=d.requests.reduce((t,r)=>t+(r.questions?.length||1),0);
   b.hidden=!d.requests.length&&!d.interrupted;
+  // 1.76.1: typing instead of answering skips a blocking question (the server declines it), so the box says so
+  const box=$('#box'),skip=!d.interrupted&&d.requests.some(r=>r.blocking!==false)&&sendModes.get(id)!=='queue';
+  if(box){if(box.dataset.basePh===undefined)box.dataset.basePh=box.placeholder;box.placeholder=skip?SKIP_PH:box.dataset.basePh;}
   paintWaitBanner(b,d.interrupted?{title:'Question interrupted',note:'The server restarted while '+who+' was waiting for your answer.',cta:'Review'}
    :{title:who+(n===1?' has a question for you':' has '+n+' questions for you'),note:d.requests.some(r=>r.blocking!==false)?'The reply is paused until you answer.':who+' keeps working while it waits.',cta:n===1?'Answer':'Answer all'});}}
  catch{if(chatId===id&&$('#questions-open')&&!$('#questions-open').hidden)paintWaitBanner($('#questions-open'),{title:'Question status unavailable',cta:'Retry'});}

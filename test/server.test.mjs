@@ -117,6 +117,17 @@ test('HTTP delivery, running state, completion and receipt recovery',async t=>{
  const answers={'question-0':['Blue']};assert.equal((await call(`/session/${qsid}/questions/${requestId}/answer`,{answers})).status,200);
  assert.equal((await call(`/session/${qsid}/questions/${requestId}/answer`,{answers})).body.duplicate,true);
  await sleep(600);assert.equal((await call(`/session/${qsid}`)).body.state.kind,'finished');
+ // 1.76.1: a message typed instead of an answer reaches the turn and skips the question (deny), so nothing waits behind it
+ const skipQ=await call('/new',{cwd:repo,text:'__QUESTION__ skip',clientMessageId:randomUUID()});const skid=skipQ.body.id;
+ for(let i=0;i<40;i++){if((await call(`/session/${skid}/questions`)).body.requests.length)break;await sleep(50);}
+ const typed=await call(`/session/${skid}/message`,{text:'What is happening here?',clientMessageId:randomUUID()});
+ assert.equal(typed.status,202);assert.equal(typed.body.steered,true);assert.equal(typed.body.skippedQuestions,1);
+ assert.equal((await call(`/session/${skid}/questions`)).body.requests.length,0);
+ assert.ok(calls().some(x=>x.id===skid&&x.text==='What is happening here?'),'the typed message reached the CLI');
+ const skipReplies=fs.readFileSync(path.join(dir,'calls.responses'),'utf8').trim().split('\n').map(JSON.parse).filter(r=>r.id===skid);
+ assert.deepEqual(skipReplies.map(r=>[r.request_id,r.behavior]),[['native-test','deny']]);
+ await sleep(600);assert.equal((await call(`/session/${skid}`)).body.state.kind,'finished');
+ assert.match(logs,/steered message into running turn session=\S+ skipped=1 question request/);
  const interrupted=await call('/new',{cwd:repo,text:'__QUESTION__ restart',clientMessageId:randomUUID()});
  const iid=interrupted.body.id;
  for(let i=0;i<40;i++){if((await call(`/session/${iid}/questions`)).body.requests.length)break;await sleep(50);}
