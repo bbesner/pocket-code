@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.75.3] — Unreleased · build 153
+## [1.75.3] — 2026-10-22 · build 153
 
 - **Check now skips quiet hours.** A check the owner asks for in the Inbox no longer holds its alerts for the morning: the check's own decisions go out at once whatever the hour (`process(..., awake=True)`), and every alert quiet hours were holding goes out with it, whatever its priority (`release_held(..., everything=True)`; one whose story resolved since is dropped as before). Scheduled checks keep quiet hours as they were. Asked for by Brad ("if someone hits refresh then they obviously want the alerts at that point").
 - Migration: none.
