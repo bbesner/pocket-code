@@ -3,7 +3,9 @@
    session: as a tab, beside a conversation, in a window of its own, or full-screen on the phone. An entry is an alert,
    a morning digest or a look-ahead from the watcher: Open goes to the briefed conversation (the start link) or the
    Files document; X dismisses; the row menu records Resolved or Not useful, which the watcher reads back on its next
-   run. Data comes from /api/inbox; every change goes through /api/inbox/act. */
+   run. Data comes from /api/inbox; every change goes through /api/inbox/act.
+   1.77: the dot on the left is read state and its own control (mark read, mark unread); a conversation started from the
+   entry's briefing shows as a bubble under it, which opens that conversation. */
 const inboxOn=()=>Boolean(window.pocketFeatures?.inbox);
 let inboxSnap=null,inboxAt=0,inboxLoading=null,inboxView=null,inboxFilter='open',inboxQuery='',inboxDismissed=null; // 1.69.2: reading clears the dot, never the row; 1.71: the list opens on Open (unread and read), Done holds the rest
 let inboxCheck=null; // 1.75: Check now on its way: {at, source, until, before} until the watcher reports it done
@@ -25,12 +27,21 @@ function mergeInbox(e){
  if(target){target.entries.push(e);target.entries.sort((a,b)=>Date.parse(b.at)-Date.parse(a.at));}
  if(inboxSnap)inboxSnap.newCount=inboxSnap.entries.filter(x=>x.state==='new').length;
 }
-// Opening an entry is reading it: the eye goes quiet now, and the server is told after.
+// Opening an entry is reading it: the dot goes quiet now, and the server is told after.
 function inboxMarkRead(e){
  inboxReadHere.add(e.id);e.state='opened';if(inboxSnap)inboxSnap.newCount=inboxSnap.entries.filter(x=>x.state==='new').length;
  paintInboxView();paintRailInbox();paintInboxBadges();if(typeof paintAssistantHome==='function')paintAssistantHome();
  inboxAct({action:'open',id:e.id});
 }
+// 1.77: the dot takes it back. The server is told first, so a list fetched meanwhile cannot undo it.
+async function inboxMarkUnread(e){
+ inboxReadHere.delete(e.id);
+ const r=await inboxAct({action:'unread',id:e.id});
+ if(r&&r.state==='new')toast('Marked unread');
+}
+// The newest conversation started from the entry's briefing, or null.
+const inboxSession=e=>Array.isArray(e.sessions)&&e.sessions.length?e.sessions[e.sessions.length-1]:null;
+const INBOX_DOT='<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/></svg>';
 async function inboxAct(body,done){
  try{const r=await api('/inbox/act',{method:'POST',body:JSON.stringify(body)});mergeInbox(r.entry);if(done)toast(done);paintInboxView();paintRailInbox();paintInboxBadges();if(typeof paintAssistantHome==='function')paintAssistantHome();return r.entry;}
  catch(e){toast(e.message||'Could not update the inbox');return null;}
@@ -109,9 +120,9 @@ function inboxRows(){
 }
 function inboxRowHTML(e){
  const facts=[`<span>${esc(inboxWhen(e.at))}</span>`,e.story?`<span>${esc(e.story.replace(/-/g,' '))}</span>`:'',`<span>${inboxKindWord(e)}${e.priority==='critical'?' · critical':''}</span>`,inboxStateWord(e)?`<span>${inboxStateWord(e)}</span>`:''].filter(Boolean).join('<span aria-hidden="true">·</span>');
- const first=!inboxOpenState(e)&&e.note?e.note:inboxFirst(e.text); // a finished entry says why it is finished (the tidy pass writes the reason)
+ const first=!inboxOpenState(e)&&e.note?e.note:inboxFirst(e.text),sess=inboxSession(e); // a finished entry says why it is finished (the tidy pass writes the reason)
  return `<div class="session-item task-item inbox-item state-${esc(e.state)} kind-${esc(e.kind)}" data-item="${esc(e.id)}">
-  <button class="task-check inbox-mark" data-inbox-open="${esc(e.id)}" aria-label="${e.state==='new'?'Unread':'Read'}: ${esc(e.title)}" title="${e.state==='new'?'Unread':'Read'}">${IC.eye}</button>
+  <span class="inbox-marks">${inboxOpenState(e)?`<button class="task-check inbox-mark" data-inbox-read="${esc(e.id)}" aria-label="${e.state==='new'?'Mark as read':'Mark as unread'}: ${esc(e.title)}" title="${e.state==='new'?'Unread. Mark as read':'Read. Mark as unread'}">${INBOX_DOT}</button>`:`<span class="task-check inbox-mark" aria-hidden="true">${INBOX_DOT}</span>`}${sess?`<a class="task-check inbox-chat" href="#/chat/${esc(sess.id)}" aria-label="Open the conversation: ${esc(e.title)}" title="Open the conversation">${IC.chat}</a>`:''}</span>
   <button class="row" data-inbox-open="${esc(e.id)}"><span class="body"><span class="title">${esc(e.title)}</span>${first?`<span class="inbox-text">${esc(first)}</span>`:''}<span class="session-status">${facts}</span></span></button>
   ${e.state==='dismissed'?'':`<button class="session-more icon inbox-x" data-inbox-dismiss="${esc(e.id)}" aria-label="Dismiss: ${esc(e.title)}" title="Dismiss">${IC.x}</button>`}
   <button class="session-more icon" data-inbox-more="${esc(e.id)}" aria-label="Options for ${esc(e.title)}">${IC.more}</button></div>`;
@@ -139,6 +150,7 @@ function inboxListHTML(){
 function bindInboxRows(root){
  root.querySelectorAll('[data-inbox-check]').forEach(b=>b.onclick=inboxCheckNow);
  root.querySelectorAll('[data-inbox-open]').forEach(b=>b.onclick=()=>inboxSheet(b.dataset.inboxOpen)); // 1.69.1: read first; the sheet starts the conversation
+ root.querySelectorAll('[data-inbox-read]').forEach(b=>b.onclick=()=>{const e=inboxById(b.dataset.inboxRead);if(!e)return;if(e.state==='new')inboxMarkRead(e);else inboxMarkUnread(e);}); // 1.77
  root.querySelectorAll('[data-inbox-dismiss]').forEach(b=>b.onclick=()=>inboxAct({action:'dismiss',id:b.dataset.inboxDismiss},'Dismissed'));
  root.querySelectorAll('[data-inbox-more]').forEach(b=>b.onclick=()=>inboxSheet(b.dataset.inboxMore));
 }
@@ -178,15 +190,17 @@ function inboxSheet(id){
  const e=inboxById(id);if(!e)return;
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet task-sheet inbox-sheet';
  const facts=[`<span>${esc(inboxDay(e.at))} ${esc(inboxWhen(e.at))}</span>`,e.story?`<span>${esc(e.story.replace(/-/g,' '))}</span>`:'',`<span>${inboxKindWord(e)}</span>`,e.priority&&e.priority!=='normal'?`<span>${esc(e.priority)}</span>`:'',inboxStateWord(e)?`<span>${inboxStateWord(e)}</span>`:''].filter(Boolean).join(''); // the sheet's facts stack one per line, as a task's do
- const target=inboxTarget(e),gone=['dismissed','resolved','not_useful'].includes(e.state);
+ const target=inboxTarget(e),gone=['dismissed','resolved','not_useful'].includes(e.state),sess=inboxSession(e),n=e.sessions?.length||0;
  sh.innerHTML=`<h2>${e.kind==='alert'?'Alert':e.kind==='digest'?'Digest':'Look-ahead'}</h2><p class="task-text">${esc(e.title)}</p><div class="task-facts">${facts}</div>
   <div class="task-summary inbox-body">${inboxText(e.text)}</div>
-  ${target?`<button class="opt" data-go>${e.doc&&!e.url?IC.doc:IC.plus}<span>${e.doc&&!e.url?'Open in Files':'Start a conversation'}<span class="sub">${e.doc&&!e.url?'The full text, kept in Files':'New conversation, already briefed with the story and the evidence; nothing starts until you press Start'}</span></span></button>`:''}
+  ${sess?`<a class="opt" href="#/chat/${esc(sess.id)}" data-chat>${IC.chat}<span>Open the conversation<span class="sub">${n>1?`The latest of ${n}, started`:'Started'} ${esc(inboxDay(sess.at))} ${esc(inboxWhen(sess.at))}</span></span></a>`:''}
+  ${target?`<button class="opt" data-go>${e.doc&&!e.url?IC.doc:IC.plus}<span>${e.doc&&!e.url?'Open in Files':sess?'Start another conversation':'Start a conversation'}<span class="sub">${e.doc&&!e.url?'The full text, kept in Files':'New conversation, already briefed with the story and the evidence; nothing starts until you press Start'}</span></span></button>`:''}
   ${e.gmail?`<a class="opt" href="${esc(e.gmail)}" target="_blank" rel="noopener">${IC.globe}<span>Open in Gmail</span></a>`:''}
   ${gone?`<button class="opt" data-restore>${IC.swap}<span>Restore<span class="sub">Back to the list; the watcher is told</span></span></button>`:`<button class="opt" data-resolve>${IC.tick}<span>Resolved<span class="sub">This situation is over; the watcher stops following it</span></span></button>
   <button class="opt" data-useless>${IC.bellOff}<span>Not useful<span class="sub">Don’t alert me about this kind of thing; the watcher adds it to your preferences</span></span></button>
   <button class="opt" data-dismiss>${IC.x}<span>Dismiss<span class="sub">Hide it here; nothing else changes</span></span></button>`}`;
  sh.querySelector('[data-go]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxOpen(id);});
+ sh.querySelector('[data-chat]')?.addEventListener('click',()=>closeCurrentSheet?.());
  sh.querySelector('[data-resolve]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'resolve',id},'Marked resolved');});
  sh.querySelector('[data-useless]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'not_useful',id},'Noted: not useful');});
  sh.querySelector('[data-dismiss]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'dismiss',id},'Dismissed');});

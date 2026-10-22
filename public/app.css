@@ -1782,9 +1782,18 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
   .rail-switch.many [data-rail-view="vault"] .vault-lock-glyph { position: absolute; top: 3px; right: calc(50% + 8px); margin: 0; }
   .rail-switch.many button[aria-current="page"]:not([aria-pressed="true"])::after { bottom: 1px; }
 }
-/* The read mark (1.75.2): one eye, clay while unread, the row's dim once the entry has been opened. */
+/* The read mark (1.77): a dot level with the title, filled clay while unread, a dim ring once read; it marks read and unread.
+   Under it, when a conversation was started from the entry, a bubble that opens it. The gutter stays 44px wide. */
+.inbox-marks { flex: none; width: 44px; display: flex; flex-direction: column; }
+.inbox-item .inbox-mark { flex: 1 0 auto; place-items: start center; padding-top: 13px; }
+.inbox-item .inbox-mark .i { width: 16px; height: 16px; stroke-width: 1.6; }
 .inbox-item.state-new .inbox-mark { color: var(--clay); }
-.inbox-item.state-new .inbox-mark .i { stroke-width: 2.2; }
+.inbox-item.state-new .inbox-mark .i circle { fill: currentColor; }
+.inbox-item span.inbox-mark { cursor: default; }
+.inbox-item span.inbox-mark:hover { background: none; color: var(--dim); }
+.inbox-marks:has(.inbox-chat) .inbox-mark { flex: none; min-height: 40px; } /* the bubble sits right under the dot, by the title */
+.inbox-item .inbox-chat { flex: none; color: var(--text); text-decoration: none; }
+.inbox-item .inbox-chat .i { width: 17px; height: 17px; }
 .inbox-item .inbox-text { display: block; margin-top: 2px; font-size: 14px; line-height: 1.45; color: var(--dim); overflow-wrap: anywhere; }
 .inbox-item.state-opened .row .title, .inbox-item.state-resolved .row .title, .inbox-item.state-not_useful .row .title, .inbox-item.state-dismissed .row .title { color: var(--dim); }
 .inbox-item .inbox-x { color: var(--dim); }

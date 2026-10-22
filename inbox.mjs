@@ -8,6 +8,8 @@
 // The worker reads the settings back each minute; with none stored it uses its own config file.
 // 1.75: Check now. The owner's request is a time stamp per source, handed to the worker with the settings; the worker runs a
 // check on its next tick whatever the schedule says and reports the stamp back as done in its heartbeat.
+// 1.77: an entry remembers the conversations started from its start link (newest last), and an opened entry can be marked
+// unread again. Neither reaches the worker: they are the owner's bookkeeping, not decisions about the alert.
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -17,11 +19,12 @@ export const LIMITS = { entries: 500, text: 2000, title: 160, story: 120, source
 export const KINDS = ['alert', 'digest', 'lookahead'];
 export const PRIORITIES = ['critical', 'high', 'normal', 'low'];
 export const STATES = ['new', 'opened', 'dismissed', 'resolved', 'not_useful'];
-export const ACTIONS = ['open', 'dismiss', 'resolve', 'not_useful', 'restore'];
+export const ACTIONS = ['open', 'unread', 'dismiss', 'resolve', 'not_useful', 'restore'];
 const ACTED = ['dismissed', 'resolved', 'not_useful'];
 const TARGET = { dismiss: 'dismissed', resolve: 'resolved', not_useful: 'not_useful' };
-const NOTE_MAX = 300, URL_MAX = 500, DEDUPE_MAX = 200, DAY = 86400_000;
-const DOC_RE = /^[0-9a-f]{12}$/;
+const NOTE_MAX = 300, URL_MAX = 500, DEDUPE_MAX = 200, SESSIONS_MAX = 5, DAY = 86400_000;
+const DOC_RE = /^[0-9a-f]{12}$/, START_RE = /^[0-9a-f]{12}$/, SESSION_RE = /^(cx:)?[0-9A-Za-z][0-9A-Za-z_-]{7,79}$/;
+const checkSessions = v => Array.isArray(v) ? v.filter(s => s && SESSION_RE.test(String(s.id)) && !Number.isNaN(ms(s.at))).slice(-SESSIONS_MAX).map(s => ({ id: s.id, at: s.at })) : [];
 const fail = (message, status = 400, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
 const line = (v, max) => str(typeof v === 'string' ? v.replace(/\s+/g, ' ') : v, max);
@@ -143,7 +146,8 @@ export class InboxStore {
     return { id: e.id, kind: ok(e.kind, KINDS, 'alert'), priority: ok(e.priority, PRIORITIES, 'normal'), title: line(e.title, LIMITS.title), text: str(e.text, LIMITS.text),
       story: line(e.story, LIMITS.story), source: source(e.source), url: keep(checkUrl, e.url), gmail: keep(checkGmail, e.gmail), doc: keep(checkDoc, e.doc), dedupe: str(e.dedupe, DEDUPE_MAX),
       state: ok(e.state, STATES, 'new'), at: e.at, seenAt: e.seenAt || null, actedAt: e.actedAt || null, ackedAt: e.ackedAt || null, note: str(e.note, NOTE_MAX),
-      by: e.by === 'ui' ? 'ui' : 'cli', actedBy: e.actedBy === 'ui' || e.actedBy === 'cli' ? e.actedBy : null, revision: Number.isInteger(e.revision) && e.revision > 0 ? e.revision : 1, lastAction: typeof e.lastAction === 'string' ? e.lastAction : null };
+      by: e.by === 'ui' ? 'ui' : 'cli', actedBy: e.actedBy === 'ui' || e.actedBy === 'cli' ? e.actedBy : null, revision: Number.isInteger(e.revision) && e.revision > 0 ? e.revision : 1, lastAction: typeof e.lastAction === 'string' ? e.lastAction : null,
+      sessions: checkSessions(e.sessions) };
   }
   save() { this.write(this.file, { version: 1, entries: this.entries, sources: this.sources, profiles: this.profiles, watch: this.watch, checks: this.checks }); }
   get(id) { const e = this.entries.find(x => x.id === id); if (!e) throw fail('That Inbox entry does not exist.', 404, { code: 'inbox_missing' }); return e; }
@@ -175,7 +179,7 @@ export class InboxStore {
     if (!title) throw fail('An Inbox entry needs a title.', 400, { code: 'no_title' });
     const e = { id: shortId(), kind: pick(input.kind, KINDS, 'alert', 'kind'), priority: pick(input.priority, PRIORITIES, 'normal', 'priority'), title, text: str(input.text, LIMITS.text),
       story: line(input.story, LIMITS.story), source: source(input.source), url: checkUrl(input.url), gmail: checkGmail(input.gmail), doc: checkDoc(input.doc), dedupe: str(input.dedupe, DEDUPE_MAX),
-      state: 'new', at: iso(now), seenAt: null, actedAt: null, ackedAt: null, note: '', by: actor === 'ui' ? 'ui' : 'cli', actedBy: null, revision: 1, lastAction: null };
+      state: 'new', at: iso(now), seenAt: null, actedAt: null, ackedAt: null, note: '', by: actor === 'ui' ? 'ui' : 'cli', actedBy: null, revision: 1, lastAction: null, sessions: [] };
     if (e.dedupe) {
       const seen = this.entries.find(x => x.dedupe === e.dedupe && ms(x.at) >= now - DAY);
       if (seen) return { ...this.view(seen), duplicate: true };
@@ -194,17 +198,20 @@ export class InboxStore {
     return { version: 1, now, entries, newCount: this.entries.filter(e => e.state === 'new').length, lastReportAt: this.lastReportAt(), sources: structuredClone(this.sources), paused: this.paused() };
   }
 
-  // open marks it seen; dismiss / resolve / not_useful record the owner's decision for the worker; restore undoes one.
+  // open marks it seen and unread takes that back; dismiss / resolve / not_useful record the owner's decision for the worker;
+  // restore undoes one.
   // A repeat of what is already recorded changes nothing, so the worker never applies the same decision twice.
   act({ action, id, note } = {}, { actor = 'ui' } = {}) {
     const a = str(action, 40);
-    if (!ACTIONS.includes(a)) throw fail('Unknown action. Use open, dismiss, resolve, not_useful or restore.', 400, { code: 'bad_action' });
+    if (!ACTIONS.includes(a)) throw fail('Unknown action. Use open, unread, dismiss, resolve, not_useful or restore.', 400, { code: 'bad_action' });
     const e = this.get(str(id, 40));
     const at = iso(this.now()), n = typeof note === 'string' ? str(note, NOTE_MAX) : null;
     let changed = false;
     if (a === 'open') {
       if (e.state === 'new') { e.state = 'opened'; changed = true; }
       if (!e.seenAt) { e.seenAt = at; changed = true; }
+    } else if (a === 'unread') {
+      if (e.state === 'opened') { e.state = 'new'; changed = true; } // a finished entry stays finished; restore it first
     } else if (a === 'restore') {
       if (ACTED.includes(e.state)) { e.state = 'opened'; e.seenAt ||= at; e.actedAt = at; e.ackedAt = null; e.lastAction = 'restore'; if (n != null) e.note = n; changed = true; }
     } else {
@@ -213,6 +220,24 @@ export class InboxStore {
     }
     if (changed) { e.revision += 1; e.actedBy = actor === 'cli' ? 'cli' : 'ui'; this.save(); }
     return this.view(e);
+  }
+
+  // 1.77: a conversation was started from a start link. Every entry that opens that link remembers it (at most SESSIONS_MAX,
+  // the oldest dropped), and an unread one is read: starting from it means it was read, even straight from a push.
+  // Returns the entries changed; an unknown link or a session already recorded changes nothing.
+  linkStart(startId, session) {
+    const sid = str(startId, 20), sess = str(session, 90);
+    if (!START_RE.test(sid) || !SESSION_RE.test(sess)) return [];
+    const tail = '#/start/' + sid, at = iso(this.now()), out = [];
+    for (const e of this.entries) {
+      if (!e.url.endsWith(tail) || e.sessions.some(s => s.id === sess)) continue;
+      e.sessions = [...e.sessions, { id: sess, at }].slice(-SESSIONS_MAX);
+      if (e.state === 'new') e.state = 'opened';
+      e.seenAt ||= at;
+      out.push(this.view(e));
+    }
+    if (out.length) this.save();
+    return out;
   }
 
   // The owner's decisions the worker has not applied yet, newest first.

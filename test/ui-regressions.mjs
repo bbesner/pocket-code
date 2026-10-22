@@ -2474,7 +2474,30 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await clickControl(page,'.inbox-item.state-new .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet');assert.equal(await page.$eval('.inbox-sheet [data-go]',e=>e.textContent.includes('Start a conversation')),true);await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));
     // 1.69.2: reading cleared the dot but the row stays in Open; the row menu: Resolved moves it to Done; X there dismisses; Restore brings it back
     await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2&&!document.querySelector('.inbox-view .inbox-item.state-new'));
-    await clickControl(page,'[data-inbox-more][aria-label="Options for Pradera dispatch conflict"]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
+    // The list repaints when the server answers an action; a click that lands on the row just replaced is tried again.
+    const clickRow=async sel=>{for(let i=0;;i++){try{return await clickControl(page,sel);}catch(e){if(i>=4||!/detached|not clickable|No element/i.test(String(e.message)))throw e;await new Promise(r=>setTimeout(r,250));}}};
+    // 1.77: the dot is its own control: read → unread → read, the row staying where it is; it sits level with the title
+    await clickRow('[data-inbox-read][aria-label="Mark as unread: Pradera dispatch conflict"]');await page.waitForSelector('.inbox-view .inbox-item.state-new [data-inbox-read][aria-label="Mark as read: Pradera dispatch conflict"]');
+    assert.equal(await page.$eval('.inbox-item.state-new .inbox-mark .i circle',c=>getComputedStyle(c).fill!=='none'),true,'unread is a filled dot');
+    assert.ok(await page.$eval('.inbox-item.state-new',r=>{const d=r.querySelector('.inbox-mark .i').getBoundingClientRect(),t=r.querySelector('.row .title').getBoundingClientRect();const mid=d.top+d.height/2;return mid>t.top&&mid<t.top+28;}),'the dot is level with the first line of the title');
+    assert.equal(await page.evaluate(()=>document.querySelector('.inbox-sheet')),null,'the dot opens nothing');
+    await clickRow('[data-inbox-read][aria-label="Mark as read: Pradera dispatch conflict"]');await page.waitForFunction(()=>!document.querySelector('.inbox-view .inbox-item.state-new'));
+    assert.equal(await page.$eval('[data-inbox-read][aria-label="Mark as unread: Pradera dispatch conflict"] .i circle',c=>getComputedStyle(c).fill),'none','read is a ring');
+    // 1.77: Start a conversation from the alert: New carries the start link, and the row then shows the conversation
+    await clickRow('.inbox-item:has([aria-label="Mark as unread: Pradera dispatch conflict"]) .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet [data-go]');
+    assert.equal(await page.$('.inbox-sheet [data-chat]'),null,'no conversation yet');
+    await clickControl(page,'.inbox-sheet [data-go]');await page.waitForFunction(()=>location.hash==='#/new'&&/Reach Jairon/.test(document.querySelector('#first')?.value||''));
+    const sentBefore=received.length;await clickControl(page,'#start');await page.waitForFunction(n=>location.hash.startsWith('#/chat/')||false,{},sentBefore);
+    assert.equal(received.at(-1).start,'0123456789ab','the start link reaches /api/new');
+    await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view .inbox-item .inbox-chat');
+    assert.equal(await page.$eval('.inbox-item .inbox-chat',a=>[a.getAttribute('href'),a.getAttribute('aria-label'),a.getBoundingClientRect().height>=44&&a.getBoundingClientRect().width>=44].join('|')),'#/chat/66666666-6666-4666-8666-666666666666|Open the conversation: Pradera dispatch conflict|true');
+    assert.equal(await page.$$eval('.inbox-view .inbox-chat',a=>a.length),1,'only the entry it started from');
+    await clickRow('.inbox-item:has(.inbox-chat) .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet [data-chat]');
+    assert.deepEqual(await page.$$eval('.inbox-sheet .opt',o=>o.slice(0,2).map(x=>x.firstElementChild.nextElementSibling.firstChild.textContent)),['Open the conversation','Start another conversation']);
+    await scan('inbox-conversation-1440');
+    await clickControl(page,'.inbox-sheet [data-chat]');await page.waitForFunction(()=>location.hash==='#/chat/66666666-6666-4666-8666-666666666666'&&!document.querySelector('.inbox-sheet'));
+    await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view [data-inbox-more][aria-label="Options for Pradera dispatch conflict"]');
+    await clickRow('[data-inbox-more][aria-label="Options for Pradera dispatch conflict"]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
     assert.match(await page.$eval('.inbox-sheet .inbox-body',e=>e.innerHTML),/<a href="https:\/\/mail\.google\.com\/mail\/u\/0\/#all\/1a1540e0de10f879"/,'a citation is a Gmail link');
     assert.deepEqual(await page.evaluate(()=>['[data-go]','a.opt[href^="https://mail.google.com/"]','[data-resolve]','[data-useless]','[data-dismiss]','[data-restore]'].map(q=>Boolean(document.querySelector('.inbox-sheet '+q)))),[true,true,true,true,true,false],'the choices: open, Gmail, Resolved, Not useful, Dismiss; no Restore on a new entry');
     await clickControl(page,'.inbox-sheet [data-resolve]');await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));

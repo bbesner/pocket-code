@@ -1,6 +1,6 @@
 {
   "name": "pocket-code",
-  "version": "1.76.4",
+  "version": "1.77.0",
   "private": true,
   "type": "module",
   "bin": {

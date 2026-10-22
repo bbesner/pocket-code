@@ -34,11 +34,16 @@ The first block of the Inbox Watch sheet, both modes: the set head *Your rules*,
 useful adds to them, a plain textarea (the field style of *Name*, 200px tall, vertical resize, three example rules as the
 placeholder) and a character count as a `.title-note`. No new colour.
 
-## Inbox: the read mark (1.75.2)
+## Inbox: the read dot and the started conversation (1.77)
 
-Same pinned Inbox brief. Each row's mark is one eye in the 44px `.task-check` slot: clay at a 2.2 stroke while unread,
-the row's `--dim` once opened. It replaced a clay dot that became a bell or a page, which read as two controls doing one
-thing. Opening the entry is reading it; the eye goes quiet as the sheet opens.
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 7; existing tokens and icons, no
+new colour. Read: an owner scanning a dense list who needs to see at a glance what is unread and what is already being
+handled. The 44px gutter (`.inbox-marks`) holds a 16px dot level with the title's first line: filled clay while unread,
+a `--dim` 1.6 ring once read. The dot is its own control (mark read, mark unread) and never opens the entry; the eye of
+1.75.2 read the same both ways and only repeated the row's tap. On a finished entry the ring is a plain mark, not a
+button. When a conversation was started from the entry's briefing, the bubble glyph (`IC.chat`, 17px, `--text`) sits as
+a 44px link right under the dot and opens it. The sheet leads with **Open the conversation** (the bubble, with when it
+started) above **Start another conversation**. The 1.75.2 lesson stands: a mark keeps one meaning and one shape.
 
 ## Inbox: Open and Done, and keeping it tidy (1.71)
 
