@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.75.3] — 2026-10-22 · build 153
+
+- **Check now skips quiet hours.** A check the owner asks for in the Inbox no longer holds its alerts for the morning: the check's own decisions go out at once whatever the hour (`process(..., awake=True)`), and every alert quiet hours were holding goes out with it, whatever its priority (`release_held(..., everything=True)`; one whose story resolved since is dropped as before). Scheduled checks keep quiet hours as they were. Asked for by Brad ("if someone hits refresh then they obviously want the alerts at that point").
+- Migration: none.
+- Tests: `inbox-watch/tests/test_label.py` (`test_check_now_skips_quiet_hours`: a Check now run passes `awake` and delivers held high, normal and low alerts, leaving none waiting).
+
 ## [1.75.2] — 2026-10-21 · build 153
 
 - **The Inbox's read mark is an eye.** Each entry showed a clay dot while unread, then a bell (an alert) or a page (a digest or look-ahead) once read, which read as two different controls that did the same thing. It is now one eye: clay while unread, the row's `--dim` once the entry has been opened. The mark and the row both open the entry, as before; its label says Unread or Read. Asked for by Brad.
