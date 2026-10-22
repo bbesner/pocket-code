@@ -2292,6 +2292,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.evaluate(()=>writeLocal('pc-files-button','tab'));const backTo=await page.evaluate(()=>location.hash);
    await clickControl(page,'[data-rail-view="documents"]');await page.waitForFunction(()=>location.hash==='#/documents');
    assert.equal(await page.evaluate(()=>readLocal('pc-rail-view','sessions')),'sessions','the sidebar keeps its list');
+   // 1.76.2 (Damon): the rail keeps Chats pressed, and Files is marked as what the main area shows
+   await page.waitForFunction(()=>document.querySelector('[data-rail-view="documents"]')?.getAttribute('aria-current')==='page');
+   assert.equal(await page.$eval('[data-rail-view="sessions"]',b=>b.getAttribute('aria-pressed')+'/'+b.getAttribute('aria-current')),'true/null');
    await page.evaluate(h=>{writeLocal('pc-files-button','rail');location.hash=h;},backTo);await page.waitForSelector('#rail .session-panel');
    // Settings → Projects & documents.
    await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-documents')?.disabled===false);
@@ -2434,16 +2437,25 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const shown=sel=>page.evaluate(s=>[...document.querySelectorAll(s)].some(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'),sel);
    try{
     await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));
-    // the rail at a desk: six entries, icons for all, the name only on the pressed one, every entry named for assistive tech
+    // the rail at a desk: six entries, each an icon over its name at the default width (1.76.2), every entry named for assistive tech
     await page.setViewport({width:1440,height:900});await page.goto(base+'/#/inbox');await page.reload();await page.waitForSelector('.inbox-view'); // the rail belongs to the view shell
     await page.waitForSelector('.rail-switch.many');
     const segs=await page.$$eval('.rail-switch button',bs=>bs.map(b=>({view:b.dataset.railView,label:b.getAttribute('aria-label'),pressed:b.getAttribute('aria-pressed'),named:b.querySelector('.rail-label').getBoundingClientRect().width>4,icon:Boolean(b.querySelector('svg')),w:b.getBoundingClientRect().width})));
     assert.deepEqual(segs.map(x=>x.view),['sessions','projects','documents','tasks','vault','inbox']);
     assert.deepEqual(segs.map(x=>x.label),['Chats','Projects','Files','Tasks','Vault','Inbox']);
-    assert.ok(segs.every(x=>x.icon),'every entry has an icon');assert.deepEqual(segs.map(x=>x.named),[true,false,false,false,false,false],'only the pressed entry (Chats, the rail’s own choice) shows its name');
+    assert.ok(segs.every(x=>x.icon),'every entry has an icon');assert.deepEqual(segs.map(x=>x.named),[true,true,true,true,true,true],'every entry shows its name at the default rail width (1.76.2)');
+    // 1.76.2: the rail still lists chats, the main area shows the Inbox: Chats is pressed, Inbox carries aria-current and the clay bar
+    assert.deepEqual(segs.map(x=>x.pressed),['true','false','false','false','false','false']);
+    assert.deepEqual(await page.$$eval('.rail-switch button',bs=>bs.map(b=>b.getAttribute('aria-current'))),[null,null,null,null,null,'page']);
+    assert.notEqual(await page.$eval('[data-rail-view="inbox"]',b=>getComputedStyle(b,'::after').content),'none','the main area’s entry shows the bar');
     const fit=await page.evaluate(()=>{const r=s=>{const e=document.querySelector(s);if(!e)return null;const b=e.getBoundingClientRect();return {left:Math.round(b.left),right:Math.round(b.right),top:Math.round(b.top),bottom:Math.round(b.bottom),w:Math.round(b.width)};};return {switch:r('.rail-switch'),head:r('.railhead'),actions:r('.rail-actions'),rail:r('aside.rail'),overflow:document.querySelector('.railhead').scrollWidth>document.querySelector('.railhead').clientWidth+1,buttons:[...document.querySelectorAll('.rail-switch button')].map(b=>[Math.round(b.getBoundingClientRect().width),Math.round(b.querySelector('.rail-label').getBoundingClientRect().width),getComputedStyle(b.querySelector('.rail-label')).position,b.className]),many:document.querySelector('.rail-switch').className};});
     assert.ok(!fit.overflow&&fit.switch.right<=fit.head.right&&(fit.switch.right<=fit.actions.left||fit.switch.top>=fit.actions.bottom||fit.switch.bottom<=fit.actions.top),'the switch fits the rail head, beside the rail actions or on its own row: '+JSON.stringify(fit));
-    assert.ok(fit.switch.right<=fit.actions.left,'at the default rail width six entries share one row with the rail actions: '+JSON.stringify(fit));
+    assert.ok(fit.switch.bottom<=fit.actions.top,'at the default rail width the named switch has the head’s first row, the rail actions the second: '+JSON.stringify(fit));
+    // a narrow rail falls back to icons with only the pressed entry named, on one row with the actions where they fit
+    await page.$eval('aside.rail',e=>e.style.width='260px');
+    assert.deepEqual(await page.$$eval('.rail-switch button',bs=>bs.map(b=>b.querySelector('.rail-label').getBoundingClientRect().width>4)),[true,false,false,false,false,false],'a 260px rail names only the pressed entry');
+    assert.equal(await page.evaluate(()=>document.querySelector('.railhead').scrollWidth>document.querySelector('.railhead').clientWidth+1),false,'nothing overflows a 260px rail');
+    await page.$eval('aside.rail',e=>e.style.width='');
     await page.waitForFunction(()=>document.querySelector('[data-inbox-badge]')?.textContent==='1');
     await scan('rail-six-1440');
     // the list
