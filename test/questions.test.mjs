@@ -18,3 +18,9 @@ test('multiple choices are preserved and malformed requests are declined',()=>{
  inbox.receive({...request,params:{...request.params,questions:[{...request.params.questions[0],multiple:true}]}},'turn');
  inbox.answer(inbox.list()[0].id,{choice:['Blue','Red']});assert.deepEqual(writes[0].result.answers.choice.answers,['Blue','Red']);
 });
+test('skipBlocking sends each blocking request its no-answer reply with the note, and leaves non-blocking ones',()=>{
+ const writes=[];const inbox=new QuestionInbox({threadId:()=> 'thread',write:(r,o)=>writes.push([r,o])});
+ inbox.receive(request,'turn');inbox.receive({...request,id:9,params:{...request.params,isBlocking:false}},'turn');
+ assert.equal(inbox.skipBlocking('skipped'),1);assert.deepEqual(writes,[[{jsonrpc:'2.0',id:7,result:{answers:{}}},{skipped:'skipped'}]]);
+ assert.equal(inbox.list().length,1);assert.equal(inbox.list()[0].blocking,false);assert.equal(inbox.skipBlocking('again'),0);
+});

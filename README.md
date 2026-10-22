@@ -17,7 +17,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.76.0 / build 154**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.76.1 / build 155**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -345,7 +345,8 @@ Workspace service account for mailboxes an administrator controls.
   read-only actions the owner lists in Settings (a lookup command, a memory search) run
   without a card.
 - **Steer or queue.** Redirect the running turn, or save a follow-up with After this turn;
-  edit, cancel or run paused instructions from Queue. A failed turn offers Send again and
+  edit, cancel or run paused instructions from Queue. A message sent while the agent waits
+  on a question skips the question, so the agent reads the message instead of waiting. A failed turn offers Send again and
   Edit message, on any device.
 - **Choose how it runs.** Model and reasoning effort per turn, and Codex's Plan first mode.
   New session names the agent, model and reasoning it will use.

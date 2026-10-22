@@ -478,6 +478,7 @@ try{
  await p.goto(base+'/#/chat/'+rows[1].id);await p.waitForSelector('#questions-open:not([hidden])');
  // 1.75.4: the banner says what is waiting, that the reply is paused, and carries an Answer button
  await p.waitForFunction(()=>{const b=document.querySelector('#questions-open');return b?.querySelector('.wb-title')?.textContent==='Codex has a question for you'&&b.querySelector('.wb-note')?.textContent==='The reply is paused until you answer.'&&b.querySelector('.wb-cta')?.textContent==='Answer';});
+ await p.waitForFunction(()=>document.querySelector('#box')?.placeholder==='Answer above, or type here to skip the questions…'); // 1.76.1
  await p.screenshot({path:path.join(out,'question-banner-mobile.png')});await scan('question-banner-mobile');
  await clickControl(p,'#questions-open');await p.waitForSelector('.question-form');
  await p.screenshot({path:path.join(out,'native-question-mobile.png')});await scan('native-question-mobile');

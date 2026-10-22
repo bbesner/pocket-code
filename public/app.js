@@ -2954,7 +2954,7 @@ function setComposer(working) {
   }
   const modeButtons=c.querySelectorAll('[data-mode]');
   const paintMode=()=>modeButtons.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===(sendModes.get(chatId)||defaultSendMode()))));
-  modeButtons.forEach(b=>b.onclick=()=>{sendModes.set(chatId,b.dataset.mode);paintMode();$('#box').placeholder=b.dataset.mode==='queue'?'Run this after the current reply…':"Add to what it's doing…";});paintMode();
+  modeButtons.forEach(b=>b.onclick=()=>{sendModes.set(chatId,b.dataset.mode);paintMode();const box=$('#box'),ph=b.dataset.mode==='queue'?'Run this after the current reply…':"Add to what it's doing…";box.dataset.basePh=ph;box.placeholder=b.dataset.mode!=='queue'&&$('#questions-open')&&!$('#questions-open').hidden?SKIP_PH:ph;});paintMode();
   const box = $('#box');
   const grow = () => sizeComposerBox();
   const draft = loadOutbox(chatId)?.text || loadDraft(chatId);
@@ -3047,7 +3047,7 @@ async function submitPending(id) {
     saveOutbox(id, null); clearDraft(id);
     if (pending.files.length) localStorage.removeItem('pc-attachments-' + id);
     if (result.steered) steeredEchoes.set(id, [...(steeredEchoes.get(id) || []), { text: pending.text.trim(), at: Date.now() }]);
-    deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current reply.' : result.steered ? 'Sent to the running reply.' : 'Message delivered.');
+    deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current reply.' : result.steered ? (result.skippedQuestions ? 'Questions skipped. Your message went to the running reply.' : 'Sent to the running reply.') : 'Message delivered.');
     if (result.modelFallback) modelFellBack(id, result.modelFallback);
     if (chatId === id) {
       if (tb?.key === id && pending.files.length) tb.attachments = [];

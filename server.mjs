@@ -1283,9 +1283,10 @@ function signalTurn(turn, sig = 'SIGTERM') {
 
 function attachClaudeQuestions(turn,sessionId){
   const inputs=new Map();turn.questionInputs=inputs;
-  turn.questions=new QuestionInbox({threadId:()=>sessionId,write:reply=>{
+  turn.questions=new QuestionInbox({threadId:()=>sessionId,write:(reply,opts)=>{
     if(!turn.stdin||turn.stdin.destroyed||turn.stdin.writableEnded)throw new Error('Question connection closed');
     const input=inputs.get(reply.id);if(!input)throw new Error('Question expired');
+    if(opts?.skipped){turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:reply.id,response:{behavior:'deny',message:opts.skipped}}})+'\n');inputs.delete(reply.id);return;}
     const answers=Object.fromEntries(input.questions.map((q,i)=>[q.question,reply.result.answers['question-'+i].answers.join(', ')]));
     turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:reply.id,response:{behavior:'allow',updatedInput:{...input,answers}}}})+'\n');
     inputs.delete(reply.id);
@@ -1725,6 +1726,15 @@ const userJSON = text => JSON.stringify({ type: 'user', message: { role: 'user',
 // is delivered at the next model boundary (verified 2026-08-16). Since 1.7 stdin stays
 // open between turns, so a message must not be written once the turn is finishing — the
 // idle CLI would run it as a new, unlabeled turn.
+// 1.76.1: a steered message no longer waits behind a pending question. Claude Code (and Codex) hold steered input
+// until the question is answered, so a person who typed instead of answering got no reply and no sign why (Damon,
+// 2026-10-22: 33 minutes). After the message is written, each blocking question gets its no-answer reply; Claude reads
+// the skip note as the tool result and the message beside it, in the same turn (checked against the real CLI).
+const QUESTION_SKIPPED = 'The user skipped these questions without answering and sent a message instead; it follows. Respond to that message. Ask again later only if you still need the answers.';
+function skipQuestions(questions) {
+  try { return questions?.skipBlocking(QUESTION_SKIPPED) || 0; }
+  catch (e) { log(`question skip failed: ${e.message}`); return 0; }
+}
 function steerTurn(turn, text) {
   if (turn.finalized || turn.stopped || turn.stalled) return false;
   if (!turn.stdin || turn.stdin.destroyed || turn.stdin.writableEnded) return false;
@@ -2505,8 +2515,9 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
     if (running) {
       const opts = turnOpts(req.body);
       try { if (mode !== 'queue' && await codex.steerCodexTurn(tid, promptText(text, opts.attachments))) {
-        log(`steered message into running codex turn thread=${tid}`);
-        return res.status(202).json({ ok: true, steered: true });
+        const skipped = skipQuestions(running.questions);
+        log(`steered message into running codex turn thread=${tid}${skipped ? ` skipped=${skipped} question request(s)` : ''}`);
+        return res.status(202).json({ ok: true, steered: true, ...(skipped && { skippedQuestions: skipped }) });
       } } catch {return res.status(503).json({error:'Steering was not confirmed. Review the conversation before sending again.',code:'delivery_uncertain'});}
       if(mode==='steer')return res.status(409).json({error:'This reply cannot accept steering now. Choose After this reply to queue it.'});
       try {const item=followups.add(id,{text,...opts});return res.status(202).json({ok:true,queued:true,itemId:item.id});}
@@ -2533,8 +2544,9 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
     // fall back to the queue when the pipe is gone (adopted without its pipe) or closing
     if (mode !== 'queue' && steerTurn(running, promptText(text, opts.attachments))) {
       broadcast(running, { type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
-      log(`steered message into running turn session=${id}`);
-      return res.status(202).json({ ok: true, steered: true });
+      const skipped = skipQuestions(running.questions); // the message is in first, so Claude reads it with the skip
+      log(`steered message into running turn session=${id}${skipped ? ` skipped=${skipped} question request(s)` : ''}`);
+      return res.status(202).json({ ok: true, steered: true, ...(skipped && { skippedQuestions: skipped }) });
     }
     if(mode==='steer')return res.status(409).json({error:'This reply cannot accept steering now. Choose After this reply to queue it.'});
     try {const item=followups.add(id,{text,...opts});return res.status(202).json({ok:true,queued:true,itemId:item.id});}
@@ -3599,7 +3611,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Inbox Watch reads your memory: before it decides on an email, and when it tidies your Inbox, it searches your past sessions and notes, so work you did outside email counts. A bug you already fixed in a session no longer comes in as a new alert, and an alert you settled in a session comes off your list with the session as the reason.", "When Claude or Codex asks you something, the banner above the conversation is now amber, Pocket's colour for waiting on you, with an Answer button and the number of questions, and says the reply is paused until you answer. It looked like a message before and was easy to read past. Approvals get the same banner with a Review button.", "Inbox: Check now no longer waits for quiet hours. Pressing it delivers whatever quiet hours were holding and anything the check itself finds, at any hour, since you are evidently awake and asking.", "Inbox: each entry's mark is now an eye, orange while unread and grey once read, in place of the dot, bell and page; opening an entry counts as reading it and the eye changes the moment the sheet opens.", "Inbox Watch's Pocket Inbox label now also works through Claude Code's Gmail connector, as long as Gmail was connected with permission to manage mail; if it was connected read-only, Settings says so and what to do, and Codex's Gmail app writes the label instead when it is connected too.", "Inbox: Check now, beside All and Schedule, has Inbox Watch check your mail right away whatever its schedule, so a schedule of Don’t check now means on demand only. What’s on your list also carries a Pocket Inbox label in Gmail, both ways: label an email there and it comes here with a summary; finish it here and the label comes off. Inbox Watch’s own instructions no longer assume any industry: your rules, now explained in italics, are where you make it yours."];
+const RELEASE_NOTES = ["A message you type while Claude or Codex is waiting on a question no longer gets stuck behind it: the question is skipped and the agent reads your message in the same reply. The message box says so while a question waits; to answer instead, use the banner.", "Inbox Watch reads your memory: before it decides on an email, and when it tidies your Inbox, it searches your past sessions and notes, so work you did outside email counts. A bug you already fixed in a session no longer comes in as a new alert, and an alert you settled in a session comes off your list with the session as the reason.", "When Claude or Codex asks you something, the banner above the conversation is now amber, Pocket's colour for waiting on you, with an Answer button and the number of questions, and says the reply is paused until you answer. It looked like a message before and was easy to read past. Approvals get the same banner with a Review button.", "Inbox: Check now no longer waits for quiet hours. Pressing it delivers whatever quiet hours were holding and anything the check itself finds, at any hour, since you are evidently awake and asking.", "Inbox: each entry's mark is now an eye, orange while unread and grey once read, in place of the dot, bell and page; opening an entry counts as reading it and the eye changes the moment the sheet opens.", "Inbox Watch's Pocket Inbox label now also works through Claude Code's Gmail connector, as long as Gmail was connected with permission to manage mail; if it was connected read-only, Settings says so and what to do, and Codex's Gmail app writes the label instead when it is connected too."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

@@ -32,6 +32,15 @@ export class QuestionInbox {
   this.answered.set(id,fingerprint);this.pending.delete(id);if(this.answered.size>100)this.answered.delete(this.answered.keys().next().value);this.onChange();
   return {ok:true};
  }
+ // 1.76.1: a message typed while a blocking question waits skips the question rather than queueing behind it, since
+ // the provider holds steered input until the question is answered. The provider gets its no-answer reply; `note` is
+ // what Claude is told (Codex's reply has no message). Returns how many requests were skipped.
+ skipBlocking(note){
+  let n=0;
+  for(const [id,row] of [...this.pending]){if(!row.blocking)continue;this.write({jsonrpc:'2.0',id:row.nativeId,result:{answers:{}}},{skipped:note});this.pending.delete(id);n++;}
+  if(n)this.onChange();
+  return n;
+ }
  resolve(nativeId){for(const [id,row] of this.pending)if(row.nativeId===nativeId)this.pending.delete(id);this.onChange();}
  clear(){this.pending.clear();this.onChange();}
 }
