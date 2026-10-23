@@ -294,7 +294,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname.endsWith('/questions/request-1/answer')){let raw='';for await(const c of req)raw+=c;questionAnswers=JSON.parse(raw).answers;questionRequests=[];return json({ok:true});}
  if(url.pathname.endsWith('/workspace'))return json({branch:'feature/inventory',total:2,checkedAt:Date.now(),files:[{path:'report.csv',status:' M',inspectable:true},{path:'.env',status:'??',inspectable:false}]});
  if(url.pathname.endsWith('/workspace/diff'))return json({text:url.searchParams.get('scope')==='staged'?'No staged diff for this file.':'-old quantity\n+new quantity\n+<script>unsafe-looking content is literal</script>'});
- if(url.pathname.endsWith('/events')){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache'});res.write(url.pathname.includes(rows[0].id)?': running\n\n':'data: {"type":"watch"}\n\n');const t=setInterval(()=>res.write(': keepalive\n\n'),1000);req.on('close',()=>clearInterval(t));return;}
+ if(url.pathname.endsWith('/events')){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache'});res.write(url.pathname.includes(rows[0].id)?': running\n\n':'data: {"type":"watch"}\n\n');if(uiModes.streamDone){uiModes.streamDone=false;res.write('data: {"type":"done"}\n\n');} /* streamDone: the next stream ends a turn once */const t=setInterval(()=>res.write(': keepalive\n\n'),1000);req.on('close',()=>clearInterval(t));return;}
  if(url.pathname==='/api/new'){
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   const held=secretRefusal(body);if(held)return json(held,422);
@@ -335,7 +335,7 @@ const server=http.createServer(async(req,res)=>{
  }
  const match=url.pathname.match(/^\/api\/session\/([^/]+)(\/message)?$/);
  if(match){const id=decodeURIComponent(match[1]),r=rows.find(x=>x.id===id);
-  if(!match[2]){const messages=messagesOf(id);return json({...r,active:r.state.kind==='running',ext:false,messages,total:messages.length});}
+  if(!match[2]){if(uiModes.sessionDelay)await new Promise(r=>setTimeout(r,uiModes.sessionDelay));/* sessionDelay: a slow transcript read, so a check can see the view while it waits */const messages=messagesOf(id);return json({...r,active:r.state.kind==='running',ext:false,messages,total:messages.length});}
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   const held=secretRefusal(body);if(held)return json(held,422);
   if(!receipts.has(body.clientMessageId)){dispatches++;receipts.set(body.clientMessageId,{ok:true});conversations.get(id).push({role:'user',text:body.text});}
