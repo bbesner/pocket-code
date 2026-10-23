@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.5] — 2026-10-23 · build 161
+
+- **Sending a message no longer dims the conversation for a moment.** 1.77.4 replaced only the message list after a send and at a turn's end, but every message is drawn with `.enter` (the 0.18 s `rise` fade-in from opacity 0), so the whole visible conversation replayed it at once: a brief blink Brad could still just see on his phone. `resyncChat` now removes `.enter` from the refreshed list; those messages were already on screen. Opening a conversation and messages streaming in keep the animation. Reported by Brad.
+- Migration: none.
+- Tests: the 1.77.4 browser check also asserts no message in the list carries `.enter` after a send and after a turn's end. Fails on 1.77.4.
+
 ## [1.77.4] — 2026-10-23 · build 160
 
 - **Sending a message no longer blinks the whole screen.** When the server acknowledged a message, `submitPending` called `renderChat`, which replaces the whole page (`app.innerHTML`: rail, header, composer) and leaves `#msgs` empty until `/api/session/:id` answers; the stream's `done` at the end of every turn did the same. The re-read itself is kept (it is what drops an unsent ghost bubble and keeps a replayed receipt from showing twice, since 1.1), but the new `resyncChat` reads the transcript first and then replaces only the message list through `paintTranscript`, the list painting `renderChat` now shares. The composer is rebuilt only when it changes between Reply and Working (and the box keeps focus if it had it); otherwise only its toolbar is repainted, so a sent file's chip goes. The reading position is kept unless you were at the end. A failed read, or a view that is not that conversation, still takes the full render as before. Reported by Brad.
