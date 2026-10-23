@@ -1806,7 +1806,17 @@ def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_id
     pending: dict[int, dict] = {}  # alert id -> thread bundle for the briefing
     try:
         for batch in batches:
-            _process_batch(store, archive, gmail, run_id, batch, by_thread, until, cursor_note, pending, related_all)
+            before = set(pending)
+            try:
+                _process_batch(store, archive, gmail, run_id, batch, by_thread, until, cursor_note, pending, related_all, awake)
+            except Exception:
+                # A batch that fails part-way leaves nothing behind: its decisions, story events and alerts are undone and its
+                # threads stay in the backlog, so the next run judges them afresh. (2026-10-23: a crash after the judge chose
+                # notify kept the decision and its story event; the retry read them as already alerted and four alerts were lost.)
+                store.db.rollback()
+                for aid in set(pending) - before:
+                    del pending[aid]
+                raise
     except AriError as e:
         error = str(e)
     finally:
@@ -1823,7 +1833,7 @@ class AriError(Exception):
 
 
 def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, batch: list[dict], by_thread: dict, until: int,
-                   cursor_note: str, pending: dict[int, dict], related: dict) -> None:
+                   cursor_note: str, pending: dict[int, dict], related: dict, awake: bool = False) -> None:
     """One judge turn over a batch; records decisions, stories and alerts (queued, not yet delivered)."""
     t0 = time.time()
     decisions = None
