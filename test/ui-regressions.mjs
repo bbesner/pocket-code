@@ -2458,6 +2458,15 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.$eval('aside.rail',e=>e.style.width='');
     await page.waitForFunction(()=>document.querySelector('[data-inbox-badge]')?.textContent==='1');
     await scan('rail-six-1440');
+    // 1.77.3 (Brad): every order of switching shows the entry's own list. Tasks → Projects left the task list where it was: the
+    // Tasks, Vault and Inbox lists carry .rail-projects for their styling, and once Projects had painted, its painter took any
+    // of them for its own list and did nothing. Chats → Projects worked, which is how Brad got there.
+    const railLists=()=>page.evaluate(()=>[...document.querySelectorAll('#rail > .session-panel, #rail > .rail-board, #rail > .rail-documents, #rail > .rail-tasks, #rail > .rail-vault, #rail > .rail-inbox')].map(e=>['session-panel','rail-board','rail-documents','rail-tasks','rail-vault','rail-inbox'].find(c=>e.classList.contains(c))).map(c=>({'session-panel':'sessions','rail-board':'projects','rail-documents':'documents','rail-tasks':'tasks','rail-vault':'vault','rail-inbox':'inbox'})[c]).join('+'));
+    const switchRail=async view=>{await clickControl(page,`[data-rail-view="${view}"]`);await page.waitForFunction(v=>document.querySelector(`[data-rail-view="${v}"]`)?.getAttribute('aria-pressed')==='true',{},view);
+     try{await page.waitForFunction(v=>document.querySelectorAll('#rail > *').length===1&&(v==='sessions'?document.querySelector('#rail > .session-panel'):document.querySelector(`#rail > .rail-${v==='projects'?'board':v}`)),{timeout:3000},view);}catch{}
+     assert.equal(await railLists(),view,'the rail lists '+view+' after switching to it');};
+    for(const v of ['projects','tasks','projects','vault','projects','inbox','projects','documents','projects','sessions','projects','tasks','inbox','vault','documents','tasks','sessions','vault','projects'])await switchRail(v);
+    await page.waitForSelector('#rail > .rail-board .project-item');
     // the list
     for(const w of [390,1440]){
      await page.setViewport({width:w,height:w===390?844:900});await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view .inbox-item');
