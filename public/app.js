@@ -2630,6 +2630,7 @@ async function resyncChat(id) {
   const scroller = msgs.closest('main.scroll'), top = scroller.scrollTop;
   const atEnd = scroller.scrollHeight - top - scroller.clientHeight < 100;
   paintTranscript(id, s, msgs);
+  msgs.querySelectorAll('.enter').forEach(n => n.classList.remove('enter')); // 1.77.5: these were on screen already; replaying the fade-in blinked the list
   if (composerWorking !== Boolean(s.active)) { // Working ↔ Reply is a different composer; the same state keeps the box and what is in it
     const typing = document.activeElement?.id === 'box';
     setComposer(s.active);

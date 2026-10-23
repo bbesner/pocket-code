@@ -2637,7 +2637,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    }finally{if(vp)await page.setViewport(vp);}
   });
 
-  await check('1.77.4 Sending a message and a turn ending refresh only the message list: the sidebar, header and composer stay, and the list never goes empty',async()=>{
+  await check('1.77.4 Sending a message and a turn ending refresh only the message list: the sidebar, header and composer stay, the list never goes empty, and no message replays its fade-in',async()=>{
    const vp=page.viewport(),convo=conversations.get(idle),kept=convo.length;
    const keep=['.rail','.bar','#comp','#box','#msgs'];
    try{
@@ -2658,6 +2658,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      await page.waitForFunction(t=>[...document.querySelectorAll('#msgs .m-user')].some(m=>m.textContent.includes(t))&&!document.querySelector('#msgs .pending')&&!sendsInFlight.size,{},text);
      assert.deepEqual(await stillThere(),[],'nothing but the list is rebuilt after a send at '+w);
      assert.equal(await page.evaluate(()=>window.__emptied),0,'the list never went empty after a send at '+w);
+     assert.equal(await page.$$eval('#msgs .enter',ns=>ns.length),0,'1.77.5: no message on screen replays its fade-in after a send at '+w);
      assert.equal(await page.$$eval('#msgs .m-user',(ms,t)=>ms.filter(m=>m.textContent.includes(t)).length,text),1,'the message shows once at '+w);
      // A turn's end ("done" on the stream) resyncs the same way.
      const reply='Report reviewed, nothing missing '+w;
@@ -2666,6 +2667,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      await page.waitForFunction(t=>document.querySelector('#msgs')?.textContent.includes(t),{},reply);
      assert.deepEqual(await stillThere(),[],'nothing but the list is rebuilt at a turn end at '+w);
      assert.equal(await page.evaluate(()=>window.__emptied),0,'the list never went empty at a turn end at '+w);
+     assert.equal(await page.$$eval('#msgs .enter',ns=>ns.length),0,'1.77.5: no message on screen replays its fade-in at a turn end at '+w);
      await page.evaluate(()=>window.__listObs.disconnect());
      setMode({sessionDelay:0});
     }
