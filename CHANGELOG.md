@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.3] — 2026-10-23 · build 159
+
+- **Projects in the rail switch shows after Tasks, Vault or Inbox.** The Tasks, Vault and Inbox rail lists carry the class `rail-projects` for their styling, and `paintRail` and `paintRailProjects` used that same class to tell whether the project list was already painted. So once Projects had been shown, switching to it from any of those three found the other list, judged nothing had changed (the 1.50 "same HTML" guard), and left it there; only Chats (whose panel has a different class) cleared the way. The project list now carries its own `rail-board` class and both checks use it. The other five entries were checked: each tests a class only its own list has, or repaints without a test. Reported by Brad.
+- Migration: none.
+- Tests: the browser suite's 1.69 Inbox check now switches the rail through every entry in every order Brad could take (Projects after Tasks, Vault, Inbox, Files and Chats, and the others after each other) and asserts the rail holds that entry's list alone. Fails on 1.77.2 at Tasks → Projects.
+
 ## [1.77.2] — 2026-10-23 · build 158
 
 - **Inbox Watch: the Pocket Inbox label can bring a thread back into the inbox.** An owner whose Gmail filters skip the inbox for whole kinds of mail (alarm tickets, monitoring reports filed straight into their own labels) never saw an alert's thread in Gmail's inbox: the watcher added the label and left the thread archived. New `[gmail_label] inbox = true` adds INBOX together with the label when the label goes on, once; archiving the thread afterwards is left alone. Off by default, so other watchers keep today's behavior. Asked for by Brad.

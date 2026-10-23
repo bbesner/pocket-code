@@ -348,7 +348,7 @@ const viewTabState=id=>{if(id==='vault')return typeof vaultTabState==='function'
 function railProjectsHTML(){
  if(!boardSnap)return '<p class="sheet-help">Loading projects…</p>';
  const due=boardDueCount(),rows=boardSnap.projects.filter(p=>p.status!=='done');
- return `<div class="rail-projects"><div class="rail-project-actions"><a class="chip ${due?'due':''}" href="${viewHref(dueListView())}" data-view-link>${dueListView()==='tasks'?'Reminders':'Scheduled'}${due?' · '+due:''}</a><button class="chip" id="rail-track">Track</button><a class="chip" href="${viewHref('projects')}" data-view-link>All</a></div>
+ return `<div class="rail-projects rail-board"><div class="rail-project-actions"><a class="chip ${due?'due':''}" href="${viewHref(dueListView())}" data-view-link>${dueListView()==='tasks'?'Reminders':'Scheduled'}${due?' · '+due:''}</a><button class="chip" id="rail-track">Track</button><a class="chip" href="${viewHref('projects')}" data-view-link>All</a></div>
   ${rows.length?rows.map(projectRowHTML).join(''):'<p class="sheet-help">No active projects. Track one to keep a card for it.</p>'}
   ${boardSnap.projects.some(p=>p.status==='done')?`<a class="rail-done-link" href="${viewHref('projects')}" data-view-link>${boardSnap.projects.filter(p=>p.status==='done').length} finished</a>`:''}</div>`;
 }
@@ -356,7 +356,7 @@ let railProjectsPainted='';
 function paintRailProjects(){
  const el=document.getElementById('rail');if(!el||railView()!=='projects')return;
  const html=railProjectsHTML();
- if(html!==railProjectsPainted||!el.querySelector('.rail-projects')){ // 1.50: a refresh that changes nothing leaves the rows (and a tap on one) alone
+ if(html!==railProjectsPainted||!el.querySelector('.rail-board')){ // 1.50: a refresh that changes nothing leaves the rows (and a tap on one) alone. 1.77.3: .rail-board, not .rail-projects: the Tasks, Vault and Inbox lists share that class for their styling, so after Tasks the old test found the task list and left it there. Reported by Brad.
   railProjectsPainted=html;el.innerHTML=html;
   el.querySelector('#rail-track')?.addEventListener('click',()=>projectEditor(null));
   el.querySelectorAll('[data-project-more]').forEach(b=>b.onclick=()=>projectOptions(b.dataset.projectMore));

@@ -2477,7 +2477,7 @@ function paintRailBadges() {
 async function paintRail() {
   const el = $('#rail'); if (!el) return;
   const ft = $('#rail-filter-toggle'); if (ft) ft.hidden = railView() !== 'sessions';
-  if (railView() === 'projects') { if (!el.querySelector('.rail-projects')) el.innerHTML = ''; paintRailProjects(); return; }
+  if (railView() === 'projects') { if (!el.querySelector('.rail-board')) el.innerHTML = ''; paintRailProjects(); return; } // 1.77.3: .rail-board is the project list alone; .rail-projects is also the Tasks, Vault and Inbox lists' styling class
   if (railView() === 'documents') { if (!el.querySelector('.rail-documents')) el.innerHTML = ''; paintRailDocuments(); return; }
   if (railView() === 'tasks') { if (!el.querySelector('.rail-tasks')) el.innerHTML = ''; paintRailTasks(); return; } // 1.36
   if (railView() === 'vault') { if (!el.querySelector('.rail-vault')) el.innerHTML = ''; paintRailVault(); return; } // 1.39
