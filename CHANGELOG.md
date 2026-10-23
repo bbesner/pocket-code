@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.2] — 2026-10-23 · build 158
+
+- **Inbox Watch: the Pocket Inbox label can bring a thread back into the inbox.** An owner whose Gmail filters skip the inbox for whole kinds of mail (alarm tickets, monitoring reports filed straight into their own labels) never saw an alert's thread in Gmail's inbox: the watcher added the label and left the thread archived. New `[gmail_label] inbox = true` adds INBOX together with the label when the label goes on, once; archiving the thread afterwards is left alone. Off by default, so other watchers keep today's behavior. Asked for by Brad.
+- Migration: none.
+- Tests: `inbox-watch/tests/test_label.py` (`test_label_brings_into_inbox_when_asked`: label only by default; with the option the label and INBOX go on together, and a later archive is not undone).
+
 ## [1.77.1] — 2026-10-23 · build 158
 
 - **Inbox Watch no longer stops overnight.** 1.75.3 added Check now's `awake` to the quiet-hours test in `_process_batch` without passing it in, so every non-critical notify during quiet hours raised `NameError` and ended the run. Daytime checks and threads labelled in Gmail never reached that name, so only the overnight checks failed (on Brad's server, six runs between 1:28 and 5:30 AM on 2026-10-23). `process()` now passes `awake` through.

@@ -76,6 +76,7 @@ reasoning = "medium"                   # every judge: default | low | medium | h
 # [gmail_label]                       # the owner's open Pocket Inbox entries carry this label in Gmail, both ways
 # enabled = true                       # the default; false turns it off (also a Pocket setting). Needs gmail.modify
 # name = "Pocket Inbox"
+# inbox = false                       # true: a thread that gets the label is also put back in INBOX (for filters that skip the inbox)
 
 [pocket]                               # optional: every alert gets a briefed Pocket Code session one tap away
 root = "/home/me/pocket-code"          # the Pocket Code checkout (its scripts/ talk to the running server)
