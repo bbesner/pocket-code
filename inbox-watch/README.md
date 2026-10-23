@@ -164,7 +164,7 @@ whose thread lacks the label gets it; a thread the owner labelled in Gmail that 
 (marked `added_in_gmail`; code makes it an alert, not held for quiet hours, never skipped by the first pass) and put back in
 INBOX if it was moved out; a label taken off in Gmail dismisses the entry; an entry finished in Pocket (resolved, not useful,
 dismissed, tidied) loses the label. `label_sync` in monitor.sqlite remembers which threads were in step, so the two kinds of
-change can be told apart; the first sync only adds labels. Writes need `gmail.modify` (the service account's delegation, or
+change can be told apart; the first sync only adds labels. With `inbox = true` (1.77.2, off by default) a thread that gets the label is also put in INBOX, once, for an owner whose filters file whole kinds of mail out of the inbox; archiving it afterwards is left alone. Writes need `gmail.modify` (the service account's delegation, or
 `gmail-auth` again for an OAuth sign-in); nothing but that label, and INBOX for a thread the owner labelled, is ever changed.
 Through the connector (1.74) the label goes through Codex's Gmail app: a second locked Codex home whose only tool is
 `apply_labels_to_emails`, called from a prompt that holds message ids and the label name, never email text; a call made with

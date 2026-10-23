@@ -1587,6 +1587,12 @@ def label_name() -> str:
     return str((CFG.gmail_label or {}).get("name") or LABEL_NAME)
 
 
+def label_in_inbox() -> bool:
+    """[gmail_label] inbox = true: a thread that gets the label also goes into INBOX, for an owner whose filters skip the
+    inbox for mail the watcher may still alert on (an alarm ticket filed straight into its own label)."""
+    return bool((CFG.gmail_label or {}).get("inbox"))
+
+
 def label_status(store: Store, gmail=None) -> dict:
     """{available, name, reason}: can this watcher write the label (asked of Gmail now and then, remembered between)."""
     out = {"name": label_name(), "available": None, "reason": None}
@@ -1674,7 +1680,7 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     for tid in set(known) - labelled - set(listed):  # gone from both sides
         if known[tid] != "incoming":
             mark_label(store, tid, None)
-    changes = [(t, [label], []) for t in adds] + [(t, [], [label]) for t in removes] + [(t, ["INBOX"], []) for t in brings]
+    changes = [(t, [label, "INBOX"] if label_in_inbox() else [label], []) for t in adds] + [(t, [], [label]) for t in removes] + [(t, ["INBOX"], []) for t in brings]
     if dry_run:
         for t, a, r in changes:
             log(f"label [dry-run]: thread {t} +{a} -{r}")

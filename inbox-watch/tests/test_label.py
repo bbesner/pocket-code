@@ -126,6 +126,24 @@ def test_new_alert_gets_label_and_dry_run():
     assert g.labels[A] == {"L1"}
 
 
+def test_label_brings_into_inbox_when_asked():
+    store, g, p = setup()
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    p.entry("e9", A)
+    E.label_sync(store, g, bring_in=False, dry_run=False)
+    assert g.labels[A] == {"L1"}, "off by default: the label only"
+    E.CFG.gmail_label["inbox"] = True
+    try:
+        p.entry("e8", B)  # a thread a filter kept out of the inbox
+        E.label_sync(store, g, bring_in=False, dry_run=False)
+        assert g.labels[B] == {"L1", "INBOX"}, g.labels[B]
+        g.labels[B].discard("INBOX")  # the owner archives it later: left archived
+        E.label_sync(store, g, bring_in=True, dry_run=False)
+        assert g.labels[B] == {"L1"}, "put in INBOX once, when the label goes on"
+    finally:
+        E.CFG.gmail_label.pop("inbox", None)
+
+
 def test_off_unavailable_and_no_inbox():
     store, g, p = setup()
     p.entry("e1", A)
