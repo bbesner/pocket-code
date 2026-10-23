@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.1] — 2026-10-23 · build 158
+
+- **Inbox Watch no longer stops overnight.** 1.75.3 added Check now's `awake` to the quiet-hours test in `_process_batch` without passing it in, so every non-critical notify during quiet hours raised `NameError` and ended the run. Daytime checks and threads labelled in Gmail never reached that name, so only the overnight checks failed (on Brad's server, six runs between 1:28 and 5:30 AM on 2026-10-23). `process()` now passes `awake` through.
+- **A check that fails part-way leaves nothing behind.** The failed runs had already written the judge's decision and its story event for the thread they stopped on; the next run read them, decided it had already alerted, and four alerts never went out. A batch that raises now rolls back its decisions, story changes and alerts (the judge's cost record is kept) and its threads stay in the backlog, so the next run judges them afresh. Alerts from earlier batches of the same run still go out, and the error still ends the run, so systemd's `OnFailure` reports it.
+- Migration: none.
+- Tests: `inbox-watch/tests/test_process.py` drives the real `process()` with a fake judge: a quiet-hours notify is held, Check now sends it, and a batch that fails part-way keeps no decision, story or event, stays in the backlog and is alerted on the next run. All three fail on 1.77.0. Added to CI.
+
 ## [1.77.0] — 2026-10-22 · build 158
 
 - **Inbox: the read mark is a dot, and it does something.** The eye beside each entry looked the same read or unread unless you knew the shade, and tapping it only opened the entry, as the row does. It is now a dot level with the title: filled clay while unread, a dim ring once read. Tapping it marks the entry read or unread (new action `unread`: opened → new; a finished entry stays finished) and opens nothing. Suggested by Damon.
