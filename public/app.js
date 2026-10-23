@@ -2572,8 +2572,6 @@ async function renderChat(id, { away = false } = {}) {
     else { renderChat(chatId); return; } // name cleared → resync the derived title
     railCache.at = 0; if (isWide()) paintRail();
   });
-  chatOffset = s.size || 0; chatTurnEvents = Number.isInteger(s.turnEvents) ? s.turnEvents : null; chatAttachKey = null; chatLastItem = null;
-  chatTotal = s.total || s.messages.length; chatRendered = s.messages.length;
   const isCx = id.startsWith('cx:');
   tb = { key: id, prefs: getPrefs(id), attachments: loadAttachments(id), allowAttach: true, allowMute: true, provider: isCx ? 'codex' : 'claude' };
   (isCx ? loadCodexModels() : loadClaudeModels()).then(renderToolbar);
@@ -2583,13 +2581,7 @@ async function renderChat(id, { away = false } = {}) {
   api('/commands?provider=' + (isCx?'codex':'claude') + '&cwd=' + encodeURIComponent(s.cwd || '')).then(r => { chatCmds = r.commands; }).catch(() => { });
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const msgs = $('#msgs');
-  msgs.classList.toggle('times-off', !showTimes());
-  msgs.innerHTML = withDays(s.messages) + steeredHTML(id, s.messages);
-  mergeToolFolds(msgs);
-  paintFileCards(msgs, true);
-  openLastTodo();
-  paintChoices();
-  if (lastMeta && lastMeta.id === id) { msgs.insertAdjacentHTML('beforeend', lastMeta.html); lastMeta = null; }
+  paintTranscript(id, s, msgs);
   setComposer(s.active);
   const reading=readingPositions[id],scroller=msgs.closest('main.scroll');
   if(reading&&!reading.bottom)scroller.scrollTop=reading.top;else scrollBottom(true);
@@ -2604,6 +2596,53 @@ async function renderChat(id, { away = false } = {}) {
   refreshAgents(id);
   paintContextMeter(id);
   openES(); // always: daemon turns stream events, idle sessions mirror the transcript live
+}
+
+function paintTranscript(id, s, msgs) {
+  chatOffset = s.size || 0; chatTurnEvents = Number.isInteger(s.turnEvents) ? s.turnEvents : null; chatAttachKey = null; chatLastItem = null;
+  chatTotal = s.total || s.messages.length; chatRendered = s.messages.length;
+  fmarks = []; fidx = -1;
+  msgs.classList.toggle('times-off', !showTimes());
+  msgs.innerHTML = withDays(s.messages) + steeredHTML(id, s.messages);
+  mergeToolFolds(msgs);
+  paintFileCards(msgs, true);
+  openLastTodo();
+  paintChoices();
+  if (lastMeta && lastMeta.id === id) { msgs.insertAdjacentHTML('beforeend', lastMeta.html); lastMeta = null; }
+}
+// 1.77.4: sending and a turn's end bring the open conversation up to date without rebuilding the page. Both used
+// renderChat, which replaced the rail, header and composer and left the list empty until the transcript arrived,
+// so the whole screen blinked. Only the list is replaced, once the transcript is here; anything else is a full render.
+let chatResyncVersion = 0;
+async function resyncChat(id) {
+  const msgs = $('#msgs');
+  if (chatId !== id || !msgs || tb?.key !== id) return renderChat(id);
+  const renderVersion = chatRenderVersion, resync = ++chatResyncVersion;
+  const current = () => renderVersion === chatRenderVersion && resync === chatResyncVersion && chatId === id && msgs.isConnected;
+  closeES();
+  let s;
+  try { s = await api('/session/' + id); }
+  catch { if (current()) renderChat(id); return; } // as before: a failed read is a full render, with its message
+  if (!current()) return;
+  markRead(id, s.state);
+  chatTitle = s.title; const t = $('#ctitle'); if (t) { t.textContent = s.title; t.title = s.title; }
+  chatMuted = Boolean(s.muted);
+  const scroller = msgs.closest('main.scroll'), top = scroller.scrollTop;
+  const atEnd = scroller.scrollHeight - top - scroller.clientHeight < 100;
+  paintTranscript(id, s, msgs);
+  if (composerWorking !== Boolean(s.active)) { // Working ↔ Reply is a different composer; the same state keeps the box and what is in it
+    const typing = document.activeElement?.id === 'box';
+    setComposer(s.active);
+    if (typing) $('#box')?.focus();
+  } else if (!composerWorking) renderToolbar(); // the sent files' chips go, and the mute chip follows the server
+  if (atEnd) scrollBottom(true); else scroller.scrollTop = top;
+  if (s.ext && !s.active) extPulse();
+  paintDelivery(id); refreshSessions();
+  refreshQuestions(id);
+  refreshApprovals(id);
+  refreshAgents(id);
+  paintContextMeter(id);
+  openES();
 }
 
 /* ---------- 1.21 / 1.25: While you were away ----------
@@ -3068,9 +3107,9 @@ async function submitPending(id) {
     if (chatId === id) {
       if (tb?.key === id && pending.files.length) tb.attachments = [];
       const box = $('#box'); if (box) box.value = '';
-      // Render the canonical transcript after acknowledgment; no unsent ghost
+      // Show the canonical transcript after acknowledgment; no unsent ghost
       // bubble remains on failure, and a replayed receipt adds no duplicate.
-      await renderChat(id);
+      await resyncChat(id);
     }
     refreshSessions();
   } catch (e) {
@@ -3193,7 +3232,7 @@ function openES() {
       msgs.insertAdjacentHTML('beforeend', `<div class="turnmeta">Rate limited — auto-resume at ${esc(t)}</div>`);
       scrollBottom();
     }
-    else if (d.type === 'done') { dropLive(); closeES(); if (chatId) renderChat(chatId); } // resync from canonical transcript
+    else if (d.type === 'done') { dropLive(); closeES(); if (chatId) resyncChat(chatId); } // resync from canonical transcript
     else if (d.type === 'idle') { dropLive(); closeES(); setComposer(false); Voice.onIdle(streamId); }
   };
   es.onerror = () => { if (chatId === streamId) setConnection('Connection interrupted. Reconnecting; your draft is kept.'); };

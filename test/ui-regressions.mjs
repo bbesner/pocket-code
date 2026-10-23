@@ -2637,6 +2637,41 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    }finally{if(vp)await page.setViewport(vp);}
   });
 
+  await check('1.77.4 Sending a message and a turn ending refresh only the message list: the sidebar, header and composer stay, and the list never goes empty',async()=>{
+   const vp=page.viewport(),convo=conversations.get(idle),kept=convo.length;
+   const keep=['.rail','.bar','#comp','#box','#msgs'];
+   try{
+    for(const [w,h] of [[1440,900],[390,844]]){
+     await page.setViewport({width:w,height:h,isMobile:w<700,hasTouch:w<700});
+     await page.evaluate(()=>closeCurrentSheet?.());await openChat(idle); // a sheet left open makes the app inert
+     // Tag what a full render replaces, and count every moment the list has no message in it (a full render empties it until the transcript arrives).
+     const tagged=await page.evaluate(keep=>{const found=keep.filter(s=>document.querySelector(s));found.forEach(s=>{document.querySelector(s).dataset.keep='1';});
+      window.__emptied=0;window.__listObs=new MutationObserver(()=>{if(!document.querySelector('#msgs .m-user'))window.__emptied++;});
+      window.__listObs.observe(document.querySelector('#app'),{childList:true,subtree:true});return found;},keep);
+     assert.ok(tagged.includes('#msgs')&&tagged.includes('#comp'),'the conversation is on screen at '+w);
+     if(w>=1440)assert.ok(tagged.includes('.rail'),'the sidebar is open at '+w);
+     const stillThere=()=>page.evaluate(found=>found.filter(s=>document.querySelector(s)?.dataset.keep!=='1'),tagged);
+     setMode({sessionDelay:400});
+     const text='Check the overnight camera report '+w;
+     await page.evaluate(id=>{clearDraft(id);const b=document.querySelector('#box');b.value='';},idle); // an earlier check leaves a draft in this conversation
+     await page.bringToFront();await page.type('#box',text);assert.equal(await page.$eval('#box',b=>b.value),text,'the box holds the message at '+w);await clickControl(page,'#send');
+     await page.waitForFunction(t=>[...document.querySelectorAll('#msgs .m-user')].some(m=>m.textContent.includes(t))&&!document.querySelector('#msgs .pending')&&!sendsInFlight.size,{},text);
+     assert.deepEqual(await stillThere(),[],'nothing but the list is rebuilt after a send at '+w);
+     assert.equal(await page.evaluate(()=>window.__emptied),0,'the list never went empty after a send at '+w);
+     assert.equal(await page.$$eval('#msgs .m-user',(ms,t)=>ms.filter(m=>m.textContent.includes(t)).length,text),1,'the message shows once at '+w);
+     // A turn's end ("done" on the stream) resyncs the same way.
+     const reply='Report reviewed, nothing missing '+w;
+     convo.push({role:'assistant',blocks:[{t:'text',text:reply}]});setMode({streamDone:true});
+     await page.evaluate(()=>openES());
+     await page.waitForFunction(t=>document.querySelector('#msgs')?.textContent.includes(t),{},reply);
+     assert.deepEqual(await stillThere(),[],'nothing but the list is rebuilt at a turn end at '+w);
+     assert.equal(await page.evaluate(()=>window.__emptied),0,'the list never went empty at a turn end at '+w);
+     await page.evaluate(()=>window.__listObs.disconnect());
+     setMode({sessionDelay:0});
+    }
+   }finally{setMode({sessionDelay:0,streamDone:false});convo.splice(kept);if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
+  });
+
   fs.writeFileSync(path.join(out,'ui-regressions.json'),JSON.stringify({checks,scans,errors},null,2));
   console.log(JSON.stringify({uiRegressions:checks.length,accessibilityScans:scans.length,ok:true}));
  } catch(e) {

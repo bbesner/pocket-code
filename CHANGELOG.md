@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.4] — 2026-10-23 · build 160
+
+- **Sending a message no longer blinks the whole screen.** When the server acknowledged a message, `submitPending` called `renderChat`, which replaces the whole page (`app.innerHTML`: rail, header, composer) and leaves `#msgs` empty until `/api/session/:id` answers; the stream's `done` at the end of every turn did the same. The re-read itself is kept (it is what drops an unsent ghost bubble and keeps a replayed receipt from showing twice, since 1.1), but the new `resyncChat` reads the transcript first and then replaces only the message list through `paintTranscript`, the list painting `renderChat` now shares. The composer is rebuilt only when it changes between Reply and Working (and the box keeps focus if it had it); otherwise only its toolbar is repainted, so a sent file's chip goes. The reading position is kept unless you were at the end. A failed read, or a view that is not that conversation, still takes the full render as before. Reported by Brad.
+- Migration: none.
+- Tests: the browser suite's new 1.77.4 check, at 1440 and 390, slows the transcript read (`sessionDelay`), sends from the composer and then ends a turn on the stream (`streamDone`), and asserts the rail, header, composer, box and list are the same elements afterwards, the list never went without a message, and the sent message shows once. Fails on 1.77.3 (all five rebuilt).
+
 ## [1.77.3] — 2026-10-23 · build 159
 
 - **Projects in the rail switch shows after Tasks, Vault or Inbox.** The Tasks, Vault and Inbox rail lists carry the class `rail-projects` for their styling, and `paintRail` and `paintRailProjects` used that same class to tell whether the project list was already painted. So once Projects had been shown, switching to it from any of those three found the other list, judged nothing had changed (the 1.50 "same HTML" guard), and left it there; only Chats (whose panel has a different class) cleared the way. The project list now carries its own `rail-board` class and both checks use it. The other five entries were checked: each tests a class only its own list has, or repaints without a test. Reported by Brad.
