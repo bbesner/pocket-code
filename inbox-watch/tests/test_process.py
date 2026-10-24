@@ -1,5 +1,5 @@
 """The judge's decisions through the real process(): quiet hours hold an alert, Check now sends it, and a batch that fails
-part-way leaves nothing behind (1.77.1). A fake archive, judge and Pocket; no Gmail, model or network.
+part-way leaves nothing behind (1.77.1); a judge reply that does not parse is asked for again (1.77.6). A fake archive, judge and Pocket; no Gmail, model or network.
 
     python3 tests/test_process.py
 """
@@ -119,6 +119,39 @@ def test_a_failed_batch_leaves_nothing_behind():
     # and the next run alerts on it
     evaluated, notified, error = run(store, [False, False])
     assert pocket.sent == ["Story e5", "Story e6"], pocket.sent
+
+
+class FakeJudge:
+    def __init__(self, replies):
+        self.replies, self.asked = list(replies), 0
+
+    def ask(self, message, tag="", day=""):
+        self.asked += 1
+        return self.replies.pop(0)
+
+
+def ask_judge(replies):
+    setup()
+    judge, saved = FakeJudge(replies), (E.JUDGE, E.USAGE_DB)
+    E.JUDGE, E.USAGE_DB = judge, None
+    try:
+        return E.call_judge("bundle"), judge.asked
+    finally:
+        E.JUDGE, E.USAGE_DB = saved
+
+
+def test_a_reply_that_does_not_parse_is_asked_again():
+    # 2026-10-23 11 PM: one Sonnet reply would not parse and the whole check failed; the same threads judged fine 30 min later.
+    good = '{"decisions": []}'
+    assert ask_judge([good]) == ({"decisions": []}, 1), "a good reply is asked for once"
+    assert ask_judge(['{"decisions":[{"title":"Vertical Cable "past due""}]}', good]) == ({"decisions": []}, 2)
+    assert ask_judge(['{"decisions":[{"title":"cut off', good]) == ({"decisions": []}, 2)
+    try:
+        ask_judge(["no json here", '{"decisions": [}'])
+    except RuntimeError as e:
+        assert "returned no JSON" in str(e), e
+    else:
+        raise AssertionError("two replies that do not parse still fail the check")
 
 
 if __name__ == "__main__":

@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.6] — 2026-10-24 · build 161
+
+- **Inbox Watch asks its judge again when a reply does not parse.** On 2026-10-23 at 11 PM a complete Sonnet reply (1,305 output tokens) failed `extract_json`, so `call_judge` raised, the check exited 1, OnFailure mailed Brad, and the three threads waited in the backlog until the 11:30 check judged them without trouble. `call_judge` now asks the same judge once more with the same message when a reply holds no parseable JSON; both calls are recorded in `judge_calls`. The first failure logs the reply's length and its last 300 characters, so the next one shows where it went wrong (the reply itself is not kept). Timeouts and failed judge commands are still not retried in live runs; they go back to the backlog as before. Reported by Brad.
+- Migration: none.
+- Tests: `inbox-watch/tests/test_process.py` (`test_a_reply_that_does_not_parse_is_asked_again`: a good reply is asked for once; a reply with an unescaped quote or cut off part-way is asked again and the second reply is used; two bad replies still fail the check). Fails on 1.77.5.
+
 ## [1.77.5] — 2026-10-23 · build 161
 
 - **Sending a message no longer dims the conversation for a moment.** 1.77.4 replaced only the message list after a send and at a turn's end, but every message is drawn with `.enter` (the 0.18 s `rise` fade-in from opacity 0), so the whole visible conversation replayed it at once: a brief blink Brad could still just see on his phone. `resyncChat` now removes `.enter` from the refreshed list; those messages were already on screen. Opening a conversation and messages streaming in keep the animation. Reported by Brad.

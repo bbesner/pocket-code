@@ -1025,21 +1025,27 @@ def extract_json(text: str) -> dict | None:
 def call_judge(message: str, lookahead: bool = False, purpose: str = "decide", threads: int = 0, memory_items: int = 0) -> dict:
     tag = ("replay" + os.environ.get("MONITOR_REPLAY_TAG", "")) if MODE.replay else ""
     judge = LOOKAHEAD_JUDGE if lookahead and LOOKAHEAD_JUDGE else JUDGE
-    ok = False
-    try:
-        text = judge.ask(message, tag=tag, day=now_et().strftime("%Y%m%d"))
-        ok = True
-    finally:
-        if USAGE_DB is not None:
-            try:
-                record_call(USAGE_DB, purpose, judge, len(message), threads, ok, CURRENT_RUN, memory_items)
-                USAGE_DB.commit()
-            except sqlite3.Error as ex:
-                log(f"could not record judge usage: {ex}")
-    data = extract_json(text)
-    if not data:
-        raise RuntimeError(f"the judge returned no JSON: {text[:400]!r}")
-    return data
+    # A reply that does not parse is asked for once more, straight away. (2026-10-23 11 PM: one complete Sonnet reply,
+    # 1,305 tokens, would not parse; the check failed, OnFailure mailed the owner, and the same threads judged fine
+    # 30 minutes later.) A timeout or a failed command is not retried here: live runs leave those to the backlog.
+    for attempt in (1, 2):
+        ok = False
+        try:
+            text = judge.ask(message, tag=tag, day=now_et().strftime("%Y%m%d"))
+            ok = True
+        finally:
+            if USAGE_DB is not None:
+                try:
+                    record_call(USAGE_DB, purpose, judge, len(message), threads, ok, CURRENT_RUN, memory_items)
+                    USAGE_DB.commit()
+                except sqlite3.Error as ex:
+                    log(f"could not record judge usage: {ex}")
+        data = extract_json(text)
+        if data:
+            return data
+        if attempt == 1:  # the end of the reply too, so the next failure shows where it went wrong
+            log(f"the judge's reply did not parse ({len(text)} chars), asking again; it ended {text[-300:]!r}")
+    raise RuntimeError(f"the judge returned no JSON: {text[:400]!r}")
 
 
 def fill(text: str) -> str:
