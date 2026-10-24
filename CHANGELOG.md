@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.9] — 2026-10-24 · build 163
+
+- **Inbox Watch: finishing an entry archives its email.** With the Pocket Inbox label on (1.75), resolving, dismissing or marking an entry not useful only took the label off at the next sync (`label_sync` removed the label and nothing else), so the thread stayed in, or for anyone whose Gmail view hides labelled mail from the main inbox reappeared in, the owner's Gmail inbox, still unread. The same sync now also takes the thread out of INBOX. A thread that got mail after its label went on (found by this check, waiting in the backlog, or judged or first-passed since) keeps its place in the inbox and only loses the label, so a reply the owner has not seen never disappears. `archive = false` under `[gmail_label]` restores the label-only behaviour. Works through all three writers (Gmail API, Claude Code's connector, Codex's Gmail app), which already handled INBOX for threads the owner labels. The Settings line for the label says so. Suggested by Damon.
+- Migration: none. On by default; threads finished before this release are not touched.
+- Tests: `inbox-watch/tests/test_label.py` (`test_finished_entry_archives_its_thread`: of three dismissed entries the one with no newer mail is archived, one with a reply judged after labelling and one with a reply this check found keep INBOX; `test_archive_can_be_turned_off`). The first fails on 1.77.8.
+
 ## [1.77.8] — 2026-10-24 · build 162
 
 - **Inbox Watch: `notify --dry-run` keeps nothing.** `notify_cli` queued the alert row and then let `deliver` mark it `dry-run`, so the dry run used up the `--key`, and the real send that followed with the same key logged `duplicate key … nothing sent`. Found on 2026-10-24 while re-posting the VistaBlue backups alert. A dry run now logs what it would do (send, hold for the digest, or duplicate), rolls back and returns; nothing is written. The tick's `--dry-run` is unchanged (it still advances the cursor and ledger, as documented). Reported by Brad.

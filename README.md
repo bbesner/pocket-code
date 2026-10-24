@@ -17,7 +17,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.77.8 / build 162**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.77.9 / build 163**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -333,8 +333,9 @@ Developer mode the model and reasoning for each job, with what each day cost. **
 Schedule in the Inbox) has it check right away whatever the schedule, so a schedule of *Don't check* means on demand only.
 **Your list in Gmail** (1.75, on by default) keeps a *Pocket Inbox* label in Gmail on everything open in the Inbox,
 and the emails stay in your Gmail inbox too. Give an email that label in Gmail and it comes to the Inbox with a summary at the
-next check; take it off and it leaves the list; finish an item in Pocket and the label comes off. It needs Gmail write
-access (`gmail.modify`; only that one label is ever changed), so it works with the Gmail API sign-ins, Codex's Gmail app and Claude Code's Gmail connector, as long as that sign-in was allowed more than reading (a read-only one says so in Settings).
+next check; take it off and it leaves the list; finish an item in Pocket and the label comes off and the thread is archived
+(1.77.9; not when newer mail came into it, and `archive = false` under `[gmail_label]` keeps it in the inbox). It needs Gmail write
+access (`gmail.modify`; only that label and the thread's place in the inbox are ever changed), so it works with the Gmail API sign-ins, Codex's Gmail app and Claude Code's Gmail connector, as long as that sign-in was allowed more than reading (a read-only one says so in Settings).
 The watcher's built-in instructions assume nothing about your work or industry; **Your rules** are where you make it yours. Mail access is Claude Code's Gmail connector (the default since 1.74), the owner's own Gmail consent, or a
 Workspace service account for mailboxes an administrator controls.
 
