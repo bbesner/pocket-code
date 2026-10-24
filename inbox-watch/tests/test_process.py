@@ -1,5 +1,5 @@
 """The judge's decisions through the real process(): quiet hours hold an alert, Check now sends it, and a batch that fails
-part-way leaves nothing behind (1.77.1); a judge reply that does not parse is asked for again (1.77.6). A fake archive, judge and Pocket; no Gmail, model or network.
+part-way leaves nothing behind (1.77.1); a judge reply that does not parse is asked for again (1.77.6); `notify --dry-run` keeps nothing (1.77.8). A fake archive, judge and Pocket; no Gmail, model or network.
 
     python3 tests/test_process.py
 """
@@ -152,6 +152,29 @@ def test_a_reply_that_does_not_parse_is_asked_again():
         assert "returned no JSON" in str(e), e
     else:
         raise AssertionError("two replies that do not parse still fail the check")
+
+
+def test_notify_dry_run_keeps_nothing():
+    # 2026-10-24: `monitor.py notify --dry-run` left its alert row, and the real send with the same key was refused as a duplicate.
+    import argparse
+    _, pocket = setup()
+    saved = E.in_quiet_hours
+    E.in_quiet_hours = lambda *a: False
+
+    def notify_cli(dry_run):
+        return E.notify_cli(argparse.Namespace(subject="Backups missed", text="Five devices missed backups.", next_step=None, sender=None,
+                                               thread_id=A, priority="high", key="backups|resend", dry_run=dry_run))
+    try:
+        assert notify_cli(True) == 0
+        db = E.Store(E.DB_PATH).db
+        assert not db.execute("select 1 from alerts where dedupe_key='ext|backups|resend'").fetchone(), "the dry run kept its alert"
+        assert pocket.sent == []
+        assert notify_cli(False) == 0
+        assert pocket.sent == ["Backups missed"], pocket.sent
+        assert notify_cli(True) == 0 and notify_cli(False) == 0, "a dry run after the send"
+        assert pocket.sent == ["Backups missed"], "the same key still sends once"
+    finally:
+        E.in_quiet_hours = saved
 
 
 if __name__ == "__main__":
