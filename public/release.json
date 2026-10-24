@@ -1,12 +1,12 @@
 {
- "version": "1.77.6",
- "assetV": 161,
+ "version": "1.77.7",
+ "assetV": 162,
  "notes": [
+  "Times show in your own time zone, with the zone named. The usage panel and the usage-limit notice were fixed to Eastern time for everyone, and the commands agents read for tasks, projects, files, vault and inbox printed the server's time (UTC), so an agent could pass along a reminder at the wrong hour. Requested by Brad.",
   "Inbox Watch asks its judge again when a reply does not parse. One unreadable reply used to end the whole check, mail you a failure notice and leave those emails for half an hour later; now the judge is asked once more straight away, and only a second bad reply fails the check.",
   "Sending a message no longer dims the conversation for a moment. 1.77.4 stopped the page from being rebuilt, but the refreshed messages each replayed their short fade-in, so the conversation still blinked briefly; messages already on screen now stay as they are. Reported by Brad.",
   "Sending a message no longer blinks the whole screen. After Pocket confirmed a message, it rebuilt the page (the sidebar, the header, the message box) and showed an empty conversation until it had read it again; the end of every reply did the same. Now only the messages are brought up to date, once the new copy has arrived, and the message box keeps what you are typing. Reported by Brad.",
   "Projects in the sidebar switch shows its list again after Tasks, Vault or Inbox. Once the project list had been shown, switching to it from one of those three left their list where it was, and only Chats led back to it. Reported by Brad.",
-  "Inbox Watch can keep the Pocket Inbox label in your Gmail inbox: with [gmail_label] inbox = true, a thread that gets the label is also put back in your inbox, so an alert on mail your filters file away (an alarm ticket, a monitoring report) shows in both places.",
-  "Inbox Watch no longer stops overnight. Since 1.75.3, an email it chose to alert you about during quiet hours ended the check with an error, and the alert was lost. A check that fails part-way now leaves its emails to be judged again, instead of counting them as already told."
+  "Inbox Watch can keep the Pocket Inbox label in your Gmail inbox: with [gmail_label] inbox = true, a thread that gets the label is also put back in your inbox, so an alert on mail your filters file away (an alarm ticket, a monitoring report) shows in both places."
  ]
 }

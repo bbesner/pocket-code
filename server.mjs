@@ -377,6 +377,8 @@ const REMINDER_HOOK = process.env.POCKET_REMINDER_HOOK || '';
 const mailer = (() => { try { return createMailer(SMTP_URL, { from: SMTP_FROM, log }); } catch (e) { log(`mail: ${e.message}`); return { configured: false, error: e.message, from: '', describe: () => e.message, send: async () => { throw e; } }; } })();
 if (mailer.configured) log(`mail: ${mailer.describe()}`);
 const emailOn = () => mailer.configured && looksLikeEmail(settings.notifyEmail);
+// 1.77.6: where people see times. The zone the owner's browser reports (learnTimezone), else POCKET_TZ, else the box's.
+const ownerZone = () => settings.ownerTimezone || process.env.POCKET_TZ || '';
 const publicBase = () => (process.env.POCKET_PUBLIC_URL || settings.publicUrl || '').replace(/\/$/, '');
 const LOOPBACK_HOSTS = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 function learnPublicUrl(req) { // the owner's own address, from a signed-in request that came through the tunnel or proxy
@@ -390,7 +392,7 @@ function learnPublicUrl(req) { // the owner's own address, from a signed-in requ
 const emailSettings = () => ({ configured: mailer.configured, from: mailer.from || '', to: settings.notifyEmail || '', on: emailOn(), hook: Boolean(REMINDER_HOOK), error: mailer.error || null, base: publicBase() });
 async function mailDue(item, { ahead = false } = {}) {
   if (!emailOn()) return false;
-  try { await mailer.send({ to: settings.notifyEmail, ...dueMessage(item, { ahead, base: publicBase(), tz: process.env.POCKET_TZ || '' }) }); return true; }
+  try { await mailer.send({ to: settings.notifyEmail, ...dueMessage(item, { ahead, base: publicBase(), tz: ownerZone() }) }); return true; }
   catch (e) { log(`mail failed: ${e.message}`); return false; }
 }
 // 1.37.1: the hook gets the same environment as agent turns, without the daemon's secrets (login password,
@@ -1203,7 +1205,8 @@ const RETRY_MAX_DELAY_MS = 12 * 3600_000;
 const RETRY_PROMPT = 'You were interrupted by an API rate limit and were resumed automatically after the reset. '
   + 'Continue the task from where it left off. If the previous request already completed, just say so briefly.';
 const retryTimers = new Map(); // sessionId -> timeout
-const fmtET = ms => new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET';
+// 1.77.6: the owner's zone (from their browser, else POCKET_TZ, else this box's), named: "6:00 AM EST".
+const fmtOwnerTime = ms => { const o = { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }; try { return new Date(ms).toLocaleTimeString('en-US', { ...o, timeZone: ownerZone() || undefined }); } catch { return new Date(ms).toLocaleTimeString('en-US', o); } };
 
 function detectRateLimit(text) {
   if (!/rate.?limit|usage limit|limit reached|overloaded|too many requests|\b429\b/i.test(text)) return null;
@@ -1244,7 +1247,7 @@ function scheduleRetry(sessionId, turn, resetAt) {
   };
   try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m)); } catch { }
   armRetry(m);
-  log(`rate limited session=${sessionId} — auto-resume at ${fmtET(resetAt)} (attempt ${m.attempt})`);
+  log(`rate limited session=${sessionId} — auto-resume at ${fmtOwnerTime(resetAt)} (attempt ${m.attempt})`);
 }
 async function fireRetry(m) {
   if (claudeLogin.active) return armRetry({...m,at:Date.now()+15_000});
@@ -1682,7 +1685,7 @@ async function finalizeTurn(sessionId, turn, code) {
   else if (!watching && !turn.stopped) {
     const result = turn.events.find(e => e.type === 'result');
     // 1.59: plain words; the cost and time stay after "Ready" for the owner who wants them.
-    const body = retryAt ? `Usage limit reached. Picks up again at ${fmtET(retryAt)}`
+    const body = retryAt ? `Usage limit reached. Picks up again at ${fmtOwnerTime(retryAt)}`
       : !result ? 'Stopped'
         : !result.ok ? 'Something went wrong. Tap to see what happened'
           : assistantOn() ? 'Ready' // 1.60: no meters in Assistant mode
@@ -1854,7 +1857,7 @@ function adoptOrphans() {
       }
     } else if (f.endsWith('.retry.json')) { // pending rate-limit resume survives restarts
       let m; try { m = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { try { fs.unlinkSync(full); } catch { } continue; }
-      if (m.sessionId && m.at) { armRetry(m); log(`re-armed auto-resume session=${m.sessionId} at ${fmtET(m.at)}`); }
+      if (m.sessionId && m.at) { armRetry(m); log(`re-armed auto-resume session=${m.sessionId} at ${fmtOwnerTime(m.at)}`); }
       else { try { fs.unlinkSync(full); } catch { } }
     }
   }
@@ -3638,7 +3641,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Inbox Watch asks its judge again when a reply does not parse. One unreadable reply used to end the whole check, mail you a failure notice and leave those emails for half an hour later; now the judge is asked once more straight away, and only a second bad reply fails the check.", "Sending a message no longer dims the conversation for a moment. 1.77.4 stopped the page from being rebuilt, but the refreshed messages each replayed their short fade-in, so the conversation still blinked briefly; messages already on screen now stay as they are. Reported by Brad.", "Sending a message no longer blinks the whole screen. After Pocket confirmed a message, it rebuilt the page (the sidebar, the header, the message box) and showed an empty conversation until it had read it again; the end of every reply did the same. Now only the messages are brought up to date, once the new copy has arrived, and the message box keeps what you are typing. Reported by Brad.", "Projects in the sidebar switch shows its list again after Tasks, Vault or Inbox. Once the project list had been shown, switching to it from one of those three left their list where it was, and only Chats led back to it. Reported by Brad.", "Inbox Watch can keep the Pocket Inbox label in your Gmail inbox: with [gmail_label] inbox = true, a thread that gets the label is also put back in your inbox, so an alert on mail your filters file away (an alarm ticket, a monitoring report) shows in both places.", "Inbox Watch no longer stops overnight. Since 1.75.3, an email it chose to alert you about during quiet hours ended the check with an error, and the alert was lost. A check that fails part-way now leaves its emails to be judged again, instead of counting them as already told."];
+const RELEASE_NOTES = ["Times show in your own time zone, with the zone named. The usage panel and the usage-limit notice were fixed to Eastern time for everyone, and the commands agents read for tasks, projects, files, vault and inbox printed the server's time (UTC), so an agent could pass along a reminder at the wrong hour. Requested by Brad.", "Inbox Watch asks its judge again when a reply does not parse. One unreadable reply used to end the whole check, mail you a failure notice and leave those emails for half an hour later; now the judge is asked once more straight away, and only a second bad reply fails the check.", "Sending a message no longer dims the conversation for a moment. 1.77.4 stopped the page from being rebuilt, but the refreshed messages each replayed their short fade-in, so the conversation still blinked briefly; messages already on screen now stay as they are. Reported by Brad.", "Sending a message no longer blinks the whole screen. After Pocket confirmed a message, it rebuilt the page (the sidebar, the header, the message box) and showed an empty conversation until it had read it again; the end of every reply did the same. Now only the messages are brought up to date, once the new copy has arrived, and the message box keeps what you are typing. Reported by Brad.", "Projects in the sidebar switch shows its list again after Tasks, Vault or Inbox. Once the project list had been shown, switching to it from one of those three left their list where it was, and only Chats led back to it. Reported by Brad.", "Inbox Watch can keep the Pocket Inbox label in your Gmail inbox: with [gmail_label] inbox = true, a thread that gets the label is also put back in your inbox, so an alert on mail your filters file away (an alarm ticket, a monitoring report) shows in both places."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

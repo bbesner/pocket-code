@@ -20,6 +20,7 @@
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
 import fs from 'node:fs';
 import path from 'node:path';
+import { ownerZone, whenIn } from './owner-zone.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const envFile = process.env.POCKET_ENV_FILE ?? path.join(root, '.env');
@@ -56,8 +57,7 @@ async function call(p, body) {
   return data;
 }
 const qs = o => { const q = new URLSearchParams(Object.entries(o).filter(([, v]) => v)); return q.size ? '?' + q : ''; };
-const TZ = env('POCKET_TZ') || undefined; // 1.70: the owner's time zone, as the server's reminders use it
-const when = v => { if (!v) return ''; try { return new Date(v).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: TZ }); } catch { return new Date(v).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }); } };
+const when = whenIn(ownerZone(dataDir, env('POCKET_TZ')));
 const KIND = { alert: 'alert', digest: 'digest', lookahead: 'look-ahead' };
 const STATE = { new: 'new', opened: 'seen', dismissed: 'dismissed', resolved: 'resolved', not_useful: 'not useful' };
 const plain = t => String(t || '').replace(/\[([^\]\n]+)\]\([^)\s]*\)/g, '$1');

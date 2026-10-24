@@ -19,6 +19,7 @@
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
 import fs from 'node:fs';
 import path from 'node:path';
+import { ownerZone, whenIn } from './owner-zone.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const envFile = process.env.POCKET_ENV_FILE ?? path.join(root, '.env');
@@ -59,7 +60,7 @@ async function call(p, body) {
   }
   return data;
 }
-const when = v => v ? new Date(v).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+const when = whenIn(ownerZone(dataDir, env('POCKET_TZ')));
 function card(p) {
   const lines = [`${p.name}  [${p.status}]  id ${p.id}  rev ${p.revision}`];
   if (p.summary) lines.push(`  Where we left off: ${p.summary}`);
