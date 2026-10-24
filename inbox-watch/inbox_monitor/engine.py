@@ -1582,7 +1582,8 @@ def pending_skims(store: Store) -> list[dict]:
 #   on the list, labelled ......................... in step
 #   on the list, not labelled ..................... synced before: the owner took the label off in Gmail -> dismiss the entry;
 #                                                    otherwise -> add the label
-#   labelled, not on the list ..................... synced before: finished in Pocket -> remove the label;
+#   labelled, not on the list ..................... synced before: finished in Pocket -> remove the label, and archive the
+#                                                    thread unless mail came in after the label went on (1.77.9);
 #                                                    unknown: the owner labelled it in Gmail -> judge it (and keep it in INBOX)
 # The first sync after the setting is turned on only adds labels: what was labelled before is left alone.
 def label_on() -> bool:
@@ -1597,6 +1598,23 @@ def label_in_inbox() -> bool:
     """[gmail_label] inbox = true: a thread that gets the label also goes into INBOX, for an owner whose filters skip the
     inbox for mail the watcher may still alert on (an alarm ticket filed straight into its own label)."""
     return bool((CFG.gmail_label or {}).get("inbox"))
+
+
+def label_archive() -> bool:
+    """[gmail_label] archive (default true, 1.77.9): finishing an entry in Pocket also takes its thread out of INBOX, so a
+    dismissed alert does not sit in the owner's Gmail inbox. false: the label alone comes off, as before."""
+    return bool((CFG.gmail_label or {}).get("archive", True))
+
+
+def mail_since(store: Store, tid: str, since: str | None, fresh: set[str]) -> bool:
+    """Did the thread get mail after `since` (when its label went on)? A thread this check found changed or still waiting
+    in the backlog has; so has one judged or first-passed since then (both mail sources count new messages only, never
+    label changes). Unknown `since` reads as yes: never archive what may hold mail the owner has not seen."""
+    if tid in fresh or not since:
+        return True
+    q = ("select 1 from backlog where thread_id=? union all select 1 from decisions where thread_id=? and created_at>? "
+         "union all select 1 from firstpass_log where thread_id=? and at>? limit 1")
+    return store.db.execute(q, (tid, tid, since, tid, since)).fetchone() is not None
 
 
 def label_status(store: Store, gmail=None) -> dict:
@@ -1620,9 +1638,10 @@ def label_status(store: Store, gmail=None) -> dict:
     return out
 
 
-def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool = False) -> set[str]:
+def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool = False, fresh: set[str] = frozenset()) -> set[str]:
     """One pass of the table above. Returns the threads the owner labelled in Gmail that this check should judge
     (only when bring_in; the end-of-run pass reuses the first pass's search and just labels the alerts this run sent).
+    `fresh`: the threads this check found with new mail; a finished entry's thread among them keeps its place in INBOX.
     A mail source may ask for syncs no closer than `label_sync_min_s` (the connector: each search is a model call);
     Check now forces one. Never fails the check."""
     g = globals()
@@ -1662,7 +1681,8 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
         log(f"label sync skipped: {str(ex)[:200]}")
         label_refused(store, ex)
         return set()
-    known = {r["thread_id"]: r["state"] for r in store.db.execute("select thread_id, state from label_sync")}
+    rows = store.db.execute("select thread_id, state, at from label_sync").fetchall()
+    known, since = {r["thread_id"]: r["state"] for r in rows}, {r["thread_id"]: r["at"] for r in rows}
     baseline = not store.get("label_baseline")
     adds, removes, brings, dismiss = [], [], [], []
     for tid, ids in listed.items():
@@ -1686,7 +1706,9 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     for tid in set(known) - labelled - set(listed):  # gone from both sides
         if known[tid] != "incoming":
             mark_label(store, tid, None)
-    changes = [(t, [label, "INBOX"] if label_in_inbox() else [label], []) for t in adds] + [(t, [], [label]) for t in removes] + [(t, ["INBOX"], []) for t in brings]
+    archive = {t for t in removes if label_archive() and not mail_since(store, t, since.get(t), set(fresh))}
+    changes = ([(t, [label, "INBOX"] if label_in_inbox() else [label], []) for t in adds] + [(t, [], [label, "INBOX"] if t in archive else [label]) for t in removes]
+               + [(t, ["INBOX"], []) for t in brings])
     if dry_run:
         for t, a, r in changes:
             log(f"label [dry-run]: thread {t} +{a} -{r}")
@@ -1723,7 +1745,8 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     store.commit()
     failed = len(changes) - len(ok)
     if changes or dismiss or baseline:
-        log(f"label {name!r}: {len([t for t in adds if t in ok])} added, {len([t for t in removes if t in ok])} removed, {dismissed} dismissed "
+        log(f"label {name!r}: {len([t for t in adds if t in ok])} added, {len([t for t in removes if t in ok])} removed "
+            f"({len([t for t in archive if t in ok])} archived), {dismissed} dismissed "
             f"in Pocket, {len(incoming)} new from Gmail{f', {failed} not changed (next sync tries again)' if failed else ''}"
             f"{' (first sync)' if baseline else ''}")
     return incoming
@@ -2408,7 +2431,7 @@ def run(dry_run: bool, baseline_only: bool, why: str = "", request: str | None =
             log("first run: baseline from the last 2 days")
             threads = gmail.baseline_threads()
             new_cursor = head
-        added = label_sync(store, gmail, bring_in=not baseline_only, dry_run=dry_run, force=bool(request))
+        added = label_sync(store, gmail, bring_in=not baseline_only, dry_run=dry_run, force=bool(request), fresh=set(threads))
         if added - set(threads):
             log(f"label: {len(added - set(threads))} thread(s) added in Gmail join the check")
         threads = set(threads) | added

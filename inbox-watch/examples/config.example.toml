@@ -77,6 +77,7 @@ reasoning = "medium"                   # every judge: default | low | medium | h
 # enabled = true                       # the default; false turns it off (also a Pocket setting). Needs gmail.modify
 # name = "Pocket Inbox"
 # inbox = false                       # true: a thread that gets the label is also put back in INBOX (for filters that skip the inbox)
+# archive = true                      # the default: finishing an entry in Pocket also archives its thread (not when newer mail came in)
 
 [pocket]                               # optional: every alert gets a briefed Pocket Code session one tap away
 root = "/home/me/pocket-code"          # the Pocket Code checkout (its scripts/ talk to the running server)

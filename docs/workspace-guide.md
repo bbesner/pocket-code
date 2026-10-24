@@ -527,7 +527,10 @@ how many new items the check found. Set the schedule to *Don't check* to have In
 **Your list in Gmail (1.75)**: everything open in the Inbox carries a *Pocket Inbox* label in Gmail, and stays in your
 Gmail inbox as well. Give an email that label in Gmail (Label as, or Move to: either way it stays in your inbox) and the
 next check puts it on your list with a summary, like any alert; take the label off in Gmail and the entry leaves the list
-(as dismissed); resolve, dismiss or mark one not useful here and the label comes off. The first sync labels what is already
+(as dismissed); resolve, dismiss or mark one not useful here and the label comes off and the thread is archived, so it
+leaves your Gmail inbox too (1.77.9). A thread that got new mail after the label went on keeps its place in the inbox, so
+a reply you have not seen never disappears; `archive = false` under `[gmail_label]` in the watcher's config turns archiving
+off. The first sync labels what is already
 open and leaves alone anything you labelled before it began. Turn it off in Settings → Inbox Watch → Your list in Gmail.
 It needs Gmail write access: the Gmail API with `gmail.modify`, Codex's Gmail app, or Claude Code's Gmail connector connected with permission to manage mail. A sign-in that may only read shows the reason in Settings; with both connectors, Codex writes the label when Claude's may only read.
 

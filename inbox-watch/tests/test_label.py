@@ -245,6 +245,41 @@ def test_check_now_skips_quiet_hours():
     assert not E.Store(E.DB_PATH).pending(("notify",), ("held",)), "nothing left waiting for the digest hour"
 
 
+
+def test_finished_entry_archives_its_thread():
+    """1.77.9: finishing an entry in Pocket takes the label off and archives the thread (Damon, 2026-10-24: dismissed
+    alerts sat unread in his Gmail inbox), except where mail came in after the label went on."""
+    store, g, p = setup()
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    for eid, tid in (("e1", A), ("e2", B), ("e3", Z)):
+        p.entry(eid, tid)
+        g.labels[tid] = {"INBOX"}
+    E.label_sync(store, g, bring_in=False, dry_run=False)
+    assert all(g.labels[t] == {"INBOX", "L1"} for t in (A, B, Z)) and set(states(store)) == {A, B, Z}
+    later = E.iso(E.now_utc() + E.dt.timedelta(minutes=5))
+    store.record_decision(1, B, {"issue_key": "b", "action": "ignore"})  # a reply to B, judged after its label went on
+    store.db.execute("update decisions set created_at=? where thread_id=?", (later, B))
+    store.commit()
+    p.entries = []  # all three dismissed in Pocket
+    E.label_sync(store, g, bring_in=True, dry_run=False, fresh={Z})  # and Z has a reply this very check found
+    assert g.labels[A] == set(), f"archived: {g.labels[A]}"
+    assert g.labels[B] == {"INBOX"}, "newer mail: the label comes off, the thread stays in the inbox"
+    assert g.labels[Z] == {"INBOX"}, "a reply found by this check: stays in the inbox"
+    assert states(store) == {}
+
+
+def test_archive_can_be_turned_off():
+    store, g, p = setup()
+    E.CFG.gmail_label["archive"] = False
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    p.entry("e1", A)
+    g.labels[A] = {"INBOX"}
+    E.label_sync(store, g, bring_in=False, dry_run=False)
+    p.entries = []
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    assert g.labels[A] == {"INBOX"}, "archive = false: the label alone comes off, as before 1.77.9"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

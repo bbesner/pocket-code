@@ -1,6 +1,6 @@
 """Gmail access for one mailbox: history sync, thread and message reads, searches. Read-only, except for one label: with
-the Pocket Inbox label on (Pocket 1.75), the watcher creates that label and adds or removes it (and INBOX, for a thread the
-owner labelled) on threads, with the gmail.modify scope. Nothing else is ever changed.
+the Pocket Inbox label on (Pocket 1.75), the watcher creates that label and adds or removes it (and INBOX: put back for a thread the
+owner labelled, taken off when an entry finished in Pocket archives its thread) on threads, with the gmail.modify scope. Nothing else is ever changed.
 
 Two ways in:
   auth = "service_account": a Google Workspace service account with domain-wide delegation impersonates the owner
