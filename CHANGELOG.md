@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.7] — 2026-10-24 · build 162
+
+- **Times show in the reader's own time zone, with the zone named.** The usage panel's reset and as-of times and the prompt-cache times (`fmtResetET`/`fmtAsOfET`, now `fmtReset`/`fmtAsOf`) were fixed to America/New_York with an "ET" label for every viewer; they use the browser's zone and name it ("6:00 AM EST"). The server's usage-limit push and log line (`fmtET`, now `fmtOwnerTime`) and reminder emails use the owner's zone (`ownerZone()`: the zone the signed-in browser reports, else `POCKET_TZ`, else the box's) and name it. `pocket-tasks`, `pocket-board`, `pocket-docs`, `pocket-vault` and `pocket-inbox` print times the same way (`scripts/owner-zone.mjs`, which reads `ownerTimezone` from `pocket-settings.json` read only); they printed the box's zone (UTC on a cloud server) with no label, so an agent relayed a 6:00 AM Eastern reminder as 11:00 AM. Requested by Brad.
+- Unchanged: a time typed without an offset (`--due`, `--at`) is still read in `POCKET_TZ`, else the box's zone.
+- Migration: none.
+- Tests: the notify test asserts the zone in the reminder email ("9:00 AM EDT"); the usage-panel browser checks accept any named zone instead of "ET".
+
 ## [1.77.6] — 2026-10-24 · build 161
 
 - **Inbox Watch asks its judge again when a reply does not parse.** On 2026-10-23 at 11 PM a complete Sonnet reply (1,305 output tokens) failed `extract_json`, so `call_judge` raised, the check exited 1, OnFailure mailed Brad, and the three threads waited in the backlog until the 11:30 check judged them without trouble. `call_judge` now asks the same judge once more with the same message when a reply holds no parseable JSON; both calls are recorded in `judge_calls`. The first failure logs the reply's length and its last 300 characters, so the next one shows where it went wrong (the reply itself is not kept). Timeouts and failed judge commands are still not retried in live runs; they go back to the backlog as before. Reported by Brad.

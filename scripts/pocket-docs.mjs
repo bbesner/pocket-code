@@ -14,6 +14,7 @@
 // POCKET_PUBLIC_URL (e.g. https://claude.example.com) makes printed share URLs absolute.
 import fs from 'node:fs';
 import path from 'node:path';
+import { ownerZone, whenIn } from './owner-zone.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const envFile = process.env.POCKET_ENV_FILE ?? path.join(root, '.env');
@@ -50,7 +51,7 @@ async function call(p, body, method) {
   return data;
 }
 const abs = u => !u ? '' : publicBase ? publicBase + u : u;
-const when = v => v ? new Date(v).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+const when = whenIn(ownerZone(dataDir, env('POCKET_TZ')));
 const line = d => `${d.id}  ${d.visibility.padEnd(7)} ${d.kind.padEnd(6)} ${d.title}${d.project ? `  [${d.project}]` : ''}  (${d.file}, ${when(d.added)})`;
 function card(d, token) {
   const out = [line(d)];

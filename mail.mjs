@@ -39,7 +39,9 @@ export function createMailer(url, { from = '', log = () => {} } = {}) {
 export const looksLikeEmail = s => typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim()) && s.trim().length <= 200;
 
 const escapeHtml = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const whenText = (iso, tz) => { try { return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: tz || undefined }); } catch { return iso; } };
+// 1.77.6: the zone is named ("Nov 11, 2026, 6:00 AM EST") so a reader in any zone knows which time it is.
+const WHEN = { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' };
+const whenText = (iso, tz) => { try { return new Date(iso).toLocaleString('en-US', { ...WHEN, timeZone: tz || undefined }); } catch { try { return new Date(iso).toLocaleString('en-US', WHEN); } catch { return iso; } } };
 
 // The message for one announcement. `item` is the hook payload (a task carries kind:"task", text; a reminder carries
 // projectName, label, taskText); `ahead` means the day-before notice. `base` is the public address, when known.

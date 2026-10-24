@@ -757,13 +757,13 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await repaint('warm'); // already open from the previous check, so the hash change alone refetches nothing
     const warm=await ring();
     assert.match(warm.label,/^5[12]m$/,'minutes left beside the ring');assert.equal(warm.color,'rgb(169, 158, 147)','warm is dim, not a warning');
-    assert.match(warm.tip,/435k of 1M tokens used \(44%\) · Prompt cache warm: about 5[12] min left, until .+ ET/);
-    assert.match(warm.aria,/Context window for Opus 5\.5: 435k of 1M tokens used \(44%\)\. Prompt cache warm: about 5[12] min left, until .+ ET\. Open usage$/);
+    assert.match(warm.tip,/435k of 1M tokens used \(44%\) · Prompt cache warm: about 5[12] min left, until .+ [AP]M \S+/);
+    assert.match(warm.aria,/Context window for Opus 5\.5: 435k of 1M tokens used \(44%\)\. Prompt cache warm: about 5[12] min left, until .+ [AP]M \S+\. Open usage$/);
     await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
     let sheet=await page.$eval('.usage-sheet .cache-block',e=>e.textContent.replace(/\s+/g,' '));
     assert.match(sheet,/Prompt cache/);assert.match(sheet,/Status ?Warm · about 5[12] min left/);assert.match(sheet,/Expires ?([A-Z][a-z]{2} \d+, )?\d/);
-    assert.match(sheet,/Cached ?729k tokens/);assert.match(sheet,/Lifetime ?1 hour/);assert.match(sheet,/The last reply, at .+ ET, started 97% from cache\./);
-    assert.match(sheet,/Estimated from the last request at .+ ET; each request restarts the lifetime/);
+    assert.match(sheet,/Cached ?729k tokens/);assert.match(sheet,/Lifetime ?1 hour/);assert.match(sheet,/The last reply, at .+ [AP]M \S+, started 97% from cache\./);
+    assert.match(sheet,/Estimated from the last request at .+ [AP]M \S+; each request restarts the lifetime/);
     await page.waitForSelector('.usage-sheet #usage-body .usage-block');
     await scan('cache-usage-sheet');await page.screenshot({path:path.join(out,'cache-usage-sheet.png')});
     await page.keyboard.press('Escape');
@@ -775,12 +775,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await scan('cache-ring-phone');await page.screenshot({path:path.join(out,'cache-ring-phone.png'),clip:{x:0,y:Math.max(0,phone.y-120),width:390,height:200}});
     await page.setViewport({width:1440,height:900});
     setMode({cache:cache(125,{lastTurn:{at:Date.now()-130*min,read:0,written:729000,input:4,hit:0}})});await repaint('cold');
-    const cold=await ring();assert.equal(cold.label,'cold');assert.equal(cold.color,'rgb(159, 212, 240)','cold is ice blue');assert.equal(await page.$eval('#ctx-ring .ctx-fill',e=>getComputedStyle(e).stroke),'rgb(159, 212, 240)','the ring itself turns ice blue');assert.match(cold.aria,/Prompt cache expired at .+ ET; the next reply writes 729k tokens to cache again\. Open usage$/);
+    const cold=await ring();assert.equal(cold.label,'cold');assert.equal(cold.color,'rgb(159, 212, 240)','cold is ice blue');assert.equal(await page.$eval('#ctx-ring .ctx-fill',e=>getComputedStyle(e).stroke),'rgb(159, 212, 240)','the ring itself turns ice blue');assert.match(cold.aria,/Prompt cache expired at .+ [AP]M \S+; the next reply writes 729k tokens to cache again\. Open usage$/);
     const rr=await page.$eval('#ctx-ring',e=>{const b=e.getBoundingClientRect();return {x:b.x,y:b.y};});
     await page.screenshot({path:path.join(out,'cache-ring-cold.png'),clip:{x:Math.max(0,rr.x-160),y:Math.max(0,rr.y-40),width:420,height:120}});
     await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');
     sheet=await page.$eval('.usage-sheet .cache-block',e=>e.textContent.replace(/\s+/g,' '));
-    assert.match(sheet,/Status ?Cold/);assert.match(sheet,/Expired ?([A-Z][a-z]{2} \d+, )?\d/);assert.match(sheet,/The last reply, at .+ ET, started cold: 729k tokens written to cache\./);assert.match(sheet,/The next reply writes the context to cache again/);
+    assert.match(sheet,/Status ?Cold/);assert.match(sheet,/Expired ?([A-Z][a-z]{2} \d+, )?\d/);assert.match(sheet,/The last reply, at .+ [AP]M \S+, started cold: 729k tokens written to cache\./);assert.match(sheet,/The next reply writes the context to cache again/);
     await page.keyboard.press('Escape');
     setMode({cache:{...cache(8),ttlKnown:false,ttlMs:5*min,at:Date.now()-min}});await repaint('warm');
     await clickControl(page,'#ctx-ring');await page.waitForSelector('.usage-sheet .cache-block');

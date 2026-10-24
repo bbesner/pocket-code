@@ -2842,8 +2842,8 @@ const cacheMinutes = ms => Math.floor(ms / 60_000);
 const cacheLeftShort = ms => cacheMinutes(ms) < 1 ? '<1m' : cacheMinutes(ms) + 'm';
 const cacheLeftLong = ms => cacheMinutes(ms) < 1 ? 'less than a minute' : 'about ' + cacheMinutes(ms) + ' min';
 function cacheSentence(c, st) {
-  if (st.kind === 'cold') return `Prompt cache expired at ${fmtAsOfET(st.expiresAt)}; the next reply writes ${fmtTokens(c.cached)} tokens to cache again`;
-  return `Prompt cache ${st.kind === 'cooling' ? 'cooling' : 'warm'}: ${cacheLeftLong(st.left)} left, until ${fmtAsOfET(st.expiresAt)}`;
+  if (st.kind === 'cold') return `Prompt cache expired at ${fmtAsOf(st.expiresAt)}; the next reply writes ${fmtTokens(c.cached)} tokens to cache again`;
+  return `Prompt cache ${st.kind === 'cooling' ? 'cooling' : 'warm'}: ${cacheLeftLong(st.left)} left, until ${fmtAsOf(st.expiresAt)}`;
 }
 // The ring's companion label: minutes left while warm, amber in the last stretch, "cold" once expired.
 function paintRingCache(el) {
@@ -2864,13 +2864,13 @@ function cacheBlockHTML(c) {
   const hours = c.ttlMs / 3_600_000, life = hours >= 1 ? (hours === 1 ? '1 hour' : Math.round(hours) + ' hours') : Math.round(c.ttlMs / 60_000) + ' minutes';
   const t = c.lastTurn, pct = t && t.hit != null ? Math.floor(t.hit * 100) : null;
   // dated, so a warm start shown beside "Cold" reads as history rather than a contradiction
-  const last = pct == null ? '' : `The last reply, at ${fmtAsOfET(t.at)}, started ` + (t.hit >= 0.5 ? `${pct}% from cache.` : `cold: ${fmtTokens(t.written)} tokens written to cache.`);
+  const last = pct == null ? '' : `The last reply, at ${fmtAsOf(t.at)}, started ` + (t.hit >= 0.5 ? `${pct}% from cache.` : `cold: ${fmtTokens(t.written)} tokens written to cache.`);
   const next = st.kind === 'cold' ? 'The next reply writes the context to cache again, which uses more of your plan than reading it.' : 'A reply before then reads the context from cache at a fraction of the cost.';
   return `<div class="usage-block cache-block"><h3>Prompt cache</h3>
     <div class="usage-row-head"><span>Status</span><span class="cache-state" data-cache="${st.kind}">${esc(head)}</span></div>
-    <dl class="ctx-facts"><div><dt>${st.kind === 'cold' ? 'Expired' : 'Expires'}</dt><dd>${esc(fmtAsOfET(st.expiresAt))}</dd></div><div><dt>Cached</dt><dd>${esc(fmtTokens(c.cached))} tokens</dd></div><div><dt>Lifetime</dt><dd>${esc(life)}${c.ttlKnown ? '' : ' (' + esc(c.ttlNote || 'assumed') + ')'}</dd></div></dl>
+    <dl class="ctx-facts"><div><dt>${st.kind === 'cold' ? 'Expired' : 'Expires'}</dt><dd>${esc(fmtAsOf(st.expiresAt))}</dd></div><div><dt>Cached</dt><dd>${esc(fmtTokens(c.cached))} tokens</dd></div><div><dt>Lifetime</dt><dd>${esc(life)}${c.ttlKnown ? '' : ' (' + esc(c.ttlNote || 'assumed') + ')'}</dd></div></dl>
     ${last ? `<p class="usage-reset">${esc(last)}</p>` : ''}
-    <p class="usage-asof">${esc(next)} Estimated from the last request at ${esc(fmtAsOfET(c.at))}; each request restarts the lifetime, and the provider can drop a cache sooner.</p></div>`;
+    <p class="usage-asof">${esc(next)} Estimated from the last request at ${esc(fmtAsOf(c.at))}; each request restarts the lifetime, and the provider can drop a cache sooner.</p></div>`;
 }
 async function openContextPanel() {
   const id = chatId; if (!id) return;
@@ -2881,7 +2881,7 @@ async function openContextPanel() {
   const ctxBlock = ctx?.window
     ? `<div class="usage-block"><h3>This conversation${model ? ' · ' + esc(model) : ''}</h3>${usageWindowRow('Context window', ctx.pct, null)}
        <dl class="ctx-facts"><div><dt>Window</dt><dd>${esc(fmtTokens(ctx.window))} tokens</dd></div><div><dt>Used</dt><dd>${esc(fmtTokens(ctx.used))} tokens</dd></div><div><dt>Free</dt><dd>${esc(fmtTokens(Math.max(0, ctx.window - ctx.used)))} tokens</dd></div></dl>
-       <p class="usage-asof">${ctx.estimated ? 'Estimated from the transcript. ' : ''}As of ${esc(fmtAsOfET(ctx.lastAt))}</p></div>`
+       <p class="usage-asof">${ctx.estimated ? 'Estimated from the transcript. ' : ''}As of ${esc(fmtAsOf(ctx.lastAt))}</p></div>`
     : '<div class="usage-block"><h3>This conversation</h3><p class="usage-empty">Context use appears after the next reply reports it.</p></div>';
   sh.innerHTML = `<h2>Usage</h2><p class="sheet-help">Only updates when a reply runs, not live.</p><div class="usage-body">${ctxBlock}${codexSession ? '' : cacheBlockHTML(cacheData.get(id))}</div><div class="usage-body" id="usage-body">Loading plan usage…</div>`;
   mountSheet(scrim, sh);
@@ -2891,23 +2891,22 @@ async function openContextPanel() {
   sh.querySelector('#usage-body').innerHTML = codexSession ? (d.codex ? codexUsageBlockHTML(d.codex) : '<div class="usage-block"><h3>Codex</h3><p class="usage-empty">No Codex usage reported.</p></div>') : claudeUsageBlockHTML(d.claude || {});
 }
 document.addEventListener('click', e => { if (e.target.closest?.('#ctx-ring')) openContextPanel(); });
-function fmtResetET(ms) {
+// 1.77.6: the viewer's own time zone, named ("6:00 AM EST"), not Eastern for everyone.
+const zoneTime = d => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+function fmtReset(ms) {
   if (!ms) return null;
   const d = new Date(ms);
-  return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' }) + ' '
-    + d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET';
+  return d.toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + zoneTime(d);
 }
-function fmtAsOfET(ms) {
+function fmtAsOf(ms) {
   if (!ms) return 'not yet observed';
-  const d = new Date(ms), opts = { timeZone: 'America/New_York' };
-  const today = d.toLocaleDateString('en-US', opts) === new Date().toLocaleDateString('en-US', opts);
-  return (today ? '' : d.toLocaleDateString('en-US', { ...opts, month: 'short', day: 'numeric' }) + ', ')
-    + d.toLocaleTimeString('en-US', { ...opts, hour: 'numeric', minute: '2-digit' }) + ' ET';
+  const d = new Date(ms), today = d.toDateString() === new Date().toDateString();
+  return (today ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ') + zoneTime(d);
 }
 function usageWindowRow(label, pct, resetsAt) {
   const safePct = Math.max(0, Math.min(1, pct || 0));
   const level = safePct >= 0.9 ? 'red' : safePct >= 0.7 ? 'amber' : '';
-  const reset = fmtResetET(resetsAt), passed = resetsAt && resetsAt < Date.now();
+  const reset = fmtReset(resetsAt), passed = resetsAt && resetsAt < Date.now();
   // a window that reset since the last observation is not at this percentage any more
   const resetText = !reset ? '' : passed ? `Reset ${reset} — the figure is from before that` : `Resets ${reset}`;
   return `<div class="usage-row">
@@ -2925,7 +2924,7 @@ function claudeUsageBlockHTML(d) {
   ].filter(Boolean);
   if (!rows.length) return '<div class="usage-block"><h3>Claude Code</h3><p class="usage-empty">No usage observed yet — it reports usage on the next reply.</p></div>';
   const overage = d.overage ? `<div class="usage-row-head"><span>Extra usage</span><span>${d.overage.using ? 'On' : 'Off'}${d.overage.reason ? ' · ' + esc(String(d.overage.reason).replace(/_/g, ' ')) : ''}</span></div>` : '';
-  return `<div class="usage-block"><h3>Claude Code</h3>${rows.join('')}${overage}<p class="usage-asof">As of ${esc(fmtAsOfET(d.observedAt))}</p></div>`;
+  return `<div class="usage-block"><h3>Claude Code</h3>${rows.join('')}${overage}<p class="usage-asof">As of ${esc(fmtAsOf(d.observedAt))}</p></div>`;
 }
 function codexUsageBlockHTML(d) {
   const label = w => w?.windowDurationMins ? Math.round(w.windowDurationMins / 60) + 'h window' : 'Window';
@@ -2934,7 +2933,7 @@ function codexUsageBlockHTML(d) {
     d.secondary && usageWindowRow(label(d.secondary), (d.secondary.usedPercent || 0) / 100, d.secondary.resetsAt ? d.secondary.resetsAt * 1000 : null),
   ].filter(Boolean);
   if (!rows.length) return '<div class="usage-block"><h3>Codex</h3><p class="usage-empty">Rate limits aren’t available from this Codex build.</p></div>';
-  return `<div class="usage-block"><h3>Codex</h3>${rows.join('')}<p class="usage-asof">As of ${esc(fmtAsOfET(d.observedAt))}</p></div>`;
+  return `<div class="usage-block"><h3>Codex</h3>${rows.join('')}<p class="usage-asof">As of ${esc(fmtAsOf(d.observedAt))}</p></div>`;
 }
 async function paintUsageBody(sh) {
   const body = sh.querySelector('#usage-body'); if (!body) return;

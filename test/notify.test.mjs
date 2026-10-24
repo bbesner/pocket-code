@@ -27,7 +27,7 @@ test('mail.mjs: the transport is optional and checked, the messages name the ite
   const line=JSON.parse(fs.readFileSync(file,'utf8').trim());assert.equal(line.to,'me@example.test');assert.equal(line.from,'pocket@example.test');
   assert.equal(looksLikeEmail('me@example.test'),true);assert.equal(looksLikeEmail('me@'),false);assert.equal(looksLikeEmail('no spaces@x.y'),false);assert.equal(looksLikeEmail(42),false);
   const task=dueMessage({kind:'task',task:'abc',text:'Check the refund',dueAt:'2026-10-23T13:00:00Z',url:'/#/tasks'},{base:'https://pocket.example.test/',tz:'America/New_York'});
-  assert.equal(task.subject,'[Pocket Code] Task due: Check the refund');assert.match(task.text,/Due: Oct 23, 2026, 9:00 AM/);assert.match(task.text,/https:\/\/pocket\.example\.test\/#\/tasks/);assert.match(task.html,/Open Tasks/);
+  assert.equal(task.subject,'[Pocket Code] Task due: Check the refund');assert.match(task.text,/Due: Oct 23, 2026, 9:00 AM EDT/);assert.match(task.text,/https:\/\/pocket\.example\.test\/#\/tasks/);assert.match(task.html,/Open Tasks/);
   const ahead=dueMessage({kind:'task',task:'abc',text:'Check the refund',dueAt:'2026-10-23T13:00:00Z'},{ahead:true});
   assert.equal(ahead.subject,'[Pocket Code] Task due tomorrow: Check the refund');assert.doesNotMatch(ahead.text,/https?:/,'no link without a public address');
   const rem=dueMessage({project:'p',projectName:'SCK blog cleanup',reminder:'r',label:'28-day traffic check',dueAt:'2026-10-28T13:00:00Z',task:'t',taskText:'Pull the Search Console export',url:'/#/projects/p'},{base:'https://pocket.example.test'});
