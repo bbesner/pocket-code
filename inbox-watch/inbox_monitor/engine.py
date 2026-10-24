@@ -2531,6 +2531,15 @@ def notify_cli(a: argparse.Namespace) -> int:
     hold = in_quiet_hours() and a.priority != "critical"
     aid = store.queue_alert(f"ext|{key}", issue_key=f"ext-{key}", thread_id=a.thread_id or "", kind="notify", priority=a.priority, text=a.text,
                             next_step=a.next_step, subject=a.subject, sender=a.sender, status="held" if hold else "queued")
+    if a.dry_run:
+        # Say what would happen and keep nothing. (2026-10-24: a dry run left its alert row behind, so the real send with
+        # the same key that followed it was refused as a duplicate.)
+        if aid is None:
+            log(f"[dry-run] notify: duplicate key {key!r}; would send nothing")
+        else:
+            log(f"[dry-run] notify {'would be held for the digest' if hold else 'would send'} {a.subject!r}: {a.text[:160]!r}")
+        store.db.rollback()
+        return 0
     if aid is None:
         log(f"notify: duplicate key {key!r}; nothing sent")
         store.commit()

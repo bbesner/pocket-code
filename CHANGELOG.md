@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.8] — 2026-10-24 · build 162
+
+- **Inbox Watch: `notify --dry-run` keeps nothing.** `notify_cli` queued the alert row and then let `deliver` mark it `dry-run`, so the dry run used up the `--key`, and the real send that followed with the same key logged `duplicate key … nothing sent`. Found on 2026-10-24 while re-posting the VistaBlue backups alert. A dry run now logs what it would do (send, hold for the digest, or duplicate), rolls back and returns; nothing is written. The tick's `--dry-run` is unchanged (it still advances the cursor and ledger, as documented). Reported by Brad.
+- Migration: none. A key used up by an earlier dry run stays used (its row has status `dry-run`).
+- Tests: `inbox-watch/tests/test_process.py` (`test_notify_dry_run_keeps_nothing`: a dry run leaves no alert row and sends nothing; the real send with the same key goes out; a second dry run and send after it send nothing more). Fails on 1.77.7.
+
 ## [1.77.7] — 2026-10-24 · build 162
 
 - **Times show in the reader's own time zone, with the zone named.** The usage panel's reset and as-of times and the prompt-cache times (`fmtResetET`/`fmtAsOfET`, now `fmtReset`/`fmtAsOf`) were fixed to America/New_York with an "ET" label for every viewer; they use the browser's zone and name it ("6:00 AM EST"). The server's usage-limit push and log line (`fmtET`, now `fmtOwnerTime`) and reminder emails use the owner's zone (`ownerZone()`: the zone the signed-in browser reports, else `POCKET_TZ`, else the box's) and name it. `pocket-tasks`, `pocket-board`, `pocket-docs`, `pocket-vault` and `pocket-inbox` print times the same way (`scripts/owner-zone.mjs`, which reads `ownerTimezone` from `pocket-settings.json` read only); they printed the box's zone (UTC on a cloud server) with no label, so an agent relayed a 6:00 AM Eastern reminder as 11:00 AM. Requested by Brad.
