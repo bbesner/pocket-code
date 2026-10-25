@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.79.1] — 2026-10-25 · build 167
+
+- **`/btw` is suggested in Codex conversations too.** 1.79 brought side chat to Codex, and a typed `/btw …` already went to it, but the slash suggestions still listed `/btw` for Claude only (1.78 code). The entry is now first in both lists and carries `invocation: '/btw'`, so picking it on Codex types `/btw ` instead of the skill line Codex entries insert ("Use the $btw skill."). Found while checking the 1.79 announcement.
+- Migration: none.
+- Tests: `test/sidechat-browser.mjs` (Codex: `/bt` shows `/btw`, picking it types `/btw `, sending asks that conversation's side chat).
+
 ## [1.79.0] — 2026-10-25 · build 166
 
 - **Branch: a new saved conversation that carries on from another.** Claude and Codex. The **Branch** chip (beside Side chat under the message box on a computer, an icon in the Working row) and **Branch** in Conversation options open a sheet that asks what the branch should do and starts it with the conversation's next-reply model, effort and permissions. `POST /api/session/:id/branch` (`{text, clientMessageId, model, effort, approvalMode}`; secret guard and delivery receipts apply, so a double tap is one branch): Claude runs the first turn with `--resume <parent> --fork-session --session-id <new>` (`spawnRunner` `fork`; a usage-limit retry before the transcript exists forks again); Codex forks with `thread/fork` (not ephemeral, `excludeTurns`, the conversation's sandbox and approval settings) in the new conversation's own app-server, which then holds its writer lock as a resume would. The parent is only read. `smeta` records `branchOf`, `branchOfTitle`, `branchNote`, `branchedAt`; `GET /api/session/:id` returns `branchOf` and `branches`, the list marks branch rows, and a branch is titled from its instruction (`Branch: …` until the generated title arrives) because it starts with its parent's first message and, on Codex, maybe its name. The list's duplicate folding no longer folds a branch into its parent (same first message and folder). Requested by Brad.

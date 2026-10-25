@@ -2586,7 +2586,8 @@ async function renderChat(id, { away = false } = {}) {
   chatMuted = Boolean(s.muted);
   if(s.executionMode){tb.prefs.executionMode=s.executionMode;setPrefs(id,tb.prefs);}
   chatCmds = null;
-  api('/commands?provider=' + (isCx?'codex':'claude') + '&cwd=' + encodeURIComponent(s.cwd || '')).then(r => { chatCmds = isCx ? r.commands : [{ name: 'btw', desc: 'Ask in a side chat, without adding to this conversation' }, ...(r.commands || []).filter(c => c.name !== 'btw')]; }).catch(() => { });
+  // 1.79.1: /btw is offered on Codex too, and picking it types /btw rather than a skill line
+  api('/commands?provider=' + (isCx?'codex':'claude') + '&cwd=' + encodeURIComponent(s.cwd || '')).then(r => { chatCmds = [{ name: 'btw', desc: 'Ask in a side chat, without adding to this conversation', invocation: '/btw' }, ...(r.commands || []).filter(c => c.name !== 'btw')]; }).catch(() => { });
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const msgs = $('#msgs');
   paintTranscript(id, s, msgs);
