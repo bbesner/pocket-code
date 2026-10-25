@@ -281,6 +281,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
     ${optGroup('This conversation', [
       s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':'',
       !PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : '',
+      s.id===chatId&&SideChat.available(s.id)?'<button class="opt" id="so-side">'+IC.chat+'<span>Side chat<span class="sub">Ask about this conversation without adding to it</span></span></button>':'',
       `<button class="opt" id="so-agents">${IC.columns}<span>Subagents<span class="sub">Tasks, status and latest activity</span></span></button>`,
       s.id===chatId?'<button class="opt" id="so-usage">'+IC.gauge+'<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>':''])}
     ${optGroup('Organize', [
@@ -319,6 +320,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
   sh.querySelector('#so-beside')?.addEventListener('click',()=>{close();openBeside(s.id);});
   sh.querySelector('#so-close')?.addEventListener('click',()=>{close();closeMainPane();});
   sh.querySelector('#so-agents').onclick=()=>openAgentsPanel(s.id);
+  sh.querySelector('#so-side')?.addEventListener('click',()=>{close();SideChat.open(s.id);});
   sh.querySelector('#so-permissions').onclick=()=>{close();chooseApprovalMode(s.id);};
   sh.querySelector('#so-usage')?.addEventListener('click',openUsagePanel);
   sh.querySelector('#so-version')?.addEventListener('click',()=>settingsSheet({about:true}));
@@ -2512,6 +2514,7 @@ async function renderChat(id, { away = false } = {}) {
       <span id="hember"></span>
       <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Conversations</button><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
       <button class="icon" id="chgb" aria-label="Changed files">${IC.diff}</button>
+      ${String(id).startsWith('cx:') ? '' : `<button class="icon" id="sideb" aria-label="Side chat" title="Side chat (Ctrl+;)">${IC.chat}</button>`}
       <button class="icon" id="findb" aria-label="Find in conversation">${IC.search}</button>
       <button class="icon" id="chatmore" aria-label="Conversation options">${IC.more}</button>
       ${PANE ? '' : `<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
@@ -2545,6 +2548,7 @@ async function renderChat(id, { away = false } = {}) {
   $('#approvals-open').onclick=()=>openApprovals(chatId);
   $('#chgb').onclick = () => openChanges();
   $('#findb').onclick = () => findOpen(!findIsOpen());
+  const sideb = $('#sideb'); if (sideb) sideb.onclick = () => SideChat.toggle(chatId); // 1.78
   $('#fq').oninput = e => { findRun(e.target.value); findDeep(e.target.value.trim()); };
   $('#fq').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); findStep(e.shiftKey ? -1 : 1); } };
   $('#fprev').onclick = () => findStep(-1);
@@ -2578,7 +2582,7 @@ async function renderChat(id, { away = false } = {}) {
   chatMuted = Boolean(s.muted);
   if(s.executionMode){tb.prefs.executionMode=s.executionMode;setPrefs(id,tb.prefs);}
   chatCmds = null;
-  api('/commands?provider=' + (isCx?'codex':'claude') + '&cwd=' + encodeURIComponent(s.cwd || '')).then(r => { chatCmds = r.commands; }).catch(() => { });
+  api('/commands?provider=' + (isCx?'codex':'claude') + '&cwd=' + encodeURIComponent(s.cwd || '')).then(r => { chatCmds = isCx ? r.commands : [{ name: 'btw', desc: 'Ask in a side chat, without adding to this conversation' }, ...(r.commands || []).filter(c => c.name !== 'btw')]; }).catch(() => { });
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const msgs = $('#msgs');
   paintTranscript(id, s, msgs);
@@ -3064,6 +3068,9 @@ function paintDelivery(id = chatId) {
 async function sendMsg(text, {allowSecrets = false, matches = null} = {}) {
   text = text.trim(); const id = chatId;
   if(uploadsInFlight.get(id)){toast('Wait for the attachment upload to finish.');return;}
+  // 1.78: /btw asks in the side chat instead, like the desktop app
+  const btw = text.match(/^\/btw(?:\s+([\s\S]*))?$/i);
+  if (btw && id && SideChat.available(id)) { const box = $('#box'); if (box) { box.value = ''; sizeComposerBox(); } saveDraft(id, ''); SideChat.open(id, btw[1] || ''); return; }
   if (!text || !id || sendsInFlight.has(id) || loadOutbox(id)) return;
   if (!allowSecrets && holdSecretSend(id, text, matches)) return; // 1.42: offer the Vault before a secret leaves
   if (liveFailure?.id === id) liveFailure = null;
@@ -3599,6 +3606,7 @@ document.addEventListener('load', e => { if (e.target?.classList?.contains('geni
 document.addEventListener('keydown', e => {
   const inChat = location.hash.startsWith('#/chat/');
   if (inChat && (e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); findOpen(true); return; }
+  if (inChat && chatId && (e.ctrlKey || e.metaKey) && e.key === ';' && SideChat.available(chatId)) { e.preventDefault(); SideChat.toggle(chatId); return; } // 1.78
   if (e.key !== 'Escape') return;
   if (closeCurrentSheet) { e.preventDefault(); closeCurrentSheet(); return; }
   const ov = document.querySelector('.overlay');

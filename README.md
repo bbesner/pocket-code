@@ -17,7 +17,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.77.10 / build 163**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.78.0 / build 164**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -349,6 +349,9 @@ Workspace service account for mailboxes an administrator controls.
   edit, cancel or run paused instructions from Queue. A message sent while the agent waits
   on a question skips the question, so the agent reads the message instead of waiting. A failed turn offers Send again and
   Edit message, on any device.
+- **Side chat.** Ask about a Claude conversation while it works, without adding to it: the speech-bubble
+  button, Ctrl+; or a message that starts with `/btw`. It starts from the conversation as it is, can read and
+  search but not change anything, saves nothing and shows what each answer cost.
 - **Choose how it runs.** Model and reasoning effort per turn, and Codex's Plan first mode.
   New session names the agent, model and reasoning it will use.
 
@@ -524,6 +527,10 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_DEFAULT_CWD` | no | Workspace the New session screen preselects, e.g. your home directory. Default: wherever you last started a session. |
 | `POCKET_LOCK_CWD` | no | `1` pins every session to `POCKET_DEFAULT_CWD`: the New session screen shows that folder with nothing to choose, and a start naming another folder is moved there. For installs whose users should never meet a folder. Ignored without a valid `POCKET_DEFAULT_CWD`. |
 | `POCKET_IDLE_CLOSE_MS` | no | How long a session's process (Claude Code or Codex) stays up with no turn and no background job, in milliseconds. Default `3600000` (1 hour); `0` keeps processes until Pocket closes them for another reason. |
+| `POCKET_SIDE_CHAT` | no | `0` turns side chat off. On by default. |
+| `POCKET_SIDE_CHAT_BUDGET_USD` | no | Spending cap for one side chat, in US dollars, passed to Claude Code as `--max-budget-usd`. Default `5`; `0` removes the cap. |
+| `POCKET_SIDE_CHAT_IDLE_MS` | no | How long a side chat stays open with no question, in milliseconds. Default `1800000` (30 minutes). |
+| `POCKET_SIDE_CHAT_MAX` | no | How many side chats can be open at once across all conversations; the longest-quiet one closes to make room. Default `4`. |
 | `POCKET_STALL_MS` | no | A turn with no output, no background job, nothing waiting on you and no CPU use by programs it started for this long is stopped. Milliseconds; default `1800000` (30 minutes); `0` disables the watchdog. A value that is not a number is logged and ignored. |
 | `POCKET_MAX_PROCESSES` | no | Soft target for live CLI processes (Claude Code and Codex together) kept at once. Starting one past the cap closes the longest-idle process that has no turn and no background job. Default `8`; `0` means no cap. Active work is never evicted to meet this target, so the count can exceed it. CLI and MCP processes add memory beyond the Pocket daemon. |
 | `POCKET_APPROVAL_MODE` | no | Default permissions for new turns: `review` (default) or `full`. |

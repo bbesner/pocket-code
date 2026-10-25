@@ -49,6 +49,7 @@ import { InboxRunner } from './inbox-runner.mjs';
 import { StartStore } from './starts.mjs';
 import {Thumbnailer} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
+import { SideChats } from './sidechat.mjs';
 import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
 
 // ---------- config ----------
@@ -1170,6 +1171,7 @@ const claudeLogin = new ClaudeLogin({
       if (runner.bgTasks.length) { runner.accountStale = true; writeRunnerMeta(runner); }
       else closeRunner(runner,'account sign-in');
     }
+    sideChats.closeAll('account sign-in');
   },
   identify:() => readClaudeIdentity(CLAUDE_BIN,spawnEnv()),
   onSuccess:() => { usage.clearAccount(); titleProviders.checkedAt = 0; log('Claude account sign-in completed'); },
@@ -2871,6 +2873,73 @@ app.post('/api/session/:id/stop', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- 1.78: side chat ----------
+// A private aside next to a Claude conversation (sidechat.mjs): it starts from the conversation's transcript,
+// can read and search but not change anything, and adds nothing to the conversation. One per conversation.
+const SIDE_ON = process.env.POCKET_SIDE_CHAT !== '0';
+const sideChats = new SideChats({
+  bin: CLAUDE_BIN, env: spawnEnv, normalize: normalizeLine, log,
+  budgetUsd: Number(process.env.POCKET_SIDE_CHAT_BUDGET_USD ?? 5),
+  idleMs: msSetting('POCKET_SIDE_CHAT_IDLE_MS', 30 * 60_000),
+  max: Math.max(1, Math.floor(Number(process.env.POCKET_SIDE_CHAT_MAX ?? 4)) || 4),
+});
+process.on('exit', () => sideChats.closeAll('daemon stopped'));
+// The conversation's own model, so the aside reads the same context the same way: the live process's, else the
+// one Assistant mode routed it to, else this Pocket's default.
+function sideModel(id) {
+  const r = runners.get(id);
+  if (r?.model) return r.model;
+  try { return withDefaults('claude', { model: smeta[id]?.routed?.model || 'default' }).model || null; } catch { return null; }
+}
+const sideView = c => ({ side: c.id, parent: c.parentId, model: c.model, busy: c.busy, closed: c.closed, total: c.total, turns: c.turns });
+app.post('/api/session/:id/side', requireAuth, secretGuard, async (req, res) => {
+  if (!SIDE_ON) return res.status(404).json({ error: 'Side chat is switched off on this Pocket.' });
+  const id = req.params.id;
+  if (isCx(id)) return res.status(400).json({ error: 'Side chat works with Claude conversations for now.' });
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid conversation' });
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'empty message' });
+  if (text.length > 100_000) return res.status(413).json({ error: 'That message is too long for a side chat.' });
+  if (claudeLogin.active) return res.status(409).json({ error: 'Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.' });
+  let chat = req.body?.side ? sideChats.get(String(req.body.side)) : null;
+  if (chat && chat.parentId !== id) return res.status(400).json({ error: 'That side chat belongs to another conversation.' });
+  try {
+    if (!chat || chat.closed) {
+      const file = await findSessionFile(id);
+      if (!file) return res.status(409).json({ error: 'Send a message in the conversation first, so the side chat has something to start from.' });
+      const meta = await sessionMeta(file, id);
+      chat = sideChats.open({ parentId: id, cwd: meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME, model: sideModel(id) });
+    }
+    sideChats.send(chat, text);
+    res.status(202).json({ ok: true, ...sideView(chat) });
+  } catch (e) { res.status([409, 410, 429].includes(e.code) ? e.code : 500).json({ error: String(e.message) }); }
+});
+// The conversation's live side chat, if any (a reopened panel finds it again).
+app.get('/api/session/:id/side', requireAuth, (req, res) => {
+  const chat = sideChats.forParent(req.params.id);
+  res.json({ enabled: SIDE_ON, chat: chat ? sideView(chat) : null });
+});
+app.get('/api/side/:side/events', requireAuth, (req, res) => {
+  const chat = sideChats.get(req.params.side);
+  if (!chat) return res.status(404).json({ error: 'This side chat has ended.' });
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  const last = Number(req.headers['last-event-id']), from = Number.isFinite(last) ? last + 1 : Math.max(0, Number(req.query.from) || 0);
+  const off = sideChats.subscribe(chat, res, from);
+  if (chat.closed) return res.end();
+  const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch { } }, 25000);
+  req.on('close', () => { clearInterval(ka); off(); });
+});
+app.post('/api/side/:side/stop', requireAuth, (req, res) => {
+  const chat = sideChats.get(req.params.side);
+  if (!chat || !sideChats.stop(chat)) return res.status(404).json({ error: 'nothing is running' });
+  res.json({ ok: true });
+});
+app.delete('/api/side/:side', requireAuth, (req, res) => {
+  const chat = sideChats.get(req.params.side);
+  if (chat) sideChats.close(chat, 'closed');
+  res.json({ ok: true });
+});
+
 // Attachments: raw body upload, filename via header. Files land in ~/pocket-uploads
 // and are referenced by absolute path in the prompt (Claude Reads them; verified
 // with an image 2026-08-14).
@@ -3641,7 +3710,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Inbox Watch: resolving an entry in Pocket closes its story again. Pocket reported a resolve as \"resolved\" and the watcher only listened for \"resolve\", so since Oct 19 your resolves cleared the list but the watcher kept following the story and could treat it as still open. Reported by Brad.", "Dismissing an Inbox entry now archives its email in Gmail. Resolving, dismissing or marking an alert not useful used to take only the Pocket Inbox label off, so the email stayed (or turned up again) in your Gmail inbox, unread. Now it leaves the inbox too, unless a newer reply came into that thread, which stays where you will see it. Suggested by Damon.", "Inbox Watch: a dry run of notify, the command other jobs use to send you an alert, no longer uses up the alert's key. It now only says what it would send; before, the real send that followed it was refused as already sent.", "Times show in your own time zone, with the zone named. The usage panel and the usage-limit notice were fixed to Eastern time for everyone, and the commands agents read for tasks, projects, files, vault and inbox printed the server's time (UTC), so an agent could pass along a reminder at the wrong hour. Requested by Brad.", "Inbox Watch asks its judge again when a reply does not parse. One unreadable reply used to end the whole check, mail you a failure notice and leave those emails for half an hour later; now the judge is asked once more straight away, and only a second bad reply fails the check.", "Sending a message no longer dims the conversation for a moment. 1.77.4 stopped the page from being rebuilt, but the refreshed messages each replayed their short fade-in, so the conversation still blinked briefly; messages already on screen now stay as they are. Reported by Brad."];
+const RELEASE_NOTES = ["Side chat: ask about a conversation without adding to it. Open it with the speech-bubble button in the conversation's header, Side chat in Conversation options, Ctrl+; or by starting a message with /btw. It starts from the conversation as it is, can read files and search the web but cannot change anything, saves nothing, and shows what each answer cost. On a wide window it sits in the right-hand panel beside Results, Queue and Git; on a phone it opens as a sheet. Claude conversations only for now. Requested by Brad.", "Inbox Watch: resolving an entry in Pocket closes its story again. Pocket reported a resolve as \"resolved\" and the watcher only listened for \"resolve\", so since Oct 19 your resolves cleared the list but the watcher kept following the story and could treat it as still open. Reported by Brad.", "Dismissing an Inbox entry now archives its email in Gmail. Resolving, dismissing or marking an alert not useful used to take only the Pocket Inbox label off, so the email stayed (or turned up again) in your Gmail inbox, unread. Now it leaves the inbox too, unless a newer reply came into that thread, which stays where you will see it. Suggested by Damon.", "Inbox Watch: a dry run of notify, the command other jobs use to send you an alert, no longer uses up the alert's key. It now only says what it would send; before, the real send that followed it was refused as already sent.", "Times show in your own time zone, with the zone named. The usage panel and the usage-limit notice were fixed to Eastern time for everyone, and the commands agents read for tasks, projects, files, vault and inbox printed the server's time (UTC), so an agent could pass along a reminder at the wrong hour. Requested by Brad.", "Inbox Watch asks its judge again when a reply does not parse. One unreadable reply used to end the whole check, mail you a failure notice and leave those emails for half an hour later; now the judge is asked once more straight away, and only a second bad reply fails the check."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
