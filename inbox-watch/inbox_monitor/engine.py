@@ -1936,6 +1936,9 @@ def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, ba
     store.commit()
 
 
+FEEDBACK_ACTIONS = {"resolved": "resolve", "dismissed": "dismiss", "not useful": "not_useful"}
+
+
 def apply_feedback(store: Store) -> None:
     """What the owner did with earlier alerts in Pocket (1.69 Inbox): Resolved closes the story, Not useful becomes a line
     in the preferences file the judge reads every turn and drops the story to low, Restore reopens; Dismiss changes nothing."""
@@ -1953,7 +1956,10 @@ def apply_feedback(store: Store) -> None:
             if it.get("id") in own:  # the tidy pass made this decision and already applied it to the story
                 done.append(it["id"])
                 continue
-            key, action, title = it.get("story") or "", it.get("action"), (it.get("title") or "")[:120]
+            key, title = it.get("story") or "", (it.get("title") or "")[:120]
+            # Pocket reports the entry's state ("resolved", "not_useful", "dismissed") or "restore", not the verb the owner
+            # chose (inbox.mjs feedback()); until 1.77.10 "resolved" never matched "resolve", so no story closed this way.
+            action = FEEDBACK_ACTIONS.get(it.get("action"), it.get("action"))
             when = iso_to_et(it.get("at")) or now_et().strftime("%a %b %-d")
             story = store.story(key) if key else None
             if action == "resolve" and story:
