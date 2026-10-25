@@ -228,7 +228,9 @@ The notice comes from the server, so it is still there after a reload or on anot
 
 A side chat is a private aside next to a Claude conversation (1.78). Ask why something was decided, what a file
 does or where the work stands, while the conversation keeps working, without adding anything to it. Open it with
-the speech-bubble button in the conversation's header, **Side chat** in Conversation options, Ctrl/Cmd ; or by
+**Side chat** under the message box on a computer (beside Add project and Add task; an icon there while Claude
+works; pressed while the side chat is open), the speech-bubble button in the conversation's header on a phone,
+**Side chat** in Conversation options, Ctrl/Cmd ; or by
 starting a message with `/btw` (`/btw what did we decide about the cache?`). On a window at least 1280px wide it
 sits in the right-hand panel beside Results, Queue and Git; narrower windows and phones open it as a sheet.
 

@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.78.2] — 2026-10-25 · build 165
+
+- **Side chat sits with Add project and Add task on a computer.** At 900px and wider the opener is a **Side chat** chip leading the conversation chips under the message box (Side chat, Project, Add task), and an icon in the Working row while Claude works; it reads pressed (`set`, `aria-pressed`) while that conversation's side chat is open and toggles it like Ctrl/Cmd ;. The header's speech-bubble icon is now phone-only, where the chip row scrolls sideways and would hide it. `SideChat.paintButton` repaints on every toolbar or composer render, when the panel goes away (a `MutationObserver` on its removal) and when the window crosses 900px. Codex conversations show neither. Suggested by Brad.
+- Migration: none.
+- Tests: `test/sidechat-browser.mjs` (desktop: no header icon, the chip reads Side chat and is pressed while open and released after Ctrl+; closes it; phone: header icon, no chip; Codex: no chip). Browser suite passes, including the 44px Working-row target check.
+
 ## [1.78.1] — 2026-10-25 · build 164
 
 - **Each reply shows its own cost.** A Claude conversation keeps one CLI process across replies (since 1.7), and the CLI's `total_cost_usd` on each `result` is that process's running total, not the turn's. Pocket showed it as the reply's cost (`handleTurnLine` → the `$` line under a reply, and the **Ready · $…** push), so every later reply in a long conversation also counted all the earlier ones. Verified against Claude Code 2.1.293: three turns in one process reported $0.0068, $0.0072, $0.0076 while the second turn read 34,675 cached tokens. `turnCost` now reports the difference from the last total the same process reported; the baseline lives on the runner and in its marker (`spent`), so a restarted daemon that adopts the process keeps counting. A process adopted from before 1.78.1 has no baseline, so its next reply shows no cost instead of a wrong one. Pre-1.7 one-process-per-turn turns are unchanged. Found while building side chat (1.78), which already reports differences.

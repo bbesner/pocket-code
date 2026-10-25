@@ -17,7 +17,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.78.1 / build 164**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.78.2 / build 165**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -350,7 +350,7 @@ Workspace service account for mailboxes an administrator controls.
   on a question skips the question, so the agent reads the message instead of waiting. A failed turn offers Send again and
   Edit message, on any device.
 - **Side chat.** Ask about a Claude conversation while it works, without adding to it: the speech-bubble
-  button, Ctrl+; or a message that starts with `/btw`. It starts from the conversation as it is, can read and
+  button (beside Add project and Add task under the message box on a computer, in the header on a phone), Ctrl+; or a message that starts with `/btw`. It starts from the conversation as it is, can read and
   search but not change anything, saves nothing and shows what each answer cost.
 - **Choose how it runs.** Model and reasoning effort per turn, and Codex's Plan first mode.
   New session names the agent, model and reasoning it will use.

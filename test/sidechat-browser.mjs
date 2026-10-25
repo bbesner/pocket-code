@@ -16,7 +16,11 @@ export async function runSideChatRegressions({browser,base,rows,out,side,convers
   console.log('Side chat: dock at 1440');
   await open(1440,id);
   const mainBefore=await page.$$eval('#msgs > *',es=>es.length);
-  await page.click('#sideb');await page.waitForSelector('.workspace-dock.side-sheet');
+  // 1.78.2: on a desktop the button sits with Add task and Add project; the header icon is for phones.
+  assert.equal(await page.$eval('#sideb',e=>e.getClientRects().length),0,'no header icon on a desktop');
+  assert.equal(await page.$eval('#side-open',e=>[e.textContent.trim(),e.getAttribute('aria-pressed')].join('|')),'Side chat|false');
+  await page.click('#side-open');await page.waitForSelector('.workspace-dock.side-sheet');
+  assert.equal(await page.$eval('#side-open',e=>e.getAttribute('aria-pressed')),'true','pressed while the side chat is open');
   assert.equal(await page.$eval('.dock-tabs [data-dock=side]',e=>e.getAttribute('aria-pressed')),'true','the dock names the side chat');
   assert.equal(await page.$eval('.side-empty',e=>!e.hidden),true,'an empty side chat says what it is for');
   assert.equal(await page.evaluate(()=>document.activeElement.matches('.side-compose textarea')),true,'focus goes to the question box');
@@ -34,6 +38,7 @@ export async function runSideChatRegressions({browser,base,rows,out,side,convers
   console.log('Side chat: shortcut closes and reopens with the history');
   await page.keyboard.down('Control');await page.keyboard.press(';');await page.keyboard.up('Control');
   await page.waitForFunction(()=>!document.querySelector('.side-sheet'));
+  await page.waitForFunction(()=>document.querySelector('#side-open').getAttribute('aria-pressed')==='false');
   await page.keyboard.down('Control');await page.keyboard.press(';');await page.keyboard.up('Control');
   await page.waitForFunction(()=>document.querySelectorAll('.side-msgs .m-asst:not(.live)').length===2);
   assert.deepEqual(await answers(),['Side answer: Why reorder the cameras?','Side answer: And the recorder?']);
@@ -47,6 +52,8 @@ export async function runSideChatRegressions({browser,base,rows,out,side,convers
 
   console.log('Side chat: sheet at 390 from Conversation options, and /btw');
   await open(390,id);
+  assert.ok(await page.$eval('#sideb',e=>e.getClientRects().length)>0,'a phone keeps the header icon');
+  assert.equal(await page.$eval('#side-open',e=>e.getClientRects().length),0,'and no button in the scrolling chip row');
   await page.click('#chatmore');await page.click('#so-side');await page.waitForSelector('.sheet.side-sheet');
   const box=await page.$eval('.sheet.side-sheet',e=>{const r=e.getBoundingClientRect();return {h:r.height,w:r.width};});
   assert.ok(box.h>=844-30&&box.w===390,'a phone gets a full-height sheet: '+JSON.stringify(box));
@@ -61,6 +68,7 @@ export async function runSideChatRegressions({browser,base,rows,out,side,convers
   console.log('Side chat: offered for Claude only');
   await page.setViewport({width:1440,height:900});await page.goto(base+'/?side=cx#/chat/'+cx);await page.waitForSelector('#chatmore');
   assert.equal(await page.$('#sideb'),null,'no side chat button on a Codex conversation');
+  assert.equal(await page.$eval('#side-open',e=>e.hidden),true,'nor in the chip row');
   assert.deepEqual(errors,[]);
  } finally { await context.close(); }
 }
