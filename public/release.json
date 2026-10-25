@@ -1,12 +1,12 @@
 {
- "version": "1.78.1",
- "assetV": 164,
+ "version": "1.78.2",
+ "assetV": 165,
  "notes": [
+  "On a computer, the Side chat button now sits in the row under the message box, next to Add project and Add task, labelled Side chat, and shows as pressed while the side chat is open; it is also there, as an icon, while Claude is working. Phones keep the speech-bubble button in the conversation's header. Suggested by Brad.",
   "The cost under each reply, and in its Ready notification, is that reply's own cost again. A conversation keeps one Claude process across replies, and Claude reports that process's running total, so in a long conversation each later reply showed what all the earlier ones cost too. Found while building side chat.",
   "Side chat: ask about a conversation without adding to it. Open it with the speech-bubble button in the conversation's header, Side chat in Conversation options, Ctrl+; or by starting a message with /btw. It starts from the conversation as it is, can read files and search the web but cannot change anything, saves nothing, and shows what each answer cost. On a wide window it sits in the right-hand panel beside Results, Queue and Git; on a phone it opens as a sheet. Claude conversations only for now. Requested by Brad.",
   "Inbox Watch: resolving an entry in Pocket closes its story again. Pocket reported a resolve as \"resolved\" and the watcher only listened for \"resolve\", so since Oct 19 your resolves cleared the list but the watcher kept following the story and could treat it as still open. Reported by Brad.",
   "Dismissing an Inbox entry now archives its email in Gmail. Resolving, dismissing or marking an alert not useful used to take only the Pocket Inbox label off, so the email stayed (or turned up again) in your Gmail inbox, unread. Now it leaves the inbox too, unless a newer reply came into that thread, which stays where you will see it. Suggested by Damon.",
-  "Inbox Watch: a dry run of notify, the command other jobs use to send you an alert, no longer uses up the alert's key. It now only says what it would send; before, the real send that followed it was refused as already sent.",
-  "Times show in your own time zone, with the zone named. The usage panel and the usage-limit notice were fixed to Eastern time for everyone, and the commands agents read for tasks, projects, files, vault and inbox printed the server's time (UTC), so an agent could pass along a reminder at the wrong hour. Requested by Brad."
+  "Inbox Watch: a dry run of notify, the command other jobs use to send you an alert, no longer uses up the alert's key. It now only says what it would send; before, the real send that followed it was refused as already sent."
  ]
 }

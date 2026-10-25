@@ -96,6 +96,7 @@ const SideChat = (() => {
     view = { parentId, sh, list: sh.querySelector('.side-msgs'), box: sh.querySelector('textarea'), send: sh.querySelector('.side-send'), status: sh.querySelector('.side-status'), busy: false, total: 0, model: null, ended: true, live: null, es: null, side: null };
     const v = view;
     workspaceMount(scrim, sh, 'side');
+    watchClose(sh); paintButton();
     v.box.oninput = () => sizeBox(v.box);
     v.box.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && isWide()) { e.preventDefault(); ask(v.box.value); } };
     sh.querySelector('form').onsubmit = e => { e.preventDefault(); if (v.busy) stop(); else ask(v.box.value); };
@@ -116,6 +117,25 @@ const SideChat = (() => {
     const dockClose = view.sh.querySelector('[data-close-dock]');
     if (dockClose) dockClose.click(); else closeCurrentSheet?.();
   }
+  // 1.78.2: on a desktop the Side chat button sits with Add task and Add project (the header icon is for phones);
+  // an icon in the Working row, a chip in the reply toolbar, pressed while this conversation's side chat is open.
+  function paintButton() {
+    const b = document.getElementById('side-open'); if (!b) return;
+    if (!available(chatId) || !isWide()) { b.hidden = true; return; } // phones: the header icon
+    b.hidden = false;
+    b.innerHTML = b.classList.contains('icon') ? IC.chat : IC.chat + '<span>Side chat</span>';
+    const open = isOpen() && view.parentId === chatId;
+    b.setAttribute('aria-pressed', String(open)); b.classList.toggle('set', open);
+    b.setAttribute('aria-label', open ? 'Close the side chat' : 'Side chat: ask about this conversation without adding to it');
+    b.title = 'Side chat (Ctrl+;): ask about this conversation without adding to it';
+    b.onclick = () => toggle(chatId);
+  }
+  // Repaint the button whenever the panel goes away (its close button, Escape, another dock tab, a new page).
+  function watchClose(sh) {
+    const obs = new MutationObserver(() => { if (!sh.isConnected) { obs.disconnect(); paintButton(); } });
+    obs.observe(document.body, { childList: true, subtree: true });
+  }
   function toggle(parentId) { if (isOpen() && view.parentId === parentId) close(); else open(parentId); }
-  return { open, toggle, close, isOpen, available };
+  matchMedia('(min-width: 900px)').addEventListener('change', () => paintButton());
+  return { open, toggle, close, isOpen, available, paintButton };
 })();

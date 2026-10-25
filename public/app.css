@@ -1870,3 +1870,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .side-compose .primary.side-stop { background: var(--raised); color: var(--err); }
 @media (max-width: 899px) { .sheet.side-sheet { height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); } }
 @media (min-width: 900px) { .sheet.side-sheet { --sheet-w: 640px; padding-bottom: 0; } }
+/* 1.78.2: on a desktop the side chat button sits with Add task and Add project; phones keep the header icon. */
+.conversation-side[hidden] { display: none; }
+@media (min-width: 900px) { header.bar #sideb { display: none; } }
+

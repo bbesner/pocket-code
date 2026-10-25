@@ -974,4 +974,7 @@ window at least 1280px wide, otherwise a tall sheet (full height on a phone, a 6
 reuses the conversation's own parts: `.m-user` bubbles, `.m-asst` documents with tool folds, the composer and the
 clay `.primary` (**Ask**, which reads **Stop** in `--err` on `--raised` while an answer streams). The model and
 running cost sit in the `.turnmeta` voice beside a **New side chat** chip. No new colours, type or motion.
+1.78.2: on a desktop (≥900px) the opener is a **Side chat** chip leading the conversation chips (Side chat,
+Project, Add task) under the message box, an icon in the Working row, `set` and `aria-pressed` while open; the
+header's speech-bubble icon is phone-only, where the chip row scrolls.
 
