@@ -1,3 +1,7 @@
+- **Side chat and Branch.** Two ways off a Claude or Codex conversation. **Side chat** asks a quick question
+  about it while it works (the speech-bubble button, Ctrl+; or a message that starts with `/btw`): nothing is saved
+  and nothing changes. **Branch** starts a new saved conversation that carries on from there with everything so far
+  and can do work on its own; the original stays as it is, and each links to the other.
 # Pocket Code
 
 **Run ten Claude Code and Codex sessions at once, and always know which one needs you.**
@@ -17,7 +21,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.78.2 / build 165**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.79.0 / build 166**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 

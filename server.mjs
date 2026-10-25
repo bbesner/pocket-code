@@ -845,7 +845,8 @@ async function listSessions(limit = 60) {
     if (meta.cwd?.startsWith('/tmp/') && !pinned) continue; // scratch/test sessions
     const active = turns.has(x.id) || backgroundJobs(x.id).length > 0 || extActive(x.id);
     if (meta.noise && !active && !pinned) continue; // hook/subagent noise: no user message, no summary
-    const key = meta.dedupeTitle + '\u0000' + (meta.cwd || '');
+    // 1.79: a branch repeats its parent's first message and folder; it is its own conversation, never a resume copy.
+    const key = smeta[x.id]?.branchOf ? 'branch\u0000' + x.id : meta.dedupeTitle + '\u0000' + (meta.cwd || '');
     const prev = seen.get(key);
     if (prev && !active && !pinned) { prev.dupes = (prev.dupes || 0) + 1; continue; } // older resume copy
     const entry = { ...meta, noise: undefined, active, pinned: pinned || undefined };
@@ -1171,7 +1172,7 @@ const claudeLogin = new ClaudeLogin({
       if (runner.bgTasks.length) { runner.accountStale = true; writeRunnerMeta(runner); }
       else closeRunner(runner,'account sign-in');
     }
-    sideChats.closeAll('account sign-in');
+    sideChats.closeAll('account sign-in', 'claude');
   },
   identify:() => readClaudeIdentity(CLAUDE_BIN,spawnEnv()),
   onSuccess:() => { usage.clearAccount(); titleProviders.checkedAt = 0; log('Claude account sign-in completed'); },
@@ -1245,7 +1246,7 @@ function armRetry(m) {
 function scheduleRetry(sessionId, turn, resetAt) {
   const m = {
     sessionId, cwd: turn.cwd, at: resetAt, createdAt: Date.now(), userText: turn.userText,
-    model: turn.model, effort: turn.effort, approvalMode:turn.approvalMode, attempt: (turn.retryAttempt || 0) + 1,
+    model: turn.model, effort: turn.effort, approvalMode:turn.approvalMode, attempt: (turn.retryAttempt || 0) + 1, fork: turn.runner?.fork || null,
   };
   try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m)); } catch { }
   armRetry(m);
@@ -1265,7 +1266,7 @@ async function fireRetry(m) {
   try {
     const opts = { sessionId: m.sessionId, cwd: m.cwd, model: m.model, effort: m.effort, approvalMode:approvalMode(m.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS), retryAttempt: m.attempt };
     if (file) startTurn({ ...opts, resume: true, text: RETRY_PROMPT });
-    else startTurn({ ...opts, resume: false, text: m.userText }); // limit hit before the transcript existed
+    else startTurn({ ...opts, resume: false, fork: m.fork || undefined, text: m.userText }); // limit hit before the transcript existed (1.79: a branch forks again)
     log(`auto-resume after rate limit session=${m.sessionId} attempt=${m.attempt}`);
     const meta = file ? await sessionMeta(file, m.sessionId).catch(() => null) : null;
     pushNotify(m.sessionId, meta?.title || 'Claude conversation', 'Usage limit reset. Picking the task back up');
@@ -1430,7 +1431,7 @@ function reclaimProcess() {
   ].sort((a, b) => a.at - b.at);
   if (idle[0]) idle[0].close();
 }
-function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
+function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
   reclaimProcess();
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
@@ -1438,7 +1439,9 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId, { choices: process.env.POCKET_CHOICES !== '0' }) : '', settings.inbox ? inboxInstructions(INBOX_CLI, sessionId) : '', vaultLive() ? vaultInstructions(VAULT_CLI, sessionId) : '', googleInstructions('claude')].filter(Boolean).join(' ');
   if (extra) args.push('--append-system-prompt', extra);
   args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
-  args.push(resume ? '--resume' : '--session-id', sessionId);
+  // 1.79 Branch: a new saved session, with this id, that starts with everything in `fork`; that transcript is only read.
+  if (fork) args.push('--resume', fork, '--fork-session', '--session-id', sessionId);
+  else args.push(resume ? '--resume' : '--session-id', sessionId);
   const key = Date.now().toString(36);
   const files = runnerFiles(sessionId, key);
   for (const file of [files.out, files.err]) { fs.writeFileSync(file, '', { mode: 0o600 }); fs.chmodSync(file, 0o600); }
@@ -1459,7 +1462,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   const writer = fs.createWriteStream(null, { fd: hold });
   writer.on('error', () => { });
   const r = {
-    sessionId, key, pid: proc.pid, keeperPid: keeper.pid, writer, cwd, model, effort, approvalMode: mode, files, runnerToken,
+    sessionId, key, pid: proc.pid, keeperPid: keeper.pid, writer, cwd, model, effort, approvalMode: mode, files, runnerToken, fork: fork || null,
     startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: '', spent: 0,
   };
   runners.set(sessionId, r);
@@ -1467,7 +1470,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   proc.on('exit', code => onRunnerExit(r, code));
   proc.on('error', () => onRunnerExit(r, -1));
   writeRunnerMeta(r);
-  log(`session process start session=${sessionId} resume=${!!resume} pid=${proc.pid} cwd=${cwd}`);
+  log(`session process start session=${sessionId} resume=${!!resume}${fork ? ` fork=${fork}` : ''} pid=${proc.pid} cwd=${cwd}`);
   return r;
 }
 
@@ -1770,7 +1773,7 @@ function steerTurn(turn, text) {
   return true;
 }
 
-function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, retryAttempt,approvalMode:requestedMode }) {
+function startTurn({ sessionId, cwd, text, resume, fork, model, effort, attachments, retryAttempt,approvalMode:requestedMode }) {
   if (claudeLogin.active) throw Object.assign(new Error('Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.'), {code:409});
   if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   cancelRetry(sessionId); // a manually-started turn supersedes any pending auto-resume
@@ -1797,7 +1800,7 @@ function startTurn({ sessionId, cwd, text, resume, model, effort, attachments, r
     if (why) { if (why !== 'closing') closeRunner(r, why); r = null; }
   }
   const reused = Boolean(r);
-  if (!r) r = spawnRunner({ sessionId, cwd, resume, model, effort, mode });
+  if (!r) r = spawnRunner({ sessionId, cwd, resume, fork: resume ? undefined : fork, model, effort, mode });
   const turn = beginTurn(r, { userText: text, retryAttempt });
   if (modelFallback) { turn.modelFallback = { ...modelFallback, message: fallbackText(modelFallback) }; broadcast(turn, { type: 'note', text: turn.modelFallback.message }); }
   try { r.writer.write(userJSON(promptText(text, attachments))); } catch { }
@@ -1985,6 +1988,9 @@ function finishTitle(s, request = false) {
   if (a.automated) return { ...out, automated: true, title: a.title || s.title };
   const live = liveAutoTitle(s.id); // 1.29.1: an updated title, ahead of the agent's own
   if (live) return { ...out, title: live };
+  // 1.79: a branch starts with its parent's history (and, on Codex, maybe its name), so it is titled by its own
+  // instruction: the generated title once there is one, until then "Branch: <instruction>".
+  if (smeta[s.id]?.branchOf) return { ...out, title: storedAutoTitle(s.id) || 'Branch: ' + smeta[s.id].branchNote };
   if (s.untitled && storedAutoTitle(s.id)) return { ...out, title: storedAutoTitle(s.id) };
   if (request && s.untitled && Date.now() - (s.mtimeMs || 0) < TITLE_WINDOW_MS) titler.request(s.id, s.prompt || s.title);
   return out;
@@ -2035,6 +2041,7 @@ app.get('/api/sessions', requireAuth, async (req, res) => {
     for (const s of sessions) if (mutes.has(s.id)) s.muted = true; // spoken alerts honor per-session mute
     for (const s of sessions) if (smeta[s.id]?.seen) s.seenAt = smeta[s.id].seen; // shared across devices
     for (const s of sessions) if (s.pinned && Number.isFinite(smeta[s.id]?.pinOrder)) s.pinOrder = smeta[s.id].pinOrder;
+    for (const s of sessions) if (smeta[s.id]?.branchOf) s.branchOf = smeta[s.id].branchOf; // 1.79: the row says Branch
     for (const s of sessions) delete s.prompt;
     // 1.19: the list rarely changes between 5 s polls. A matching If-None-Match gets 304 with the
     // check time in a header, which still counts as a fresh server confirmation for the client.
@@ -2096,7 +2103,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid), turnEvents: turn?.events.length ?? null,
       locked: !turn && !codex.codexSessions.has(tid) && codex.threadLocked(tid), // Pocket's own open session holds the lock too
       muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: isGitWorkspace(meta?.cwd || turn?.cwd),
-      messages, total,
+      messages, total, ...lineage(req.params.id),
     });
   }
   const file = await findSessionFile(req.params.id);
@@ -2104,8 +2111,8 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
     const turn = turns.get(req.params.id);
     if (turn) { // brand-new session: transcript file not written yet
       return res.json({
-        id: req.params.id, title: turn.userText?.slice(0, 120) || 'New conversation', cwd: turn.cwd, repo: isGitWorkspace(turn.cwd),
-        state: stateFor({ id: req.params.id }), active: true, messages: turn.userText ? [{ role: 'user', text: turn.userText }] : [],
+        id: req.params.id, title: titleOf(req.params.id) || turn.userText?.slice(0, 120) || 'New conversation', cwd: turn.cwd, repo: isGitWorkspace(turn.cwd),
+        state: stateFor({ id: req.params.id }), active: true, messages: turn.userText ? [{ role: 'user', text: turn.userText }] : [], ...lineage(req.params.id),
       });
     }
     return res.status(404).json({ error: 'not found' });
@@ -2115,7 +2122,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
   const messages = withPendingUser(msgs, turns.get(req.params.id));
   // turnEvents: what the live stream has already broadcast for the running turn. The
   // transcript above covers it, so a fresh stream connection asks to start after it.
-  sendJson(req, res, { ...finishTitle(meta), state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: isGitWorkspace(meta.cwd), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null });
+  sendJson(req, res, { ...finishTitle(meta), state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: isGitWorkspace(meta.cwd), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null, ...lineage(req.params.id) });
 });
 
 // Extract references from assistant messages on demand; no second document store.
@@ -2495,10 +2502,10 @@ function codexHooks(id) {
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
   };
 }
-async function startCodexFromApi({ id, threadId, cwd, text, body }) {
+async function startCodexFromApi({ id, threadId, forkFrom, cwd, text, body }) {
   if (!threadId || !codex.codexSessions.has(threadId)) reclaimProcess();
   const opts = withDefaults('codex', turnOpts(body));
-  return codex.startCodexTurn({ threadId, cwd, text, ...opts, ...codexHooks(id) });
+  return codex.startCodexTurn({ threadId, forkFrom, cwd, text, ...opts, ...codexHooks(id) });
 }
 if (CODEX_ON) codex.adoptCodexSessions(threadId => codexHooks(codex.CX + threadId));
 if (CODEX_ON) codex.pruneTranscriptCache(); // 1.53.5: the on-disk transcript cache keeps its newest files only
@@ -2897,6 +2904,7 @@ const sideChats = new SideChats({
   budgetUsd: Number(process.env.POCKET_SIDE_CHAT_BUDGET_USD ?? 5),
   idleMs: msSetting('POCKET_SIDE_CHAT_IDLE_MS', 30 * 60_000),
   max: Math.max(1, Math.floor(Number(process.env.POCKET_SIDE_CHAT_MAX ?? 4)) || 4),
+  codex: CODEX_ON ? { AppServer: codex.AppServer, normalizeItem: codex.normalizeItem, config: codex.sideChatConfig } : null, // 1.79
 });
 process.on('exit', () => sideChats.closeAll('daemon stopped'));
 // The conversation's own model, so the aside reads the same context the same way: the live process's, else the
@@ -2906,20 +2914,24 @@ function sideModel(id) {
   if (r?.model) return r.model;
   try { return withDefaults('claude', { model: smeta[id]?.routed?.model || 'default' }).model || null; } catch { return null; }
 }
-const sideView = c => ({ side: c.id, parent: c.parentId, model: c.model, busy: c.busy, closed: c.closed, total: c.total, turns: c.turns });
+const sideView = c => ({ side: c.id, parent: c.parentId, provider: c.provider, model: c.model, busy: c.busy, closed: c.closed, total: c.provider === 'codex' ? null : c.total, turns: c.turns });
 app.post('/api/session/:id/side', requireAuth, secretGuard, async (req, res) => {
   if (!SIDE_ON) return res.status(404).json({ error: 'Side chat is switched off on this Pocket.' });
   const id = req.params.id;
-  if (isCx(id)) return res.status(400).json({ error: 'Side chat works with Claude conversations for now.' });
-  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid conversation' });
+  if (isCx(id) && !CODEX_ON) return res.status(400).json({ error: 'Codex is not available on this server.' });
+  if (!anyId(id)) return res.status(400).json({ error: 'Invalid conversation' });
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
   if (text.length > 100_000) return res.status(413).json({ error: 'That message is too long for a side chat.' });
-  if (claudeLogin.active) return res.status(409).json({ error: 'Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.' });
+  if (!isCx(id) && claudeLogin.active) return res.status(409).json({ error: 'Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.' });
   let chat = req.body?.side ? sideChats.get(String(req.body.side)) : null;
   if (chat && chat.parentId !== id) return res.status(400).json({ error: 'That side chat belongs to another conversation.' });
   try {
-    if (!chat || chat.closed) {
+    if ((!chat || chat.closed) && isCx(id)) { // 1.79: Codex
+      const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
+      if (!meta) return res.status(409).json({ error: 'Send a message in the conversation first, so the side chat has something to start from.' });
+      chat = await sideChats.openCodex({ parentId: id, threadId: codex.bareId(id), cwd: meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : undefined });
+    } else if (!chat || chat.closed) {
       const file = await findSessionFile(id);
       if (!file) return res.status(409).json({ error: 'Send a message in the conversation first, so the side chat has something to start from.' });
       const meta = await sessionMeta(file, id);
@@ -2927,7 +2939,7 @@ app.post('/api/session/:id/side', requireAuth, secretGuard, async (req, res) => 
     }
     sideChats.send(chat, text);
     res.status(202).json({ ok: true, ...sideView(chat) });
-  } catch (e) { res.status([409, 410, 429].includes(e.code) ? e.code : 500).json({ error: String(e.message) }); }
+  } catch (e) { res.status([400, 409, 410, 429, 502].includes(e.code) ? e.code : 500).json({ error: String(e.message) }); }
 });
 // The conversation's live side chat, if any (a reopened panel finds it again).
 app.get('/api/session/:id/side', requireAuth, (req, res) => {
@@ -2954,6 +2966,52 @@ app.delete('/api/side/:side', requireAuth, (req, res) => {
   if (chat) sideChats.close(chat, 'closed');
   res.json({ ok: true });
 });
+
+// ---------- 1.79: branch ----------
+// A new, saved conversation that starts with everything in this one and carries on by itself (it can edit files and
+// run commands, with the permissions chosen for it). The parent is only read. Claude: `--resume <parent>
+// --fork-session --session-id <new>`; Codex: `thread/fork` in the new conversation's own app-server. Side chat is the
+// unsaved, read-only aside; Branch is a real conversation.
+const titleOf = id => { const m = smeta[id] || {}; return m.name || storedAutoTitle(id) || (m.branchOf ? 'Branch: ' + m.branchNote : null); };
+// The conversation this one branched from, and the ones branched from it (newest first), from Pocket's own metadata.
+function lineage(id) {
+  const m = smeta[id] || {};
+  const branchOf = m.branchOf ? { id: m.branchOf, title: m.branchOfTitle || 'the earlier conversation' } : null;
+  const branches = Object.entries(smeta).filter(([, v]) => v?.branchOf === id).sort((a, b) => (b[1].branchedAt || 0) - (a[1].branchedAt || 0))
+    .slice(0, 20).map(([cid, v]) => ({ id: cid, title: titleOf(cid) || 'Branch: ' + v.branchNote, at: v.branchedAt || null }));
+  return { branchOf, branches };
+}
+app.post('/api/session/:id/branch', requireAuth, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
+  const id = req.params.id;
+  if (!anyId(id)) return res.status(400).json({ error: 'Invalid conversation' });
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'Say what the branch should do.' });
+  const note = text.replace(/\s+/g, ' ').slice(0, 80);
+  if (isCx(id)) {
+    if (!CODEX_ON) return res.status(400).json({ error: 'Codex is not available on this server.' });
+    const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
+    if (!meta) return res.status(409).json({ error: 'Send a message in the conversation first, so the branch has something to start from.' });
+    try {
+      const turn = await startCodexFromApi({ threadId: null, forkFrom: codex.bareId(id), cwd: meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : undefined, text, body: req.body });
+      const nid = codex.CX + turn.threadId;
+      setSmeta(nid, { branchOf: id, branchOfTitle: smeta[id]?.name || storedAutoTitle(id) || meta.title || null, branchNote: note, branchedAt: Date.now() });
+      titler.request(nid, text);
+      log(`branch session=${nid} from=${id}`);
+      return res.status(202).json({ id: nid });
+    } catch (e) { return res.status(e.code === 409 || e.code === 423 ? e.code : 500).json({ error: String(e.message) }); }
+  }
+  const file = await findSessionFile(id);
+  if (!file) return res.status(409).json({ error: 'Send a message in the conversation first, so the branch has something to start from.' });
+  const meta = await sessionMeta(file, id);
+  const nid = randomUUID();
+  try {
+    const turn = startTurn({ sessionId: nid, cwd: meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME, text, resume: false, fork: id, ...turnOpts(req.body) });
+    setSmeta(nid, { branchOf: id, branchOfTitle: finishTitle(meta).title || null, branchNote: note, branchedAt: Date.now() });
+    titler.request(nid, text);
+    log(`branch session=${nid} from=${id}`);
+    res.status(202).json({ id: nid, ...(turn.modelFallback ? { modelFallback: turn.modelFallback } : {}) });
+  } catch (e) { res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) }); }
+}));
 
 // Attachments: raw body upload, filename via header. Files land in ~/pocket-uploads
 // and are referenced by absolute path in the prompt (Claude Reads them; verified
@@ -3725,7 +3783,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["On a computer, the Side chat button now sits in the row under the message box, next to Add project and Add task, labelled Side chat, and shows as pressed while the side chat is open; it is also there, as an icon, while Claude is working. Phones keep the speech-bubble button in the conversation's header. Suggested by Brad.", "The cost under each reply, and in its Ready notification, is that reply's own cost again. A conversation keeps one Claude process across replies, and Claude reports that process's running total, so in a long conversation each later reply showed what all the earlier ones cost too. Found while building side chat.", "Side chat: ask about a conversation without adding to it. Open it with the speech-bubble button in the conversation's header, Side chat in Conversation options, Ctrl+; or by starting a message with /btw. It starts from the conversation as it is, can read files and search the web but cannot change anything, saves nothing, and shows what each answer cost. On a wide window it sits in the right-hand panel beside Results, Queue and Git; on a phone it opens as a sheet. Claude conversations only for now. Requested by Brad.", "Inbox Watch: resolving an entry in Pocket closes its story again. Pocket reported a resolve as \"resolved\" and the watcher only listened for \"resolve\", so since Oct 19 your resolves cleared the list but the watcher kept following the story and could treat it as still open. Reported by Brad.", "Dismissing an Inbox entry now archives its email in Gmail. Resolving, dismissing or marking an alert not useful used to take only the Pocket Inbox label off, so the email stayed (or turned up again) in your Gmail inbox, unread. Now it leaves the inbox too, unless a newer reply came into that thread, which stays where you will see it. Suggested by Damon.", "Inbox Watch: a dry run of notify, the command other jobs use to send you an alert, no longer uses up the alert's key. It now only says what it would send; before, the real send that followed it was refused as already sent."];
+const RELEASE_NOTES = ["Two ways off a conversation, now on Claude and Codex. Side chat asks a quick question about the conversation: nothing is saved and nothing changes. Branch starts a new saved conversation that carries on from here with everything so far, and can do work on its own while the original stays as it is; it shows in your list as a branch, with a link back. Both buttons explain themselves when you hover over them, Conversation options describes each, and each one points to the other. Requested by Brad.", "On a computer, the Side chat button now sits in the row under the message box, next to Add project and Add task, labelled Side chat, and shows as pressed while the side chat is open; it is also there, as an icon, while Claude is working. Phones keep the speech-bubble button in the conversation's header. Suggested by Brad.", "The cost under each reply, and in its Ready notification, is that reply's own cost again. A conversation keeps one Claude process across replies, and Claude reports that process's running total, so in a long conversation each later reply showed what all the earlier ones cost too. Found while building side chat.", "Side chat: ask about a conversation without adding to it. Open it with the speech-bubble button in the conversation's header, Side chat in Conversation options, Ctrl+; or by starting a message with /btw. It starts from the conversation as it is, can read files and search the web but cannot change anything, saves nothing, and shows what each answer cost. On a wide window it sits in the right-hand panel beside Results, Queue and Git; on a phone it opens as a sheet. Claude conversations only for now. Requested by Brad.", "Inbox Watch: resolving an entry in Pocket closes its story again. Pocket reported a resolve as \"resolved\" and the watcher only listened for \"resolve\", so since Oct 19 your resolves cleared the list but the watcher kept following the story and could treat it as still open. Reported by Brad.", "Dismissing an Inbox entry now archives its email in Gmail. Resolving, dismissing or marking an alert not useful used to take only the Pocket Inbox label off, so the email stayed (or turned up again) in your Gmail inbox, unread. Now it leaves the inbox too, unless a newer reply came into that thread, which stays where you will see it. Suggested by Damon."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

@@ -87,6 +87,13 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       },text.includes('__SLOW__')?1500:200);
       return;
     }
+    // 1.79: a fork copies the source thread's items into a new thread; ephemeral ones are not saved and hold no lock.
+    case 'thread/fork':{
+      fs.appendFileSync(calls+'.forks',JSON.stringify({threadId:p.threadId,ephemeral:Boolean(p.ephemeral),sandbox:p.sandbox,approvalPolicy:p.approvalPolicy,config:p.config||null,side:/side chat/.test(p.developerInstructions||''),pid:process.pid})+'\n');
+      const id=randomUUID();
+      if(!p.ephemeral){takeLock(id);let items=[];try{items=JSON.parse(fs.readFileSync(path.join(root,p.threadId+'.items.json'),'utf8'));}catch{}fs.writeFileSync(path.join(root,id+'.items.json'),JSON.stringify(items));}
+      return reply(m.id,{thread:{id,ephemeral:Boolean(p.ephemeral)},model:'gpt-test',reasoningEffort:null,cwd:p.cwd||process.cwd()});
+    }
     case 'turn/interrupt':reply(m.id,{});return notify('turn/completed',{turn:{id:p.turnId,status:'interrupted'}});
     case 'thread/items/list':{
       let data=[];try{data=JSON.parse(fs.readFileSync(path.join(root,p.threadId+'.items.json'),'utf8'));}catch{}

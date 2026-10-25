@@ -108,7 +108,7 @@ export class LineBuffer {
 // ---------- JSON-RPC over stdio ----------
 // Newline-delimited JSON both ways. Requests carry an id; anything with a `method` and
 // no `id` is a notification (the streaming channel).
-class AppServer {
+export class AppServer { // 1.79: exported for side chats
   constructor({ name = 'pocket', detached = false, onNotify, onRequest, transport } = {}) {
     this.name = name;
     this.onNotify = onNotify;
@@ -1007,7 +1007,7 @@ function wireSession(s, conn) {
   };
 }
 
-async function openCodexSession({ threadId, cwd, model, approvalMode, hooks }) {
+async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, hooks }) {
   const s = { threadId, approvalMode, cwd, turn: null, hooks, lastActivityAt: Date.now(), runnerToken: randomBytes(16).toString('hex') };
   const conn = new AppServer({
     name: `codex ${threadId || 'new'}`, transport: spawnTransport({ POCKET_RUNNER_TOKEN: s.runnerToken, ...(threadId ? { POCKET_SESSION_ID: 'cx:' + threadId } : {}) }),
@@ -1025,6 +1025,16 @@ async function openCodexSession({ threadId, cwd, model, approvalMode, hooks }) {
         threadId, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}), ...choiceInstructions(threadId),
       }, 60_000);
       s.model = resumed.model; s.effort = resumed.reasoningEffort || null; s.cwd = resumed.cwd || cwd;
+    } else if (forkFrom) {
+      // 1.79 Branch: a new, saved thread that starts with everything in `forkFrom`. This process forks it, so it holds
+      // the new thread's writer lock exactly as a resume would; the source thread is only read.
+      const r = await conn.request('thread/fork', {
+        threadId: forkFrom, excludeTurns: true, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}), ...choiceInstructions(),
+        ...(model ? { model } : {}),
+      }, 60_000);
+      s.model = r.model; s.effort = r.reasoningEffort || null; s.cwd = r.cwd || cwd;
+      s.threadId = r?.thread?.id;
+      if (!s.threadId) throw new Error('thread/fork returned no id');
     } else {
       const r = await conn.request('thread/start', {
         cwd, ...codexPermissionSettings(approvalMode), ...choiceInstructions(),
@@ -1051,7 +1061,7 @@ async function openCodexSession({ threadId, cwd, model, approvalMode, hooks }) {
   return s;
 }
 
-export async function startCodexTurn({ threadId, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, emit, onFinish, onQuestion, onApproval, auditApproval }) {
+export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, emit, onFinish, onQuestion, onApproval, auditApproval }) {
   const existing = threadId && codexTurns.get(threadId);
   if (existing) throw Object.assign(new Error('busy'), { code: 409 });
   const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval };
@@ -1063,7 +1073,7 @@ export async function startCodexTurn({ threadId, cwd, text, model, effort, execu
     s = null;
   }
   const reused = Boolean(s);
-  if (!s) s = await openCodexSession({ threadId, cwd, model, approvalMode, hooks });
+  if (!s) s = await openCodexSession({ threadId, forkFrom: threadId ? undefined : forkFrom, cwd, model, approvalMode, hooks });
   s.hooks = hooks;
   if (codexTurns.get(s.threadId)) throw Object.assign(new Error('busy'), { code: 409 });
   const turn = makeTurn(s, { text, model, effort, executionMode, hooks });
@@ -1397,3 +1407,13 @@ export async function accountSummary(){
  const r=await rpc('account/read',{refreshToken:false},15000);const a=r.account;
  return {provider:'codex',signedIn:Boolean(a),method:a?.type||'Not signed in',email:typeof a?.email==='string'?a.email:null,plan:typeof a?.planType==='string'?a.planType:null};
 }
+
+// 1.79: a side chat runs with no MCP servers and no app connectors, like Claude's (--strict-mcp-config): it only reads
+// and answers. Codex has no "none" switch, so each server named in config.toml is turned off by name.
+export function sideChatConfig() {
+  const config = { 'features.apps': false };
+  let toml = ''; try { toml = fs.readFileSync(path.join(CODEX_HOME, 'config.toml'), 'utf8'); } catch { }
+  for (const m of toml.matchAll(/^\s*\[mcp_servers\.("?)([A-Za-z0-9_-]+)\1\]\s*$/gm)) config[`mcp_servers.${m[2]}.enabled`] = false;
+  return config;
+}
+

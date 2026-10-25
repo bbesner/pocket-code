@@ -978,3 +978,14 @@ running cost sit in the `.turnmeta` voice beside a **New side chat** chip. No ne
 Project, Add task) under the message box, an icon in the Working row, `set` and `aria-pressed` while open; the
 header's speech-bubble icon is phone-only, where the chip row scrolls.
 
+**Side chat and Branch (1.79).** Pinned refinement: variance 3, motion 2, density 4. Two offshoots, kept apart by
+name, icon and one shared sentence each (`SIDE_WHAT`, `BRANCH_WHAT` in sidechat.js) used in the chips' hover text,
+Conversation options' sub-lines, the panel and the sheet: Side chat (speech bubble) asks without saving; Branch (a
+fork glyph in the same 2px stroke) starts a saved conversation that can work. Each surface links to the other: the
+side chat's help line ends in a clay text link, **Need work done? Branch instead**; the Branch sheet ends with a
+hairline and **Use side chat instead** as a chip. The Branch sheet is a standard sheet: help line, a `--warn` line
+only when the parent is working in the same folder, a labelled `queue-editor`, the settings it will use, the clay
+**Start branch**. A branch's `.lineage` line sits at the top of the conversation controls in `--dim` 13.5px with
+clay links: **Branch of …** on a branch, the first three branches on its parent. List rows add `· Branch` to the
+provider label. No new colours, type or motion.
+

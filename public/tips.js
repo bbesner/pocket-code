@@ -21,7 +21,6 @@ const TIPS = {
  'c-mute':'Alerts when a reply finishes in this conversation',
  'project-open':'Give this conversation a project, or open the one it belongs to',
  'task-open':'Add a task: a to-do with an optional date, kept with this conversation',
- 'side-open':'Side chat (Ctrl+;): ask about this conversation without adding to it',
  muteb:'Alerts when a reply finishes in this conversation',
  stopb:'Stop the running reply',
  send:'Send (Enter)',
