@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.77.10] — 2026-10-25 · build 163
+
+- **Inbox Watch: resolving an entry in Pocket closes its story.** `pocket-inbox feedback` reports each decision as the entry's state (`resolved`, `not_useful`, `dismissed`) or `restore` (`inbox.mjs` `feedback()`, since 1.69), and `apply_feedback` closed a story only on `resolve`. So every resolve the owner made in Pocket was logged (`feedback resolved: …`) and acknowledged, but the story stayed open: none of Brad's 58 resolves since 2026-10-19 closed one, and the judge kept seeing those stories as open. Only stories the tidy pass closed itself were marked resolved. `apply_feedback` now maps the state names to its actions (`FEEDBACK_ACTIONS`). Not useful already matched; dismiss changes nothing, as before. Found on 2026-10-25 when a resolved card charge stayed open. Reported by Brad.
+- Migration: none in code. Decisions already acknowledged are not replayed; Brad's open stories that he had resolved in Pocket were closed by a one-off pass (see the Ari Email Monitor ledger).
+- Tests: `inbox-watch/tests/test_process.py` (`test_resolving_in_pocket_closes_the_story`: feedback in the shape Pocket returns closes the resolved stories, leaves the dismissed one open, records the event, acknowledges all three; a later restore reopens). Fails on 1.77.9.
+
 ## [1.77.9] — 2026-10-24 · build 163
 
 - **Inbox Watch: finishing an entry archives its email.** With the Pocket Inbox label on (1.75), resolving, dismissing or marking an entry not useful only took the label off at the next sync (`label_sync` removed the label and nothing else), so the thread stayed in, or for anyone whose Gmail view hides labelled mail from the main inbox reappeared in, the owner's Gmail inbox, still unread. The same sync now also takes the thread out of INBOX. A thread that got mail after its label went on (found by this check, waiting in the backlog, or judged or first-passed since) keeps its place in the inbox and only loses the label, so a reply the owner has not seen never disappears. `archive = false` under `[gmail_label]` restores the label-only behaviour. Works through all three writers (Gmail API, Claude Code's connector, Codex's Gmail app), which already handled INBOX for threads the owner labels. The Settings line for the label says so. Suggested by Damon.

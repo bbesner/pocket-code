@@ -1,12 +1,12 @@
 {
- "version": "1.77.9",
+ "version": "1.77.10",
  "assetV": 163,
  "notes": [
+  "Inbox Watch: resolving an entry in Pocket closes its story again. Pocket reported a resolve as \"resolved\" and the watcher only listened for \"resolve\", so since Oct 19 your resolves cleared the list but the watcher kept following the story and could treat it as still open. Reported by Brad.",
   "Dismissing an Inbox entry now archives its email in Gmail. Resolving, dismissing or marking an alert not useful used to take only the Pocket Inbox label off, so the email stayed (or turned up again) in your Gmail inbox, unread. Now it leaves the inbox too, unless a newer reply came into that thread, which stays where you will see it. Suggested by Damon.",
   "Inbox Watch: a dry run of notify, the command other jobs use to send you an alert, no longer uses up the alert's key. It now only says what it would send; before, the real send that followed it was refused as already sent.",
   "Times show in your own time zone, with the zone named. The usage panel and the usage-limit notice were fixed to Eastern time for everyone, and the commands agents read for tasks, projects, files, vault and inbox printed the server's time (UTC), so an agent could pass along a reminder at the wrong hour. Requested by Brad.",
   "Inbox Watch asks its judge again when a reply does not parse. One unreadable reply used to end the whole check, mail you a failure notice and leave those emails for half an hour later; now the judge is asked once more straight away, and only a second bad reply fails the check.",
-  "Sending a message no longer dims the conversation for a moment. 1.77.4 stopped the page from being rebuilt, but the refreshed messages each replayed their short fade-in, so the conversation still blinked briefly; messages already on screen now stay as they are. Reported by Brad.",
-  "Sending a message no longer blinks the whole screen. After Pocket confirmed a message, it rebuilt the page (the sidebar, the header, the message box) and showed an empty conversation until it had read it again; the end of every reply did the same. Now only the messages are brought up to date, once the new copy has arrived, and the message box keeps what you are typing. Reported by Brad."
+  "Sending a message no longer dims the conversation for a moment. 1.77.4 stopped the page from being rebuilt, but the refreshed messages each replayed their short fade-in, so the conversation still blinked briefly; messages already on screen now stay as they are. Reported by Brad."
  ]
 }

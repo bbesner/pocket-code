@@ -1,5 +1,5 @@
 """The judge's decisions through the real process(): quiet hours hold an alert, Check now sends it, and a batch that fails
-part-way leaves nothing behind (1.77.1); a judge reply that does not parse is asked for again (1.77.6); `notify --dry-run` keeps nothing (1.77.8). A fake archive, judge and Pocket; no Gmail, model or network.
+part-way leaves nothing behind (1.77.1); a judge reply that does not parse is asked for again (1.77.6); `notify --dry-run` keeps nothing (1.77.8); resolving an entry in Pocket closes its story (1.77.10). A fake archive, judge and Pocket; no Gmail, model or network.
 
     python3 tests/test_process.py
 """
@@ -175,6 +175,30 @@ def test_notify_dry_run_keeps_nothing():
         assert pocket.sent == ["Backups missed"], "the same key still sends once"
     finally:
         E.in_quiet_hours = saved
+
+
+def test_resolving_in_pocket_closes_the_story():
+    # 2026-10-25: Pocket's feedback reports the entry's state ("resolved"), and apply_feedback only closed a story on "resolve",
+    # so none of Brad's 58 resolves since 2026-10-19 closed one. The items below are the shape inbox.mjs feedback() returns.
+    store, pocket = setup()
+    for k in ("story-a", "story-b", "story-c"):
+        store.upsert_story({"issue_key": k, "status": "open", "priority": "normal", "new_fact": f"{k} opened."}, None)
+    store.commit()
+    acked = []
+    pocket.feedback = lambda: [
+        {"id": "e1", "action": "resolved", "at": "2026-10-25T12:00:03Z", "note": "Suzette made this purchase", "title": "Charge", "story": "story-a", "source": "inbox-monitor", "kind": "alert"},
+        {"id": "e2", "action": "dismissed", "at": "2026-10-25T12:00:04Z", "note": "", "title": "Dismissed", "story": "story-b", "source": "inbox-monitor", "kind": "alert"},
+        {"id": "e3", "action": "resolved", "at": "2026-10-25T12:00:05Z", "note": "", "title": "Later restored", "story": "story-c", "source": "inbox-monitor", "kind": "alert"},
+    ]
+    pocket.ack = acked.extend
+    E.apply_feedback(store)
+    status = lambda k: store.story(k)["status"]
+    assert [status(k) for k in ("story-a", "story-b", "story-c")] == ["resolved", "open", "resolved"]
+    assert any("marked this resolved" in r["fact"] for r in store.events("story-a")), "no feedback event on the story"
+    assert acked == ["e1", "e2", "e3"], acked
+    pocket.feedback = lambda: [{"id": "e3", "action": "restore", "at": "2026-10-25T12:01:00Z", "note": "", "title": "Later restored", "story": "story-c", "source": "inbox-monitor", "kind": "alert"}]
+    E.apply_feedback(store)
+    assert status("story-c") == "open", "restore reopens"
 
 
 if __name__ == "__main__":
