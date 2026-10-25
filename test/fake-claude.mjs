@@ -24,7 +24,8 @@ if (process.argv.includes('--fork-session')) {
   if(!found){console.error('No conversation found with session ID: '+parent);process.exit(1);}
   if(root)setInterval(()=>{if(!fs.existsSync(root))process.exit(0)},300).unref();
   let n=0,spent=0,hanging=false;const out=o=>console.log(JSON.stringify(o));
-  readline.createInterface({input:process.stdin}).on('line',line=>{
+  // like the real CLI, it exits when its input closes (the side chat ended or the daemon went away)
+  readline.createInterface({input:process.stdin}).on('close',()=>process.exit(0)).on('line',line=>{
     const o=JSON.parse(line);
     if(o.type==='control_request'&&o.request?.subtype==='interrupt'){out({type:'control_response',response:{subtype:'success',request_id:o.request_id,response:{}}});if(hanging){hanging=false;out({type:'result',subtype:'error_during_execution',is_error:true,total_cost_usd:0});}return;}
     if(o.type!=='user')return;
