@@ -969,3 +969,9 @@ session row (own group under Running, label `Working in background · 1 job`, de
 the first job), the title bar lamp when the composer is free, and the open-session tabs at 7px.
 Status text stays `--text`; the status bar shows `Background` in short form. No new motion.
 
+**Side chat (1.78).** Pinned refinement: variance 3, motion 2, density 4. The dock's fourth panel (420px) on a
+window at least 1280px wide, otherwise a tall sheet (full height on a phone, a 640px dialog on a desktop). It
+reuses the conversation's own parts: `.m-user` bubbles, `.m-asst` documents with tool folds, the composer and the
+clay `.primary` (**Ask**, which reads **Stop** in `--err` on `--raised` while an answer streams). The model and
+running cost sit in the `.turnmeta` voice beside a **New side chat** chip. No new colours, type or motion.
+

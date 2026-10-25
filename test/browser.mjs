@@ -134,9 +134,34 @@ const queueRows=[{id:'q1',revision:1,text:'Check incoming quantities before plac
 const messagesOf=id=>{const m=conversations.get(id);if(id!==rows[0].id||!fixtureSettings.documents)return m;const d=docStore.documents.find(x=>x.file==='weekly-summary.md');return d?[...m,{role:'assistant',blocks:[{t:'text',text:'Kept in Files: [Weekly summary]('+base+'/#/documents/'+d.id+').'}]}]:m;};
 const report='## Inventory review\n\n| Product | On hand | Incoming | Supplier reference |\n|---|---:|---:|---|\n| Outdoor camera | 24 | 12 | WAREHOUSE-LONG-REFERENCE-001 |\n| Recorder | 8 | 4 | PURCHASE-ORDER-2026-10-03 |\n\n> Incoming stock is separate from the on-hand count.\n\n1. Review stock\n   - Exclude discontinued products\n   - Check expected delivery dates\n2. Confirm the order\n\n[Open the report](https://example.com/inventory)';
 const conversations=new Map(rows.map(r=>[r.id,[{role:'user',text:'Review the stock report.'},{role:'assistant',blocks:[{t:'text',text:report}]}]]));
+// 1.78 side chat: a scripted side chat that answers each question, streaming events the way the daemon does.
+const sideFixture={n:0,id:null,live:false,events:[],subs:new Set(),posts:[],total:0,turns:0,
+ push(e){this.events.push(e);const i=this.events.length-1;for(const r of this.subs)r.write(`id: ${i}\ndata: ${JSON.stringify(e)}\n\n`);}};
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost');
  const json=(body,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(body));};
+ if(url.pathname.startsWith('/api/side/')||/^\/api\/session\/[^/]+\/side$/.test(url.pathname)){ // 1.78
+  const sc=sideFixture,m=url.pathname.match(/^\/api\/side\/([^/]+)(\/events|\/stop)?$/);
+  if(req.method==='GET'&&url.pathname.endsWith('/side'))return json({enabled:true,chat:sc.live?{side:sc.id,model:'claude-opus-5-5[1m]',busy:false,closed:null,total:sc.total,turns:sc.turns}:null});
+  if(req.method==='POST'&&url.pathname.endsWith('/side')){
+   let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');sc.posts.push({path:url.pathname,...b});
+   if(!sc.live||b.side!==sc.id){sc.id='side-'+ ++sc.n;sc.events=[];sc.live=true;sc.total=0;sc.turns=0;}
+   sc.turns++;sc.total+=0.25;const total=sc.total;
+   sc.push({type:'user',msg:{role:'user',text:b.text,ts:new Date().toISOString()}});
+   setTimeout(()=>{sc.push({type:'delta',text:'Side '});sc.push({type:'assistant',msg:{role:'assistant',blocks:[{t:'text',text:'Side answer: **'+b.text+'**'}],ts:new Date().toISOString()}});sc.push({type:'result',ok:true,error:null,cost:0.25,total,duration_ms:1200});},120);
+   return json({ok:true,side:sc.id,model:'claude-opus-5-5[1m]',busy:true,closed:null,total,turns:sc.turns},202);
+  }
+  if(m?.[2]==='/events'){
+   if(m[1]!==sc.id)return json({error:'This side chat has ended.'},404);
+   res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache'});
+   const last=Number(req.headers['last-event-id']),from=Number.isFinite(last)?last+1:Number(url.searchParams.get('from'))||0;
+   sc.events.slice(from).forEach((e,i)=>res.write(`id: ${from+i}\ndata: ${JSON.stringify(e)}\n\n`));
+   sc.subs.add(res);req.on('close',()=>sc.subs.delete(res));return;
+  }
+  if(m?.[2]==='/stop')return json({ok:true});
+  if(m&&req.method==='DELETE'){sc.live=false;sc.push({type:'closed',why:'closed'});return json({ok:true});}
+  return json({error:'not found'},404);
+ }
  if(url.pathname.startsWith('/mission-control/')&&process.env.MISSION_CONTROL_REPO){
   const rel=url.pathname.slice('/mission-control/'.length),file=path.join(process.env.MISSION_CONTROL_REPO,'web',rel);
   if(!file.startsWith(path.join(process.env.MISSION_CONTROL_REPO,'web')+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}
@@ -825,6 +850,8 @@ try{
  const {runModelSelectionRegressions} = await import('./model-selection-browser.mjs');
  await runModelSelectionRegressions({browser,base,rows,out,received});
  await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),getMode:()=>uiModes,settingsState:()=>fixtureSettings,vaultFixture,received,voiceLog,conversations,pinOrders});
+ const {runSideChatRegressions}=await import('./sidechat-browser.mjs');
+ await runSideChatRegressions({browser,base,rows,out,side:sideFixture,conversations});
  const {runCleanupRegressions}=await import('./cleanup-ui.mjs');
  await runCleanupRegressions({browser,base,rows,out});
  const {runThemeRegressions}=await import('./theme-browser.mjs');

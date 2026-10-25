@@ -15,6 +15,27 @@ if (process.argv[2]==='mcp'&&process.argv[3]==='list') {
  if(process.env.FAKE_CLAUDE_MCP_FAIL&&fs.existsSync(process.env.FAKE_CLAUDE_MCP_FAIL)){console.error('upstream said: token=sk-fake-connector-secret');process.exit(1);}
  console.log('Checking MCP server health…\n\nclaude.ai Gmail: https://gmailmcp.googleapis.com/mcp/v1 - ✔ Connected\nclaude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ! Needs authentication'); process.exit(0); }
 if (process.argv[2]==='auth'&&process.argv[3]==='status') { console.log(JSON.stringify({loggedIn:process.env.FAKE_CLAUDE_SIGNED_OUT!=='1',authMethod:'claude.ai',email:'owner@example.test',subscriptionType:'max'})); process.exit(0); }
+// 1.78: a side chat: a forked, unsaved session that keeps reading messages. Records its arguments, answers each
+// message (with the CLI's running cost total), and with __SIDEHANG__ streams one word and waits for an interrupt. Never writes a transcript.
+if (process.argv.includes('--fork-session')) {
+  const args=process.argv.slice(2),parent=args[args.indexOf('--resume')+1],root=process.env.POCKET_SESSION_ROOT;
+  if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.side',JSON.stringify({parent,args,cwd:process.cwd()})+'\n');
+  const found=root&&fs.readdirSync(root).some(d=>fs.existsSync(path.join(root,d,parent+'.jsonl')));
+  if(!found){console.error('No conversation found with session ID: '+parent);process.exit(1);}
+  if(root)setInterval(()=>{if(!fs.existsSync(root))process.exit(0)},300).unref();
+  let n=0,spent=0,hanging=false;const out=o=>console.log(JSON.stringify(o));
+  // like the real CLI, it exits when its input closes (the side chat ended or the daemon went away)
+  readline.createInterface({input:process.stdin}).on('close',()=>process.exit(0)).on('line',line=>{
+    const o=JSON.parse(line);
+    if(o.type==='control_request'&&o.request?.subtype==='interrupt'){out({type:'control_response',response:{subtype:'success',request_id:o.request_id,response:{}}});if(hanging){hanging=false;out({type:'result',subtype:'error_during_execution',is_error:true,total_cost_usd:0});}return;}
+    if(o.type!=='user')return;
+    const text=o.message.content[0].text;n++;
+    out({type:'system',subtype:'init',session_id:'fork-'+n});
+    out({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'Side '}}});
+    if(text.includes('__SIDEHANG__')){hanging=true;return;}
+    setTimeout(()=>{const t='Side answer '+n+': '+text;out({type:'assistant',message:{role:'assistant',model:'claude-test',content:[{type:'text',text:t}]}});out({type:'result',subtype:text.includes('__SIDEBUDGET__')?'error_max_budget_usd':'success',is_error:false,result:t,total_cost_usd:(spent+=0.25),duration_ms:120});},150);
+  });
+} else
 // Session titles (titles.mjs): a one-shot -p call with no saved session. Answer like the real CLI's json output.
 if (process.argv.includes('--no-session-persistence')) {
   // 1.52: which --model each helper call named (titles, summaries), one per line.

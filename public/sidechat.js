@@ -1,0 +1,121 @@
+/* 1.78: Side chat. A private aside next to a Claude conversation: ask about it while it keeps working, and nothing
+   is added to it. The server (sidechat.mjs) runs a forked, unsaved, read-only copy of the conversation and keeps the
+   side chat's events, so this panel holds no history of its own: opening it replays them, on any device. It docks
+   beside the conversation on a wide window (with Results, Queue and Git) and is a sheet on a phone. */
+const SideChat = (() => {
+  const sides = new Map(); // conversation id -> its live side chat id
+  let view = null;         // {parentId, sh, es, list, box, send, status, busy, total, model, ended, live}
+  const available = id => Boolean(id) && !String(id).startsWith('cx:');
+  const modelName = m => { if (!m) return 'Default model'; const hit = (typeof MODELS !== 'undefined' ? MODELS : []).find(x => x[0] === m); return hit ? hit[1] : m; };
+  const money = n => '$' + (n < 0.01 && n > 0 ? n.toFixed(3) : n.toFixed(2));
+  const ENDED = { idle: 'This side chat ended after a quiet spell.', 'account sign-in': 'This side chat ended because the Claude sign-in changed.',
+    replaced: 'This side chat was replaced by a newer one.', limit: 'This side chat ended to make room for another.', 'daemon stopped': 'This side chat ended because Pocket restarted.' };
+  const isOpen = () => Boolean(view?.sh.isConnected);
+
+  function paintState() {
+    if (!isOpen()) return;
+    const v = view;
+    v.send.textContent = v.busy ? 'Stop' : 'Ask';
+    v.send.classList.toggle('side-stop', v.busy);
+    v.send.setAttribute('aria-label', v.busy ? 'Stop the answer' : 'Ask in the side chat');
+    v.status.textContent = v.busy ? 'Answering…' : v.total ? `${modelName(v.model)} · ${money(v.total)} so far` : v.model ? modelName(v.model) : '';
+    v.sh.querySelector('[data-side-new]').hidden = !sides.get(v.parentId) && !v.list.querySelector('.m-user');
+    v.sh.querySelector('.side-empty').hidden = Boolean(v.list.children.length);
+  }
+  function note(text, cls = '') { view.list.insertAdjacentHTML('beforeend', `<div class="turnmeta ${cls}" role="status">${esc(text)}</div>`); }
+  function scrollEnd() { const s = view.list.closest('.side-scroll'); if (s) s.scrollTop = s.scrollHeight; }
+  function onEvent(v, d) {
+    if (view !== v || !isOpen()) { v.es?.close(); return; }
+    const dropLive = () => { v.live?.remove(); v.live = null; };
+    if (d.type === 'user') { v.busy = true; v.list.insertAdjacentHTML('beforeend', msgHTML({ role: 'user', text: d.msg.text, ts: d.msg.ts })); }
+    else if (d.type === 'delta') {
+      if (!v.live?.isConnected) { v.list.insertAdjacentHTML('beforeend', '<div class="m-asst live"></div>'); v.live = v.list.lastElementChild; }
+      v.live.textContent += d.text;
+    } else if (d.type === 'assistant') {
+      dropLive();
+      v.list.insertAdjacentHTML('beforeend', msgHTML({ ...d.msg, blocks: (d.msg.blocks || []).filter(b => b.t !== 'choices') }));
+      mergeToolFolds(v.list);
+    } else if (d.type === 'result') {
+      dropLive(); v.busy = false; v.total = d.total || 0;
+      if (d.error) note(d.error, d.error === 'Stopped' ? '' : 'side-error');
+      else if (d.cost != null) note([money(d.cost), d.duration_ms ? Math.max(1, Math.round(d.duration_ms / 1000)) + 's' : ''].filter(Boolean).join(' · '));
+    } else if (d.type === 'error') { dropLive(); v.busy = false; note(d.error, 'side-error'); }
+    else if (d.type === 'closed') {
+      dropLive(); v.busy = false; v.ended = true; v.es?.close(); v.es = null;
+      if (sides.get(v.parentId) === v.side) sides.delete(v.parentId);
+      if (d.why !== 'closed') note((ENDED[d.why] || 'This side chat has ended.') + ' Your next question starts a new one.');
+    }
+    paintState(); scrollEnd();
+  }
+  // Replays the side chat's events from the start, then follows it (EventSource resumes after the last event it saw).
+  function connect(v, side) {
+    v.es?.close();
+    v.side = side; v.ended = false; v.list.innerHTML = ''; v.live = null; v.busy = false; v.total = 0;
+    const es = new EventSource(`/api/side/${encodeURIComponent(side)}/events?from=0`);
+    v.es = es;
+    es.onmessage = ev => { let d; try { d = JSON.parse(ev.data); } catch { return; } onEvent(v, d); };
+    es.onerror = () => { if (view !== v || !isOpen()) es.close(); else if (es.readyState === EventSource.CLOSED) { v.es = null; if (!v.ended) { sides.delete(v.parentId); v.ended = true; paintState(); } } };
+  }
+  async function ask(text) {
+    const v = view; if (!v) return;
+    text = text.trim(); if (!text) return;
+    if (v.busy) return toast('Wait for the answer, or stop it, before asking again.');
+    v.send.disabled = true;
+    try {
+      const r = await api(`/session/${v.parentId}/side`, { method: 'POST', body: JSON.stringify({ text, side: v.ended ? undefined : sides.get(v.parentId) }) });
+      v.box.value = ''; sizeBox(v.box);
+      v.model = r.model;
+      if (r.side !== v.side || !v.es) { sides.set(v.parentId, r.side); connect(v, r.side); }
+      v.busy = true; paintState();
+    } catch (e) {
+      if (e.code === 'secret_detected') toast('That looks like a secret, so it was not sent. Store it in the Vault and use its name instead.');
+      else toast(e.message || 'Could not send to the side chat.');
+    } finally { v.send.disabled = false; if (view === v) v.box.focus(); }
+  }
+  async function stop() { const v = view; if (!v?.side) return; try { await api(`/side/${v.side}/stop`, { method: 'POST', body: '{}' }); } catch { } }
+  async function startOver() {
+    const v = view; if (!v) return;
+    const side = sides.get(v.parentId); sides.delete(v.parentId);
+    v.es?.close(); v.es = null; v.side = null; v.ended = true; v.busy = false; v.total = 0; v.list.innerHTML = '';
+    paintState(); v.box.focus();
+    if (side) try { await api(`/side/${side}`, { method: 'DELETE' }); } catch { }
+  }
+  function sizeBox(box) { box.style.height = 'auto'; box.style.height = Math.min(box.scrollHeight + 2, 160) + 'px'; }
+
+  async function open(parentId, question = '') {
+    if (!available(parentId)) return toast('Side chat works with Claude conversations for now.');
+    if (isOpen() && view.parentId === parentId) { if (question) ask(question); else view.box.focus(); return; }
+    view?.es?.close();
+    const scrim = document.createElement('div'); scrim.className = 'scrim';
+    const sh = document.createElement('div'); sh.className = 'sheet side-sheet';
+    sh.innerHTML = `<h2>Side chat</h2>
+      <p class="sheet-help side-help">Ask about this conversation while it keeps going. Nothing here is added to it, and the side chat can read but not change anything.</p>
+      <div class="side-scroll"><p class="side-empty">Ask why something was decided, what a file does or where the work stands. Answers come from the conversation as it is when you ask the first question.</p><div class="msgs side-msgs" role="log" aria-label="Side chat messages"></div></div>
+      <div class="side-foot"><span class="turnmeta side-status" role="status"></span><button type="button" class="chip" data-side-new hidden>New side chat</button></div>
+      <form class="composer side-compose"><textarea rows="1" aria-label="Ask in the side chat" placeholder="Ask about this conversation" enterkeyhint="send"></textarea><button class="primary side-send" type="submit">Ask</button></form>`;
+    view = { parentId, sh, list: sh.querySelector('.side-msgs'), box: sh.querySelector('textarea'), send: sh.querySelector('.side-send'), status: sh.querySelector('.side-status'), busy: false, total: 0, model: null, ended: true, live: null, es: null, side: null };
+    const v = view;
+    workspaceMount(scrim, sh, 'side');
+    v.box.oninput = () => sizeBox(v.box);
+    v.box.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && isWide()) { e.preventDefault(); ask(v.box.value); } };
+    sh.querySelector('form').onsubmit = e => { e.preventDefault(); if (v.busy) stop(); else ask(v.box.value); };
+    sh.querySelector('[data-side-new]').onclick = startOver;
+    paintState();
+    if (question) v.box.value = question;
+    v.box.focus();
+    // This device's side chat, or one started on another device or before a reload.
+    let side = sides.get(parentId);
+    if (!side) { try { const r = await api(`/session/${parentId}/side`); side = r.chat?.side; if (r.chat) { v.model = r.chat.model; sides.set(parentId, side); } } catch { } }
+    if (view !== v || !isOpen()) return;
+    if (side) connect(v, side);
+    if (question) ask(question);
+  }
+  function close() {
+    if (!isOpen()) return;
+    view.es?.close();
+    const dockClose = view.sh.querySelector('[data-close-dock]');
+    if (dockClose) dockClose.click(); else closeCurrentSheet?.();
+  }
+  function toggle(parentId) { if (isOpen() && view.parentId === parentId) close(); else open(parentId); }
+  return { open, toggle, close, isOpen, available };
+})();

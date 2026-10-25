@@ -224,6 +224,29 @@ the agent gave one, and offers **Send again** (the last message, as a new turn) 
 **Edit message** (puts it in the message box). Neither replaces a draft you are typing.
 The notice comes from the server, so it is still there after a reload or on another device. See [delivery recovery](operations.md#delivery-and-queue-recovery).
 
+## Side chat
+
+A side chat is a private aside next to a Claude conversation (1.78). Ask why something was decided, what a file
+does or where the work stands, while the conversation keeps working, without adding anything to it. Open it with
+the speech-bubble button in the conversation's header, **Side chat** in Conversation options, Ctrl/Cmd ; or by
+starting a message with `/btw` (`/btw what did we decide about the cache?`). On a window at least 1280px wide it
+sits in the right-hand panel beside Results, Queue and Git; narrower windows and phones open it as a sheet.
+
+- **What it knows.** The side chat starts from the conversation as it is when you ask its first question, and
+  remembers its own questions after that. Later turns in the conversation do not reach it; **New side chat**
+  starts again from the conversation as it is then.
+- **What it can do.** Read files, search them and search the web. It cannot run commands, edit files, use MCP
+  servers or continue the conversation's task, and your Claude Code hooks do not run in it.
+- **What it keeps.** Nothing. The conversation's transcript is not touched and no new session is saved. The
+  server holds the side chat while it is open, so closing the panel, reloading or opening it on another device
+  shows it again. It ends after 30 quiet minutes, when you choose New side chat, when the Claude sign-in
+  changes or when Pocket restarts.
+- **What it costs.** Each answer shows its cost and the footer shows the total. The first question reads the
+  whole conversation; follow-ups read it from the prompt cache and cost much less. One side chat stops at its
+  spending cap (`POCKET_SIDE_CHAT_BUDGET_USD`, default $5).
+- **One per conversation.** Asking from another device joins the same side chat. Codex conversations do not
+  offer it yet.
+
 ## Steering and follow-up queues
 
 While a turn runs, **Steer now** delivers a correction into the active turn. It does
@@ -885,6 +908,7 @@ background delivery, the icon count and audio behavior need a real-device check.
 | Ctrl/Cmd Shift L | New session |
 | Alt [ / Alt ] | Previous / next open-session tab |
 | Ctrl/Cmd F in a conversation | Find in conversation |
+| Ctrl/Cmd ; in a Claude conversation | Open or close its side chat |
 | Enter in a desktop composer | Send |
 | Shift+Enter in a desktop composer | New line |
 | Escape | Close a sheet or search; from the conversation, return to sessions |

@@ -1850,3 +1850,23 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 @media (prefers-reduced-motion: reduce) { .inbox-check[aria-busy="true"] .i { animation: none; } }
 .watch-rules textarea:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
 .model-offer > .watch-rules { margin: 6px 14px 0; }
+
+/* ---------- 1.78: side chat ---------- */
+/* A private aside beside the conversation: the dock's fourth panel on a wide window, a tall sheet elsewhere.
+   Same messages, composer and Send as the conversation; only the frame is narrower. */
+.side-sheet { display: flex; flex-direction: column; overflow: hidden; }
+.sheet.side-sheet { height: min(760px, 85dvh); }
+.workspace-dock.side-sheet { flex-basis: 420px; padding-bottom: 0; }
+.side-help { margin: 0 4px 10px; }
+.side-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.side-empty { color: var(--dim); font-size: 15px; line-height: 1.5; margin: 6px 4px; max-width: 46ch; }
+.msgs.side-msgs { padding: 4px 4px 12px; gap: 14px; }
+.side-msgs:empty { display: none; }
+.side-msgs .turnmeta.side-error { color: var(--err); }
+.side-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 2px 4px; }
+.side-foot .side-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer.side-compose { padding: 10px 0 calc(12px + var(--sab)); background: none; border-top: 1px solid var(--line); }
+.side-compose .primary { flex: none; width: auto; min-height: 46px; padding: 11px 20px; font-size: 16px; }
+.side-compose .primary.side-stop { background: var(--raised); color: var(--err); }
+@media (max-width: 899px) { .sheet.side-sheet { height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); } }
+@media (min-width: 900px) { .sheet.side-sheet { --sheet-w: 640px; padding-bottom: 0; } }

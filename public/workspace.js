@@ -311,17 +311,18 @@ function workspaceMount(scrim,sh,kind){
  dockSurface?.remove();dockSurface=null;
  if(!hasDockRoom()||!document.querySelector('.split'))return mountSheet(scrim,sh);
  closeCurrentSheet?.();dockKind=kind;writeLocal('pc-dock-kind',kind);
- sh.classList.remove('sheet');sh.classList.add('workspace-dock');sh.setAttribute('role','complementary');sh.setAttribute('aria-label',kind==='git'?'Git workspace':kind==='queue'?'Queued instructions':'Conversation results');
+ sh.classList.remove('sheet');sh.classList.add('workspace-dock');sh.setAttribute('role','complementary');sh.setAttribute('aria-label',kind==='git'?'Git workspace':kind==='queue'?'Queued instructions':kind==='side'?'Side chat':'Conversation results');
  const actions=document.createElement('nav');actions.className='dock-tabs';actions.setAttribute('aria-label','Workspace panel');
- actions.innerHTML=[['results','Results'],['queue','Queue'],['git','Git']].map(([key,label])=>`<button class="chip" data-dock="${key}" aria-pressed="${kind===key}">${label}</button>`).join('')+`<button class="icon" data-close-dock aria-label="Close workspace panel">${IC.x}</button>`;
+ actions.innerHTML=[['results','Results'],['queue','Queue'],['git','Git'],...(SideChat.available(chatId)?[['side','Side chat']]:[])].map(([key,label])=>`<button class="chip" data-dock="${key}" aria-pressed="${kind===key}">${label}</button>`).join('')+`<button class="icon" data-close-dock aria-label="Close workspace panel">${IC.x}</button>`;
  sh.prepend(actions);document.querySelector('.split').append(sh);dockSurface=sh;
  if(typeof sizeMainForSplit==='function')sizeMainForSplit();
  actions.querySelectorAll('[data-dock]').forEach(b=>b.onclick=()=>openDock(b.dataset.dock,chatId));
  actions.querySelector('[data-close-dock]').onclick=()=>{sh.remove();dockSurface=null;dockKind='';writeLocal('pc-dock-kind','');if(typeof sizeMainForSplit==='function')sizeMainForSplit();$('#box')?.focus();};
  return ()=>{sh.remove();if(dockSurface===sh)dockSurface=null;if(typeof sizeMainForSplit==='function')sizeMainForSplit();};
 }
-function openDock(kind,id){if(kind==='results')return openResults(id);if(kind==='queue')return openQueue(id);if(kind==='git')return openGit(id);}
-function restoreDock(){if(hasDockRoom()&&['results','queue','git'].includes(dockKind))openDock(dockKind,chatId);}
+function openDock(kind,id){if(kind==='results')return openResults(id);if(kind==='queue')return openQueue(id);if(kind==='git')return openGit(id);if(kind==='side')return SideChat.open(id);}
+// 1.78: a side chat dock stays open across conversations only where one can run (Claude, not Codex).
+function restoreDock(){if(hasDockRoom()&&['results','queue','git'].includes(dockKind)||hasDockRoom()&&dockKind==='side'&&SideChat.available(chatId))openDock(dockKind,chatId);}
 async function openGit(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet git-sheet';
  sh.innerHTML='<h2>Git workspace</h2><p class="sheet-help">Current changes in this repository, including work from other conversations. Read only.</p><button class="chip" data-git-refresh>Refresh</button><div data-git-status role="status">Reading repository…</div><div data-git-files></div><div data-git-diff></div>';
