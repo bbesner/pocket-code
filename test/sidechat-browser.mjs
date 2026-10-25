@@ -98,6 +98,13 @@ export async function runSideChatRegressions({browser,base,rows,out,side,convers
   console.log('Side chat and Branch: offered on Codex too');
   await page.goto(base+'/?side=cx#/chat/'+cx);await page.waitForSelector('#chatmore');
   assert.ok(await page.$eval('#side-open',e=>!e.hidden)&&await page.$eval('#branch-open',e=>!e.hidden),'both on a Codex conversation');
+  // 1.79.1: /btw is offered on Codex too, picking it types /btw (not a skill line), and it asks the side chat.
+  await page.type('#box','/bt');await page.waitForSelector('#slash:not([hidden]) [data-n="btw"]');
+  await page.click('#slash [data-n="btw"]');
+  assert.equal(await page.$eval('#box',e=>e.value),'/btw ','picking it types /btw');
+  await page.type('#box','what is left on Codex?');await page.click('#send');
+  await page.waitForFunction(()=>/what is left on Codex\?/.test(document.querySelector('.side-msgs')?.textContent||''));
+  assert.equal(side.posts.at(-1).path,'/api/session/'+cx+'/side');assert.equal(side.posts.at(-1).text,'what is left on Codex?');
   assert.deepEqual(errors,[]);
  } finally { await context.close(); }
 }
