@@ -65,7 +65,7 @@ const file=path.join(dir,id+'.jsonl');
 const lines=readline.createInterface({input:process.stdin});
 // Session processes outlive their server by design; a fixture's process ends with its test dir.
 setInterval(()=>{if(!fs.existsSync(root))process.exit(0)},300).unref();
-let working=false,questionKeepAlive;
+let working=false,questionKeepAlive,spent=0; // spent: the process's running cost, as the real CLI reports it
 const append=o=>fs.appendFileSync(file,JSON.stringify({sessionId:id,cwd:process.cwd(),timestamp:new Date().toISOString(),...o})+'\n');
 lines.on('line',line=>{
   const obj=JSON.parse(line);
@@ -103,6 +103,7 @@ lines.on('line',line=>{
     append(assistantMsg);
     console.log(JSON.stringify(assistantMsg));
     const result={type:'result',subtype:text.includes('__FAIL__')?'error':'success',result:'Test result',duration_ms:300};
+    if(text.includes('__COST__')){spent=Math.round((spent+0.4)*100)/100;result.total_cost_usd=spent;} // 1.78.1
     if(usage)result.modelUsage={[model]:{inputTokens:1200,cacheReadInputTokens:800,cacheCreationInputTokens:0,contextWindow:1000000},'claude-haiku-4-5-20251001':{inputTokens:50,cacheReadInputTokens:0,cacheCreationInputTokens:0,contextWindow:200000}};
     console.log(JSON.stringify(result));
     working=false;
