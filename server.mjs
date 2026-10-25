@@ -1357,13 +1357,28 @@ function handleTurnLine(turn, line) {
     broadcast(turn, {
       type: 'result', ok: o.subtype === 'success',
       error: o.subtype !== 'success' ? (o.result || o.subtype) : null,
-      cost: o.total_cost_usd, duration_ms: o.duration_ms, cache: turn.cacheFirst || null,
+      cost: turnCost(turn, o.total_cost_usd), duration_ms: o.duration_ms, cache: turn.cacheFirst || null,
     });
     // The turn is over but the process stays up for the next message. Legacy pre-1.7
     // turns (no runner) still close stdin so their process exits as before.
     if (turn.runner) finalizeTurn(turn.sessionId, turn, 0);
     else try { turn.stdin?.end(); } catch { }
   }
+}
+
+// 1.78.1: the CLI's total_cost_usd is its process's running total, so in a process reused across turns every
+// later reply showed the cost of all the earlier ones too. A turn costs the difference from the last total that
+// process reported (kept in its runner marker, so a restarted daemon carries on). A process adopted from before
+// 1.78.1 has no baseline: its next reply shows no cost rather than a wrong one.
+function turnCost(turn, total) {
+  const spent = Number(total);
+  if (total == null || !Number.isFinite(spent)) return null;
+  const r = turn.runner;
+  if (!r) return spent; // pre-1.7: one process per turn
+  const before = r.spent;
+  r.spent = spent; writeRunnerMeta(r);
+  if (!Number.isFinite(before)) return null;
+  return spent >= before ? Math.round((spent - before) * 1e6) / 1e6 : spent;
 }
 
 function drainTurnLog(turn) {
@@ -1396,7 +1411,7 @@ function writeRunnerMeta(r) {
     sessionId: r.sessionId, pid: r.pid, keeperPid: r.keeperPid, key: r.key, cwd: r.cwd, startedAt: r.startedAt,
     model: r.model, effort: r.effort, approvalMode: r.approvalMode, runnerToken: r.runnerToken || null,
     turn: t ? { startedAt: t.startedAt, userText: t.userText, offset: t.offset, autonomous: Boolean(t.autonomous) } : null,
-    bgTasks: r.bgTasks, accountStale: Boolean(r.accountStale),
+    bgTasks: r.bgTasks, accountStale: Boolean(r.accountStale), spent: Number.isFinite(r.spent) ? r.spent : null,
     waitingForInput: Boolean(t && (t.questions?.list().length || t.approvals?.list().length || t.inputUnavailable || t.approvalUnavailable)),
     waitingForApproval: Boolean(t?.approvals?.list().length || t?.approvalUnavailable),
   };
@@ -1445,7 +1460,7 @@ function spawnRunner({ sessionId, cwd, resume, model, effort, mode }) {
   writer.on('error', () => { });
   const r = {
     sessionId, key, pid: proc.pid, keeperPid: keeper.pid, writer, cwd, model, effort, approvalMode: mode, files, runnerToken,
-    startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: '',
+    startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: '', spent: 0,
   };
   runners.set(sessionId, r);
   r.tailTimer = setInterval(() => drainRunnerLog(r), 300);
@@ -1815,7 +1830,7 @@ function adoptOrphans() {
         let size = 0; try { size = fs.statSync(files.out).size; } catch { }
         const r = {
           sessionId: m.sessionId, key: m.key, pid: m.pid, keeperPid: m.keeperPid, writer, cwd: m.cwd, model: m.model, effort: m.effort,
-          approvalMode: m.approvalMode || 'full', files, startedAt: m.startedAt || Date.now(), turn: null, bgTasks: Array.isArray(m.bgTasks) ? m.bgTasks : [], accountStale: m.accountStale === true, runnerToken: typeof m.runnerToken === 'string' ? m.runnerToken : null,
+          approvalMode: m.approvalMode || 'full', files, startedAt: m.startedAt || Date.now(), turn: null, bgTasks: Array.isArray(m.bgTasks) ? m.bgTasks : [], accountStale: m.accountStale === true, runnerToken: typeof m.runnerToken === 'string' ? m.runnerToken : null, spent: Number.isFinite(m.spent) ? m.spent : undefined,
           lastLineAt: Date.now(), tailOffset: m.turn ? Math.min(m.turn.offset || 0, size) : size, tailRem: '', adopted: true,
           skipControlBefore: size, // requests answered (or lost) before the restart can't be answered now
         };
@@ -3710,7 +3725,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Side chat: ask about a conversation without adding to it. Open it with the speech-bubble button in the conversation's header, Side chat in Conversation options, Ctrl+; or by starting a message with /btw. It starts from the conversation as it is, can read files and search the web but cannot change anything, saves nothing, and shows what each answer cost. On a wide window it sits in the right-hand panel beside Results, Queue and Git; on a phone it opens as a sheet. Claude conversations only for now. Requested by Brad.", "Inbox Watch: resolving an entry in Pocket closes its story again. Pocket reported a resolve as \"resolved\" and the watcher only listened for \"resolve\", so since Oct 19 your resolves cleared the list but the watcher kept following the story and could treat it as still open. Reported by Brad.", "Dismissing an Inbox entry now archives its email in Gmail. Resolving, dismissing or marking an alert not useful used to take only the Pocket Inbox label off, so the email stayed (or turned up again) in your Gmail inbox, unread. Now it leaves the inbox too, unless a newer reply came into that thread, which stays where you will see it. Suggested by Damon.", "Inbox Watch: a dry run of notify, the command other jobs use to send you an alert, no longer uses up the alert's key. It now only says what it would send; before, the real send that followed it was refused as already sent.", "Times show in your own time zone, with the zone named. The usage panel and the usage-limit notice were fixed to Eastern time for everyone, and the commands agents read for tasks, projects, files, vault and inbox printed the server's time (UTC), so an agent could pass along a reminder at the wrong hour. Requested by Brad.", "Inbox Watch asks its judge again when a reply does not parse. One unreadable reply used to end the whole check, mail you a failure notice and leave those emails for half an hour later; now the judge is asked once more straight away, and only a second bad reply fails the check."];
+const RELEASE_NOTES = ["The cost under each reply, and in its Ready notification, is that reply's own cost again. A conversation keeps one Claude process across replies, and Claude reports that process's running total, so in a long conversation each later reply showed what all the earlier ones cost too. Found while building side chat.", "Side chat: ask about a conversation without adding to it. Open it with the speech-bubble button in the conversation's header, Side chat in Conversation options, Ctrl+; or by starting a message with /btw. It starts from the conversation as it is, can read files and search the web but cannot change anything, saves nothing, and shows what each answer cost. On a wide window it sits in the right-hand panel beside Results, Queue and Git; on a phone it opens as a sheet. Claude conversations only for now. Requested by Brad.", "Inbox Watch: resolving an entry in Pocket closes its story again. Pocket reported a resolve as \"resolved\" and the watcher only listened for \"resolve\", so since Oct 19 your resolves cleared the list but the watcher kept following the story and could treat it as still open. Reported by Brad.", "Dismissing an Inbox entry now archives its email in Gmail. Resolving, dismissing or marking an alert not useful used to take only the Pocket Inbox label off, so the email stayed (or turned up again) in your Gmail inbox, unread. Now it leaves the inbox too, unless a newer reply came into that thread, which stays where you will see it. Suggested by Damon.", "Inbox Watch: a dry run of notify, the command other jobs use to send you an alert, no longer uses up the alert's key. It now only says what it would send; before, the real send that followed it was refused as already sent.", "Times show in your own time zone, with the zone named. The usage panel and the usage-limit notice were fixed to Eastern time for everyone, and the commands agents read for tasks, projects, files, vault and inbox printed the server's time (UTC), so an agent could pass along a reminder at the wrong hour. Requested by Brad."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
