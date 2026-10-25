@@ -224,30 +224,40 @@ the agent gave one, and offers **Send again** (the last message, as a new turn) 
 **Edit message** (puts it in the message box). Neither replaces a draft you are typing.
 The notice comes from the server, so it is still there after a reload or on another device. See [delivery recovery](operations.md#delivery-and-queue-recovery).
 
-## Side chat
+## Side chat and Branch
 
-A side chat is a private aside next to a Claude conversation (1.78). Ask why something was decided, what a file
-does or where the work stands, while the conversation keeps working, without adding anything to it. Open it with
-**Side chat** under the message box on a computer (beside Add project and Add task; an icon there while Claude
-works; pressed while the side chat is open), the speech-bubble button in the conversation's header on a phone,
-**Side chat** in Conversation options, Ctrl/Cmd ; or by
-starting a message with `/btw` (`/btw what did we decide about the cache?`). On a window at least 1280px wide it
-sits in the right-hand panel beside Results, Queue and Git; narrower windows and phones open it as a sheet.
+Two ways off a conversation, for Claude and Codex (side chat 1.78, Codex and Branch 1.79). They are worded the same
+everywhere they appear, and each points to the other:
 
-- **What it knows.** The side chat starts from the conversation as it is when you ask its first question, and
-  remembers its own questions after that. Later turns in the conversation do not reach it; **New side chat**
-  starts again from the conversation as it is then.
-- **What it can do.** Read files, search them and search the web. It cannot run commands, edit files, use MCP
-  servers or continue the conversation's task, and your Claude Code hooks do not run in it.
-- **What it keeps.** Nothing. The conversation's transcript is not touched and no new session is saved. The
-  server holds the side chat while it is open, so closing the panel, reloading or opening it on another device
-  shows it again. It ends after 30 quiet minutes, when you choose New side chat, when the Claude sign-in
-  changes or when Pocket restarts.
-- **What it costs.** Each answer shows its cost and the footer shows the total. The first question reads the
-  whole conversation; follow-ups read it from the prompt cache and cost much less. One side chat stops at its
-  spending cap (`POCKET_SIDE_CHAT_BUDGET_USD`, default $5).
-- **One per conversation.** Asking from another device joins the same side chat. Codex conversations do not
-  offer it yet.
+| | **Side chat** | **Branch** |
+|---|---|---|
+| What it is | A quick question about this conversation | A new conversation that carries on from here |
+| Saved | No. Nothing is saved, and the conversation is not changed | Yes, in your list, marked Branch, with **Branch of …** linking back |
+| Can do work | No: it reads and searches only (Codex may also run read-only commands) | Yes: edits files and runs commands, with the permissions chosen for it |
+| Starts with | The conversation as it is when you ask the first question | Everything in the conversation so far |
+| Ends | When closed, after 30 quiet minutes, or when Pocket restarts | It is an ordinary conversation |
+
+**Opening them.** On a computer, **Side chat** and **Branch** sit under the message box beside Add project and Add
+task (icons in the Working row while the agent works); hovering over either says what it does. On a phone, the
+speech-bubble button in the header opens the side chat. **Conversation options** lists both with a one-line
+description on every device. Ctrl/Cmd ; toggles the side chat, and a message that starts with `/btw` asks it
+(`/btw what did we decide about the cache?`). On a window at least 1280px wide the side chat sits in the right-hand
+panel beside Results, Queue and Git; narrower windows and phones open it as a sheet.
+
+**Side chat.** It starts from the conversation when you ask its first question and remembers its own questions after
+that; **New side chat** starts again from the conversation as it is then. Claude's side chat can read files, search
+them and search the web; Codex's runs in a read-only sandbox and can also run read-only commands. Neither uses MCP
+servers or app connectors, and Claude Code hooks do not run in it. Nothing is kept: the server holds it while it is
+open, so closing the panel, reloading or opening it on another device shows it again. Claude answers show their
+cost and the footer the total (the first question reads the whole conversation; follow-ups read it from the prompt
+cache); one side chat stops at its spending cap (`POCKET_SIDE_CHAT_BUDGET_USD`, default $5). Codex is paid by
+subscription, so its answers show their time only. **Need work done? Branch instead** moves your question to Branch.
+
+**Branch.** The sheet asks what the branch should do, says which model and permissions it will use (this
+conversation's next-reply settings), and warns when this conversation is still working in the same folder. **Start
+branch** opens the new conversation; it is titled from what you asked (`Branch: …` until its title is ready), its
+first reply reads the whole conversation again, and from then on it is a conversation like any other. The original
+lists its branches under its header. **Use side chat instead** moves your text to the side chat without sending it.
 
 ## Steering and follow-up queues
 
@@ -910,7 +920,7 @@ background delivery, the icon count and audio behavior need a real-device check.
 | Ctrl/Cmd Shift L | New session |
 | Alt [ / Alt ] | Previous / next open-session tab |
 | Ctrl/Cmd F in a conversation | Find in conversation |
-| Ctrl/Cmd ; in a Claude conversation | Open or close its side chat |
+| Ctrl/Cmd ; in a conversation | Open or close its side chat |
 | Enter in a desktop composer | Send |
 | Shift+Enter in a desktop composer | New line |
 | Escape | Close a sheet or search; from the conversation, return to sessions |

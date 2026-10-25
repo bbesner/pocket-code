@@ -135,11 +135,19 @@ const messagesOf=id=>{const m=conversations.get(id);if(id!==rows[0].id||!fixture
 const report='## Inventory review\n\n| Product | On hand | Incoming | Supplier reference |\n|---|---:|---:|---|\n| Outdoor camera | 24 | 12 | WAREHOUSE-LONG-REFERENCE-001 |\n| Recorder | 8 | 4 | PURCHASE-ORDER-2026-10-03 |\n\n> Incoming stock is separate from the on-hand count.\n\n1. Review stock\n   - Exclude discontinued products\n   - Check expected delivery dates\n2. Confirm the order\n\n[Open the report](https://example.com/inventory)';
 const conversations=new Map(rows.map(r=>[r.id,[{role:'user',text:'Review the stock report.'},{role:'assistant',blocks:[{t:'text',text:report}]}]]));
 // 1.78 side chat: a scripted side chat that answers each question, streaming events the way the daemon does.
-const sideFixture={n:0,id:null,live:false,events:[],subs:new Set(),posts:[],total:0,turns:0,
+const sideFixture={n:0,id:null,live:false,events:[],subs:new Set(),posts:[],total:0,turns:0,branchPosts:[],lineage:{},
  push(e){this.events.push(e);const i=this.events.length-1;for(const r of this.subs)r.write(`id: ${i}\ndata: ${JSON.stringify(e)}\n\n`);}};
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost');
  const json=(body,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(body));};
+ // 1.79 Branch: the new conversation is an existing fixture row, which then reads as a branch of the parent.
+ if(req.method==='POST'&&/^\/api\/session\/[^/]+\/branch$/.test(url.pathname)){
+  let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}'),parent=decodeURIComponent(url.pathname.split('/')[3]);
+  sideFixture.branchPosts.push({parent,...b});
+  const child=rows.find(r=>r.id==='55555555-5555-4555-8555-555555555555'),p=rows.find(r=>r.id===parent);
+  sideFixture.lineage[child.id]={branchOf:{id:parent,title:p?.title||'Parent'}};sideFixture.lineage[parent]={branches:[{id:child.id,title:'Branch: '+b.text}]};
+  return json({id:child.id},202);
+ }
  if(url.pathname.startsWith('/api/side/')||/^\/api\/session\/[^/]+\/side$/.test(url.pathname)){ // 1.78
   const sc=sideFixture,m=url.pathname.match(/^\/api\/side\/([^/]+)(\/events|\/stop)?$/);
   if(req.method==='GET'&&url.pathname.endsWith('/side'))return json({enabled:true,chat:sc.live?{side:sc.id,model:'claude-opus-5-5[1m]',busy:false,closed:null,total:sc.total,turns:sc.turns}:null});
@@ -360,7 +368,7 @@ const server=http.createServer(async(req,res)=>{
  }
  const match=url.pathname.match(/^\/api\/session\/([^/]+)(\/message)?$/);
  if(match){const id=decodeURIComponent(match[1]),r=rows.find(x=>x.id===id);
-  if(!match[2]){if(uiModes.sessionDelay)await new Promise(r=>setTimeout(r,uiModes.sessionDelay));/* sessionDelay: a slow transcript read, so a check can see the view while it waits */const messages=messagesOf(id);return json({...r,active:r.state.kind==='running',ext:false,messages,total:messages.length});}
+  if(!match[2]){if(uiModes.sessionDelay)await new Promise(r=>setTimeout(r,uiModes.sessionDelay));/* sessionDelay: a slow transcript read, so a check can see the view while it waits */const messages=messagesOf(id);return json({...r,...(sideFixture.lineage[id]||{}),active:r.state.kind==='running',ext:false,messages,total:messages.length});}
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   const held=secretRefusal(body);if(held)return json(held,422);
   if(!receipts.has(body.clientMessageId)){dispatches++;receipts.set(body.clientMessageId,{ok:true});conversations.get(id).push({role:'user',text:body.text});}

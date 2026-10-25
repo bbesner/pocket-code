@@ -1873,4 +1873,19 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 /* 1.78.2: on a desktop the side chat button sits with Add task and Add project; phones keep the header icon. */
 .conversation-side[hidden] { display: none; }
 @media (min-width: 900px) { header.bar #sideb { display: none; } }
+/* 1.79: Branch, and the line under the header that ties a branch to its conversation */
+.conversation-branch[hidden] { display: none; }
+.lineage { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; padding: 6px 16px; font-size: 13.5px; color: var(--dim); border-bottom: 1px solid var(--line); }
+.lineage[hidden] { display: none; }
+.lineage .i { width: 16px; height: 16px; flex: none; }
+.lineage a { color: var(--clay); text-decoration-thickness: 1px; overflow-wrap: anywhere; }
+.lineage-sep { color: var(--faint); }
+.branch-label { display: block; font-weight: 600; margin: 4px 0 8px; color: var(--text); }
+.branch-sheet .queue-editor { margin-bottom: 4px; }
+.branch-note { margin: 8px 0 14px; }
+.branch-warn { color: var(--warn); }
+.branch-sheet > .primary { margin: 0; width: 100%; }
+.branch-alt { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+.branch-alt .chip { min-height: 44px; }
+.text-link { color: var(--clay); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; font: inherit; padding: 0; background: none; }
 

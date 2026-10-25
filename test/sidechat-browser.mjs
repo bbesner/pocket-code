@@ -1,5 +1,6 @@
 // 1.78 Side chat in the browser: the dock on a wide window, the sheet on a phone, /btw, the shortcut, a reopen that
-// replays the side chat, and no side chat for Codex. Runs against browser.mjs's scripted side chat fixture.
+// replays the side chat, side chat on Codex too, and (1.79) Branch: hover text that tells the two apart, the sheet, the
+// cross-links and the Branch of … line. Runs against browser.mjs's scripted side chat and branch fixtures.
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {createRequire} from 'node:module';
@@ -9,7 +10,7 @@ export async function runSideChatRegressions({browser,base,rows,out,side,convers
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
  const id=rows.find(r=>r.state.kind==='finished').id,cx=rows.find(r=>r.provider==='codex').id;
- const scan=async name=>{const s=await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});await s.evaluate(e=>e.remove());const r=await page.evaluate(()=>axe.run('.side-sheet',{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','best-practice']}}));assert.deepEqual(r.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})),[],name);await page.screenshot({path:path.join(out,'side-chat-'+name+'.png')});};
+ const scan=async(name,sel='.side-sheet')=>{const s=await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});await s.evaluate(e=>e.remove());const r=await page.evaluate(sel=>axe.run(sel,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','best-practice']}}),sel);assert.deepEqual(r.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})),[],name);await page.screenshot({path:path.join(out,'side-chat-'+name+'.png')});};
  const answers=()=>page.$$eval('.side-msgs .m-asst:not(.live)',es=>es.map(e=>e.textContent.trim()));
  const open=async(width,hash)=>{await page.setViewport({width,height:width<900?844:900});await page.goto(base+'/?side='+width+'#/chat/'+hash);await page.waitForSelector('#msgs .m-asst');};
  try{
@@ -54,7 +55,11 @@ export async function runSideChatRegressions({browser,base,rows,out,side,convers
   await open(390,id);
   assert.ok(await page.$eval('#sideb',e=>e.getClientRects().length)>0,'a phone keeps the header icon');
   assert.equal(await page.$eval('#side-open',e=>e.getClientRects().length),0,'and no button in the scrolling chip row');
-  await page.click('#chatmore');await page.click('#so-side');await page.waitForSelector('.sheet.side-sheet');
+  assert.equal(await page.$eval('#branch-open',e=>e.getClientRects().length),0,'no Branch chip on a phone either');
+  await page.click('#chatmore');await page.waitForSelector('#so-branch');
+  const rows=await page.$$eval('#so-side .sub,#so-branch .sub',es=>es.map(e=>e.textContent));
+  assert.deepEqual(rows,['Ask a quick question about this conversation. Nothing is saved and nothing changes.','Start a new saved conversation that carries on from here and can do work. This one stays as it is.'],'the menu says how they differ');
+  await page.click('#so-side');await page.waitForSelector('.sheet.side-sheet');
   const box=await page.$eval('.sheet.side-sheet',e=>{const r=e.getBoundingClientRect();return {h:r.height,w:r.width};});
   assert.ok(box.h>=844-30&&box.w===390,'a phone gets a full-height sheet: '+JSON.stringify(box));
   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.side-sheet'));
@@ -65,10 +70,34 @@ export async function runSideChatRegressions({browser,base,rows,out,side,convers
   await scan('sheet-390');
   await page.keyboard.press('Escape');
 
-  console.log('Side chat: offered for Claude only');
-  await page.setViewport({width:1440,height:900});await page.goto(base+'/?side=cx#/chat/'+cx);await page.waitForSelector('#chatmore');
-  assert.equal(await page.$('#sideb'),null,'no side chat button on a Codex conversation');
-  assert.equal(await page.$eval('#side-open',e=>e.hidden),true,'nor in the chip row');
+  console.log('Side chat and Branch: hover text tells them apart; Branch sheet; cross-links; Branch of');
+  await page.setViewport({width:1440,height:900});await open(1440,id);
+  const tipOf=async sel=>{await page.hover(sel);await page.waitForFunction(()=>!document.getElementById('tip').hidden);const t=await page.$eval('#tip',e=>e.textContent);await page.mouse.move(5,5);await page.waitForFunction(()=>document.getElementById('tip').hidden);return t;};
+  assert.equal(await tipOf('#side-open'),'Side chat (Ctrl+;): Ask a quick question about this conversation. Nothing is saved and nothing changes.');
+  assert.equal(await tipOf('#branch-open'),'Branch: Start a new saved conversation that carries on from here and can do work. This one stays as it is.');
+  await page.click('#branch-open');await page.waitForSelector('.branch-sheet');
+  assert.match(await page.$eval('.branch-sheet',e=>e.textContent),/carries on from here[\s\S]*Only want to ask something\?/);
+  await page.type('#branch-text','Is the count right?');await page.click('[data-branch-side]');
+  await page.waitForSelector('.workspace-dock.side-sheet');
+  const asked=side.posts.length;
+  await page.waitForFunction(()=>document.querySelector('.side-compose textarea').value==='Is the count right?');
+  assert.equal(side.posts.length,asked,'moved over, not sent: you press Ask');
+  await page.click('[data-side-branch]');await page.waitForSelector('.branch-sheet');
+  assert.equal(await page.$eval('#branch-text',e=>e.value),'Is the count right?','and back to Branch');
+  await scan('branch-1440','.branch-sheet');
+  await page.$eval('#branch-text',e=>e.value='');await page.type('#branch-text','Write the export script');
+  await page.click('[data-branch-start]');
+  const child='55555555-5555-4555-8555-555555555555';
+  await page.waitForFunction(c=>location.hash==='#/chat/'+c,{},child);
+  assert.equal(side.branchPosts.at(-1).parent,id);assert.equal(side.branchPosts.at(-1).text,'Write the export script');assert.ok(side.branchPosts.at(-1).clientMessageId);
+  await page.waitForSelector('#lineage:not([hidden])');
+  assert.equal(await page.$eval('#lineage',e=>e.textContent),'Branch of '+side.lineage[child].branchOf.title);
+  await page.click('#lineage a');await page.waitForFunction(i=>location.hash==='#/chat/'+i,{},id);
+  await page.waitForFunction(()=>/Branch: Write the export script/.test(document.querySelector('#lineage:not([hidden])')?.textContent||''));
+
+  console.log('Side chat and Branch: offered on Codex too');
+  await page.goto(base+'/?side=cx#/chat/'+cx);await page.waitForSelector('#chatmore');
+  assert.ok(await page.$eval('#side-open',e=>!e.hidden)&&await page.$eval('#branch-open',e=>!e.hidden),'both on a Codex conversation');
   assert.deepEqual(errors,[]);
  } finally { await context.close(); }
 }

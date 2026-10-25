@@ -17,7 +17,7 @@ if (process.argv[2]==='mcp'&&process.argv[3]==='list') {
 if (process.argv[2]==='auth'&&process.argv[3]==='status') { console.log(JSON.stringify({loggedIn:process.env.FAKE_CLAUDE_SIGNED_OUT!=='1',authMethod:'claude.ai',email:'owner@example.test',subscriptionType:'max'})); process.exit(0); }
 // 1.78: a side chat: a forked, unsaved session that keeps reading messages. Records its arguments, answers each
 // message (with the CLI's running cost total), and with __SIDEHANG__ streams one word and waits for an interrupt. Never writes a transcript.
-if (process.argv.includes('--fork-session')) {
+if (process.argv.includes('--fork-session') && process.argv.includes('--no-session-persistence')) {
   const args=process.argv.slice(2),parent=args[args.indexOf('--resume')+1],root=process.env.POCKET_SESSION_ROOT;
   if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.side',JSON.stringify({parent,args,cwd:process.cwd()})+'\n');
   const found=root&&fs.readdirSync(root).some(d=>fs.existsSync(path.join(root,d,parent+'.jsonl')));
@@ -56,12 +56,17 @@ if (process.argv.includes('--no-session-persistence')) {
   });
 } else {
 const args=process.argv.slice(2);
-const flag=args.includes('--resume')?'--resume':'--session-id';
+// 1.79 Branch: `--resume <parent> --fork-session --session-id <new>` starts <new> with a copy of <parent>'s lines.
+const forkOf=args.includes('--fork-session')?args[args.indexOf('--resume')+1]:null;
+const flag=forkOf?'--session-id':args.includes('--resume')?'--resume':'--session-id';
 const id=args[args.indexOf(flag)+1];
 const root=process.env.POCKET_SESSION_ROOT;
 if (!root || !process.env.POCKET_TEST_CALLS) throw Error('Test environment required');
 const dir=path.join(root,'test-workspace');fs.mkdirSync(dir,{recursive:true});
 const file=path.join(dir,id+'.jsonl');
+if(forkOf&&!fs.existsSync(file)){const src=path.join(dir,forkOf+'.jsonl');if(!fs.existsSync(src)){console.error('No conversation found with session ID: '+forkOf);process.exit(1);}
+  fs.writeFileSync(file,fs.readFileSync(src,'utf8').split('\n').filter(Boolean).map(l=>{const o=JSON.parse(l);return JSON.stringify({...o,sessionId:id});}).join('\n')+'\n');
+  fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.forks',JSON.stringify({id,forkOf})+'\n');}
 const lines=readline.createInterface({input:process.stdin});
 // Session processes outlive their server by design; a fixture's process ends with its test dir.
 setInterval(()=>{if(!fs.existsSync(root))process.exit(0)},300).unref();
