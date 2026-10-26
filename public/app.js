@@ -3299,7 +3299,9 @@ async function openStartLink(id) {
   try {
     const s = await api('/start/' + id);
     saveBriefing(s.text || '');
-    try { writeLocal('pc-new-start', { start: id }); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
+    // 1.81: the link's folder rides in pc-new-start like a project's, so New selects it, or fills it in when it is not
+    // listed, over the default workspace (pc-lastproj alone lost to POCKET_DEFAULT_CWD and to the most recent workspace).
+    try { writeLocal('pc-new-start', { start: id, cwd: s.directory || '' }); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
   } catch (e) { if (e.message === 'login') return; toast(e.status === 404 ? 'That start link has expired.' : 'Could not load the start link.'); }
   location.replace('#/new');
 }

@@ -33,8 +33,9 @@ box a conversation uses.
 4. Write the task and press the Send arrow (**Start conversation**). On a screen 900 px or wider, Enter
    starts and Shift+Enter adds a line; on a phone Enter adds a line.
 
-The workspace preselected is, in order: the server's default workspace (`POCKET_DEFAULT_CWD`), the
-workspace you last started in on this browser, else the most recently used one. With
+The workspace preselected is, in order: the folder a start link or a project's **Start** names, the
+server's default workspace (`POCKET_DEFAULT_CWD`), the workspace you last started in on this browser,
+else the most recently used one. With
 `POCKET_LOCK_CWD=1` (and a valid `POCKET_DEFAULT_CWD`) there is nothing to choose: every conversation
 starts in that folder, and a start that names another folder is moved there.
 
@@ -299,9 +300,9 @@ rendered.
 ### Start links
 
 A start link is a briefing handed to Pocket by an agent or a job. Opening `#/start/<id>` while signed in
-puts the briefing in New conversation's box and selects the agent the link names. Pocket preselects
-the link's workspace when it is one of the listed workspaces and no `POCKET_DEFAULT_CWD` is set;
-otherwise check **Workspace** in the setup card. Nothing starts until you press Start. A link that has
+puts the briefing in New conversation's box and selects the agent the link names. The link's folder
+wins over the default workspace: it is selected when it is one of the listed workspaces and filled in
+as a custom path when it is not. Nothing starts until you press Start. A link that has
 expired shows *That start link has expired.*
 
 Links last 7 days by default (1 to 30), hold up to 20,000 characters of text and a 160-character title,
@@ -380,7 +381,6 @@ for a provisioned install, set `POCKET_CLAUDE_MODELS` and restart Pocket.
 | A reply says the model *is not offered in Settings* or *is blocked by this computer's Claude Code policy* | The chosen model is not offered. | Choose another model, or offer it in **Settings → Agents & instance**. |
 | *Choose a Claude model from the model menu, then send again.* | An old tab sent a Codex model to Claude (or the reverse). | Pick a model from the menu. |
 | **Start request not yet confirmed** | The start was sent but the answer was lost. | **Retry start** (it cannot start a duplicate) or **Discard retry**. |
-| A start link opens in the wrong workspace | The link's folder is not among the listed workspaces, or a default workspace is set. | Change it under **Edit setup** before starting. |
 | **Status unavailable** or **Status unconfirmed. Reconnecting…** | The list check failed or is older than 15 seconds. | Wait, or use **Refresh**; work on the server continues. |
 | *Could not search inside conversations.* | The search request failed or timed out. | **Try again**. |
 | No generated titles | Titles are off, or neither CLI is installed and signed in (Settings shows the reason). | Turn on **Generate short titles**, or sign the CLI in. |

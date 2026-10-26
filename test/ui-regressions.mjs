@@ -613,6 +613,18 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.deepEqual({text,mode,model,effort},{text:'Then check the returns shelf.',mode:'queue',model:'claude-opus-5-5[1m]',effort:'high'},'queued with the model and effort it was sent with');
    await page.evaluate(id=>{localStorage.removeItem('pc-prefs-'+id);sendModes.delete(id);},run.id);
   });
+  await check('A start link\'s folder wins in New conversation, listed or not, over the default workspace (1.81, #176)',async()=>{
+   const workspace=()=>page.evaluate(()=>({selected:document.querySelector('#plist .row.sel')?.dataset.p||null,custom:document.querySelector('#cpath').value}));
+   const open=async link=>{await page.goto(base+'/#/start/'+link);await page.waitForFunction(()=>location.hash==='#/new'&&/Reach Jairon/.test(document.querySelector('#first')?.value||'')&&document.querySelector('#plist .row'));await pause(150);};
+   setMode({defaultCwd:'/workspaces/products',startDirectory:'/workspaces/warehouse'});
+   await open('0123456789ad');
+   assert.deepEqual(await workspace(),{selected:'/workspaces/warehouse',custom:''},'a listed folder is selected, not the default');
+   setMode({startDirectory:'/workspaces/returns'});
+   await open('0123456789ae');
+   assert.deepEqual(await workspace(),{selected:null,custom:'/workspaces/returns'},'a folder not listed is filled in as a custom path');
+   setMode({defaultCwd:null,startDirectory:null});
+   await page.evaluate(()=>{clearDraft(NEW_KEY);localStorage.removeItem('pc-new-start');localStorage.removeItem(briefingKey());});
+  });
   await check('Attention filter includes Response ready replies until they are opened',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};
