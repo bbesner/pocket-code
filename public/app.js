@@ -1182,7 +1182,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       const { recoveryKey, ...next } = await api('/settings', { method: 'POST', body: JSON.stringify({ vault: !srv.vault }), signal: AbortSignal.timeout(8000) });
       srv = next;
       window.pocketFeatures = { ...(window.pocketFeatures || {}), vault: Boolean(srv.vault) };
-      paintVaultSetting(); toast(srv.vault ? 'Vault is on. Running conversations get it from their next reply' : 'Vault is off');
+      paintVaultSetting(); toast(srv.vault ? 'Vault is on. Conversations get it from their next conversation process' : 'Vault is off');
       if (!srv.vault && readLocal('pc-rail-view', 'sessions') === 'vault') writeLocal('pc-rail-view', 'sessions');
       document.querySelectorAll('.session-home, aside.rail').length && route(); // closes Settings at once, so the sheet below opens on top
       if (recoveryKey) vaultRecoverySheet(recoveryKey);

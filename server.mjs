@@ -3373,13 +3373,16 @@ app.get('/api/vault', requireBoardAuth, vaultOn, vaultNoStore, (req, res) => {
   res.json({ ...vault.snapshot({ owner: c.actor === 'owner' }), mode: vault.mode, locked: false, push: { enabled: pushReady } });
 });
 // 1.40: lock, unlock, the passphrase, export and import. Owner only; a wrong passphrase is rate-limited like the login.
-const unlockAttempts = new Map();
-function tooManyUnlocks(ip) { const now = Date.now(), rec = unlockAttempts.get(ip); if (!rec || rec.resetAt < now) { unlockAttempts.set(ip, { n: 1, resetAt: now + 3600_000 }); return false; } rec.n += 1; return rec.n > 10; }
+// 1.81 (#177): only wrong tries count, ten an hour per address, and a right one clears them. Every try used to count, so an
+// owner who locked and unlocked often was locked out for an hour. A recovery key that does not open the store counts too.
+const unlockFails = new Map();
+function tooManyUnlocks(ip) { const rec = unlockFails.get(ip); if (rec && rec.resetAt < Date.now()) unlockFails.delete(ip); return (unlockFails.get(ip)?.n || 0) >= 10; }
+function unlockFailed(ip) { const now = Date.now(), rec = unlockFails.get(ip); if (!rec || rec.resetAt < now) unlockFails.set(ip, { n: 1, resetAt: now + 3600_000 }); else rec.n += 1; }
 app.post('/api/vault/unlock', requireAuth, vaultOn, sameOrigin, vaultNoStore, (req, res) => {
   const ip = req.get('cf-connecting-ip') || req.socket.remoteAddress || '';
   if (tooManyUnlocks(ip)) return res.status(429).json({ error: 'Too many tries. Wait an hour.' });
-  try { vault.unlock(String(req.body?.passphrase || '')); log('vault unlocked by the owner'); res.json({ ok: true }); }
-  catch (e) { if (!e.status) throw e; log(`vault unlock refused: ${e.message}`); res.status(e.status).json({ error: e.message }); }
+  try { vault.unlock(String(req.body?.passphrase || '')); unlockFails.delete(ip); log('vault unlocked by the owner'); res.json({ ok: true }); }
+  catch (e) { if (!e.status) throw e; if (e.status === 401) unlockFailed(ip); log(`vault unlock refused: ${e.message}`); res.status(e.status).json({ error: e.message }); }
 });
 app.post('/api/vault/lock', requireAuth, vaultOn, sameOrigin, vaultNoStore, (_req, res) => {
   try { vault.lock(); log('vault locked by the owner'); res.json({ ok: true }); } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
@@ -3458,7 +3461,8 @@ app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, 
   const ip = req.get('cf-connecting-ip') || req.socket.remoteAddress || '';
   if (tooManyUnlocks(ip)) return res.status(429).json({ error: 'Too many tries. Wait an hour.' });
   if (!vaultNeedsKey()) return res.status(409).json({ error: 'The Vault does not need its key restored.' });
-  let k, v; try { k = normalKey(req.body?.key || ''); v = openVault(k); } catch { log('vault key restore refused: the key does not open the store'); return res.status(400).json({ error: 'That key does not open this Vault.' }); }
+  let k, v; try { k = normalKey(req.body?.key || ''); v = openVault(k); } catch { unlockFailed(ip); log('vault key restore refused: the key does not open the store'); return res.status(400).json({ error: 'That key does not open this Vault.' }); }
+  unlockFails.delete(ip);
   try { saveVaultKeyToEnv(k); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
   vault = v; VAULT_KEY_RAW = k; vaultError = ''; vault.audit({ action: 'key-restored', by: 'owner' });
   log('vault key restored from the recovery key and saved to .env');

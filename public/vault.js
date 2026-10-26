@@ -384,7 +384,7 @@ function vaultEditor(t,{insert=null}={}){
    <label class="voice-field">Website (optional)<input type="text" inputmode="url" name="url" value="${esc(t?.url||'')}" placeholder="https://" autocomplete="off" spellcheck="false" autocapitalize="none"></label>
    <label class="voice-field">Tags (optional)<input type="text" name="tags" value="${esc((t?.tags||[]).join(', '))}" placeholder="billing, zoho" autocomplete="off" autocapitalize="none" aria-describedby="vault-tags-hint"></label>
    <p class="vault-hint" id="vault-tags-hint">Separate tags with commas.</p>
-   <label class="voice-field">Notes (optional)<textarea name="notes" rows="3" maxlength="4000" placeholder="Where it came from, what it's for">${esc(t?.notes||'')}</textarea></label>
+   <label class="voice-field">Notes (optional)<textarea name="notes" rows="3" maxlength="2000" placeholder="Where it came from, what it's for">${esc(t?.notes||'')}</textarea></label>
    <label class="voice-field">Who can use it<select name="policy" aria-describedby="vault-policy-hint">${vaultPolicyChoices().map(([v,l])=>`<option value="${v}" ${v===(t?.policy||'default')?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
    <p class="vault-hint" id="vault-policy-hint" data-policy-hint></p>
    <div class="task-due-row"><label class="voice-field">Expires (optional)<input type="date" name="expires" value="${esc(expires)}"></label><button class="chip" type="button" data-clear-exp>No date</button></div>

@@ -93,7 +93,7 @@ By default the key in `.env` opens the Vault whenever Pocket Code runs. To requi
 
 From then on Pocket holds the passphrase-derived key in memory only, and the Vault is **locked** after a restart, after **Lock now**, and after the idle time you pick in **Lock after** (**Never**, **15 minutes**, **1 hour**, **8 hours**, **24 hours**; counted from the last time you or an agent used it). While locked, agents cannot use secrets, the rail and home chip show a lock, and the Vault view shows **Unlock**. When an agent hits a locked Vault you get one "The Vault is locked" push (at most one every ten minutes).
 
-**Change passphrase** and **Remove passphrase** (back to the server key) are in the same place. There is no reset: a forgotten passphrase means the Vault cannot be opened, so keep the passphrase in your password manager and keep an export. Unlocking is limited to ten attempts per hour from one address.
+**Change passphrase** and **Remove passphrase** (back to the server key) are in the same place. There is no reset: a forgotten passphrase means the Vault cannot be opened, so keep the passphrase in your password manager and keep an export. Unlocking is limited to ten wrong passphrases per hour from one address; a right one clears the count.
 
 ### Export, import, rotate and restore the key
 
@@ -249,7 +249,7 @@ Keep commands stable: an approved command is an exact match on program, argument
 | Turning the Vault on fails with a message about `POCKET_VAULT_KEY` set in the daemon's environment | The key comes from the process environment and does not open the store | Fix or remove the key in the PM2 or systemd configuration and restart. |
 | **Rotate key** answers that the key is set in the daemon's environment | Rotation can only write `.env` | Move the key into `.env`, remove it from the environment, restart, then rotate. |
 | **Remove passphrase** fails: "POCKET_VAULT_KEY is not set" | Passphrase mode with no server key | Add `POCKET_VAULT_KEY` to `.env`, restart, unlock, then remove the passphrase. |
-| Unlock says "Too many tries. Wait an hour." | More than ten unlock or **Restore key** attempts from one address within an hour | Wait, then try again. |
+| Unlock says "Too many tries. Wait an hour." | Ten wrong passphrases or **Restore key** keys from one address within an hour of the first | Wait, then try again. A right passphrase or key clears the count. |
 | Turning the Vault on fails: "This install has no .env file to keep the Vault key in" | `POCKET_ENV_FILE` is set to empty, so Pocket has nowhere to save a key | Set `POCKET_VAULT_KEY` yourself (`openssl rand -base64 32`) and restart. |
 | An agent's run answers `pending` and nothing arrives on the phone | Push is off on that device, or **Vault requests** is off for it | Answer in the Vault view or the conversation; turn on push in **Settings → Notifications & voice**. |
 | `pocket-vault wait` says the request does not exist or has expired | More than 15 minutes passed, or Pocket restarted | Run the command again to file a new request. |
