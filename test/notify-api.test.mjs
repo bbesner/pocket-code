@@ -34,7 +34,7 @@ test('HTTP: /api/notify takes the token and the cookie, refuses the tunnel, sign
   await start();
   const token=fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim();
   const bearer={'content-type':'application/json',authorization:'Bearer '+token};
-  const a=await call('/notify',{title:'Pradera dispatch conflict',body:'Jairon is on the way for 9–10; Kimberly says it was last night.',url:'/#/start/0123456789ab',tag:'pradera|abc'},bearer);
+  const a=await call('/notify',{title:'Oakridge dispatch conflict',body:'Jordan is on the way for 9–10; Robin says it was last night.',url:'/#/start/0123456789ab',tag:'oakridge|abc'},bearer);
   assert.equal(a.status,200,JSON.stringify(a.body));assert.equal(a.body.ok,true);assert.equal(a.body.push,null,'push is off without VAPID keys');assert.equal(a.body.mail,false,'no email unless asked');assert.equal(a.body.url,'/#/start/0123456789ab');
   const m=await call('/notify',{title:'With mail',body:'Line one\nLine two',url:'https://pocket.example.test/#/tasks',email:true},bearer);
   assert.equal(m.status,200);assert.equal(m.body.mail,true);assert.equal(m.body.url,'/#/tasks','the public address is trimmed to a path');
