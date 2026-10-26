@@ -276,7 +276,23 @@ def test_whoami_is_the_sender_of_sent_mail():
     now = int(time.time())
     b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now, sender="Alex Rivera <Alex@Example.com>", labels=("SENT",))]}]
     b.save()
-    assert b.mail().whoami() == {"email": "alex@example.com", "name": "Alex Rivera"}
+    assert b.mail().whoami() == {"email": "alex@example.com", "name": "Alex Rivera", "senders": ["alex@example.com"]}
+
+
+def test_whoami_lists_every_sender_of_recent_sent_mail():
+    """1.81: an owner who sometimes sends from an alias: the newest sender is the answer, the others are listed, replies from
+    other people in a sent thread are not."""
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [
+        {"id": "t1", "messages": [msg("m1", "t1", now, sender="Alex Rivera <alias@example.org>", labels=("SENT",))]},
+        {"id": "t2", "messages": [msg("m2", "t2", now - 60, sender="Alex Rivera <Alex@Example.com>", labels=("SENT",))]},
+        {"id": "t4", "messages": [msg("m5", "t4", now - 200, sender="Alex <alex@example.com>", labels=("SENT",)),
+                                  msg("m3", "t4", now - 100, sender="Pat <pat@vendor.example>", labels=("INBOX",))]},
+        {"id": "t3", "messages": [msg("m4", "t3", now - 120, sender="Alex <alex@example.com>", labels=("SENT",))]}]
+    b.save()
+    who = b.mail().whoami()
+    assert who["email"] == "alias@example.org" and who["senders"] == ["alias@example.org", "alex@example.com"], who
 
 
 def test_cursors_do_not_cross_sources():

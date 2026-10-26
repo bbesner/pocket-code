@@ -180,7 +180,7 @@ export class InboxRunner {
 
   // 1.81: the Gmail connector may have been reconnected to another account since the config was written, and the watcher tells the
   // owner's own mail from other mail by the address in it. At each start of Pocket, ask the connector the config reads through whose
-  // mailbox it is; if that is not the configured owner, write the new address (and name) and say so in the Inbox. A fallback agent on
+  // mailbox it is; if the configured owner is not among the addresses it reports, write the new address (and name) and say so in the Inbox. A fallback agent on
   // the old account is dropped, or it would read the old mailbox when the first one fails. The mail archive and stories stay as they are.
   async checkAccount() {
     const text = fs.readFileSync(this.config, 'utf8');
@@ -198,7 +198,8 @@ export class InboxRunner {
     const who = await whoami(agent, bin);
     if (!who.ok || !who.email) { this.accountRetryAt = this.now() + 30 * MINUTE; return; } // the connector did not answer: try again later
     this.accountChecked = true;
-    if (who.email.toLowerCase() === configured.toLowerCase()) return;
+    // The newest sent message may come from an alias ("send as"): the account is unchanged while the configured address is among those who sent the last few.
+    if ([who.email, ...(Array.isArray(who.senders) ? who.senders : [])].some(a => String(a).toLowerCase() === configured.toLowerCase())) return;
     let next = text.replace(/^(\[owner\]\nname = ).*\n(email = ).*$/m, (_, a, b) => `${a}${toml(who.name || who.email.split('@')[0])}\n${b}${toml(who.email)}`)
       .replace(/^(# Inbox Watch for ).*(, written by Pocket Code)/m, `$1${who.email}$2`);
     const fallbackAgent = key(mail, 'fallback_agent'), fbBin = fallbackAgent === 'codex' ? this.codexBin : fallbackAgent === 'claude' ? this.claudeBin : null;

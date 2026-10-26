@@ -21,7 +21,8 @@ for i, c in enumerate(calls):
     emit({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": f"u{i}", "name": c["tool"], "input": c["input"]}]}})
     if c["tool"].endswith("search_threads"):
         sent = "in:sent" in c["input"]["query"]
-        res = {"threads": [{"id": "t1", "messageCount": 1, "messages": [{"id": "m1", "sender": box.get("owner", "Alex Rivera <alex@example.com>") if sent else "Pat <pat@vendor.example>", "labelIds": ["SENT"] if sent else ["INBOX"], "date": "2026-10-21T12:00:00Z"}]}]}
+        senders = [box.get("owner", "Alex Rivera <alex@example.com>")] + box.get("also_sent_as", []) if sent else ["Pat <pat@vendor.example>"]
+        res = {"threads": [{"id": f"t{i + 1}", "messageCount": 1, "messages": [{"id": f"m{i + 1}", "sender": x, "labelIds": ["SENT"] if sent else ["INBOX"], "date": "2026-10-21T12:00:00Z"}]} for i, x in enumerate(senders)]}
     else:
         res = {"id": "t1", "messages": [{"id": "m1", "threadId": "t1", "internalDate": "1792584000000", "labelIds": ["INBOX"], "sender": "Pat <pat@vendor.example>", "subject": "Invoice", "plaintextBody": "Attached."}]}
     emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": f"u{i}", "content": [{"type": "text", "text": json.dumps(res)}]}]}})
@@ -224,4 +225,18 @@ test('1.81: a connector that does not answer at the start is asked again later, 
   restart(r, { owner: 'Sam Lee <sam@example.com>' });
   await r.runner.step();
   assert.equal(cfgOf(r), before);
+});
+
+test('1.81: sending from an alias is not a changed account', async () => {
+  const r = rig();
+  await r.runner.step(); await r.runner.step();
+  const before = cfgOf(r);
+  restart(r, { owner: 'Alex Rivera <alias@example.org>', also_sent_as: ['Alex Rivera <Alex@example.com>'] }); // the newest sent mail is from the alias
+  await r.runner.step();
+  assert.equal(r.runner.accountChecked, true);
+  assert.equal(cfgOf(r), before, 'the configured address is among the senders: nothing rewritten');
+  assert.equal(r.runner.status().accountChange, null);
+  restart(r, { owner: 'Sam Lee <sam@example.com>', also_sent_as: ['Sam <sam.lee@example.org>'] }); // none of them is the configured one
+  await r.runner.step();
+  assert.equal(r.runner.status().accountChange.to, 'sam@example.com');
 });

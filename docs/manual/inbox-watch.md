@@ -64,7 +64,9 @@ While this happens the Inbox shows a status line: *Setting up Inbox Watch for al
 Each time Pocket starts, it asks the connector whose mailbox it reads. If you have reconnected Gmail to a different
 account, Pocket writes the new address into `[owner]` (the watcher tells your own mail from other mail by it), drops a
 fallback agent that is still on the old account, and the Inbox says *Gmail is now connected as … (it was …)* for a few
-days. The mail already kept from the old account stays in the watcher's memory. Only a config Pocket wrote is changed.
+days. The mail already kept from the old account stays in the watcher's memory. Sending from an alias of the same account
+is not a change: the configured address only has to be among those that sent your latest sent mail. Only a config Pocket
+wrote is changed.
 
 The settings in Pocket win over the file. Edit `config.toml` only for what Pocket has no setting for, such as the
 optional [memory integration](#memory-integration-optional) or emailing alerts (`email = true` under `[[delivery]]`).
