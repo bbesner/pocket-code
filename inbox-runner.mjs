@@ -3,7 +3,7 @@
 // the Gmail connector the owner already linked to Claude Code (inbox-watch's mail_connector.py: no Google client, token
 // or service account), starts from now, and then runs the watcher's `tick` every minute, which checks mail only when
 // the schedule set in Settings → Inbox Watch says a check is due. A watcher installed by hand (its own config and
-// timer, reporting under its own source) is left alone: the runner never manages a mailbox someone else set up.
+// timer, sending its profile under its own source) is left alone: the runner never manages a mailbox someone else set up.
 //
 // States (status() → the Inbox shows them): off · external (a hand-installed watcher reports here) · waiting (needs the
 // owner's time zone: open Pocket once) · setting-up · needs-connector (Claude Code has no Gmail connector) · error ·
@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 
 const MINUTE = 60_000;
 const RUN_LIMIT_MS = 30 * MINUTE;
+const WATCHER_FRESH_MS = 7 * 24 * 60 * MINUTE; // 1.81: a hand-installed watcher quiet for a week is gone; Pocket may set up its own
 const BACKFILL_DAYS = 14; // the connector reads a thread per call slot; two weeks gives the judge context without a long first night
 const toml = v => JSON.stringify(String(v)); // TOML basic strings take JSON's escapes
 
@@ -37,8 +38,16 @@ export class InboxRunner {
     try { fs.mkdirSync(this.dir, { recursive: true }); fs.writeFileSync(this.statusFile, JSON.stringify(this.state, null, 1)); } catch (e) { this.log(`inbox runner: status not saved: ${e.message}`); }
   }
 
-  // Another watcher (installed by hand, with its own timer) has reported to this Pocket and the runner has no config of its own.
-  external() { return !fs.existsSync(this.config) && Object.keys(this.store.sources || {}).length > 0; }
+  // Another watcher (installed by hand, with its own timer) is reporting to this Pocket and the runner has no config of its own.
+  // 1.81: a watcher is what sends its profile with `seen` (every inbox-monitor does), not any source that ever posted: a job or
+  // agent using `pocket-inbox add` or a bare `seen` is not one. Pocket's own earlier runs report the same way, so only a profile
+  // newer than the runner's last run counts (delete config.toml to start over and the runner sets up again, not stands down),
+  // and one that went quiet for a week no longer does.
+  external() {
+    if (fs.existsSync(this.config)) return false;
+    const after = Math.max(Date.parse(this.state.ranAt || '') || 0, this.now() - WATCHER_FRESH_MS);
+    return Object.values(this.store.profiles || {}).some(p => Date.parse(p?.at) > after);
+  }
 
   status() {
     const s = this.settings();
@@ -91,7 +100,7 @@ export class InboxRunner {
       this.busy = { proc, startedAt: this.now(), what };
       proc.stdout.on('data', d => { out = (out + d).slice(-20000); });
       proc.stderr.on('data', d => { err = (err + d).slice(-20000); });
-      const done = code => { if (this.busy?.proc === proc) this.busy = null; resolve({ code, out, err }); };
+      const done = code => { if (this.busy?.proc === proc) this.busy = null; this.setStatus({ ranAt: new Date(this.now()).toISOString() }); resolve({ code, out, err }); }; // 1.81: ranAt tells Pocket's own reports from another watcher's
       proc.on('error', e => { err += e.message; done(127); });
       proc.on('close', code => done(code ?? 1));
     });

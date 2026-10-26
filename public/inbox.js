@@ -129,6 +129,7 @@ function inboxRowHTML(e){
 }
 /* 1.74: what Pocket's own watcher is doing (inbox-runner.mjs), when that is the reason the list is empty or stale. */
 function inboxRunnerLine(r){
+ if(r&&r.state==='external')return 'A watcher installed separately is reporting here; Pocket is not running its own.'; // 1.81: say why Pocket is not setting one up
  if(!r||!r.managed)return '';
  const box=r.mailbox?` for ${esc(r.mailbox)}`:'';
  if(r.state==='waiting')return esc(r.message||'Inbox Watch starts once Pocket knows your time zone. Open Pocket Code on your phone or computer.');

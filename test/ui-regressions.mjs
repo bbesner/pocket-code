@@ -2568,6 +2568,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.evaluate(()=>fetch('/api/inbox/check-done',{method:'POST'}));
     await page.waitForFunction(()=>document.querySelector('.inbox-view [data-inbox-check]:not([aria-busy])')&&/Checked\. One new item\./.test(document.querySelector('#toast')?.textContent||''),{timeout:15000});
     await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-view .inbox-item .title')].some(t=>t.textContent==='Added in Gmail: quote request'),{},'the list reloads with what the check found');
+    // 1.81: when Pocket stands down for a watcher installed separately, the status line says so (it used to be blank)
+    assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:false,state:'external'})),'A watcher installed separately is reporting here; Pocket is not running its own.');
+    assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:false,state:'off'})),'');
     // Settings: the switch under the libraries, the push kind under notifications
     await page.setViewport({width:1440,height:900});await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox');
     await page.waitForFunction(()=>document.querySelector('#s-inbox')?.getAttribute('aria-pressed')==='true');assert.match(await page.$eval('#s-inbox-state',e=>e.textContent),/^On: alerts, digests and look-aheads/);

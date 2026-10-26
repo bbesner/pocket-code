@@ -37,7 +37,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "mcp_tool_call", "t
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 1}}))
 `;
 
-function rig({ sources = {}, tz = 'America/New_York', box = {}, claude = true, codex = false } = {}) {
+function rig({ profiles = {}, tz = 'America/New_York', box = {}, claude = true, codex = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inbox-runner-'));
   const bin = path.join(dir, 'claude'), boxFile = path.join(dir, 'box.json');
   fs.writeFileSync(bin, FAKE, { mode: 0o755 });
@@ -48,16 +48,39 @@ function rig({ sources = {}, tz = 'America/New_York', box = {}, claude = true, c
   fs.writeFileSync(codexBin, FAKE_CODEX, { mode: 0o755 });
   fs.mkdirSync(path.join(dir, '.codex')); fs.writeFileSync(path.join(dir, '.codex', 'auth.json'), '{}');
   const runner = new InboxRunner({ dataDir: data, appDir: repo, claudeBin: claude ? bin : path.join(dir, 'no-claude'), codexBin: codex ? codexBin : null,
-    codexHome: path.join(dir, '.codex'), sessionDir: dir, home: dir, settings: () => settings, store: { sources }, log: m => logs.push(m),
+    codexHome: path.join(dir, '.codex'), sessionDir: dir, home: dir, settings: () => settings, store: { profiles }, log: m => logs.push(m),
     notify: (t, b) => pushes.push([t, b]), env: () => ({ ...process.env, FAKE_BOX: boxFile, POCKET_DATA_DIR: data, HOME: dir }) });
   return { dir, data, runner, settings, logs, pushes, boxFile };
 }
 
 test('a hand-installed watcher is left alone', async () => {
-  const r = rig({ sources: { 'inbox-monitor': { lastReportAt: new Date().toISOString() } } });
+  const r = rig({ profiles: { 'inbox-monitor': { at: new Date().toISOString(), profile: { version: 1 } } } });
   assert.deepEqual(r.runner.status(), { managed: false, state: 'external' });
   await r.runner.step();
   assert.equal(fs.existsSync(path.join(r.data, 'inbox-watch-data', 'config.toml')), false);
+});
+
+test('1.81: a job that posted to the Inbox is not a watcher; Pocket still sets up', async () => {
+  const r = rig(); // pocket-inbox add (or a bare seen) records a source but sends no profile
+  r.runner.store.sources = { nightly: { lastReportAt: new Date().toISOString() } };
+  assert.equal(r.runner.status().managed, true);
+  await r.runner.step();
+  assert.equal(r.runner.status().state, 'setting-up');
+  assert.equal(fs.existsSync(path.join(r.data, 'inbox-watch-data', 'config.toml')), true);
+});
+
+test('1.81: deleting config.toml to start over does not make Pocket\'s own earlier reports look external', async () => {
+  const r = rig();
+  await r.runner.step(); // set up
+  await r.runner.step(); // baseline: a run, so ranAt is recorded
+  r.runner.store.profiles = { 'inbox-monitor': { at: new Date(r.runner.now() - 1000).toISOString(), profile: { version: 1 } } }; // what Pocket's watcher reported
+  fs.unlinkSync(path.join(r.data, 'inbox-watch-data', 'config.toml'));
+  assert.notEqual(r.runner.status().state, 'external');
+  r.runner.store.profiles = { 'inbox-monitor': { at: new Date(r.runner.now() + 60_000).toISOString(), profile: { version: 1 } } }; // a watcher that reports after the runner's last run is another one
+  assert.equal(r.runner.status().state, 'external');
+  r.runner.store.profiles = { 'inbox-monitor': { at: new Date(r.runner.now() - 8 * 86400_000).toISOString(), profile: { version: 1 } } };
+  r.runner.state.ranAt = null; // a watcher that went quiet a week ago no longer holds Pocket back
+  assert.notEqual(r.runner.status().state, 'external');
 });
 
 test('off when Inbox Watch is off', async () => {
