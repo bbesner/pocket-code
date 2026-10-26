@@ -160,7 +160,7 @@ While the agent works, the message box shows two buttons, **Steer now** and **Af
   [Questions and approvals](approvals.md#type-instead-of-answering).
 - **After this reply** (the default in Assistant mode, where the choice is hidden) saves the message in the conversation's
   queue. Each queued message runs as its own reply when the current one finishes successfully, one at a time, in order. It
-  runs with the permissions that were selected when you queued it.
+  runs with the model, reasoning and permissions that were selected when you queued it.
 
 Steered and queued messages are text only: attachments wait for a new message.
 

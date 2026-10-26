@@ -3091,7 +3091,9 @@ async function sendMsg(text, {allowSecrets = false, matches = null} = {}) {
   if (liveFailure?.id === id) liveFailure = null;
   awayAnchor = null; awayFollow = false;                         // sending goes back to following the conversation
   document.getElementById('turn-failure')?.remove();
-  const opts = composerWorking ? {mode:sendModes.get(id)||defaultSendMode(),approvalMode:nextApprovalMode()} : turnOpts();
+  // 1.81: a message sent while a reply runs carries the chips' model and effort as well as the permissions, so if it is
+  // queued it runs as they were set (it used to run on the defaults, which also restarted a Claude process).
+  const opts = composerWorking ? (({model, effort}) => ({mode:sendModes.get(id)||defaultSendMode(),approvalMode:nextApprovalMode(),model,effort}))(turnOpts()) : turnOpts();
   if (allowSecrets) opts.allowSecrets = true; // the owner chose Send as is; a retry of this message carries it too
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
     files: composerWorking ? [] : [...(tb?.attachments || [])], createdAt: Date.now() };

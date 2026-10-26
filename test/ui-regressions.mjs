@@ -602,6 +602,17 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.ok(await spread()<8,'one row at 360px: '+await spread());
    await page.setViewport({width:390,height:844});
   });
+  await check('A message sent while a reply runs carries the chips\' model and effort (1.81, #173)',async()=>{
+   const run=rows.find(r=>r.state.kind==='running');
+   await page.evaluate(id=>localStorage.setItem('pc-prefs-'+id,JSON.stringify({model:'claude-opus-5-5[1m]',effort:'high'})),run.id);
+   await page.goto(base+'/#/chat/'+run.id);await page.reload();await page.waitForSelector('[data-mode="queue"]'); // reload: the previous check may have left this conversation open
+   await clickControl(page,'[data-mode="queue"]');
+   const sent=received.length;await page.type('#box','Then check the returns shelf.');await clickControl(page,'#send');
+   for(let i=0;i<40&&received.length===sent;i++)await pause(100);
+   const {text,mode,model,effort}=received.at(-1);
+   assert.deepEqual({text,mode,model,effort},{text:'Then check the returns shelf.',mode:'queue',model:'claude-opus-5-5[1m]',effort:'high'},'queued with the model and effort it was sent with');
+   await page.evaluate(id=>{localStorage.removeItem('pc-prefs-'+id);sendModes.delete(id);},run.id);
+  });
   await check('Attention filter includes Response ready replies until they are opened',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};
