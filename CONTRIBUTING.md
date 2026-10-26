@@ -30,6 +30,7 @@ python3 inbox-watch/tests/test_schedule.py
 python3 inbox-watch/tests/test_connector.py
 python3 inbox-watch/tests/test_label.py
 python3 inbox-watch/tests/test_process.py
+python3 inbox-watch/tests/test_delivery.py
 ```
 
 Inbox Watch's watcher (`inbox-watch/`, Python 3.11+) is part of the repository. Its tests need no mailbox,

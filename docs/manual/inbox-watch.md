@@ -405,8 +405,9 @@ forces one.
 **First pass says there is no classifier key.** Add an OpenRouter key as described in [First pass](#first-pass). The
 next tick picks it up.
 
-**Alerts have no Start a conversation.** Briefing links need Pocket's public address. Open Pocket once through the
-address you normally use, or set `POCKET_PUBLIC_URL`.
+**Alerts in Telegram or email have no "Open in Pocket Code" button.** Outside Pocket the link needs Pocket's public
+address. Open Pocket once through the address you normally use, or set `POCKET_PUBLIC_URL`. Entries in the Inbox itself
+always have **Start a conversation**: they use a path inside Pocket and need no address.
 
 **Digests show no Open in Files.** Files is off. Turn it on in **Settings → Projects, files, tasks & vault → Files**;
 the text is in the entry either way.

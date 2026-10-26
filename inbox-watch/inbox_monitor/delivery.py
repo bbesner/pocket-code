@@ -9,7 +9,8 @@ it for its channel. Configure one or more in the TOML as [[delivery]] tables.
   kind = "email"     plain SMTP: `smtp_url` (smtps://user:pass@host:465 or smtp://user:pass@host:587), `from`, `to`.
 
 [pocket] (top level, optional): `root` (the Pocket Code checkout), `session_dir`, `provider` — makes the start link
-that every delivery can use as its button.
+that every delivery can use as its button. Before Pocket knows its public address the link is a Pocket path
+(/#/start/<id>): the Inbox keeps it, Telegram and email, which need an address, leave the button out.
 """
 from __future__ import annotations
 
@@ -62,6 +63,12 @@ def chunks_under(lines: list[str], limit: int) -> list[str]:
 
 
 # ---------------------------------------------------------------- Pocket start links (the briefed session)
+def absolute_link(url: str | None) -> str | None:
+    """1.81: the link as a channel outside Pocket (Telegram, email) can open it. Until Pocket knows its public address
+    pocket-start prints a Pocket path (/#/start/<id>), which opens inside Pocket and means nothing anywhere else."""
+    return url if url and url.startswith(("http://", "https://")) else None
+
+
 def start_link(pocket: dict, briefing: str, title: str, log) -> str | None:
     root = pocket.get("root")
     if not root:
@@ -78,7 +85,7 @@ def start_link(pocket: dict, briefing: str, title: str, log) -> str | None:
         r = subprocess.run(cmd, input=briefing, capture_output=True, text=True, timeout=20)
         if r.returncode == 0:
             url = r.stdout.strip().splitlines()[-1]
-            return url if url.startswith("http") else None
+            return url if url.startswith(("http://", "https://", "/#/")) else None  # 1.81: a Pocket path is kept: the Inbox opens it
         log(f"pocket-start failed: {r.stderr.strip()[:200]}")
     except Exception as e:  # noqa: BLE001
         log(f"pocket-start error: {e}")
@@ -135,6 +142,7 @@ class Telegram(Delivery):
         return str(data["result"]["message_id"])
 
     def send_alert(self, alert: dict, *, pocket_url: str | None, held_note: bool = False) -> str | None:
+        pocket_url = absolute_link(pocket_url)
         head = "🚨 " if alert.get("priority") == "critical" else ""
         parts = [f"{head}<b>{htmlmod.escape(alert.get('subject') or '(no subject)')}</b>", "", cite_html(alert.get("text") or "")]
         if held_note:
@@ -358,6 +366,7 @@ class Email(Delivery):
         return msg["Subject"]
 
     def send_alert(self, alert: dict, *, pocket_url: str | None, held_note: bool = False) -> str | None:
+        pocket_url = absolute_link(pocket_url)
         subject = alert.get("subject") or "Email alert"
         text = cite_plain(alert.get("text") or "")
         links = []

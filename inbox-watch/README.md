@@ -220,5 +220,6 @@ Simulated clock, separate ledger, nothing sent; the judge sees only mail that ex
 - `tests/test_memory.py` — memory in decisions and in the tidy pass, and the judge's tool calls in the ledger (`python3 tests/test_memory.py`).
 - `tests/test_schedule.py` — the schedule rules (`python3 tests/test_schedule.py`).
 - `tests/test_connector.py` — the connector mail source against a fake `claude` (`python3 tests/test_connector.py`).
+- `tests/test_delivery.py` — the Pocket start link in the Inbox, Telegram and email (`python3 tests/test_delivery.py`).
 - `inbox_monitor/prompts/decide.md`, `lookahead.md` — the judge's instructions, with `{owner}`, `{assistant}`, `{owner_email}`, `{memory_note}` filled from the config.
 - `examples/config.example.toml` — every key.
