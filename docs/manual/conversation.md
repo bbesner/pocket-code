@@ -157,10 +157,12 @@ While the agent works, the message box shows two buttons, **Steer now** and **Af
 - **Steer now** (the default in Developer mode) sends your message into the reply that is running. The agent sees it at
   its next step. It does not start a separate reply and does not change the running reply's model or permissions. If the
   agent is waiting on a question, a steered message skips the question; see
-  [Questions and approvals](approvals.md#type-instead-of-answering).
+  [Questions and approvals](approvals.md#type-instead-of-answering). When the reply cannot take a message at that moment
+  (it is finishing, or Pocket restarted and lost its input), the message is queued after it instead and the note reads
+  **Queued after the current reply.** If the reply has already ended, the message starts the next one.
 - **After this reply** (the default in Assistant mode, where the choice is hidden) saves the message in the conversation's
   queue. Each queued message runs as its own reply when the current one finishes successfully, one at a time, in order. It
-  runs with the permissions that were selected when you queued it.
+  runs with the model, reasoning and permissions that were selected when you queued it.
 
 Steered and queued messages are text only: attachments wait for a new message.
 
@@ -175,7 +177,7 @@ permissions.
 | Paused | Waiting, with no reply running. Use **Run next instruction**. |
 | Editing · paused | Someone opened it for editing. It will not run until saved or cancelled. |
 | Starting… | Being handed to the agent. |
-| Needs review | The start could not be confirmed. Everything behind it waits. |
+| Needs review | The start could not be confirmed, or the message could not start (the row says why). Everything behind it waits. |
 
 - **Edit** reserves the row; **Save changes** or **Cancel edit** releases it. Closing the panel mid-edit leaves the row
   paused, and **Continue editing** brings back this browser's unsaved text. Other devices see the paused row but not your
@@ -380,7 +382,6 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | "Attach files after this reply finishes." | Attachments only go with a new message. | Wait for the reply to finish, or Stop it. |
 | "This browser cannot read clipboard images." | The browser does not allow clipboard reads (common in embedded views). | Paste into the message box directly, or choose a file. |
 | "This conversation is being used in another app right now" | A terminal or code-server wrote a reply to this conversation in the last 45 seconds. | Wait for that reply to finish, then send again. |
-| "This reply cannot accept steering now. Choose After this reply to queue it." | The reply is finishing, or its process was reattached without its input pipe. | Use **After this reply**. |
 | "Queue is full (10 messages)." | The conversation already has 10 queued messages. | Run or remove some in **Queue**. |
 | Queue shows **Needs review** | Pocket could not confirm the item started (a crash or failed start). | Check the conversation; remove the row once you know whether it ran, then send again if needed. |
 | Queued messages do not run | The last reply was stopped or failed, or Pocket restarted. | **Queue → Run next instruction**. |

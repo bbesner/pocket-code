@@ -51,6 +51,7 @@ import {Thumbnailer} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
 import { SideChats } from './sidechat.mjs';
 import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
+import { parseEnv } from './env-file.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -58,10 +59,8 @@ const ENV_FILE = process.env.POCKET_ENV_FILE ?? path.join(import.meta.dirname, '
 // 1.73.6: a Vault key set in the process environment (PM2 ecosystem, systemd) wins over .env, and a rotation could only ever
 // write .env; so such a key is rotated or created where it is set, and the routes say so instead of leaving a store no key opens.
 const VAULT_KEY_PRESET = Boolean(process.env.POCKET_VAULT_KEY);
-for (const line of (fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8').split('\n') : [])) {
-  const m = line.match(/^([A-Z_]+)=(.*)$/);
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
-}
+// 1.81: read by the same parser the commands use (env-file.mjs), so a quoted value or a digit in a name means the same to both.
+for (const [k, v] of Object.entries(fs.existsSync(ENV_FILE) ? parseEnv(fs.readFileSync(ENV_FILE, 'utf8')) : {})) if (!process.env[k]) process.env[k] = v;
 // 1.39: the vault key is read once and removed from the process environment, so no child of the daemon,
 // whatever path spawns it, can inherit it (see vault.mjs).
 let VAULT_KEY_RAW = process.env.POCKET_VAULT_KEY || '';
@@ -82,7 +81,12 @@ const deliveryReceipts = new DeliveryReceipts(path.join(DATA_DIR, 'delivery-rece
 const followups = new FollowupQueue(path.join(DATA_DIR, 'followup-queue.json'));
 const usage = new UsageStore(path.join(DATA_DIR, 'usage-state.json'));
 const ALLOW_FULL_ACCESS=process.env.POCKET_ALLOW_FULL_ACCESS!=='0';
-const DEFAULT_APPROVAL_MODE=approvalMode((process.env.POCKET_APPROVAL_MODE||'').trim()||undefined,'review',ALLOW_FULL_ACCESS);
+// 1.81: a default the install cannot use (not review or full, or full with Full access turned off) logs one line and
+// falls back to review; it used to throw here, and the daemon did not come up.
+const DEFAULT_APPROVAL_MODE=(raw=>{
+  try { return approvalMode(raw||undefined,'review',ALLOW_FULL_ACCESS); }
+  catch { console.warn(raw==='full'?'POCKET_APPROVAL_MODE=full conflicts with POCKET_ALLOW_FULL_ACCESS=0 (Full access is turned off); using review':`POCKET_APPROVAL_MODE=${raw} is not review or full (POCKET_ALLOW_FULL_ACCESS=${process.env.POCKET_ALLOW_FULL_ACCESS??'unset'}); using review`); return 'review'; }
+})((process.env.POCKET_APPROVAL_MODE||'').trim());
 const auditApproval=approvalAudit(path.join(DATA_DIR,'approval-decisions.jsonl'));
 const PORT = Number(process.env.PORT || 3610);
 const PASSWORD = process.env.POCKET_PASSWORD;
@@ -162,7 +166,7 @@ function claudeDefaultLabel() {
   return hit ? hit.label + big : raw;
 }
 const EFFORTS = new Set(['max', 'xhigh', 'high', 'medium', 'low']);
-const CODEX_EFFORTS = new Set([...EFFORTS, 'ultra']);
+const CODEX_EFFORTS = new Set([...EFFORTS, 'ultra']); // 1.81: Ultra is Codex's, on models whose supportedReasoningEfforts list it; the picker offers it model by model (/api/codex/models `efforts`)
 // Pocket-only defaults for turns that leave Model/Effort on Default. Unset = the CLI's
 // own config (~/.claude/settings.json, ~/.codex/config.toml); terminal sessions never
 // see these.
@@ -266,7 +270,7 @@ if (POCKET_DEFAULTS.claude.model && !isOffered(POCKET_DEFAULTS.claude.model)) co
 // connection (a request that arrived through the tunnel or a proxy carries forwarding headers and is refused),
 // and never in place of the cookie anywhere else. Due reminders go out by web push and, when the operator sets
 // POCKET_REMINDER_HOOK, to that command with the reminder as JSON on stdin; each is announced once.
-const board = new ProjectStore(path.join(DATA_DIR, 'projects.json'));
+const board = new ProjectStore(path.join(DATA_DIR, 'projects.json'), { zone: () => ownerZone() }); // 1.81: offsetless times in the zone the commands print
 const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 // ---------- 1.30: documents ----------
 // The library (documents.mjs): files in POCKET_DOCUMENTS_DIR, records in <data dir>/documents.json. Off until
@@ -285,7 +289,7 @@ setTimeout(purgeDocs, 60_000).unref(); // 1.45: also a minute after start, so a 
 // ---------- 1.36: tasks ----------
 // To-dos (tasks.mjs): <data dir>/tasks.json. Off until Settings → Projects, files, tasks & vault turns it on. The same loopback
 // token serves pocket-tasks on /api/tasks* only; a dated task is announced once when due, like a project reminder.
-const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'));
+const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'), { zone: () => ownerZone() });
 const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
 // ---------- 1.69: inbox ----------
 // What the owner's inbox watcher sent (inbox.mjs): <data dir>/inbox.json. Off until Settings → Projects, files, tasks & vault
@@ -524,7 +528,7 @@ let router = null;
 function buildRouter() {
   const c = routerConfig(), last = router?.last || null;
   router = new ModelRouter({ provider: c.enabled ? c.provider : 'off', key: c.key, url: process.env.POCKET_ROUTER_URL || null,
-    timeoutMs: Math.max(300, Number(process.env.POCKET_ROUTER_TIMEOUT_MS) || 1500), log });
+    timeoutMs: Math.max(300, Number(process.env.POCKET_ROUTER_TIMEOUT_MS) || 1500), context: process.env.POCKET_ROUTER_CONTEXT || '', log });
   router.last = last;
 }
 buildRouter();
@@ -2447,6 +2451,9 @@ function turnOpts(body) {
 // A Codex turn ends inside codex.mjs; the daemon-level follow-ups (notify the phone,
 // run whatever was queued while it worked) mirror the Claude side's finalizeTurn.
 async function codexTurnFinished(id, turn, ev) {
+  // 1.81: the push follows Claude's rules: none while a browser has the conversation open (its stream is still attached
+  // here, read before any await) and none for a reply the user stopped. It used to push for both.
+  const watching = turn.subs.size > 0;
   recordOutcome(id, turn, ev);
   retitler.request(id); // 1.29.1
   if (!turn.stopped) autoKeepTurnFiles(id, turn.startedAt || 0);
@@ -2457,13 +2464,15 @@ async function codexTurnFinished(id, turn, ev) {
     await runNextFollowup(id, turn.cwd).catch(e => log(`codex queue start failed thread=${id}: ${e.message}`));
     return;
   }
-  if (!mutes.has(id)) {
+  if (!watching && !turn.stopped && !mutes.has(id)) {
     const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
-    pushNotify(id, meta?.title || 'Codex conversation', ev.ok ? 'Ready' : 'Stopped. Tap to review').catch(() => {});
+    pushNotify(id, meta?.title || 'Codex conversation', ev.ok ? 'Ready' : 'Something went wrong. Tap to see what happened').catch(() => {});
   }
 }
 async function runNextFollowup(id, cwd) {
   return followups.dispatch(id, async row => {
+    // 1.81: queued with Full access before it was turned off: it never starts, and the row says why (not "not confirmed").
+    if (row.approvalMode === 'full' && !ALLOW_FULL_ACCESS) throw Object.assign(new Error('Full access is turned off on this server; send it again with Review actions.'), { status: 403, notStarted: true });
     if (isCx(id)) return startCodexFromApi({id,threadId:codex.bareId(id),cwd,text:row.text,body:row});
     const file=await findSessionFile(id);
     const meta=file?await sessionMeta(file,id):null;
@@ -3374,13 +3383,16 @@ app.get('/api/vault', requireBoardAuth, vaultOn, vaultNoStore, (req, res) => {
   res.json({ ...vault.snapshot({ owner: c.actor === 'owner' }), mode: vault.mode, locked: false, push: { enabled: pushReady } });
 });
 // 1.40: lock, unlock, the passphrase, export and import. Owner only; a wrong passphrase is rate-limited like the login.
-const unlockAttempts = new Map();
-function tooManyUnlocks(ip) { const now = Date.now(), rec = unlockAttempts.get(ip); if (!rec || rec.resetAt < now) { unlockAttempts.set(ip, { n: 1, resetAt: now + 3600_000 }); return false; } rec.n += 1; return rec.n > 10; }
+// 1.81 (#177): only wrong tries count, ten an hour per address, and a right one clears them. Every try used to count, so an
+// owner who locked and unlocked often was locked out for an hour. A recovery key that does not open the store counts too.
+const unlockFails = new Map();
+function tooManyUnlocks(ip) { const rec = unlockFails.get(ip); if (rec && rec.resetAt < Date.now()) unlockFails.delete(ip); return (unlockFails.get(ip)?.n || 0) >= 10; }
+function unlockFailed(ip) { const now = Date.now(), rec = unlockFails.get(ip); if (!rec || rec.resetAt < now) unlockFails.set(ip, { n: 1, resetAt: now + 3600_000 }); else rec.n += 1; }
 app.post('/api/vault/unlock', requireAuth, vaultOn, sameOrigin, vaultNoStore, (req, res) => {
   const ip = req.get('cf-connecting-ip') || req.socket.remoteAddress || '';
   if (tooManyUnlocks(ip)) return res.status(429).json({ error: 'Too many tries. Wait an hour.' });
-  try { vault.unlock(String(req.body?.passphrase || '')); log('vault unlocked by the owner'); res.json({ ok: true }); }
-  catch (e) { if (!e.status) throw e; log(`vault unlock refused: ${e.message}`); res.status(e.status).json({ error: e.message }); }
+  try { vault.unlock(String(req.body?.passphrase || '')); unlockFails.delete(ip); log('vault unlocked by the owner'); res.json({ ok: true }); }
+  catch (e) { if (!e.status) throw e; if (e.status === 401) unlockFailed(ip); log(`vault unlock refused: ${e.message}`); res.status(e.status).json({ error: e.message }); }
 });
 app.post('/api/vault/lock', requireAuth, vaultOn, sameOrigin, vaultNoStore, (_req, res) => {
   try { vault.lock(); log('vault locked by the owner'); res.json({ ok: true }); } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
@@ -3459,7 +3471,8 @@ app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, 
   const ip = req.get('cf-connecting-ip') || req.socket.remoteAddress || '';
   if (tooManyUnlocks(ip)) return res.status(429).json({ error: 'Too many tries. Wait an hour.' });
   if (!vaultNeedsKey()) return res.status(409).json({ error: 'The Vault does not need its key restored.' });
-  let k, v; try { k = normalKey(req.body?.key || ''); v = openVault(k); } catch { log('vault key restore refused: the key does not open the store'); return res.status(400).json({ error: 'That key does not open this Vault.' }); }
+  let k, v; try { k = normalKey(req.body?.key || ''); v = openVault(k); } catch { unlockFailed(ip); log('vault key restore refused: the key does not open the store'); return res.status(400).json({ error: 'That key does not open this Vault.' }); }
+  unlockFails.delete(ip);
   try { saveVaultKeyToEnv(k); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
   vault = v; VAULT_KEY_RAW = k; vaultError = ''; vault.audit({ action: 'key-restored', by: 'owner' });
   log('vault key restored from the recovery key and saved to .env');
@@ -3599,18 +3612,22 @@ async function documentSource(p) {
   return real;
 }
 const docError = (res, e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); };
+// 1.81 (#179): a file links only to a project that exists; a typo in --project used to link it to one nobody could open.
+const checkDocProject = p => { const id = typeof p === 'string' ? p.trim() : ''; if (id && !board.projects.some(x => x.id === id)) throw Object.assign(new Error(`There is no project with the id ${id}. pocket-board status --all lists the ids.`), { status: 400 }); };
 app.get('/api/documents', requireBoardAuth, docsOn, (req, res) => {
   const project = typeof req.query.project === 'string' ? req.query.project : '', q = typeof req.query.q === 'string' ? req.query.q : '';
   res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities() });
 });
 app.post('/api/documents', requireAuth, docsOn, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
   try {
+    checkDocProject(String(req.headers['x-project'] || ''));
     const d = docs.addFromBuffer(String(req.headers['x-filename'] || ''), req.body, { addedBy: 'ui', project: String(req.headers['x-project'] || ''), session: String(req.headers['x-session'] || '') || null });
     log(`document added by upload ${d.id} ${d.file} (${d.size} bytes)`); res.json(d);
   } catch (e) { docError(res, e); }
 });
 app.post('/api/documents/add', requireBoardAuth, docsOn, async (req, res) => {
   try {
+    checkDocProject(req.body?.project);
     const real = await documentSource(req.body?.path);
     const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: req.body?.session || null, visibility: VISIBILITY_OK(req.body?.visibility), addedBy: req.boardActor === 'cli' ? 'cli' : 'ui' });
     log(`document added ${d.id} ${d.file} by ${req.boardActor || 'ui'}`); res.json(d);
@@ -3624,6 +3641,7 @@ app.post('/api/documents/keep', requireAuth, docsOn, async (req, res) => {
   try {
     const { results } = await sessionResults(id);
     if (!results.some(r => r.kind === 'file' && r.target === requested)) return res.status(403).json({ error: 'This file is not a result referenced by the conversation.' });
+    checkDocProject(req.body?.project);
     const real = await documentSource(requested);
     const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: id, addedBy: 'session' });
     log(`document kept from session ${id}: ${d.id} ${d.file}`); res.json(d);
@@ -3665,6 +3683,7 @@ app.post('/api/documents/:id', requireBoardAuth, docsOn, (req, res) => {
   const action = req.body?.action;
   if (action === 'delete') return res.status(403).json({ error: "Deleting is the owner's: Delete forever in the library's Trash." });
   try {
+    if (!action && req.body && 'project' in req.body) checkDocProject(req.body.project);
     const r = action === 'trash' ? docs.trash(req.params.id) : action === 'restore' ? docs.restore(req.params.id) : docs.update(req.params.id, req.body || {}, { actor: req.boardActor || 'ui' });
     log(`document ${action || 'updated'} ${req.params.id} by ${req.boardActor || 'ui'}`); res.json(r);
   } catch (e) { docError(res, e); }
@@ -3783,7 +3802,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both.", "Two ways off a conversation, now on Claude and Codex. Side chat asks a quick question about the conversation: nothing is saved and nothing changes. Branch starts a new saved conversation that carries on from here with everything so far, and can do work on its own while the original stays as it is; it shows in your list as a branch, with a link back. Both buttons explain themselves when you hover over them, Conversation options describes each, and each one points to the other. Requested by Brad.", "On a computer, the Side chat button now sits in the row under the message box, next to Add project and Add task, labelled Side chat, and shows as pressed while the side chat is open; it is also there, as an icon, while Claude is working. Phones keep the speech-bubble button in the conversation's header. Suggested by Brad.", "The cost under each reply, and in its Ready notification, is that reply's own cost again. A conversation keeps one Claude process across replies, and Claude reports that process's running total, so in a long conversation each later reply showed what all the earlier ones cost too. Found while building side chat.", "Side chat: ask about a conversation without adding to it. Open it with the speech-bubble button in the conversation's header, Side chat in Conversation options, Ctrl+; or by starting a message with /btw. It starts from the conversation as it is, can read files and search the web but cannot change anything, saves nothing, and shows what each answer cost. On a wide window it sits in the right-hand panel beside Results, Queue and Git; on a phone it opens as a sheet. Claude conversations only for now. Requested by Brad."];
+const RELEASE_NOTES = ["Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both.", "Two ways off a conversation, now on Claude and Codex. Side chat asks a quick question about the conversation: nothing is saved and nothing changes. Branch starts a new saved conversation that carries on from here with everything so far, and can do work on its own while the original stays as it is; it shows in your list as a branch, with a link back. Both buttons explain themselves when you hover over them, Conversation options describes each, and each one points to the other. Requested by Brad.", "On a computer, the Side chat button now sits in the row under the message box, next to Add project and Add task, labelled Side chat, and shows as pressed while the side chat is open; it is also there, as an icon, while Claude is working. Phones keep the speech-bubble button in the conversation's header. Suggested by Brad."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

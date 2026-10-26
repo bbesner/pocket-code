@@ -308,7 +308,7 @@ function reminderSheet(project,task){
 }
 // From a session's options: track a new project around this session, or add it to an existing one.
 function addSessionToProject(s){
- if(!boardSnap)return loadBoard(true).then(()=>addSessionToProject(s)).catch(e=>toast(e.status===404?'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.':e.message));
+ if(!boardSnap)return loadBoard(true).then(()=>addSessionToProject(s)).catch(e=>toast(e.status===404?'Projects is off. '+turnOnHint():e.message));
  const open=boardSnap.projects.filter(p=>p.status!=='done'&&!p.sessions.includes(s.id));
  const rows=[['__new','Track a new project','A card around this conversation; its workspace becomes the directory'],...open.map(p=>[p.id,p.name,p.next||p.summary||statusWord[p.status]])];
  sheet('Project for this conversation',rows,null,v=>{

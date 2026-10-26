@@ -63,6 +63,22 @@ export async function runModelSelectionRegressions({browser, base, rows, out, re
     await pickModel(model);
     assert.equal(await page.evaluate(() => turnOpts().model), model);
    }
+   // 1.81: Ultra is offered where Codex lists it for the model (the fixture's Sol, and Default, which is Sol), not on Astra, never for Claude;
+   // a saved Ultra goes back to Default on a model without it
+   const effortValues = async () => { await page.locator('#c-eff').click(); const v = await page.$$eval('.sheet [data-v]', e => e.map(x => x.dataset.v)); await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('.sheet')); return v; };
+   assert.deepEqual(await effortValues(), ['default', 'max', 'xhigh', 'high', 'medium', 'low'], 'Astra: the five levels');
+   await pickModel('gpt-6-sol');
+   assert.deepEqual(await effortValues(), ['default', 'ultra', 'max', 'xhigh', 'high', 'medium', 'low'], 'Sol: Ultra above Max');
+   await page.locator('#c-eff').click();await page.locator('[data-v="ultra"]').click();
+   assert.equal(await page.evaluate(() => turnOpts().effort), 'ultra');
+   assert.equal(await page.$eval('#c-eff', e => e.textContent.trim()), 'Ultra');
+   await pickModel('default');
+   assert.deepEqual((await effortValues())[1], 'ultra', 'Default runs the Pocket default model, Sol, so Ultra stays');
+   await pickModel('gpt-6-astra');
+   assert.equal(await page.evaluate(() => turnOpts().effort), undefined, 'Astra does not offer Ultra, so the pick went back to Default');
+   await selectAgent('claude');
+   assert.deepEqual((await effortValues()).includes('ultra'), false, 'Claude has no Ultra');
+   await selectAgent('codex');
    await pickModel('gpt-6-sol');
    await page.reload({waitUntil:'domcontentloaded'});
    await page.waitForSelector('#first');

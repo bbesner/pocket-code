@@ -109,9 +109,9 @@ const seedBoard=()=>{board.projects.length=0;
 // 1.69: Inbox Watch entries: a new alert with a start link and a Gmail thread, an opened digest kept in Files, a resolved alert.
 const inboxStore=new InboxStore(path.join(out,'inbox.json'));
 const seedInbox=()=>{inboxStore.entries.length=0;inboxStore.sources={};
- const r=inboxStore.add({kind:'alert',title:'Circa alarm timer tests',text:'Ten missed tests since October 13. [Latest](msg:1a151dff1dfb590e)',story:'circa-late-alarm-test',source:'inbox-monitor',url:'/#/start/0123456789ac'},{actor:'cli'});inboxStore.act({action:'resolve',id:r.id});
- const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- SCK WooPayments deductions: the scheduled payout includes $267.48 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
- inboxStore.add({kind:'alert',priority:'high',title:'Pradera dispatch conflict',text:'Kimberly says the visit was supposed to be last night and asks that nobody be dispatched, while the 8:03 notice has Jairon on the way for 9–10. [Call transcript](msg:1a1540e0de10f879) · [Dispatch notice](msg:1a1540b3f8676388) Valentina should reach Jairon before 9 a.m.',story:'pradera-service-scheduling',source:'inbox-monitor',url:'/#/start/0123456789ab',gmail:'https://mail.google.com/mail/u/0/#all/1a1540b3f8676388',dedupe:'pradera|1'},{actor:'cli'});
+ const r=inboxStore.add({kind:'alert',title:'Lakeview alarm timer tests',text:'Ten missed tests since October 13. [Latest](msg:1a151dff1dfb590e)',story:'lakeview-late-alarm-test',source:'inbox-monitor',url:'/#/start/0123456789ac'},{actor:'cli'});inboxStore.act({action:'resolve',id:r.id});
+ const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- Storefront payout deductions: the scheduled payout includes $267.48 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
+ inboxStore.add({kind:'alert',priority:'high',title:'Oakridge dispatch conflict',text:'Robin says the visit was supposed to be last night and asks that nobody be dispatched, while the 8:03 notice has Jordan on the way for 9–10. [Call transcript](msg:1a1540e0de10f879) · [Dispatch notice](msg:1a1540b3f8676388) Avery should reach Jordan before 9 a.m.',story:'oakridge-service-scheduling',source:'inbox-monitor',url:'/#/start/0123456789ab',gmail:'https://mail.google.com/mail/u/0/#all/1a1540b3f8676388',dedupe:'oakridge|1'},{actor:'cli'});
  inboxStore.seen('inbox-monitor');
  // 1.70: the watcher's profile, as inbox-monitor 0.3 sends it with its heartbeat; no owner settings yet
  inboxStore.profiles={};inboxStore.watch={};
@@ -190,9 +190,9 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/voice/transcribe'){const chunks=[];for await(const c of req)chunks.push(c);voiceLog.transcribe.push({bytes:Buffer.concat(chunks).length,vocabulary:req.headers['x-vocabulary']||''});return json({text:uiModes.voiceText});}
  if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}
  if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
- if(url.pathname==='/api/me')return json({ok:true,features:{projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),inbox:Boolean(fixtureSettings.inbox),assistantMode:Boolean(fixtureSettings.assistantMode)}});
+ if(url.pathname==='/api/me')return json({ok:true,features:{projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),inbox:Boolean(fixtureSettings.inbox),assistantMode:Boolean(fixtureSettings.assistantMode),assistantLocked:Boolean(fixtureSettings.assistantLocked)}});
  if(url.pathname==='/api/approval-policy')return json({defaultMode:'review',allowFullAccess:true});
- if(url.pathname.endsWith('/approvals'))return json({requests:approvalRequests,interrupted:false,activeMode:'review',defaultMode:'review',allowFullAccess:true});
+ if(url.pathname.endsWith('/approvals'))return json({requests:approvalRequests,interrupted:Boolean(uiModes.approvalsInterrupted),activeMode:'review',defaultMode:'review',allowFullAccess:true});
  if(/\/approvals\/[^/]+\/decision$/.test(url.pathname)){
   let raw='';for await(const c of req)raw+=c;const body=JSON.parse(raw);
   if(approvalFail)return json({error:'Decision delivery is uncertain. Review the conversation.'},503);
@@ -212,11 +212,11 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname.endsWith('/pin')){let raw='';for await(const c of req)raw+=c;const r=rows.find(x=>x.id===decodeURIComponent(url.pathname.split('/').at(-2)));if(r){if(JSON.parse(raw||'{}').pinned)r.pinned=true;else{delete r.pinned;delete r.pinOrder;}}return json({ok:true,pinned:Boolean(r?.pinned)});}
  if(url.pathname==='/api/pins/order'){let raw='';for await(const c of req)raw+=c;const ids=JSON.parse(raw||'{}').ids||[];pinOrders.push(ids);ids.forEach((id,i)=>{const r=rows.find(x=>x.id===id);if(r?.pinned)r.pinOrder=i;});return json({ok:true,order:ids});}
- if(url.pathname.startsWith('/api/start/'))return /^\/api\/start\/[0-9a-f]{12}$/.test(url.pathname)?json({ok:true,id:url.pathname.slice(11),text:'Pradera: Kimberly asks that nobody be dispatched. Reach Jairon before 9 a.m.',directory:'/workspaces/warehouse',provider:'claude'}):json({error:'missing'},404); // 1.57 start links; 1.77 the Inbox briefing
- if(url.pathname==='/api/projects')return json(uiModes.lockedWorkspace?{projects:['/workspaces/warehouse'],defaultCwd:'/workspaces/warehouse',locked:true}:{projects:['/workspaces/warehouse','/workspaces/products']}); // 1.55: lockedWorkspace = one folder, nothing to choose
+ if(url.pathname.startsWith('/api/start/'))return /^\/api\/start\/[0-9a-f]{12}$/.test(url.pathname)?json({ok:true,id:url.pathname.slice(11),text:'Oakridge: Robin asks that nobody be dispatched. Reach Jordan before 9 a.m.',directory:uiModes.startDirectory||'/workspaces/warehouse',provider:'claude'}):json({error:'missing'},404); // 1.57 start links; 1.77 the Inbox briefing; 1.81 startDirectory: a link to another folder
+ if(url.pathname==='/api/projects')return json(uiModes.lockedWorkspace?{projects:['/workspaces/warehouse'],defaultCwd:'/workspaces/warehouse',locked:true}:{projects:['/workspaces/warehouse','/workspaces/products'],...(uiModes.defaultCwd&&{defaultCwd:uiModes.defaultCwd})}); // 1.55: lockedWorkspace = one folder, nothing to choose; 1.81 defaultCwd: POCKET_DEFAULT_CWD
  if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}]});
  if(url.pathname==='/api/claude/models')return json(Array.isArray(fixtureSettings.offeredClaudeModels)?{models:fixtureOffer(fixtureSettings.offeredClaudeModels).models.filter(m=>m.offered).map(({id,label,sub})=>({id,label,sub})),defaultLabel:'Test agent',limited:true}:{models:[{id:'test',label:'Test agent'},{id:'claude-opus-5-5[1m]',label:'Opus 5.5'}],defaultLabel:'Test agent'});
- if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'},...Array.from({length:8},(_,index)=>({id:'gpt-fixture-'+index,label:'Fixture '+index})),{id:'gpt-6-sol',label:'GPT-6 Sol'},{id:'gpt-6-astra',label:'GPT-6 Astra'}],defaultModel:'gpt-6-sol',pocketDefault:true});
+ if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'},...Array.from({length:8},(_,index)=>({id:'gpt-fixture-'+index,label:'Fixture '+index})),{id:'gpt-6-sol',label:'GPT-6 Sol',efforts:['low','medium','high','xhigh','max','ultra']},{id:'gpt-6-astra',label:'GPT-6 Astra',efforts:['low','medium','high','xhigh','max']}],defaultModel:'gpt-6-sol',pocketDefault:true});
  if(url.pathname==='/api/push/key')return json({});
  if(url.pathname==='/api/push/prefs')return json({error:'This device is not subscribed.',code:'not_subscribed'},404); // push is off in the fixture
  if(url.pathname==='/api/notify/test-email'){if(!fixtureSettings.notifyEmail)return json({error:'Save an email address first.',code:'no_address'},400);(uiModes.mailLog??=[]).push({to:fixtureSettings.notifyEmail,subject:'[Pocket Code] Test: reminders will arrive like this'});return json({ok:true,to:fixtureSettings.notifyEmail});}
@@ -692,7 +692,8 @@ try{
  await p.evaluate(()=>setChatTextSize(17));
  // Approvals show the exact escaped request; no decision is selected or sent on open.
  await p.goto(base+'/#/chat/'+idle.id);await p.waitForSelector('#c-approval');
- await clickControl(p,'#c-approval');await p.waitForSelector('[data-v="full"]');await clickControl(p,'[data-v="full"]');
+ await clickControl(p,'#c-approval');await p.waitForSelector('[data-v="full"]');
+ assert.equal(await p.$eval('.sheet h2',e=>e.textContent.trim()),'Permissions for the next reply','1.81: the sheet says reply, like its menu entry');await clickControl(p,'[data-v="full"]');
  assert.match(await p.$eval('#c-approval',e=>e.textContent),/Full access/);
  await clickControl(p,'#c-approval');await clickControl(p,'[data-v="review"]');assert.equal(await p.evaluate(()=>turnOpts().approvalMode),'review');
  for(const width of [390,1440]){
@@ -714,6 +715,13 @@ try{
  await p.waitForFunction(()=>document.querySelector('.approval-outcome')?.textContent.includes('Decision sent or uncertain'));
  assert.equal(await p.$eval('[data-decision="allow"]',e=>e.disabled),true);await p.keyboard.press('Escape');
  approvalRequests=[];
+ // 1.81 (#186): a Codex permissions request and an interrupted connection say reply, not turn
+ approvalRequests=[{id:'approval-3',title:'Allow more access?',kind:'permissions',details:'network access to example.test',canAllow:true,status:'pending'}];
+ await p.evaluate(()=>openApprovals(chatId));await p.waitForSelector('[data-decision="allow"]');
+ assert.equal(await p.$eval('[data-decision="allow"]',e=>e.textContent.trim()),'Allow for this reply');assert.match(await p.$eval('.approval-card .sheet-help',e=>e.textContent),/for the rest of this reply\./);await p.keyboard.press('Escape');
+ approvalRequests=[];uiModes.approvalsInterrupted=true;
+ await p.evaluate(()=>openApprovals(chatId));await p.waitForSelector('[data-stop-approval]');
+ assert.equal(await p.$eval('[data-stop-approval]',e=>e.textContent.trim()),'Stop interrupted reply');assert.doesNotMatch(await p.$eval('.approvals-sheet',e=>e.textContent),/\bturn\b/i);await p.keyboard.press('Escape');uiModes.approvalsInterrupted=false;
  await p.goto(base);await p.waitForSelector('[data-more]');
  await clickControl(p,`[data-more="${rows[0].id}"]`);await clickControl(p,'#so-permissions');await p.waitForSelector('[data-v="full"]');await clickControl(p,'[data-v="full"]');
  assert.equal(await p.evaluate(id=>getPrefs(id).approvalMode,rows[0].id),'full','home-list permissions target the selected session');

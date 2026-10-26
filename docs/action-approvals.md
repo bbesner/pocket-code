@@ -13,7 +13,7 @@ for your OK** banner with **Review**. Open it to inspect the command, file chang
 arguments, then choose **Don't allow** or the card's allow button. The allow button names its
 scope: **Allow** for a command, file change or tool call, which covers that one pending request;
 **Allow network access** for a Codex network request, which can release several pending
-requests to the displayed destination; and **Allow for this turn** for a Codex request for
+requests to the displayed destination; and **Allow for this reply** for a Codex request for
 additional permissions, which grants the listed access until the turn ends. For those two
 broader grants the card states the scope above the details; for a single request it is under
 **Show details**. Closing the sheet, sleeping the phone or losing
@@ -141,7 +141,7 @@ for that request kind, skipping requests the log shows were already resolved), s
 turn carries on and the agent can ask again. A second answer to a request the old
 daemon had already answered is ignored by the CLI (verified on Claude Code 2.1.281).
 Only a process whose input pipe cannot be reopened is marked with an interrupted
-approval (or question) connection. Stop an interrupted turn, review completed work, then
+approval (or question) connection. Stop an interrupted reply, review completed work, then
 send a new instruction. Never reconnect an old approval to a new process. Deploy
 while owned turns are idle, especially when questions or approvals are pending.
 

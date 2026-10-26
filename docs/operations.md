@@ -41,7 +41,9 @@ thread's writer lock. A session record (`turnlogs-codex/*.session.json`) carries
 and the start times of the app-server and its keeper (1.73.7); after a restart Pocket adopts or
 signals a recorded process only when both match, so a record left from before a reboot is
 removed without signalling whatever process now has that pid. Records written before 1.73.7
-count as this boot's only when the file is newer than the boot.
+count as this boot's only when the file is newer than the boot. macOS has no boot id: there the
+start times come from `ps -o lstart=` and decide alone, and the boot time comes from
+`sysctl kern.boottime` (1.81).
 
 `POCKET_MAX_PROCESSES` defaults to 8 (`0` means no cap) and reclaims the longest-idle eligible process
 before starting another. It is a **soft target**: active work is not evicted, and a

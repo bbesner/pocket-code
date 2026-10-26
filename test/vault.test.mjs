@@ -552,8 +552,14 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   assert.equal((await call('/vault/passphrase',{action:'remove',passphrase:'correct horse battery'})).status,401,'the old passphrase is gone');
   pp=await call('/vault/passphrase',{action:'remove',passphrase:'another passphrase 2'});assert.equal(pp.status,200);assert.equal(pp.body.mode,'key');
   // Ten wrong tries in an hour, then 429.
+  // 1.81 (#177): only wrong tries count, and a right one clears them; every try used to count, so frequent unlocking locked the owner out.
   await call('/vault/passphrase',{action:'set',passphrase:'correct horse battery',confirm:'correct horse battery'});await call('/vault/lock',{});
-  let last=0;for(let i=0;i<11;i++)last=(await call('/vault/unlock',{passphrase:'nope nope nope nope'})).status;assert.equal(last,429);
+  for(let i=0;i<12;i++){assert.equal((await call('/vault/unlock',{passphrase:'correct horse battery'})).status,200,'right try '+i);await call('/vault/lock',{});}
+  for(let i=0;i<9;i++)assert.equal((await call('/vault/unlock',{passphrase:'nope nope nope nope'})).status,401);
+  assert.equal((await call('/vault/unlock',{passphrase:'correct horse battery'})).status,200,'nine wrong, then right: open, and the count is cleared');await call('/vault/lock',{});
+  let last=0;for(let i=0;i<10;i++)last=(await call('/vault/unlock',{passphrase:'nope nope nope nope'})).status;assert.equal(last,401,'ten wrong tries are answered');
+  assert.equal((await call('/vault/unlock',{passphrase:'nope nope nope nope'})).status,429);
+  assert.equal((await call('/vault/unlock',{passphrase:'correct horse battery'})).status,429,'then even the right one waits');
   assert.equal((await call('/settings',{vault:false})).body.vault,false);
   o=await cli(['list']);assert.equal(o.code,3);assert.match(o.stderr,/Settings → Projects, files, tasks & vault/);
   assert.equal((await call('/vault')).status,404);
@@ -839,4 +845,17 @@ test('pocket-vault run prints a character that arrives split across two chunks w
   await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>{server.close();fs.rmSync(dir,{recursive:true,force:true});});
   const out=await new Promise(res=>execFile(process.execPath,[path.join(repo,'scripts/pocket-vault.mjs'),'run','--env','T=x','--','true'],{cwd:dir,env:{...cleanEnv(),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),POCKET_URL:`http://127.0.0.1:${server.address().port}`}},(e,stdout)=>res({code:e?e.code:0,stdout})));
   assert.equal(out.code,0);assert.equal(out.stdout,'café ✓\n');
+});
+
+// 1.81 (#177): the editor allowed 4,000 characters of notes and the store cut them to 2,000 without a word. Now one limit, refused.
+test('notes past the limit are refused on add and edit, not cut; the editor allows the same length',()=>{
+  const dir=tmp();const v=new VaultStore(path.join(dir,'vault.enc'),{key:parseKey(newKey())});
+  const at=LIMITS.notes;assert.equal(at,2000);
+  const a=v.act({action:'add',name:'n1',kind:'token',values:{value:'tok-1234567890'},notes:'x'.repeat(at)},{actor:'owner'});assert.equal(a.notes.length,at);
+  assert.throws(()=>v.act({action:'add',name:'n2',kind:'token',values:{value:'tok-1234567890'},notes:'x'.repeat(at+1)},{actor:'owner'}),e=>e.status===400&&/Notes can be up to 2,000 characters/.test(e.message));
+  assert.throws(()=>v.act({action:'update',item:a.id,notes:'y'.repeat(at+1)},{actor:'owner'}),e=>e.status===400);
+  assert.equal(v.get(a.id).notes,'x'.repeat(at),'a refused edit changes nothing');
+  assert.equal(v.act({action:'update',item:a.id,notes:'  short  '},{actor:'owner'}).notes,'short');
+  const editor=fs.readFileSync(path.join(import.meta.dirname,'..','public','vault.js'),'utf8');
+  assert.match(editor,new RegExp(`<textarea name="notes"[^>]*maxlength="${at}"`),'the editor allows exactly the store limit');
 });

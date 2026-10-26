@@ -69,12 +69,25 @@ test('ProjectStore: directory match, snapshot order, due reminders announced onc
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+// 1.81 (#178): the commands print times in the owner's zone but the store read an offsetless time in POCKET_TZ, so a printed
+// time passed back landed hours off whenever the owner's browser zone differed. The store now reads it in the owner's zone.
+test('ProjectStore: a reminder time without an offset is read in the owner zone the commands print in',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-zone-'));let zone='Europe/Berlin';
+  try{
+   const s=new ProjectStore(path.join(dir,'projects.json'),{zone:()=>zone});const p=s.act({action:'track',name:'Zone check'});
+   const r=()=>s.get(p.id).reminders.find(x=>x.state==='open');
+   s.act({action:'remind',project:p.id,at:'2027-03-10T09:00'});assert.equal(r().dueAt,'2027-03-10T08:00:00Z','09:00 in Berlin');
+   s.act({action:'remind',project:p.id,at:'2027-03-10T09:00-05:00'});assert.equal(r().dueAt,'2027-03-10T14:00:00Z','an explicit offset still wins');
+   zone='';s.act({action:'remind',project:p.id,at:'2027-03-10T09:00'});assert.equal(r().dueAt,parseWhen('2027-03-10T09:00'),'no owner zone: POCKET_TZ or the server\'s, as before');
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+
 const snapshotFixture=()=>({version:2,generated_at:'2026-10-09T12:00:00+00:00',timezone:'America/New_York',projects:[
   {id:'nvr-review',name:'NVR review',summary:'Chunk 7 drafted',next_step:'Review RTSP redirect',waiting_for:'',status:'active',directory:'/home/u/nvr',link:'https://github.com/x/y/pull/1',created:'2026-09-30T20:00:00+00:00',updated:'2026-10-08T03:28:04+00:00',verified:'2026-10-08T03:28:04+00:00',revision:14,enrollment:'explicit-user-request',
    tasks:[{id:'06f35f99ed42',project:'nvr-review',text:'Decide retention',done:0,created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00'},{id:'aa11',project:'nvr-review',text:'Old step',done:1,created:'2026-10-01T00:00:00+00:00',updated:'2026-10-02T00:00:00+00:00'}],
    reminders:[{id:'bc0d81efc253',project:'nvr-review',task:null,label:'Check-in',due_at:'2037-10-14T13:00:00+00:00',state:'open',version:2,notified_at:null,digest_date:null,updated:'2026-10-08T00:00:00+00:00'},{id:'dead',project:'nvr-review',task:'missing-task',label:'Orphan',due_at:'2037-10-14T13:00:00+00:00',state:'open',updated:'2026-10-08T00:00:00+00:00'}],
    due_count:0,history:[{id:1,project:'nvr-review',at:'2026-09-30T20:00:00+00:00',actor:'agent',action:'tracked',detail:'{"name": "NVR review"}'},{id:2,project:'nvr-review',at:'2026-10-08T03:28:04+00:00',actor:'agent',action:'updated',detail:{summary:'x'}}]},
-  {id:'blog',name:'SCK blog cleanup',summary:'',next_step:'',waiting_for:'Brad to review',status:'waiting',directory:'',link:'',created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00',verified:'2026-10-01T00:00:00+00:00',revision:3,enrollment:'explicit-user-request',tasks:[],reminders:[],due_count:0,history:[]},
+  {id:'blog',name:'Blog cleanup',summary:'',next_step:'',waiting_for:'Owner to review',status:'waiting',directory:'',link:'',created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00',verified:'2026-10-01T00:00:00+00:00',revision:3,enrollment:'explicit-user-request',tasks:[],reminders:[],due_count:0,history:[]},
   {id:'',name:'',status:'active',tasks:[],reminders:[],history:[]}],due_count:0,reminder_health:{},programs:[],alarms:[],events:[],unboarded:[],total_asks:0,blocked_brad:0});
 
 test('ProjectStore: a Mission Control snapshot imports once, field for field',()=>{
@@ -86,7 +99,7 @@ test('ProjectStore: a Mission Control snapshot imports once, field for field',()
   assert.deepEqual(p.tasks.map(t=>[t.id,t.done]),[['06f35f99ed42',false],['aa11',true]]);
   assert.deepEqual(p.reminders.map(x=>[x.id,x.dueAt,x.state,x.due]),[['bc0d81efc253','2037-10-14T13:00:00Z','open',false]],'a reminder on a missing step is dropped');
   assert.equal(p.history.length,3);assert.equal(p.history[1].detail,'{"summary":"x"}');assert.equal(p.history.at(-1).action,'imported');
-  assert.equal(s.get('blog').waitingFor,'Brad to review');assert.equal(s.get('blog').status,'waiting');
+  assert.equal(s.get('blog').waitingFor,'Owner to review');assert.equal(s.get('blog').status,'waiting');
   const again=s.importSnapshot(snapshotFixture());assert.deepEqual(again.added,[]);assert.equal(again.skipped.filter(x=>x.reason==='already here').length,2);
   assert.throws(()=>s.importSnapshot({nope:true}),/snapshot/);
   fs.rmSync(dir,{recursive:true,force:true});
@@ -166,11 +179,15 @@ test('HTTP: the board is off until Settings turns it on, the loopback token serv
   const taskId=/\[ \] Ship it  \(([0-9a-f]+)\)/.exec(out.stdout)[1];
   out=await cli(['remind','--at','2026-12-01T09:00','--task',taskId],path.join(dir,'work'));assert.match(out.stdout,/Reminder .*Ship it/);
   out=await cli(['task','done',taskId],path.join(dir,'work'));assert.match(out.stdout,/\[x\] Ship it/);assert.doesNotMatch(out.stdout,/Reminder/);
-  out=await cli(['scheduled']);assert.match(out.stdout,/DUE .*SCK blog cleanup: Overdue/);
+  out=await cli(['scheduled']);assert.match(out.stdout,/DUE .*Blog cleanup: Overdue/);
   out=await cli(['context','--hook'],path.join(dir,'work','sub'));assert.equal(out.code,0,out.stderr);const ctx=JSON.parse(out.stdout);assert.equal(ctx.hookSpecificOutput.hookEventName,'SessionStart');assert.match(ctx.hookSpecificOutput.additionalContext,/Tracked project for this directory: CLI project/);assert.match(ctx.hookSpecificOutput.additionalContext,/Next: Write tests/);
   out=await cli(['context','--hook'],dir);assert.equal(out.code,0);assert.equal(out.stdout,'','no tracked project: silent');
   out=await cli(['status'],dir);assert.equal(out.code,0);assert.match(out.stdout,/No tracked project contains/);
   out=await cli(['note','x'],dir);assert.equal(out.code,5);
+  // 1.81 (#186): a relative --dir is resolved against the current directory, as pocket-docs add does, instead of being refused.
+  fs.mkdirSync(path.join(dir,'other','deep'),{recursive:true});
+  out=await cli(['track','--requested','--name','Relative dir','--dir','other','--json'],dir);assert.equal(out.code,0,out.stderr);assert.equal(JSON.parse(out.stdout).directory,path.join(dir,'other'));
+  out=await cli(['update','-p','relative-dir','--dir','./other/deep','--json'],dir);assert.equal(out.code,0,out.stderr);assert.equal(JSON.parse(out.stdout).directory,path.join(dir,'other','deep'));
   assert.equal((await call('/settings',{projects:false})).body.projects,false);
   out=await cli(['status','--all']);assert.equal(out.code,3);assert.match(out.stderr,/Settings → Projects, files, tasks & vault/);
   out=await cli(['context','--hook']);assert.equal(out.code,0);assert.equal(out.stdout,'','off: the hook stays silent');

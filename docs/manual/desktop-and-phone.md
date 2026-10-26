@@ -179,7 +179,9 @@ Results, Queue, Git, split view and the cost line.
   Settings category has **All settings**.
 - **A library that fails to load** says so with **Retry**, keeping the last loaded list on screen when
   there is one. A library that is turned off says *Projects is off. Turn it on in Settings → Projects,
-  files, tasks & vault.* with **Open Settings** (for Files, Tasks and the others alike).
+  files, tasks & vault.* with **Open Settings** (for Files, Tasks and the others alike). In Assistant mode
+  it says *Settings → Features* and **Open Settings** goes there; when Assistant mode is locked it says
+  *Ask the person who runs this install to turn it on.* and has no button.
 
 ## Keyboard shortcuts
 
@@ -235,11 +237,11 @@ or off and choose what they get:
 
 A finished-reply notification is titled with the conversation and says what happened: **Ready ·
 $0.07 · 14s** (cost and time; only **Ready** in Assistant mode and for Codex), **Something went
-wrong. Tap to see what happened**, **Stopped**, or **Usage limit reached. Picks up again at …**. A
-Codex reply that did not finish says **Stopped. Tap to review**. Tapping it opens the conversation.
+wrong. Tap to see what happened**, **Stopped**, or **Usage limit reached. Picks up again at …**.
+Tapping it opens the conversation.
 
-A Claude conversation that is open in a browser when its reply finishes sends no push; the chime
-plays there instead. A Claude reply that leaves background jobs running holds its push; the
+A conversation that is open in a browser when its reply finishes sends no push; the chime plays there
+instead. A reply you stopped sends none either. A Claude reply that leaves background jobs running holds its push; the
 notification comes when the agent reports back after those jobs. A reply that hands straight over to
 a queued message sends no push; the last reply of the queue does.
 

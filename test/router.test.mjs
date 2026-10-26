@@ -9,7 +9,7 @@ import path from 'node:path';
 import http from 'node:http';
 import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
-import {ModelRouter, tierChoice, capEffort, TIERS} from '../router.mjs';
+import {ModelRouter, tierChoice, capEffort, TIERS, routerContext} from '../router.mjs';
 import {CLAUDE_MODELS} from '../models.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
@@ -55,6 +55,21 @@ test('Jev and OpenAI answers become a choice; errors, timeouts, refusals and low
   assert.equal(new ModelRouter({ provider: 'jev', key: '' }).on, false, 'no key: off');
   assert.equal(new ModelRouter({ provider: 'gemini', key: 'k' }).on, false, 'unknown provider: off');
   assert.equal(await jev.pick('x', { offered: [] }), null, 'nothing offered: default');
+});
+
+test('1.81: the prompt names no business; POCKET_ROUTER_CONTEXT is added after the neutral context (#174)', async () => {
+  const sent = [];
+  const fetchImpl = async (url, o) => { sent.push(JSON.parse(o.body)); return json({ answers: { tier: { choice: 'quick', probabilities: { quick: 0.9 } } } }); };
+  await new ModelRouter({ provider: 'jev', key: 'k', fetchImpl }).pick('Any quotes expiring?', { offered: seat });
+  const plain = sent[0].state.context + ' ' + sent[0].questions.tier.instructions;
+  assert.doesNotMatch(plain, /security|account manager|warehouse|office employee/i);
+  assert.match(sent[0].questions.tier.instructions, /from an AI work assistant\?/);
+  await new ModelRouter({ provider: 'jev', key: 'k', fetchImpl, context: '  A bakery with two shops;\n orders and invoices are routine.  ' }).pick('x', { offered: seat });
+  assert.equal(sent[1].state.context, sent[0].state.context + ' A bakery with two shops; orders and invoices are routine.');
+  const oa = new ModelRouter({ provider: 'openai', key: 'k', context: 'A bakery.', fetchImpl: async (url, o) => { sent.push(JSON.parse(o.body)); return json({ answers: [{ type: 'choice', name: 'tier', choice: 'quick', confidence: 0.9 }] }); } });
+  await oa.pick('Hello', { offered: seat });
+  assert.ok(sent[2].input[0].content[0].text.startsWith(sent[0].state.context + ' A bakery.\n\nRequest:\nHello'));
+  assert.equal(routerContext('x'.repeat(5000)).length, routerContext().length + 1001, 'capped at 1000 characters');
 });
 
 async function server(t, port, env) {

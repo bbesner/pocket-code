@@ -33,8 +33,9 @@ box a conversation uses.
 4. Write the task and press the Send arrow (**Start conversation**). On a screen 900 px or wider, Enter
    starts and Shift+Enter adds a line; on a phone Enter adds a line.
 
-The workspace preselected is, in order: the server's default workspace (`POCKET_DEFAULT_CWD`), the
-workspace you last started in on this browser, else the most recently used one. With
+The workspace preselected is, in order: the folder a start link or a project's **Start** names, the
+server's default workspace (`POCKET_DEFAULT_CWD`), the workspace you last started in on this browser,
+else the most recently used one. With
 `POCKET_LOCK_CWD=1` (and a valid `POCKET_DEFAULT_CWD`) there is nothing to choose: every conversation
 starts in that folder, and a start that names another folder is moved there.
 
@@ -68,7 +69,7 @@ The chips above the message box apply to the next reply, on New conversation and
 | Chip | Choices |
 |---|---|
 | Model (**Model for this reply**) | **Default**, then the models the picker offers (see [Models in the picker](#models-in-the-picker)). Default's line names what it runs: the Pocket default, or your CLI's own setting. |
-| Effort (**Reasoning effort**) | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. |
+| Effort (**Reasoning effort**) | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. For Codex, **Ultra** (maximum reasoning with automatic task delegation) is listed above **Max** only when the chosen model offers it; for **Default** that is the model in `POCKET_CODEX_MODEL`, if set. Changing to a model without it sets the effort back to **Default**. |
 | Permissions | **Review actions** (actions wait for your approval) or **Full access**. See [Questions and approvals](approvals.md#choose-review-actions-or-full-access). |
 | Mode (Codex only, **Codex mode for the next reply**) | **Work normally** carries out the request; **Plan first** explores an approach and asks questions before implementing. Plan first is guidance for the agent, not a sandbox. |
 
@@ -299,9 +300,9 @@ rendered.
 ### Start links
 
 A start link is a briefing handed to Pocket by an agent or a job. Opening `#/start/<id>` while signed in
-puts the briefing in New conversation's box and selects the agent the link names. Pocket preselects
-the link's workspace when it is one of the listed workspaces and no `POCKET_DEFAULT_CWD` is set;
-otherwise check **Workspace** in the setup card. Nothing starts until you press Start. A link that has
+puts the briefing in New conversation's box and selects the agent the link names. The link's folder
+wins over the default workspace: it is selected when it is one of the listed workspaces and filled in
+as a custom path when it is not. Nothing starts until you press Start. A link that has
 expired shows *That start link has expired.*
 
 Links last 7 days by default (1 to 30), hold up to 20,000 characters of text and a 160-character title,
@@ -323,7 +324,7 @@ minutes) is stopped. See [operations](../operations.md) for restarts and recover
 | `POCKET_DEFAULT_CWD` | Workspace New conversation preselects. |
 | `POCKET_LOCK_CWD` | `1` starts every conversation in `POCKET_DEFAULT_CWD`. |
 | `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | Pocket's Default for Claude replies (the model counts only while it is offered). Unset: the CLI's own settings. |
-| `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | Pocket's Default for Codex replies. |
+| `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | Pocket's Default for Codex replies. `POCKET_CODEX_EFFORT` takes `low`, `medium`, `high`, `xhigh`, `max` or `ultra`; `ultra` works only with a model that offers it. |
 | `POCKET_CLAUDE_MODELS` | Claude models offered until a list is saved in Settings. |
 | `POCKET_CLAUDE_MANAGED_DIR` | Where to read Claude Code's managed settings, if not the system folder. |
 | `POCKET_CODEX` | `0` hides Codex even when installed. |
@@ -380,7 +381,6 @@ for a provisioned install, set `POCKET_CLAUDE_MODELS` and restart Pocket.
 | A reply says the model *is not offered in Settings* or *is blocked by this computer's Claude Code policy* | The chosen model is not offered. | Choose another model, or offer it in **Settings → Agents & instance**. |
 | *Choose a Claude model from the model menu, then send again.* | An old tab sent a Codex model to Claude (or the reverse). | Pick a model from the menu. |
 | **Start request not yet confirmed** | The start was sent but the answer was lost. | **Retry start** (it cannot start a duplicate) or **Discard retry**. |
-| A start link opens in the wrong workspace | The link's folder is not among the listed workspaces, or a default workspace is set. | Change it under **Edit setup** before starting. |
 | **Status unavailable** or **Status unconfirmed. Reconnecting…** | The list check failed or is older than 15 seconds. | Wait, or use **Refresh**; work on the server continues. |
 | *Could not search inside conversations.* | The search request failed or timed out. | **Try again**. |
 | No generated titles | Titles are off, or neither CLI is installed and signed in (Settings shows the reason). | Turn on **Generate short titles**, or sign the CLI in. |

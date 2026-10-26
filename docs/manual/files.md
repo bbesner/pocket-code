@@ -17,7 +17,7 @@ Files is off until you switch it on for the whole instance:
 
 While Files is off, nothing in the library is served, including public and share links, and `pocket-docs` is refused. Your files and their records stay on disk and come back when you turn it on again. While it is on, Pocket installs the `pocket-files` skill for Claude Code and Codex and tells the agents it runs about the library (see [For agents](#for-agents)).
 
-In Assistant mode the **Projects, files, tasks & vault** group is not shown in Settings. Switch to **Developer mode** under **Settings → Appearance → Mode** to change it.
+In Assistant mode the switch is under **Settings → Features** instead. When Assistant mode is locked, ask the person who runs the install.
 
 The same Settings group has three more choices:
 
@@ -181,11 +181,11 @@ The file you `add` must be inside the home directory of the user Pocket runs as 
 
 | Command | What it does |
 |---|---|
-| `add <path> [--title "…"] [--project <id>] [--session <id>] [--visibility private\|link\|public]` | Copies the file into the library. Private unless `--visibility` says otherwise; with `link`, the share address is printed once. `--session` is a Claude session id, or `cx:<id>` for Codex. |
+| `add <path> [--title "…"] [--project <id>] [--session <id>] [--visibility private\|link\|public]` | Copies the file into the library. Private unless `--visibility` says otherwise; with `link`, the share address is printed. `--project` must name an existing project. `--session` is a Claude session id, or `cx:<id>` for Codex. |
 | `list [--project <id>] [--q text] [--json]` | Files, newest first: id, visibility, kind, title, project, stored name and date. `--q` matches the title and stored file name. Prints how many are in the trash. |
-| `show <id> [--json]` | One file, from the library or the trash. |
-| `share <id> [--expires 7d\|30d\|none]` | Makes the file link-visible, or gives an already shared file a new link (the old one stops working), and prints the address. `--expires` takes a number of days followed by `d`, or `none`. Without it, a new link has no expiry and a renewed link keeps its old expiry. |
-| `set <id> [--title "…"] [--project <id>] [--visibility private\|link\|public]` | Changes the title, project or visibility. An empty `--project ""` removes the project. Setting `link` prints the new address. |
+| `show <id> [--json]` | One file, from the library or the trash, with its share address when it is shared. |
+| `share <id> [--expires <n>d\|none]` | Makes the file link-visible, or gives an already shared file a new link (the old one stops working, and the command says so), and prints the address. `--expires` takes a number of days followed by `d` (`7d`, `30d`), or `none`. Without it, a new link has no expiry and a renewed link keeps its old expiry. |
+| `set <id> [--title "…"] [--project <id>] [--visibility private\|link\|public]` | Changes the title, project or visibility, and prints the file with its share address. `--project` must be the id of an existing project (`pocket-board status --all` lists them); an empty `--project ""` removes the project. Setting `link` prints the new address. |
 | `trash <id>` | Moves the file to the trash (restorable for 30 days). Only when the user asks. |
 | `restore <id>` | Brings a file back from the trash, as private. |
 | `import <dashboard-files-meta.json>` | One-time import of the older Mission Control dashboard's file metadata for files already in the library's folder. |
@@ -193,7 +193,7 @@ The file you `add` must be inside the home directory of the user Pocket runs as 
 
 There is no delete command. If the user wants a file gone for good, trash it and tell them **Delete forever** or **Empty trash** is in the library's Trash.
 
-`show` does not print an existing share address; run `share <id>` for a fresh one when the user needs it.
+When the user asks for the link to a file that is already shared, give the address `show <id>` prints. Do not run `share` for it: that makes a new link and the one they already sent stops working.
 
 ### Examples
 

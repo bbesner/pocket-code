@@ -132,7 +132,7 @@ All of these talk to the running Pocket daemon over loopback. Each reads the dae
 
 The data directory is `POCKET_DATA_DIR` from the environment or that `.env`, and defaults to the Pocket Code directory. `POCKET_ENV_FILE` names a different `.env` (empty reads none). Reading `cli-url` first means a `PORT` exported by an app you are working on cannot send Pocket's token to that app.
 
-Times the commands print use the owner's time zone (the zone their browser reports, then `POCKET_TZ`, then the server's) and name it. A time you give without an offset is read in `POCKET_TZ` or the server's zone.
+Times the commands print use the owner's time zone (the zone their browser reports, then `POCKET_TZ`, then the server's) and name it. A time you give without an offset is read in that same zone, so a printed time can be passed back as it reads.
 
 ### Hand the user a briefing with a start link
 
@@ -191,7 +191,7 @@ These come from Pocket's instructions and skills. Follow them in Pocket and outs
 | A command says "No CLI token at …" or "Pocket Code is not running here" | The daemon is not running, or the command reads a different data directory | Start Pocket, or run the command from the Pocket Code directory so it reads the same `.env`. |
 | "Pocket Code is not reachable at http://127.0.0.1:…" | Wrong address, or a Codex Review-mode sandbox blocking loopback | Check `cli-url` and `POCKET_URL`; under Codex Review actions, the step needs Full access. |
 | `401` / "unauthorized" | The token in `cli-token` changed (Pocket restarted) or the call came through a proxy instead of loopback | Run the command again on the server itself. |
-| "Projects is off" (or Files, Tasks, Inbox Watch, the Vault) | The feature is switched off | Tell the user it is turned on in **Settings → Projects, files, tasks & vault** (shown in Developer mode only). |
+| "Projects is off" (or Files, Tasks, Inbox Watch, the Vault) | The feature is switched off | Tell the user it is turned on in **Settings → Projects, files, tasks & vault** (in Assistant mode, **Settings → Features**; when Assistant mode is locked, by the person who runs the install). |
 | Your instructions do not mention a feature the user just turned on | The lines are fixed when your process starts | The next conversation, or this one after its process restarts, gets them. |
 | Codex conversations get none of Pocket's lines | Codex's `config.toml` sets `developer_instructions` | Tell the user; the installed skills still apply. |
 | An installed skill is not Pocket's version | A folder of the same name without `.pocket-managed` exists | Pocket leaves it alone. The user can remove it, and Pocket installs its own at the next start. |

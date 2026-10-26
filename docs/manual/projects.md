@@ -15,7 +15,7 @@ Projects is off until you switch it on for the whole instance:
 
 The switch applies to every device and to agent conversations. While it is on, Pocket installs the `pocket-projects` skill for Claude Code and Codex and tells the agents it runs how to track a project (see [For agents](#for-agents)). Turning it off hides Projects, refuses the `pocket-board` command and stops reminders from being announced; the cards stay on disk and come back when you turn it on again.
 
-In Assistant mode the **Projects, files, tasks & vault** group is not shown in Settings. Switch to **Developer mode** under **Settings → Appearance → Mode** to change it.
+In Assistant mode the switch is under **Settings → Features** instead. When Assistant mode is locked, ask the person who runs the install.
 
 **Open projects** in the same Settings group (this device only) chooses how a project opens when you click it: **As a tab, like a conversation**, **Beside the conversation**, or **In a new browser window**.
 
@@ -150,7 +150,7 @@ The **⋯** on a linked conversation offers **Open conversation**, **Open beside
 | **Email due tasks and reminders to** (same group) | The address for reminder email. Needs `POCKET_SMTP_URL`. |
 | `POCKET_REMINDER_HOOK` | A shell command run for each due reminder, with the reminder as JSON on standard input. It runs without Pocket's own secrets in its environment. See [operations](../operations.md#optional-libraries-projects-files-tasks-inbox-and-the-vault) for the payload. |
 | `POCKET_REMINDER_HOOK_TIMEOUT_MS` | How long one hook run may take before Pocket stops it and everything it started. Default 60000. |
-| `POCKET_TZ` | The time zone for reminder times given to `pocket-board` without an offset. Default: the server's own zone. |
+| `POCKET_TZ` | The user's time zone until their browser reports one, for reminder times shown and given to `pocket-board` without an offset. Default: the server's own zone. |
 | `POCKET_REMINDER_CHECK_MS` | How often due reminders are checked, in milliseconds. Default 60000. |
 | `POCKET_SKILLS=0` | Stops Pocket installing its skills into the agents' skill folders. |
 
@@ -176,13 +176,13 @@ Run `node scripts/pocket-board.mjs` from the Pocket Code directory (the installe
 
 Most commands act on the project whose directory contains the current directory. Add `-p <id>` (or `--project <id>`) to name another.
 
-Times are printed in the user's time zone (the one their browser reports to Pocket, else `POCKET_TZ`, else the server's), with the zone named. A time you pass without an offset is read in `POCKET_TZ`, or the server's zone when it is unset. If the user's zone differs from that, pass an explicit offset (`2026-11-06T09:00-05:00`).
+Times are printed in the user's time zone (the one their browser reports to Pocket, else `POCKET_TZ`, else the server's), with the zone named. A time you pass without an offset is read in the same zone, so a printed time can be passed back as it reads; an explicit offset (`2026-11-06T09:00-05:00`) is also accepted.
 
 ### Command reference
 
 | Command | What it does |
 |---|---|
-| `track --requested --name "…" [--summary "…"] [--next "…"] [--dir <path>] [--link <url>] [--session <id>]` | Creates a card. `--requested` says the user asked and is required. The directory defaults to the current directory; `--dir` must be a full path. `--session` links the conversation (a Claude session id, or `cx:<id>` for Codex). |
+| `track --requested --name "…" [--summary "…"] [--next "…"] [--dir <path>] [--link <url>] [--session <id>]` | Creates a card. `--requested` says the user asked and is required. The directory defaults to the current directory; a relative `--dir` is taken from the current directory. `--session` links the conversation (a Claude session id, or `cx:<id>` for Codex). |
 | `status` | The current directory's card. With no match, lists every project and says none contains this directory. |
 | `status --all` | One line per project: status, id, name, due reminders, open steps. |
 | `status -p <id>` | That project's card. |
@@ -250,9 +250,9 @@ pocket-board update -p acme-hoa-camera-upgrade --summary "Installed and tested."
 | `Pocket Code is not reachable at …` | The server is down or not answering (the command waits 30 seconds). | Check that Pocket is running; set `POCKET_URL` if it listens elsewhere. |
 | Exit 4, `unauthorized` | The token belongs to another install, or the request did not come straight over loopback (through a proxy or tunnel). | Run the command on the server itself, against the Pocket whose data directory holds the token. |
 | `No tracked project contains …` | The current directory is outside every active project's directory. | Pass `-p <id>` (ids are in `status --all`), or set the project's directory with `update --dir`. |
-| `The directory must be a full path.` | `--dir` was relative. | Pass an absolute path. |
+| `The directory must be a full path.` | A relative directory reached the server from the form or the API (the command resolves `--dir` against the current directory). | Pass an absolute path. |
 | `This project is finished. Resume it first.` | Steps and reminders cannot change on a Done project. | `update --status active`, or **Resume project** on the card. |
-| A reminder arrives hours off | The time was given without an offset and the server's zone (`POCKET_TZ` or the system zone) is not the user's. | Pass an offset, or set `POCKET_TZ` to the user's zone. |
+| A reminder arrives hours off | The time was given without an offset before the user's browser reported a zone, and `POCKET_TZ` (or the system zone) is not the user's. | Open Pocket in the user's browser once, set `POCKET_TZ` to the user's zone, or pass an offset. |
 | No reminder on any channel | Projects is off; reminders are announced only while it is on. | Turn on **Settings → Projects, files, tasks & vault → Projects**. |
 | No push for a due reminder | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications & voice** on the device. The card still shows the reminder as due. |
 | No reminder email | `POCKET_SMTP_URL` is not set, or no address is saved. | Set it up (see [Settings](settings.md#notifications--voice)) and use **Send a test** in **Settings → Notifications & voice**. |

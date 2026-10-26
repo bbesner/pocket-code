@@ -23,19 +23,19 @@ index. Sub-pages such as **Accounts & instance**, **Connectors** and **Plan usag
 Settings**, which returns to the same category and scroll position. Escape or Close leaves
 Settings.
 
-Developer mode shows six categories. Assistant mode shows five, with fewer controls:
+Both modes show six categories, and Assistant mode has fewer controls:
 
 | Category | Developer mode | Assistant mode |
 |---|---|---|
 | [Appearance](#appearance) | Everything | Everything |
 | [Conversation](#conversation) | Reading, titles and summaries | **Collapse steps** and **Show message times** |
 | [Agents & instance](#agents--instance) | Everything | Replaced by **Accounts**: **Accounts & instance** and **Connectors** only |
-| [Projects, files, tasks & vault](#projects-files-tasks--vault) | Everything | Not shown |
+| [Projects, files, tasks & vault](#projects-files-tasks--vault) | Everything | Replaced by [Features](#features-assistant-mode): the five switches and **Automatic model choice** |
 | [Notifications & voice](#notifications--voice) | Everything | Everything |
 | [Help & updates](#help--updates) | Shortcuts, version, what's new, feedback | Version and what's new |
 
-A setting hidden in Assistant mode keeps its value and still applies. To change one, switch to
-Developer mode in **Appearance → Mode**, change it, and switch back.
+A setting hidden in Assistant mode keeps its value and still applies. To change one that **Features**
+does not offer, switch to Developer mode in **Appearance → Mode**, change it, and switch back.
 
 Instance-wide settings load from the server when the category opens; their switches stay disabled
 with a **Loading…** note until they arrive. If loading fails, the notes say **Could not load this
@@ -82,7 +82,7 @@ Everything here applies to the whole install.
 | **Plan usage** | The 5-hour and weekly limits and extra-usage status, for Claude Code and for Codex when it is installed. Updates only when a reply runs |
 | **Claude models in the picker** | Tap a model to offer it, or stop offering it, in the model menu on every device. At least one stays on. A model blocked by this computer's Claude Code managed settings is marked and cannot be turned on. **Use the server's list** forgets the choice |
 | **Actions that run without asking** | Read-only actions Claude runs without an approval card in **Review actions**. Type a rule (`Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`) and press **Add**; **Remove** takes one off. Edit and Write always ask; Codex is not covered. **Use the server's list** goes back to `POCKET_TRUSTED_ACTIONS` |
-| **Automatic model choice** | In Assistant mode, sends a request typed from scratch to a small decision model that picks one of four levels; see below |
+| **Automatic model choice** | In Assistant mode, sends a request typed from scratch to a small decision model that picks one of four levels; see below. Assistant mode shows only its switch, under **Features** |
 | **One sign-in** | Lets a Cloudflare Access sign-in replace Pocket's password; see below |
 
 **Defaults.** The picker offers every Claude model, or the list in `POCKET_CLAUDE_MODELS`. No
@@ -106,8 +106,10 @@ matching: [action approvals](../action-approvals.md#actions-that-run-without-ask
 
 It acts only in Assistant mode and only on requests typed from scratch; saved prompts keep their
 own model. If the decision model fails, is unsure or takes longer than `POCKET_ROUTER_TIMEOUT_MS`
-(default 1500 ms), the default model runs, and the note says so. In Assistant mode the other model
-control is **Try harder** under a Claude reply (see [Working in a conversation](conversation.md#try-harder-assistant-mode)).
+(default 1500 ms), the default model runs, and the note says so. The decision model is told only that the
+request was typed into an AI work assistant; to tell it what routine work looks like on this install, describe the
+business in `POCKET_ROUTER_CONTEXT` (a sentence or two, up to 1,000 characters, read at start). In Assistant mode
+the other model control is **Try harder** under a Claude reply (see [Working in a conversation](conversation.md#try-harder-assistant-mode)).
 
 **One sign-in** controls: **Team** (the part before `.cloudflareaccess.com`), **Audience tag**
 (from the Access application's Overview) and **Who may sign in this way** (comma-separated emails,
@@ -118,8 +120,8 @@ shows who can sign in and the last Access sign-in.
 
 ## Projects, files, tasks & vault
 
-Developer mode only. The switches apply to the whole install; the three **Open …** menus apply to
-this browser.
+Developer mode only; Assistant mode has the switches under [Features](#features-assistant-mode). The
+switches apply to the whole install; the three **Open …** menus apply to this browser.
 
 | Control | What it does | Default | Stored |
 |---|---|---|---|
@@ -141,13 +143,37 @@ Turning Projects, Files, Tasks, Inbox Watch or the Vault on or off also installs
 matching agent skill for Claude Code and Codex (unless `POCKET_SKILLS=0`). Turning the Vault on or
 off restarts idle conversation processes so they get the Vault's rules.
 
+## Features (Assistant mode)
+
+Assistant mode has no **Projects, files, tasks & vault** or **Agents & instance** category, so
+**Features** holds the controls from them that a person needs. They are the same switches and the
+same settings, for the whole install, and a change made here shows in Developer mode and the other
+way round.
+
+| Control | What it does |
+|---|---|
+| **Projects**, **Files**, **Tasks**, **Inbox Watch**, **Vault** | The same switches as in Developer mode; see [Projects, files, tasks & vault](#projects-files-tasks--vault). While Inbox Watch is on, **Inbox Watch schedule** appears under its switch and opens the [schedule sheet](inbox-watch.md#change-the-schedule-rules-and-models) |
+| **Automatic model choice** | The **Choose the model for me** switch only. The decision model, key and four levels stay in Developer mode's [Agents & instance](#agents--instance), so no model name is shown in Assistant mode |
+
+Turning a feature on or off closes Settings, because the rail and the home screen redraw; open
+**Features** again for the next one. The other Vault controls (**Agent access**, **Protection**,
+**Export and import**) and **Keep files from replies** (always on in Assistant mode) stay in
+Developer mode.
+
+When Assistant mode is locked (`POCKET_ASSISTANT_MODE=locked`), **Features** shows one line and no
+switches, for example *Projects and Tasks are on. Files, Inbox Watch and Vault are off. To change
+them, ask the person who runs this install.* They change it by switching the install to
+Developer mode, which means removing `locked` from `.env` and restarting. A library that is off
+shows *Files is off. Ask the person who runs this install to turn it on.* in place of the pointer to
+Settings, with no **Open Settings** button.
+
 ## Notifications & voice
 
 | Control | What it does | Default | Stored |
 |---|---|---|---|
 | **Completion chime** | A two-note blip when a reply finishes on screen | On | This browser |
 | **Push to this device** | Web push to this browser, even when Pocket is closed. The bell on the conversation list does the same | Off until you turn it on | Server, per device (`push-subs.json`) |
-| **Finished replies** | Push when a conversation finishes a reply, unless the conversation is muted | On when push is turned on | Server, per device |
+| **Finished replies** | Push when a conversation finishes a reply, unless the conversation is muted or open in a browser, or you stopped the reply | On when push is turned on | Server, per device |
 | **Due tasks and reminders** | Push once when each comes due; **Tomorrow** and **Done** on the notification answer without opening Pocket | On when push is turned on | Server, per device |
 | **Vault requests** | Push when an agent needs a secret you have to allow, with **Allow** and **Deny** | On when push is turned on | Server, per device |
 | **Inbox alerts** | Push for an alert from Inbox Watch or another job on the server | On when push is turned on | Server, per device |
@@ -236,7 +262,7 @@ opens Settings. The rule for each pair:
 | **Update titles as conversations progress** | `POCKET_LIVE_TITLE_GAP_MS` | The variable sets the minimum time between checks |
 | **Claude models in the picker** | `POCKET_CLAUDE_MODELS` | Settings, once a list is saved |
 | **Actions that run without asking** | `POCKET_TRUSTED_ACTIONS` | Settings, once a list is saved (even an empty one) |
-| **Automatic model choice** | `POCKET_ROUTER`, `POCKET_ROUTER_KEY`, `POCKET_ROUTER_KEY_FILE`, `POCKET_ROUTER_TIMEOUT_MS` | Settings, for each part saved there; the timeout is set only by the variable |
+| **Automatic model choice** | `POCKET_ROUTER`, `POCKET_ROUTER_KEY`, `POCKET_ROUTER_KEY_FILE`, `POCKET_ROUTER_TIMEOUT_MS`, `POCKET_ROUTER_CONTEXT` | Settings, for each part saved there; the timeout and the business description are set only by the variables |
 | **One sign-in** | `POCKET_ACCESS_TEAM`, `POCKET_ACCESS_AUD`, `POCKET_ACCESS_EMAILS` | Settings, until **Use the server's values** |
 | **Push to this device** | `VAPID_PUBLIC`, `VAPID_PRIVATE`, `VAPID_CONTACT` | Push is off without the keys |
 | **Email due tasks and reminders to** | `POCKET_SMTP_URL`, `POCKET_SMTP_FROM`, `POCKET_PUBLIC_URL` | The field is disabled without `POCKET_SMTP_URL` |
@@ -256,8 +282,9 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
 - Do not edit `pocket-settings.json` while Pocket runs. The daemon reads it at start and rewrites
   the whole file on the next save, so a hand edit is lost.
 - When a feature command answers that the feature is off, pass on the message, which names
-  **Settings → Projects, files, tasks & vault**. In Assistant mode the user has to switch to
-  Developer mode to see that category.
+  **Settings → Projects, files, tasks & vault**. In Assistant mode the switches are under
+  **Settings → Features**, and when the mode is locked the user has to ask the person who runs the
+  install.
 - To provision an install before first use (models, trusted actions, Assistant mode, one sign-in),
   add the variables above to `.env` only when the user asks, then restart.
 - Per-browser preferences cannot be set from the server.
@@ -277,4 +304,5 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
 | A rule is refused under **Add an action** | The rule changes files, covers everything, or is not valid syntax; the reason shows under the field | Fix the rule; see [action approvals](../action-approvals.md#actions-that-run-without-asking) |
 | The **Vault** switch is disabled with **This Vault's key is missing on this server** | `vault.enc` exists but its key is not in `.env` | **Restore key…** with your recovery key |
 | **Mode** options are disabled | `POCKET_ASSISTANT_MODE=locked` | Change it in `.env` and restart |
+| **Features** shows a line and no switches | `POCKET_ASSISTANT_MODE=locked` | Ask the person who runs the install, or remove `locked` in `.env` and restart |
 | A setting changed on one device does not show on another | It is a **This device** setting | Set it on each device |

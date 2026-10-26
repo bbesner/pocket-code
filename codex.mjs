@@ -25,7 +25,7 @@ import os from 'node:os';
 import {QuestionInbox} from './questions.mjs';
 import {ApprovalInbox,codexApproval,codexPermissionSettings} from './approvals.mjs';
 import {estimateWindow} from './usage.mjs';
-import {descendantCpu,signalGroup,BOOT_ID,startTime,commandLine} from './proctree.mjs';
+import {descendantCpu,signalGroup,BOOT_ID,startTime,commandLine,bootedAt,HAS_PROC} from './proctree.mjs';
 import { pipeDirs, ensurePipeDir } from './pipes.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import { rolloutState, contextUsed, cachedTokens, TTL_CODEX, TTL_CODEX_NOTE } from './codex-rollout.mjs';
@@ -831,11 +831,16 @@ function writeSessionMeta(s) {
 // 1.73.7: a recorded pid is signalled or adopted only when it is provably the process Pocket started: same boot (boot id, or
 // for a pre-1.73.7 file, written after this boot began) and, when recorded, the same start time. After a reboot the kernel
 // reuses pids, and a stale file used to make Pocket SIGTERM unrelated process groups at boot.
-const BOOTED_AT = (() => { try { const btime = /^btime (\d+)/m.exec(fs.readFileSync('/proc/stat', 'utf8')); return btime ? Number(btime[1]) * 1000 : null; } catch { return null; } })();
-function sameBoot(m, file) {
-  if (m.bootId) return m.bootId === BOOT_ID;
-  if (BOOTED_AT == null) return false;
-  try { return fs.statSync(file).mtimeMs > BOOTED_AT; } catch { return false; }
+// 1.81 (#171): on macOS there is no boot id and BOOTED_AT was always null, so every record looked like an earlier boot's:
+// the record was dropped and its app-server kept the thread's writer lock. Without /proc a recorded start time is the proof
+// (sameProcess compares it with the live process's, from ps); a record without one falls back to its mtime against
+// kern.boottime. `here` stands in for this machine in tests.
+const BOOTED_AT = bootedAt();
+export function sameBoot(m, file, here = { proc: HAS_PROC, bootId: BOOT_ID, bootedAt: BOOTED_AT }) {
+  if (m.bootId) return m.bootId === here.bootId;
+  if (!here.proc && m.pidStart) return true;
+  if (here.bootedAt == null) return false;
+  try { return fs.statSync(file).mtimeMs > here.bootedAt; } catch { return false; }
 }
 const sameProcess = (pid, start, legacy) => Boolean(pid) && pidAlive(pid) && (start ? startTime(pid) === start : legacy);
 
@@ -1308,6 +1313,8 @@ export async function setCodexThreadName(threadId, name) {
 
 // ---------- models ----------
 let modelCache = { at: 0, list: [] };
+// model/list answers [{reasoningEffort, description}]; the picker needs only the names.
+const effortNames = list => Array.isArray(list) ? list.map(e => typeof e === 'string' ? e : e?.reasoningEffort ?? e?.effort).filter(e => typeof e === 'string') : undefined;
 export async function codexModels() {
   if (Date.now() - modelCache.at < 10 * 60_000 && modelCache.list.length && modelCache.stamp === binStamp(CODEX_BIN)) return modelCache.list;
   try {
@@ -1315,7 +1322,7 @@ export async function codexModels() {
     const list = (r?.data || r?.models || []).map(m => ({
       id: m.id || m.model || m.slug,
       label: m.displayName || m.name || m.id,
-      efforts: m.supportedReasoningEfforts || m.reasoningEfforts || undefined,
+      efforts: effortNames(m.supportedReasoningEfforts || m.reasoningEfforts), // 1.81: the picker offers Ultra only where the model lists it
     })).filter(m => m.id);
     if (list.length) modelCache = { at: Date.now(), list, stamp: binStamp(CODEX_BIN) };
     return list;

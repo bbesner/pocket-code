@@ -93,6 +93,31 @@ test('bad timer and mode settings fall back to defaults instead of breaking turn
  assert.doesNotMatch(f.logs(),/STALLED/);
 });
 
+test('1.81: an approval default the install cannot use starts in review; a queued Full access item says why it cannot start',async t=>{
+ const env={POCKET_APPROVAL_MODE:'full',POCKET_ALLOW_FULL_ACCESS:'0'};
+ const f=await fixture(t,18421,env);
+ assert.match(f.logs(),/POCKET_APPROVAL_MODE=full conflicts with POCKET_ALLOW_FULL_ACCESS=0/);
+ assert.deepEqual((await f.call('/approval-policy')).body,{defaultMode:'review',allowFullAccess:false});
+ env.POCKET_APPROVAL_MODE='bogus';await f.stop();await f.start();
+ assert.match(f.logs(),/POCKET_APPROVAL_MODE=bogus is not review or full/);
+ assert.equal((await f.call('/approval-policy')).body.defaultMode,'review');
+ // Queued with Full access, then Full access is turned off before it runs.
+ env.POCKET_APPROVAL_MODE='';env.POCKET_ALLOW_FULL_ACCESS='1';await f.stop();await f.start();
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ const queued=await f.call(`/session/${id}/message`,{...msg('Then tidy the shelf list.'),mode:'queue',approvalMode:'full'});
+ assert.equal(queued.body.queued,true);
+ env.POCKET_ALLOW_FULL_ACCESS='0';await f.stop();await f.start();
+ const turns=f.calls().length;
+ const start=await f.call(`/session/${id}/queue/start`,{itemId:queued.body.itemId});
+ assert.equal(start.status,403);
+ const reason='Full access is turned off on this server; send it again with Review actions.';
+ assert.equal(start.body.error,reason);
+ const [row]=(await f.call(`/session/${id}/queue`)).body.items;
+ assert.deepEqual({status:row.status,error:row.error},{status:'uncertain',error:reason},'Needs review with the real reason, not "Start was not confirmed"');
+ assert.equal(f.calls().length,turns,'nothing started');
+});
+
 test('a background job is remembered across a restart: no idle close, release asks first',async t=>{
  const f=await fixture(t,18415,{POCKET_IDLE_CLOSE_MS:'1000'});
  const id=(await f.call('/new',{cwd:repo,...msg('__BG_LONG__ long job')})).body.id;

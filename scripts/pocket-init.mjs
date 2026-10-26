@@ -24,6 +24,7 @@ import crypto from 'node:crypto';
 import readline from 'node:readline';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { parseEnv } from '../env-file.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const argv = process.argv.slice(2);
@@ -77,8 +78,9 @@ else {
 const envFile = process.env.POCKET_ENV_FILE ?? path.join(root, '.env');
 if (!envFile) { note('.env', 'fail', 'POCKET_ENV_FILE is empty, so there is no file to write settings to'); finish(); }
 
-const fileEnv = {}; let envLines = [];
-try { envLines = fs.readFileSync(envFile, 'utf8').split('\n'); for (const line of envLines) { const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line); if (m && !m[1].startsWith('#')) fileEnv[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2'); } } catch { }
+let envLines = [];
+try { envLines = fs.readFileSync(envFile, 'utf8').split('\n'); } catch { }
+const fileEnv = parseEnv(envLines.join('\n'));
 const envExists = envLines.length > 0;
 const placeholder = v => v === undefined || v === '' || v === 'change-me' || v === 'you@example.com';
 const envPort = Number(fileEnv.PORT) || null;

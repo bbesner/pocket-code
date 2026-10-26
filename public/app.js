@@ -98,6 +98,10 @@ const LEGACY_MODELS = { 'claude-opus-5': 'claude-opus-5-5[1m]', 'claude-fable-5'
 // Codex advertises its own models; fetched once and cached so the picker in a Codex
 // session offers real options instead of Claude's list.
 let CODEX_MODELS = [['default', 'Default', 'Your Codex config']];
+// 1.81: what each Codex model says it supports. Ultra (maximum reasoning plus automatic task delegation) is on some models only,
+// so it is offered for the model this reply will use, which for Default is POCKET_CODEX_MODEL when it is set.
+let codexEfforts = new Map();
+const offersUltra = () => tb?.provider === 'codex' && codexEfforts.get(tb.prefs.model === 'default' ? providerDefaults.codex.model : tb.prefs.model)?.includes('ultra');
 async function loadCodexModels() {
   if (CODEX_MODELS.length > 1) return CODEX_MODELS;
   try {
@@ -106,7 +110,8 @@ async function loadCodexModels() {
       const label = defaultModel && (models.find(m => m.id === defaultModel)?.label || defaultModel);
       CODEX_MODELS = [['default', 'Default', label ? `${label} · Pocket default` : 'Your Codex config', label || 'Default'],
         ...models.map(m => [m.id, m.label || m.id, ''])];
-      providerDefaults.codex = { effort: defaultEffort, pocket: pocketDefault };
+      providerDefaults.codex = { effort: defaultEffort, pocket: pocketDefault, model: defaultModel || null };
+      codexEfforts = new Map(models.filter(m => Array.isArray(m.efforts)).map(m => [m.id, m.efforts])); // 1.81
     }
   } catch { }
   return CODEX_MODELS;
@@ -118,7 +123,7 @@ const effortList = () => {
   // 1.67: nothing above the managed policy's ceiling (maxEffortLevel) is offered for Claude.
   const cap = tb?.provider === 'codex' ? null : d.maxEffort, order = EFFORTS.map(e => e[0]).reverse();
   const allowed = cap ? EFFORTS.filter(([v]) => order.indexOf(v) <= order.indexOf(cap)) : EFFORTS;
-  return [['default', 'Default', name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'], ...allowed];
+  return [['default', 'Default', name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'], ...(offersUltra() ? [['ultra', 'Ultra', 'Maximum, with automatic task delegation']] : []), ...allowed];
 };
 const providerDefaults = { claude: {}, codex: {} };
 const EFFORTS = [
@@ -217,6 +222,11 @@ function normalizeModelPick() {
   const unoffered = tb.provider !== 'codex' && claudeModelsLoaded && model !== 'default' && !MODELS.some(m => m[0] === model);
   if (incompatible || unoffered) {
     tb.prefs.model = 'default';
+    setPrefs(tb.key, tb.prefs);
+  }
+  // 1.81: an Ultra pick the model (or the agent) does not offer goes back to Default; until Codex's models load there is nothing to compare with.
+  if (tb.prefs.effort === 'ultra' && (tb.provider !== 'codex' || codexEfforts.size) && !offersUltra()) {
+    tb.prefs.effort = 'default';
     setPrefs(tb.key, tb.prefs);
   }
 }
@@ -623,6 +633,12 @@ function modeControlsHTML() {
   <p class="chat-text-help">${help}</p>
  </section>`;
 }
+// 1.81 (#175): Settings → Features in Assistant mode. A locked Pocket cannot change them, so it gets a line saying what is on.
+function featuresLockedNote(f) {
+  const all = [['Projects', f.projects], ['Files', f.documents], ['Tasks', f.tasks], ['Inbox Watch', f.inbox], ['Vault', f.vault]];
+  const say = (names, state) => !names.length ? '' : (names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names.at(-1) + ' are ' : names[0] + ' is ') + (names.length === all.length ? 'all ' : '') + state + '.';
+  return [say(all.filter(x => x[1]).map(x => x[0]), 'on'), say(all.filter(x => !x[1]).map(x => x[0]), 'off'), 'To change them, ask the person who runs this install.'].filter(Boolean).join(' ');
+}
 async function settingsSheet({about = false, category = '', scrollTop = 0} = {}) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet settings-sheet';
@@ -703,6 +719,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings"><label class="voice-field">Model for titles and summaries<select id="s-title-model" disabled>
       <option value="auto">Automatic: Claude first, then Codex</option><option value="claude">Claude · Haiku</option><option value="codex">Codex · GPT-6-Luna</option></select></label>
       <p class="title-note" id="s-title-note" role="status"></p></div>
+    ${assistantMode() ? `<div class="title-settings model-offer" id="s-features-lead"><p class="title-note" id="s-features-note" role="status">${featuresLocked() ? '' : 'Switch on what you want to use. Each one adds its own place beside your conversations.'}</p></div>` : ''}
     <h2 class="settings-group">Tools</h2>
     <button class="opt" id="s-projects" disabled aria-pressed="false"><span class="dot"></span><span>Projects<span class="sub" id="s-projects-state">Loading the projects setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Open projects<select id="s-projects-open"><option value="tab">As a tab, like a conversation</option><option value="beside">Beside the conversation (from a pane: a new pane to its left)</option><option value="window">In a new browser window</option></select></label></div>
@@ -746,6 +763,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       </div>
     </details>`;
   organizeSettings(sh, {category: about ? 'help' : category, scrollTop});
+  const paintFeaturesNote = () => { const n = sh.querySelector('#s-features-note'); if (n && featuresLocked()) n.textContent = featuresLockedNote(srv || window.pocketFeatures); };
+  paintFeaturesNote();
   sh.querySelector('#s-vault-more')?.after(sh.querySelector('#s-secrets')); // 1.42: under the Vault and its settings, shown whether or not the Vault is on
   sh.querySelector('#s-vault')?.after(sh.querySelector('#s-vault-restore-wrap')); // 1.44: Restore key sits right under the Vault switch
   mountSheet(scrim, sh);
@@ -900,6 +919,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   const paintRouter = () => {
     const r = srv?.router, cm = srv?.claudeModels; if (!r) return;
     const on = sh.querySelector('#s-router-on'), prov = sh.querySelector('#s-router-provider'), key = sh.querySelector('#s-router-key');
+    // 1.81 (#175): Assistant mode shows only the switch, so its lead says what it does without levels or models.
+    sh.querySelector('#s-router-lead').textContent = assistantMode() ? 'A request typed from scratch gets as much effort as it needs: quick questions answer fast, bigger jobs get a stronger model. Saved prompts keep their own.' : 'In Assistant mode, a request typed from scratch goes to a small decision model that picks the lightest of four levels that will do it well. Each level runs the model and effort below. Saved prompts keep their own.';
     on.disabled = false; on.setAttribute('aria-pressed', String(r.enabled)); on.querySelector('.dot').classList.toggle('on', r.enabled);
     sh.querySelector('#s-router-state').textContent = !r.enabled ? 'Off. Typed requests run on the default model' : r.active ? 'On in Assistant mode' : 'On, but it needs a key to work';
     prov.disabled = false; prov.value = r.provider;
@@ -1182,7 +1203,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       const { recoveryKey, ...next } = await api('/settings', { method: 'POST', body: JSON.stringify({ vault: !srv.vault }), signal: AbortSignal.timeout(8000) });
       srv = next;
       window.pocketFeatures = { ...(window.pocketFeatures || {}), vault: Boolean(srv.vault) };
-      paintVaultSetting(); toast(srv.vault ? 'Vault is on. Running conversations get it from their next reply' : 'Vault is off');
+      paintVaultSetting(); toast(srv.vault ? 'Vault is on. Conversations get it from their next conversation process' : 'Vault is off');
       if (!srv.vault && readLocal('pc-rail-view', 'sessions') === 'vault') writeLocal('pc-rail-view', 'sessions');
       document.querySelectorAll('.session-home, aside.rail').length && route(); // closes Settings at once, so the sheet below opens on top
       if (recoveryKey) vaultRecoverySheet(recoveryKey);
@@ -1249,7 +1270,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintNotifySettings(); paintModelOffer(); paintTrusted(); paintRouter(); paintAccess(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintInboxSetting(); paintVaultSetting(); paintSecretsSetting();
+      paintTitles(); paintNotifySettings(); paintModelOffer(); paintTrusted(); paintRouter(); paintAccess(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintInboxSetting(); paintVaultSetting(); paintSecretsSetting(); paintFeaturesNote();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Conversation names follow Claude Code's titles, and renames here show there too";
@@ -2394,11 +2415,20 @@ const clearDraft = id => { try { localStorage.removeItem(draftKey(id)); } catch 
 const briefingKey = () => 'pc-new-briefing-' + NEW_KEY;
 const saveBriefing = text => { saveDraft(NEW_KEY, text); writeLocal(briefingKey(), text); };
 function openFreshNew(hash = '#/new') {
+  const here = location.hash === hash || (hash === '#/' && !location.hash);
+  // The plus pressed on the New conversation screen itself starts over: setting the hash it already has did nothing,
+  // so a desktop left on New kept its old draft and the button looked dead. The agent and workspace stay; a start
+  // still being delivered is never dropped. Reported by Brad.
+  if (here && document.getElementById('first') && !loadOutbox(NEW_KEY)) {
+    clearDraft(NEW_KEY);
+    try { ['pc-new-start', briefingKey(), 'pc-attachments-' + NEW_KEY].forEach(k => localStorage.removeItem(k)); } catch { }
+    return Promise.resolve(route()).then(() => document.getElementById('first')?.focus());
+  }
   const brief = readLocal(briefingKey(), null);
   if (brief !== null && !loadOutbox(NEW_KEY)) {
     if (loadDraft(NEW_KEY) === brief) { clearDraft(NEW_KEY); try { localStorage.removeItem('pc-new-start'); } catch { } }
     try { localStorage.removeItem(briefingKey()); } catch { }
-    if (location.hash === hash || (hash === '#/' && !location.hash)) return route();
+    if (here) return route();
   }
   location.hash = hash;
 }
@@ -3082,7 +3112,11 @@ async function sendMsg(text, {allowSecrets = false, matches = null} = {}) {
   if (liveFailure?.id === id) liveFailure = null;
   awayAnchor = null; awayFollow = false;                         // sending goes back to following the conversation
   document.getElementById('turn-failure')?.remove();
-  const opts = composerWorking ? {mode:sendModes.get(id)||defaultSendMode(),approvalMode:nextApprovalMode()} : turnOpts();
+  // 1.81: a message sent while a reply runs carries the chips' model and effort as well as the permissions, so if it is
+  // queued it runs as they were set (it used to run on the defaults, which also restarted a Claude process).
+  // Steer now goes as auto: the server steers, and when the reply cannot take it (finishing, or reattached without its
+  // input) queues it after the reply, where mode steer answered a 409 and left the message to be sent again.
+  const opts = composerWorking ? (({model, effort, executionMode}) => ({mode:(sendModes.get(id)||defaultSendMode())==='queue'?'queue':'auto',approvalMode:nextApprovalMode(),model,effort,executionMode}))(turnOpts()) : turnOpts();
   if (allowSecrets) opts.allowSecrets = true; // the owner chose Send as is; a retry of this message carries it too
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
     files: composerWorking ? [] : [...(tb?.attachments || [])], createdAt: Date.now() };
@@ -3288,7 +3322,9 @@ async function openStartLink(id) {
   try {
     const s = await api('/start/' + id);
     saveBriefing(s.text || '');
-    try { writeLocal('pc-new-start', { start: id }); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
+    // 1.81: the link's folder rides in pc-new-start like a project's, so New selects it, or fills it in when it is not
+    // listed, over the default workspace (pc-lastproj alone lost to POCKET_DEFAULT_CWD and to the most recent workspace).
+    try { writeLocal('pc-new-start', { start: id, cwd: s.directory || '' }); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
   } catch (e) { if (e.message === 'login') return; toast(e.status === 404 ? 'That start link has expired.' : 'Could not load the start link.'); }
   location.replace('#/new');
 }

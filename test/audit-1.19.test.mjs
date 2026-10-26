@@ -20,7 +20,7 @@ test('automation labels scheduled runs by job name and leaves ordinary requests 
 });
 
 test('cleanTitle keeps a short plain title and rejects errors and essays',()=>{
-  assert.equal(cleanTitle('"Chunk 7 code review for TechPro Vision NVR."'),'Chunk 7 code review for TechPro Vision NVR');
+  assert.equal(cleanTitle('"Chunk 7 code review for the camera NVR."'),'Chunk 7 code review for the camera NVR');
   assert.equal(cleanTitle('Title: Warehouse stock report\n\nextra'),'Warehouse stock report');
   assert.equal(cleanTitle("I don't have access to:\n\n- Google Meet\n- Email"),null,'an answer is not a title');
   assert.equal(cleanTitle("I appreciate you reaching out, but I need to clarify my role"),null);

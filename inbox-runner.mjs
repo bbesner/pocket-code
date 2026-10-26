@@ -3,7 +3,7 @@
 // the Gmail connector the owner already linked to Claude Code (inbox-watch's mail_connector.py: no Google client, token
 // or service account), starts from now, and then runs the watcher's `tick` every minute, which checks mail only when
 // the schedule set in Settings → Inbox Watch says a check is due. A watcher installed by hand (its own config and
-// timer, reporting under its own source) is left alone: the runner never manages a mailbox someone else set up.
+// timer, sending its profile under its own source) is left alone: the runner never manages a mailbox someone else set up.
 //
 // States (status() → the Inbox shows them): off · external (a hand-installed watcher reports here) · waiting (needs the
 // owner's time zone: open Pocket once) · setting-up · needs-connector (Claude Code has no Gmail connector) · error ·
@@ -14,6 +14,8 @@ import { spawn } from 'node:child_process';
 
 const MINUTE = 60_000;
 const RUN_LIMIT_MS = 30 * MINUTE;
+const WATCHER_FRESH_MS = 7 * 24 * 60 * MINUTE; // 1.81: a hand-installed watcher quiet for a week is gone; Pocket may set up its own
+const ACCOUNT_NOTICE_MS = 3 * 24 * 60 * MINUTE; // 1.81: how long the Inbox says the Gmail account changed
 const BACKFILL_DAYS = 14; // the connector reads a thread per call slot; two weeks gives the judge context without a long first night
 const toml = v => JSON.stringify(String(v)); // TOML basic strings take JSON's escapes
 
@@ -37,15 +39,24 @@ export class InboxRunner {
     try { fs.mkdirSync(this.dir, { recursive: true }); fs.writeFileSync(this.statusFile, JSON.stringify(this.state, null, 1)); } catch (e) { this.log(`inbox runner: status not saved: ${e.message}`); }
   }
 
-  // Another watcher (installed by hand, with its own timer) has reported to this Pocket and the runner has no config of its own.
-  external() { return !fs.existsSync(this.config) && Object.keys(this.store.sources || {}).length > 0; }
+  // Another watcher (installed by hand, with its own timer) is reporting to this Pocket and the runner has no config of its own.
+  // 1.81: a watcher is what sends its profile with `seen` (every inbox-monitor does), not any source that ever posted: a job or
+  // agent using `pocket-inbox add` or a bare `seen` is not one. Pocket's own earlier runs report the same way, so only a profile
+  // newer than the runner's last run counts (delete config.toml to start over and the runner sets up again, not stands down),
+  // and one that went quiet for a week no longer does.
+  external() {
+    if (fs.existsSync(this.config)) return false;
+    const after = Math.max(Date.parse(this.state.ranAt || '') || 0, this.now() - WATCHER_FRESH_MS);
+    return Object.values(this.store.profiles || {}).some(p => Date.parse(p?.at) > after);
+  }
 
   status() {
     const s = this.settings();
     if (!s.inbox) return { managed: false, state: 'off' };
     if (this.external()) return { managed: false, state: 'external' };
-    const { state = 'waiting', message = null, mailbox = null, agent = null, fallback = null, at = null, lastOkAt = null, failures = 0 } = this.state;
-    return { managed: true, state, message, mailbox, agent, fallback, at, lastOkAt, failures, running: this.busy?.what || null };
+    const { state = 'waiting', message = null, mailbox = null, agent = null, fallback = null, at = null, lastOkAt = null, failures = 0, accountChange = null } = this.state;
+    const changed = accountChange && this.now() - Date.parse(accountChange.at) < ACCOUNT_NOTICE_MS ? accountChange : null; // 1.81: said in the Inbox for a few days
+    return { managed: true, state, message, mailbox, agent, fallback, at, lastOkAt, failures, accountChange: changed, running: this.busy?.what || null };
   }
 
   start() { this.timer = setInterval(() => this.step().catch(e => this.log(`inbox runner: ${e.message}`)), MINUTE); this.timer.unref?.(); setTimeout(() => this.step().catch(() => {}), 5000).unref?.(); }
@@ -62,6 +73,7 @@ export class InboxRunner {
     }
     if (!fs.existsSync(this.config)) return this.setup();
     if (!this.checked) this.upgradeConfig();
+    if (!this.accountChecked && this.now() >= (this.accountRetryAt || 0)) await this.checkAccount();
     if (s.ownerTimezone && this.state.timezone && s.ownerTimezone !== this.state.timezone) this.retime(s.ownerTimezone);
     if (!this.state.baselined) return this.baseline();
     if (this.state.backfill === 'due') return this.backfill();
@@ -91,7 +103,7 @@ export class InboxRunner {
       this.busy = { proc, startedAt: this.now(), what };
       proc.stdout.on('data', d => { out = (out + d).slice(-20000); });
       proc.stderr.on('data', d => { err = (err + d).slice(-20000); });
-      const done = code => { if (this.busy?.proc === proc) this.busy = null; resolve({ code, out, err }); };
+      const done = code => { if (this.busy?.proc === proc) this.busy = null; this.setStatus({ ranAt: new Date(this.now()).toISOString() }); resolve({ code, out, err }); }; // 1.81: ranAt tells Pocket's own reports from another watcher's
       proc.on('error', e => { err += e.message; done(127); });
       proc.on('close', code => done(code ?? 1));
     });
@@ -153,6 +165,7 @@ export class InboxRunner {
     fs.writeFileSync(this.config + '.tmp', lines.join('\n'));
     fs.renameSync(this.config + '.tmp', this.config);
     this.log(`inbox runner: set up for ${who.email} (${tz}); mail via ${main.agent}${backup ? ', fallback ' + backup.agent : ''}; judge ${claudeRuns ? 'claude' : 'codex'}`);
+    this.accountChecked = true; // it was just read
     this.setStatus({ state: 'setting-up', mailbox: who.email, timezone: tz, agent: main.agent, fallback: backup?.agent || null, message: 'Starting from now…', baselined: false });
   }
 
@@ -163,6 +176,40 @@ export class InboxRunner {
     if (!/^# Inbox Watch for .*written by Pocket Code/m.test(text) || /^docs_dir = /m.test(text)) return;
     const next = text.replace(/^(\[\[delivery\]\]\nkind = "pocket"\nroot = .*)$/m, `$1\ndocs_dir = ${toml(this.docsDir)}`);
     if (next !== text) { fs.writeFileSync(this.config + '.tmp', next); fs.renameSync(this.config + '.tmp', this.config); this.log('inbox runner: config gains docs_dir'); }
+  }
+
+  // 1.81: the Gmail connector may have been reconnected to another account since the config was written, and the watcher tells the
+  // owner's own mail from other mail by the address in it. At each start of Pocket, ask the connector the config reads through whose
+  // mailbox it is; if the configured owner is not among the addresses it reports, write the new address (and name) and say so in the Inbox. A fallback agent on
+  // the old account is dropped, or it would read the old mailbox when the first one fails. The mail archive and stories stay as they are.
+  async checkAccount() {
+    const text = fs.readFileSync(this.config, 'utf8');
+    const block = name => new RegExp(`^\\[${name}\\]\\n([^\\[]*)`, 'm').exec(text)?.[1] || '';
+    const key = (b, k) => { const m = new RegExp(`^${k} = ("(?:[^"\\\\]|\\\\.)*")`, 'm').exec(b); try { return m ? JSON.parse(m[1]) : ''; } catch { return ''; } };
+    const owner = block('owner'), mail = block('mail'), configured = key(owner, 'email'), agent = key(mail, 'agent');
+    const bin = agent === 'codex' ? this.codexBin : agent === 'claude' ? this.claudeBin : null;
+    if (!/^# Inbox Watch for .*written by Pocket Code/m.test(text) || !/^provider = "connector"/m.test(mail) || !configured || !bin) { this.accountChecked = true; return; } // not Pocket's to edit
+    const stateDir = path.join(this.dir, 'state');
+    fs.mkdirSync(stateDir, { recursive: true });
+    const whoami = async (a, b) => {
+      const r = await this.run('account', ['whoami', '--agent', a, '--state', stateDir, '--bin', b], { module: 'inbox_monitor.mail_connector', config: false });
+      try { return JSON.parse(lastLine(r.out) || '{}'); } catch { return {}; }
+    };
+    const who = await whoami(agent, bin);
+    if (!who.ok || !who.email) { this.accountRetryAt = this.now() + 30 * MINUTE; return; } // the connector did not answer: try again later
+    this.accountChecked = true;
+    // The newest sent message may come from an alias ("send as"): the account is unchanged while the configured address is among those who sent the last few.
+    if ([who.email, ...(Array.isArray(who.senders) ? who.senders : [])].some(a => String(a).toLowerCase() === configured.toLowerCase())) return;
+    let next = text.replace(/^(\[owner\]\nname = ).*\n(email = ).*$/m, (_, a, b) => `${a}${toml(who.name || who.email.split('@')[0])}\n${b}${toml(who.email)}`)
+      .replace(/^(# Inbox Watch for ).*(, written by Pocket Code)/m, `$1${who.email}$2`);
+    const fallbackAgent = key(mail, 'fallback_agent'), fbBin = fallbackAgent === 'codex' ? this.codexBin : fallbackAgent === 'claude' ? this.claudeBin : null;
+    if (fallbackAgent && !(fbBin && (await whoami(fallbackAgent, fbBin)).email?.toLowerCase() === who.email.toLowerCase())) {
+      next = next.replace(/^fallback_agent = .*\n/m, '').replace(/^\[mail\.fallback\]\n[^\[]*/m, '');
+      this.setStatus({ fallback: null });
+    }
+    fs.writeFileSync(this.config + '.tmp', next); fs.renameSync(this.config + '.tmp', this.config);
+    this.log(`inbox runner: Gmail now ${who.email} (was ${configured}); config updated`);
+    this.setStatus({ mailbox: who.email, accountChange: { from: configured, to: who.email, at: new Date(this.now()).toISOString() } });
   }
 
   // The owner signed in from another time zone (or the first one was a guess): the digest and quiet hours follow them.

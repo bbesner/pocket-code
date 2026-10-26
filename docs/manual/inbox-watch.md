@@ -31,7 +31,7 @@ one by hand.
 
 1. Connect Gmail for Claude Code or Codex: **Settings → Agents & instance → Connectors** (in Assistant mode,
    **Settings → Accounts → Connectors**).
-2. Turn on **Settings → Projects, files, tasks & vault → Inbox Watch** (Developer mode). The toast says
+2. Turn on **Settings → Projects, files, tasks & vault → Inbox Watch** (in Assistant mode, **Settings → Features → Inbox Watch**). The toast says
    *Inbox Watch is on*, and **Inbox** appears in the sidebar switch and as a chip on the home screen.
 3. Open Pocket once on your phone or computer, if you have not since turning it on. The watcher uses the time zone
    your browser reports for quiet hours, the digest and the look-ahead.
@@ -61,6 +61,13 @@ While this happens the Inbox shows a status line: *Setting up Inbox Watch for al
 | Gmail label | on, named *Pocket Inbox* | Schedule sheet, **Your list in Gmail** |
 | Briefed conversations | start in your home directory, with Claude Code (or Codex when only Codex is signed in) | `config.toml`, `[pocket]` |
 
+Each time Pocket starts, it asks the connector whose mailbox it reads. If you have reconnected Gmail to a different
+account, Pocket writes the new address into `[owner]` (the watcher tells your own mail from other mail by it), drops a
+fallback agent that is still on the old account, and the Inbox says *Gmail is now connected as … (it was …)* for a few
+days. The mail already kept from the old account stays in the watcher's memory. Sending from an alias of the same account
+is not a change: the configured address only has to be among those that sent your latest sent mail. Only a config Pocket
+wrote is changed.
+
 The settings in Pocket win over the file. Edit `config.toml` only for what Pocket has no setting for, such as the
 optional [memory integration](#memory-integration-optional) or emailing alerts (`email = true` under `[[delivery]]`).
 
@@ -69,11 +76,13 @@ optional [memory integration](#memory-integration-optional) or emailing alerts (
 To watch another mailbox, read Gmail through Google's API (an OAuth client or a Workspace service account), use a
 different judge (OpenClaw, the Claude API) or deliver to Telegram or email as well, install the watcher by hand. The
 steps, every config key and the systemd timer are in [`inbox-watch/README.md`](../../inbox-watch/README.md) and
-`inbox-watch/examples/config.example.toml`. Turn on Inbox Watch in Pocket so its Inbox receives what that watcher sends.
+`inbox-watch/examples/config.example.toml`. The `inbox-watch/bin/inbox-monitor` command uses the first `python3` on `PATH` that is 3.11 or newer, or the one named
+in `INBOX_MONITOR_PYTHON`. Turn on Inbox Watch in Pocket so its Inbox receives what that watcher sends.
 
-Pocket never manages a mailbox someone else set up. If any watcher or job has already reported to this Pocket and
-Pocket has no config of its own, Pocket leaves the Inbox to it and does not start its own. `POCKET_INBOX_RUNNER=0`
-in Pocket's environment turns Pocket's own watcher off entirely.
+Pocket never manages a mailbox someone else set up. If a watcher is already reporting to this Pocket (it sends its
+profile with `pocket-inbox seen`, as every `inbox-monitor` does) and Pocket has no config of its own, Pocket leaves the
+Inbox to it, does not start its own, and the Inbox says so. A job that only posts with `pocket-inbox add` is not a
+watcher and does not stop Pocket. `POCKET_INBOX_RUNNER=0` in Pocket's environment turns Pocket's own watcher off entirely.
 
 ## Use it
 
@@ -144,7 +153,7 @@ go out at once, together with every alert quiet hours were holding.
 ### Change the schedule, rules and models
 
 **Schedule** in the Inbox, or **Settings → Projects, files, tasks & vault → Schedule, models and cost** (shown under
-the Inbox Watch switch while it is on), opens the Inbox Watch sheet. Its first line says what is in force, for example
+the Inbox Watch switch while it is on; in Assistant mode **Settings → Features → Inbox Watch schedule**), opens the Inbox Watch sheet. Its first line says what is in force, for example
 *Checking every 5 minutes now (Work hours). Last check 9:14 AM, next about 9:19 AM.* **Save** sends the whole sheet;
 the watcher picks it up within a minute, and the line says *Your last change reaches the watcher within a minute*
 until it has. **Use the config file's settings** hands control back to `config.toml`.
@@ -384,9 +393,10 @@ A chatgpt.com bot check on a Codex read is temporary; with both agents connected
 that `POCKET_INBOX_RUNNER` is not `0` and that there is no `STOP` file in `inbox-watch-data/`; `inbox-watch-data/status.json` and
 `state/monitor.log` say what happened last. For a hand-installed watcher, check its timer.
 
-**The Inbox stays empty with no status line, and nothing seems to watch the mail.** Something else reported to this
-Pocket before it set up its own watcher (a hand-installed watcher, or a job using `pocket-inbox add`), so Pocket treats
-the Inbox as that watcher's. Set that watcher up to read the mail, following `inbox-watch/README.md`.
+**The Inbox says "A watcher installed separately is reporting here; Pocket is not running its own."** A hand-installed
+watcher reported its profile to this Pocket while Pocket had no config of its own, so Pocket leaves the mail to it. If
+that watcher is not meant to be there, stop its timer: once it has been silent for a week Pocket sets itself up. Two
+watchers on one mailbox send everything twice, so Pocket does not start its own while another is reporting.
 
 **Check now says "Inbox Watch hasn't reported yet, so nothing is reading your mail."** No watcher has ever reported
 to this Pocket. See the two entries above.
@@ -403,8 +413,9 @@ forces one.
 **First pass says there is no classifier key.** Add an OpenRouter key as described in [First pass](#first-pass). The
 next tick picks it up.
 
-**Alerts have no Start a conversation.** Briefing links need Pocket's public address. Open Pocket once through the
-address you normally use, or set `POCKET_PUBLIC_URL`.
+**Alerts in Telegram or email have no "Open in Pocket Code" button.** Outside Pocket the link needs Pocket's public
+address. Open Pocket once through the address you normally use, or set `POCKET_PUBLIC_URL`. Entries in the Inbox itself
+always have **Start a conversation**: they use a path inside Pocket and need no address.
 
 **Digests show no Open in Files.** Files is off. Turn it on in **Settings → Projects, files, tasks & vault → Files**;
 the text is in the entry either way.

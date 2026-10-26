@@ -168,6 +168,16 @@ test('HTTP: tasks are off until Settings turns them on, the loopback token serve
   out=await cli(['remove',id]);assert.match(out.stdout,/^Removed: Call ENS/);
   out=await cli(['show',id]);assert.equal(out.code,5);
   out=await cli(['add']);assert.equal(out.code,1);assert.match(out.stderr,/needs the task text/);
+  // 1.81 (#186): a relative --dir is resolved against the current directory instead of being refused.
+  out=await cli(['add','Relative folder','--dir','sessions','--json']);assert.equal(out.code,0,out.stderr);assert.equal(JSON.parse(out.stdout).directory,path.join(dir,'sessions'));
+  await cli(['remove',JSON.parse(out.stdout).id]);
+  // 1.81 (#178): once the owner's browser reports a zone, the CLI prints in it and an offsetless --due is read in it too, so the
+  // printed time passed back is the same time. The daemon's POCKET_TZ is America/New_York, six hours behind Berlin.
+  await call('/me?tz=Europe/Berlin');
+  out=await cli(['add','Zone check','--due','2027-03-10T09:00']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/due Mar 10, 2027, 9:00\s?AM GMT\+1/);
+  const zid=/\(([0-9a-f]{12})\)/.exec(out.stdout)[1];assert.equal(JSON.parse((await cli(['show',zid,'--json'])).stdout).dueAt,'2027-03-10T08:00:00Z');
+  out=await cli(['edit',zid,'--due','2027-03-10T09:00-05:00']);assert.match(out.stdout,/due Mar 10, 2027, 3:00\s?PM GMT\+1/,'an explicit offset is taken as written');
+  await cli(['remove',zid]);
   assert.equal((await call('/settings',{tasks:false})).body.tasks,false);
   out=await cli(['list']);assert.equal(out.code,3);assert.match(out.stderr,/Settings → Projects, files, tasks & vault/);
   assert.equal((await call('/tasks')).status,404);

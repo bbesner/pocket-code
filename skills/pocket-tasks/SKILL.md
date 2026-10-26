@@ -61,7 +61,7 @@ pocket-tasks add "Finish the storefront header" --session <session-id> \
   the task in the right folder. Without a session id, pass `--dir <working directory>` instead.
 - **`--due`:** only when the user names a date or time. "Friday" means this coming Friday at
   09:00 unless they say otherwise; "tomorrow afternoon" is 14:00. A time without an offset is
-  the server's time zone. Never invent a time; a task without one is a plain to-do.
+  read in the user's zone, the one the commands print times in. Never invent a time; a task without one is a plain to-do.
 - **`--summary`:** write it yourself **for every accepted offer**, when the user wants the task
   to carry the context of this session ("with the context", "include where we are", "so I know
   what this is about"), or when the task clearly depends on this session's state. Two to four

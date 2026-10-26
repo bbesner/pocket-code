@@ -68,13 +68,14 @@ old one only if the user asks.
 Files are private until the user asks to share. Never share on your own.
 
 ```bash
-pocket-docs share <id> [--expires 7d|30d|none]   # an unguessable link; prints the URL
+pocket-docs share <id> [--expires 7d|30d|<n>d|none]   # an unguessable link; prints the URL
 pocket-docs set <id> --visibility public         # a fixed public address; only when asked to publish
 pocket-docs set <id> --visibility private        # stop sharing
 ```
 
 "Send me a link" or "share it with Sam" means a link (`share`). "Publish it" or "make it
-public" means public. Making a new link stops the old one working.
+public" means public. Making a new link stops the old one working, so for the link to a file
+that is already shared, give the Share URL `pocket-docs show <id>` prints; never run `share` for it.
 
 ## Finding and tidying
 

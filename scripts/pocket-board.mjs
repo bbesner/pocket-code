@@ -7,7 +7,7 @@
 //   pocket-board status [--all] [--json]          the current directory's project, or every project with --all
 //   pocket-board update [--name|--summary|--next|--waiting-for|--link|--dir|--status active|waiting|done]
 //   pocket-board task add "text" | done <id> | reopen <id> | edit <id> --text "…"
-//   pocket-board remind --at "YYYY-MM-DDTHH:MM" [--task <id>] [--text "…"]     (no offset = the server's time zone)
+//   pocket-board remind --at "YYYY-MM-DDTHH:MM" [--task <id>] [--text "…"]     (no offset = the owner's zone, as printed)
 //   pocket-board dismiss <reminder-id>
 //   pocket-board note "text"
 //   pocket-board link-session <id> | unlink-session <id>
@@ -20,11 +20,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ownerZone, whenIn } from './owner-zone.mjs';
+import { readEnvFile } from '../env-file.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const envFile = process.env.POCKET_ENV_FILE ?? path.join(root, '.env');
-const fileEnv = {};
-try { for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) { const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line); if (m && !m[1].startsWith('#')) fileEnv[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2'); } } catch { }
+const fileEnv = readEnvFile(envFile);
 const env = k => process.env[k] ?? fileEnv[k];
 const dataDir = env('POCKET_DATA_DIR') || root;
 // The daemon writes its address to <data dir>/cli-url at start (1.43.1). Read that first, then this checkout's .env, and only
@@ -120,12 +120,12 @@ switch (cmd) {
   case 'track': {
     if (!opts.name) die('track needs --name "…"');
     if (!opts.requested) die('Track a project only when the user asked for it; pass --requested to say so.', 6);
-    await act({ action: 'track', name: opts.name, summary: opts.summary || '', next: opts.next || '', directory: opts.dir || cwd, link: opts.link || '', session: opts.session || undefined, requested: true });
+    await act({ action: 'track', name: opts.name, summary: opts.summary || '', next: opts.next || '', directory: opts.dir ? path.resolve(opts.dir) : cwd, link: opts.link || '', session: opts.session || undefined, requested: true });
     break;
   }
   case 'update': {
     const body = { action: 'update', project: await pick() };
-    for (const [k, v] of [['name', opts.name], ['summary', opts.summary], ['next', opts.next], ['waitingFor', opts.waitingFor], ['link', opts.link], ['directory', opts.dir], ['status', opts.status]]) if (v !== undefined) body[k] = v;
+    for (const [k, v] of [['name', opts.name], ['summary', opts.summary], ['next', opts.next], ['waitingFor', opts.waitingFor], ['link', opts.link], ['directory', opts.dir && path.resolve(opts.dir)], ['status', opts.status]]) if (v !== undefined) body[k] = v; // 1.81: a relative --dir is resolved here, as pocket-docs add does
     await act(body); break;
   }
   case 'task': {

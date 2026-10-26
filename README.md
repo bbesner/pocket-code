@@ -21,7 +21,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.80.0 / build 167**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.81.0 / build 168**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -235,7 +235,8 @@ the install, both options show disabled with the reason.
 
 ### Projects, files, tasks, Inbox and the Vault (optional)
 
-Each is off until **Settings → Projects, files, tasks & vault** turns it on for the install. On
+Each is off until **Settings → Projects, files, tasks & vault** turns it on for the install (in Assistant
+mode, **Settings → Features**, unless the mode is locked). On
 the desktop the rail head switches between Chats, Projects, Files, Tasks, Vault and Inbox, an icon
 for each; with five or more, only the pressed one shows its name (1.69). Open lists
 refresh when the window comes back into focus, when a turn ends in any Pocket window on the
@@ -471,7 +472,7 @@ under the same Agent access rules, for example
 See the [operations guide](docs/operations.md).
 
 Create a project or task only when the user asks for one; keep files private unless the
-user asks to share. Times without an offset use `POCKET_TZ` (or the server's zone).
+user asks to share. Times without an offset are read in the zone the commands print them in: the owner's browser's, else `POCKET_TZ`, else the server's.
 
 ## Requirements
 
@@ -510,7 +511,7 @@ kinds this device gets and whether the icon shows the count of due tasks and rem
 
 ## Configuration
 
-Server configuration comes from the process environment or `.env` (see [`.env.example`](.env.example)). Existing environment values take precedence over that file. Browser preferences such as drafts, tabs, filters and text size stay on each device.
+Server configuration comes from the process environment or `.env` (see [`.env.example`](.env.example)). Existing environment values take precedence over that file. The daemon and every `pocket-*` command read `.env` the same way: one `NAME=value` per line, surrounding quotes optional and removed, spaces around the name, the `=` and the value ignored (quote a value whose spaces matter), `#` lines skipped. Browser preferences such as drafts, tabs, filters and text size stay on each device.
 
 Variables that have a matching control in Settings (Assistant mode, automatic model choice, one sign-in) are in the manual's
 [Settings and environment variables](docs/manual/settings.md#settings-and-environment-variables) table, with which one wins.
@@ -556,7 +557,7 @@ Variables that have a matching control in Settings (Assistant mode, automatic mo
 | `POCKET_SKILLS` | no | `0` stops Pocket installing its `pocket-projects`, `pocket-files`, `pocket-tasks`, `pocket-vault` and `pocket-inbox` agent skills into `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`) and `$CODEX_HOME/skills` (1.34, tasks 1.36, vault 1.39), and its `pocket-google` skill into both (1.64, always on; Claude Code gets the claude.ai-connector version, Codex the ChatGPT-apps version). Only folders carrying Pocket's `.pocket-managed` marker are touched. On by default while the matching feature is on. |
 | `POCKET_VAULT_KEY` | no | The Vault's encryption key (1.39). Since 1.44 you don't set it: switching the Vault on creates it, saves it to this install's `.env` (mode `0600`) and shows a recovery key to keep; **Rotate key** and **Restore key** in Settings write it there too. Set it by hand (`openssl rand -base64 32`) only when there is no `.env` to write (`POCKET_ENV_FILE` empty). Pocket reads it at start and removes it, and `POCKET_VAULT_KEY_PREVIOUS` (present only for the moment of a rotation), from its environment, so no agent or other process it starts sees them. Keep the recovery key apart from your data backups: without it `vault.enc` cannot be opened. |
 | `POCKET_CHROME`, `POCKET_PDFTOPPM`, `POCKET_CONVERT` | no | The tools that make the library's preview pictures (1.32): a Chrome or Chromium binary for HTML reports (and images when ImageMagick is absent), `pdftoppm` from poppler for PDFs, ImageMagick's `convert` for images. Found automatically in the usual places and on `PATH`; set one to a path to choose it, or to an empty value to turn it off. Pictures are cached in `<documents dir>/.thumbs`. A kind without a tool shows its name on the card instead. |
-| `POCKET_TZ` | no | Time zone for `pocket-board` reminder and `pocket-tasks --due` times given without an offset, e.g. `America/New_York`. Default: the server's zone. Times Pocket shows (reminder emails, the usage-limit notice, the commands' listings) use the zone the owner's browser reports, then this, then the server's, with the zone named. |
+| `POCKET_TZ` | no | The owner's time zone until their browser reports one, e.g. `America/New_York`. Default: the server's zone. Times Pocket shows (reminder emails, the usage-limit notice, the commands' listings) and `pocket-board`/`pocket-tasks` times given without an offset use the zone the owner's browser reports, then this, then the server's. |
 | `POCKET_URL` | no | Base address the `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-vault`, `pocket-inbox`, `pocket-start` and `pocket-notify` commands and the browser relay use to reach the server. Default: the address the daemon writes to `<data dir>/cli-url`, then `PORT` from this checkout's `.env`, then an inherited `PORT`. |
 | `POCKET_VAULT_FILL_WAIT` | no | Seconds the browser relay (`scripts/pocket-mcp-proxy.mjs`) waits for your answer to a fill request before telling the agent to try again. Default `90`. |
 | `POCKET_VAULT_FILL_TOOLS` | no | The tools the browser relay may type a Vault value into, comma-separated (1.73.5). Default `browser_type,browser_fill_form,type,fill`; a call to any other tool that names a placeholder is refused. |

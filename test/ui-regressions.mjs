@@ -57,7 +57,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await ph.setViewport({width:390,height:844,isMobile:true,hasTouch:true});
     await ph.goto(base+'/#/',{waitUntil:'domcontentloaded'});await ph.waitForSelector('#new');
     const tapPlus=async()=>{const b=await ph.$eval('#new',e=>{const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};});await ph.touchscreen.tap(b.x,b.y);await ph.waitForSelector('#first');await pause(150);return ph.$eval('#first',e=>e.value);};
-    const briefing='Email alert from the inbox monitor.\n\nSubject: Upside installation confirmation';
+    const briefing='Email alert from the inbox monitor.\n\nSubject: Contoso installation confirmation';
     // An alert's Start a conversation loads its briefing into New; leaving without starting it must not keep it there.
     await ph.evaluate(t=>{saveBriefing(t);location.hash='#/new';},briefing);await ph.waitForFunction(t=>document.querySelector('#first')?.value===t,{},briefing);
     await ph.evaluate(()=>{location.hash='#/';});await ph.waitForSelector('#new');
@@ -68,6 +68,21 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await ph.evaluate(()=>{clearDraft(NEW_KEY);location.hash='#/';});await ph.waitForSelector('#new');
     await ph.evaluate(()=>saveDraft(NEW_KEY,'My own half-written task'));
     assert.equal(await tapPlus(),'My own half-written task','a typed draft stays');
+   }finally{await ctx.close();}
+  });
+  await check('The plus pressed on New conversation itself starts over (desktop)',async()=>{
+   const ctx=await browser.createBrowserContext(),pd=await ctx.newPage();
+   try{
+    await pd.setViewport({width:1440,height:900});
+    await pd.goto(base+'/#/new',{waitUntil:'domcontentloaded'});await pd.waitForSelector('#first');await pd.waitForSelector('#railnew');
+    await pd.evaluate(()=>{saveDraft(NEW_KEY,'Yesterday\'s half-written task');localStorage.setItem('pc-attachments-'+NEW_KEY,JSON.stringify([{path:'/tmp/old.png',name:'old.png'}]));localStorage.setItem('pc-new-start',JSON.stringify({project:'p1',projectName:'Old project'}));route();});
+    await pd.waitForFunction(()=>document.querySelector('#first')?.value==='Yesterday\'s half-written task');
+    await clickControl(pd,'#railnew');
+    await pd.waitForFunction(()=>document.querySelector('#first')?.value==='');
+    assert.equal(await pd.evaluate(()=>location.hash),'#/new');
+    assert.equal(await pd.evaluate(()=>loadAttachments(NEW_KEY).length),0,'old attachments are gone');
+    assert.equal(await pd.evaluate(()=>localStorage.getItem('pc-new-start')),null,'the old project link is gone');
+    await pd.waitForFunction(()=>document.activeElement?.id==='first');
    }finally{await ctx.close();}
   });
   await check('Settings usable when service worker fails; explicit notification fallback',async()=>{
@@ -586,6 +601,35 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.screenshot({path:path.join(out,'composer-working-360.png')});
    assert.ok(await spread()<8,'one row at 360px: '+await spread());
    await page.setViewport({width:390,height:844});
+  });
+  await check('A message sent while a reply runs carries the chips\' model and effort (1.81, #173)',async()=>{
+   const run=rows.find(r=>r.state.kind==='running');
+   await page.evaluate(id=>localStorage.setItem('pc-prefs-'+id,JSON.stringify({model:'claude-opus-5-5[1m]',effort:'high'})),run.id);
+   await page.goto(base+'/#/chat/'+run.id);await page.reload();await page.waitForSelector('[data-mode="queue"]'); // reload: the previous check may have left this conversation open
+   await clickControl(page,'[data-mode="queue"]');
+   const sent=received.length;await page.type('#box','Then check the returns shelf.');await clickControl(page,'#send');
+   for(let i=0;i<40&&received.length===sent;i++)await pause(100);
+   const {text,mode,model,effort,executionMode}=received.at(-1);
+   assert.deepEqual({text,mode,model,effort,executionMode},{text:'Then check the returns shelf.',mode:'queue',model:'claude-opus-5-5[1m]',effort:'high',executionMode:'work'},'queued with the model, effort and Codex mode it was sent with');
+   // 1.81 (#183): Steer now is sent as auto, so a reply that cannot take a steer queues the message instead of refusing it
+   await page.waitForFunction(id=>!localStorage.getItem('pc-outbox-'+id)&&!sendsInFlight.has(id)&&document.querySelector('#box')?.value==='',{},run.id); // the first send has settled
+   await clickControl(page,'[data-mode="steer"]');
+   const steered=received.length;await page.type('#box','Also count the spare cables.');await clickControl(page,'#send');
+   for(let i=0;i<40&&received.length===steered;i++)await pause(100);
+   assert.equal(received.at(-1).text,'Also count the spare cables.');assert.equal(received.at(-1).mode,'auto','Steer now sends auto');
+   await page.evaluate(id=>{localStorage.removeItem('pc-prefs-'+id);sendModes.delete(id);},run.id);
+  });
+  await check('A start link\'s folder wins in New conversation, listed or not, over the default workspace (1.81, #176)',async()=>{
+   const workspace=()=>page.evaluate(()=>({selected:document.querySelector('#plist .row.sel')?.dataset.p||null,custom:document.querySelector('#cpath').value}));
+   const open=async link=>{await page.goto(base+'/#/start/'+link);await page.waitForFunction(()=>location.hash==='#/new'&&/Reach Jordan/.test(document.querySelector('#first')?.value||'')&&document.querySelector('#plist .row'));await pause(150);};
+   setMode({defaultCwd:'/workspaces/products',startDirectory:'/workspaces/warehouse'});
+   await open('0123456789ad');
+   assert.deepEqual(await workspace(),{selected:'/workspaces/warehouse',custom:''},'a listed folder is selected, not the default');
+   setMode({startDirectory:'/workspaces/returns'});
+   await open('0123456789ae');
+   assert.deepEqual(await workspace(),{selected:null,custom:'/workspaces/returns'},'a folder not listed is filled in as a custom path');
+   setMode({defaultCwd:null,startDirectory:null});
+   await page.evaluate(()=>{clearDraft(NEW_KEY);localStorage.removeItem('pc-new-start');localStorage.removeItem(briefingKey());});
   });
   await check('Attention filter includes Response ready replies until they are opened',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
@@ -2292,7 +2336,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.evaluate(()=>writeLocal('pc-files-button','tab'));const backTo=await page.evaluate(()=>location.hash);
    await clickControl(page,'[data-rail-view="documents"]');await page.waitForFunction(()=>location.hash==='#/documents');
    assert.equal(await page.evaluate(()=>readLocal('pc-rail-view','sessions')),'sessions','the sidebar keeps its list');
-   // 1.76.2 (Damon): the rail keeps Chats pressed, and Files is marked as what the main area shows
+   // 1.76.2: the rail keeps Chats pressed, and Files is marked as what the main area shows
    await page.waitForFunction(()=>document.querySelector('[data-rail-view="documents"]')?.getAttribute('aria-current')==='page');
    assert.equal(await page.$eval('[data-rail-view="sessions"]',b=>b.getAttribute('aria-pressed')+'/'+b.getAttribute('aria-current')),'true/null');
    await page.evaluate(h=>{writeLocal('pc-files-button','rail');location.hash=h;},backTo);await page.waitForSelector('#rail .session-panel');
@@ -2423,12 +2467,108 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.$eval('#box',b=>b.placeholder),'Reply…');
     await scan('assistant-chat-390');
     await page.goto(base+'/#/');await page.waitForSelector('.assistant-home');await clickControl(page,'#settings');await page.waitForSelector('.settings-index');
-    assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','notifications','help']);
+    assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','features','notifications','help']); // 1.81 (#175): Features joins Accounts
     assert.equal(await shown('#s-models'),false,'the model list is not offered');assert.equal(await shown('#s-trusted'),false);
     await page.keyboard.press('Escape');
     await page.goto(base+'/#/all');await page.waitForSelector('.session-home');
     assert.equal(await page.$eval('header.bar h1',e=>e.textContent.trim()),'Conversations');assert.equal(await shown('.session-filters'),false);
    }finally{Object.assign(settings,before);if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
+  });
+
+  await check('1.81 Assistant mode Features: the switches and Automatic model choice in Settings, the "is off" message goes there; a locked Pocket gets a line and no switches',async()=>{
+   const settings=settingsState(),keys=['assistantMode','assistantLocked','projects','documents','tasks','inbox','vault'],before=Object.fromEntries(keys.map(k=>[k,settings[k]])),vp=page.viewport();
+   const shown=sel=>page.evaluate(s=>[...document.querySelectorAll(s)].some(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'),sel);
+   const open=async()=>{await page.reload();await page.waitForSelector('.assistant-home');await clickControl(page,'#settings');await page.waitForSelector('.settings-index');};
+   const features=async()=>{await clickControl(page,'[data-settings-category=features]');await page.waitForSelector('[data-settings-panel=features]:not([hidden])');};
+   const theme=async t=>{await page.evaluate(t=>PocketTheme.setPreference(t),t);await pause(150);};
+   try{
+    // not locked: five switches and Automatic model choice, the same controls (and handlers) as Developer mode
+    Object.assign(settings,{assistantMode:true,assistantLocked:false,projects:false,documents:false,tasks:false,inbox:false,vault:false});
+    for(const [w,h] of [[390,844],[1440,900]]){
+     await page.setViewport({width:w,height:h});await page.goto(base+'/#/');await open();await features();
+     assert.equal(await page.$eval('.sheet h2',e=>e.textContent.trim()),'Features');
+     assert.deepEqual(await page.$$eval('[data-settings-panel=features] > *',es=>es.filter(e=>e.getClientRects().length).map(e=>e.id)),['s-features-lead','s-projects','s-documents','s-tasks','s-inbox','s-vault','s-router'],'the lead, the five switches, then Automatic model choice, in that order at '+w);
+     assert.equal(await page.$eval('#s-features-note',e=>e.textContent),'Switch on what you want to use. Each one adds its own place beside your conversations.');
+     assert.equal(await shown('#s-inbox-watch'),false,'no schedule button while Inbox Watch is off');assert.equal(await shown('#s-trusted'),false,'only Automatic model choice comes along, not the rest of Agents & instance');
+     for(const t of ['light','dark']){await theme(t);await scan(`assistant-features-${w}-${t}`);await page.screenshot({path:path.join(out,`assistant-features-${w}-${t}.png`)});}
+     await theme('system');
+     if(w===390){
+      // a switch that shows or hides a library redraws the view behind Settings, which closes the sheet (as in Developer mode): reopen it on Features
+      const reopen=async()=>{if(!await page.$('.settings-sheet'))await page.evaluate(()=>settingsSheet({category:'features'}));await page.waitForSelector('[data-settings-panel=features]:not([hidden]) #s-vault:not([disabled])');};
+      for(const [id,key] of [['s-projects','projects'],['s-documents','documents'],['s-tasks','tasks'],['s-inbox','inbox'],['s-vault','vault']]){
+       await reopen();await clickControl(page,'#'+id);
+       for(let i=0;i<30&&!settings[key];i++)await pause(100);assert.equal(settings[key],true,id+' saved through /api/settings');
+       await page.waitForFunction(()=>!document.querySelector('.settings-sheet'),{timeout:2500}).catch(()=>{}); // the view redraws a moment after the save
+      }
+      await reopen();
+      assert.deepEqual(await page.$$eval('[data-settings-panel=features] > *',es=>es.filter(e=>e.getClientRects().length).map(e=>e.id)),['s-features-lead','s-projects','s-documents','s-tasks','s-inbox','s-inbox-watch','s-vault','s-router'],'Inbox Watch brings its schedule button right under it');
+      assert.equal(await page.$eval('#s-inbox-watch',e=>e.textContent.trim().startsWith('Inbox Watch schedule')),true,'the Assistant-mode label');
+      await clickControl(page,'#s-inbox-watch');await page.waitForSelector('.watch-sheet #w-save');await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
+      await reopen();
+      await page.$eval('#s-router',e=>e.scrollIntoView({block:'start'}));
+      for(const sel of ['#s-router-provider','#s-router-key','#s-router-levels','#s-router-note'])assert.equal(await page.$eval(sel,e=>e.getClientRects().length),0,sel+': no model, level or key in Assistant mode');
+      assert.doesNotMatch(await page.$eval('#s-router',e=>e.innerText),/Opus|Sonnet|Haiku|GPT|Jev|OpenRouter/,'no model name reaches a seat');
+      await clickControl(page,'#s-router-on');await page.waitForFunction(()=>/Automatic model choice is (on|off)/.test(document.getElementById('toast')?.textContent||''));
+      await scan('assistant-features-router-390');
+      Object.assign(settings,{projects:false,documents:false,tasks:false,inbox:false,vault:false});
+     }
+     await page.keyboard.press('Escape');
+    }
+    // a library that is off sends an Assistant-mode seat to Features, not to a category it does not have
+    await page.setViewport({width:390,height:844});await page.goto(base+'/#/projects');await page.reload();
+    await page.waitForFunction(()=>/Projects is off/.test(document.querySelector('#projects-main')?.textContent||''));
+    assert.equal(await page.$eval('#projects-main .library-error p',e=>e.textContent),'Projects is off. Turn it on in Settings → Features.');
+    await clickControl(page,'[data-library-settings]');await page.waitForSelector('[data-settings-panel=features]:not([hidden])');assert.equal(await page.$eval('.sheet h2',e=>e.textContent.trim()),'Features');
+    await page.keyboard.press('Escape');await page.goto(base+'/#/inbox');await page.reload();
+    await page.waitForFunction(()=>/Inbox Watch is off/.test(document.querySelector('#inbox-main')?.textContent||''));
+    assert.equal(await page.$eval('#inbox-main .library-error p',e=>e.textContent),'Inbox Watch is off. Turn it on in Settings → Features.');
+    // locked: a line saying what is on and who changes it, and no switches
+    Object.assign(settings,{assistantLocked:true,projects:true,documents:false,tasks:true,inbox:false,vault:false});
+    for(const [w,h] of [[390,844],[1440,900]]){
+     await page.setViewport({width:w,height:h});await page.goto(base+'/#/');await open();
+     assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','features','notifications','help']);
+     assert.equal(await page.$eval('[data-settings-category=features] .sub',e=>e.textContent),'Which parts of Pocket are on');
+     await features();
+     assert.deepEqual(await page.$$eval('[data-settings-panel=features] > *',es=>es.map(e=>e.id)),['s-features-lead'],'nothing but the line');
+     assert.equal(await page.$eval('#s-features-note',e=>e.textContent),'Projects and Tasks are on. Files, Inbox Watch and Vault are off. To change them, ask the person who runs this install.');
+     for(const id of ['s-projects','s-documents','s-tasks','s-inbox','s-vault','s-router-on'])assert.equal(await shown('#'+id),false,id+' is not offered when the mode is locked');
+     if(w===390)for(const t of ['light','dark']){await theme(t);await scan(`assistant-features-locked-${w}-${t}`);await page.screenshot({path:path.join(out,`assistant-features-locked-${w}-${t}.png`)});}
+     await theme('system');
+     await page.keyboard.press('Escape');
+    }
+    await page.setViewport({width:390,height:844});await page.goto(base+'/#/documents');await page.reload();
+    await page.waitForFunction(()=>/Files is off/.test(document.querySelector('#documents-main')?.textContent||''));
+    assert.equal(await page.$eval('#documents-main .library-error p',e=>e.textContent),'Files is off. Ask the person who runs this install to turn it on.');
+    assert.equal(await page.$('[data-library-settings]'),null,'no Open Settings button when there is nothing to open');
+   }finally{Object.assign(settings,before);await page.evaluate(()=>PocketTheme.setPreference('system'));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');await page.reload();}
+  });
+
+  await check('1.81 Keyboard shortcuts: the sheet lists the side chat shortcut and the Enter rules, and the message box follows them',async()=>{
+   const vp=page.viewport();
+   try{
+    for(const [w,h] of [[390,844],[1440,900]]){
+     await page.setViewport({width:w,height:h});await chat();
+     const sent=received.length,setBox=v=>page.$eval('#box',(e,v)=>{e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));},v),draft=await page.$eval('#box',e=>e.value);await setBox('');
+     // the rule the sheet states: Enter sends from 900 px, below that it adds a line; Shift+Enter always adds one
+     await page.focus('#box');await page.keyboard.type('one');await page.keyboard.down('Shift');await page.keyboard.press('Enter');await page.keyboard.up('Shift');await page.keyboard.type('two');
+     assert.equal(await page.$eval('#box',e=>e.value),'one\ntwo','Shift+Enter adds a line at '+w);
+     if(w<900){await page.keyboard.press('Enter');await page.keyboard.type('three');assert.equal(await page.$eval('#box',e=>e.value),'one\ntwo\nthree','below 900 px Enter adds a line');assert.equal(received.length,sent,'and sends nothing');}
+     await setBox(draft);
+     await page.evaluate(()=>settingsSheet({category:'help'}));await clickControl(page,'#s-keys');await page.waitForSelector('.shortcut-list');
+     const rows=await page.$$eval('.shortcut-list dt',ts=>ts.map(t=>[t.textContent.trim(),t.nextElementSibling.textContent.trim()]));
+     assert.deepEqual(rows.map(r=>r[0]),['Ctrl / ⌘ K','Ctrl / ⌘ Shift L','Alt [ / Alt ]','Ctrl / ⌘ F','Ctrl / ⌘ ;','Enter','Shift Enter','Escape']);
+     assert.equal(rows.find(r=>r[0]==='Ctrl / ⌘ ;')[1],'Open or close the side chat');
+     assert.match(rows.find(r=>r[0]==='Enter')[1],/at least 900 px wide.*narrower one it adds a line.*send button sends/);assert.equal(rows.find(r=>r[0]==='Shift Enter')[1],'Add a line');
+     await scan('keyboard-shortcuts-'+w);
+     await page.keyboard.press('Escape');
+    }
+   }finally{if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
+  });
+
+  await check('1.81 Split panes: the stylesheet and split.js agree on the narrowest pane',async()=>{
+   await page.goto(base+'/#/');
+   const [css,js]=await page.evaluate(()=>{const e=document.createElement('div');e.className='split-pane';document.body.append(e);const w=getComputedStyle(e).minWidth;e.remove();return [w,SPLIT_MIN+'px'];});
+   assert.equal(css,js,'.split-pane min-width follows SPLIT_MIN');
   });
 
   await check('1.69 Inbox: the rail fits six libraries, the list opens with New / All / Dismissed, X dismisses, the row menu resolves, Settings and the push kind are there',async()=>{
@@ -2472,10 +2612,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      assert.equal(await page.$eval('#ktitle',e=>e.textContent),'Inbox');
      assert.deepEqual(await page.$$eval('.inbox-view .inbox-item',r=>r.map(x=>x.className.match(/state-\w+/)[0])),['state-new','state-opened'],'1.71: Open opens first: unread and read, nothing finished, at '+w);
      await clickControl(page,'[data-inbox-filter="new"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1);
-     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item .title',t=>t.map(x=>x.textContent)),['Pradera dispatch conflict'],'Unread shows the one new alert at '+w);
+     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item .title',t=>t.map(x=>x.textContent)),['Oakridge dispatch conflict'],'Unread shows the one new alert at '+w);
      assert.ok((await page.$$eval('.inbox-item button',bs=>bs.map(b=>b.getBoundingClientRect().height))).every(h=>h>=44),'44px targets');
      await clickControl(page,'[data-inbox-filter="open"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
-     assert.match(await page.$eval('.inbox-item.state-new .inbox-text',e=>e.textContent),/Kimberly says/);
+     assert.match(await page.$eval('.inbox-item.state-new .inbox-text',e=>e.textContent),/Robin says/);
      if(w===390)await scan('inbox-all-390');else await scan('inbox-all-1440');
     }
     // 1.69.1: a tap on the row reads it (the sheet), and only the sheet starts a conversation
@@ -2485,36 +2625,36 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     // The list repaints when the server answers an action; a click that lands on the row just replaced is tried again.
     const clickRow=async sel=>{for(let i=0;;i++){try{return await clickControl(page,sel);}catch(e){if(i>=4||!/detached|not clickable|No element/i.test(String(e.message)))throw e;await new Promise(r=>setTimeout(r,250));}}};
     // 1.77: the dot is its own control: read → unread → read, the row staying where it is; it sits level with the title
-    await clickRow('[data-inbox-read][aria-label="Mark as unread: Pradera dispatch conflict"]');await page.waitForSelector('.inbox-view .inbox-item.state-new [data-inbox-read][aria-label="Mark as read: Pradera dispatch conflict"]');
+    await clickRow('[data-inbox-read][aria-label="Mark as unread: Oakridge dispatch conflict"]');await page.waitForSelector('.inbox-view .inbox-item.state-new [data-inbox-read][aria-label="Mark as read: Oakridge dispatch conflict"]');
     assert.equal(await page.$eval('.inbox-item.state-new .inbox-mark .i circle',c=>getComputedStyle(c).fill!=='none'),true,'unread is a filled dot');
     assert.ok(await page.$eval('.inbox-item.state-new',r=>{const d=r.querySelector('.inbox-mark .i').getBoundingClientRect(),t=r.querySelector('.row .title').getBoundingClientRect();const mid=d.top+d.height/2;return mid>t.top&&mid<t.top+28;}),'the dot is level with the first line of the title');
     assert.equal(await page.evaluate(()=>document.querySelector('.inbox-sheet')),null,'the dot opens nothing');
-    await clickRow('[data-inbox-read][aria-label="Mark as read: Pradera dispatch conflict"]');await page.waitForFunction(()=>!document.querySelector('.inbox-view .inbox-item.state-new'));
-    assert.equal(await page.$eval('[data-inbox-read][aria-label="Mark as unread: Pradera dispatch conflict"] .i circle',c=>getComputedStyle(c).fill),'none','read is a ring');
+    await clickRow('[data-inbox-read][aria-label="Mark as read: Oakridge dispatch conflict"]');await page.waitForFunction(()=>!document.querySelector('.inbox-view .inbox-item.state-new'));
+    assert.equal(await page.$eval('[data-inbox-read][aria-label="Mark as unread: Oakridge dispatch conflict"] .i circle',c=>getComputedStyle(c).fill),'none','read is a ring');
     // 1.77: Start a conversation from the alert: New carries the start link, and the row then shows the conversation
-    await clickRow('.inbox-item:has([aria-label="Mark as unread: Pradera dispatch conflict"]) .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet [data-go]');
+    await clickRow('.inbox-item:has([aria-label="Mark as unread: Oakridge dispatch conflict"]) .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet [data-go]');
     assert.equal(await page.$('.inbox-sheet [data-chat]'),null,'no conversation yet');
-    await clickControl(page,'.inbox-sheet [data-go]');await page.waitForFunction(()=>location.hash==='#/new'&&/Reach Jairon/.test(document.querySelector('#first')?.value||''));
+    await clickControl(page,'.inbox-sheet [data-go]');await page.waitForFunction(()=>location.hash==='#/new'&&/Reach Jordan/.test(document.querySelector('#first')?.value||''));
     const sentBefore=received.length;await clickControl(page,'#start');await page.waitForFunction(n=>location.hash.startsWith('#/chat/')||false,{},sentBefore);
     assert.equal(received.at(-1).start,'0123456789ab','the start link reaches /api/new');
     await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view .inbox-item .inbox-chat');
-    assert.equal(await page.$eval('.inbox-item .inbox-chat',a=>[a.getAttribute('href'),a.getAttribute('aria-label'),a.getBoundingClientRect().height>=44&&a.getBoundingClientRect().width>=44].join('|')),'#/chat/66666666-6666-4666-8666-666666666666|Open the conversation: Pradera dispatch conflict|true');
+    assert.equal(await page.$eval('.inbox-item .inbox-chat',a=>[a.getAttribute('href'),a.getAttribute('aria-label'),a.getBoundingClientRect().height>=44&&a.getBoundingClientRect().width>=44].join('|')),'#/chat/66666666-6666-4666-8666-666666666666|Open the conversation: Oakridge dispatch conflict|true');
     assert.equal(await page.$$eval('.inbox-view .inbox-chat',a=>a.length),1,'only the entry it started from');
     await clickRow('.inbox-item:has(.inbox-chat) .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet [data-chat]');
     assert.deepEqual(await page.$$eval('.inbox-sheet .opt',o=>o.slice(0,2).map(x=>x.firstElementChild.nextElementSibling.firstChild.textContent)),['Open the conversation','Start another conversation']);
     await scan('inbox-conversation-1440');
     await clickControl(page,'.inbox-sheet [data-chat]');await page.waitForFunction(()=>location.hash==='#/chat/66666666-6666-4666-8666-666666666666'&&!document.querySelector('.inbox-sheet'));
-    await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view [data-inbox-more][aria-label="Options for Pradera dispatch conflict"]');
-    await clickRow('[data-inbox-more][aria-label="Options for Pradera dispatch conflict"]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
+    await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view [data-inbox-more][aria-label="Options for Oakridge dispatch conflict"]');
+    await clickRow('[data-inbox-more][aria-label="Options for Oakridge dispatch conflict"]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
     assert.match(await page.$eval('.inbox-sheet .inbox-body',e=>e.innerHTML),/<a href="https:\/\/mail\.google\.com\/mail\/u\/0\/#all\/1a1540e0de10f879"/,'a citation is a Gmail link');
     assert.deepEqual(await page.evaluate(()=>['[data-go]','a.opt[href^="https://mail.google.com/"]','[data-resolve]','[data-useless]','[data-dismiss]','[data-restore]'].map(q=>Boolean(document.querySelector('.inbox-sheet '+q)))),[true,true,true,true,true,false],'the choices: open, Gmail, Resolved, Not useful, Dismiss; no Restore on a new entry');
     await clickControl(page,'.inbox-sheet [data-resolve]');await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));
-    await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1,'Pradera leaves Open');
-    await clickControl(page,'[data-inbox-filter="done"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item.state-resolved').length===2,'Done: Pradera joins Circa as resolved');
-    await clickControl(page,'[data-inbox-dismiss][aria-label="Dismiss: Pradera dispatch conflict"]');await page.waitForSelector('.inbox-item.state-dismissed');
+    await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1,'Oakridge leaves Open');
+    await clickControl(page,'[data-inbox-filter="done"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item.state-resolved').length===2,'Done: Oakridge joins Lakeview as resolved');
+    await clickControl(page,'[data-inbox-dismiss][aria-label="Dismiss: Oakridge dispatch conflict"]');await page.waitForSelector('.inbox-item.state-dismissed');
     assert.equal(await page.$$eval('.inbox-view .inbox-item',r=>r.length),2,'Done holds resolved and dismissed alike');
     await clickControl(page,'.inbox-item.state-dismissed [data-inbox-more]');await page.waitForSelector('.inbox-sheet [data-restore]');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));await clickControl(page,'.inbox-sheet [data-restore]');
-    await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-view .inbox-item .title')].map(x=>x.textContent).join()==='Circa alarm timer tests','restored: only Circa is left in Done');
+    await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-view .inbox-item .title')].map(x=>x.textContent).join()==='Lakeview alarm timer tests','restored: only Lakeview is left in Done');
     await clickControl(page,'[data-inbox-filter="open"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
     // 1.75: Check now, beside Schedule in the view and beside All in the rail; busy until the watcher reports it done
     assert.equal(await page.evaluate(()=>{const d=document.createElement('div');d.innerHTML=railInboxHTML();return [...d.querySelector('.rail-project-actions').children].map(x=>x.textContent.trim()).join('|');}),'All|Check now','the rail: Check now beside All');
@@ -2524,6 +2664,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.evaluate(()=>fetch('/api/inbox/check-done',{method:'POST'}));
     await page.waitForFunction(()=>document.querySelector('.inbox-view [data-inbox-check]:not([aria-busy])')&&/Checked\. One new item\./.test(document.querySelector('#toast')?.textContent||''),{timeout:15000});
     await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-view .inbox-item .title')].some(t=>t.textContent==='Added in Gmail: quote request'),{},'the list reloads with what the check found');
+    // 1.81: when Pocket stands down for a watcher installed separately, the status line says so (it used to be blank)
+    assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:false,state:'external'})),'A watcher installed separately is reporting here; Pocket is not running its own.');
+    assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:false,state:'off'})),'');
+    assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:true,state:'running',mailbox:'sam@example.com',accountChange:{from:'alex@example.com',to:'sam@example.com'}})),'Gmail is now connected as sam@example.com (it was alex@example.com), so Inbox Watch now watches sam@example.com. Mail already kept from the old account stays in its memory.');
+    assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:true,state:'running',mailbox:'sam@example.com',accountChange:null})),'');
     // Settings: the switch under the libraries, the push kind under notifications
     await page.setViewport({width:1440,height:900});await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox');
     await page.waitForFunction(()=>document.querySelector('#s-inbox')?.getAttribute('aria-pressed')==='true');assert.match(await page.$eval('#s-inbox-state',e=>e.textContent),/^On: alerts, digests and look-aheads/);
@@ -2534,7 +2679,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));settings.assistantMode=true;
     await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.reload();await page.waitForSelector('.assistant-home');
     await page.waitForSelector('#home-waiting .inbox-card');
-    assert.equal(await page.$eval('#home-waiting .inbox-card .home-card-title',e=>e.textContent),'Pradera dispatch conflict');
+    assert.equal(await page.$eval('#home-waiting .inbox-card .home-card-title',e=>e.textContent),'Oakridge dispatch conflict');
     assert.match(await page.$eval('#home-waiting .inbox-card',e=>e.getAttribute('href')),/^#\/inbox\/[0-9a-f]{12}$/,'1.69.1: the card opens the entry to read, not the session');
     await page.mouse.move(1,1);await page.evaluate(()=>document.querySelector('#tip')?.setAttribute('hidden',''));await scan('assistant-home-inbox-390');
    }finally{Object.assign(settings,before);settings.assistantMode=false;await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
@@ -2587,7 +2732,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await clickControl(page,'#w-save');await page.waitForFunction(()=>/Period 2 needs at least one day/.test(document.querySelector('#w-error')?.textContent||''));
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
     // Settings opens the same sheet; Assistant mode keeps the schedule and drops models and cost
+    // 1.81 (#182): inside its category the button still disappears with the switch (a hidden .opt needs its own rule)
+    settings.inbox=false;await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));
+    await page.waitForFunction(()=>/^Off\./.test(document.querySelector('#s-inbox-state')?.textContent||''));
+    assert.equal(await page.$eval('#s-inbox-watch',e=>e.getClientRects().length),0,'no Schedule, models and cost while Inbox Watch is off');
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.settings-sheet'));settings.inbox=true;
     await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox-watch:not([hidden])');
+    // 1.81 (#182): the button sits in Projects, files, tasks & vault, right under the Inbox Watch switch, not loose above the categories
+    assert.deepEqual(await page.$eval('#s-inbox-watch',e=>({panel:e.closest('[data-settings-panel]')?.dataset.settingsPanel,after:e.previousElementSibling?.id,before:e.nextElementSibling?.id,parent:e.parentElement.tagName})),{panel:'libraries',after:'s-inbox',before:'s-vault',parent:'SECTION'},'Schedule, models and cost follows the Inbox Watch switch');
     await clickControl(page,'#s-inbox-watch');await page.waitForSelector('.watch-sheet #w-save');assert.ok(await page.$('.watch-sheet .sheet-back'),'Back to Settings');
     await page.keyboard.press('Escape');
     settings.assistantMode=true;await page.setViewport({width:390,height:844});await page.goto(base+'/#/inbox');await page.reload();await page.waitForSelector('#inbox-watch');

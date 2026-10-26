@@ -15,7 +15,7 @@ Tasks is off until you switch it on for the whole instance:
 
 While Tasks is on, Pocket installs the `pocket-tasks` skill for Claude Code and Codex and tells the agents it runs when to create and offer tasks (see [For agents](#for-agents)). Turning it off hides Tasks, refuses `pocket-tasks` and stops due tasks from being announced; your tasks stay on disk.
 
-In Assistant mode the **Projects, files, tasks & vault** group is not shown in Settings. Switch to **Developer mode** under **Settings → Appearance → Mode** to change it.
+In Assistant mode the switch is under **Settings → Features** instead. When Assistant mode is locked, ask the person who runs the install.
 
 ## Use it
 
@@ -58,7 +58,7 @@ When the work reaches a point you will need to return to (waiting on time or dat
 ### Due times and time zones
 
 - Times you pick in Pocket are in the device's time zone and saved as an exact moment, so they mean the same thing on every device.
-- A time an agent passes without an offset is read in `POCKET_TZ`, or in the server's own zone when that is unset.
+- A time an agent passes without an offset is read in the owner's zone (the one their browser reports to Pocket, else `POCKET_TZ`, else the server's), the zone the commands print times in.
 - Times the `pocket-tasks` command prints are in your time zone (the one your browser reports to Pocket, else `POCKET_TZ`, else the server's), with the zone named.
 
 ### When a task comes due
@@ -112,7 +112,7 @@ Click a task to open its sheet: the text, the date, the conversation it came fro
 | **Settings → Conversation → Model for titles and summaries** | Which helper writes the summary for **Include a summary of this conversation**. |
 | `POCKET_REMINDER_HOOK` | A shell command run for each due task, with the task as JSON on standard input. It runs without Pocket's own secrets in its environment. See [operations](../operations.md#optional-libraries-projects-files-tasks-inbox-and-the-vault) for the payload. |
 | `POCKET_REMINDER_HOOK_TIMEOUT_MS` | How long one hook run may take before Pocket stops it and everything it started. Default 60000. |
-| `POCKET_TZ` | The time zone for due times given to `pocket-tasks` without an offset. Default: the server's own zone. |
+| `POCKET_TZ` | The user's time zone until their browser reports one, for due times shown and given to `pocket-tasks` without an offset. Default: the server's own zone. |
 | `POCKET_CHOICES=0` | Agents offer a task in one plain line instead of as a suggested-reply button. |
 | `POCKET_REMINDER_CHECK_MS` | How often due tasks are checked, in milliseconds. Default 60000. |
 
@@ -139,13 +139,13 @@ A conversation opened with **Start** has the task id in its first message. Mark 
 
 Run `node scripts/pocket-tasks.mjs` from the Pocket Code directory; the installed skill names the full path. It talks to the running server over loopback with the token in `<data dir>/cli-token` and never opens `tasks.json`. It finds the server and data directory the same way as [`pocket-board`](projects.md#running-the-command).
 
-A `--due` time without an offset is read in `POCKET_TZ`, or the server's zone. The command prints times in the user's zone, which can differ; when it does, pass an explicit offset (`2026-11-06T09:00-05:00`).
+A `--due` time without an offset is read in the zone the command prints times in (the user's), so a printed time can be passed back as it reads. An explicit offset (`2026-11-06T09:00-05:00`) is also accepted.
 
 ### Command reference
 
 | Command | What it does |
 |---|---|
-| `add "text" [--due "YYYY-MM-DDTHH:MM"] [--session <id>] [--summary "…"] [--dir <path>]` | Adds a task. `--session` is a Claude session id, or `cx:<id>` for Codex; the server fills in its title and workspace. `--dir` must be a full path. `--due` also takes seconds and an offset. |
+| `add "text" [--due "YYYY-MM-DDTHH:MM"] [--session <id>] [--summary "…"] [--dir <path>]` | Adds a task. `--session` is a Claude session id, or `cx:<id>` for Codex; the server fills in its title and workspace. A relative `--dir` is taken from the current directory. `--due` also takes seconds and an offset. |
 | `list [--all] [--json]` | Open tasks, due first, as `[ ] text (id) due …`. `--all` adds finished ones. |
 | `show <id> [--json]` | One task with its conversation, workspace, context and who added it. |
 | `done <id>` / `reopen <id>` | Finishes a task or reopens it. |
@@ -183,7 +183,7 @@ pocket-tasks done 1c2d3e4f5a6b
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| A task comes due hours off | The agent gave a time without an offset, and `POCKET_TZ` (or the server's zone) is not the user's zone. | Pass an offset, or set `POCKET_TZ` to the user's zone. |
+| A task comes due hours off | The agent gave a time without an offset before the user's browser reported a zone, and `POCKET_TZ` (or the server's zone) is not the user's zone. | Open Pocket in the user's browser once, set `POCKET_TZ` to the user's zone, or pass an offset. |
 | No announcement on any channel | Tasks is off, or the task has no date. | Turn on **Settings → Projects, files, tasks & vault → Tasks**; give the task a date. |
 | No push when a task comes due | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications & voice** on the device. The list still shows the task as due. |
 | No email | `POCKET_SMTP_URL` is not set, or no address is saved. | Set it up (see [Settings](settings.md#notifications--voice)) and use **Send a test** in **Settings → Notifications & voice**. |
@@ -191,5 +191,5 @@ pocket-tasks done 1c2d3e4f5a6b
 | "task added without context" | No helper model is available, or the conversation is too short to summarize. | Add the context with **Edit**, or check **Model for titles and summaries**. |
 | **Start** opens in the wrong folder | The task has no workspace: it was added from the list, or by an agent without `--session` or `--dir`. | Choose the workspace in the new conversation, or have agents pass `--session` or `--dir`. |
 | `You can keep up to 500 tasks.` | The limit counts finished tasks too. | Remove finished tasks you no longer need. |
-| `The directory must be a full path.` | `--dir` was relative. | Pass an absolute path. |
+| `The directory must be a full path.` | A relative directory reached the server through the API (the command resolves `--dir` against the current directory). | Pass an absolute path. |
 | `No CLI token at …`, `not reachable`, exit 4 | The same causes as for `pocket-board`. | See [Projects troubleshooting](projects.md#troubleshooting). |

@@ -183,14 +183,20 @@ class ClaudeConnector:
         return out
 
     def whoami(self) -> dict:
-        """The sender of the newest sent message (the connector has no profile tool)."""
+        """The sender of the newest sent message (the connector has no profile tool), and, as `senders`, every address that sent
+        one of the last three sent threads (1.81): an owner who sometimes sends from an alias shows both, so Pocket can tell a
+        changed account from a different "send as"."""
         threads, _ = self.search("in:sent", 3, None)
-        for t in threads:
-            for m in reversed(t.get("messages") or []):
-                name, addr = parseaddr(m.get("sender") or "")
-                if "@" in addr:
-                    return {"email": addr.lower(), "name": name}
-        return {}
+        msgs = [m for t in threads for m in reversed(t.get("messages") or [])]
+        msgs = [m for m in msgs if "SENT" in (m.get("labelIds") or [])] or msgs  # a sent thread's newest message can be someone's reply
+        who, senders = {}, []
+        for m in msgs:
+            name, addr = parseaddr(m.get("sender") or "")
+            if "@" in addr:
+                who = who or {"email": addr.lower(), "name": name}
+                if addr.lower() not in senders:
+                    senders.append(addr.lower())
+        return {**who, "senders": senders} if who else {}
 
     # ---- the Pocket Inbox label (1.75.1)
     def _label_ids(self) -> dict:

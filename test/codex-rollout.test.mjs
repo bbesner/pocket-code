@@ -14,7 +14,7 @@ const count = (s, input, cached, window = 486_400, output = 500) => JSON.stringi
   model_context_window: window } } });
 
 test('contextUsed: the context is the input alone; cached tokens are a subset of it, in either spelling', () => {
-  // Damon's figures from Ramesh's session (2026-10-14): input 153,239 / cached 152,704 / window 258,400 was shown as 118%, real 59%
+  // Figures from a real session (2026-10-14): input 153,239 / cached 152,704 / window 258,400 was shown as 118%, real 59%
   const rollout = { input_tokens: 153_239, cached_input_tokens: 152_704 };
   const notification = { inputTokens: 153_239, cachedInputTokens: 152_704 };
   assert.equal(contextUsed(rollout), 153_239);

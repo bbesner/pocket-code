@@ -8,7 +8,7 @@
 //                    [--doc <Files id>] [--dedupe <key>] [--email] [--no-push] [--json]      prints "<id> push=<devices|off> mail=<yes|no|off|failed>"
 //   pocket-inbox list [--state new|all|dismissed] [--since <ISO>] [--json]                   new ones by default, newest first
 //   pocket-inbox show <id> [--json]
-//   pocket-inbox act <id> <open|dismiss|resolve|not_useful|restore> [--note "…"] [--json]
+//   pocket-inbox act <id> <open|unread|dismiss|resolve|not_useful|restore> [--note "…"] [--json]
 //   pocket-inbox feedback [--since <ISO>] [--json]                                           the owner's decisions not yet applied
 //   pocket-inbox ack <id…>                                                                   the worker applied them
 //   pocket-inbox seen [--source <name>] [--profile <path|->]                                 a heartbeat: the worker ran (1.70: with its profile)
@@ -21,11 +21,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ownerZone, whenIn } from './owner-zone.mjs';
+import { readEnvFile } from '../env-file.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const envFile = process.env.POCKET_ENV_FILE ?? path.join(root, '.env');
-const fileEnv = {};
-try { for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) { const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line); if (m && !m[1].startsWith('#')) fileEnv[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2'); } } catch { }
+const fileEnv = readEnvFile(envFile);
 const env = k => process.env[k] ?? fileEnv[k];
 const dataDir = env('POCKET_DATA_DIR') || root;
 // The daemon's own address first (<data dir>/cli-url, 1.43.1): an app the agent is working on may export PORT, and the token must never go to it.

@@ -9,17 +9,17 @@
 //   pocket-tasks done <id> | reopen <id>
 //   pocket-tasks edit <id> [--text "…"] [--due "…" | --clear-due] [--summary "…"]
 //   pocket-tasks remove <id>
-// A due time without an offset is in the server's time zone (POCKET_TZ). --summary is the context a task
+// A due time without an offset is in the owner's zone, the one times are printed in. --summary is the context a task
 // carries: two to four plain sentences on what the session was doing and what the task needs.
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ownerZone, whenIn } from './owner-zone.mjs';
+import { readEnvFile } from '../env-file.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const envFile = process.env.POCKET_ENV_FILE ?? path.join(root, '.env');
-const fileEnv = {};
-try { for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) { const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line); if (m && !m[1].startsWith('#')) fileEnv[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2'); } } catch { }
+const fileEnv = readEnvFile(envFile);
 const env = k => process.env[k] ?? fileEnv[k];
 const dataDir = env('POCKET_DATA_DIR') || root;
 // The daemon writes its address to <data dir>/cli-url at start (1.43.1). Read that first, then this checkout's .env, and only
@@ -36,7 +36,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 const [cmd, ...rest] = opts._;
 const die = (msg, code = 1) => { console.error(msg); process.exit(code); };
-if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 15).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 14).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 
 let token = '';
 try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { die(`No CLI token at ${path.join(dataDir, 'cli-token')}. Is Pocket Code running from this checkout? (POCKET_DATA_DIR=${dataDir})`); }
@@ -82,7 +82,7 @@ switch (cmd) {
   }
   case 'add': {
     if (!rest[0]) die('add needs the task text: pocket-tasks add "Call the supplier"');
-    await act({ action: 'add', text: rest[0], dueAt: opts.due || undefined, session: opts.session || undefined, summary: opts.summary || '', directory: opts.dir || '' });
+    await act({ action: 'add', text: rest[0], dueAt: opts.due || undefined, session: opts.session || undefined, summary: opts.summary || '', directory: opts.dir ? path.resolve(opts.dir) : '' }); // 1.81: a relative --dir is resolved here, as pocket-docs add does
     break;
   }
   case 'done': case 'reopen': { if (!rest[0]) die(`${cmd} needs a task id`); await act({ action: 'update', task: rest[0], done: cmd === 'done' }); break; }

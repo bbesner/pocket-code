@@ -32,15 +32,16 @@ export function taskInstructions(cli, sessionId, { choices = true } = {}) {
     'This Pocket Code keeps tasks (to-dos).',
     'Create a task only when the user asks (create a task, add a to-do, remind me, note something for later; typed or spoken) or accepts your offer of one. Never create one the user did not ask for or accept.',
     `Before you finish each reply, check whether the work now needs the user to come back to it later: waiting on time (propagation, data building up, a scheduled date), a test or measurement still to run, another person's reply or action, a step the user chose to put off, or a date they mentioned. If it does and no task or reminder already covers it, ${offer} This applies even when the user only asked for a recap or a short answer. Do not offer for work you are about to do in this session or for trivial errands, and do not repeat an offer the user passed on.`,
-    `When the user asks or accepts, run \`node ${cli} add "<text>"${sid} --summary "…" [--due "YYYY-MM-DDTHH:MM"]\`. The text is one clear sentence of what to do. Write the summary yourself (always for an accepted offer, and whenever the task depends on this session): two to four plain sentences on what is being worked on, where it stands and what finishing the task needs (files, decisions, blockers). Give --due only for a date or time the user named or agreed; a time without an offset is this server's time zone. ${sessionId ? "Pocket adds the session's title and workspace, so Start opens the task in the right place." : 'Pass the working directory so Start opens the task in the right place.'} Then confirm in one sentence with the task and its due time.`,
+    `When the user asks or accepts, run \`node ${cli} add "<text>"${sid} --summary "…" [--due "YYYY-MM-DDTHH:MM"]\`. The text is one clear sentence of what to do. Write the summary yourself (always for an accepted offer, and whenever the task depends on this session): two to four plain sentences on what is being worked on, where it stands and what finishing the task needs (files, decisions, blockers). Give --due only for a date or time the user named or agreed; a time without an offset is the user's time zone, the one the command prints times in. ${sessionId ? "Pocket adds the session's title and workspace, so Start opens the task in the right place." : 'Pass the working directory so Start opens the task in the right place.'} Then confirm in one sentence with the task and its due time.`,
     `\`list\` shows the open tasks and \`done <id>\` finishes one. The pocket-tasks skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-tasks', 'SKILL.md')}\`) has the procedure.`,
   ].join(' ');
 }
 
 export class TaskStore {
-  constructor(file, { write, now } = {}) {
+  constructor(file, { write, now, zone } = {}) {
     this.file = file;
     this.now = now || Date.now;
+    this.zone = zone || (() => undefined); // 1.81: the owner's zone for a due time without an offset (see parseWhen)
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
     let d = {};
     try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
@@ -75,7 +76,7 @@ export class TaskStore {
     if (action === 'add') {
       const text = str(input.text, LIMITS.text).replace(/\s+/g, ' '); if (!text) throw fail('The task needs some text.');
       if (this.tasks.length >= LIMITS.tasks) throw fail(`You can keep up to ${LIMITS.tasks} tasks. Remove some finished ones first.`, 409);
-      const t = { id: shortId(), text, dueAt: input.dueAt ? parseWhen(input.dueAt) : null, done: false, doneAt: null,
+      const t = { id: shortId(), text, dueAt: input.dueAt ? parseWhen(input.dueAt, this.zone() || undefined) : null, done: false, doneAt: null,
         session: input.session ? checkSession(input.session) : null, sessionTitle: str(input.sessionTitle, LIMITS.title), directory: checkDirectory(str(input.directory, 1024)),
         summary: str(input.summary, LIMITS.summary), by: actor, created: at, updated: at, notifiedAt: null, aheadNotifiedAt: null, dueSetAt: at, revision: 1 };
       this.commit([...this.tasks, t]);
@@ -86,7 +87,7 @@ export class TaskStore {
     if (action === 'remove') { this.commit(this.tasks.filter(x => x !== live)); return { ...this.view(live), removed: true }; }
     const t = { ...live }; let changed = false;
     if ('text' in input) { const text = str(input.text, LIMITS.text).replace(/\s+/g, ' '); if (!text) throw fail('The task needs some text.'); t.text = text; changed = true; }
-    if ('dueAt' in input) { const dueAt = input.dueAt ? parseWhen(input.dueAt) : null; if (dueAt !== t.dueAt) { t.dueAt = dueAt; t.notifiedAt = null; t.aheadNotifiedAt = null; t.dueSetAt = at; } changed = true; } // a new time is announced again
+    if ('dueAt' in input) { const dueAt = input.dueAt ? parseWhen(input.dueAt, this.zone() || undefined) : null; if (dueAt !== t.dueAt) { t.dueAt = dueAt; t.notifiedAt = null; t.aheadNotifiedAt = null; t.dueSetAt = at; } changed = true; } // a new time is announced again
     if ('summary' in input) { t.summary = str(input.summary, LIMITS.summary); changed = true; }
     if ('session' in input) { t.session = input.session ? checkSession(input.session) : null; t.sessionTitle = str(input.sessionTitle, LIMITS.title); changed = true; }
     if ('directory' in input) { t.directory = checkDirectory(str(input.directory, 1024)); changed = true; }

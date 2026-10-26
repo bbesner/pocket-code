@@ -19,7 +19,7 @@ NOW = time.time()
 class FakeArchive:
     def thread(self, tid, until):
         return [{"thread_id": tid, "message_id": f"m-{tid}", "subject": f"Subject {tid[-2:]}", "labels": "[]", "ts": NOW - 60,
-                 "sender": "billing@example.com", "recipients": "alex@example.com", "from_brad": 0, "body": "A payment posted."}]
+                 "sender": "billing@example.com", "recipients": "alex@example.com", "from_owner": 0, "body": "A payment posted."}]
 
     def related(self, *a, **k):
         return []
@@ -144,7 +144,7 @@ def test_a_reply_that_does_not_parse_is_asked_again():
     # 2026-10-23 11 PM: one Sonnet reply would not parse and the whole check failed; the same threads judged fine 30 min later.
     good = '{"decisions": []}'
     assert ask_judge([good]) == ({"decisions": []}, 1), "a good reply is asked for once"
-    assert ask_judge(['{"decisions":[{"title":"Vertical Cable "past due""}]}', good]) == ({"decisions": []}, 2)
+    assert ask_judge(['{"decisions":[{"title":"Contoso "past due""}]}', good]) == ({"decisions": []}, 2)
     assert ask_judge(['{"decisions":[{"title":"cut off', good]) == ({"decisions": []}, 2)
     try:
         ask_judge(["no json here", '{"decisions": [}'])
@@ -179,14 +179,14 @@ def test_notify_dry_run_keeps_nothing():
 
 def test_resolving_in_pocket_closes_the_story():
     # 2026-10-25: Pocket's feedback reports the entry's state ("resolved"), and apply_feedback only closed a story on "resolve",
-    # so none of Brad's 58 resolves since 2026-10-19 closed one. The items below are the shape inbox.mjs feedback() returns.
+    # so none of the owner's 58 resolves since 2026-10-19 closed one. The items below are the shape inbox.mjs feedback() returns.
     store, pocket = setup()
     for k in ("story-a", "story-b", "story-c"):
         store.upsert_story({"issue_key": k, "status": "open", "priority": "normal", "new_fact": f"{k} opened."}, None)
     store.commit()
     acked = []
     pocket.feedback = lambda: [
-        {"id": "e1", "action": "resolved", "at": "2026-10-25T12:00:03Z", "note": "Suzette made this purchase", "title": "Charge", "story": "story-a", "source": "inbox-monitor", "kind": "alert"},
+        {"id": "e1", "action": "resolved", "at": "2026-10-25T12:00:03Z", "note": "Sam made this purchase", "title": "Charge", "story": "story-a", "source": "inbox-monitor", "kind": "alert"},
         {"id": "e2", "action": "dismissed", "at": "2026-10-25T12:00:04Z", "note": "", "title": "Dismissed", "story": "story-b", "source": "inbox-monitor", "kind": "alert"},
         {"id": "e3", "action": "resolved", "at": "2026-10-25T12:00:05Z", "note": "", "title": "Later restored", "story": "story-c", "source": "inbox-monitor", "kind": "alert"},
     ]

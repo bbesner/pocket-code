@@ -13,10 +13,13 @@ export const TIERS = [
   { key: 'careful', label: 'Careful', want: ['sonnet', 'high'], about: 'A longer task with several steps or tools, or one where the details matter: reconcile figures, compare options, fix a problem.' },
   { key: 'deep', label: 'Deep', want: ['opus', 'high'], about: 'A finished deliverable that has to be right and look right: a proposal, presentation, report, customer-facing document or a hard analysis that needs judgment.' },
 ];
-const INSTRUCTIONS = 'Which level of effort does this request need from an AI assistant at a small security-systems company? '
+// 1.81: the prompt names no business (#174); an install describes its own with POCKET_ROUTER_CONTEXT, added after CONTEXT,
+// so what counts as routine work there is judged by that install, not by the one this was first written for.
+const INSTRUCTIONS = 'Which level of effort does this request need from an AI work assistant? '
   + 'Pick the lightest level that will still do the job well.';
-const CONTEXT = 'The request was typed by an office employee (account manager, warehouse manager) into their work assistant. '
-  + 'The assistant can read and draft email, look up quotes and customers, and make documents, decks and spreadsheets.';
+const CONTEXT = 'The request was typed by a person into their AI work assistant. '
+  + 'The assistant can read and draft email, look things up, and make documents, decks and spreadsheets.';
+export const routerContext = (extra = '') => { const x = String(extra || '').replace(/\s+/g, ' ').trim().slice(0, 1000); return x ? CONTEXT + ' ' + x : CONTEXT; };
 const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // The (model, effort) for a tier among `offered` (catalog entries with `alias` and `id`, strongest first), capped at
@@ -49,22 +52,23 @@ export function capEffort(effort, max) {
 const PROVIDERS = {
   jev: {
     url: 'https://openrouter.ai/api/alpha/decisions',
-    body: text => ({ model: '~typesafe/jev-latest', state: { context: CONTEXT, first_message: text.slice(0, 4000) },
+    body: (text, context) => ({ model: '~typesafe/jev-latest', state: { context, first_message: text.slice(0, 4000) },
       questions: { tier: { type: 'choice', instructions: INSTRUCTIONS, criteria: Object.fromEntries(TIERS.map(t => [t.key, t.about])) } } }),
     read: j => { const a = j?.answers?.tier; const p = a?.probabilities || {}; return { tier: a?.choice, confidence: Number(p[a?.choice] ?? NaN) }; },
   },
   openai: {
     url: 'https://api.openai.com/v1/decisions',
-    body: text => ({ model: 'gpt-6-luna', input: [{ role: 'user', content: [{ type: 'input_text', text: CONTEXT + '\n\nRequest:\n' + text.slice(0, 4000) }] }],
+    body: (text, context) => ({ model: 'gpt-6-luna', input: [{ role: 'user', content: [{ type: 'input_text', text: context + '\n\nRequest:\n' + text.slice(0, 4000) }] }],
       questions: [{ type: 'choice', name: 'tier', instructions: INSTRUCTIONS, choices: TIERS.map(t => ({ value: t.key, description: t.about })) }] }),
     read: j => { const a = (j?.answers || []).find(x => x?.name === 'tier'); if (!a || a.type === 'refusal') throw new Error('refused'); return { tier: a.choice, confidence: Number(a.confidence ?? a.probabilities?.find?.(p => p.value === a.choice)?.probability ?? NaN) }; },
   },
 };
 
 export class ModelRouter {
-  // provider: 'jev' | 'openai' | 'off'; key: the API key; fetchImpl for tests; minConfidence below which the default runs.
-  constructor({ provider = 'off', key = '', timeoutMs = 1500, minConfidence = 0.35, fetchImpl = globalThis.fetch, url = null, log = () => { } } = {}) {
-    this.provider = PROVIDERS[provider] && key ? provider : 'off';
+  // provider: 'jev' | 'openai' | 'off'; key: the API key; fetchImpl for tests; minConfidence below which the default runs;
+  // context: the install's own description of its work (POCKET_ROUTER_CONTEXT), or none.
+  constructor({ provider = 'off', key = '', timeoutMs = 1500, minConfidence = 0.35, fetchImpl = globalThis.fetch, url = null, log = () => { }, context = '' } = {}) {
+    this.provider = PROVIDERS[provider] && key ? provider : 'off'; this.context = routerContext(context);
     this.key = key; this.timeoutMs = timeoutMs; this.minConfidence = minConfidence; this.fetch = fetchImpl; this.url = url; this.log = log;
     this.last = null;
   }
@@ -75,7 +79,7 @@ export class ModelRouter {
     const p = PROVIDERS[this.provider], t0 = Date.now();
     try {
       const r = await this.fetch(this.url || p.url, { method: 'POST', headers: { authorization: 'Bearer ' + this.key, 'content-type': 'application/json' },
-        body: JSON.stringify(p.body(String(text))), signal: AbortSignal.timeout(this.timeoutMs) });
+        body: JSON.stringify(p.body(String(text), this.context)), signal: AbortSignal.timeout(this.timeoutMs) });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const { tier, confidence } = p.read(await r.json());
       if (!TIERS.some(x => x.key === tier)) throw new Error('no tier');

@@ -92,7 +92,7 @@ async function renderInbox(view){
  if(PANE){$('#pane-main').onclick=()=>paneSay('main',{view});$('#pane-close').onclick=()=>paneSay('close');}
  else if(!SOLO){bindViewBack($('#back'),view);$('#splitb').onclick=chooseBeside;}
  if(!SOLO)$('#kwin').onclick=()=>openInWindow(view);
- try{await loadInbox(true);if(inboxFilter==='done')await loadInboxDismissed();}catch(e){const m=$('#inbox-main');if(m)m.innerHTML=`<p class="sheet-help">The inbox could not load: ${esc(e.message||'error')}</p>`;return;}
+ try{await loadInbox(true);if(inboxFilter==='done')await loadInboxDismissed();}catch(e){const m=$('#inbox-main');if(m&&e.status===404)showLibraryError(m,e,'Inbox Watch',()=>renderInbox(view),false);else if(m)m.innerHTML=`<p class="sheet-help">The inbox could not load: ${esc(e.message||'error')}</p>`;return;} // 1.81: off says where to turn it on, like the other libraries
  paintInboxView();
  const open=/^#\/inbox\/([0-9a-f]{12})$/.exec(location.hash);if(open)inboxSheet(open[1]);
  if(typeof paintOpenSessions==='function')paintOpenSessions();
@@ -129,12 +129,14 @@ function inboxRowHTML(e){
 }
 /* 1.74: what Pocket's own watcher is doing (inbox-runner.mjs), when that is the reason the list is empty or stale. */
 function inboxRunnerLine(r){
+ if(r&&r.state==='external')return 'A watcher installed separately is reporting here; Pocket is not running its own.'; // 1.81: say why Pocket is not setting one up
  if(!r||!r.managed)return '';
  const box=r.mailbox?` for ${esc(r.mailbox)}`:'';
  if(r.state==='waiting')return esc(r.message||'Inbox Watch starts once Pocket knows your time zone. Open Pocket Code on your phone or computer.');
  if(r.state==='setting-up')return `Setting up Inbox Watch${box}. ${esc(r.message||'')}`;
  if(r.state==='needs-connector')return 'Inbox Watch can’t read your mail yet. Connect Gmail in Settings → Connectors, using the account Claude Code is signed in with. It starts by itself once Gmail is connected.';
  if(r.state==='error')return `Inbox Watch couldn’t check your mail${box}: ${esc(r.message||'unknown error')}. It tries again every minute.`;
+ if(r.accountChange)return `Gmail is now connected as ${esc(r.accountChange.to)} (it was ${esc(r.accountChange.from)}), so Inbox Watch now watches ${esc(r.accountChange.to)}. Mail already kept from the old account stays in its memory.`; // 1.81: the connector was reconnected to another account
  return '';
 }
 function inboxListHTML(){

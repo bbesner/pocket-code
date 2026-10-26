@@ -809,7 +809,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .frame > #app { flex: 1 1 0; min-width: 0; }
 #panes { display: contents; }
 #panes[hidden] { display: none; }
-.split-pane { flex: 1 1 0; min-width: 320px; display: flex; min-height: 0; }
+.split-pane { flex: 1 1 0; min-width: 380px; display: flex; min-height: 0; } /* 1.81: SPLIT_MIN in split.js, which a later rule used to override */
 .split-pane iframe { flex: 1; display: block; width: 100%; height: 100%; border: 0; background: var(--bg); }
 .pane-grip { width: 5px; flex: none; cursor: col-resize; background: var(--line); }
 .pane-grip:hover, .pane-grip:active, .pane-grip:focus-visible { background: var(--clay-deep); outline-offset: -2px; }
@@ -875,7 +875,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .settings-details > summary .summary-meta { color: var(--faint); }
 .settings-details .about { margin: 8px 0; }
 .settings-details .chip { margin-top: 8px; }
-.settings-details [hidden],.settings-sheet > [hidden] { display: none; }
+.settings-details [hidden],.settings-sheet > [hidden],.settings-sheet .opt[hidden] { display: none; } /* 1.81: .opt[hidden] too, now that Schedule, models and cost sits inside its category */
 #s-version-state,#s-notes-body { font-size: 14px; color: var(--dim); }
 .feedback { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 12px; font-size: 14px; line-height: 1.45; color: var(--dim); }
 .feedback p { margin: 0; }
@@ -897,7 +897,6 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .toolbar-scroll > .icon:disabled { opacity: .45; cursor: default; }
 .toolbar-next svg { transform: rotate(180deg); }
 .compact-composer .toolbar-scroll { display: none; }
-.split-pane { min-width: 380px; }
 .split-pane[hidden],.pane-grip[hidden],.split-notice[hidden] { display: none; }
 .split-notice { font-size: 12px; line-height: 1.5; color: var(--dim); background: var(--surface); padding: 4px 12px; flex: none; }
 .conversation-controls { display: flex; flex-direction: column; flex: none; min-width: 0; }
@@ -1688,6 +1687,12 @@ html.assistant .run-confirmation[data-state=idle],
 html.assistant .run-confirmation[data-state=unknown] { display: none !important; }
 html.assistant #composer-actions:empty { display: none; }
 html.assistant .settings-assistant-hidden { display: none !important; }
+/* 1.81 (#175): Features shows Automatic model choice as a switch only; models, levels and the key stay in Developer mode (no model name reaches a seat). */
+html.assistant #s-router > .voice-field,
+html.assistant #s-router-key-form,
+html.assistant #s-router-levels,
+html.assistant #s-router-note,
+html.assistant #s-router .vault-set-actions { display: none !important; }
 html.assistant .assistant-home .recent-starts { display: none; } /* the home's own Recent lists conversations */
 
 /* Home: the first-run note, Waiting for you, Recent, then the way to Files, Tasks, Projects and the Vault. */

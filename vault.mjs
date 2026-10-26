@@ -35,6 +35,8 @@ const ENV_RE = /^[A-Z_][A-Z0-9_]{0,63}$/;
 const SESSION_RE = /^(cx:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const fail = (message, status = 400, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
+// 1.81 (#177): notes past the limit are refused, not cut: the editor allowed 4,000 characters and the store kept 2,000 silently.
+const notesIn = v => { const n = typeof v === 'string' ? v.trim() : ''; if (n.length > LIMITS.notes) throw fail(`Notes can be up to ${LIMITS.notes.toLocaleString('en-US')} characters.`); return n; };
 const shortId = () => randomBytes(6).toString('hex');
 const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const POLICY_WORDS = { auto: 'Free rein', ask: 'Asks once per command', every: 'Asks every time', owner: 'Only you' };
@@ -277,7 +279,7 @@ export class VaultStore {
       const kind = str(input.kind, 20); if (!KINDS[kind]) throw fail('The kind must be api_key, token, login, credentials or note.');
       if (this.items.length >= LIMITS.items) throw fail(`You can keep up to ${LIMITS.items} items.`, 409);
       const { values, custom } = this.checkValues({ kind, custom: [] }, input.values, { all: true });
-      const item = { id: shortId(), name, kind, custom, values, url: str(input.url, LIMITS.url), notes: owner ? str(input.notes, LIMITS.notes) : '', tags: this.checkTags(input.tags),
+      const item = { id: shortId(), name, kind, custom, values, url: str(input.url, LIMITS.url), notes: owner ? notesIn(input.notes) : '', tags: this.checkTags(input.tags),
         policy: owner && POLICIES.includes(input.policy) ? input.policy : 'default', recipes: [], expiresAt: this.checkWhen(input.expiresAt),
         created: at, updated: at, by, lastUsedAt: null, lastUsedBy: null, trashedAt: null, revision: 1 };
       this.audit({ action: 'put', item: item.id, name, by, session, sessionTitle });
@@ -317,7 +319,7 @@ export class VaultStore {
       if (i.custom.length > LIMITS.customFields) throw fail(`An item can have up to ${LIMITS.customFields} custom fields.`);
     }
     if ('url' in input) { i.url = str(input.url, LIMITS.url); changed = true; }
-    if ('notes' in input) { i.notes = str(input.notes, LIMITS.notes); changed = true; }
+    if ('notes' in input) { i.notes = notesIn(input.notes); changed = true; }
     if ('tags' in input) { i.tags = this.checkTags(input.tags); changed = true; }
     if ('policy' in input) { if (!POLICIES.includes(input.policy)) throw fail('The policy must be default, auto, ask, every or owner.'); i.policy = input.policy; changed = true; }
     if ('expiresAt' in input) { i.expiresAt = this.checkWhen(input.expiresAt); changed = true; }

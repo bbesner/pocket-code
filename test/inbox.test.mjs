@@ -22,8 +22,8 @@ test('InboxStore: the contract, normalizing input, limits and the instructions l
   assert.deepEqual(STATES,['new','opened','dismissed','resolved','not_useful']);assert.deepEqual(ACTIONS,['open','unread','dismiss','resolve','not_useful','restore']);
   const dir=tmp(),file=path.join(dir,'inbox.json');const clock=Date.parse('2026-10-19T12:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
-  const e=s.add({title:'  Pradera needs   dispatch\nattention ',text:'Jairon is on the way [Kimberly](msg:19a2b3) says it was last night.',story:'Pradera service-call story',url:'/#/start/0123456789ab',gmail:GMAIL});
-  assert.match(e.id,/^[0-9a-f]{12}$/);assert.equal(e.title,'Pradera needs dispatch attention');assert.equal(e.text,'Jairon is on the way [Kimberly](msg:19a2b3) says it was last night.','citations are kept as-is');
+  const e=s.add({title:'  Oakridge needs   dispatch\nattention ',text:'Jordan is on the way [Robin](msg:19a2b3) says it was last night.',story:'Oakridge service-call story',url:'/#/start/0123456789ab',gmail:GMAIL});
+  assert.match(e.id,/^[0-9a-f]{12}$/);assert.equal(e.title,'Oakridge needs dispatch attention');assert.equal(e.text,'Jordan is on the way [Robin](msg:19a2b3) says it was last night.','citations are kept as-is');
   assert.deepEqual([e.kind,e.priority,e.source,e.state,e.new,e.by,e.revision],['alert','normal','inbox-monitor','new',true,'cli',1],'defaults');
   assert.deepEqual([e.at,e.seenAt,e.actedAt,e.ackedAt,e.note,e.doc,e.dedupe],['2026-10-19T12:00:00Z',null,null,null,'','','']);
   assert.equal(s.add({title:'x',url:'https://pocket.example.test/#/inbox'}).url,'https://pocket.example.test/#/inbox','an absolute web address is a link too');
@@ -60,11 +60,11 @@ test('InboxStore: the contract, normalizing input, limits and the instructions l
 test('InboxStore: dedupe within 24 hours, the state machine with restore, feedback and ack, filters, the heartbeat',()=>{
   const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-10-19T08:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
-  const a=s.add({title:'Pradera alert',dedupe:'pradera:t1',story:'Pradera'});
-  clock+=3600000;const dup=s.add({title:'Pradera alert again',dedupe:'pradera:t1'});
-  assert.equal(dup.duplicate,true);assert.equal(dup.id,a.id);assert.equal(dup.title,'Pradera alert','nothing changes');assert.equal(s.entries.length,1);
-  clock+=DAY;const later=s.add({title:'Pradera next day',dedupe:'pradera:t1'});assert.notEqual(later.id,a.id,'after 24 hours the key is fresh');assert.equal(later.duplicate,undefined);
-  clock+=1000;const b=s.add({title:'Circa look-ahead',kind:'lookahead'});clock+=1000;const c=s.add({title:'Vendor newsletter'});
+  const a=s.add({title:'Oakridge alert',dedupe:'oakridge:t1',story:'Oakridge'});
+  clock+=3600000;const dup=s.add({title:'Oakridge alert again',dedupe:'oakridge:t1'});
+  assert.equal(dup.duplicate,true);assert.equal(dup.id,a.id);assert.equal(dup.title,'Oakridge alert','nothing changes');assert.equal(s.entries.length,1);
+  clock+=DAY;const later=s.add({title:'Oakridge next day',dedupe:'oakridge:t1'});assert.notEqual(later.id,a.id,'after 24 hours the key is fresh');assert.equal(later.duplicate,undefined);
+  clock+=1000;const b=s.add({title:'Lakeview look-ahead',kind:'lookahead'});clock+=1000;const c=s.add({title:'Vendor newsletter'});
   // open: new → opened, seenAt, no actedAt; a second open changes nothing.
   clock+=1000;let r=s.act({action:'open',id:a.id});
   assert.deepEqual([r.state,r.new,r.seenAt,r.actedAt,r.revision],['opened',false,'2026-10-20T09:00:03Z',null,2]);
@@ -74,11 +74,11 @@ test('InboxStore: dedupe within 24 hours, the state machine with restore, feedba
   r=s.act({action:'dismiss',id:b.id},{actor:'ui'});assert.deepEqual([r.state,r.actedAt,r.ackedAt,r.revision,r.seenAt],['dismissed','2026-10-20T09:00:04Z',null,2,null]);
   assert.equal(s.act({action:'dismiss',id:b.id}).revision,2,'the same decision twice is one decision');
   clock+=1000;r=s.act({action:'not_useful',id:c.id,note:'n'.repeat(500)});assert.equal(r.state,'not_useful');assert.equal(r.note.length,300);
-  clock+=1000;r=s.act({action:'resolve',id:a.id,note:'Jairon arrived'});assert.deepEqual([r.state,r.note,r.revision],['resolved','Jairon arrived',3]);
+  clock+=1000;r=s.act({action:'resolve',id:a.id,note:'Jordan arrived'});assert.deepEqual([r.state,r.note,r.revision],['resolved','Jordan arrived',3]);
   assert.throws(()=>s.act({action:'explode',id:a.id}),e=>e.status===400&&e.code==='bad_action');assert.throws(()=>s.act({action:'open',id:'nope'}),e=>e.status===404);
   let fb=s.feedback();
   assert.deepEqual(fb.map(f=>[f.id,f.action]),[[a.id,'resolved'],[c.id,'not_useful'],[b.id,'dismissed']],'newest decision first');
-  assert.deepEqual(fb[0],{id:a.id,action:'resolved',at:'2026-10-20T09:00:06Z',note:'Jairon arrived',title:'Pradera alert',story:'Pradera',source:'inbox-monitor',kind:'alert'});
+  assert.deepEqual(fb[0],{id:a.id,action:'resolved',at:'2026-10-20T09:00:06Z',note:'Jordan arrived',title:'Oakridge alert',story:'Oakridge',source:'inbox-monitor',kind:'alert'});
   assert.deepEqual(s.feedback({since:'2026-10-20T09:00:05Z'}).map(f=>f.id),[a.id,c.id],'since filters by when it was decided');
   assert.throws(()=>s.feedback({since:'yesterday'}),e=>e.code==='bad_since');
   assert.equal(s.ack([a.id,c.id,'unknown',later.id]),2,'only pending decisions count');assert.equal(s.ack([a.id]),0,'once');
@@ -86,13 +86,13 @@ test('InboxStore: dedupe within 24 hours, the state machine with restore, feedba
   // restore: back to opened and reported as a restore, so a worker that resolved a story can un-resolve it.
   clock+=1000;r=s.act({action:'restore',id:a.id});
   assert.deepEqual([r.state,r.actedAt,r.ackedAt,r.lastAction,r.revision],['opened','2026-10-20T09:00:07Z',null,'restore',4]);
-  assert.deepEqual(s.feedback()[0],{id:a.id,action:'restore',at:'2026-10-20T09:00:07Z',note:'Jairon arrived',title:'Pradera alert',story:'Pradera',source:'inbox-monitor',kind:'alert'});
+  assert.deepEqual(s.feedback()[0],{id:a.id,action:'restore',at:'2026-10-20T09:00:07Z',note:'Jordan arrived',title:'Oakridge alert',story:'Oakridge',source:'inbox-monitor',kind:'alert'});
   assert.equal(s.act({action:'restore',id:a.id}).revision,4,'restoring an open entry does nothing');assert.equal(s.act({action:'restore',id:later.id}).state,'new');
   s.ack([a.id]);assert.deepEqual(s.feedback().map(f=>f.id),[b.id]);
   clock+=1000;s.act({action:'resolve',id:a.id});assert.deepEqual(s.feedback().map(f=>[f.id,f.action])[0],[a.id,'resolved'],'a new decision after an ack is feedback again');
   // Filters: new = unread, all = everything but dismissed, dismissed alone; newest first; since by when it came in.
   let snap=s.snapshot();assert.deepEqual(snap.entries.map(e=>e.id),[later.id]);assert.equal(snap.newCount,1);assert.equal(snap.version,1);assert.equal(snap.now,clock);
-  snap=s.snapshot({state:'all'});assert.deepEqual(snap.entries.map(e=>e.title),['Vendor newsletter','Pradera next day','Pradera alert']);
+  snap=s.snapshot({state:'all'});assert.deepEqual(snap.entries.map(e=>e.title),['Vendor newsletter','Oakridge next day','Oakridge alert']);
   assert.deepEqual(s.snapshot({state:'dismissed'}).entries.map(e=>e.id),[b.id]);
   assert.deepEqual(s.snapshot({state:'all',since:'2026-10-20T09:00:00Z'}).entries.map(e=>e.id),[c.id,later.id]);
   assert.throws(()=>s.snapshot({state:'everything'}),e=>e.status===400&&e.code==='bad_state');
@@ -237,17 +237,17 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   assert.equal((await call('/inbox',null,{...bearer,'x-forwarded-for':'203.0.113.5'})).status,401,'nor one through a proxy');
   assert.equal((await call('/sessions',null,bearer)).status,401,'the token opens nothing else');
   // Add from the worker: the entry, no push (no VAPID keys), the email through the file transport, the heartbeat.
-  const add=await call('/inbox',{title:'Pradera needs dispatch attention before 9 a.m.',text:'Jairon is on the way for 9–10 [per Kimberly](msg:19a2b3c4). She says the call was last night. Check the board.',story:'Pradera service-call story',priority:'high',url:'/#/start/0123456789ab',gmail:GMAIL,dedupe:'pradera:t1',email:true},bearer);
+  const add=await call('/inbox',{title:'Oakridge needs dispatch attention before 9 a.m.',text:'Jordan is on the way for 9–10 [per Robin](msg:19a2b3c4). She says the call was last night. Check the board.',story:'Oakridge service-call story',priority:'high',url:'/#/start/0123456789ab',gmail:GMAIL,dedupe:'oakridge:t1',email:true},bearer);
   assert.equal(add.status,200,JSON.stringify(add.body));assert.equal(add.body.ok,true);assert.equal(add.body.push,null);assert.equal(add.body.mail,true);assert.equal(add.body.duplicate,false);
   const e=add.body.entry;assert.deepEqual([e.by,e.state,e.new,e.priority,e.kind,e.url],['cli','new',true,'high','alert','/#/start/0123456789ab']);
-  const m=mails().at(-1);assert.equal(m.to,'owner@example.test');assert.equal(m.subject,'[Pocket Code] Pradera needs dispatch attention before 9 a.m.');
-  assert.match(m.text,/^Jairon is on the way for 9–10 per Kimberly\. She says/,'citations become their labels in mail');assert.match(m.text,/\n\nhttps:\/\/pocket\.example\.test\/#\/start\/0123456789ab/);assert.match(m.text,/Gmail: https:\/\/mail\.google\.com\//);
+  const m=mails().at(-1);assert.equal(m.to,'owner@example.test');assert.equal(m.subject,'[Pocket Code] Oakridge needs dispatch attention before 9 a.m.');
+  assert.match(m.text,/^Jordan is on the way for 9–10 per Robin\. She says/,'citations become their labels in mail');assert.match(m.text,/\n\nhttps:\/\/pocket\.example\.test\/#\/start\/0123456789ab/);assert.match(m.text,/Gmail: https:\/\/mail\.google\.com\//);
   assert.match(m.html,/Open in Pocket Code/);assert.match(m.html,/Open in Gmail/);
   assert.match(logs,new RegExp(`inbox add kind=alert id=${e.id} by=cli push=off mail=true`));
   r=await call('/inbox');assert.deepEqual(r.body.entries.map(x=>x.id),[e.id]);assert.equal(r.body.newCount,1);assert.ok(r.body.lastReportAt,'adding records the heartbeat');assert.ok(r.body.sources['inbox-monitor']);
   // A duplicate changes nothing and sends nothing; push:false sends no push; mail only when asked.
   const before=mails().length;
-  const dup=await call('/inbox',{title:'Pradera again',dedupe:'pradera:t1',email:true},bearer);assert.equal(dup.body.duplicate,true);assert.equal(dup.body.entry.id,e.id);assert.equal(dup.body.mail,false);assert.equal(dup.body.push,null);
+  const dup=await call('/inbox',{title:'Oakridge again',dedupe:'oakridge:t1',email:true},bearer);assert.equal(dup.body.duplicate,true);assert.equal(dup.body.entry.id,e.id);assert.equal(dup.body.mail,false);assert.equal(dup.body.push,null);
   assert.equal(mails().length,before,'no mail for a duplicate');assert.match(logs,/ duplicate/);
   const quiet=await call('/inbox',{title:'Morning look-ahead',kind:'lookahead',text:'Three visits today.',doc:'abcdef012345',push:false});
   assert.equal(quiet.status,200);assert.equal(quiet.body.entry.by,'ui','the owner can add too');assert.equal(quiet.body.mail,false);assert.equal(quiet.body.push,null);assert.equal(mails().length,before);
@@ -260,7 +260,7 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   assert.equal((await call('/inbox/act',{action:'dismiss',id:'000000000000'})).status,404);
   r=await call('/inbox/act',{action:'explode',id:e.id});assert.equal(r.status,400);assert.equal(r.body.code,'bad_action');
   r=await call('/inbox/feedback',null,bearer);assert.equal(r.status,200);assert.equal(r.body.ok,true);
-  assert.deepEqual(r.body.feedback.map(f=>[f.id,f.action,f.note,f.story]),[[e.id,'not_useful','Dispatch already knew','Pradera service-call story']]);
+  assert.deepEqual(r.body.feedback.map(f=>[f.id,f.action,f.note,f.story]),[[e.id,'not_useful','Dispatch already knew','Oakridge service-call story']]);
   assert.deepEqual((await call('/inbox/feedback?since=2999-01-01T00:00:00Z',null,bearer)).body.feedback,[]);
   assert.equal((await call('/inbox/feedback?since=soon',null,bearer)).status,400);
   r=await call('/inbox/ack',{ids:[e.id]},bearer);assert.deepEqual(r.body,{ok:true,acked:1});
@@ -281,18 +281,19 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   assert.deepEqual(r.body.prefs.kinds,{turns:true,reminders:true,vault:true,alerts:false});
   // The CLI.
   const cli=(args,input,extra={})=>new Promise(res=>{const c=execFile(process.execPath,[path.join(repo,'scripts/pocket-inbox.mjs'),...args],{cwd:dir,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),...extra}},(err,stdout,stderr)=>res({code:err?err.code:0,stdout,stderr}));if(input!==undefined)c.stdin.end(input);});
-  let out=await cli(['add','--title','Circa invoice question','--file','-','--story','Circa billing','--priority','critical','--gmail',GMAIL],'Their AP asks for the W-9 [AP](msg:abc).\n');
+  let out=await cli(['add','--title','Lakeview invoice question','--file','-','--story','Lakeview billing','--priority','critical','--gmail',GMAIL],'Their AP asks for the W-9 [AP](msg:abc).\n');
   assert.equal(out.code,0,out.stderr);const m2=/^([0-9a-f]{12}) push=off mail=no$/.exec(out.stdout.trim());assert.ok(m2,out.stdout);const cid=m2[1];
   out=await cli(['list','--json']);assert.equal(out.code,0,out.stderr);const rows=JSON.parse(out.stdout);assert.deepEqual(rows.map(x=>x.id),[cid]);assert.equal(rows[0].text,'Their AP asks for the W-9 [AP](msg:abc).');
-  out=await cli(['list']);assert.match(out.stdout,new RegExp(`^\\* .*Circa invoice question  \\(${cid}\\)  alert · critical$`,'m'));
-  out=await cli(['list','--state','all']);assert.match(out.stdout,/Pradera needs dispatch .* · not useful/);
-  out=await cli(['show',cid]);assert.match(out.stdout,/Story: Circa billing/);assert.match(out.stdout,/Their AP asks for the W-9 AP\./);assert.match(out.stdout,/Gmail: https:\/\/mail\.google\.com/);
+  out=await cli(['list']);assert.match(out.stdout,new RegExp(`^\\* .*Lakeview invoice question  \\(${cid}\\)  alert · critical$`,'m'));
+  out=await cli(['list','--state','all']);assert.match(out.stdout,/Oakridge needs dispatch .* · not useful/);
+  out=await cli(['show',cid]);assert.match(out.stdout,/Story: Lakeview billing/);assert.match(out.stdout,/Their AP asks for the W-9 AP\./);assert.match(out.stdout,/Gmail: https:\/\/mail\.google\.com/);
   out=await cli(['act',cid,'resolve','--note','Sent the W-9']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/resolved/);assert.match(out.stdout,/Note: Sent the W-9/);
   out=await cli(['show',quiet.body.entry.id,'--json']);assert.equal(JSON.parse(out.stdout).state,'dismissed','show finds a dismissed entry too');
   out=await cli(['feedback','--json']);assert.deepEqual(JSON.parse(out.stdout).map(f=>[f.id,f.action]).sort(),[[cid,'resolved'],[quiet.body.entry.id,'dismissed']].sort(),'both decisions (they can share a second, so in either order)');
-  out=await cli(['feedback']);assert.match(out.stdout,/resolved  Circa invoice question .*note: Sent the W-9/);
+  out=await cli(['feedback']);assert.match(out.stdout,/resolved  Lakeview invoice question .*note: Sent the W-9/);
   out=await cli(['ack',cid,quiet.body.entry.id]);assert.equal(out.stdout.trim(),'acked 2');
   out=await cli(['feedback']);assert.equal(out.stdout.trim(),'No new feedback.');
+  out=await cli(['help']);assert.match(out.stdout,/act <id> <open\|unread\|dismiss\|resolve\|not_useful\|restore>/,'1.81: the help lists act … unread, which the server accepts');
   out=await cli(['seen','--source','cli-test']);assert.equal(out.stdout.trim(),'ok');assert.ok((await call('/inbox')).body.sources['cli-test']);
   // 1.70: Inbox Watch settings. The watcher's heartbeat brings its profile; the owner (or an agent when asked) sets; the watcher reads.
   out=await cli(['watch']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/has not reported its settings yet/);
@@ -323,7 +324,7 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   // With no address saved, asking for email says off; after the restart the feature stays on.
   fs.writeFileSync(path.join(dir,'data','pocket-settings.json'),JSON.stringify({...JSON.parse(fs.readFileSync(path.join(dir,'data','pocket-settings.json'),'utf8')),notifyEmail:''}));
   // 1.77: a conversation started from an entry's start link is remembered on the entry; a bad link id starts it anyway.
-  const begun=await call('/new',{cwd:repo,text:'Handle Pradera',provider:'claude',start:'0123456789ab',clientMessageId:randomUUID()});assert.equal(begun.status,202,JSON.stringify(begun.body));
+  const begun=await call('/new',{cwd:repo,text:'Handle Oakridge',provider:'claude',start:'0123456789ab',clientMessageId:randomUUID()});assert.equal(begun.status,202,JSON.stringify(begun.body));
   r=await call('/inbox?state=all');assert.deepEqual(r.body.entries.find(x=>x.id===e.id).sessions.map(x=>x.id),[begun.body.id]);
   assert.match(logs,new RegExp(`inbox link-session id=${e.id} session=${begun.body.id}`));
   assert.equal((await call('/new',{cwd:repo,text:'No link',provider:'claude',start:'../x',clientMessageId:randomUUID()})).status,202,'a bad start id is ignored');

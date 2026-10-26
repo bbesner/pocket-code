@@ -360,7 +360,7 @@ function vaultNewFieldHTML(){
 }
 // insert: after saving, put {{vault:name}} into the open message box so the message refers to the secret by name.
 function vaultEditor(t,{insert=null}={}){
- if(!vaultOn())return toast('The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.');
+ if(!vaultOn())return toast('The Vault is off. '+turnOnHint());
  if(vaultIsLocked())return vaultUnlockSheet(()=>vaultEditor(t,{insert})); // unlock first, then the sheet that was asked for
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet vault-editor';
  let revision=t?.revision;
@@ -384,7 +384,7 @@ function vaultEditor(t,{insert=null}={}){
    <label class="voice-field">Website (optional)<input type="text" inputmode="url" name="url" value="${esc(t?.url||'')}" placeholder="https://" autocomplete="off" spellcheck="false" autocapitalize="none"></label>
    <label class="voice-field">Tags (optional)<input type="text" name="tags" value="${esc((t?.tags||[]).join(', '))}" placeholder="billing, zoho" autocomplete="off" autocapitalize="none" aria-describedby="vault-tags-hint"></label>
    <p class="vault-hint" id="vault-tags-hint">Separate tags with commas.</p>
-   <label class="voice-field">Notes (optional)<textarea name="notes" rows="3" maxlength="4000" placeholder="Where it came from, what it's for">${esc(t?.notes||'')}</textarea></label>
+   <label class="voice-field">Notes (optional)<textarea name="notes" rows="3" maxlength="2000" placeholder="Where it came from, what it's for">${esc(t?.notes||'')}</textarea></label>
    <label class="voice-field">Who can use it<select name="policy" aria-describedby="vault-policy-hint">${vaultPolicyChoices().map(([v,l])=>`<option value="${v}" ${v===(t?.policy||'default')?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
    <p class="vault-hint" id="vault-policy-hint" data-policy-hint></p>
    <div class="task-due-row"><label class="voice-field">Expires (optional)<input type="date" name="expires" value="${esc(expires)}"></label><button class="chip" type="button" data-clear-exp>No date</button></div>
@@ -799,7 +799,7 @@ async function secretVaultState(){
  try{const s=await loadVault(true);if(s.ready===false)return {state:s.locked?'locked':'unready'};return {state:'ready',names:[...(s.items||[]),...(s.trash||[])].map(i=>i.name)};}
  catch(e){return {state:e?.status===423?'locked':'unready'};}
 }
-const SECRET_HINT={off:'Turn on the Vault in Settings to store secrets instead.',locked:'Unlock the Vault to store it.',unready:'The Vault is not ready, so it cannot store this now.'};
+const SECRET_HINT={get off(){return featuresLocked()?'Ask the person who runs this install to turn on the Vault, to store secrets instead.':'Turn on the Vault in Settings to store secrets instead.';},locked:'Unlock the Vault to store it.',unready:'The Vault is not ready, so it cannot store this now.'};
 // Over an open sheet (the queue editor in its dialog) the guard stacks instead of replacing it; elsewhere it is an
 // ordinary sheet. Returns the close function.
 function secretMount(scrim,sh,trigger){
