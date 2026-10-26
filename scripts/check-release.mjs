@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import {checkStructure} from './check-manual.mjs';
 const root=path.resolve(import.meta.dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 const json=name=>JSON.parse(read(name));
@@ -53,7 +54,9 @@ try {
    assert.ok(fs.existsSync(resolved),path.relative(root,file)+' has a missing local link: '+target);checked++;
   }
  }
- console.log(`Release metadata agrees: ${pkg.version} / build ${release.assetV}; ${checked} local documentation links checked.`);
+ const manual=checkStructure(root);
+ assert.deepEqual(manual.problems,[],'manual structure (npm run check:manual)');
+ console.log(`Release metadata agrees: ${pkg.version} / build ${release.assetV}; ${checked} local documentation links checked; ${manual.pages.length} manual pages.`);
 } catch(error) {
  console.error('Release check failed: '+error.message);process.exitCode=1;
 }

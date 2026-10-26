@@ -7,9 +7,13 @@ description: Work in the person's Gmail, Google Calendar and Google Drive throug
 
 You reach the person's Google account through three **Codex apps**: **Gmail**, **Google
 Calendar** and **Google Drive**. They are connected in Pocket under **Settings → Agents &
-instance → Connectors** (the Codex column). Each app's tools carry the app's name, with the
+instance → Connectors** (the Codex section). Each app's tools carry the app's name, with the
 action at the end: `…gmail_search_emails`, `…google_calendar_search_events`,
 `…google_drive_list_folder`. The action names below are the ends of those tool names.
+
+<!-- pocket:manual -->
+How this feature works, how it is set up and its limits: `docs/manual/google.md` in the Pocket Code directory.
+<!-- /pocket:manual -->
 
 ## 1. Check whose account it is (once per conversation)
 

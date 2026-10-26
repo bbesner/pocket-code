@@ -1,7 +1,11 @@
+<!-- manual
+checked: 1.79.2
+sources: ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs
+-->
 # Operations, upgrades and recovery
 
 Pocket Code is one HTTP daemon plus separate persistent provider processes. This
-guide follows 1.7+ behavior. Read [SECURITY.md](../SECURITY.md) before exposing an instance.
+guide is current for 1.79.2. Read [SECURITY.md](../SECURITY.md) before exposing an instance.
 
 A new installation starts with [docs/install.md](install.md) (`pocket-init`, 1.46); this
 guide covers what happens after that.
@@ -11,7 +15,8 @@ guide covers what happens after that.
 A Claude session keeps a detached CLI process with stream input. A Codex thread keeps
 an app-server. Pocket records runner metadata and output, and uses named input pipes
 so a restarted daemon can reattach to surviving processes. The pipes live outside the
-data directory, in `$TMPDIR/pocket-code-pipes-<uid>/<install>/` (or `POCKET_PIPE_DIR`), so
+data directory, in `$TMPDIR/pocket-code-pipes-<uid>/<hash of the data directory>/` (or directly in
+`POCKET_PIPE_DIR` when set, so give each daemon its own), so
 a recursive search of the install can never open one and swallow what Pocket sends. Keep the daemon, CLI/MCP
 processes and their data on the same host and OS account.
 
@@ -24,10 +29,10 @@ Always start/restart from that file. Another supervisor needs equivalent child-p
 preservation. This supports a Pocket daemon restart; it does not keep programs alive
 through a host reboot or machine failure.
 
-The default idle close is 60 minutes. It closes the process, not the transcript; the
-next message resumes the saved session. Claude's reported background jobs prevent
-idle closure. A separate default 30-minute stall watchdog replaces the old two-hour
-wall-clock cap. It considers stream activity, pending questions/approvals and CPU
+The default idle close is 60 minutes (`POCKET_IDLE_CLOSE_MS`, milliseconds; `0` turns it off). It
+closes the process, not the transcript; the next message resumes the saved session. Claude's reported background jobs prevent
+idle closure. A separate default 30-minute stall watchdog (`POCKET_STALL_MS`; `0` turns it off) replaces the old
+two-hour wall-clock cap. It considers stream activity, pending questions/approvals and CPU
 activity from programs started by the turn; reported Claude background jobs are exempt.
 Codex is interrupted first and its process is closed if the interruption is unanswered.
 Closing a Codex session sends SIGTERM to the app-server's process group and, since 1.73.7,
@@ -38,21 +43,40 @@ signals a recorded process only when both match, so a record left from before a 
 removed without signalling whatever process now has that pid. Records written before 1.73.7
 count as this boot's only when the file is newer than the boot.
 
-`POCKET_MAX_PROCESSES` defaults to 8 and reclaims the longest-idle eligible process
+`POCKET_MAX_PROCESSES` defaults to 8 (`0` means no cap) and reclaims the longest-idle eligible process
 before starting another. It is a **soft target**: active work is not evicted, and a
 new process is not rejected when no idle candidate is available. A session process
 and its MCP servers use memory in addition to the Pocket daemon.
 
+**Branch** starts a new conversation from a copy of the current one; its process is an ordinary
+session process, counted and closed like any other.
+
+A side chat is a separate, short-lived process beside a conversation: for Claude,
+`claude -p --resume <id> --fork-session --no-session-persistence` with read-only tools, no MCP
+servers and no hooks; for Codex, its own `codex app-server` on an ephemeral, read-only fork. Side
+chats keep their turns in memory only and are never reattached. One ends when it is closed, after
+`POCKET_SIDE_CHAT_IDLE_MS` (default 30 minutes) without a question, when the daemon stops or
+restarts, and (Claude only) when the Claude sign-in changes. At most `POCKET_SIDE_CHAT_MAX` (default
+4) are open at once: opening another closes the longest-quiet one, and is refused while every one is
+answering. A Claude side chat stops at `POCKET_SIDE_CHAT_BUDGET_USD` (default 5; `0` removes the
+cap). Side chats are not counted in `POCKET_MAX_PROCESSES` or in health. `POCKET_SIDE_CHAT=0`
+turns them off.
+
+With Inbox Watch on, the daemon also starts the watcher (`python3`, the `inbox-watch/` code) once a
+minute; a run still going after 30 minutes is killed. `POCKET_INBOX_RUNNER=0` stops Pocket from
+running it, for an install whose watcher runs on its own timer.
+
 Only one surface should write to a conversation at a time. Codex's native writer lock
-lasts while Pocket's app-server holds the thread, including between turns. Use Session
-options → Close session process, or wait for idle close, before continuing in an editor.
+lasts while Pocket's app-server holds the thread, including between turns. Use **Conversation
+options → Close conversation process**, or wait for idle close, before continuing in an editor.
 Claude ownership checks use transcript activity and replace stale Pocket processes
 after another surface writes new turns. External transcript activity is an estimate,
 not proof that an external process is still working.
 
 ## Claude account switching
 
-Settings → Accounts & instance runs the installed `claude auth login --claudeai`
+**Settings → Agents & instance → Accounts & instance** (**Settings → Accounts** in Assistant mode)
+runs the installed `claude auth login --claudeai`
 with piped input/output. The CLI owns its OAuth flow and credential storage. Pocket
 keeps only one pending login in memory for ten minutes, validates the authorization
 URL’s provider and path, and accepts the code through an authenticated JSON endpoint.
@@ -60,7 +84,7 @@ It never writes login output or codes to turn logs, conversations, or Pocket sta
 Restarting the daemon cancels pending login; the browser can reopen the form after
 a disconnect. API-key and cloud-provider environment overrides block this flow.
 
-Start is refused while a Claude turn in Pocket is active. Idle Claude runners close;
+Start is refused while a Claude turn in Pocket is active. Claude side chats close; idle Claude runners close;
 runners with background jobs stay alive and persist an `accountStale` marker. New
 turns are blocked while sign-in is pending. After sign-in, a retained session refuses
 new requested turns until its jobs finish, then reopens with the current login on its
@@ -85,7 +109,7 @@ Health returns `ok`, `active`, `codexActive`, `processes`, `codexProcesses` and 
 `codexProcesses` counts Codex app-servers. Zero active turns does not mean all session
 processes are closed. Health does not enumerate their IDs or prove end-to-end provider access.
 
-Use the authenticated session list for run state and Settings → About & updates for
+Use the authenticated session list for run state and **Settings → Help & updates → About & updates** for
 frontend/server builds and CLI versions. During a static update, the frontend can be
 newer than the still-running daemon. That state is reported separately from an update
 check failure. Do not treat a cached UI or a successful health request as release verification.
@@ -97,13 +121,15 @@ selects another file; an empty value skips file loading. Keep one daemon per dat
 directory. `POCKET_DATA_DIR` defaults to the checkout; `POCKET_SESSION_ROOT` changes
 Claude transcript storage only, while `CODEX_HOME` selects Codex's native store.
 
-Starting the daemon also has three side effects beyond its own state. It writes a fresh
+Starting the daemon also has side effects beyond its own state. It writes a fresh
 loopback CLI token to `cli-token` and its own address to `cli-url` in the data directory
-(both mode `0600`, 1.43.1), overwriting the previous ones. While Projects, Files, Tasks or the Vault is on, it installs agent skills into the
-Claude Code and Codex skill folders. If `POCKET_REMINDER_HOOK` is set, it runs that
+(both mode `0600`, 1.43.1), overwriting the previous ones. It installs agent skills into the
+Claude Code and Codex skill folders: `pocket-google` always, and each library's skill while that
+library is on. If `POCKET_REMINDER_HOOK` is set, it runs that
 command when a reminder comes due. If `POCKET_VAULT_KEY` is set, it reads the key and removes
-it from its own environment, so no process it starts inherits it. See
-[Optional libraries](#optional-libraries-projects-files-tasks-and-the-vault).
+it from its own environment, so no process it starts inherits it; it does the same with
+`POCKET_SMTP_URL`, `POCKET_SMTP_FROM` and `POCKET_ROUTER_KEY`. See
+[Optional libraries](#optional-libraries-projects-files-tasks-inbox-and-the-vault).
 
 Back up these locations privately, preserving ownership and permissions:
 
@@ -125,8 +151,14 @@ Pocket-owned persistent state includes:
 - `usage-state.json`, `codex-usage-state.json`, `owned-transcripts.json`;
 - `turnlogs/` and `turnlogs-codex/`, including output, runner metadata and any
   `.retry.json` markers (a rate-limited turn waiting to resume automatically);
-- `projects.json`, `documents.json` and `tasks.json`, the records behind Projects, Files
-  and Tasks. Back up each one you use, including a library you have since switched off;
+- `projects.json`, `documents.json`, `tasks.json` and `inbox.json`, the records behind Projects,
+  Files, Tasks and Inbox. Back up each one you use, including a library you have since switched off;
+- `inbox-watch-data/`, the watcher Pocket runs for Inbox Watch: its `config.toml`,
+  `preferences.md` (your rules, written from Pocket), `state/` (the watcher's databases and log)
+  and `status.json`;
+- `starts.json`, briefings handed to Pocket with `pocket-start`;
+- `router-key` (mode `0600`), the key saved in **Settings → Agents & instance → Automatic model
+  choice**. It is a secret: back it up privately, like `.env`;
 - `vault.enc`, the Vault's encrypted store (items and their approved commands), and
   `vault-audit.jsonl` (mode `0600`), its append-only record of use. Back up both together;
   neither holds a readable value, and `vault.enc` is useless without its key;
@@ -134,6 +166,9 @@ Pocket-owned persistent state includes:
   files, a `.trash/` folder of removed files, and a `.thumbs/` cache of preview pictures;
 - `cli-token` and `cli-url`, the loopback CLI token and address. They are rewritten at every
   start, so do not back them up or copy them to another instance.
+
+`codex-transcripts/` and `artifact-thumbs/` are caches Pocket rebuilds on demand; leave them out of
+backups if size matters.
 
 Turn logs, queues, uploads, projects, tasks and kept files may contain private task content. Do not commit them,
 upload them as CI artifacts or put backups in a public web directory. A backup of
@@ -240,7 +275,7 @@ ahead, marked `ahead: true` for the hook, for items that were set at least a day
 Due items are checked every `POCKET_REMINDER_CHECK_MS` (default 60000, minimum 250), with
 a first check a few seconds after start. A task stays due until it is done or re-dated.
 
-**Push priority.** Due tasks, reminders and Vault requests go out with `Urgency: high`
+**Push priority.** Due tasks, reminders, Vault requests and alerts (Inbox Watch, `pocket-notify`) go out with `Urgency: high`
 (1.50.2), so Android delivers them while the phone is idle; a finished turn goes at normal
 priority and may wait until the phone wakes.
 
@@ -269,7 +304,7 @@ log. Test the command with sample JSON before relying on it.
 **Preview pictures.** The Files grid shows server-made thumbnails, cached in
 `<documents dir>/.thumbs` and keyed by file size and modification time. They use tools
 already on the host: Chrome or Chromium for HTML, `pdftoppm` for PDFs, ImageMagick's
-`convert` for images. `POCKET_CHROME`, `POCKET_PDFTOPPM` and `POCKET_CONVERT` choose a
+`convert` (or `magick`) for images, or Chrome when ImageMagick is missing. `POCKET_CHROME`, `POCKET_PDFTOPPM` and `POCKET_CONVERT` choose a
 binary, or turn one off with an empty value. Without a tool, that kind of file shows its
 name on the card instead.
 
@@ -281,7 +316,8 @@ Deleting a file, by hand or by the purge, also removes its `.thumbs/` pictures, 
 purge removes any picture whose file is gone.
 
 **Agent skills.** While a library is on, Pocket installs its matching skill
-(`pocket-projects`, `pocket-files`, `pocket-tasks`, `pocket-vault`) into `~/.claude/skills`, or
+(`pocket-projects`, `pocket-files`, `pocket-tasks`, `pocket-inbox`, `pocket-vault`), and
+`pocket-google` always, into `~/.claude/skills`, or
 `$CLAUDE_CONFIG_DIR/skills` if that is set, and into `$CODEX_HOME/skills` when the Codex
 home exists. Terminal and code-server agents on the host see them too. Pocket rewrites
 these skills at start and removes them when the library is switched off. It only touches
@@ -289,11 +325,12 @@ a folder that carries its `.pocket-managed` marker; a skill of the same name tha
 wrote is left alone and the daemon logs that. `POCKET_SKILLS=0` turns installation off.
 Set it for any test or second daemon so it does not write into the real skill folders.
 
-**CLI token.** `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-vault` and the browser
-relay find the daemon at the address in `cli-url` (then `PORT` from this checkout's `.env`,
-never an inherited `PORT`), read `cli-token` from the data directory and send it as a bearer
+**CLI token.** `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-inbox`, `pocket-start`,
+`pocket-notify`, `pocket-vault` and the browser relay find the daemon at `POCKET_URL` when set,
+else the address in `cli-url`, then `PORT` from this checkout's `.env`, and only then an inherited
+`PORT`. They read `cli-token` from the data directory and send it as a bearer
 token. The daemon accepts it
-only on the Projects, Files, Tasks and Vault routes, and only on a direct loopback
+only on the Projects, Files, Tasks, Inbox and Vault routes and the start-link and notify routes, and only on a direct loopback
 connection with no `cf-connecting-ip` or `x-forwarded-for` header; a request that came
 through the tunnel or a proxy is refused. On the Vault routes it allows only what agents
 may do: list, show, run, create an item and read the calling session's history; it never
@@ -399,8 +436,8 @@ them. A Claude Code PreToolUse hook could rewrite the call too, but Claude Code 
 file, so the relay is the only clean path.
 
 **Secret guard (1.42).** `public/secret-detect.js` is one detector for the composer and the daemon. With
-`secretGuard` (default true in `pocket-settings.json`) the daemon answers `POST /api/session/:id/message` and
-`POST /api/new` with `422 secret_detected` (kinds and character offsets, never the value) before a delivery receipt
+`secretGuard` (default true in `pocket-settings.json`) the daemon answers `POST /api/session/:id/message`,
+`POST /api/new`, a side chat question and a branch with `422 secret_detected` (kinds and character offsets, never the value) before a delivery receipt
 is recorded, unless the body has `allowSecrets: true`. The log line names only the kinds.
 
 **Agent access (1.41).** `vaultAccess` in `pocket-settings.json` is `free`, `once` (default) or
@@ -431,7 +468,7 @@ sessions, and Settings shows a warning.
 
 Before moving `POCKET_DATA_DIR`, downgrading below 1.7, or uninstalling:
 
-1. Close each session process from Session options. Decide explicitly whether active
+1. Close each session process from **Conversation options → Close conversation process**. Decide explicitly whether active
    work should finish first or be stopped. Closing a tab or pane is not sufficient.
 2. Confirm `active`, `processes` and `codexProcesses` are all zero in health. Idle
    Codex app-servers can still hold writer locks when `active` is zero.

@@ -15,6 +15,9 @@ Projects in Pocket Code.
 Run `pocket-board` from the Pocket Code directory (`node scripts/pocket-board.mjs`, or
 `npx pocket-board`). The session instructions Pocket gives you name the exact command.
 <!-- /pocket:commands -->
+<!-- pocket:manual -->
+How this feature works, how it is set up and its limits: `docs/manual/projects.md` in the Pocket Code directory.
+<!-- /pocket:manual -->
 
 ## When to create a project
 
@@ -105,7 +108,7 @@ not approval to deploy, spend money or contact anyone; those still need the user
 
 Name a project with `-p <id>` (from `status --all`) when you are not in its directory.
 
-A session started with **Start session** on a project card is already linked to the project,
+A session started with **Start conversation** on a project card is already linked to the project,
 and its first message is a briefing that names the project id and its open step ids. Pick up
 from the next step; do not link the session again or track a duplicate.
 

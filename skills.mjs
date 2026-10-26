@@ -10,13 +10,13 @@ import path from 'node:path';
 
 export const MARKER = '.pocket-managed';
 export const SKILLS = [
-  { name: 'pocket-projects', feature: 'projects', cli: 'board' },
-  { name: 'pocket-files', feature: 'documents', cli: 'docs' },
-  { name: 'pocket-tasks', feature: 'tasks', cli: 'tasks' }, // 1.36
-  { name: 'pocket-vault', feature: 'vault', cli: 'vault' }, // 1.39
-  { name: 'pocket-inbox', feature: 'inbox', cli: 'inbox' }, // 1.69: Inbox Watch
+  { name: 'pocket-projects', feature: 'projects', cli: 'board', manual: 'projects.md' },
+  { name: 'pocket-files', feature: 'documents', cli: 'docs', manual: 'files.md' },
+  { name: 'pocket-tasks', feature: 'tasks', cli: 'tasks', manual: 'tasks.md' }, // 1.36
+  { name: 'pocket-vault', feature: 'vault', cli: 'vault', manual: 'vault.md' }, // 1.39
+  { name: 'pocket-inbox', feature: 'inbox', cli: 'inbox', manual: 'inbox-watch.md' }, // 1.69: Inbox Watch
   // 1.59: Gmail, Calendar and Drive through each agent's own connectors (Settings → Connectors). Always on; one file per agent.
-  { name: 'pocket-google', feature: null, files: { claude: 'SKILL.claude.md', codex: 'SKILL.codex.md' } },
+  { name: 'pocket-google', feature: null, files: { claude: 'SKILL.claude.md', codex: 'SKILL.codex.md' }, manual: 'google.md' },
 ];
 const BIN = { board: 'pocket-board', docs: 'pocket-docs', tasks: 'pocket-tasks', vault: 'pocket-vault', inbox: 'pocket-inbox' };
 const SRC = path.join(import.meta.dirname, 'skills');
@@ -40,6 +40,17 @@ export function renderSkill(text, command, binName) {
   return text.replace(/<!-- pocket:commands -->[\s\S]*?<!-- \/pocket:commands -->/, block);
 }
 
+// 1.80: the repository copy names the manual page relative to the Pocket Code directory; the installed copy gives its path.
+export function renderManual(text, file) {
+  const block = `<!-- pocket:manual -->\nHow this feature works, how it is set up and its limits: the Pocket Code manual, \`${file}\`.\n<!-- /pocket:manual -->`;
+  return text.replace(/<!-- pocket:manual -->[\s\S]*?<!-- \/pocket:manual -->/, block);
+}
+
+// 1.80: the instruction line that points every agent Pocket starts at the manual, so "how do I…" questions about Pocket are answered from it.
+export function manualInstructions(src = SRC) {
+  return `Pocket Code's manual is at \`${path.join(path.dirname(src), 'docs', 'manual', 'README.md')}\`: when the user asks how a Pocket feature works or how to set it up, read that index and the feature's page instead of the source.`;
+}
+
 // 1.68: the per-turn line that points each agent at its pocket-google file. Sent on every turn, so it reaches
 // installs that keep Pocket's skills out of the agent folders (POCKET_SKILLS=0, e.g. a Codex home shared with a chat app).
 export function googleInstructions(provider, src = SRC) {
@@ -59,7 +70,8 @@ export function syncSkills({ settings, commands, env = process.env, roots = skil
       if (srcFile && (s.feature === null || settings[s.feature])) {
         if (fs.existsSync(dir) && !ours) { result.skipped.push(dir); log(`skill ${dir} exists and is not Pocket's; left alone`); continue; }
         const text = fs.readFileSync(path.join(src, s.name, srcFile), 'utf8');
-        const body = s.cli ? renderSkill(text, commands[s.cli], BIN[s.cli]) : text;
+        const cmd = s.cli ? renderSkill(text, commands[s.cli], BIN[s.cli]) : text;
+        const body = s.manual ? renderManual(cmd, path.join(path.dirname(src), 'docs', 'manual', s.manual)) : cmd;
         const file = path.join(dir, 'SKILL.md');
         if (ours && (() => { try { return fs.readFileSync(file, 'utf8') === body; } catch { return false; } })()) continue;
         fs.mkdirSync(dir, { recursive: true });

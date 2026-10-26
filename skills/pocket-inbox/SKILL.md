@@ -10,7 +10,7 @@ are three kinds of entry: an **alert** (one email thread that needs the user, wi
 conversation to open), a **digest** (a summary of a stretch of mail, kept in Files) and a
 **look-ahead** (what is coming up today). Each entry has a title, a short text whose
 `[label](msg:<id>)` citations point at the emails it came from, the story it belongs to (for
-example "Pradera service-call story"), a priority, and links to open it in Pocket, in Gmail or
+example "Acme HOA service-call story"), a priority, and links to open it in Pocket, in Gmail or
 in Files. The user sees the list under Inbox in Pocket Code on every device and answers each
 entry there. You read and answer it with the `pocket-inbox` command.
 
@@ -18,6 +18,9 @@ entry there. You read and answer it with the `pocket-inbox` command.
 Run `pocket-inbox` from the Pocket Code directory (`node scripts/pocket-inbox.mjs`). The session
 instructions Pocket gives you name the exact command.
 <!-- /pocket:commands -->
+<!-- pocket:manual -->
+How this feature works, how it is set up and its limits: `docs/manual/inbox-watch.md` in the Pocket Code directory.
+<!-- /pocket:manual -->
 
 ## Reading it
 
@@ -30,7 +33,7 @@ pocket-inbox show <id>                # one entry in full: text, story, links, n
 ```
 
 Use these when the user asks "what did Inbox Watch send today", "anything urgent from the
-inbox", "what was the Pradera alert about". Answer from the entries: the title, what the text
+inbox", "what was the Acme HOA alert about". Answer from the entries: the title, what the text
 says, the story and when it came in. Keep the citations' labels; the links are the user's to
 open in Pocket or Gmail.
 
@@ -52,8 +55,8 @@ pocket-inbox act <id> dismiss
 pocket-inbox act <id> restore
 ```
 
-**Act only when the user asks**, in words that name the decision: "mark the Circa alert
-resolved", "that one wasn't useful", "dismiss the look-ahead", "bring back the Pradera alert".
+**Act only when the user asks**, in words that name the decision: "mark the Northside alert
+resolved", "that one wasn't useful", "dismiss the look-ahead", "bring back the Acme HOA alert".
 Never resolve, dismiss or mark anything not useful on your own judgment, even when the
 situation looks finished; tell the user what you see and let them decide. A `--note` carries
 the user's reason, in their words, when they gave one. If more than one entry could match what
@@ -72,13 +75,13 @@ pocket-inbox watch reset              # back to the watcher's own config file
 pocket-inbox check                    # check mail now, whatever the schedule (when the user asks: "check my email now")
 ```
 
-**Your rules** (Settings → Inbox Watch → Your rules) are the owner's own words about what they always or never want
+**Your rules** (the **Schedule, models and cost** sheet, or **Schedule** in the Inbox → Your rules) are the owner's own words about what they always or never want
 to hear about; the watcher follows them on every check and they win over its judgment. When the user asks you to
 change them ("stop telling me about shipping notices"), read them with `pocket-inbox watch --json` (`profile.rules.text`),
 add or edit a line, and save the whole settings object with `pocket-inbox watch set --file -` including `rules`. Confirm
 the line you added.
 
-Inbox Watch can also keep the list tidy on its own (Settings → Inbox Watch → Keep the Inbox tidy): every few
+Inbox Watch can also keep the list tidy on its own (the same sheet → Keep the Inbox tidy): every few
 hours it takes off entries that have been resolved or handled, with the reason in the entry's note, and they show
 under **Done**. An agent asked to "clean up my Inbox" now can still go through `list` and `act` by hand.
 
@@ -93,8 +96,8 @@ The inbox watcher and other jobs post entries; an agent in a conversation does n
 user asks for that job to be set up.
 
 ```bash
-pocket-inbox add --title "Pradera needs dispatch attention before 9 a.m." --file - \
-  --kind alert --priority high --story "Pradera service-call story" \
+pocket-inbox add --title "Acme HOA needs dispatch attention before 9 a.m." --file - \
+  --kind alert --priority high --story "Acme HOA service-call story" \
   --url "/#/start/<id>" --gmail "https://mail.google.com/mail/u/0/#all/<thread>" --dedupe "pradera:<thread>"
 pocket-inbox feedback          # the user's decisions the job has not applied yet
 pocket-inbox ack <id…>         # after applying them

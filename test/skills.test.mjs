@@ -6,7 +6,7 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
 import {setTimeout as sleep} from 'node:timers/promises';
-import {syncSkills,renderSkill,skillRoots,MARKER,googleInstructions} from '../skills.mjs';
+import {syncSkills,renderSkill,skillRoots,MARKER,googleInstructions,manualInstructions,SKILLS} from '../skills.mjs';
 import {projectInstructions} from '../projects.mjs';
 import {documentInstructions} from '../documents.mjs';
 
@@ -152,4 +152,20 @@ test('skills: a marked folder without its skill is repaired; a path with a space
   assert.match(renderSkill('<!-- pocket:commands -->x<!-- /pocket:commands -->','/srv/pocket/scripts/pocket-board.mjs','pocket-board'),/as `node \/srv\/pocket\/scripts\/pocket-board\.mjs`/,'a plain path is unchanged');
   for(const line of [projectInstructions(spaced,null),documentInstructions(spaced,null)])assert.match(line,/node '\/Users\/Pat Doe\/pocket code\/scripts\/pocket-board\.mjs'/);
   assert.match(renderSkill('<!-- pocket:commands -->x<!-- /pocket:commands -->',"/a/it's/p.mjs",'pocket-board'),/node '\/a\/it'\\''s\/p\.mjs'/);
+});
+
+test('skills: each names its manual page, installed with this checkout\'s path; every turn points at the manual index',t=>{
+  const dir=tmp();t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const roots=[path.join(dir,'claude'),path.join(dir,'codex')];
+  syncSkills({settings:{projects:true,documents:true,tasks:true,vault:true,inbox:true},commands:{...commands,inbox:'/srv/pocket/scripts/pocket-inbox.mjs'},env:{},roots,codexRoots:[roots[1]]});
+  for(const s of SKILLS){
+    assert.ok(s.manual,`${s.name} names a manual page`);
+    const page=path.join(repo,'docs','manual',s.manual);
+    assert.ok(fs.existsSync(page),`docs/manual/${s.manual} exists`);
+    for(const f of s.files?Object.values(s.files):['SKILL.md'])assert.match(fs.readFileSync(path.join(repo,'skills',s.name,f),'utf8'),new RegExp('`docs/manual/'+s.manual.replace('.','\\.')+'`'),`${s.name}/${f}: repository copy names the page`);
+    for(const root of roots)assert.ok(fs.readFileSync(path.join(root,s.name,'SKILL.md'),'utf8').includes('the Pocket Code manual, `'+page+'`'),`${root}/${s.name}: installed copy has the path`);
+  }
+  const line=manualInstructions(),m=line.match(/`([^`]+)`/);
+  assert.equal(m[1],path.join(repo,'docs','manual','README.md'));assert.ok(fs.existsSync(m[1]));
+  assert.match(line,/how a Pocket feature works/);
 });

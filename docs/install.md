@@ -1,3 +1,7 @@
+<!-- manual
+checked: 1.79.2
+sources: install.sh, scripts/pocket-init.mjs, ecosystem.config.cjs, access.mjs, models.mjs, trusted.mjs, proctree.mjs
+-->
 # Install Pocket Code
 
 This page is written so that a person, or a Claude Code or Codex session working for them, can
@@ -50,19 +54,20 @@ checkout is left alone.
 | Platform | Linux or macOS. Windows stops with a pointer to WSL2. | Install inside WSL2. |
 | Node.js | 20.11 or newer. | Install a newer Node.js. |
 | Dependencies | `node_modules` present, or `npm ci --omit=dev` just ran. | Run `npm ci --omit=dev` in the checkout and read its error. |
-| Claude Code | `claude` found and signed in. Not signed in is a warning: sign in with `claude` in a terminal, or later from Pocket's Settings → Accounts. | Install Claude Code, or set `CLAUDE_BIN=/path/to/claude` in `.env`. |
+| Claude Code | `claude` found and signed in. Not signed in is a warning: sign in with `claude` in a terminal, or later from Pocket's **Settings → Agents & instance → Accounts & instance** (**Settings → Accounts** in Assistant mode). | Install Claude Code, or set `CLAUDE_BIN=/path/to/claude` in `.env`. |
 | Codex | Found (optional). | Nothing; Pocket shows Codex sessions once `codex` is installed. |
 | PM2 | `pm2` on `PATH`, or installed with `npm install -g pm2` (`--yes`, or answer the prompt). | Install PM2; a global npm prefix you cannot write to needs `sudo` or a user prefix. |
 | PM2 app | No `pocket-claude` process, or one running from this checkout. | One from another directory: stop it (`pm2 delete pocket-claude`) or install there instead. One daemon per data directory. |
-| Port | `127.0.0.1:<port>` is free (default 3610). | Choose another with `--port`, or stop whatever holds it. |
-| .env | Created, or the missing lines added, with mode `0600`: `PORT`, `POCKET_PASSWORD`, `POCKET_SECRET`, `VAPID_PUBLIC`, `VAPID_PRIVATE`, `VAPID_CONTACT`. Placeholders copied from `.env.example` (`change-me`) are replaced. | Skipped when an earlier check failed; fix that and run again. |
+| Port | `127.0.0.1:<port>` is free (default 3610). Checked only when no `pocket-claude` process is running. | Choose another with `--port`, or stop whatever holds it. |
+| .env | Created, or the missing lines added, with mode `0600`: `PORT`, `POCKET_PASSWORD`, `POCKET_SECRET`, `VAPID_PUBLIC`, `VAPID_PRIVATE`, `VAPID_CONTACT`. Placeholders copied from `.env.example` (`change-me`, `you@example.com`) are replaced. An existing `PORT` is kept: `--port` with a different value is a FAIL. | Skipped when an earlier check failed; fix that and run again. |
 | Daemon | `pm2 start ecosystem.config.cjs` then `pm2 save` (or `pm2 restart` when new settings were added to a running install). | Read `pm2 logs pocket-claude --lines 50`. |
 | Health | `http://127.0.0.1:<port>/api/health` answered `{"ok":true}` within 30 seconds. | Same logs. A port mismatch between `.env` and an old process is the usual cause. |
 | Boot | Linux: a `pm2-<user>.service` exists; macOS: a `pm2.<user>.plist` launch agent exists. Saved processes return after a reboot (Linux) or login (macOS). | Warning only: run `pm2 startup`, then the command it prints, then `pm2 save`. |
 
 Flags: `--port N`, `--contact …`, `--yes` (install PM2 without asking), `--no-start` (write
 `.env` only), `--dry-run` (report, write and start nothing), `--json` (the report as JSON for
-a program to read; it never contains the password), `--show-password`.
+a program to read; it never contains the password), `--show-password`. Exit code 0 means ready (or a
+clean dry run), 1 a check failed, 2 bad arguments.
 
 ### The password
 
@@ -163,6 +168,10 @@ Pocket Code runs on macOS since 1.47. The differences from Linux:
 - File previews in Files need `brew install poppler imagemagick` (PDFs and images); HTML previews
   use Chrome or Chromium from `/Applications`.
 - The turn watchdog reads process activity with `ps` instead of `/proc`; behavior is the same.
+- A daemon restart does not reattach Codex session processes: without `/proc` Pocket cannot prove a
+  recorded app-server is the one it started, so it forgets the record and leaves the process alone.
+  Close Codex sessions (**Conversation options → Close conversation process**) before restarting
+  Pocket on a Mac; a `codex app-server` left over from before the restart has to be ended by hand.
 - Tailscale Serve is the simplest HTTPS path on a Mac at home, since home routers rarely allow a
   public hostname.
 
@@ -177,9 +186,10 @@ browser test suite. Report what you find in [issue #87](https://github.com/bbesn
 4. Choose a mode in **Settings → Appearance → Mode**: **Developer mode** if you write code or run
    coding agents, **Assistant mode** if Pocket is your assistant for office work (see the
    [README](../README.md#developer-mode-or-assistant-mode)).
-5. Projects, Files, Tasks, Inbox and the Vault are off until you switch them on in **Settings →
-   Projects, files, tasks & vault**. Inbox shows what an inbox watcher (Inbox Watch, a separate
-   program with its own timer and mailbox access) sends; see the
+5. Projects, Files, Tasks, Inbox Watch and the Vault are off until you switch them on in **Settings →
+   Projects, files, tasks & vault** (a Developer mode section; Assistant mode hides it). With Inbox
+   Watch on, Pocket runs the watcher itself every minute with `python3`, reading Gmail through the
+   Gmail connector Claude Code or Codex already has (**Settings → Agents & instance → Connectors**); see the
    [README](../README.md#inbox-watch-your-mailbox-read-for-you). Voice is a separate optional install
    (`scripts/voice-setup.sh`, see the [README](../README.md#voice-mode-beta)).
 
@@ -196,10 +206,11 @@ echo 'POCKET_CLAUDE_MODEL=claude-sonnet-5-5' >> ~/pocket-code/.env   # optional:
 The owner can change the list later in **Settings → Agents & instance → Claude models in the
 picker**; once saved there, that choice wins over `.env` (**Use the server's list** goes back).
 To make a limit binding, put it in Claude Code's managed settings
-(`/etc/claude-code/managed-settings.json` on Linux, `availableModels` and `deniedModels`): Pocket
+(`availableModels` and `deniedModels` in `managed-settings.json` or `managed-settings.d/*.json`, under
+`/etc/claude-code` on Linux or `/Library/Application Support/ClaudeCode` on macOS): Pocket
 reads the same file, never offers a model it blocks, marks such models in Settings, and never
 passes one to the CLI. Without that, a blocked pick would run silently on the account's default
-model. Details: [workspace guide](workspace-guide.md#claude-models-in-the-picker).
+model. Details: [Models in the picker](manual/sessions.md#models-in-the-picker).
 
 ### Read-only actions that skip the approval card
 
@@ -207,7 +218,7 @@ Review actions shows a card for every Claude command and tool call. To let users
 memory searches run straight through, list them before the first start (restart after a change):
 
 ```bash
-echo 'POCKET_TRUSTED_ACTIONS=Bash(techpro-lookup:*),mcp__memstem__*' >> ~/pocket-code/.env
+echo 'POCKET_TRUSTED_ACTIONS=Bash(acme-lookup:*),mcp__notes__search' >> ~/pocket-code/.env
 ```
 
 The owner can change the list later in **Settings → Agents & instance → Actions that run without
