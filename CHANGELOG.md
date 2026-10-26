@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.80.0] — Unreleased · build 167
+## [1.80.0] — 2026-10-26 · build 167
 
 - **A manual for people and agents.** `docs/manual/` replaces the workspace guide (last current at 1.37) with one page per feature: Getting started, Sessions, Working in a conversation, Questions and approvals, Desktop and phone, Settings, Projects, Files, Tasks, Inbox Watch, Gmail/Calendar/Drive, the Vault, Voice and For agents, plus an index. Each page says what the feature does, how to turn it on, how to use it, how it works (data files, env vars, limits), what an agent may do with it (commands, flags, when to act and when to ask) and what to do when it fails. Every page was written from the 1.79.2 code, not from the old guide or this changelog. `docs/install.md`, `docs/operations.md` and `docs/action-approvals.md` were checked against the same code and corrected (menu paths, side chat and Inbox Watch processes in the lifecycle, data files that must survive an upgrade, the CLI address order, approval button names). `docs/workspace-guide.md` now maps its old sections to the manual pages. Requested by Brad.
 - **Agents are pointed at it.** Every Claude Code and Codex process Pocket starts gets one more instruction line naming the manual's index (`manualInstructions` in `skills.mjs`), and each Pocket skill carries a `pocket:manual` block that the installed copy fills with this checkout's path to the feature's page (`renderManual`). An agent asked how something in Pocket works or how to set it up reads the page instead of the source.
