@@ -184,6 +184,10 @@ test('HTTP: the board is off until Settings turns it on, the loopback token serv
   out=await cli(['context','--hook'],dir);assert.equal(out.code,0);assert.equal(out.stdout,'','no tracked project: silent');
   out=await cli(['status'],dir);assert.equal(out.code,0);assert.match(out.stdout,/No tracked project contains/);
   out=await cli(['note','x'],dir);assert.equal(out.code,5);
+  // 1.81 (#186): a relative --dir is resolved against the current directory, as pocket-docs add does, instead of being refused.
+  fs.mkdirSync(path.join(dir,'other','deep'),{recursive:true});
+  out=await cli(['track','--requested','--name','Relative dir','--dir','other','--json'],dir);assert.equal(out.code,0,out.stderr);assert.equal(JSON.parse(out.stdout).directory,path.join(dir,'other'));
+  out=await cli(['update','-p','relative-dir','--dir','./other/deep','--json'],dir);assert.equal(out.code,0,out.stderr);assert.equal(JSON.parse(out.stdout).directory,path.join(dir,'other','deep'));
   assert.equal((await call('/settings',{projects:false})).body.projects,false);
   out=await cli(['status','--all']);assert.equal(out.code,3);assert.match(out.stderr,/Settings → Projects, files, tasks & vault/);
   out=await cli(['context','--hook']);assert.equal(out.code,0);assert.equal(out.stdout,'','off: the hook stays silent');

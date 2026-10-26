@@ -36,7 +36,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 const [cmd, ...rest] = opts._;
 const die = (msg, code = 1) => { console.error(msg); process.exit(code); };
-if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 15).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 14).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 
 let token = '';
 try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { die(`No CLI token at ${path.join(dataDir, 'cli-token')}. Is Pocket Code running from this checkout? (POCKET_DATA_DIR=${dataDir})`); }
@@ -82,7 +82,7 @@ switch (cmd) {
   }
   case 'add': {
     if (!rest[0]) die('add needs the task text: pocket-tasks add "Call the supplier"');
-    await act({ action: 'add', text: rest[0], dueAt: opts.due || undefined, session: opts.session || undefined, summary: opts.summary || '', directory: opts.dir || '' });
+    await act({ action: 'add', text: rest[0], dueAt: opts.due || undefined, session: opts.session || undefined, summary: opts.summary || '', directory: opts.dir ? path.resolve(opts.dir) : '' }); // 1.81: a relative --dir is resolved here, as pocket-docs add does
     break;
   }
   case 'done': case 'reopen': { if (!rest[0]) die(`${cmd} needs a task id`); await act({ action: 'update', task: rest[0], done: cmd === 'done' }); break; }

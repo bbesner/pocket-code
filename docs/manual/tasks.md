@@ -145,7 +145,7 @@ A `--due` time without an offset is read in the zone the command prints times in
 
 | Command | What it does |
 |---|---|
-| `add "text" [--due "YYYY-MM-DDTHH:MM"] [--session <id>] [--summary "…"] [--dir <path>]` | Adds a task. `--session` is a Claude session id, or `cx:<id>` for Codex; the server fills in its title and workspace. `--dir` must be a full path. `--due` also takes seconds and an offset. |
+| `add "text" [--due "YYYY-MM-DDTHH:MM"] [--session <id>] [--summary "…"] [--dir <path>]` | Adds a task. `--session` is a Claude session id, or `cx:<id>` for Codex; the server fills in its title and workspace. A relative `--dir` is taken from the current directory. `--due` also takes seconds and an offset. |
 | `list [--all] [--json]` | Open tasks, due first, as `[ ] text (id) due …`. `--all` adds finished ones. |
 | `show <id> [--json]` | One task with its conversation, workspace, context and who added it. |
 | `done <id>` / `reopen <id>` | Finishes a task or reopens it. |
@@ -191,5 +191,5 @@ pocket-tasks done 1c2d3e4f5a6b
 | "task added without context" | No helper model is available, or the conversation is too short to summarize. | Add the context with **Edit**, or check **Model for titles and summaries**. |
 | **Start** opens in the wrong folder | The task has no workspace: it was added from the list, or by an agent without `--session` or `--dir`. | Choose the workspace in the new conversation, or have agents pass `--session` or `--dir`. |
 | `You can keep up to 500 tasks.` | The limit counts finished tasks too. | Remove finished tasks you no longer need. |
-| `The directory must be a full path.` | `--dir` was relative. | Pass an absolute path. |
+| `The directory must be a full path.` | A relative directory reached the server through the API (the command resolves `--dir` against the current directory). | Pass an absolute path. |
 | `No CLI token at …`, `not reachable`, exit 4 | The same causes as for `pocket-board`. | See [Projects troubleshooting](projects.md#troubleshooting). |

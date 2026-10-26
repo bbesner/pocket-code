@@ -182,7 +182,7 @@ Times are printed in the user's time zone (the one their browser reports to Pock
 
 | Command | What it does |
 |---|---|
-| `track --requested --name "…" [--summary "…"] [--next "…"] [--dir <path>] [--link <url>] [--session <id>]` | Creates a card. `--requested` says the user asked and is required. The directory defaults to the current directory; `--dir` must be a full path. `--session` links the conversation (a Claude session id, or `cx:<id>` for Codex). |
+| `track --requested --name "…" [--summary "…"] [--next "…"] [--dir <path>] [--link <url>] [--session <id>]` | Creates a card. `--requested` says the user asked and is required. The directory defaults to the current directory; a relative `--dir` is taken from the current directory. `--session` links the conversation (a Claude session id, or `cx:<id>` for Codex). |
 | `status` | The current directory's card. With no match, lists every project and says none contains this directory. |
 | `status --all` | One line per project: status, id, name, due reminders, open steps. |
 | `status -p <id>` | That project's card. |
@@ -250,7 +250,7 @@ pocket-board update -p acme-hoa-camera-upgrade --summary "Installed and tested."
 | `Pocket Code is not reachable at …` | The server is down or not answering (the command waits 30 seconds). | Check that Pocket is running; set `POCKET_URL` if it listens elsewhere. |
 | Exit 4, `unauthorized` | The token belongs to another install, or the request did not come straight over loopback (through a proxy or tunnel). | Run the command on the server itself, against the Pocket whose data directory holds the token. |
 | `No tracked project contains …` | The current directory is outside every active project's directory. | Pass `-p <id>` (ids are in `status --all`), or set the project's directory with `update --dir`. |
-| `The directory must be a full path.` | `--dir` was relative. | Pass an absolute path. |
+| `The directory must be a full path.` | A relative directory reached the server from the form or the API (the command resolves `--dir` against the current directory). | Pass an absolute path. |
 | `This project is finished. Resume it first.` | Steps and reminders cannot change on a Done project. | `update --status active`, or **Resume project** on the card. |
 | A reminder arrives hours off | The time was given without an offset before the user's browser reported a zone, and `POCKET_TZ` (or the system zone) is not the user's. | Open Pocket in the user's browser once, set `POCKET_TZ` to the user's zone, or pass an offset. |
 | No reminder on any channel | Projects is off; reminders are announced only while it is on. | Turn on **Settings → Projects, files, tasks & vault → Projects**. |

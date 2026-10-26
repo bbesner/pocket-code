@@ -120,12 +120,12 @@ switch (cmd) {
   case 'track': {
     if (!opts.name) die('track needs --name "…"');
     if (!opts.requested) die('Track a project only when the user asked for it; pass --requested to say so.', 6);
-    await act({ action: 'track', name: opts.name, summary: opts.summary || '', next: opts.next || '', directory: opts.dir || cwd, link: opts.link || '', session: opts.session || undefined, requested: true });
+    await act({ action: 'track', name: opts.name, summary: opts.summary || '', next: opts.next || '', directory: opts.dir ? path.resolve(opts.dir) : cwd, link: opts.link || '', session: opts.session || undefined, requested: true });
     break;
   }
   case 'update': {
     const body = { action: 'update', project: await pick() };
-    for (const [k, v] of [['name', opts.name], ['summary', opts.summary], ['next', opts.next], ['waitingFor', opts.waitingFor], ['link', opts.link], ['directory', opts.dir], ['status', opts.status]]) if (v !== undefined) body[k] = v;
+    for (const [k, v] of [['name', opts.name], ['summary', opts.summary], ['next', opts.next], ['waitingFor', opts.waitingFor], ['link', opts.link], ['directory', opts.dir && path.resolve(opts.dir)], ['status', opts.status]]) if (v !== undefined) body[k] = v; // 1.81: a relative --dir is resolved here, as pocket-docs add does
     await act(body); break;
   }
   case 'task': {
