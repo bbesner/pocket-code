@@ -609,8 +609,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await clickControl(page,'[data-mode="queue"]');
    const sent=received.length;await page.type('#box','Then check the returns shelf.');await clickControl(page,'#send');
    for(let i=0;i<40&&received.length===sent;i++)await pause(100);
-   const {text,mode,model,effort}=received.at(-1);
-   assert.deepEqual({text,mode,model,effort},{text:'Then check the returns shelf.',mode:'queue',model:'claude-opus-5-5[1m]',effort:'high'},'queued with the model and effort it was sent with');
+   const {text,mode,model,effort,executionMode}=received.at(-1);
+   assert.deepEqual({text,mode,model,effort,executionMode},{text:'Then check the returns shelf.',mode:'queue',model:'claude-opus-5-5[1m]',effort:'high',executionMode:'work'},'queued with the model, effort and Codex mode it was sent with');
    // 1.81 (#183): Steer now is sent as auto, so a reply that cannot take a steer queues the message instead of refusing it
    await page.waitForFunction(id=>!localStorage.getItem('pc-outbox-'+id)&&!sendsInFlight.has(id)&&document.querySelector('#box')?.value==='',{},run.id); // the first send has settled
    await clickControl(page,'[data-mode="steer"]');
