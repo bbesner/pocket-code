@@ -6,6 +6,7 @@ Validation:
 - [ ] `npm test`
 - [ ] `npm run test:browser` for UI or interaction changes
 - [ ] Screenshots, keyboard/accessibility and error states reviewed for UI changes
+- [ ] Manual pages updated: `npm run check:manual -- --base origin/main` lists none, or each one listed was re-checked
 - [ ] README/guides and release metadata updated, or not applicable explained
 
 State remaining checks or limitations. Link screenshots using synthetic data only.

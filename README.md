@@ -21,11 +21,14 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.79.2 / build 167**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.80.0 / build 167**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
 Screenshots use synthetic demo sessions, not private conversations.
+
+The **[manual](docs/manual/README.md)** explains each feature, how to set it up and how it works, one page per
+feature, for you and for the agents working with you: Pocket points every agent it starts at it.
 
 ## Highlights
 
@@ -40,8 +43,8 @@ are there, with the draft you left.
 ### Projects, files and tasks beside the work
 
 Four optional libraries keep what comes out of a session from getting lost. **Projects**
-hold where you left off, the next step, a checklist and reminders; **Start session** opens a new
-session briefed on where the project stands and linked to it. **Files** keeps the
+hold where you left off, the next step, a checklist and reminders; **Start conversation** opens a new
+conversation briefed on where the project stands and linked to it. **Files** keeps the
 reports, dashboards and spreadsheets agents produce, rendered in place and shared only when
 you ask. **Tasks** are to-dos with an optional date, linked to the session they came from;
 **Start** opens a new session with the task already written in, and a **start link** lets an agent or a job on the server hand Pocket a briefing that opens the same way. The **Vault** keeps API keys,
@@ -240,25 +243,25 @@ device, and when you open them, so an item an agent adds shows up without a relo
 
 - **Projects** keep a card for each piece of work: where you left off, the next step, a
   checklist, reminders (announced once when due) and the sessions that worked on it.
-  **Start session** opens a new session in the project's directory, briefed on the card and
+  **Start conversation** opens a new conversation in the project's directory, briefed on the card and
   linked to it. With Tasks on, open reminders are listed with the tasks, due first; without it,
-  a Scheduled view lists them. See [Projects](docs/workspace-guide.md#projects).
+  a Scheduled view lists them. See [Projects](docs/manual/projects.md).
 - **Files** keeps the reports, dashboards and spreadsheets that came out of the work, in a
   grid or a list. HTML renders sandboxed; PDFs, images, Markdown and CSV render in place.
   Files are private until you share one by link or publicly; removed files wait 30 days
   in the trash, and **Select** removes several at once; **Delete forever** and **Empty trash**
   free the space now. Keep a file from a session's Results, upload one, or let agents keep
-  deliverables. See [Files](docs/workspace-guide.md#files).
+  deliverables. See [Files](docs/manual/files.md).
 - **Tasks** are to-dos with an optional date and time, the session they came from and, if
   you want it, a short briefing on that session. **Start** opens a new session with the
-  task written in, ready to send. See [Tasks](docs/workspace-guide.md#tasks).
+  task written in, ready to send. See [Tasks](docs/manual/tasks.md).
 - **Inbox** (1.69) is what [Inbox Watch](#inbox-watch-your-mailbox-read-for-you-165) sent: alerts,
   digests and look-aheads in one list, newest first. A row opens its sheet: the whole text with Gmail links, **Start a conversation**
   (a new conversation briefed with the story; nothing starts until you press Start) or **Open in Files**,
   **Open in Gmail**, **Resolved**, **Not useful** and **Dismiss**; **X** on the row dismisses. Resolved and Not
-  useful reach the watcher on its next run. See [Inbox](docs/workspace-guide.md#inbox).
+  useful reach the watcher on its next run. See [Inbox Watch](docs/manual/inbox-watch.md).
 - **Vault** (1.39) keeps API keys, tokens, logins and notes encrypted in one file on the
-  server. See [Vault](docs/workspace-guide.md#vault).
+  server. See [Vault](docs/manual/vault.md).
   - **Set up in one switch.** Turning it on creates the key, saves it to the install's
     `.env` and shows a **recovery key** to save once (1.44). Settings can download the
     recovery key again, rotate the key, or restore a lost one from the recovery key.
@@ -315,7 +318,7 @@ OpenClaw agent) to decide what deserves you. What it sends:
   **Start a conversation** opens one already briefed with the story, the evidence and the Gmail
   links, so handling it is a sentence, not a copy and paste.
 - **A morning digest** of the rest, and a **look-ahead** at 8 a.m. and 5 p.m. of what is due
-  or at risk in the next few days, kept in Files with a push that links there.
+  or at risk in the next few days, as an Inbox entry with a push (and a copy in Files when Files is on).
 
 Quiet hours hold ordinary alerts until morning; only something critical gets through. Your
 standing preferences live in a text file the judge reads every turn, so "don't repeat my
@@ -331,7 +334,7 @@ and runs the watcher every minute; the watcher checks mail only when your schedu
 Inbox says what it is doing while it sets up, and what to connect when Gmail is missing. A watcher installed by
 hand (its own config and timer, as in that folder's README) is left alone. The connector's reads go through a
 `claude -p` or `codex exec` call that may use only Gmail's read tools; with both connected, one stands in for the other. `POCKET_INBOX_RUNNER=0` turns the runner off.
-**Schedule, models and cost** (1.70, Settings → Inbox Watch or **Schedule** in the Inbox) sets when it checks
+**Schedule, models and cost** (1.70, under the Inbox Watch switch in **Settings → Projects, files, tasks & vault**, or **Schedule** in the Inbox) sets when it checks
 (periods with their own days, hours and interval), quiet hours, the digest and look-ahead times, a pause, and in
 Developer mode the model and reasoning for each job, with what each day cost. **Check now** (1.75, beside All and
 Schedule in the Inbox) has it check right away whatever the schedule, so a schedule of *Don't check* means on demand only.
@@ -349,12 +352,12 @@ Workspace service account for mailboxes an administrator controls.
   the conversation. Choose Review actions or Full access for later turns. In Review actions,
   read-only actions the owner lists in Settings (a lookup command, a memory search) run
   without a card.
-- **Steer or queue.** Redirect the running turn, or save a follow-up with After this turn;
+- **Steer or queue.** Redirect the running turn, or save a follow-up with **After this reply**;
   edit, cancel or run paused instructions from Queue. A message sent while the agent waits
   on a question skips the question, so the agent reads the message instead of waiting. A failed turn offers Send again and
   Edit message, on any device.
-- **Side chat.** Ask about a Claude conversation while it works, without adding to it: the speech-bubble
-  button (beside Add project and Add task under the message box on a computer, in the header on a phone), Ctrl+; or a message that starts with `/btw`. It starts from the conversation as it is, can read and
+- **Side chat.** Ask about a Claude or Codex conversation while it works, without adding to it: the **Side chat**
+  button (beside Add project and Add task above the message box on a computer, the speech-bubble in the header on a phone), Ctrl+; or a message that starts with `/btw`. It starts from the conversation as it is, can read and
   search but not change anything, saves nothing and shows what each answer cost.
 - **Choose how it runs.** Model and reasoning effort per turn, and Codex's Plan first mode.
   New session names the agent, model and reasoning it will use.
@@ -379,7 +382,7 @@ hands-free mode keeps listening. Speech is processed on your own server. See
 
 When a session delegates work, a **Subagents** button shows how many agents are
 working. Tap it, then expand an agent to read its task, status and latest activity.
-Completed results remain available. **Session options → Subagents** opens the same
+Completed results remain available. **Conversation options → Subagents** opens the same
 view, including when no agents have been recorded yet.
 
 The view refreshes every five seconds while visible. It reads Claude and Codex
@@ -389,7 +392,7 @@ can show **Status unconfirmed**. Older providers may supply fewer details.
 
 [Phone preview](docs/images/subagents-mobile.png) · [Desktop preview](docs/images/subagents-desktop.png) (synthetic demo data).
 
-[Workspace guide](docs/workspace-guide.md) · [Operations and upgrades](docs/operations.md)
+[Manual](docs/manual/README.md) · [Operations and upgrades](docs/operations.md)
 · [Action approvals](docs/action-approvals.md) · [Contributing and releases](CONTRIBUTING.md)
 
 ## Desktop and mobile
@@ -407,7 +410,7 @@ message settings that do not fit. The paperclip and Send remain beside the draft
 |---|---|
 | Close a browser, tab, or existing-session side pane | Work keeps running. |
 | A pane hides because the window is too narrow | Its frame, draft and session are retained. |
-| Session options → Close session process | Releases an idle process. If work is active, choose Keep running or Stop. |
+| Conversation options → Close conversation process | Releases an idle process. If work is active, choose Keep running or Stop. |
 | Stop in the composer | Interrupts the active turn; pending follow-ups pause. |
 
 Closing an unstarted **New session** side pane removes that pane's unsent draft,
@@ -448,12 +451,13 @@ Vault, with five commands that talk to the running server over loopback. The dae
 address to `<data dir>/cli-url` and a token to `<data dir>/cli-token` (both mode `0600`) at
 every start, and the commands read those first, so an inherited `PORT` cannot point them at
 another program (1.43.1). Each works only while its feature is on. Run them as
-`node scripts/<name>.mjs` or `npx <name>` from the Pocket directory. The full usage is in the
-header of each script in `scripts/`; the shipped skills explain when to use them.
+`node scripts/<name>.mjs` from the Pocket directory (`npx <name>` also works for all but `pocket-start` and
+`pocket-notify`). The full usage is in the header of each script in `scripts/` and in each feature's
+[manual](docs/manual/README.md) page; the shipped skills explain when to use them.
 
 | Command | Common use |
 |---|---|
-| `pocket-board` | `track --requested --name "…" --summary "…" --next "…"`, `update`, `edit`, `task add\|done`, `remind --at "YYYY-MM-DDTHH:MM"`, `dismiss`, `note`, `status [--all]`, `scheduled`, `link-session <id>`, `unlink-session <id>`, `reopen` |
+| `pocket-board` | `track --requested --name "…" --summary "…" --next "…"`, `update`, `task add\|done`, `remind --at "YYYY-MM-DDTHH:MM"`, `dismiss`, `note`, `status [--all]`, `scheduled`, `context`, `import`, `link-session <id>`, `unlink-session <id>`, `task edit\|reopen` |
 | `pocket-docs` | `add <path> [--title] [--project] [--session] [--visibility]`, `list [--q]`, `show <id>`, `share <id> [--expires 7d\|30d\|none]`, `set <id> --visibility private\|link\|public`, `trash <id>`, `restore <id>` |
 | `pocket-tasks` | `add "…" [--due] [--session <id>] [--summary "…"] [--dir]`, `list [--all]`, `show <id>`, `done <id>`, `reopen <id>`, `edit <id> [--clear-due]`, `remove <id>` |
 | `pocket-notify` | `--title "…" --body "…" [--url /#/start/<id> or another Pocket path] [--tag <key>] [--email]` (1.65.0): a push to every device that wants alerts, and an email to the notification address with `--email`; pair it with `pocket-start` so the alert opens a briefed New session |
@@ -508,6 +512,9 @@ kinds this device gets and whether the icon shows the count of due tasks and rem
 
 Server configuration comes from the process environment or `.env` (see [`.env.example`](.env.example)). Existing environment values take precedence over that file. Browser preferences such as drafts, tabs, filters and text size stay on each device.
 
+Variables that have a matching control in Settings (Assistant mode, automatic model choice, one sign-in) are in the manual's
+[Settings and environment variables](docs/manual/settings.md#settings-and-environment-variables) table, with which one wins.
+
 | Variable | Required | What it does |
 |---|---|---|
 | `POCKET_PASSWORD` | yes | Login password. Make it long and random. |
@@ -525,7 +532,7 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `CODEX_BIN`, `CODEX_HOME` | no | Path to `codex` and its home directory, if not the defaults. |
 | `POCKET_RETRY_BUFFER_MS` | no | Wait after a usage-limit reset before auto-continuing. Default 5 minutes. |
 | `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | no | Pocket-only Claude default for turns left on Default, e.g. `claude-opus-5-5[1m]` and `high`. The model must be one the picker offers; otherwise Default is the CLI's own default. |
-| `POCKET_CLAUDE_MODELS` | no | Claude models the picker offers until one is chosen in **Settings → Agents & instance → Claude models in the picker** (the Settings choice wins once saved). Comma-separated catalog ids, e.g. `claude-sonnet-5-5,claude-opus-5-5[1m]`. Default: every model. Models blocked by Claude Code's managed settings (`availableModels`/`deniedModels`) are never offered either way; see the [workspace guide](docs/workspace-guide.md#claude-models-in-the-picker). |
+| `POCKET_CLAUDE_MODELS` | no | Claude models the picker offers until one is chosen in **Settings → Agents & instance → Claude models in the picker** (the Settings choice wins once saved). Comma-separated catalog ids, e.g. `claude-sonnet-5-5,claude-opus-5-5[1m]`. Default: every model. Models blocked by Claude Code's managed settings (`availableModels`/`deniedModels`) are never offered either way; see [Models in the picker](docs/manual/sessions.md#models-in-the-picker). |
 | `POCKET_CLAUDE_MANAGED_DIR` | no | Where to read Claude Code's managed settings from, if not the system directory (`/etc/claude-code`, or `/Library/Application Support/ClaudeCode` on macOS). Used by the tests. |
 | `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | no | Pocket-only Codex default, e.g. `gpt-6-sol` and `medium`. |
 | `POCKET_DEFAULT_CWD` | no | Workspace the New session screen preselects, e.g. your home directory. Default: wherever you last started a session. |
@@ -538,25 +545,26 @@ Server configuration comes from the process environment or `.env` (see [`.env.ex
 | `POCKET_STALL_MS` | no | A turn with no output, no background job, nothing waiting on you and no CPU use by programs it started for this long is stopped. Milliseconds; default `1800000` (30 minutes); `0` disables the watchdog. A value that is not a number is logged and ignored. |
 | `POCKET_MAX_PROCESSES` | no | Soft target for live CLI processes (Claude Code and Codex together) kept at once. Starting one past the cap closes the longest-idle process that has no turn and no background job. Default `8`; `0` means no cap. Active work is never evicted to meet this target, so the count can exceed it. CLI and MCP processes add memory beyond the Pocket daemon. |
 | `POCKET_APPROVAL_MODE` | no | Default permissions for new turns: `review` (default) or `full`. |
-| `POCKET_TRUSTED_ACTIONS` | no | Read-only actions Claude runs without an approval card in Review actions, until a list is saved in **Settings → Agents & instance → Actions that run without asking** (the Settings list wins once saved, even when empty). One rule per line, or comma-separated: `Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`, `WebFetch`, e.g. `Bash(techpro-lookup:*),mcp__memstem__*`. Edit/Write/NotebookEdit cannot be listed; a rule Pocket cannot use is logged and skipped. Default: none, every action asks. Claude only; a convenience, not a security boundary. See [action approvals](docs/action-approvals.md#actions-that-run-without-asking). |
+| `POCKET_TRUSTED_ACTIONS` | no | Read-only actions Claude runs without an approval card in Review actions, until a list is saved in **Settings → Agents & instance → Actions that run without asking** (the Settings list wins once saved, even when empty). One rule per line, or comma-separated: `Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`, `WebFetch`, e.g. `Bash(acme-lookup:*),mcp__notes__*`. Edit/Write/NotebookEdit cannot be listed; a rule Pocket cannot use is logged and skipped. Default: none, every action asks. Claude only; a convenience, not a security boundary. See [action approvals](docs/action-approvals.md#actions-that-run-without-asking). |
 | `POCKET_ALLOW_FULL_ACCESS` | no | Set to `0` to reject Full access in both API and UI. |
 | `POCKET_DATA_DIR` | no | Pocket state and runner files; defaults to the checkout. Move only after all session processes are closed. |
 | `POCKET_SESSION_ROOT` | no | Override Claude transcript storage for isolated tests; does not relocate Codex. |
 | `POCKET_REMINDER_HOOK` | no | A command run when a project reminder (Projects, 1.29) or a dated task (Tasks, 1.36) comes due, with it as JSON on its standard input. A reminder carries `project`, `projectName`, `reminder`, `label`, `dueAt`, `task`, `taskText`, `url`; a task carries `kind: "task"`, `task`, `text`, `dueAt`, `session`, `url`; the day-before notice (1.50, when Settings turns it on) carries the same with `ahead: true`. It runs through the shell, with the same environment as agent turns: Pocket's own secrets are removed (1.37.1). Each one is announced once. Use it for chat or anything else; web push and email happen regardless. |
 | `POCKET_SMTP_URL`, `POCKET_SMTP_FROM` | no | Email for due tasks and reminders (1.50): an SMTP address such as `smtps://user:app-password@smtp.gmail.com:465` (or `smtp://…:587` with STARTTLS) and the address to send from (defaults to the URL's user when it is an address). The address to send *to* is set in **Settings → Notifications & voice**, with a test button. Nothing else is emailed. |
-| `POCKET_PUBLIC_URL` | no | Pocket's public address (`https://pocket.example.com`), used for links in reminder emails. Without it, Pocket uses the address the owner last signed in from through the tunnel or proxy. |
+| `POCKET_PUBLIC_URL` | no | Pocket's public address (`https://pocket.example.com`), used for links in reminder emails and Inbox Watch alerts, and to make the share addresses `pocket-docs` prints absolute. Without it, Pocket uses the address the owner last signed in from through the tunnel or proxy. |
 | `POCKET_DOCUMENTS_DIR` | no | Where Files (1.30; Documents before 1.34) keeps files. Default `<data dir>/documents`. Files placed there appear as private files; removed files wait in its `.trash` for 30 days. |
-| `POCKET_SKILLS` | no | `0` stops Pocket installing its `pocket-projects`, `pocket-files`, `pocket-tasks` and `pocket-vault` agent skills into `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`) and `$CODEX_HOME/skills` (1.34, tasks 1.36, vault 1.39), and its `pocket-google` skill into both (1.64, always on; Claude Code gets the claude.ai-connector version, Codex the ChatGPT-apps version). Only folders carrying Pocket's `.pocket-managed` marker are touched. On by default while the matching feature is on. |
+| `POCKET_SKILLS` | no | `0` stops Pocket installing its `pocket-projects`, `pocket-files`, `pocket-tasks`, `pocket-vault` and `pocket-inbox` agent skills into `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`) and `$CODEX_HOME/skills` (1.34, tasks 1.36, vault 1.39), and its `pocket-google` skill into both (1.64, always on; Claude Code gets the claude.ai-connector version, Codex the ChatGPT-apps version). Only folders carrying Pocket's `.pocket-managed` marker are touched. On by default while the matching feature is on. |
 | `POCKET_VAULT_KEY` | no | The Vault's encryption key (1.39). Since 1.44 you don't set it: switching the Vault on creates it, saves it to this install's `.env` (mode `0600`) and shows a recovery key to keep; **Rotate key** and **Restore key** in Settings write it there too. Set it by hand (`openssl rand -base64 32`) only when there is no `.env` to write (`POCKET_ENV_FILE` empty). Pocket reads it at start and removes it, and `POCKET_VAULT_KEY_PREVIOUS` (present only for the moment of a rotation), from its environment, so no agent or other process it starts sees them. Keep the recovery key apart from your data backups: without it `vault.enc` cannot be opened. |
 | `POCKET_CHROME`, `POCKET_PDFTOPPM`, `POCKET_CONVERT` | no | The tools that make the library's preview pictures (1.32): a Chrome or Chromium binary for HTML reports (and images when ImageMagick is absent), `pdftoppm` from poppler for PDFs, ImageMagick's `convert` for images. Found automatically in the usual places and on `PATH`; set one to a path to choose it, or to an empty value to turn it off. Pictures are cached in `<documents dir>/.thumbs`. A kind without a tool shows its name on the card instead. |
 | `POCKET_TZ` | no | Time zone for `pocket-board` reminder and `pocket-tasks --due` times given without an offset, e.g. `America/New_York`. Default: the server's zone. Times Pocket shows (reminder emails, the usage-limit notice, the commands' listings) use the zone the owner's browser reports, then this, then the server's, with the zone named. |
-| `POCKET_URL` | no | Base address the `pocket-board`, `pocket-docs`, `pocket-tasks` and `pocket-vault` commands and the browser relay use to reach the server. Default: the address the daemon writes to `<data dir>/cli-url`, then `PORT` from this checkout's `.env`. |
+| `POCKET_URL` | no | Base address the `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-vault`, `pocket-inbox`, `pocket-start` and `pocket-notify` commands and the browser relay use to reach the server. Default: the address the daemon writes to `<data dir>/cli-url`, then `PORT` from this checkout's `.env`, then an inherited `PORT`. |
 | `POCKET_VAULT_FILL_WAIT` | no | Seconds the browser relay (`scripts/pocket-mcp-proxy.mjs`) waits for your answer to a fill request before telling the agent to try again. Default `90`. |
 | `POCKET_VAULT_FILL_TOOLS` | no | The tools the browser relay may type a Vault value into, comma-separated (1.73.5). Default `browser_type,browser_fill_form,type,fill`; a call to any other tool that names a placeholder is refused. |
-| `POCKET_PUBLIC_URL` | no | Makes the share addresses `pocket-docs` prints absolute, e.g. `https://pocket.example.com`. |
+| `POCKET_INBOX_RUNNER` | no | `0` stops Pocket running Inbox Watch itself (a watcher installed by hand keeps working). See [Inbox Watch](docs/manual/inbox-watch.md). |
+| `POCKET_PIPE_DIR` | no | Folder for the persistent processes' named pipes. Default: a folder named after a hash of the data directory; each daemon needs its own. See [operations](docs/operations.md). |
 | `POCKET_REMINDER_CHECK_MS` | no | How often due reminders and tasks are checked. Default 60000 (one minute); mainly for tests. |
 | `POCKET_VOICE_COMMAND` | no | A JSON array that replaces the command starting the voice engine. For tests and custom engines. |
-| `POCKET_FRAME_ANCESTORS` | no | Origins allowed to embed Pocket Code in a frame (for example Mission Control), space-separated. Default: only Pocket's own origin. |
+| `POCKET_FRAME_ANCESTORS` | no | Origins allowed to embed Pocket Code in a frame (for example an internal dashboard), space-separated. Default: only Pocket's own origin. |
 | `POCKET_VOICE` | no | Set to `off` to disable voice mode even when it is installed. |
 | `POCKET_VOICE_HOME` | no | Where `scripts/voice-setup.sh` installed the voice engine. Default `~/.local/share/pocket-code/voice`. |
 | `POCKET_VOICE_IDLE_MS` | no | How long the voice engine stays loaded after its last use, in milliseconds. Default `900000` (15 minutes). |
@@ -603,7 +611,7 @@ text-to-speech ([Kokoro](https://github.com/thewh1teagle/kokoro-onnx)) run in a 
 the Pocket server. No audio or text goes to a speech service, and there are no per-use fees.
 
 ```bash
-bash scripts/voice-setup.sh   # Python 3 venv + models, about 1.3 GB; then restart Pocket Code
+bash scripts/voice-setup.sh   # Python 3 venv + models, about 1.5 GB; then restart Pocket Code
 ```
 
 The engine starts the first time someone uses the mic (a few seconds) and stops after 15 idle
@@ -623,13 +631,13 @@ a reply was ready in under a second. Without the install, the mic button stays h
 - Settings → Notifications & voice: speak replies, spoken reply length (Brief: one sentence; Normal: about two;
   Detailed: the whole reply without code, tables or links), review before sending, how long hands-free
   waits for your reply, voice and names to recognize. Approvals still need a tap.
-- **Spoken alerts.** Settings → Notifications & voice → Announce sessions says when any session finishes ("The SCK
-  inventory session finished", optionally with a one-line summary) or needs your approval or answer,
+- **Spoken alerts.** Settings → Notifications & voice → Announce conversations says when any conversation finishes ("The
+  inventory conversation finished", optionally with a one-line summary) or needs your approval or answer,
   in place of the chime, while Pocket is open. Muted sessions stay quiet; push covers a closed app.
   Announcements never turn the microphone on, even during a hands-free conversation.
 
 Browsers allow the microphone only over HTTPS. An embedding page must grant the frame
-`allow="microphone"`. Details: [workspace guide](docs/workspace-guide.md#voice-mode-beta) and
+`allow="microphone"`. Details: [Voice](docs/manual/voice.md) and
 [operations](docs/operations.md#voice-engine).
 
 ## Optional MemStem integration

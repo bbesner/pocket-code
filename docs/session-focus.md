@@ -1,5 +1,8 @@
 # Collapsible session controls
 
+> Historical design record. For current behavior, use the manual's
+> [Desktop and phone](manual/desktop-and-phone.md) page.
+
 The header chevron and composer gear work on phone, tablet and desktop. Each
 choice is saved in this browser and survives folding, resizing and reloads.
 

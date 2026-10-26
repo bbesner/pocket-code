@@ -16,6 +16,9 @@ may use them, and sees every use. You work with the Vault through the `pocket-va
 Run `pocket-vault` from the Pocket Code directory (`node scripts/pocket-vault.mjs`, or
 `npx pocket-vault`). The session instructions Pocket gives you name the exact command.
 <!-- /pocket:commands -->
+<!-- pocket:manual -->
+How this feature works, how it is set up and its limits: `docs/manual/vault.md` in the Pocket Code directory.
+<!-- /pocket:manual -->
 
 ## The one rule
 
@@ -170,7 +173,7 @@ printf '%s' "$TWILIO_AUTH" | pocket-vault put twilio-auth --kind token --stdin \
   fixed ones plus any custom ones, each key becoming a field. `put` prints only the name.
 - **Create only.** An existing name is refused. Pick another name or ask the owner to update
   the item in the Vault view. You cannot change, rotate or remove an item.
-- New items get policy `ask` and no approved commands.
+- New items follow the Vault default (the **Agent access** setting) and have no approved commands.
 - **Tell the user**, in one or two sentences: what you stored and under which name, and that
   the value was seen in this conversation (so it has already reached the model provider and
   this transcript) and they may want to rotate it. Do not repeat the value, even partly.

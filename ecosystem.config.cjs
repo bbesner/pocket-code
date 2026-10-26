@@ -7,8 +7,8 @@
 // it (PM2 applies --update-env to ecosystem restarts), and every Claude Code or Codex session
 // Pocket starts inherits that PATH. A deploy over ssh, or from an agent's own shell, is not a
 // login shell: the user's bin directories drop off, and an MCP server registered by bare name
-// (memstem, installed by pipx into ~/.local/bin) fails with ENOENT while the daemon looks
-// healthy (Damon's server, 2026-10-05 → 2026-10-16). userPath() appends the standard user bin
+// (for example a tool installed by pipx into ~/.local/bin) fails with ENOENT while the daemon looks
+// healthy (seen on an install in October 2026). userPath() appends the standard user bin
 // directories that exist, and the directory of the node running PM2, so the agents' PATH no
 // longer depends on who restarted the daemon. Current entries keep their order; nothing is shadowed.
 const fs = require('node:fs');

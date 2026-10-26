@@ -1,7 +1,8 @@
 {
- "version": "1.79.2",
+ "version": "1.80.0",
  "assetV": 167,
  "notes": [
+  "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.",
   "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.",
   "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both.",
   "Two ways off a conversation, now on Claude and Codex. Side chat asks a quick question about the conversation: nothing is saved and nothing changes. Branch starts a new saved conversation that carries on from here with everything so far, and can do work on its own while the original stays as it is; it shows in your list as a branch, with a link back. Both buttons explain themselves when you hover over them, Conversation options describes each, and each one points to the other. Requested by Brad.",

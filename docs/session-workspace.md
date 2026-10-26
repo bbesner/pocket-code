@@ -1,7 +1,7 @@
 # Session workspace: 1.1
 
 > Historical design and verification record. For current behavior, use the
-> [workspace guide](workspace-guide.md). Do not use this record as an upgrade runbook.
+> [manual](manual/README.md). Do not use this record as an upgrade runbook.
 
 The first increment focuses on finding active work and recovering messages when a
 connection fails. It keeps the existing agent runners and transcript stores.

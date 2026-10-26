@@ -16,6 +16,9 @@ set up, the server's reminder hook). You manage tasks with the `pocket-tasks` co
 Run `pocket-tasks` from the Pocket Code directory (`node scripts/pocket-tasks.mjs`, or
 `npx pocket-tasks`). The session instructions Pocket gives you name the exact command.
 <!-- /pocket:commands -->
+<!-- pocket:manual -->
+How this feature works, how it is set up and its limits: `docs/manual/tasks.md` in the Pocket Code directory.
+<!-- /pocket:manual -->
 
 ## When to create a task
 
@@ -49,7 +52,7 @@ and the date or time from the offer.
 pocket-tasks add "Call ENS about the aisle 4 count" --session <session-id>
 pocket-tasks add "Review the NVR report" --due "2026-10-14T09:00" --session <session-id>
 pocket-tasks add "Finish the storefront header" --session <session-id> \
-  --summary "Rebuilding the SCK header in the Astro site. The logo and nav are done; the cart badge still overlaps on phones. Next is the 390px layout in header.astro."
+  --summary "Rebuilding the shop header in the Astro site. The logo and nav are done; the cart badge still overlaps on phones. Next is the 390px layout in header.astro."
 ```
 
 - **Text:** the user's words, tidied into one clear sentence. Keep names, numbers and dates.

@@ -1,21 +1,22 @@
 # Action approvals
 
-Select **Review actions** or **Full access** in the composer or under Session options
-→ Permissions for the next turn. A choice applies to the next new/resumed turn and
+Select **Review actions** or **Full access** in the composer or under Conversation options
+→ Permissions for the next reply. A choice applies to the next new/resumed turn and
 is captured with queued instructions. Steering a running turn does not change its
 permissions. The instance default applies when an older client or queue item has no
 explicit choice. Review is the default; `POCKET_APPROVAL_MODE=full` retains unattended
 behavior. `POCKET_ALLOW_FULL_ACCESS=0` rejects Full access at the API as well as hiding
 it in the picker. This setting does not retroactively alter running turns.
 
-When a native request arrives, the session moves to Needs approval and shows a Review
-banner. Open it to inspect the command, file changes, or tool arguments, then choose
-Deny or the card's allow button. The allow button names its scope: **Allow once** for a
-command, file change or tool call, which covers that one pending request;
+When a native request arrives, the session moves to Needs approval and shows a **Waiting
+for your OK** banner with **Review**. Open it to inspect the command, file changes, or tool
+arguments, then choose **Don't allow** or the card's allow button. The allow button names its
+scope: **Allow** for a command, file change or tool call, which covers that one pending request;
 **Allow network access** for a Codex network request, which can release several pending
 requests to the displayed destination; and **Allow for this turn** for a Codex request for
-additional permissions, which grants the listed access until the turn ends. The card
-states the same scope above the details. Closing the sheet, sleeping the phone or losing
+additional permissions, which grants the listed access until the turn ends. For those two
+broader grants the card states the scope above the details; for a single request it is under
+**Show details**. Closing the sheet, sleeping the phone or losing
 the browser connection does not approve anything. Refresh reloads the live pending requests.
 Push notifications contain no command or argument details. A decision being sent is
 not evidence of successful execution; check the conversation for the result.
@@ -36,7 +37,7 @@ not evidence of successful execution; check the conversation for the result.
 - A Codex network request may release multiple pending requests to the displayed
   destination. An explicit additional-permissions request can grant the displayed
   subset for the rest of the turn, with that broader scope stated on the card. No
-  session-wide permission grant is offered. Unsupported elicitation requests decline.
+  session-wide permission grant is offered. Unsupported elicitation requests are cancelled.
   Existing native user-input questions remain supported, including those the provider
   uses for its own connected-tool confirmations.
 
@@ -69,15 +70,15 @@ Rules are a subset of [Claude Code's permission rules](https://code.claude.com/d
 
 | Rule | Runs without asking |
 |---|---|
-| `Bash(techpro-lookup:*)` | `techpro-lookup` alone or followed by arguments. `Bash(techpro-lookup *)` means the same. |
-| `Bash(sck-site product:*)` | `sck-site product` and `sck-site product list`, not `sck-site productx` or `sck-site orders` |
+| `Bash(acme-lookup:*)` | `acme-lookup` alone or followed by arguments. `Bash(acme-lookup *)` means the same. |
+| `Bash(shop-site product:*)` | `shop-site product` and `shop-site product list`, not `shop-site productx` or `shop-site orders` |
 | `Bash(status-report today)` | exactly `status-report today` |
-| `mcp__memstem__memstem_search` | that one MCP tool |
-| `mcp__memstem__*` | every tool from the `memstem` MCP server (not `mcp__memstemx__…`) |
+| `mcp__notes__search` | that one MCP tool |
+| `mcp__notes__*` | every tool from the `notes` MCP server (not `mcp__notesx__…`) |
 | `WebSearch`, `WebFetch` | those tools, whatever they look up. WebFetch sends the URL, and anything in it, out. |
 
-Edit, Write, NotebookEdit, Agent/Task and PowerShell cannot be listed; a blanket `Bash`, `Bash(*)`
-or `mcp__*` cannot either. Settings explains why under the field when a rule is refused.
+Edit, Write, MultiEdit, NotebookEdit, Agent/Task and PowerShell cannot be listed; a blanket `Bash`, `Bash(*)`
+or `mcp__*` cannot either. Read, Glob, Grep and LS are refused because they do not need a rule. Settings explains why under the field when a rule is refused.
 
 A Bash command runs without asking only when it is one plain command whose first words are the
 listed ones, compared as written. Pocket shows the card instead when the command:
@@ -87,20 +88,20 @@ listed ones, compared as written. Pocket shows the card instead when the command
   always ask (inside quotes too);
 - has an unquoted `*`, `?` or `[` (a glob could expand into an option) or an unclosed quote;
 - has a word that starts with an unquoted `#` (Bash ignores the rest of the line as a comment; 1.73.8);
-- starts with a `VAR=value` or `VAR+=value` setting (`+=` since 1.73.8), or names the command differently: `/usr/local/bin/techpro-lookup`,
-  `./techpro-lookup`, `sudo techpro-lookup` or `"techpro-lookup"` do not match `Bash(techpro-lookup:*)`.
+- starts with a `VAR=value` or `VAR+=value` setting (`+=` since 1.73.8), or names the command differently: `/usr/local/bin/acme-lookup`,
+  `./acme-lookup`, `sudo acme-lookup` or `"acme-lookup"` do not match `Bash(acme-lookup:*)`.
   Paths and aliases are not resolved;
 - carries a Bash option other than its description, timeout or background flag.
 
 A rule written that way is refused the same way. `mcp__server__*` covers that server's tools whose
 names contain no `__` (1.73.8), so it cannot reach a second server named `server__other`.
 
-Quoted arguments are fine: `techpro-lookup quote "Acme Corp"` matches. Agents that start a command
+Quoted arguments are fine: `acme-lookup quote "Acme Corp"` matches. Agents that start a command
 with `cd somewhere &&` get the card; the agent can run the command on its own instead.
 
 Which list applies, highest first:
 
-1. The list saved in Settings (`trustedActions` in `pocket-settings.json`, outside the checkout).
+1. The list saved in Settings (`trustedActions` in `pocket-settings.json` in the data directory, which Git ignores).
    A saved empty list means every action asks, even when the server has a default.
 2. `POCKET_TRUSTED_ACTIONS` in `.env`, for provisioning: one rule per line, or several separated
    by commas outside parentheses. A rule Pocket cannot use is logged at start, shown in Settings

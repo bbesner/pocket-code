@@ -1,7 +1,7 @@
 # Pocket Code product improvement plan
 
 > Historical design and verification record. For current behavior, use the
-> [workspace guide](docs/workspace-guide.md). Do not use this record as an upgrade runbook.
+> [manual](docs/manual/README.md). Do not use this record as an upgrade runbook.
 
 This plan turns the October 2026 mobile/desktop design review into four stages.
 The first priority is keeping track of running sessions. Pocket Code remains a

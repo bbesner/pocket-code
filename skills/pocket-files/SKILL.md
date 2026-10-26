@@ -14,6 +14,9 @@ Code on any device, and can share them by link. You manage the library with the
 Run `pocket-docs` from the Pocket Code directory (`node scripts/pocket-docs.mjs`, or
 `npx pocket-docs`). The session instructions Pocket gives you name the exact command.
 <!-- /pocket:commands -->
+<!-- pocket:manual -->
+How this feature works, how it is set up and its limits: `docs/manual/files.md` in the Pocket Code directory.
+<!-- /pocket:manual -->
 
 ## What the user means
 

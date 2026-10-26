@@ -7,12 +7,16 @@ description: Work in the person's Gmail, Google Calendar and Google Drive throug
 
 You reach the person's Google account through three **Claude connectors**: **Gmail**,
 **Google Calendar** and **Google Drive**. They are connected in Pocket under **Settings →
-Agents & instance → Connectors** (the Claude column). Their tools are named
+Agents & instance → Connectors** (the Claude section). Their tools are named
 `mcp__claude_ai_Gmail__…`, `mcp__claude_ai_Google_Calendar__…` and
 `mcp__claude_ai_Google_Drive__…`; the action names below are the ends of those names.
 
 If the tools are listed as deferred, load the ones you need with ToolSearch first, for
 example `select:mcp__claude_ai_Gmail__search_threads,mcp__claude_ai_Gmail__get_thread,mcp__claude_ai_Gmail__create_draft,mcp__claude_ai_Gmail__send_message`.
+
+<!-- pocket:manual -->
+How this feature works, how it is set up and its limits: `docs/manual/google.md` in the Pocket Code directory.
+<!-- /pocket:manual -->
 
 ## 1. Check whose account it is (once per conversation)
 

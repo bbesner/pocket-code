@@ -1,7 +1,7 @@
 # Contributing and releasing Pocket Code
 
 Read [PRODUCT.md](PRODUCT.md) and [DESIGN.md](DESIGN.md) before changing the interface.
-The [workspace guide](docs/workspace-guide.md) describes current behavior; the
+The [manual](docs/manual/README.md) describes current behavior, one page per feature; the
 [operations guide](docs/operations.md) covers the persistent-process lifecycle.
 
 ## Bugs, feature requests and security problems
@@ -82,6 +82,27 @@ It does not validate external URLs, prove that a GitHub release exists, or repla
 runtime tests. Pass `--released` to reject an unreleased top changelog entry when
 preparing the final release commit.
 
+## The manual
+
+[docs/manual](docs/manual/README.md) is written for people and for the agents working beside them; Pocket points
+every agent it starts, and every Pocket skill, at it. Each page opens with a block naming the release it was last checked
+against and the source files it describes:
+
+```
+<!-- manual
+checked: 1.79.2
+sources: vault.mjs, public/vault.js, scripts/pocket-vault.mjs, skills/pocket-vault/SKILL.md
+-->
+```
+
+When a change alters what a page says, update the page in the same pull request. `npm run check:manual -- --base
+origin/main` lists the pages whose sources your branch touched without touching the page, and CI posts the same list
+as warnings on the pull request. For each one, update the page, or confirm it is still right and raise `checked`;
+either clears it. Without `--base` the command lists every page whose sources changed since the page last did.
+`check:release` fails on a page without the block, a `checked` release that is not in the changelog, a source that
+no longer exists, a page the index does not link, or a link to a heading that is gone. A new feature gets a page and
+a line in the index; keep the public-repository rule (no real people, customers or servers) in examples.
+
 ## UI and screenshots
 
 Preserve the warm ink identity and task-focused layout. Verify keyboard access,
@@ -110,8 +131,9 @@ vendor files or runtime dependencies as part of a documentation edit.
 
 ## Release checklist
 
-1. Finish the feature/fix PR and documentation, including the README, current guides,
-   screenshots, defaults and lifecycle changes. Keep historical plans labelled.
+1. Finish the feature/fix PR and documentation, including the README, the manual pages
+   `npm run check:manual -- --base origin/main` lists, screenshots, defaults and lifecycle
+   changes. Keep historical plans labelled.
 2. Set one semantic version in `package.json`, the lockfile root and root package entry,
    and `public/release.json`. Update the README's checkout version and first changelog
    entry. Do not imply publication while that entry says Unreleased.
