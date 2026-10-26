@@ -138,7 +138,7 @@ def test_claude_read_only_falls_back_to_codex_for_labels():
     m.db.execute("insert or replace into mail values('m1','t1',?)", (now - 60,))
     m.db.commit()
     lid = m.label_id("Pocket Inbox")
-    assert lid == "Pocket Inbox", "Claude may not even make the label (Damon's grant, 2026-10-21): Codex does, by name"
+    assert lid == "Pocket Inbox", "Claude may not even make the label (a read-only grant, 2026-10-21): Codex does, by name"
     assert m.label_threads([("t1", [lid], [])]) == {"t1"}, "the change went through Codex instead"
     sent = b.argv()[-1]
     assert Path(sent["home"]).name == "codex-home-label" and '"add_label_names": ["Pocket Inbox"]' in sent["argv"][-1], "by name, in Codex's label home"
@@ -200,7 +200,7 @@ def test_thread_raw_reads_like_the_gmail_api():
     E.MAILBOX = "alex@example.com"
     row = E.parse_message(raw[0])
     assert row["subject"] == "Invoice 42" and row["sender"].startswith("Pat Doe") and "install date" in row["body"]
-    assert row["ts"] == now - 60 and row["from_brad"] == 0
+    assert row["ts"] == now - 60 and row["from_owner"] == 0
 
 
 def test_missing_thread_is_a_404():

@@ -247,8 +247,8 @@ def test_check_now_skips_quiet_hours():
 
 
 def test_finished_entry_archives_its_thread():
-    """1.77.9: finishing an entry in Pocket takes the label off and archives the thread (Damon, 2026-10-24: dismissed
-    alerts sat unread in his Gmail inbox), except where mail came in after the label went on."""
+    """1.77.9: finishing an entry in Pocket takes the label off and archives the thread (2026-10-24: dismissed
+    alerts sat unread in the owner's Gmail inbox), except where mail came in after the label went on."""
     store, g, p = setup()
     E.label_sync(store, g, bring_in=True, dry_run=False)
     for eid, tid in (("e1", A), ("e2", B), ("e3", Z)):

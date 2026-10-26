@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print what a replay would have sent to Brad, in order, as Markdown (Telegram HTML converted)."""
+"""Print what a replay would have sent to the owner, in order, as Markdown (Telegram HTML converted)."""
 import datetime as dt
 import html
 import re

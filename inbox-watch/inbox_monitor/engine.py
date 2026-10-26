@@ -224,7 +224,7 @@ def gmail_client():
 
 
 MAX_THREADS_PER_RUN = 20
-THREADS_PER_ARI_CALL = 6
+THREADS_PER_JUDGE_CALL = 6
 MSGS_PER_THREAD = 6
 BODY_CHARS = 3000
 ARCHIVE_BODY_CHARS = 4000
@@ -306,7 +306,7 @@ ALERT_COLUMNS = {"memory_at": "text"}
 
 ARCHIVE_SCHEMA = """
 create table if not exists mail(message_id text primary key, thread_id text, ts integer, date text, sender text, recipients text,
-  subject text, labels text, from_brad integer, body text);
+  subject text, labels text, from_owner integer, body text);
 create index if not exists mail_thread on mail(thread_id, ts);
 create index if not exists mail_ts on mail(ts);
 create virtual table if not exists mail_fts using fts5(subject, sender, body, content='mail', content_rowid='rowid',
@@ -468,7 +468,7 @@ def parse_message(m: dict) -> dict:
         "recipients": "; ".join(x for x in (header(m, "To"), header(m, "Cc")) if x),
         "subject": header(m, "Subject"),
         "labels": json.dumps(labels),
-        "from_brad": int("SENT" in labels or MAILBOX in frm.lower()),
+        "from_owner": int("SENT" in labels or MAILBOX in frm.lower()),
         "body": body,
     }
 
@@ -530,7 +530,7 @@ def group_bundles(bundles: list[dict], related: dict[str, list[dict]]) -> list[l
     Two threads are linked when they share a distinctive subject word, an identifier or a related earlier thread, or
     when one's human sender is named in the other. Over-linking is cheap (the pair shares a batch); a missed link
     splits a story across turns, which the deferred delivery in process() then repairs."""
-    if len(bundles) <= THREADS_PER_ARI_CALL:
+    if len(bundles) <= THREADS_PER_JUDGE_CALL:
         return [bundles] if bundles else []
     n = len(bundles)
     cap = max(2, n // 3)  # a word, code or thread shared by more bundles than this is a label, not a link
@@ -567,8 +567,8 @@ def group_bundles(bundles: list[dict], related: dict[str, list[dict]]) -> list[l
         groups.setdefault(find(i), []).append(b)
     batches: list[list[dict]] = []
     for g in groups.values():  # insertion order: each group where its first thread was
-        for part in chunks(g, THREADS_PER_ARI_CALL):
-            if batches and len(batches[-1]) + len(part) <= THREADS_PER_ARI_CALL:
+        for part in chunks(g, THREADS_PER_JUDGE_CALL):
+            if batches and len(batches[-1]) + len(part) <= THREADS_PER_JUDGE_CALL:
                 batches[-1].extend(part)
             else:
                 batches.append(list(part))
@@ -751,12 +751,25 @@ class Archive:
         self.db.row_factory = sqlite3.Row
         self.db.execute("pragma journal_mode=wal")
         self.db.execute("pragma busy_timeout=60000")
+        self.migrate()
         self.db.executescript(ARCHIVE_SCHEMA)
+
+    def migrate(self) -> None:
+        """1.81: the column that marks the owner's own mail was named after one owner (`from_brad`); archives written before then
+        are renamed in place when opened, keeping every row. Idempotent: a new archive, or one already renamed, is left alone."""
+        have = {r["name"] for r in self.db.execute("pragma table_info(mail)")}
+        if "from_brad" in have and "from_owner" not in have:
+            try:
+                self.db.execute("alter table mail rename column from_brad to from_owner")
+                self.db.commit()
+            except sqlite3.OperationalError:  # another process renamed it first
+                if "from_brad" in {r["name"] for r in self.db.execute("pragma table_info(mail)")}:
+                    raise
 
     def add(self, rows: list[dict]) -> None:
         self.db.executemany(
-            """insert into mail(message_id,thread_id,ts,date,sender,recipients,subject,labels,from_brad,body)
-               values(:message_id,:thread_id,:ts,:date,:sender,:recipients,:subject,:labels,:from_brad,:body)
+            """insert into mail(message_id,thread_id,ts,date,sender,recipients,subject,labels,from_owner,body)
+               values(:message_id,:thread_id,:ts,:date,:sender,:recipients,:subject,:labels,:from_owner,:body)
                on conflict(message_id) do update set labels=excluded.labels where mail.labels is not excluded.labels""", rows)
         self.db.commit()
 
@@ -884,7 +897,7 @@ class Archive:
                     seen.add(r["thread_id"])
                     s = max(0, m.start() - 200)
                     excerpt = re.sub(r"\s+", " ", text[s:m.end() + 200])
-                    weight = len(DEADLINE_RX.findall(text[:3000])) + (2 if MONEY_RX.search(excerpt) else 0) - (2 if r["from_brad"] else 0)
+                    weight = len(DEADLINE_RX.findall(text[:3000])) + (2 if MONEY_RX.search(excerpt) else 0) - (2 if r["from_owner"] else 0)
                     found.append((-min(weight, 8), (d - today).days, -r["ts"], r, d, excerpt))
                     break
         out, n_by_sender = [], {}
@@ -956,7 +969,7 @@ def identifiers(text: str) -> list[str]:
 
 def compact(r: sqlite3.Row, chars: int) -> dict:
     d = {"message_id": r["message_id"], "thread_id": r["thread_id"], "date": fmt_et(r["ts"]), "from": r["sender"], "subject": r["subject"]}
-    if r["from_brad"]:
+    if r["from_owner"]:
         d["from_owner"] = True
     if chars:
         d["excerpt"] = re.sub(r"\s+", " ", r["body"] or "")[:chars]
@@ -972,12 +985,12 @@ def thread_bundle(rows: list[sqlite3.Row]) -> dict | None:
     for r in rows[-MSGS_PER_THREAD:]:
         labels = [l for l in json.loads(r["labels"] or "[]") if not l.startswith("Label_")]
         out.append({"message_id": r["message_id"], "date": fmt_et(r["ts"]), "from": r["sender"], "to": r["recipients"], "labels": labels,
-                    "from_owner": bool(r["from_brad"]), "body": (r["body"] or "")[:BODY_CHARS]})
+                    "from_owner": bool(r["from_owner"]), "body": (r["body"] or "")[:BODY_CHARS]})
     return {"thread_id": rows[-1]["thread_id"], "subject": rows[-1]["subject"] or rows[0]["subject"] or "(no subject)",
             "message_count": len(rows), "messages": out}
 
 
-# ---------------------------------------------------------------- ari
+# ---------------------------------------------------------------- judge
 def find_key(obj, key: str):
     if isinstance(obj, dict):
         if key in obj and isinstance(obj[key], str):
@@ -1883,7 +1896,7 @@ def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_id
                 for aid in set(pending) - before:
                     del pending[aid]
                 raise
-    except AriError as e:
+    except JudgeError as e:
         error = str(e)
     finally:
         for aid, th in pending.items():
@@ -1894,7 +1907,7 @@ def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_id
     return evaluated, notified, error
 
 
-class AriError(Exception):
+class JudgeError(Exception):
     pass
 
 
@@ -1909,11 +1922,11 @@ def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, ba
             decisions = decide(store, archive, gmail, batch, until, related=related)
             break
         except Exception as e:  # noqa: BLE001
-            last_error = f"ari: {e}"
+            last_error = f"the judge failed: {e}"
             log(last_error)
     if decisions is None:
-        raise AriError(last_error or "ari: no decisions")
-    log(f"ari evaluated {len(batch)} threads in {time.time() - t0:.1f}s -> {[(d['action'], d['issue_key']) for d in decisions]}")
+        raise JudgeError(last_error or "the judge returned no decisions")
+    log(f"judge evaluated {len(batch)} threads in {time.time() - t0:.1f}s -> {[(d['action'], d['issue_key']) for d in decisions]}")
     decided = {d["thread_id"] for d in decisions}
     for b in batch:  # a thread the owner added in Gmail that the judge left out still goes on the list
         if b.get("added_in_gmail") and b["thread_id"] not in decided:
@@ -2160,8 +2173,8 @@ def tidy_dossier(store: Store, archive: Archive, e: dict) -> dict:
         tids.add(m.group(1))
     mail = []
     for t in tids:
-        for r in archive.db.execute("select message_id, ts, sender, subject, body, from_brad from mail where thread_id=? and ts>=? order by ts", (t, ts0 - 86400)):
-            mail.append({"message_id": r["message_id"], "date": fmt_et(r["ts"]), "from": r["sender"], "from_owner": bool(r["from_brad"]),
+        for r in archive.db.execute("select message_id, ts, sender, subject, body, from_owner from mail where thread_id=? and ts>=? order by ts", (t, ts0 - 86400)):
+            mail.append({"message_id": r["message_id"], "date": fmt_et(r["ts"]), "from": r["sender"], "from_owner": bool(r["from_owner"]),
                          "subject": clip(r["subject"], 120), "body": clip(strip_links(r["body"] or ""), 400), "_ts": r["ts"]})
     d["mail"] = [{k: v for k, v in x.items() if k != "_ts"} for x in sorted(mail, key=lambda x: x["_ts"])[-TIDY_MAIL_PER_ENTRY:]]
     mem = tidy_memory(e)

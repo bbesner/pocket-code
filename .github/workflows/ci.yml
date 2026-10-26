@@ -36,6 +36,7 @@ jobs:
       - run: python3 inbox-watch/tests/test_label.py
       - run: python3 inbox-watch/tests/test_process.py
       - run: python3 inbox-watch/tests/test_delivery.py
+      - run: python3 inbox-watch/tests/test_archive.py
       - name: Browser and accessibility tests
         shell: bash
         run: |

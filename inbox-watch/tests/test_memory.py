@@ -66,24 +66,24 @@ def test_items_marked_after_and_future_hidden():
 
 def test_unrelated_memory_left_out():
     setup()
-    E.MEMORY_SEARCH = FakeSearch([hit("zoho", "session", "2026-10-21T15:00:00Z", "Audit the Zoho Books billing for the alarm accounts"),
-                                  hit("own", "memory", "2026-10-21T15:00:00Z", "Alex asked Ari about Oct billing"),
+    E.MEMORY_SEARCH = FakeSearch([hit("zoho", "session", "2026-10-21T15:00:00Z", "Audit the Zoho Books billing for the monitoring accounts"),
+                                  hit("own", "memory", "2026-10-21T15:00:00Z", "Alex asked the assistant about Oct billing"),
                                   hit("inv", "daily", "2026-10-21T15:00:00Z", "2026-10-21"),
-                                  hit("nikki", "distillation", "2026-10-21T15:00:00Z", "Nikki Sabatelli asked to change the billing card")])
-    E.MEMORY_SEARCH.body = lambda mid: {"inv": "Sent Vanderbilt the corrected INV-17693 on Tuesday."}.get(mid, "")
+                                  hit("riley", "distillation", "2026-10-21T15:00:00Z", "Riley Morgan asked to change the billing card")])
+    E.MEMORY_SEARCH.body = lambda mid: {"inv": "Sent Fabrikam the corrected INV-17693 on Tuesday."}.get(mid, "")
     try:
-        got = E.memory_items("Billing Information INV-17693 Nikki Sabatelli vanderbiltop", None, 3)
+        got = E.memory_items("Billing Information INV-17693 Riley Morgan fabrikamop", None, 3)
     finally:
         E.MEMORY_SEARCH = None
-    assert [m["ref"] for m in got] == ["mem:inv", "mem:nikki"], "one shared word is not enough; the owner's and assistant's names and dates count for nothing; an identifier is"
+    assert [m["ref"] for m in got] == ["mem:inv", "mem:riley"], "one shared word is not enough; the owner's and assistant's names and dates count for nothing; an identifier is"
     assert E.memory_relevant("Doorbell reset", "Reset the front doorbell camera", "")
-    assert not E.memory_relevant("Invoice", "Invoice for the alarm audit", ""), "a one-word query needs an identifier"
+    assert not E.memory_relevant("Invoice", "Invoice for the access audit", ""), "a one-word query needs an identifier"
 
 
 def test_query_names_the_sender_not_a_system():
     setup()
-    q = E.memory_query("RE: Order 7644799 missing camera", '"Dana Whitfield" <greg@harborviewhomes.com>', "about order 7644799")
-    assert "Dana Whitfield" in q and "harborviewhomes" in q and "7644799" in q and "@" not in q, q
+    q = E.memory_query("RE: Order 7644799 missing camera", '"Dana Whitfield" <greg@harborview.example>', "about order 7644799")
+    assert "Dana Whitfield" in q and "harborview" in q and "7644799" in q and "@" not in q, q
     q = E.memory_query("Your statement is ready", "Northwind Bank <no-reply@notify.northwindbank.com>")
     assert "Northwind Bank" not in q and "northwindbank" in q, q
 
@@ -138,7 +138,7 @@ def test_tidy_takes_a_memory_ref_as_proof():
         acted = []
 
         def inbox_open(self):
-            return [{"id": "e1", "kind": "alert", "title": "portal packing slip bug", "story": "", "at": "2026-10-21T13:00:00Z", "text": "Rob reports…"},
+            return [{"id": "e1", "kind": "alert", "title": "portal packing slip bug", "story": "", "at": "2026-10-21T13:00:00Z", "text": "Pat reports…"},
                     {"id": "e2", "kind": "alert", "title": "Vendor invoice", "story": "", "at": "2026-10-21T13:00:00Z", "text": "Due Friday"}]
 
         def act(self, eid, action, note):
@@ -166,12 +166,12 @@ def test_tidy_takes_a_memory_ref_as_proof():
 def test_stream_records_tool_calls():
     out = "\n".join(json.dumps(x) for x in [
         {"type": "system", "subtype": "init"},
-        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "mcp__memstem__memstem_search", "input": {"query": "Addison", "limit": 5}}]}},
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "mcp__memstem__memstem_search", "input": {"query": "Morgan", "limit": 5}}]}},
         {"type": "user", "message": {"content": [{"type": "tool_result", "content": "…"}]}},
         {"type": "assistant", "message": {"content": [{"type": "text", "text": "{}"}]}},
         {"type": "result", "result": "{}", "num_turns": 2, "total_cost_usd": 0.05}])
     data, tools = ClaudeJudge.parse_stream(out)
-    assert data["num_turns"] == 2 and tools == [{"name": "memstem_search", "input": {"query": "Addison", "limit": 5}}]
+    assert data["num_turns"] == 2 and tools == [{"name": "memstem_search", "input": {"query": "Morgan", "limit": 5}}]
     data, tools = ClaudeJudge.parse_stream(json.dumps({"type": "result", "result": "{}", "num_turns": 1}))
     assert data["num_turns"] == 1 and tools == [], "a single result event: no tool calls"
     store = setup()

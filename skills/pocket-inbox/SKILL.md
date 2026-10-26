@@ -98,7 +98,7 @@ user asks for that job to be set up.
 ```bash
 pocket-inbox add --title "Acme HOA needs dispatch attention before 9 a.m." --file - \
   --kind alert --priority high --story "Acme HOA service-call story" \
-  --url "/#/start/<id>" --gmail "https://mail.google.com/mail/u/0/#all/<thread>" --dedupe "pradera:<thread>"
+  --url "/#/start/<id>" --gmail "https://mail.google.com/mail/u/0/#all/<thread>" --dedupe "vendor:<thread>"
 pocket-inbox feedback          # the user's decisions the job has not applied yet
 pocket-inbox ack <id…>         # after applying them
 pocket-inbox seen              # a heartbeat when a run posts nothing

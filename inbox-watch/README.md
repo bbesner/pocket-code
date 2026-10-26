@@ -189,7 +189,7 @@ sent again until its story or threads change. `inbox-monitor tidy [--dry-run]` r
 (2026-10-20): it cleared 24, never one a human review had left open, and caught a "recovered" outage whose last notice was
 a failure; ~$0.20 for the first full pass, pennies after.
 
-**What a call costs, and what moved it (measured 2026-10-20 on Brad's mailbox, Sonnet 5.5).** A decision call carried
+**What a call costs, and what moved it (measured 2026-10-20 on one owner's mailbox, Sonnet 5.5).** A decision call carried
 ~45–65k tokens, almost all of it the same background every time (instructions, the open stories, the alerts already
 sent, related mail), not the new email. Claude Code also wrote every prompt to its one-hour cache at about twice the
 input price and never read it back, since no two bundles are alike. With the cache off (`prompt_cache = false`, now the
@@ -223,6 +223,7 @@ Simulated clock, separate ledger, nothing sent; the judge sees only mail that ex
 - `tests/test_memory.py` — memory in decisions and in the tidy pass, and the judge's tool calls in the ledger (`python3 tests/test_memory.py`).
 - `tests/test_schedule.py` — the schedule rules (`python3 tests/test_schedule.py`).
 - `tests/test_connector.py` — the connector mail source against a fake `claude` (`python3 tests/test_connector.py`).
+- `tests/test_archive.py` — the mail archive's column rename on an old archive (`python3 tests/test_archive.py`).
 - `tests/test_delivery.py` — the Pocket start link in the Inbox, Telegram and email (`python3 tests/test_delivery.py`).
 - `inbox_monitor/prompts/decide.md`, `lookahead.md` — the judge's instructions, with `{owner}`, `{assistant}`, `{owner_email}`, `{memory_note}` filled from the config.
 - `examples/config.example.toml` — every key.
