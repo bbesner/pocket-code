@@ -168,10 +168,11 @@ Pocket Code runs on macOS since 1.47. The differences from Linux:
 - File previews in Files need `brew install poppler imagemagick` (PDFs and images); HTML previews
   use Chrome or Chromium from `/Applications`.
 - The turn watchdog reads process activity with `ps` instead of `/proc`; behavior is the same.
-- A daemon restart does not reattach Codex session processes: without `/proc` Pocket cannot prove a
-  recorded app-server is the one it started, so it forgets the record and leaves the process alone.
-  Close Codex sessions (**Conversation options → Close conversation process**) before restarting
-  Pocket on a Mac; a `codex app-server` left over from before the restart has to be ended by hand.
+- A daemon restart reattaches Codex session processes as on Linux (since 1.81): with no `/proc`, Pocket
+  proves a recorded app-server is the one it started from its start time as `ps` reports it. Earlier
+  releases forgot the record at every restart and left the app-server holding the conversation; one
+  orphaned that way before you upgraded still has to be ended by hand (`pkill -f 'codex app-server'`
+  with Pocket stopped).
 - Tailscale Serve is the simplest HTTPS path on a Mac at home, since home routers rarely allow a
   public hostname.
 
