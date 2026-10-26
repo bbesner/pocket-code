@@ -523,7 +523,7 @@ let router = null;
 function buildRouter() {
   const c = routerConfig(), last = router?.last || null;
   router = new ModelRouter({ provider: c.enabled ? c.provider : 'off', key: c.key, url: process.env.POCKET_ROUTER_URL || null,
-    timeoutMs: Math.max(300, Number(process.env.POCKET_ROUTER_TIMEOUT_MS) || 1500), log });
+    timeoutMs: Math.max(300, Number(process.env.POCKET_ROUTER_TIMEOUT_MS) || 1500), context: process.env.POCKET_ROUTER_CONTEXT || '', log });
   router.last = last;
 }
 buildRouter();

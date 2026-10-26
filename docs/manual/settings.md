@@ -106,8 +106,10 @@ matching: [action approvals](../action-approvals.md#actions-that-run-without-ask
 
 It acts only in Assistant mode and only on requests typed from scratch; saved prompts keep their
 own model. If the decision model fails, is unsure or takes longer than `POCKET_ROUTER_TIMEOUT_MS`
-(default 1500 ms), the default model runs, and the note says so. In Assistant mode the other model
-control is **Try harder** under a Claude reply (see [Working in a conversation](conversation.md#try-harder-assistant-mode)).
+(default 1500 ms), the default model runs, and the note says so. The decision model is told only that the
+request was typed into an AI work assistant; to tell it what routine work looks like on this install, describe the
+business in `POCKET_ROUTER_CONTEXT` (a sentence or two, up to 1,000 characters, read at start). In Assistant mode
+the other model control is **Try harder** under a Claude reply (see [Working in a conversation](conversation.md#try-harder-assistant-mode)).
 
 **One sign-in** controls: **Team** (the part before `.cloudflareaccess.com`), **Audience tag**
 (from the Access application's Overview) and **Who may sign in this way** (comma-separated emails,
@@ -236,7 +238,7 @@ opens Settings. The rule for each pair:
 | **Update titles as conversations progress** | `POCKET_LIVE_TITLE_GAP_MS` | The variable sets the minimum time between checks |
 | **Claude models in the picker** | `POCKET_CLAUDE_MODELS` | Settings, once a list is saved |
 | **Actions that run without asking** | `POCKET_TRUSTED_ACTIONS` | Settings, once a list is saved (even an empty one) |
-| **Automatic model choice** | `POCKET_ROUTER`, `POCKET_ROUTER_KEY`, `POCKET_ROUTER_KEY_FILE`, `POCKET_ROUTER_TIMEOUT_MS` | Settings, for each part saved there; the timeout is set only by the variable |
+| **Automatic model choice** | `POCKET_ROUTER`, `POCKET_ROUTER_KEY`, `POCKET_ROUTER_KEY_FILE`, `POCKET_ROUTER_TIMEOUT_MS`, `POCKET_ROUTER_CONTEXT` | Settings, for each part saved there; the timeout and the business description are set only by the variables |
 | **One sign-in** | `POCKET_ACCESS_TEAM`, `POCKET_ACCESS_AUD`, `POCKET_ACCESS_EMAILS` | Settings, until **Use the server's values** |
 | **Push to this device** | `VAPID_PUBLIC`, `VAPID_PRIVATE`, `VAPID_CONTACT` | Push is off without the keys |
 | **Email due tasks and reminders to** | `POCKET_SMTP_URL`, `POCKET_SMTP_FROM`, `POCKET_PUBLIC_URL` | The field is disabled without `POCKET_SMTP_URL` |
