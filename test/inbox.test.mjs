@@ -293,6 +293,7 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   out=await cli(['feedback']);assert.match(out.stdout,/resolved  Circa invoice question .*note: Sent the W-9/);
   out=await cli(['ack',cid,quiet.body.entry.id]);assert.equal(out.stdout.trim(),'acked 2');
   out=await cli(['feedback']);assert.equal(out.stdout.trim(),'No new feedback.');
+  out=await cli(['help']);assert.match(out.stdout,/act <id> <open\|unread\|dismiss\|resolve\|not_useful\|restore>/,'1.81: the help lists act … unread, which the server accepts');
   out=await cli(['seen','--source','cli-test']);assert.equal(out.stdout.trim(),'ok');assert.ok((await call('/inbox')).body.sources['cli-test']);
   // 1.70: Inbox Watch settings. The watcher's heartbeat brings its profile; the owner (or an agent when asked) sets; the watcher reads.
   out=await cli(['watch']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/has not reported its settings yet/);
