@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.81.0] — Unreleased · build 168
+## [1.81.0] — 2026-10-26 · build 168
 
 Fixes for the problems found while writing the manual (#171–#187), the desktop New conversation plus (#137), and Assistant mode's Features section.
 
