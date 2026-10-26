@@ -611,6 +611,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    for(let i=0;i<40&&received.length===sent;i++)await pause(100);
    const {text,mode,model,effort}=received.at(-1);
    assert.deepEqual({text,mode,model,effort},{text:'Then check the returns shelf.',mode:'queue',model:'claude-opus-5-5[1m]',effort:'high'},'queued with the model and effort it was sent with');
+   // 1.81 (#183): Steer now is sent as auto, so a reply that cannot take a steer queues the message instead of refusing it
+   await page.waitForFunction(id=>!localStorage.getItem('pc-outbox-'+id)&&!sendsInFlight.has(id)&&document.querySelector('#box')?.value==='',{},run.id); // the first send has settled
+   await clickControl(page,'[data-mode="steer"]');
+   const steered=received.length;await page.type('#box','Also count the spare cables.');await clickControl(page,'#send');
+   for(let i=0;i<40&&received.length===steered;i++)await pause(100);
+   assert.equal(received.at(-1).text,'Also count the spare cables.');assert.equal(received.at(-1).mode,'auto','Steer now sends auto');
    await page.evaluate(id=>{localStorage.removeItem('pc-prefs-'+id);sendModes.delete(id);},run.id);
   });
   await check('A start link\'s folder wins in New conversation, listed or not, over the default workspace (1.81, #176)',async()=>{

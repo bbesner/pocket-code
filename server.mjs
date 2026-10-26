@@ -81,7 +81,12 @@ const deliveryReceipts = new DeliveryReceipts(path.join(DATA_DIR, 'delivery-rece
 const followups = new FollowupQueue(path.join(DATA_DIR, 'followup-queue.json'));
 const usage = new UsageStore(path.join(DATA_DIR, 'usage-state.json'));
 const ALLOW_FULL_ACCESS=process.env.POCKET_ALLOW_FULL_ACCESS!=='0';
-const DEFAULT_APPROVAL_MODE=approvalMode((process.env.POCKET_APPROVAL_MODE||'').trim()||undefined,'review',ALLOW_FULL_ACCESS);
+// 1.81: a default the install cannot use (not review or full, or full with Full access turned off) logs one line and
+// falls back to review; it used to throw here, and the daemon did not come up.
+const DEFAULT_APPROVAL_MODE=(raw=>{
+  try { return approvalMode(raw||undefined,'review',ALLOW_FULL_ACCESS); }
+  catch { console.warn(raw==='full'?'POCKET_APPROVAL_MODE=full conflicts with POCKET_ALLOW_FULL_ACCESS=0 (Full access is turned off); using review':`POCKET_APPROVAL_MODE=${raw} is not review or full (POCKET_ALLOW_FULL_ACCESS=${process.env.POCKET_ALLOW_FULL_ACCESS??'unset'}); using review`); return 'review'; }
+})((process.env.POCKET_APPROVAL_MODE||'').trim());
 const auditApproval=approvalAudit(path.join(DATA_DIR,'approval-decisions.jsonl'));
 const PORT = Number(process.env.PORT || 3610);
 const PASSWORD = process.env.POCKET_PASSWORD;
@@ -2463,6 +2468,8 @@ async function codexTurnFinished(id, turn, ev) {
 }
 async function runNextFollowup(id, cwd) {
   return followups.dispatch(id, async row => {
+    // 1.81: queued with Full access before it was turned off: it never starts, and the row says why (not "not confirmed").
+    if (row.approvalMode === 'full' && !ALLOW_FULL_ACCESS) throw Object.assign(new Error('Full access is turned off on this server; send it again with Review actions.'), { status: 403, notStarted: true });
     if (isCx(id)) return startCodexFromApi({id,threadId:codex.bareId(id),cwd,text:row.text,body:row});
     const file=await findSessionFile(id);
     const meta=file?await sessionMeta(file,id):null;

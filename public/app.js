@@ -3093,7 +3093,9 @@ async function sendMsg(text, {allowSecrets = false, matches = null} = {}) {
   document.getElementById('turn-failure')?.remove();
   // 1.81: a message sent while a reply runs carries the chips' model and effort as well as the permissions, so if it is
   // queued it runs as they were set (it used to run on the defaults, which also restarted a Claude process).
-  const opts = composerWorking ? (({model, effort}) => ({mode:sendModes.get(id)||defaultSendMode(),approvalMode:nextApprovalMode(),model,effort}))(turnOpts()) : turnOpts();
+  // Steer now goes as auto: the server steers, and when the reply cannot take it (finishing, or reattached without its
+  // input) queues it after the reply, where mode steer answered a 409 and left the message to be sent again.
+  const opts = composerWorking ? (({model, effort}) => ({mode:(sendModes.get(id)||defaultSendMode())==='queue'?'queue':'auto',approvalMode:nextApprovalMode(),model,effort}))(turnOpts()) : turnOpts();
   if (allowSecrets) opts.allowSecrets = true; // the owner chose Send as is; a retry of this message carries it too
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
     files: composerWorking ? [] : [...(tb?.attachments || [])], createdAt: Date.now() };

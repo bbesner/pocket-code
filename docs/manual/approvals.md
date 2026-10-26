@@ -199,10 +199,10 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Pocket does not start; the log says "Full access is disabled on this instance." | `POCKET_APPROVAL_MODE=full` together with `POCKET_ALLOW_FULL_ACCESS=0`. | Remove one of them. |
-| Pocket does not start; the log says "Choose Review actions or Full access." | `POCKET_APPROVAL_MODE` is set to something other than `review` or `full`. | Fix the value. |
+| New replies default to Review actions although `POCKET_APPROVAL_MODE=full`; the log says "POCKET_APPROVAL_MODE=full conflicts with POCKET_ALLOW_FULL_ACCESS=0" | Full access is turned off, so Pocket starts in Review actions. | Remove one of them and restart Pocket. |
+| The log says "POCKET_APPROVAL_MODE=… is not review or full" | `POCKET_APPROVAL_MODE` is set to something other than `review` or `full`; Pocket starts in Review actions. | Fix the value and restart Pocket. |
 | Full access is missing from the permissions sheet | `POCKET_ALLOW_FULL_ACCESS=0`, or the browser could not load the instance policy. | Check `.env`; reload. |
-| A queued message shows **Needs review** after Full access was turned off | It was queued with Full access, which the server now refuses. | Remove it and send it again with Review actions. |
+| A queued message shows **Needs review** with "Full access is turned off on this server; send it again with Review actions." | It was queued with Full access, which the server has since turned off. It did not start. | Remove it and send it again with Review actions. |
 | "This action is no longer waiting. Refresh the approvals." | The reply ended, was stopped, or the request was withdrawn. | Read the conversation; send a new message if needed. |
 | "This action was already answered differently." | Another device answered first. | Refresh; the first answer stands. |
 | "Could not record this decision. Nothing was approved; try again." | `approval-decisions.jsonl` could not be written (disk full, permissions). | Fix the data directory, then try again. |
