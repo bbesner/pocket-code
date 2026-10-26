@@ -3602,18 +3602,22 @@ async function documentSource(p) {
   return real;
 }
 const docError = (res, e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); };
+// 1.81 (#179): a file links only to a project that exists; a typo in --project used to link it to one nobody could open.
+const checkDocProject = p => { const id = typeof p === 'string' ? p.trim() : ''; if (id && !board.projects.some(x => x.id === id)) throw Object.assign(new Error(`There is no project with the id ${id}. pocket-board status --all lists the ids.`), { status: 400 }); };
 app.get('/api/documents', requireBoardAuth, docsOn, (req, res) => {
   const project = typeof req.query.project === 'string' ? req.query.project : '', q = typeof req.query.q === 'string' ? req.query.q : '';
   res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities() });
 });
 app.post('/api/documents', requireAuth, docsOn, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
   try {
+    checkDocProject(String(req.headers['x-project'] || ''));
     const d = docs.addFromBuffer(String(req.headers['x-filename'] || ''), req.body, { addedBy: 'ui', project: String(req.headers['x-project'] || ''), session: String(req.headers['x-session'] || '') || null });
     log(`document added by upload ${d.id} ${d.file} (${d.size} bytes)`); res.json(d);
   } catch (e) { docError(res, e); }
 });
 app.post('/api/documents/add', requireBoardAuth, docsOn, async (req, res) => {
   try {
+    checkDocProject(req.body?.project);
     const real = await documentSource(req.body?.path);
     const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: req.body?.session || null, visibility: VISIBILITY_OK(req.body?.visibility), addedBy: req.boardActor === 'cli' ? 'cli' : 'ui' });
     log(`document added ${d.id} ${d.file} by ${req.boardActor || 'ui'}`); res.json(d);
@@ -3627,6 +3631,7 @@ app.post('/api/documents/keep', requireAuth, docsOn, async (req, res) => {
   try {
     const { results } = await sessionResults(id);
     if (!results.some(r => r.kind === 'file' && r.target === requested)) return res.status(403).json({ error: 'This file is not a result referenced by the conversation.' });
+    checkDocProject(req.body?.project);
     const real = await documentSource(requested);
     const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: id, addedBy: 'session' });
     log(`document kept from session ${id}: ${d.id} ${d.file}`); res.json(d);
@@ -3668,6 +3673,7 @@ app.post('/api/documents/:id', requireBoardAuth, docsOn, (req, res) => {
   const action = req.body?.action;
   if (action === 'delete') return res.status(403).json({ error: "Deleting is the owner's: Delete forever in the library's Trash." });
   try {
+    if (!action && req.body && 'project' in req.body) checkDocProject(req.body.project);
     const r = action === 'trash' ? docs.trash(req.params.id) : action === 'restore' ? docs.restore(req.params.id) : docs.update(req.params.id, req.body || {}, { actor: req.boardActor || 'ui' });
     log(`document ${action || 'updated'} ${req.params.id} by ${req.boardActor || 'ui'}`); res.json(r);
   } catch (e) { docError(res, e); }

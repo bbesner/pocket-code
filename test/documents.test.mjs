@@ -91,6 +91,7 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
   const docsDir=path.join(dir,'docs');fs.mkdirSync(docsDir,{recursive:true});fs.mkdirSync(path.join(dir,'sessions','test-workspace'),{recursive:true});fs.mkdirSync(path.join(dir,'data'),{recursive:true});
   fs.writeFileSync(path.join(docsDir,'dashboard.html'),'<!doctype html><title>Ops dashboard</title><script>document.title="ran"</script><p>hi</p>');
+  fs.writeFileSync(path.join(dir,'data','projects.json'),JSON.stringify({version:1,projects:[{id:'warehouse-stock-report',name:'Warehouse stock report'}]})); // 1.81: a file links only to a project that exists
   let child,logs='';
   const start=async()=>{
    child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),POCKET_SKILLS:'0',PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_DOCUMENTS_DIR:docsDir,POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
@@ -186,7 +187,18 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   const memoId=/\n([0-9a-f]{12}) /.exec(out.stdout)[1];
   out=await cli(['share',memoId,'--expires','7d']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/^Share URL: https:\/\/pocket\.example\.test\/share\/[A-Za-z0-9_-]{40,}  \(expires /);
   const url=/\/share\/([A-Za-z0-9_-]+)/.exec(out.stdout)[1];assert.equal((await raw('/share/'+url)).status,200);
-  out=await cli(['set',memoId,'--visibility','private']);assert.equal(out.code,0,out.stderr);assert.equal((await raw('/share/'+url)).status,404);
+  // 1.81 (#179): show and set print the link already made; share on a shared file says the old link stopped working; a project
+  // id that names no project is refused; --expires takes any number of days.
+  out=await cli(['show',memoId]);assert.match(out.stdout,new RegExp(`Share URL: https://pocket\\.example\\.test/share/${url}  expires `));
+  out=await cli(['set',memoId,'--title','Memo to staff']);assert.match(out.stdout,new RegExp(`Share URL: https://pocket\\.example\\.test/share/${url}`));
+  out=await cli(['share',memoId,'--expires','45d']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/\nThe previous link no longer works\.$/m);
+  const url2=/\/share\/([A-Za-z0-9_-]+)/.exec(out.stdout)[1];assert.notEqual(url2,url);assert.equal((await raw('/share/'+url)).status,404);
+  assert.match((await cli(['show',memoId])).stdout,new RegExp(`/share/${url2}  expires `));
+  out=await cli(['share',memoId,'--expires','0d']);assert.equal(out.code,1);assert.match(out.stderr,/number of days, like 7d or 30d, or none/);
+  out=await cli(['set',memoId,'--project','warehouse-stok-report']);assert.equal(out.code,1);assert.match(out.stderr,/no project with the id warehouse-stok-report/);
+  out=await cli(['add','memo.txt','--project','nope']);assert.equal(out.code,1);assert.match(out.stderr,/no project with the id nope/);
+  assert.equal((await cli(['set',memoId,'--project',''])).code,0,'clearing the project is always allowed');
+  out=await cli(['set',memoId,'--visibility','private']);assert.equal(out.code,0,out.stderr);assert.equal((await raw('/share/'+url2)).status,404);
   out=await cli(['trash',memoId]);assert.match(out.stdout,/Moved to the trash/);out=await cli(['restore',memoId]);assert.match(out.stdout,/Restored: Memo to staff/);
   assert.equal((await call('/api/settings',{documents:false})).body.documents,false);
   out=await cli(['list']);assert.equal(out.code,3);assert.equal((await raw('/files/old-public.html')).status,404,'off again: nothing public');

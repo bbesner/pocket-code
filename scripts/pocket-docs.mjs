@@ -6,7 +6,8 @@
 //   pocket-docs add <path> [--title "…"] [--project <id>] [--session <id>] [--visibility private|link|public]
 //   pocket-docs list [--project <id>] [--q text] [--json]
 //   pocket-docs show <id> [--json]
-//   pocket-docs share <id> [--expires 7d|30d|none]      make it link-visible (or a fresh link) and print the URL
+//   pocket-docs share <id> [--expires <n>d|none]        make it link-visible and print the URL; on a file already shared
+//                                                        by link it makes a fresh link, and the old one stops working
 //   pocket-docs set <id> [--title "…"] [--project <id>] [--visibility private|link|public]
 //   pocket-docs trash <id> | restore <id>
 //   pocket-docs import <dashboard-files-meta.json>       one-time import of Mission Control's documents metadata
@@ -57,11 +58,14 @@ function card(d, token) {
   const out = [line(d)];
   if (d.session) out.push(`  Session: ${d.session}`);
   if (d.visibility === 'public') out.push(`  Public URL: ${abs(d.url)}`);
-  if (d.visibility === 'link') out.push(`  Share URL: ${token ? abs('/share/' + token) : '(set when the link was made; run pocket-docs share ' + d.id + ' for a fresh one)'}${d.share?.expiresAt ? `  expires ${when(d.share.expiresAt)}` : ''}`);
+  // 1.81 (#179): the link already made, from the record; the hint sent agents to `share`, which replaces it and breaks the
+  // link the user already gave out. A record without one (none is known) says so before anyone runs share.
+  const link = token ? '/share/' + token : d.share?.url;
+  if (d.visibility === 'link') out.push(`  Share URL: ${link ? abs(link) : `(not recorded; pocket-docs share ${d.id} makes a new link and any old one stops working)`}${d.share?.expiresAt ? `  expires ${when(d.share.expiresAt)}` : ''}`);
   return out.join('\n');
 }
 const out = (data, text) => console.log(opts.json ? JSON.stringify(data, null, 1) : text);
-const expiresFrom = v => !v || v === 'none' ? null : (() => { const m = /^(\d+)d$/.exec(v); if (!m) die('--expires takes 7d, 30d or none'); return new Date(Date.now() + Number(m[1]) * 86400000).toISOString(); })();
+const expiresFrom = v => !v || v === 'none' ? null : (() => { const m = /^([1-9]\d{0,3})d$/.exec(v); if (!m) die('--expires takes a number of days, like 7d or 30d, or none'); return new Date(Date.now() + Number(m[1]) * 86400000).toISOString(); })();
 
 switch (cmd) {
   case 'add': {
@@ -79,14 +83,14 @@ switch (cmd) {
     if (r.trash?.length) console.log(`(${r.trash.length} in the trash)`);
     break;
   }
-  case 'show': { if (!rest[0]) die('show needs a file id'); const r = await call('/api/documents?all=1'); const d = r.documents.find(x => x.id === rest[0]) || r.trash?.find(x => x.id === rest[0]); if (!d) die('No file with id ' + rest[0], 5); out(d, card(d)); break; }
+  case 'show': { if (!rest[0]) die('show needs a file id'); const r = await call('/api/documents'); const d = r.documents.find(x => x.id === rest[0]) || r.trash?.find(x => x.id === rest[0]); if (!d) die('No file with id ' + rest[0], 5); out(d, card(d)); break; }
   case 'share': {
     if (!rest[0]) die('share needs a file id');
-    const r = await call('/api/documents?all=1'), d = r.documents.find(x => x.id === rest[0]); if (!d) die('No file with id ' + rest[0], 5);
+    const r = await call('/api/documents'), d = r.documents.find(x => x.id === rest[0]); if (!d) die('No file with id ' + rest[0], 5);
     const body = d.visibility === 'link' ? { action: 'reshare' } : { visibility: 'link' };
     const e = expiresFrom(opts.expires); if (opts.expires) body.expiresAt = e;
     const u = await call('/api/documents/' + encodeURIComponent(d.id), body);
-    out(u, `Share URL: ${abs('/share/' + u.token)}${u.share?.expiresAt ? `  (expires ${when(u.share.expiresAt)})` : ''}`); break;
+    out(u, `Share URL: ${abs('/share/' + u.token)}${u.share?.expiresAt ? `  (expires ${when(u.share.expiresAt)})` : ''}${body.action === 'reshare' ? '\nThe previous link no longer works.' : ''}`); break;
   }
   case 'set': {
     if (!rest[0]) die('set needs a file id');
