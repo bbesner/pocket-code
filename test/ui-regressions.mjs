@@ -621,7 +621,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   });
   await check('A start link\'s folder wins in New conversation, listed or not, over the default workspace (1.81, #176)',async()=>{
    const workspace=()=>page.evaluate(()=>({selected:document.querySelector('#plist .row.sel')?.dataset.p||null,custom:document.querySelector('#cpath').value}));
-   const open=async link=>{await page.goto(base+'/#/start/'+link);await page.waitForFunction(()=>location.hash==='#/new'&&/Reach Jairon/.test(document.querySelector('#first')?.value||'')&&document.querySelector('#plist .row'));await pause(150);};
+   const open=async link=>{await page.goto(base+'/#/start/'+link);await page.waitForFunction(()=>location.hash==='#/new'&&/Reach Jordan/.test(document.querySelector('#first')?.value||'')&&document.querySelector('#plist .row'));await pause(150);};
    setMode({defaultCwd:'/workspaces/products',startDirectory:'/workspaces/warehouse'});
    await open('0123456789ad');
    assert.deepEqual(await workspace(),{selected:'/workspaces/warehouse',custom:''},'a listed folder is selected, not the default');
