@@ -919,6 +919,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   const paintRouter = () => {
     const r = srv?.router, cm = srv?.claudeModels; if (!r) return;
     const on = sh.querySelector('#s-router-on'), prov = sh.querySelector('#s-router-provider'), key = sh.querySelector('#s-router-key');
+    // 1.81 (#175): Assistant mode shows only the switch, so its lead says what it does without levels or models.
+    sh.querySelector('#s-router-lead').textContent = assistantMode() ? 'A request typed from scratch gets as much effort as it needs: quick questions answer fast, bigger jobs get a stronger model. Saved prompts keep their own.' : 'In Assistant mode, a request typed from scratch goes to a small decision model that picks the lightest of four levels that will do it well. Each level runs the model and effort below. Saved prompts keep their own.';
     on.disabled = false; on.setAttribute('aria-pressed', String(r.enabled)); on.querySelector('.dot').classList.toggle('on', r.enabled);
     sh.querySelector('#s-router-state').textContent = !r.enabled ? 'Off. Typed requests run on the default model' : r.active ? 'On in Assistant mode' : 'On, but it needs a key to work';
     prov.disabled = false; prov.value = r.provider;

@@ -2506,9 +2506,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
       await clickControl(page,'#s-inbox-watch');await page.waitForSelector('.watch-sheet #w-save');await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
       await reopen();
       await page.$eval('#s-router',e=>e.scrollIntoView({block:'start'}));
-      assert.equal(await page.$$eval('#s-router-levels .router-level',e=>e.length),4,'the four levels');
+      for(const sel of ['#s-router-provider','#s-router-key','#s-router-levels','#s-router-note'])assert.equal(await page.$eval(sel,e=>e.getClientRects().length),0,sel+': no model, level or key in Assistant mode');
+      assert.doesNotMatch(await page.$eval('#s-router',e=>e.innerText),/Opus|Sonnet|Haiku|GPT|Jev|OpenRouter/,'no model name reaches a seat');
       await clickControl(page,'#s-router-on');await page.waitForFunction(()=>/Automatic model choice is (on|off)/.test(document.getElementById('toast')?.textContent||''));
-      assert.equal(await page.$eval('#s-router-provider',e=>e.disabled),false,'the decision model can be changed');
       await scan('assistant-features-router-390');
       Object.assign(settings,{projects:false,documents:false,tasks:false,inbox:false,vault:false});
      }

@@ -82,7 +82,7 @@ Everything here applies to the whole install.
 | **Plan usage** | The 5-hour and weekly limits and extra-usage status, for Claude Code and for Codex when it is installed. Updates only when a reply runs |
 | **Claude models in the picker** | Tap a model to offer it, or stop offering it, in the model menu on every device. At least one stays on. A model blocked by this computer's Claude Code managed settings is marked and cannot be turned on. **Use the server's list** forgets the choice |
 | **Actions that run without asking** | Read-only actions Claude runs without an approval card in **Review actions**. Type a rule (`Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`) and press **Add**; **Remove** takes one off. Edit and Write always ask; Codex is not covered. **Use the server's list** goes back to `POCKET_TRUSTED_ACTIONS` |
-| **Automatic model choice** | In Assistant mode, sends a request typed from scratch to a small decision model that picks one of four levels; see below. Assistant mode shows this block under **Features** |
+| **Automatic model choice** | In Assistant mode, sends a request typed from scratch to a small decision model that picks one of four levels; see below. Assistant mode shows only its switch, under **Features** |
 | **One sign-in** | Lets a Cloudflare Access sign-in replace Pocket's password; see below |
 
 **Defaults.** The picker offers every Claude model, or the list in `POCKET_CLAUDE_MODELS`. No
@@ -153,7 +153,7 @@ way round.
 | Control | What it does |
 |---|---|
 | **Projects**, **Files**, **Tasks**, **Inbox Watch**, **Vault** | The same switches as in Developer mode; see [Projects, files, tasks & vault](#projects-files-tasks--vault). While Inbox Watch is on, **Inbox Watch schedule** appears under its switch and opens the [schedule sheet](inbox-watch.md#change-the-schedule-rules-and-models) |
-| **Automatic model choice** | The same block as in Developer mode: **Choose the model for me**, **Decision model**, **Key** and the four levels; see [Agents & instance](#agents--instance) |
+| **Automatic model choice** | The **Choose the model for me** switch only. The decision model, key and four levels stay in Developer mode's [Agents & instance](#agents--instance), so no model name is shown in Assistant mode |
 
 Turning a feature on or off closes Settings, because the rail and the home screen redraw; open
 **Features** again for the next one. The other Vault controls (**Agent access**, **Protection**,

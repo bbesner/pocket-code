@@ -1687,6 +1687,12 @@ html.assistant .run-confirmation[data-state=idle],
 html.assistant .run-confirmation[data-state=unknown] { display: none !important; }
 html.assistant #composer-actions:empty { display: none; }
 html.assistant .settings-assistant-hidden { display: none !important; }
+/* 1.81 (#175): Features shows Automatic model choice as a switch only; models, levels and the key stay in Developer mode (no model name reaches a seat). */
+html.assistant #s-router > .voice-field,
+html.assistant #s-router-key-form,
+html.assistant #s-router-levels,
+html.assistant #s-router-note,
+html.assistant #s-router .vault-set-actions { display: none !important; }
 html.assistant .assistant-home .recent-starts { display: none; } /* the home's own Recent lists conversations */
 
 /* Home: the first-run note, Waiting for you, Recent, then the way to Files, Tasks, Projects and the Vault. */
