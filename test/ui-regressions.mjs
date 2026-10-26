@@ -2571,6 +2571,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     // 1.81: when Pocket stands down for a watcher installed separately, the status line says so (it used to be blank)
     assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:false,state:'external'})),'A watcher installed separately is reporting here; Pocket is not running its own.');
     assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:false,state:'off'})),'');
+    assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:true,state:'running',mailbox:'sam@example.com',accountChange:{from:'alex@example.com',to:'sam@example.com'}})),'Gmail is now connected as sam@example.com (it was alex@example.com), so Inbox Watch now watches sam@example.com. Mail already kept from the old account stays in its memory.');
+    assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:true,state:'running',mailbox:'sam@example.com',accountChange:null})),'');
     // Settings: the switch under the libraries, the push kind under notifications
     await page.setViewport({width:1440,height:900});await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox');
     await page.waitForFunction(()=>document.querySelector('#s-inbox')?.getAttribute('aria-pressed')==='true');assert.match(await page.$eval('#s-inbox-state',e=>e.textContent),/^On: alerts, digests and look-aheads/);

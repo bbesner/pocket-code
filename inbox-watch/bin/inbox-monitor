@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
-# inbox-monitor: run the engine with this checkout on the path. Usage: inbox-monitor --config <toml> [run|backfill|replay|notify|check|gmail-auth]
+# inbox-monitor: run the engine with this checkout on the path.
+# Usage: inbox-monitor --config <toml> [tick|notify|backfill|replay|remember|check|settings|tidy|usage|gmail-auth]
+#   With no subcommand it checks mail now, whatever the schedule. Needs Python 3.11 or newer: the first python3 on PATH that
+#   is (then python3.13, 3.12, 3.11), or the one named in INBOX_MONITOR_PYTHON.
 HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-exec /usr/bin/python3 -c "import sys; sys.path.insert(0, '$HERE'); from inbox_monitor.engine import main; sys.exit(main())" "$@"
+ok() { "$1" -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; }  # 1.81: not a fixed /usr/bin/python3
+PY=""
+if [ -n "${INBOX_MONITOR_PYTHON:-}" ]; then
+  ok "$INBOX_MONITOR_PYTHON" && PY="$INBOX_MONITOR_PYTHON" || { echo "inbox-monitor: INBOX_MONITOR_PYTHON ($INBOX_MONITOR_PYTHON) is not Python 3.11 or newer" >&2; exit 127; }
+else
+  for c in python3 python3.13 python3.12 python3.11; do
+    if command -v "$c" >/dev/null 2>&1 && ok "$c"; then PY="$(command -v "$c")"; break; fi
+  done
+  [ -n "$PY" ] || { echo "inbox-monitor: needs Python 3.11 or newer on PATH (or set INBOX_MONITOR_PYTHON)" >&2; exit 127; }
+fi
+exec "$PY" -c "import sys; sys.path.insert(0, '$HERE'); from inbox_monitor.engine import main; sys.exit(main())" "$@"

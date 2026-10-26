@@ -61,6 +61,11 @@ While this happens the Inbox shows a status line: *Setting up Inbox Watch for al
 | Gmail label | on, named *Pocket Inbox* | Schedule sheet, **Your list in Gmail** |
 | Briefed conversations | start in your home directory, with Claude Code (or Codex when only Codex is signed in) | `config.toml`, `[pocket]` |
 
+Each time Pocket starts, it asks the connector whose mailbox it reads. If you have reconnected Gmail to a different
+account, Pocket writes the new address into `[owner]` (the watcher tells your own mail from other mail by it), drops a
+fallback agent that is still on the old account, and the Inbox says *Gmail is now connected as … (it was …)* for a few
+days. The mail already kept from the old account stays in the watcher's memory. Only a config Pocket wrote is changed.
+
 The settings in Pocket win over the file. Edit `config.toml` only for what Pocket has no setting for, such as the
 optional [memory integration](#memory-integration-optional) or emailing alerts (`email = true` under `[[delivery]]`).
 
@@ -69,7 +74,8 @@ optional [memory integration](#memory-integration-optional) or emailing alerts (
 To watch another mailbox, read Gmail through Google's API (an OAuth client or a Workspace service account), use a
 different judge (OpenClaw, the Claude API) or deliver to Telegram or email as well, install the watcher by hand. The
 steps, every config key and the systemd timer are in [`inbox-watch/README.md`](../../inbox-watch/README.md) and
-`inbox-watch/examples/config.example.toml`. Turn on Inbox Watch in Pocket so its Inbox receives what that watcher sends.
+`inbox-watch/examples/config.example.toml`. The `inbox-watch/bin/inbox-monitor` command uses the first `python3` on `PATH` that is 3.11 or newer, or the one named
+in `INBOX_MONITOR_PYTHON`. Turn on Inbox Watch in Pocket so its Inbox receives what that watcher sends.
 
 Pocket never manages a mailbox someone else set up. If a watcher is already reporting to this Pocket (it sends its
 profile with `pocket-inbox seen`, as every `inbox-monitor` does) and Pocket has no config of its own, Pocket leaves the

@@ -21,7 +21,7 @@ for i, c in enumerate(calls):
     emit({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": f"u{i}", "name": c["tool"], "input": c["input"]}]}})
     if c["tool"].endswith("search_threads"):
         sent = "in:sent" in c["input"]["query"]
-        res = {"threads": [{"id": "t1", "messageCount": 1, "messages": [{"id": "m1", "sender": "Alex Rivera <alex@example.com>" if sent else "Pat <pat@vendor.example>", "labelIds": ["SENT"] if sent else ["INBOX"], "date": "2026-10-21T12:00:00Z"}]}]}
+        res = {"threads": [{"id": "t1", "messageCount": 1, "messages": [{"id": "m1", "sender": box.get("owner", "Alex Rivera <alex@example.com>") if sent else "Pat <pat@vendor.example>", "labelIds": ["SENT"] if sent else ["INBOX"], "date": "2026-10-21T12:00:00Z"}]}]}
     else:
         res = {"id": "t1", "messages": [{"id": "m1", "threadId": "t1", "internalDate": "1792584000000", "labelIds": ["INBOX"], "sender": "Pat <pat@vendor.example>", "subject": "Invoice", "plaintextBody": "Attached."}]}
     emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": f"u{i}", "content": [{"type": "text", "text": json.dumps(res)}]}]}})
@@ -29,11 +29,11 @@ emit({"type": "result", "subtype": "success", "result": "DONE", "total_cost_usd"
 `;
 
 const FAKE_CODEX = `#!/usr/bin/env python3
-import json, sys
-if __import__("os").environ.get("FAKE_CODEX_NO_GMAIL"):
+import json, os, sys
+if os.environ.get("FAKE_CODEX_NO_GMAIL"):
     print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "No Gmail tool."}})); sys.exit()
 print(json.dumps({"type": "item.completed", "item": {"type": "mcp_tool_call", "tool": "gmail.get_profile", "arguments": {}, "status": "completed",
-    "result": {"structured_content": {"email": "alex@example.com", "name": "Alex Rivera"}}}}))
+    "result": {"structured_content": {"email": json.load(open(os.environ["FAKE_BOX"])).get("codex_owner", "alex@example.com"), "name": "Alex Rivera"}}}}))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 1}}))
 `;
 
@@ -162,4 +162,66 @@ test('neither connected: says to connect Gmail', async () => {
   try { await r.runner.step(); } finally { delete process.env.FAKE_CODEX_NO_GMAIL; }
   assert.equal(r.runner.status().state, 'needs-connector');
   assert.match(r.runner.status().message, /Claude Code or Codex/);
+});
+
+// 1.81: a reconnected Gmail account is noticed at the next start of Pocket
+const restart = (r, box) => { fs.writeFileSync(r.boxFile, JSON.stringify(box)); r.runner.accountChecked = false; r.runner.accountRetryAt = 0; r.runner.checked = false; };
+const cfgOf = r => fs.readFileSync(path.join(r.data, 'inbox-watch-data', 'config.toml'), 'utf8');
+
+test('1.81: the same account at the next start changes nothing', async () => {
+  const r = rig();
+  await r.runner.step(); await r.runner.step();
+  const before = cfgOf(r);
+  restart(r, {});
+  await r.runner.step();
+  assert.equal(r.runner.accountChecked, true);
+  assert.equal(cfgOf(r), before);
+  assert.equal(r.runner.status().accountChange, null);
+});
+
+test('1.81: Gmail reconnected to another account updates the owner and says so', async () => {
+  const r = rig();
+  await r.runner.step(); await r.runner.step();
+  restart(r, { owner: 'Sam Lee <Sam@Example.com>' });
+  await r.runner.step();
+  const cfg = cfgOf(r);
+  assert.match(cfg, /^\[owner\]\nname = "Sam Lee"\nemail = "sam@example.com"\ntimezone = /m);
+  assert.match(cfg, /^# Inbox Watch for sam@example.com, written by Pocket Code/);
+  const s = r.runner.status();
+  assert.equal(s.mailbox, 'sam@example.com');
+  assert.deepEqual([s.accountChange.from, s.accountChange.to], ['alex@example.com', 'sam@example.com']);
+  assert.ok(r.logs.some(l => /Gmail now sam@example.com \(was alex@example.com\)/.test(l)));
+  r.runner.now = () => Date.now() + 4 * 86400_000; // the notice fades after a few days
+  assert.equal(r.runner.status().accountChange, null);
+});
+
+test('1.81: a fallback agent still on the old account is dropped; one on the new account stays', async () => {
+  const r = rig({ codex: true });
+  await r.runner.step(); await r.runner.step();
+  assert.match(cfgOf(r), /fallback_agent = "codex"/);
+  restart(r, { owner: 'Sam Lee <sam@example.com>', codex_owner: 'alex@example.com' });
+  await r.runner.step();
+  const cfg = cfgOf(r);
+  assert.doesNotMatch(cfg, /fallback_agent|\[mail\.fallback\]/);
+  assert.match(cfg, /\[mail\]\nprovider = .*\nagent = "claude"\nbin = .*\nmodel = "haiku"\n\n\[judge\]/);
+  assert.equal(r.runner.status().fallback, null);
+  const k = rig({ codex: true });
+  await k.runner.step(); await k.runner.step();
+  restart(k, { owner: 'Sam Lee <sam@example.com>', codex_owner: 'sam@example.com' });
+  await k.runner.step();
+  assert.match(cfgOf(k), /email = "sam@example.com"[\s\S]*fallback_agent = "codex"/);
+});
+
+test('1.81: a connector that does not answer at the start is asked again later, and a hand-written config is left alone', async () => {
+  const r = rig();
+  await r.runner.step(); await r.runner.step();
+  restart(r, { no_connector: true });
+  await r.runner.step();
+  assert.equal(r.runner.accountChecked, false);
+  assert.ok(r.runner.accountRetryAt > Date.now());
+  const file = path.join(r.data, 'inbox-watch-data', 'config.toml'), before = cfgOf(r).replace(/^# Inbox Watch for .*\n/m, '# my own\n');
+  fs.writeFileSync(file, before);
+  restart(r, { owner: 'Sam Lee <sam@example.com>' });
+  await r.runner.step();
+  assert.equal(cfgOf(r), before);
 });

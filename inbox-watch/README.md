@@ -123,6 +123,9 @@ ExecStart=/home/me/pocket-code/inbox-watch/bin/inbox-monitor --config /home/me/m
 
 Running it without `tick` checks now, whatever the schedule says (a manual run).
 
+`bin/inbox-monitor` runs the first `python3` on `PATH` that is 3.11 or newer (then `python3.13`, `3.12`, `3.11`); set
+`INBOX_MONITOR_PYTHON` to name the interpreter yourself, for example a Homebrew or pyenv one.
+
 ## Schedule, models and cost
 
 When it checks and which models judge are settings: `[schedule]` and `[judge]` in the config are the defaults, and the

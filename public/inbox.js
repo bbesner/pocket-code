@@ -136,6 +136,7 @@ function inboxRunnerLine(r){
  if(r.state==='setting-up')return `Setting up Inbox Watch${box}. ${esc(r.message||'')}`;
  if(r.state==='needs-connector')return 'Inbox Watch can’t read your mail yet. Connect Gmail in Settings → Connectors, using the account Claude Code is signed in with. It starts by itself once Gmail is connected.';
  if(r.state==='error')return `Inbox Watch couldn’t check your mail${box}: ${esc(r.message||'unknown error')}. It tries again every minute.`;
+ if(r.accountChange)return `Gmail is now connected as ${esc(r.accountChange.to)} (it was ${esc(r.accountChange.from)}), so Inbox Watch now watches ${esc(r.accountChange.to)}. Mail already kept from the old account stays in its memory.`; // 1.81: the connector was reconnected to another account
  return '';
 }
 function inboxListHTML(){
