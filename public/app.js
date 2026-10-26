@@ -623,6 +623,12 @@ function modeControlsHTML() {
   <p class="chat-text-help">${help}</p>
  </section>`;
 }
+// 1.81 (#175): Settings → Features in Assistant mode. A locked Pocket cannot change them, so it gets a line saying what is on.
+function featuresLockedNote(f) {
+  const all = [['Projects', f.projects], ['Files', f.documents], ['Tasks', f.tasks], ['Inbox Watch', f.inbox], ['Vault', f.vault]];
+  const say = (names, state) => !names.length ? '' : (names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names.at(-1) + ' are ' : names[0] + ' is ') + (names.length === all.length ? 'all ' : '') + state + '.';
+  return [say(all.filter(x => x[1]).map(x => x[0]), 'on'), say(all.filter(x => !x[1]).map(x => x[0]), 'off'), 'To change them, ask the person who runs this install.'].filter(Boolean).join(' ');
+}
 async function settingsSheet({about = false, category = '', scrollTop = 0} = {}) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet settings-sheet';
@@ -703,6 +709,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings"><label class="voice-field">Model for titles and summaries<select id="s-title-model" disabled>
       <option value="auto">Automatic: Claude first, then Codex</option><option value="claude">Claude · Haiku</option><option value="codex">Codex · GPT-6-Luna</option></select></label>
       <p class="title-note" id="s-title-note" role="status"></p></div>
+    ${assistantMode() ? `<div class="title-settings model-offer" id="s-features-lead"><p class="title-note" id="s-features-note" role="status">${featuresLocked() ? '' : 'Switch on what you want to use. Each one adds its own place beside your conversations.'}</p></div>` : ''}
     <h2 class="settings-group">Tools</h2>
     <button class="opt" id="s-projects" disabled aria-pressed="false"><span class="dot"></span><span>Projects<span class="sub" id="s-projects-state">Loading the projects setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Open projects<select id="s-projects-open"><option value="tab">As a tab, like a conversation</option><option value="beside">Beside the conversation (from a pane: a new pane to its left)</option><option value="window">In a new browser window</option></select></label></div>
@@ -746,6 +753,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       </div>
     </details>`;
   organizeSettings(sh, {category: about ? 'help' : category, scrollTop});
+  const paintFeaturesNote = () => { const n = sh.querySelector('#s-features-note'); if (n && featuresLocked()) n.textContent = featuresLockedNote(srv || window.pocketFeatures); };
+  paintFeaturesNote();
   sh.querySelector('#s-vault-more')?.after(sh.querySelector('#s-secrets')); // 1.42: under the Vault and its settings, shown whether or not the Vault is on
   sh.querySelector('#s-vault')?.after(sh.querySelector('#s-vault-restore-wrap')); // 1.44: Restore key sits right under the Vault switch
   mountSheet(scrim, sh);
@@ -1249,7 +1258,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintNotifySettings(); paintModelOffer(); paintTrusted(); paintRouter(); paintAccess(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintInboxSetting(); paintVaultSetting(); paintSecretsSetting();
+      paintTitles(); paintNotifySettings(); paintModelOffer(); paintTrusted(); paintRouter(); paintAccess(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintInboxSetting(); paintVaultSetting(); paintSecretsSetting(); paintFeaturesNote();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Conversation names follow Claude Code's titles, and renames here show there too";

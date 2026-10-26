@@ -96,15 +96,16 @@ Nothing is deleted when you switch; the same conversations are underneath.
 
 An administrator can set the starting mode for an install with `POCKET_ASSISTANT_MODE=on` in
 `.env`, or keep Assistant mode on with `POCKET_ASSISTANT_MODE=locked`. When it is locked, both
-Mode options show disabled with the reason, and Settings cannot switch back.
+Mode options show disabled with the reason, and Settings cannot switch back. The install's features
+then cannot be changed from Settings either: **Settings → Features** says what is on and to ask the person who runs the install.
 
 ## Turn on the optional features
 
 Projects, Files, Tasks, Inbox Watch and the Vault are off on a new install. Each is switched on
 for the whole install in **Settings → Projects, files, tasks & vault**, and its view then appears
-in the rail (desktop) or as a chip on the home screen (phone). That Settings category exists only
-in Developer mode: to turn a feature on for an Assistant-mode install, switch to Developer mode,
-turn it on, and switch back (not possible while the mode is locked).
+in the rail (desktop) or as a chip on the home screen (phone). In Assistant mode the same switches
+are under **Settings → Features**, with **Automatic model choice**. While the mode is locked,
+**Features** only says what is on, and the person who runs the install changes it.
 
 | Feature | What it does | Page |
 |---|---|---|
@@ -174,7 +175,8 @@ When a user asks you to set up or explain Pocket Code:
   or repeat the password.
 - Settings are changed by the signed-in owner in the browser. The `/api/settings` route needs the
   owner's sign-in cookie and does not accept the agent commands' loopback token, so give the user
-  the exact path to click, for example **Settings → Projects, files, tasks & vault → Tasks**.
+  the exact path to click, for example **Settings → Projects, files, tasks & vault → Tasks** (in
+  Assistant mode, **Settings → Features → Tasks**).
 - An agent command for a feature that is off fails with a message naming that path, for example
   `Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.` Pass it on; do not try
   to switch the feature on yourself.
@@ -191,7 +193,8 @@ When a user asks you to set up or explain Pocket Code:
 | You changed `POCKET_PASSWORD` but other browsers are still signed in | Sign-in cookies are signed with `POCKET_SECRET`, not the password | Change `POCKET_SECRET` as well and restart; every browser has to sign in again |
 | **Push not configured on server** when you tap the bell | `VAPID_PUBLIC` and `VAPID_PRIVATE` are not set | Run `node scripts/pocket-init.mjs` again (it adds missing keys) or set them by hand, then restart |
 | **Notifications blocked** | The browser's notification permission for the site is off | Allow notifications in the browser's site settings, then turn push on again |
-| No **Projects, files, tasks & vault** in Settings | You are in Assistant mode | Switch to Developer mode in **Settings → Appearance → Mode** |
+| No **Projects, files, tasks & vault** in Settings | You are in Assistant mode | Use **Settings → Features**, or switch to Developer mode in **Settings → Appearance → Mode** |
+| **Features** shows a line and no switches | `POCKET_ASSISTANT_MODE=locked` on the server | Ask the person who runs the install |
 | Mode options are disabled | `POCKET_ASSISTANT_MODE=locked` on the server | Change it in `.env` and restart to allow Developer mode |
 | No mic beside Send | The voice engine is not installed, or `POCKET_VOICE=off` | See [Voice](voice.md) |
 | **You're offline.** or **The server didn't answer** | The phone has no connection, or the daemon or tunnel is down | **Try again**; on the server check `pm2 status` and `curl -s http://127.0.0.1:3610/api/health` |

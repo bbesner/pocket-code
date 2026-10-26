@@ -235,7 +235,8 @@ the install, both options show disabled with the reason.
 
 ### Projects, files, tasks, Inbox and the Vault (optional)
 
-Each is off until **Settings → Projects, files, tasks & vault** turns it on for the install. On
+Each is off until **Settings → Projects, files, tasks & vault** turns it on for the install (in Assistant
+mode, **Settings → Features**, unless the mode is locked). On
 the desktop the rail head switches between Chats, Projects, Files, Tasks, Vault and Inbox, an icon
 for each; with five or more, only the pressed one shows its name (1.69). Open lists
 refresh when the window comes back into focus, when a turn ends in any Pocket window on the

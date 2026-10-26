@@ -15,7 +15,7 @@ Projects is off until you switch it on for the whole instance:
 
 The switch applies to every device and to agent conversations. While it is on, Pocket installs the `pocket-projects` skill for Claude Code and Codex and tells the agents it runs how to track a project (see [For agents](#for-agents)). Turning it off hides Projects, refuses the `pocket-board` command and stops reminders from being announced; the cards stay on disk and come back when you turn it on again.
 
-In Assistant mode the **Projects, files, tasks & vault** group is not shown in Settings. Switch to **Developer mode** under **Settings → Appearance → Mode** to change it.
+In Assistant mode the switch is under **Settings → Features** instead. When Assistant mode is locked, ask the person who runs the install.
 
 **Open projects** in the same Settings group (this device only) chooses how a project opens when you click it: **As a tab, like a conversation**, **Beside the conversation**, or **In a new browser window**.
 

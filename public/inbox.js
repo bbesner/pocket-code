@@ -92,7 +92,7 @@ async function renderInbox(view){
  if(PANE){$('#pane-main').onclick=()=>paneSay('main',{view});$('#pane-close').onclick=()=>paneSay('close');}
  else if(!SOLO){bindViewBack($('#back'),view);$('#splitb').onclick=chooseBeside;}
  if(!SOLO)$('#kwin').onclick=()=>openInWindow(view);
- try{await loadInbox(true);if(inboxFilter==='done')await loadInboxDismissed();}catch(e){const m=$('#inbox-main');if(m)m.innerHTML=`<p class="sheet-help">The inbox could not load: ${esc(e.message||'error')}</p>`;return;}
+ try{await loadInbox(true);if(inboxFilter==='done')await loadInboxDismissed();}catch(e){const m=$('#inbox-main');if(m&&e.status===404)showLibraryError(m,e,'Inbox Watch',()=>renderInbox(view),false);else if(m)m.innerHTML=`<p class="sheet-help">The inbox could not load: ${esc(e.message||'error')}</p>`;return;} // 1.81: off says where to turn it on, like the other libraries
  paintInboxView();
  const open=/^#\/inbox\/([0-9a-f]{12})$/.exec(location.hash);if(open)inboxSheet(open[1]);
  if(typeof paintOpenSessions==='function')paintOpenSessions();

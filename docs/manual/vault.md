@@ -23,7 +23,7 @@ The **Vault** switch's description tells you its state:
 | This Vault's key is missing on this server… | A `vault.enc` exists but no key is set. Use **Restore key…** (below the switch). |
 | Off. The Vault cannot be opened: … | A key is set but does not open the store. The switch stays disabled until the right key is in place. |
 
-The **Projects, files, tasks & vault** category is not shown in Assistant mode.
+In Assistant mode the **Vault** switch is under **Settings → Features**; the rest of the Vault's settings stay in Developer mode. When Assistant mode is locked, ask the person who runs the install.
 
 ## Use it
 

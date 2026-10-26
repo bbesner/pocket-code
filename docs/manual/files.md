@@ -17,7 +17,7 @@ Files is off until you switch it on for the whole instance:
 
 While Files is off, nothing in the library is served, including public and share links, and `pocket-docs` is refused. Your files and their records stay on disk and come back when you turn it on again. While it is on, Pocket installs the `pocket-files` skill for Claude Code and Codex and tells the agents it runs about the library (see [For agents](#for-agents)).
 
-In Assistant mode the **Projects, files, tasks & vault** group is not shown in Settings. Switch to **Developer mode** under **Settings → Appearance → Mode** to change it.
+In Assistant mode the switch is under **Settings → Features** instead. When Assistant mode is locked, ask the person who runs the install.
 
 The same Settings group has three more choices:
 

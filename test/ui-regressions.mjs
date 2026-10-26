@@ -2467,12 +2467,80 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.$eval('#box',b=>b.placeholder),'Reply…');
     await scan('assistant-chat-390');
     await page.goto(base+'/#/');await page.waitForSelector('.assistant-home');await clickControl(page,'#settings');await page.waitForSelector('.settings-index');
-    assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','notifications','help']);
+    assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','features','notifications','help']); // 1.81 (#175): Features joins Accounts
     assert.equal(await shown('#s-models'),false,'the model list is not offered');assert.equal(await shown('#s-trusted'),false);
     await page.keyboard.press('Escape');
     await page.goto(base+'/#/all');await page.waitForSelector('.session-home');
     assert.equal(await page.$eval('header.bar h1',e=>e.textContent.trim()),'Conversations');assert.equal(await shown('.session-filters'),false);
    }finally{Object.assign(settings,before);if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
+  });
+
+  await check('1.81 Assistant mode Features: the switches and Automatic model choice in Settings, the "is off" message goes there; a locked Pocket gets a line and no switches',async()=>{
+   const settings=settingsState(),keys=['assistantMode','assistantLocked','projects','documents','tasks','inbox','vault'],before=Object.fromEntries(keys.map(k=>[k,settings[k]])),vp=page.viewport();
+   const shown=sel=>page.evaluate(s=>[...document.querySelectorAll(s)].some(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'),sel);
+   const open=async()=>{await page.reload();await page.waitForSelector('.assistant-home');await clickControl(page,'#settings');await page.waitForSelector('.settings-index');};
+   const features=async()=>{await clickControl(page,'[data-settings-category=features]');await page.waitForSelector('[data-settings-panel=features]:not([hidden])');};
+   const theme=async t=>{await page.evaluate(t=>PocketTheme.setPreference(t),t);await pause(150);};
+   try{
+    // not locked: five switches and Automatic model choice, the same controls (and handlers) as Developer mode
+    Object.assign(settings,{assistantMode:true,assistantLocked:false,projects:false,documents:false,tasks:false,inbox:false,vault:false});
+    for(const [w,h] of [[390,844],[1440,900]]){
+     await page.setViewport({width:w,height:h});await page.goto(base+'/#/');await open();await features();
+     assert.equal(await page.$eval('.sheet h2',e=>e.textContent.trim()),'Features');
+     assert.deepEqual(await page.$$eval('[data-settings-panel=features] > *',es=>es.filter(e=>e.getClientRects().length).map(e=>e.id)),['s-features-lead','s-projects','s-documents','s-tasks','s-inbox','s-vault','s-router'],'the lead, the five switches, then Automatic model choice, in that order at '+w);
+     assert.equal(await page.$eval('#s-features-note',e=>e.textContent),'Switch on what you want to use. Each one adds its own place beside your conversations.');
+     assert.equal(await shown('#s-inbox-watch'),false,'no schedule button while Inbox Watch is off');assert.equal(await shown('#s-trusted'),false,'only Automatic model choice comes along, not the rest of Agents & instance');
+     for(const t of ['light','dark']){await theme(t);await scan(`assistant-features-${w}-${t}`);await page.screenshot({path:path.join(out,`assistant-features-${w}-${t}.png`)});}
+     await theme('system');
+     if(w===390){
+      // a switch that shows or hides a library redraws the view behind Settings, which closes the sheet (as in Developer mode): reopen it on Features
+      const reopen=async()=>{if(!await page.$('.settings-sheet'))await page.evaluate(()=>settingsSheet({category:'features'}));await page.waitForSelector('[data-settings-panel=features]:not([hidden]) #s-vault:not([disabled])');};
+      for(const [id,key] of [['s-projects','projects'],['s-documents','documents'],['s-tasks','tasks'],['s-inbox','inbox'],['s-vault','vault']]){
+       await reopen();await clickControl(page,'#'+id);
+       for(let i=0;i<30&&!settings[key];i++)await pause(100);assert.equal(settings[key],true,id+' saved through /api/settings');
+       await page.waitForFunction(()=>!document.querySelector('.settings-sheet'),{timeout:2500}).catch(()=>{}); // the view redraws a moment after the save
+      }
+      await reopen();
+      assert.deepEqual(await page.$$eval('[data-settings-panel=features] > *',es=>es.filter(e=>e.getClientRects().length).map(e=>e.id)),['s-features-lead','s-projects','s-documents','s-tasks','s-inbox','s-inbox-watch','s-vault','s-router'],'Inbox Watch brings its schedule button right under it');
+      assert.equal(await page.$eval('#s-inbox-watch',e=>e.textContent.trim().startsWith('Inbox Watch schedule')),true,'the Assistant-mode label');
+      await clickControl(page,'#s-inbox-watch');await page.waitForSelector('.watch-sheet #w-save');await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
+      await reopen();
+      await page.$eval('#s-router',e=>e.scrollIntoView({block:'start'}));
+      assert.equal(await page.$$eval('#s-router-levels .router-level',e=>e.length),4,'the four levels');
+      await clickControl(page,'#s-router-on');await page.waitForFunction(()=>/Automatic model choice is (on|off)/.test(document.getElementById('toast')?.textContent||''));
+      assert.equal(await page.$eval('#s-router-provider',e=>e.disabled),false,'the decision model can be changed');
+      await scan('assistant-features-router-390');
+      Object.assign(settings,{projects:false,documents:false,tasks:false,inbox:false,vault:false});
+     }
+     await page.keyboard.press('Escape');
+    }
+    // a library that is off sends an Assistant-mode seat to Features, not to a category it does not have
+    await page.setViewport({width:390,height:844});await page.goto(base+'/#/projects');await page.reload();
+    await page.waitForFunction(()=>/Projects is off/.test(document.querySelector('#projects-main')?.textContent||''));
+    assert.equal(await page.$eval('#projects-main .library-error p',e=>e.textContent),'Projects is off. Turn it on in Settings → Features.');
+    await clickControl(page,'[data-library-settings]');await page.waitForSelector('[data-settings-panel=features]:not([hidden])');assert.equal(await page.$eval('.sheet h2',e=>e.textContent.trim()),'Features');
+    await page.keyboard.press('Escape');await page.goto(base+'/#/inbox');await page.reload();
+    await page.waitForFunction(()=>/Inbox Watch is off/.test(document.querySelector('#inbox-main')?.textContent||''));
+    assert.equal(await page.$eval('#inbox-main .library-error p',e=>e.textContent),'Inbox Watch is off. Turn it on in Settings → Features.');
+    // locked: a line saying what is on and who changes it, and no switches
+    Object.assign(settings,{assistantLocked:true,projects:true,documents:false,tasks:true,inbox:false,vault:false});
+    for(const [w,h] of [[390,844],[1440,900]]){
+     await page.setViewport({width:w,height:h});await page.goto(base+'/#/');await open();
+     assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','features','notifications','help']);
+     assert.equal(await page.$eval('[data-settings-category=features] .sub',e=>e.textContent),'Which parts of Pocket are on');
+     await features();
+     assert.deepEqual(await page.$$eval('[data-settings-panel=features] > *',es=>es.map(e=>e.id)),['s-features-lead'],'nothing but the line');
+     assert.equal(await page.$eval('#s-features-note',e=>e.textContent),'Projects and Tasks are on. Files, Inbox Watch and Vault are off. To change them, ask the person who runs this install.');
+     for(const id of ['s-projects','s-documents','s-tasks','s-inbox','s-vault','s-router-on'])assert.equal(await shown('#'+id),false,id+' is not offered when the mode is locked');
+     if(w===390)for(const t of ['light','dark']){await theme(t);await scan(`assistant-features-locked-${w}-${t}`);await page.screenshot({path:path.join(out,`assistant-features-locked-${w}-${t}.png`)});}
+     await theme('system');
+     await page.keyboard.press('Escape');
+    }
+    await page.setViewport({width:390,height:844});await page.goto(base+'/#/documents');await page.reload();
+    await page.waitForFunction(()=>/Files is off/.test(document.querySelector('#documents-main')?.textContent||''));
+    assert.equal(await page.$eval('#documents-main .library-error p',e=>e.textContent),'Files is off. Ask the person who runs this install to turn it on.');
+    assert.equal(await page.$('[data-library-settings]'),null,'no Open Settings button when there is nothing to open');
+   }finally{Object.assign(settings,before);await page.evaluate(()=>PocketTheme.setPreference('system'));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');await page.reload();}
   });
 
   await check('1.69 Inbox: the rail fits six libraries, the list opens with New / All / Dismissed, X dismisses, the row menu resolves, Settings and the push kind are there',async()=>{

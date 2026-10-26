@@ -188,7 +188,7 @@ browser test suite. Report what you find in [issue #87](https://github.com/bbesn
    coding agents, **Assistant mode** if Pocket is your assistant for office work (see the
    [README](../README.md#developer-mode-or-assistant-mode)).
 5. Projects, Files, Tasks, Inbox Watch and the Vault are off until you switch them on in **Settings →
-   Projects, files, tasks & vault** (a Developer mode section; Assistant mode hides it). With Inbox
+   Projects, files, tasks & vault** (in Assistant mode, **Settings → Features**). With Inbox
    Watch on, Pocket runs the watcher itself every minute with `python3`, reading Gmail through the
    Gmail connector Claude Code or Codex already has (**Settings → Agents & instance → Connectors**); see the
    [README](../README.md#inbox-watch-your-mailbox-read-for-you). Voice is a separate optional install

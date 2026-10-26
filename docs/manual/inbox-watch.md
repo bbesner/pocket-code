@@ -31,7 +31,7 @@ one by hand.
 
 1. Connect Gmail for Claude Code or Codex: **Settings → Agents & instance → Connectors** (in Assistant mode,
    **Settings → Accounts → Connectors**).
-2. Turn on **Settings → Projects, files, tasks & vault → Inbox Watch** (Developer mode). The toast says
+2. Turn on **Settings → Projects, files, tasks & vault → Inbox Watch** (in Assistant mode, **Settings → Features → Inbox Watch**). The toast says
    *Inbox Watch is on*, and **Inbox** appears in the sidebar switch and as a chip on the home screen.
 3. Open Pocket once on your phone or computer, if you have not since turning it on. The watcher uses the time zone
    your browser reports for quiet hours, the digest and the look-ahead.
@@ -153,7 +153,7 @@ go out at once, together with every alert quiet hours were holding.
 ### Change the schedule, rules and models
 
 **Schedule** in the Inbox, or **Settings → Projects, files, tasks & vault → Schedule, models and cost** (shown under
-the Inbox Watch switch while it is on), opens the Inbox Watch sheet. Its first line says what is in force, for example
+the Inbox Watch switch while it is on; in Assistant mode **Settings → Features → Inbox Watch schedule**), opens the Inbox Watch sheet. Its first line says what is in force, for example
 *Checking every 5 minutes now (Work hours). Last check 9:14 AM, next about 9:19 AM.* **Save** sends the whole sheet;
 the watcher picks it up within a minute, and the line says *Your last change reaches the watcher within a minute*
 until it has. **Use the config file's settings** hands control back to `config.toml`.

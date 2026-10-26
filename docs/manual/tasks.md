@@ -15,7 +15,7 @@ Tasks is off until you switch it on for the whole instance:
 
 While Tasks is on, Pocket installs the `pocket-tasks` skill for Claude Code and Codex and tells the agents it runs when to create and offer tasks (see [For agents](#for-agents)). Turning it off hides Tasks, refuses `pocket-tasks` and stops due tasks from being announced; your tasks stay on disk.
 
-In Assistant mode the **Projects, files, tasks & vault** group is not shown in Settings. Switch to **Developer mode** under **Settings → Appearance → Mode** to change it.
+In Assistant mode the switch is under **Settings → Features** instead. When Assistant mode is locked, ask the person who runs the install.
 
 ## Use it
 

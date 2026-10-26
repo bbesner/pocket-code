@@ -179,7 +179,9 @@ Results, Queue, Git, split view and the cost line.
   Settings category has **All settings**.
 - **A library that fails to load** says so with **Retry**, keeping the last loaded list on screen when
   there is one. A library that is turned off says *Projects is off. Turn it on in Settings → Projects,
-  files, tasks & vault.* with **Open Settings** (for Files, Tasks and the others alike).
+  files, tasks & vault.* with **Open Settings** (for Files, Tasks and the others alike). In Assistant mode
+  it says *Settings → Features* and **Open Settings** goes there; when Assistant mode is locked it says
+  *Ask the person who runs this install to turn it on.* and has no button.
 
 ## Keyboard shortcuts
 

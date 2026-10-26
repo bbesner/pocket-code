@@ -8,6 +8,18 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Features in Assistant mode (1.81)
+
+Pinned Operate refinement (variance 2, motion 1, density 5); existing tokens and components, no new colour. Read: a
+non-developer who has to switch a feature on once and is told plainly when they cannot. **Settings → Features** sits
+between Accounts and Notifications & voice. It moves the Developer category's own controls, so nothing is drawn twice:
+a `.title-note` lead in the `.model-offer` block style, the five `.opt` switches (Projects, Files, Tasks, Inbox Watch,
+Vault) with Inbox Watch's schedule button under its switch, then the Automatic model choice block unchanged. When the
+mode is locked the panel is the lead alone, rewritten as a status line ("Projects and Tasks are on. Files, Inbox Watch
+and Vault are off. To change them, ask the person who runs this install."); no switch is drawn, because a disabled one
+would have nothing to say. A library that is off points to Features, or (locked) to the person who runs the install,
+with no Open Settings button.
+
 ## Rail switch: named entries and the main area's mark (1.76.2)
 
 Pinned Operate brief (variance 2, motion 1, density tight). With five or more entries the switch is a row of equal

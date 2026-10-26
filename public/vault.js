@@ -360,7 +360,7 @@ function vaultNewFieldHTML(){
 }
 // insert: after saving, put {{vault:name}} into the open message box so the message refers to the secret by name.
 function vaultEditor(t,{insert=null}={}){
- if(!vaultOn())return toast('The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.');
+ if(!vaultOn())return toast('The Vault is off. '+turnOnHint());
  if(vaultIsLocked())return vaultUnlockSheet(()=>vaultEditor(t,{insert})); // unlock first, then the sheet that was asked for
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet vault-editor';
  let revision=t?.revision;
@@ -799,7 +799,7 @@ async function secretVaultState(){
  try{const s=await loadVault(true);if(s.ready===false)return {state:s.locked?'locked':'unready'};return {state:'ready',names:[...(s.items||[]),...(s.trash||[])].map(i=>i.name)};}
  catch(e){return {state:e?.status===423?'locked':'unready'};}
 }
-const SECRET_HINT={off:'Turn on the Vault in Settings to store secrets instead.',locked:'Unlock the Vault to store it.',unready:'The Vault is not ready, so it cannot store this now.'};
+const SECRET_HINT={get off(){return featuresLocked()?'Ask the person who runs this install to turn on the Vault, to store secrets instead.':'Turn on the Vault in Settings to store secrets instead.';},locked:'Unlock the Vault to store it.',unready:'The Vault is not ready, so it cannot store this now.'};
 // Over an open sheet (the queue editor in its dialog) the guard stacks instead of replacing it; elsewhere it is an
 // ordinary sheet. Returns the close function.
 function secretMount(scrim,sh,trigger){

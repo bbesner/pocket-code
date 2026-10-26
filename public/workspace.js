@@ -576,12 +576,16 @@ function restoreViewPosition(view) {
  const state=viewPositions.get('#/'+view),main=document.querySelector('main.scroll');if(!state||!main)return;
  main.querySelectorAll('details').forEach((d,i)=>{if(state.details[i]!==undefined)d.open=state.details[i];});main.scrollTop=state.top;
 }
+// 1.81 (#175): where an "is off" message sends you. Assistant mode has no Projects, files, tasks & vault category, its switches
+// are in Settings → Features, and a locked Pocket (POCKET_ASSISTANT_MODE=locked) leaves them to the person who runs the install.
+const featuresLocked=()=>Boolean(window.pocketFeatures?.assistantLocked);
+function turnOnHint(){return featuresLocked()?'Ask the person who runs this install to turn it on.':assistantMode()?'Turn it on in Settings → Features.':'Turn it on in Settings → Projects, files, tasks & vault.';}
 function showLibraryError(main,error,label,retry,hasData) {
  const panel=document.createElement('div');panel.className='library-error';panel.setAttribute('role','status');
  const off=error.status===404;
- panel.innerHTML=`<p>${esc(off?label+' is off. Turn it on in Settings → Projects, files, tasks & vault.':label+' could not load. '+(hasData?'Showing the last loaded data.':'')+' '+(error.message||'Try again.'))}</p><button class="chip" data-library-retry>Retry</button>${off?'<button class="chip" data-library-settings>Open Settings</button>':''}`;
+ panel.innerHTML=`<p>${esc(off?label+' is off. '+turnOnHint():label+' could not load. '+(hasData?'Showing the last loaded data.':'')+' '+(error.message||'Try again.'))}</p><button class="chip" data-library-retry>Retry</button>${off&&!featuresLocked()?'<button class="chip" data-library-settings>Open Settings</button>':''}`;
  if(!hasData)main.replaceChildren();main.prepend(panel);
- panel.querySelector('[data-library-settings]')?.addEventListener('click',()=>settingsSheet({category:'libraries'}));
+ panel.querySelector('[data-library-settings]')?.addEventListener('click',()=>settingsSheet({category:assistantMode()?'features':'libraries'}));
  panel.querySelector('[data-library-retry]').onclick=async e=>{e.currentTarget.disabled=true;e.currentTarget.textContent='Retrying…';await retry();const again=document.querySelector('[data-library-retry]');if(again)again.focus();else{document.getElementById(main.id)?.focus();toast(label+' loaded');}};
 }
 function bindRailNavigation() {
@@ -605,6 +609,10 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
   ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This Pocket · all devices','#s-mode']]],
   ['conversation','Conversation','How replies and steps read', [['This device','#s-tools,#s-times']]],
   ['accounts','Accounts','Your Claude sign-in and Gmail, Calendar and Drive', [['','#s-environment,#s-connectors']]],
+  // 1.81 (#175): the switches the Developer category holds, for the seats that can change them; a locked Pocket gets a line saying what is on.
+  featuresLocked()
+   ?['features','Features','Which parts of Pocket are on', [['','#s-features-lead']]]
+   :['features','Features','Projects, Files, Tasks, Inbox Watch, Vault and automatic model choice', [['','#s-features-lead,#s-projects,#s-documents,#s-tasks,#s-inbox,#s-inbox-watch,#s-vault'],['','#s-router']]],
   ['notifications','Notifications & voice','Sounds, alerts on this device, reminders by email and spoken replies', [['This device','#s-chime,#s-push,#s-push-kinds,#s-badge,#s-voice'],['This Pocket · all devices','#s-ahead,#s-email-wrap']]],
   ['help','Help & updates','Version and what’s new', [['','#s-about,#s-notes']]],
  ]:[
