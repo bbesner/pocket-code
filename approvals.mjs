@@ -56,7 +56,7 @@ export class ApprovalInbox {
  }
  list(){return [...this.pending.values()].map(({nativeId,allow,deny,fingerprint,...r})=>r);}
  async decide(id,decision){
-  if(!['allow','deny'].includes(decision))throw fail('Choose Allow once or Deny.',400);
+  if(!['allow','deny'].includes(decision))throw fail("Choose Allow or Don't allow.",400); // 1.81: the buttons' current names
   const prior=this.answered.get(id);
   if(prior){if(prior!==decision)throw fail('This action was already answered differently.');return {ok:true,duplicate:true};}
   const row=this.pending.get(id);

@@ -8,7 +8,7 @@ test('approvals are scoped, explicit, idempotent, and audit only hashes',async()
  const {box,writes,audit}=inbox();assert.equal(box.receive({...request,turnId:'other'}),false);assert.equal(box.receive(request),true);assert.equal(box.receive(request),true);
  assert.equal(box.list().length,1);assert.equal(writes.length,0);
  const id=box.list()[0].id;assert.equal(box.list()[0].nativeId,undefined);
- await assert.rejects(box.decide(id,'acceptForSession'),{status:400});
+ await assert.rejects(box.decide(id,'acceptForSession'),{status:400,message:"Choose Allow or Don't allow."});
  await box.decide(id,'allow');assert.deepEqual(writes,[{id:'native-1',result:{decision:'accept'}}]);
  assert.equal((await box.decide(id,'allow')).duplicate,true);assert.equal(writes.length,1);
  await assert.rejects(box.decide(id,'deny'),{status:409});
