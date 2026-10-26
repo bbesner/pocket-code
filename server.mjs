@@ -2451,6 +2451,9 @@ function turnOpts(body) {
 // A Codex turn ends inside codex.mjs; the daemon-level follow-ups (notify the phone,
 // run whatever was queued while it worked) mirror the Claude side's finalizeTurn.
 async function codexTurnFinished(id, turn, ev) {
+  // 1.81: the push follows Claude's rules: none while a browser has the conversation open (its stream is still attached
+  // here, read before any await) and none for a reply the user stopped. It used to push for both.
+  const watching = turn.subs.size > 0;
   recordOutcome(id, turn, ev);
   retitler.request(id); // 1.29.1
   if (!turn.stopped) autoKeepTurnFiles(id, turn.startedAt || 0);
@@ -2461,9 +2464,9 @@ async function codexTurnFinished(id, turn, ev) {
     await runNextFollowup(id, turn.cwd).catch(e => log(`codex queue start failed thread=${id}: ${e.message}`));
     return;
   }
-  if (!mutes.has(id)) {
+  if (!watching && !turn.stopped && !mutes.has(id)) {
     const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
-    pushNotify(id, meta?.title || 'Codex conversation', ev.ok ? 'Ready' : 'Stopped. Tap to review').catch(() => {});
+    pushNotify(id, meta?.title || 'Codex conversation', ev.ok ? 'Ready' : 'Something went wrong. Tap to see what happened').catch(() => {});
   }
 }
 async function runNextFollowup(id, cwd) {

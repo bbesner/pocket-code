@@ -235,11 +235,11 @@ or off and choose what they get:
 
 A finished-reply notification is titled with the conversation and says what happened: **Ready ·
 $0.07 · 14s** (cost and time; only **Ready** in Assistant mode and for Codex), **Something went
-wrong. Tap to see what happened**, **Stopped**, or **Usage limit reached. Picks up again at …**. A
-Codex reply that did not finish says **Stopped. Tap to review**. Tapping it opens the conversation.
+wrong. Tap to see what happened**, **Stopped**, or **Usage limit reached. Picks up again at …**.
+Tapping it opens the conversation.
 
-A Claude conversation that is open in a browser when its reply finishes sends no push; the chime
-plays there instead. A Claude reply that leaves background jobs running holds its push; the
+A conversation that is open in a browser when its reply finishes sends no push; the chime plays there
+instead. A reply you stopped sends none either. A Claude reply that leaves background jobs running holds its push; the
 notification comes when the agent reports back after those jobs. A reply that hands straight over to
 a queued message sends no push; the last reply of the queue does.
 

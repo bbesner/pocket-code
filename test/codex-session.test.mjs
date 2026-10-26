@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import {spawn} from 'node:child_process';
-import {createHmac,randomUUID} from 'node:crypto';
+import {createHmac,createECDH,randomBytes,randomUUID} from 'node:crypto';
+import webpush from 'web-push';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -31,7 +32,8 @@ async function fixture(t,port,env={}){
  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true});});
  fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});
  await start();
- return {dir,call,calls,until,procs,idle,start,stop,logs:()=>logs};
+ const events=(id,signal)=>fetch(`http://127.0.0.1:${port}/api/session/${id}/events`,{headers,signal}); // a browser with the conversation open
+ return {dir,call,calls,until,procs,idle,start,stop,events,logs:()=>logs};
 }
 const msg=(text,extra={})=>({text,clientMessageId:randomUUID(),...extra});
 
@@ -103,6 +105,32 @@ test('idle Codex sessions close; the next message reopens the thread',async t=>{
  assert.equal((await f.call(`/session/${id}/message`,msg('again'))).status,202);
  assert.ok(await f.until(async()=>f.calls().length===2&&await f.idle(id)));
  assert.equal(new Set(f.calls().map(c=>c.pid)).size,2);
+});
+
+test('1.81: a Codex finished-reply push follows the Claude rules: none while the conversation is open or after Stop',async t=>{
+ const vapid=webpush.generateVAPIDKeys();
+ const f=await fixture(t,18433,{VAPID_PUBLIC:vapid.publicKey,VAPID_PRIVATE:vapid.privateKey});
+ // One device whose push service never answers: the send fails, and a failure other than 404/410 still counts in "push sent".
+ const device=createECDH('prime256v1');device.generateKeys();
+ fs.mkdirSync(path.join(f.dir,'data'),{recursive:true});
+ fs.writeFileSync(path.join(f.dir,'data','push-subs.json'),JSON.stringify([{endpoint:'https://127.0.0.1:9/push',keys:{p256dh:device.getPublicKey('base64url'),auth:randomBytes(16).toString('base64url')}}]));
+ const pushes=id=>f.logs().split('\n').filter(l=>l.includes(`push sent (1 devices) session=${id}`)).length;
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
+ assert.ok(await f.until(()=>pushes(id)===1),'a reply nobody is watching pushes');
+ // Open in a browser while the reply finishes: the chime plays there, no push.
+ assert.equal((await f.call(`/session/${id}/message`,msg('__SLOW__ watched'))).status,202);
+ const open=new AbortController(),stream=await f.events(id,open.signal);
+ assert.ok(await f.until(async()=>f.calls().length===2&&await f.idle(id),6000));
+ await sleep(500);open.abort();await stream.body?.cancel().catch(()=>{});
+ assert.equal(pushes(id),1,'no push while the conversation is open');
+ // Stopped by the user: no push.
+ assert.equal((await f.call(`/session/${id}/message`,msg('__HANG__ stop me'))).status,202);
+ assert.ok(await f.until(()=>f.calls().length===3));await sleep(200);
+ assert.equal((await f.call(`/session/${id}/stop`,{})).status,200);
+ assert.ok(await f.until(async()=>await f.idle(id),6000));
+ await sleep(500);
+ assert.equal(pushes(id),1,'no push for a stopped reply');
 });
 
 test('a permissions change reopens the app-server; a silent Codex turn is stopped by the stall watchdog',async t=>{
