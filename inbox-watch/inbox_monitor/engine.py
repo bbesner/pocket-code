@@ -259,6 +259,11 @@ MEMORY_PER_ENTRY = 3  # and with each Inbox entry the tidy pass looks at (writte
 MEMORY_SEARCH_LIMIT = 30  # hits asked for per search: relevance alone ranks them, so recent work can sit below older sessions
 MEMORY_TIDY_LOOKBACK_H = 6  # the tidy pass also reads work from just before the alert (a fix can land minutes before the alert goes out)
 MEMORY_ITEM_CHARS = 900  # each item's text: a summary's start, a session's end (where the outcome usually is)
+MEMORY_EXAMINE = 10  # hits read in full per search, at most; the rest rank too low to be about the thread
+MEMORY_MATCH_HEAD = 1500  # an item is about a thread when its title, start or end shares the thread's words (a session
+# started from an alert quotes it at the start; its outcome is at the end; the middle of a long one matches anything)
+MEMORY_GENERIC = set("""jan feb mar apr may jun jul aug sep oct nov dec com net org gov edu
+what how get more since latest one which now check request due task sent inbox monitor assistant""".split())
 # The Pocket Inbox label (setting `gmailLabel`, 1.75): the owner's open Inbox entries carry it in Gmail, both ways.
 LABEL_NAME = "Pocket Inbox"
 LABEL_CAP = 300  # labelled threads read per sync
@@ -1134,8 +1139,10 @@ def memory_items(query: str, after: str | None, k: int, since: str | None = None
         return []
     hits = MEMORY_SEARCH.search(query, limit=MEMORY_SEARCH_LIMIT)
     now = iso(now_utc())
-    out = []
+    out, examined = [], 0
     for h in hits:
+        if examined >= MEMORY_EXAMINE:
+            break
         upd = _iso_utc(h.get("updated"))
         if not upd or upd > now:
             continue  # undated, or written after this moment (replay)
@@ -1143,7 +1150,10 @@ def memory_items(query: str, after: str | None, k: int, since: str | None = None
         if since and upd <= _iso_utc(since):
             continue
         body = MEMORY_SEARCH.body(h["id"]) if h.get("id") else ""
+        examined += 1
         text = re.sub(r"\s+", " ", body or h.get("snippet") or "").strip()
+        if not memory_relevant(query, h.get("title") or "", text):
+            continue  # it ranked, but it is about something else: leave it out rather than fill the slot
         if h["type"] == "session" and len(text) > MEMORY_ITEM_CHARS:
             text = "… " + text[-MEMORY_ITEM_CHARS:]  # a session's outcome is at its end
         out.append({"ref": f"mem:{h['id']}", "type": h["type"], "title": clip(h.get("title"), 140), "date": iso_to_et(upd),
@@ -1151,6 +1161,27 @@ def memory_items(query: str, after: str | None, k: int, since: str | None = None
         if len(out) >= k:
             break
     return out
+
+
+def memory_relevant(query: str, title: str, text: str) -> bool:
+    """Whether a memory item is about what the query names. MemStem ranks every hit against the others, so the top three
+    always come back, related or not: a session about a different customer's billing for an email about billing. Kept:
+    an item that carries one of the query's identifiers (an order, ticket or invoice number), or shares two of its
+    distinctive words (three when the query has more than five), counted in the title and the start and end of the
+    text. The owner's and the assistant's names, their own domains and dates say nothing about which matter it is."""
+    generic = set(MEMORY_GENERIC)
+    for x in (OWNER, ASSISTANT, MAILBOX.split("@")[0]):
+        generic.update(tokens(x))
+    for d in FREEMAIL:
+        generic.update(d.split("."))
+    words = [t for t in tokens(query) if t not in generic]
+    window = f"{title} {text[:MEMORY_MATCH_HEAD]} {text[-MEMORY_ITEM_CHARS:]}".lower()
+    if any(i.lower() in window for i in identifiers(query)):
+        return True
+    if len(words) < 2:
+        return False
+    have = set(re.findall(r"[a-z0-9]{3,}", window))
+    return sum(t in have for t in words) >= (2 if len(words) <= 5 else 3)
 
 
 def _iso_utc(s: str | None) -> str:
@@ -1169,7 +1200,7 @@ def memory_query(subject: str, sender: str, body: str = "") -> str:
     no-reply system), and the identifiers in it (order, ticket, invoice numbers)."""
     parts = [clean_subject(subject)]
     name = re.sub(r"<[^>]*>|\S+@\S+|\"", " ", sender or "").strip()
-    if name and not AUTOMATED_SENDER_RX.search(sender or ""):
+    if name and not AUTOMATED_SENDER_RX.search(sender or "") and MAILBOX not in (sender or "").lower():  # the owner's own name matches everything
         parts.append(name)
     dom = sender_domain(sender or "")  # None for freemail and the owner's own domains
     if dom:

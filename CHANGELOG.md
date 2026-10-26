@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.79.2] — 2026-10-26 · build 167
+
+- **Inbox Watch: memory read-back keeps only items about the email.** MemStem ranks every hit against the others, so `memory_items` always filled its three slots, related or not (an email about one customer's billing came with a Zoho audit session; a COI request from a church with the Davenport COI session). `memory_relevant` now keeps an item only when it carries one of the query's identifiers, or shares two of its distinctive words (three when the query has more than five), counted in the title and the first 1500 and last 900 characters of the text (a long session's middle matches anything). The owner's and the assistant's names, the owner's domains, freemail domains and month names don't count; the owner's own name is no longer put in the query for mail they sent. At most `MEMORY_EXAMINE` (10) hits are read per search. Checked against the live corpus: all 26 memory items the tidy pass cited between Oct 22 and Oct 26 still pass (one more was found because unrelated hits no longer fill the slots); on 50 recent emails, items fell from 150 to 93 (characters 143k → 90k), 14 emails got none, no added time. Requested by Brad after the 1.76 review.
+- **Inbox Watch tidy: every part of the request.** New rule in `prompts/tidy.md`: when an alert asks for more than one thing, `handled` needs every part done or taken by someone named, otherwise the entry stays `open` and the reason names the open part. Found in the review: an entry asking for footage to be exported and a resident's phone access to be set up was cleared while only the footage was being worked on.
+- Migration: none.
+- Tests: `inbox-watch/tests/test_memory.py` (`test_unrelated_memory_left_out`; the tidy test now shows the portal session with the portal entry only). Fails on 1.79.1.
+
 ## [1.79.1] — 2026-10-25 · build 167
 
 - **`/btw` is suggested in Codex conversations too.** 1.79 brought side chat to Codex, and a typed `/btw …` already went to it, but the slash suggestions still listed `/btw` for Claude only (1.78 code). The entry is now first in both lists and carries `invocation: '/btw'`, so picking it on Codex types `/btw ` instead of the skill line Codex entries insert ("Use the $btw skill."). Found while checking the 1.79 announcement.

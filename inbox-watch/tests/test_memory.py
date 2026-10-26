@@ -47,7 +47,7 @@ def hit(i, typ, updated, title="t", path=None):
 def test_items_marked_after_and_future_hidden():
     setup()
     E.MEMORY_SEARCH = FakeSearch([hit("s1", "session", "2026-10-21T15:00:00Z", "portal bug session"),
-                                  hit("old", "daily", "2026-10-01T12:00:00Z"),
+                                  hit("old", "daily", "2026-10-01T12:00:00Z", "packing slip printer notes"),
                                   hit("future", "memory", "2026-10-23T12:00:00Z")])
     E.MODE.sim = dt.datetime(2026, 10, 22, 12, 0, tzinfo=dt.timezone.utc)
     try:
@@ -62,6 +62,22 @@ def test_items_marked_after_and_future_hidden():
         E.MODE.sim = None
         E.MEMORY_SEARCH = None
     assert E.memory_items("anything", None, 3) == [], "off: nothing"
+
+
+def test_unrelated_memory_left_out():
+    setup()
+    E.MEMORY_SEARCH = FakeSearch([hit("zoho", "session", "2026-10-21T15:00:00Z", "Audit the Zoho Books billing for the alarm accounts"),
+                                  hit("own", "memory", "2026-10-21T15:00:00Z", "Alex asked Ari about Oct billing"),
+                                  hit("inv", "daily", "2026-10-21T15:00:00Z", "2026-10-21"),
+                                  hit("nikki", "distillation", "2026-10-21T15:00:00Z", "Nikki Sabatelli asked to change the billing card")])
+    E.MEMORY_SEARCH.body = lambda mid: {"inv": "Sent Vanderbilt the corrected INV-17693 on Tuesday."}.get(mid, "")
+    try:
+        got = E.memory_items("Billing Information INV-17693 Nikki Sabatelli vanderbiltop", None, 3)
+    finally:
+        E.MEMORY_SEARCH = None
+    assert [m["ref"] for m in got] == ["mem:inv", "mem:nikki"], "one shared word is not enough; the owner's and assistant's names and dates count for nothing; an identifier is"
+    assert E.memory_relevant("Doorbell reset", "Reset the front doorbell camera", "")
+    assert not E.memory_relevant("Invoice", "Invoice for the alarm audit", ""), "a one-word query needs an identifier"
 
 
 def test_query_names_the_sender_not_a_system():
@@ -143,7 +159,7 @@ def test_tidy_takes_a_memory_ref_as_proof():
     finally:
         E.call_judge = saved
         E.MEMORY_SEARCH = None
-    assert '"ref":"mem:s1"' in sent["msg"] and '"date_iso"' not in sent["msg"] and sent["n"] == 2
+    assert '"ref":"mem:s1"' in sent["msg"] and '"date_iso"' not in sent["msg"] and sent["n"] == 1, "the portal session is not shown with the invoice"
     assert p.acted == [("e1", "resolve", "Resolved: Fixed and released in a session Tuesday 11 AM.")], "a ref it was not shown is no proof"
 
 
