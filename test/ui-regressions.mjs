@@ -2636,7 +2636,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await clickControl(page,'#w-save');await page.waitForFunction(()=>/Period 2 needs at least one day/.test(document.querySelector('#w-error')?.textContent||''));
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
     // Settings opens the same sheet; Assistant mode keeps the schedule and drops models and cost
+    // 1.81 (#182): inside its category the button still disappears with the switch (a hidden .opt needs its own rule)
+    settings.inbox=false;await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));
+    await page.waitForFunction(()=>/^Off\./.test(document.querySelector('#s-inbox-state')?.textContent||''));
+    assert.equal(await page.$eval('#s-inbox-watch',e=>e.getClientRects().length),0,'no Schedule, models and cost while Inbox Watch is off');
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.settings-sheet'));settings.inbox=true;
     await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox-watch:not([hidden])');
+    // 1.81 (#182): the button sits in Projects, files, tasks & vault, right under the Inbox Watch switch, not loose above the categories
+    assert.deepEqual(await page.$eval('#s-inbox-watch',e=>({panel:e.closest('[data-settings-panel]')?.dataset.settingsPanel,after:e.previousElementSibling?.id,before:e.nextElementSibling?.id,parent:e.parentElement.tagName})),{panel:'libraries',after:'s-inbox',before:'s-vault',parent:'SECTION'},'Schedule, models and cost follows the Inbox Watch switch');
     await clickControl(page,'#s-inbox-watch');await page.waitForSelector('.watch-sheet #w-save');assert.ok(await page.$('.watch-sheet .sheet-back'),'Back to Settings');
     await page.keyboard.press('Escape');
     settings.assistantMode=true;await page.setViewport({width:390,height:844});await page.goto(base+'/#/inbox');await page.reload();await page.waitForSelector('#inbox-watch');

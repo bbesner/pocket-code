@@ -875,7 +875,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .settings-details > summary .summary-meta { color: var(--faint); }
 .settings-details .about { margin: 8px 0; }
 .settings-details .chip { margin-top: 8px; }
-.settings-details [hidden],.settings-sheet > [hidden] { display: none; }
+.settings-details [hidden],.settings-sheet > [hidden],.settings-sheet .opt[hidden] { display: none; } /* 1.81: .opt[hidden] too, now that Schedule, models and cost sits inside its category */
 #s-version-state,#s-notes-body { font-size: 14px; color: var(--dim); }
 .feedback { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 12px; font-size: 14px; line-height: 1.45; color: var(--dim); }
 .feedback p { margin: 0; }
