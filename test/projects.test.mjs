@@ -87,7 +87,7 @@ const snapshotFixture=()=>({version:2,generated_at:'2026-10-09T12:00:00+00:00',t
    tasks:[{id:'06f35f99ed42',project:'nvr-review',text:'Decide retention',done:0,created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00'},{id:'aa11',project:'nvr-review',text:'Old step',done:1,created:'2026-10-01T00:00:00+00:00',updated:'2026-10-02T00:00:00+00:00'}],
    reminders:[{id:'bc0d81efc253',project:'nvr-review',task:null,label:'Check-in',due_at:'2037-10-14T13:00:00+00:00',state:'open',version:2,notified_at:null,digest_date:null,updated:'2026-10-08T00:00:00+00:00'},{id:'dead',project:'nvr-review',task:'missing-task',label:'Orphan',due_at:'2037-10-14T13:00:00+00:00',state:'open',updated:'2026-10-08T00:00:00+00:00'}],
    due_count:0,history:[{id:1,project:'nvr-review',at:'2026-09-30T20:00:00+00:00',actor:'agent',action:'tracked',detail:'{"name": "NVR review"}'},{id:2,project:'nvr-review',at:'2026-10-08T03:28:04+00:00',actor:'agent',action:'updated',detail:{summary:'x'}}]},
-  {id:'blog',name:'SCK blog cleanup',summary:'',next_step:'',waiting_for:'Brad to review',status:'waiting',directory:'',link:'',created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00',verified:'2026-10-01T00:00:00+00:00',revision:3,enrollment:'explicit-user-request',tasks:[],reminders:[],due_count:0,history:[]},
+  {id:'blog',name:'Blog cleanup',summary:'',next_step:'',waiting_for:'Owner to review',status:'waiting',directory:'',link:'',created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00',verified:'2026-10-01T00:00:00+00:00',revision:3,enrollment:'explicit-user-request',tasks:[],reminders:[],due_count:0,history:[]},
   {id:'',name:'',status:'active',tasks:[],reminders:[],history:[]}],due_count:0,reminder_health:{},programs:[],alarms:[],events:[],unboarded:[],total_asks:0,blocked_brad:0});
 
 test('ProjectStore: a Mission Control snapshot imports once, field for field',()=>{
@@ -99,7 +99,7 @@ test('ProjectStore: a Mission Control snapshot imports once, field for field',()
   assert.deepEqual(p.tasks.map(t=>[t.id,t.done]),[['06f35f99ed42',false],['aa11',true]]);
   assert.deepEqual(p.reminders.map(x=>[x.id,x.dueAt,x.state,x.due]),[['bc0d81efc253','2037-10-14T13:00:00Z','open',false]],'a reminder on a missing step is dropped');
   assert.equal(p.history.length,3);assert.equal(p.history[1].detail,'{"summary":"x"}');assert.equal(p.history.at(-1).action,'imported');
-  assert.equal(s.get('blog').waitingFor,'Brad to review');assert.equal(s.get('blog').status,'waiting');
+  assert.equal(s.get('blog').waitingFor,'Owner to review');assert.equal(s.get('blog').status,'waiting');
   const again=s.importSnapshot(snapshotFixture());assert.deepEqual(again.added,[]);assert.equal(again.skipped.filter(x=>x.reason==='already here').length,2);
   assert.throws(()=>s.importSnapshot({nope:true}),/snapshot/);
   fs.rmSync(dir,{recursive:true,force:true});
@@ -179,7 +179,7 @@ test('HTTP: the board is off until Settings turns it on, the loopback token serv
   const taskId=/\[ \] Ship it  \(([0-9a-f]+)\)/.exec(out.stdout)[1];
   out=await cli(['remind','--at','2026-12-01T09:00','--task',taskId],path.join(dir,'work'));assert.match(out.stdout,/Reminder .*Ship it/);
   out=await cli(['task','done',taskId],path.join(dir,'work'));assert.match(out.stdout,/\[x\] Ship it/);assert.doesNotMatch(out.stdout,/Reminder/);
-  out=await cli(['scheduled']);assert.match(out.stdout,/DUE .*SCK blog cleanup: Overdue/);
+  out=await cli(['scheduled']);assert.match(out.stdout,/DUE .*Blog cleanup: Overdue/);
   out=await cli(['context','--hook'],path.join(dir,'work','sub'));assert.equal(out.code,0,out.stderr);const ctx=JSON.parse(out.stdout);assert.equal(ctx.hookSpecificOutput.hookEventName,'SessionStart');assert.match(ctx.hookSpecificOutput.additionalContext,/Tracked project for this directory: CLI project/);assert.match(ctx.hookSpecificOutput.additionalContext,/Next: Write tests/);
   out=await cli(['context','--hook'],dir);assert.equal(out.code,0);assert.equal(out.stdout,'','no tracked project: silent');
   out=await cli(['status'],dir);assert.equal(out.code,0);assert.match(out.stdout,/No tracked project contains/);

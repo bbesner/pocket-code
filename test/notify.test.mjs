@@ -30,8 +30,8 @@ test('mail.mjs: the transport is optional and checked, the messages name the ite
   assert.equal(task.subject,'[Pocket Code] Task due: Check the refund');assert.match(task.text,/Due: Oct 23, 2026, 9:00 AM EDT/);assert.match(task.text,/https:\/\/pocket\.example\.test\/#\/tasks/);assert.match(task.html,/Open Tasks/);
   const ahead=dueMessage({kind:'task',task:'abc',text:'Check the refund',dueAt:'2026-10-23T13:00:00Z'},{ahead:true});
   assert.equal(ahead.subject,'[Pocket Code] Task due tomorrow: Check the refund');assert.doesNotMatch(ahead.text,/https?:/,'no link without a public address');
-  const rem=dueMessage({project:'p',projectName:'SCK blog cleanup',reminder:'r',label:'28-day traffic check',dueAt:'2026-10-28T13:00:00Z',task:'t',taskText:'Pull the Search Console export',url:'/#/projects/p'},{base:'https://pocket.example.test'});
-  assert.equal(rem.subject,'[Pocket Code] Reminder: SCK blog cleanup — 28-day traffic check');assert.match(rem.text,/Project: SCK blog cleanup/);assert.match(rem.text,/Step: Pull the Search Console export/);assert.match(rem.html,/href="https:\/\/pocket\.example\.test\/#\/projects\/p"/);
+  const rem=dueMessage({project:'p',projectName:'Blog cleanup',reminder:'r',label:'28-day traffic check',dueAt:'2026-10-28T13:00:00Z',task:'t',taskText:'Pull the Search Console export',url:'/#/projects/p'},{base:'https://pocket.example.test'});
+  assert.equal(rem.subject,'[Pocket Code] Reminder: Blog cleanup — 28-day traffic check');assert.match(rem.text,/Project: Blog cleanup/);assert.match(rem.text,/Step: Pull the Search Console export/);assert.match(rem.html,/href="https:\/\/pocket\.example\.test\/#\/projects\/p"/);
   assert.equal(dueMessage({projectName:'P',label:'<b>x</b>',dueAt:'2026-10-28T13:00:00Z'},{ahead:true}).subject,'[Pocket Code] Reminder tomorrow: P — <b>x</b>');
   assert.match(dueMessage({projectName:'P',label:'<b>x</b>',dueAt:'2026-10-28T13:00:00Z'}).html,/&lt;b&gt;x&lt;\/b&gt;/,'HTML is escaped');
   fs.rmSync(dir,{recursive:true,force:true});
