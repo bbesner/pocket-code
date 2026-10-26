@@ -106,7 +106,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       return reply(m.id,{data:page,nextCursor:end<data.length?JSON.stringify({o:end,desc:p.sortDirection==='desc'}):null});
     }
     case 'thread/list':if(takeMarker(process.env.FAKE_CODEX_DIE_ON))process.exit(0);
-    case 'model/list':case 'skills/list':return reply(m.id,{data:[],nextCursor:null});
+    case 'model/list':return reply(m.id,{data:process.env.FAKE_CODEX_MODELS?JSON.parse(process.env.FAKE_CODEX_MODELS):[],nextCursor:null}); // FAKE_CODEX_MODELS: the models to list, in the app-server's shape
+    case 'skills/list':return reply(m.id,{data:[],nextCursor:null});
     case 'thread/read':return reply(m.id,{thread:{id:p.threadId,turns:[],preview:'',cwd:process.cwd()}});
     default:return fail(m.id,'unsupported in fake codex: '+m.method);
   }

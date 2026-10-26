@@ -49,7 +49,7 @@ Each reply runs in one of two permission modes:
 
 Pick the mode for the next reply with the permissions chip above the message box (**Review actions** or **Full access**;
 **Review** or **Full** on a narrow screen), or **Conversation options → Permissions for the next reply**. The sheet is
-titled **Permissions for the next turn**. The New conversation screen has the same chip.
+titled **Permissions for the next reply**. The New conversation screen has the same chip.
 
 How the choice applies:
 
@@ -84,7 +84,7 @@ The allow button names its scope:
 |---|---|
 | **Allow** | This one command, file change or tool call. |
 | **Allow network access** | A Codex network request. It can release several pending requests to the destination shown. |
-| **Allow for this turn** | A Codex request for more access. It grants the listed access until the reply ends. |
+| **Allow for this reply** | A Codex request for more access. It grants the listed access until the reply ends. |
 
 For the two broader grants the card states the scope above the details. After **Allow**, the card says "Allow decision
 sent. Check the conversation for the result": an approval is not proof the action succeeded. After **Don't allow**, the
@@ -136,8 +136,8 @@ Nothing is decided for you. The reply waits until you answer:
 - If Pocket restarts while a request waits, the request cannot be answered any more. The restarted server reattaches to
   the agent process and answers each request sent before the restart with a deny (Codex: the matching decline), so the
   reply carries on and the agent can ask again. If Pocket cannot reach the process's input any more, the conversation
-  shows **Approval connection interrupted** or **Question interrupted**; use **Stop interrupted turn** (or **Stop
-  interrupted reply**), review what finished, and send a new message.
+  shows **Approval connection interrupted** or **Question interrupted**; use **Stop interrupted reply**, review what finished, and send a new
+  message.
 
 ### Provider details
 
@@ -207,7 +207,7 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | "This action was already answered differently." | Another device answered first. | Refresh; the first answer stands. |
 | "Could not record this decision. Nothing was approved; try again." | `approval-decisions.jsonl` could not be written (disk full, permissions). | Fix the data directory, then try again. |
 | **Approval delivery uncertain** / "Delivery of this decision is uncertain…" | The decision was recorded but could not be confirmed as delivered to the agent. | Stop the reply and review the conversation. Do not approve again. |
-| **Approval connection interrupted** or **Question interrupted** | Pocket restarted and cannot reach the agent process's input. | **Stop interrupted turn**, review, send a new message. |
+| **Approval connection interrupted** or **Question interrupted** | Pocket restarted and cannot reach the agent process's input. | **Stop interrupted reply**, review, send a new message. |
 | "This question was already answered differently." | Another device answered first. | Refresh the conversation. |
 | A listed action still shows a card | The command was chained, piped, redirected, prefixed with `VAR=value`, called by path, or Codex is running; or the reply is in Full access (no cards at all). | See the matching rules in [Action approvals](../action-approvals.md#actions-that-run-without-asking). |
 | No notification for a question or approval | The conversation is muted, **Finished replies** is off on that device, or push is not set up. | Check the **Alerts** chip and **Settings → Notifications & voice**. |

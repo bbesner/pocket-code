@@ -1313,6 +1313,8 @@ export async function setCodexThreadName(threadId, name) {
 
 // ---------- models ----------
 let modelCache = { at: 0, list: [] };
+// model/list answers [{reasoningEffort, description}]; the picker needs only the names.
+const effortNames = list => Array.isArray(list) ? list.map(e => typeof e === 'string' ? e : e?.reasoningEffort ?? e?.effort).filter(e => typeof e === 'string') : undefined;
 export async function codexModels() {
   if (Date.now() - modelCache.at < 10 * 60_000 && modelCache.list.length && modelCache.stamp === binStamp(CODEX_BIN)) return modelCache.list;
   try {
@@ -1320,7 +1322,7 @@ export async function codexModels() {
     const list = (r?.data || r?.models || []).map(m => ({
       id: m.id || m.model || m.slug,
       label: m.displayName || m.name || m.id,
-      efforts: m.supportedReasoningEfforts || m.reasoningEfforts || undefined,
+      efforts: effortNames(m.supportedReasoningEfforts || m.reasoningEfforts), // 1.81: the picker offers Ultra only where the model lists it
     })).filter(m => m.id);
     if (list.length) modelCache = { at: Date.now(), list, stamp: binStamp(CODEX_BIN) };
     return list;

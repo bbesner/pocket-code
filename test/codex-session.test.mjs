@@ -346,3 +346,15 @@ test('concurrent opens and agents polls of one Codex thread share the work; a nu
  await f.start();
  const after=await f.call(`/session/${id}`);assert.equal(after.status,200,'opens with a null row in its cache file');assert.equal(after.body.messages.length,a.body.messages.length);
 });
+
+// 1.81: the picker offers Ultra only on a model whose supportedReasoningEfforts list it, so /api/codex/models passes the effort names on.
+test('/api/codex/models lists each model\'s supported effort names', async t => {
+ const effort = e => ({reasoningEffort: e, description: e});
+ const f = await fixture(t, 18441, {FAKE_CODEX_MODELS: JSON.stringify([
+  {id: 'gpt-fixture-a', model: 'gpt-fixture-a', displayName: 'Fixture A', supportedReasoningEfforts: ['low', 'high', 'max', 'ultra'].map(effort)},
+  {id: 'gpt-fixture-b', model: 'gpt-fixture-b', displayName: 'Fixture B', supportedReasoningEfforts: ['low', 'high', 'max'].map(effort)},
+  {id: 'gpt-fixture-c', model: 'gpt-fixture-c', displayName: 'Fixture C'}])});
+ const r = await f.call('/codex/models');
+ assert.equal(r.status, 200);
+ assert.deepEqual(r.body.models.map(m => [m.id, m.efforts]), [['gpt-fixture-a', ['low', 'high', 'max', 'ultra']], ['gpt-fixture-b', ['low', 'high', 'max']], ['gpt-fixture-c', undefined]]);
+});

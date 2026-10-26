@@ -166,7 +166,7 @@ function claudeDefaultLabel() {
   return hit ? hit.label + big : raw;
 }
 const EFFORTS = new Set(['max', 'xhigh', 'high', 'medium', 'low']);
-const CODEX_EFFORTS = new Set([...EFFORTS, 'ultra']);
+const CODEX_EFFORTS = new Set([...EFFORTS, 'ultra']); // 1.81: Ultra is Codex's, on models whose supportedReasoningEfforts list it; the picker offers it model by model (/api/codex/models `efforts`)
 // Pocket-only defaults for turns that leave Model/Effort on Default. Unset = the CLI's
 // own config (~/.claude/settings.json, ~/.codex/config.toml); terminal sessions never
 // see these.

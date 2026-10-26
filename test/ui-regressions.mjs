@@ -2543,6 +2543,34 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    }finally{Object.assign(settings,before);await page.evaluate(()=>PocketTheme.setPreference('system'));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');await page.reload();}
   });
 
+  await check('1.81 Keyboard shortcuts: the sheet lists the side chat shortcut and the Enter rules, and the message box follows them',async()=>{
+   const vp=page.viewport();
+   try{
+    for(const [w,h] of [[390,844],[1440,900]]){
+     await page.setViewport({width:w,height:h});await chat();
+     const sent=received.length,setBox=v=>page.$eval('#box',(e,v)=>{e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));},v),draft=await page.$eval('#box',e=>e.value);await setBox('');
+     // the rule the sheet states: Enter sends from 900 px, below that it adds a line; Shift+Enter always adds one
+     await page.focus('#box');await page.keyboard.type('one');await page.keyboard.down('Shift');await page.keyboard.press('Enter');await page.keyboard.up('Shift');await page.keyboard.type('two');
+     assert.equal(await page.$eval('#box',e=>e.value),'one\ntwo','Shift+Enter adds a line at '+w);
+     if(w<900){await page.keyboard.press('Enter');await page.keyboard.type('three');assert.equal(await page.$eval('#box',e=>e.value),'one\ntwo\nthree','below 900 px Enter adds a line');assert.equal(received.length,sent,'and sends nothing');}
+     await setBox(draft);
+     await page.evaluate(()=>settingsSheet({category:'help'}));await clickControl(page,'#s-keys');await page.waitForSelector('.shortcut-list');
+     const rows=await page.$$eval('.shortcut-list dt',ts=>ts.map(t=>[t.textContent.trim(),t.nextElementSibling.textContent.trim()]));
+     assert.deepEqual(rows.map(r=>r[0]),['Ctrl / ⌘ K','Ctrl / ⌘ Shift L','Alt [ / Alt ]','Ctrl / ⌘ F','Ctrl / ⌘ ;','Enter','Shift Enter','Escape']);
+     assert.equal(rows.find(r=>r[0]==='Ctrl / ⌘ ;')[1],'Open or close the side chat');
+     assert.match(rows.find(r=>r[0]==='Enter')[1],/at least 900 px wide.*narrower one it adds a line.*send button sends/);assert.equal(rows.find(r=>r[0]==='Shift Enter')[1],'Add a line');
+     await scan('keyboard-shortcuts-'+w);
+     await page.keyboard.press('Escape');
+    }
+   }finally{if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
+  });
+
+  await check('1.81 Split panes: the stylesheet and split.js agree on the narrowest pane',async()=>{
+   await page.goto(base+'/#/');
+   const [css,js]=await page.evaluate(()=>{const e=document.createElement('div');e.className='split-pane';document.body.append(e);const w=getComputedStyle(e).minWidth;e.remove();return [w,SPLIT_MIN+'px'];});
+   assert.equal(css,js,'.split-pane min-width follows SPLIT_MIN');
+  });
+
   await check('1.69 Inbox: the rail fits six libraries, the list opens with New / All / Dismissed, X dismisses, the row menu resolves, Settings and the push kind are there',async()=>{
    const settings=settingsState(),before={projects:settings.projects,documents:settings.documents,tasks:settings.tasks,vault:settings.vault,inbox:settings.inbox},vp=page.viewport();
    Object.assign(settings,{projects:true,documents:true,tasks:true,vault:true,inbox:true});

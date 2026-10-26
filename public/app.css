@@ -809,7 +809,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .frame > #app { flex: 1 1 0; min-width: 0; }
 #panes { display: contents; }
 #panes[hidden] { display: none; }
-.split-pane { flex: 1 1 0; min-width: 320px; display: flex; min-height: 0; }
+.split-pane { flex: 1 1 0; min-width: 380px; display: flex; min-height: 0; } /* 1.81: SPLIT_MIN in split.js, which a later rule used to override */
 .split-pane iframe { flex: 1; display: block; width: 100%; height: 100%; border: 0; background: var(--bg); }
 .pane-grip { width: 5px; flex: none; cursor: col-resize; background: var(--line); }
 .pane-grip:hover, .pane-grip:active, .pane-grip:focus-visible { background: var(--clay-deep); outline-offset: -2px; }
@@ -897,7 +897,6 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .toolbar-scroll > .icon:disabled { opacity: .45; cursor: default; }
 .toolbar-next svg { transform: rotate(180deg); }
 .compact-composer .toolbar-scroll { display: none; }
-.split-pane { min-width: 380px; }
 .split-pane[hidden],.pane-grip[hidden],.split-notice[hidden] { display: none; }
 .split-notice { font-size: 12px; line-height: 1.5; color: var(--dim); background: var(--surface); padding: 4px 12px; flex: none; }
 .conversation-controls { display: flex; flex-direction: column; flex: none; min-width: 0; }

@@ -148,7 +148,7 @@ export class ProjectStore {
         if (!Object.keys(changes).length) throw fail('Nothing to change.');
         Object.assign(p, changes);
         if (changes.status === 'done') for (const r of p.reminders) if (r.state === 'open') { r.state = 'cancelled'; r.updated = at; }
-        if (changes.status === 'active') changes.waitingFor === undefined && (p.waitingFor = p.waitingFor); // resuming never restores cancelled reminders
+        // 1.81: resuming (status active) leaves cancelled reminders cancelled; they are never restored.
         this.history(p, actor, changes.status ? `status-${changes.status}` : 'updated', changes, at);
         this.touch(p, at); break;
       }

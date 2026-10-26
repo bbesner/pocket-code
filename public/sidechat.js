@@ -88,7 +88,7 @@ const SideChat = (() => {
 
   // question: asked at once (/btw); draft: only put in the box (moved over from Branch).
   async function open(parentId, question = '', { draft = '' } = {}) {
-    if (!available(parentId)) return toast('Side chat works with Claude conversations for now.');
+    if (!available(parentId)) return; // 1.81: only a missing id; Claude and Codex both have a side chat, so there is nothing to say
     if (isOpen() && view.parentId === parentId) { if (question) ask(question); else { if (draft) { view.box.value = draft; sizeBox(view.box); } view.box.focus(); } return; }
     view?.es?.close();
     const scrim = document.createElement('div'); scrim.className = 'scrim';

@@ -69,7 +69,7 @@ The chips above the message box apply to the next reply, on New conversation and
 | Chip | Choices |
 |---|---|
 | Model (**Model for this reply**) | **Default**, then the models the picker offers (see [Models in the picker](#models-in-the-picker)). Default's line names what it runs: the Pocket default, or your CLI's own setting. |
-| Effort (**Reasoning effort**) | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. |
+| Effort (**Reasoning effort**) | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. For Codex, **Ultra** (maximum reasoning with automatic task delegation) is listed above **Max** only when the chosen model offers it; for **Default** that is the model in `POCKET_CODEX_MODEL`, if set. Changing to a model without it sets the effort back to **Default**. |
 | Permissions | **Review actions** (actions wait for your approval) or **Full access**. See [Questions and approvals](approvals.md#choose-review-actions-or-full-access). |
 | Mode (Codex only, **Codex mode for the next reply**) | **Work normally** carries out the request; **Plan first** explores an approach and asks questions before implementing. Plan first is guidance for the agent, not a sandbox. |
 
@@ -324,7 +324,7 @@ minutes) is stopped. See [operations](../operations.md) for restarts and recover
 | `POCKET_DEFAULT_CWD` | Workspace New conversation preselects. |
 | `POCKET_LOCK_CWD` | `1` starts every conversation in `POCKET_DEFAULT_CWD`. |
 | `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | Pocket's Default for Claude replies (the model counts only while it is offered). Unset: the CLI's own settings. |
-| `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | Pocket's Default for Codex replies. |
+| `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | Pocket's Default for Codex replies. `POCKET_CODEX_EFFORT` takes `low`, `medium`, `high`, `xhigh`, `max` or `ultra`; `ultra` works only with a model that offers it. |
 | `POCKET_CLAUDE_MODELS` | Claude models offered until a list is saved in Settings. |
 | `POCKET_CLAUDE_MANAGED_DIR` | Where to read Claude Code's managed settings, if not the system folder. |
 | `POCKET_CODEX` | `0` hides Codex even when installed. |

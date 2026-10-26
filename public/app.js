@@ -98,6 +98,10 @@ const LEGACY_MODELS = { 'claude-opus-5': 'claude-opus-5-5[1m]', 'claude-fable-5'
 // Codex advertises its own models; fetched once and cached so the picker in a Codex
 // session offers real options instead of Claude's list.
 let CODEX_MODELS = [['default', 'Default', 'Your Codex config']];
+// 1.81: what each Codex model says it supports. Ultra (maximum reasoning plus automatic task delegation) is on some models only,
+// so it is offered for the model this reply will use, which for Default is POCKET_CODEX_MODEL when it is set.
+let codexEfforts = new Map();
+const offersUltra = () => tb?.provider === 'codex' && codexEfforts.get(tb.prefs.model === 'default' ? providerDefaults.codex.model : tb.prefs.model)?.includes('ultra');
 async function loadCodexModels() {
   if (CODEX_MODELS.length > 1) return CODEX_MODELS;
   try {
@@ -106,7 +110,8 @@ async function loadCodexModels() {
       const label = defaultModel && (models.find(m => m.id === defaultModel)?.label || defaultModel);
       CODEX_MODELS = [['default', 'Default', label ? `${label} · Pocket default` : 'Your Codex config', label || 'Default'],
         ...models.map(m => [m.id, m.label || m.id, ''])];
-      providerDefaults.codex = { effort: defaultEffort, pocket: pocketDefault };
+      providerDefaults.codex = { effort: defaultEffort, pocket: pocketDefault, model: defaultModel || null };
+      codexEfforts = new Map(models.filter(m => Array.isArray(m.efforts)).map(m => [m.id, m.efforts])); // 1.81
     }
   } catch { }
   return CODEX_MODELS;
@@ -118,7 +123,7 @@ const effortList = () => {
   // 1.67: nothing above the managed policy's ceiling (maxEffortLevel) is offered for Claude.
   const cap = tb?.provider === 'codex' ? null : d.maxEffort, order = EFFORTS.map(e => e[0]).reverse();
   const allowed = cap ? EFFORTS.filter(([v]) => order.indexOf(v) <= order.indexOf(cap)) : EFFORTS;
-  return [['default', 'Default', name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'], ...allowed];
+  return [['default', 'Default', name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'], ...(offersUltra() ? [['ultra', 'Ultra', 'Maximum, with automatic task delegation']] : []), ...allowed];
 };
 const providerDefaults = { claude: {}, codex: {} };
 const EFFORTS = [
@@ -217,6 +222,11 @@ function normalizeModelPick() {
   const unoffered = tb.provider !== 'codex' && claudeModelsLoaded && model !== 'default' && !MODELS.some(m => m[0] === model);
   if (incompatible || unoffered) {
     tb.prefs.model = 'default';
+    setPrefs(tb.key, tb.prefs);
+  }
+  // 1.81: an Ultra pick the model (or the agent) does not offer goes back to Default; until Codex's models load there is nothing to compare with.
+  if (tb.prefs.effort === 'ultra' && (tb.provider !== 'codex' || codexEfforts.size) && !offersUltra()) {
+    tb.prefs.effort = 'default';
     setPrefs(tb.key, tb.prefs);
   }
 }

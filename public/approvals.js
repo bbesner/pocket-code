@@ -30,7 +30,7 @@ function chooseApprovalMode(key=tb?.key){
  const prefs=getPrefs(key),provider=key.startsWith('cx:')?'codex':key===NEW_KEY?tb?.provider:'claude';
  const choices=[['review','Review actions',provider==='codex'?'Use a read-only sandbox and review native permission requests. Safe reads and previously allowed tools can run without asking.':'Ask before commands, file edits, delegated tasks and external tools. Ordinary file reads can run without asking.']];
  if(approvalPolicy.allowFullAccess)choices.push(['full','Full access','Run tools without routine permission prompts, using this server’s account access.']);
- sheet('Permissions for the next turn',choices,nextApprovalMode(prefs),mode=>{prefs.approvalMode=mode;prefs.approvalModeSource='user';setPrefs(key,prefs);if(tb?.key===key){tb.prefs=prefs;renderToolbar();}});
+ sheet('Permissions for the next reply',choices,nextApprovalMode(prefs),mode=>{prefs.approvalMode=mode;prefs.approvalModeSource='user';setPrefs(key,prefs);if(tb?.key===key){tb.prefs=prefs;renderToolbar();}});
 }
 // 1.59: a request in plain words. Claude requests carry {tool,input}; Codex ones keep their own titles, which are
 // already questions ("Run this command?"), with the command or the changed files shown under them.
@@ -60,19 +60,19 @@ async function openApprovals(id){
   try{
    const d=await api('/session/'+encodeURIComponent(id)+'/approvals');if(!sh.isConnected)return;
    if(d.interrupted){
-    list.innerHTML='<p class="sheet-help">The server restarted and lost the permission connection to this turn. Old approvals cannot be replayed. Stop the turn, review what finished, then send a new instruction.</p><button class="chip" data-stop-approval>Stop interrupted turn</button>';
+    list.innerHTML='<p class="sheet-help">The server restarted and lost the permission connection to this reply. Old approvals cannot be replayed. Stop the reply, review what finished, then send a new instruction.</p><button class="chip" data-stop-approval>Stop interrupted reply</button>';
     list.querySelector('[data-stop-approval]').onclick=async e=>{e.target.disabled=true;try{await api('/session/'+encodeURIComponent(id)+'/stop',{method:'POST',body:'{}'});closeCurrentSheet?.();toast('Stop requested. Review the conversation before resuming.');}catch(err){toast(err.message);e.target.disabled=false;}};return;
    }
    if(!d.requests.length){list.textContent='No actions are waiting for approval.';return;}
    list.replaceChildren();
    for(const r of d.requests){
     const card=document.createElement('section');card.className='approval-card';
-    const scope=r.kind==='permissions'?'This grants the listed access for the rest of this turn. Later actions within that access may run without another prompt.':r.kind==='network'?'This can release multiple pending requests to the displayed network destination.':'Allow applies to this request only.';
+    const scope=r.kind==='permissions'?'This grants the listed access for the rest of this reply. Later actions within that access may run without another prompt.':r.kind==='network'?'This can release multiple pending requests to the displayed network destination.':'Allow applies to this request only.';
     const unavailable=r.status!=='pending',plain=approvalPlain(r);
     // 1.59: the request as a plain question, the whole command or path it acts on, then the full request behind
     // Show details. Broad grants (permissions, network) keep their scope line in view; a request Pocket can't
     // summarise shows its details open.
-    card.innerHTML=`<h3>${esc(plain.title)}</h3>${plain.where?.text?`<p class="approval-where">${esc(plain.where.text)}</p>`:''}${plain.where?.mono?`<pre class="approval-what" tabindex="0" aria-label="What it runs or changes">${esc(plain.where.mono)}</pre>`:''}${r.kind==='permissions'||r.kind==='network'?`<p class="sheet-help">${esc(scope)}</p>`:''}<details class="approval-more"${plain.where?'':' open'}><summary>Show details</summary>${r.kind==='permissions'||r.kind==='network'?'':`<p class="sheet-help">${esc(scope)}</p>`}<pre tabindex="0" aria-label="Full action details">${esc(r.details)}</pre></details>${!r.canAllow?'<p class="approval-error">A complete, supported action preview is unavailable. Deny this request and ask for a different action.</p>':''}<p class="approval-outcome" role="status">${unavailable?'Decision sent or uncertain. Refresh and review the conversation before continuing.':''}</p><div class="approval-actions"><button class="chip" data-decision="deny" ${unavailable?'disabled':''}>Don’t allow</button><button class="chip approval-allow" data-decision="allow" ${unavailable||!r.canAllow?'disabled':''}>${r.kind==='permissions'?'Allow for this turn':r.kind==='network'?'Allow network access':'Allow'}</button></div>`;
+    card.innerHTML=`<h3>${esc(plain.title)}</h3>${plain.where?.text?`<p class="approval-where">${esc(plain.where.text)}</p>`:''}${plain.where?.mono?`<pre class="approval-what" tabindex="0" aria-label="What it runs or changes">${esc(plain.where.mono)}</pre>`:''}${r.kind==='permissions'||r.kind==='network'?`<p class="sheet-help">${esc(scope)}</p>`:''}<details class="approval-more"${plain.where?'':' open'}><summary>Show details</summary>${r.kind==='permissions'||r.kind==='network'?'':`<p class="sheet-help">${esc(scope)}</p>`}<pre tabindex="0" aria-label="Full action details">${esc(r.details)}</pre></details>${!r.canAllow?'<p class="approval-error">A complete, supported action preview is unavailable. Deny this request and ask for a different action.</p>':''}<p class="approval-outcome" role="status">${unavailable?'Decision sent or uncertain. Refresh and review the conversation before continuing.':''}</p><div class="approval-actions"><button class="chip" data-decision="deny" ${unavailable?'disabled':''}>Don’t allow</button><button class="chip approval-allow" data-decision="allow" ${unavailable||!r.canAllow?'disabled':''}>${r.kind==='permissions'?'Allow for this reply':r.kind==='network'?'Allow network access':'Allow'}</button></div>`;
     card.querySelectorAll('[data-decision]').forEach(button=>button.onclick=async()=>{
      const outcome=card.querySelector('.approval-outcome'),decision=button.dataset.decision;
      card.querySelectorAll('button').forEach(b=>b.disabled=true);outcome.textContent='Sending decision…';

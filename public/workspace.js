@@ -347,7 +347,7 @@ async function openGit(id){
 }
 function keyboardHelp(){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
- sh.innerHTML='<h2>Keyboard shortcuts</h2><dl class="shortcut-list"><dt>Ctrl / ⌘ K</dt><dd>Find a conversation</dd><dt>Ctrl / ⌘ Shift L</dt><dd>Start a conversation</dd><dt>Alt [ / Alt ]</dt><dd>Previous / next open conversation</dd><dt>Ctrl / ⌘ F</dt><dd>Find in the conversation</dd><dt>Escape</dt><dd>Close a dialog or search</dd></dl><p class="sheet-help">Open-conversation tabs and workspace filters are saved on this device. Closing a tab never stops an agent or deletes its conversation.</p>';
+ sh.innerHTML='<h2>Keyboard shortcuts</h2><dl class="shortcut-list"><dt>Ctrl / ⌘ K</dt><dd>Find a conversation</dd><dt>Ctrl / ⌘ Shift L</dt><dd>Start a conversation</dd><dt>Alt [ / Alt ]</dt><dd>Previous / next open conversation</dd><dt>Ctrl / ⌘ F</dt><dd>Find in the conversation</dd><dt>Ctrl / ⌘ ;</dt><dd>Open or close the side chat</dd><dt>Enter</dt><dd>Send, or start a conversation, in a window at least 900 px wide. On a narrower one it adds a line, and the send button sends</dd><dt>Shift Enter</dt><dd>Add a line</dd><dt>Escape</dt><dd>Close a dialog or search</dd></dl><p class="sheet-help">Open-conversation tabs and workspace filters are saved on this device. Closing a tab never stops an agent or deletes its conversation.</p>';
  mountSheet(scrim,sh);
 }
 document.addEventListener('keydown',e=>{
