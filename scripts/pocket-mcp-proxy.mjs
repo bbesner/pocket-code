@@ -21,11 +21,11 @@ import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { needlesFor, makeScrubStream, PLACEHOLDER_ALL } from '../vault.mjs';
 import { agentEnv } from '../environment.mjs';
+import { readEnvFile } from '../env-file.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const envFile = process.env.POCKET_ENV_FILE ?? path.join(root, '.env');
-const fileEnv = {};
-try { for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) { const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line); if (m && !m[1].startsWith('#')) fileEnv[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2'); } } catch { }
+const fileEnv = readEnvFile(envFile);
 const env = k => process.env[k] ?? fileEnv[k];
 const dataDir = env('POCKET_DATA_DIR') || root;
 // The daemon writes its address to <data dir>/cli-url at start (1.43.1). Read that first, then this checkout's .env, and only

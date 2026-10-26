@@ -51,6 +51,7 @@ import {Thumbnailer} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
 import { SideChats } from './sidechat.mjs';
 import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
+import { parseEnv } from './env-file.mjs';
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -58,10 +59,8 @@ const ENV_FILE = process.env.POCKET_ENV_FILE ?? path.join(import.meta.dirname, '
 // 1.73.6: a Vault key set in the process environment (PM2 ecosystem, systemd) wins over .env, and a rotation could only ever
 // write .env; so such a key is rotated or created where it is set, and the routes say so instead of leaving a store no key opens.
 const VAULT_KEY_PRESET = Boolean(process.env.POCKET_VAULT_KEY);
-for (const line of (fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8').split('\n') : [])) {
-  const m = line.match(/^([A-Z_]+)=(.*)$/);
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
-}
+// 1.81: read by the same parser the commands use (env-file.mjs), so a quoted value or a digit in a name means the same to both.
+for (const [k, v] of Object.entries(fs.existsSync(ENV_FILE) ? parseEnv(fs.readFileSync(ENV_FILE, 'utf8')) : {})) if (!process.env[k]) process.env[k] = v;
 // 1.39: the vault key is read once and removed from the process environment, so no child of the daemon,
 // whatever path spawns it, can inherit it (see vault.mjs).
 let VAULT_KEY_RAW = process.env.POCKET_VAULT_KEY || '';

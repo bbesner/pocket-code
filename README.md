@@ -510,7 +510,7 @@ kinds this device gets and whether the icon shows the count of due tasks and rem
 
 ## Configuration
 
-Server configuration comes from the process environment or `.env` (see [`.env.example`](.env.example)). Existing environment values take precedence over that file. Browser preferences such as drafts, tabs, filters and text size stay on each device.
+Server configuration comes from the process environment or `.env` (see [`.env.example`](.env.example)). Existing environment values take precedence over that file. The daemon and every `pocket-*` command read `.env` the same way: one `NAME=value` per line, surrounding quotes optional and removed, spaces around the name, the `=` and the value ignored (quote a value whose spaces matter), `#` lines skipped. Browser preferences such as drafts, tabs, filters and text size stay on each device.
 
 Variables that have a matching control in Settings (Assistant mode, automatic model choice, one sign-in) are in the manual's
 [Settings and environment variables](docs/manual/settings.md#settings-and-environment-variables) table, with which one wins.
