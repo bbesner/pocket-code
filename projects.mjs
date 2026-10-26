@@ -41,6 +41,8 @@ export function slugify(name) {
 
 // A time for a reminder: an ISO string with an offset is taken as written; one without an offset means the
 // install's time zone (POCKET_TZ, else the system zone), never UTC by accident. Returns UTC ISO or throws.
+// 1.81 (#178): the stores pass the owner's zone (`zone`), the one the commands print times in, so a printed time typed
+// back without an offset lands where it was shown; POCKET_TZ alone could be hours from the zone the owner's browser reports.
 export function parseWhen(input, tz = process.env.POCKET_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone) {
   const s = str(input, 40);
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d{1,3})?(Z|[+-]\d{2}:?\d{2})?$/);
@@ -65,9 +67,10 @@ export function projectInstructions(cli, sessionId) {
 }
 
 export class ProjectStore {
-  constructor(file, { write, now } = {}) {
+  constructor(file, { write, now, zone } = {}) {
     this.file = file;
     this.now = now || Date.now;
+    this.zone = zone || (() => undefined); // the owner's IANA zone, or undefined for parseWhen's default
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
     let d = {};
     try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
@@ -169,7 +172,7 @@ export class ProjectStore {
         const task = input.task ? str(input.task, 40) : null;
         if (task && !p.tasks.some(x => x.id === task)) throw fail('That step does not exist.', 404);
         if (task && p.tasks.find(x => x.id === task).done) throw fail('That step is already done.', 409);
-        const dueAt = parseWhen(input.at);
+        const dueAt = parseWhen(input.at, this.zone() || undefined);
         const label = str(input.text, LIMITS.text) || (task ? p.tasks.find(x => x.id === task).text : `Revisit ${p.name}`);
         // One open reminder per project or per step: a new one replaces it (that is how "Remind later" works).
         for (const r of p.reminders) if (r.state === 'open' && (r.task || null) === task) { r.state = 'replaced'; r.updated = at; }

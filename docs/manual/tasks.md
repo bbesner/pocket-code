@@ -58,7 +58,7 @@ When the work reaches a point you will need to return to (waiting on time or dat
 ### Due times and time zones
 
 - Times you pick in Pocket are in the device's time zone and saved as an exact moment, so they mean the same thing on every device.
-- A time an agent passes without an offset is read in `POCKET_TZ`, or in the server's own zone when that is unset.
+- A time an agent passes without an offset is read in the owner's zone (the one their browser reports to Pocket, else `POCKET_TZ`, else the server's), the zone the commands print times in.
 - Times the `pocket-tasks` command prints are in your time zone (the one your browser reports to Pocket, else `POCKET_TZ`, else the server's), with the zone named.
 
 ### When a task comes due
@@ -112,7 +112,7 @@ Click a task to open its sheet: the text, the date, the conversation it came fro
 | **Settings → Conversation → Model for titles and summaries** | Which helper writes the summary for **Include a summary of this conversation**. |
 | `POCKET_REMINDER_HOOK` | A shell command run for each due task, with the task as JSON on standard input. It runs without Pocket's own secrets in its environment. See [operations](../operations.md#optional-libraries-projects-files-tasks-inbox-and-the-vault) for the payload. |
 | `POCKET_REMINDER_HOOK_TIMEOUT_MS` | How long one hook run may take before Pocket stops it and everything it started. Default 60000. |
-| `POCKET_TZ` | The time zone for due times given to `pocket-tasks` without an offset. Default: the server's own zone. |
+| `POCKET_TZ` | The user's time zone until their browser reports one, for due times shown and given to `pocket-tasks` without an offset. Default: the server's own zone. |
 | `POCKET_CHOICES=0` | Agents offer a task in one plain line instead of as a suggested-reply button. |
 | `POCKET_REMINDER_CHECK_MS` | How often due tasks are checked, in milliseconds. Default 60000. |
 
@@ -139,7 +139,7 @@ A conversation opened with **Start** has the task id in its first message. Mark 
 
 Run `node scripts/pocket-tasks.mjs` from the Pocket Code directory; the installed skill names the full path. It talks to the running server over loopback with the token in `<data dir>/cli-token` and never opens `tasks.json`. It finds the server and data directory the same way as [`pocket-board`](projects.md#running-the-command).
 
-A `--due` time without an offset is read in `POCKET_TZ`, or the server's zone. The command prints times in the user's zone, which can differ; when it does, pass an explicit offset (`2026-11-06T09:00-05:00`).
+A `--due` time without an offset is read in the zone the command prints times in (the user's), so a printed time can be passed back as it reads. An explicit offset (`2026-11-06T09:00-05:00`) is also accepted.
 
 ### Command reference
 
@@ -183,7 +183,7 @@ pocket-tasks done 1c2d3e4f5a6b
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| A task comes due hours off | The agent gave a time without an offset, and `POCKET_TZ` (or the server's zone) is not the user's zone. | Pass an offset, or set `POCKET_TZ` to the user's zone. |
+| A task comes due hours off | The agent gave a time without an offset before the user's browser reported a zone, and `POCKET_TZ` (or the server's zone) is not the user's zone. | Open Pocket in the user's browser once, set `POCKET_TZ` to the user's zone, or pass an offset. |
 | No announcement on any channel | Tasks is off, or the task has no date. | Turn on **Settings → Projects, files, tasks & vault → Tasks**; give the task a date. |
 | No push when a task comes due | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications & voice** on the device. The list still shows the task as due. |
 | No email | `POCKET_SMTP_URL` is not set, or no address is saved. | Set it up (see [Settings](settings.md#notifications--voice)) and use **Send a test** in **Settings → Notifications & voice**. |

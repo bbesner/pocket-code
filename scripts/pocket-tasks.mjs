@@ -9,7 +9,7 @@
 //   pocket-tasks done <id> | reopen <id>
 //   pocket-tasks edit <id> [--text "…"] [--due "…" | --clear-due] [--summary "…"]
 //   pocket-tasks remove <id>
-// A due time without an offset is in the server's time zone (POCKET_TZ). --summary is the context a task
+// A due time without an offset is in the owner's zone, the one times are printed in. --summary is the context a task
 // carries: two to four plain sentences on what the session was doing and what the task needs.
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
 import fs from 'node:fs';

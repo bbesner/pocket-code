@@ -132,7 +132,7 @@ All of these talk to the running Pocket daemon over loopback. Each reads the dae
 
 The data directory is `POCKET_DATA_DIR` from the environment or that `.env`, and defaults to the Pocket Code directory. `POCKET_ENV_FILE` names a different `.env` (empty reads none). Reading `cli-url` first means a `PORT` exported by an app you are working on cannot send Pocket's token to that app.
 
-Times the commands print use the owner's time zone (the zone their browser reports, then `POCKET_TZ`, then the server's) and name it. A time you give without an offset is read in `POCKET_TZ` or the server's zone.
+Times the commands print use the owner's time zone (the zone their browser reports, then `POCKET_TZ`, then the server's) and name it. A time you give without an offset is read in that same zone, so a printed time can be passed back as it reads.
 
 ### Hand the user a briefing with a start link
 

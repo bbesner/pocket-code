@@ -265,7 +265,7 @@ if (POCKET_DEFAULTS.claude.model && !isOffered(POCKET_DEFAULTS.claude.model)) co
 // connection (a request that arrived through the tunnel or a proxy carries forwarding headers and is refused),
 // and never in place of the cookie anywhere else. Due reminders go out by web push and, when the operator sets
 // POCKET_REMINDER_HOOK, to that command with the reminder as JSON on stdin; each is announced once.
-const board = new ProjectStore(path.join(DATA_DIR, 'projects.json'));
+const board = new ProjectStore(path.join(DATA_DIR, 'projects.json'), { zone: () => ownerZone() }); // 1.81: offsetless times in the zone the commands print
 const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 // ---------- 1.30: documents ----------
 // The library (documents.mjs): files in POCKET_DOCUMENTS_DIR, records in <data dir>/documents.json. Off until
@@ -284,7 +284,7 @@ setTimeout(purgeDocs, 60_000).unref(); // 1.45: also a minute after start, so a 
 // ---------- 1.36: tasks ----------
 // To-dos (tasks.mjs): <data dir>/tasks.json. Off until Settings → Projects, files, tasks & vault turns it on. The same loopback
 // token serves pocket-tasks on /api/tasks* only; a dated task is announced once when due, like a project reminder.
-const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'));
+const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'), { zone: () => ownerZone() });
 const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
 // ---------- 1.69: inbox ----------
 // What the owner's inbox watcher sent (inbox.mjs): <data dir>/inbox.json. Off until Settings → Projects, files, tasks & vault

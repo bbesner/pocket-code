@@ -69,6 +69,19 @@ test('ProjectStore: directory match, snapshot order, due reminders announced onc
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+// 1.81 (#178): the commands print times in the owner's zone but the store read an offsetless time in POCKET_TZ, so a printed
+// time passed back landed hours off whenever the owner's browser zone differed. The store now reads it in the owner's zone.
+test('ProjectStore: a reminder time without an offset is read in the owner zone the commands print in',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-zone-'));let zone='Europe/Berlin';
+  try{
+   const s=new ProjectStore(path.join(dir,'projects.json'),{zone:()=>zone});const p=s.act({action:'track',name:'Zone check'});
+   const r=()=>s.get(p.id).reminders.find(x=>x.state==='open');
+   s.act({action:'remind',project:p.id,at:'2027-03-10T09:00'});assert.equal(r().dueAt,'2027-03-10T08:00:00Z','09:00 in Berlin');
+   s.act({action:'remind',project:p.id,at:'2027-03-10T09:00-05:00'});assert.equal(r().dueAt,'2027-03-10T14:00:00Z','an explicit offset still wins');
+   zone='';s.act({action:'remind',project:p.id,at:'2027-03-10T09:00'});assert.equal(r().dueAt,parseWhen('2027-03-10T09:00'),'no owner zone: POCKET_TZ or the server\'s, as before');
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+
 const snapshotFixture=()=>({version:2,generated_at:'2026-10-09T12:00:00+00:00',timezone:'America/New_York',projects:[
   {id:'nvr-review',name:'NVR review',summary:'Chunk 7 drafted',next_step:'Review RTSP redirect',waiting_for:'',status:'active',directory:'/home/u/nvr',link:'https://github.com/x/y/pull/1',created:'2026-09-30T20:00:00+00:00',updated:'2026-10-08T03:28:04+00:00',verified:'2026-10-08T03:28:04+00:00',revision:14,enrollment:'explicit-user-request',
    tasks:[{id:'06f35f99ed42',project:'nvr-review',text:'Decide retention',done:0,created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00'},{id:'aa11',project:'nvr-review',text:'Old step',done:1,created:'2026-10-01T00:00:00+00:00',updated:'2026-10-02T00:00:00+00:00'}],

@@ -7,7 +7,7 @@
 //   pocket-board status [--all] [--json]          the current directory's project, or every project with --all
 //   pocket-board update [--name|--summary|--next|--waiting-for|--link|--dir|--status active|waiting|done]
 //   pocket-board task add "text" | done <id> | reopen <id> | edit <id> --text "…"
-//   pocket-board remind --at "YYYY-MM-DDTHH:MM" [--task <id>] [--text "…"]     (no offset = the server's time zone)
+//   pocket-board remind --at "YYYY-MM-DDTHH:MM" [--task <id>] [--text "…"]     (no offset = the owner's zone, as printed)
 //   pocket-board dismiss <reminder-id>
 //   pocket-board note "text"
 //   pocket-board link-session <id> | unlink-session <id>
