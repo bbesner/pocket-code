@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.79.2
+checked: 1.82.0
 sources: ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # Operations, upgrades and recovery

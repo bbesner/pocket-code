@@ -24,3 +24,8 @@ test('skipBlocking sends each blocking request its no-answer reply with the note
  assert.equal(inbox.skipBlocking('skipped'),1);assert.deepEqual(writes,[[{jsonrpc:'2.0',id:7,result:{answers:{}}},{skipped:'skipped'}]]);
  assert.equal(inbox.list().length,1);assert.equal(inbox.list()[0].blocking,false);assert.equal(inbox.skipBlocking('again'),0);
 });
+test('1.82: a question from a subagent names the agent on the row',()=>{
+ const inbox=new QuestionInbox({threadId:()=> 'thread',write:()=>{}});
+ assert.equal(inbox.receive(request,'turn',{agent:'Review imports'}),true);assert.equal(inbox.list()[0].agent,'Review imports');
+ assert.equal(inbox.receive({...request,id:8},'turn'),true);assert.equal(inbox.list()[1].agent,null);
+});

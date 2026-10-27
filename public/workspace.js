@@ -366,9 +366,22 @@ async function refreshQuestions(id){
   // 1.76.1: typing instead of answering skips a blocking question (the server declines it), so the box says so
   const box=$('#box'),skip=!d.interrupted&&d.requests.some(r=>r.blocking!==false)&&sendModes.get(id)!=='queue';
   if(box){if(box.dataset.basePh===undefined)box.dataset.basePh=box.placeholder;box.placeholder=skip?SKIP_PH:box.dataset.basePh;}
-  paintWaitBanner(b,d.interrupted?{title:'Question interrupted',note:'The server restarted while '+who+' was waiting for your answer.',cta:'Review'}
-   :{title:who+(n===1?' has a question for you':' has '+n+' questions for you'),note:d.requests.some(r=>r.blocking!==false)?'The reply is paused until you answer.':who+' keeps working while it waits.',cta:n===1?'Answer':'Answer all'});}}
+  // 1.82: one question with a few options answers from the banner; Answer still opens the form (a typed answer, the
+  // options' descriptions). Several questions, a multiple-choice or secret one, or more than four options use the form.
+  const one=!d.interrupted&&d.requests.length===1&&d.requests[0].questions?.length===1?d.requests[0]:null,q=one?.questions[0];
+  const paused=d.requests.some(r=>r.blocking!==false);
+  if(q&&!q.multiple&&!q.isSecret&&q.options.length>=1&&q.options.length<=4)
+   paintWaitBanner(b,{title:q.question,agent:one.agent||'',note:(paused?'The reply is paused until you answer. ':who+' keeps working while it waits. ')+'Pick one, or Answer to write your own.',cta:'Answer',
+    actions:q.options.map(o=>({label:o.label,title:o.description,run:()=>answerFromBanner(id,one,q,o.label,b)}))});
+  else paintWaitBanner(b,d.interrupted?{title:'Question interrupted',note:'The server restarted while '+who+' was waiting for your answer.',cta:'Review'}
+   :{title:who+(n===1?' has a question for you':' has '+n+' questions for you'),agent:d.requests.every(r=>r.agent)?[...new Set(d.requests.map(r=>r.agent))].join(', '):'',note:paused?'The reply is paused until you answer.':who+' keeps working while it waits.',cta:n===1?'Answer':'Answer all'});}}
  catch{if(chatId===id&&$('#questions-open')&&!$('#questions-open').hidden)paintWaitBanner($('#questions-open'),{title:'Question status unavailable',cta:'Retry'});}
+}
+async function answerFromBanner(id,r,q,label,banner){
+ waitBannerBusy(banner,'Sending your answer…');
+ try{await api('/session/'+encodeURIComponent(id)+'/questions/'+encodeURIComponent(r.id)+'/answer',{method:'POST',body:JSON.stringify({answers:{[q.id]:[label]}})});toast('Answer sent.');}
+ catch(e){toast(e.message);}
+ refreshQuestions(id);refreshSessions();
 }
 async function openQuestions(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet question-sheet';sh.innerHTML='<h2>Agent questions</h2><div data-questions role="status">Loading…</div>';mountSheet(scrim,sh);
@@ -380,12 +393,18 @@ async function openQuestions(id){
   target.innerHTML='';
   for(const r of d.requests){
    const form=document.createElement('form');form.className='question-form';
-   form.innerHTML=r.questions.map((q,i)=>`<fieldset><legend>${esc(q.question)}</legend>${q.options.map((o,j)=>`<label class="question-option"><input type="${q.multiple?'checkbox':'radio'}" name="q${i}" value="${j}"><span>${esc(o.label)}<small>${esc(o.description)}</small></span></label>`).join('')}<label class="question-custom">${q.options.length?'Or write an answer':'Your answer'}<input type="${q.isSecret?'password':'text'}" data-answer="${i}" autocomplete="off" maxlength="10000"></label></fieldset>`).join('')+'<p class="question-error" role="status"></p><button class="primary" type="submit">Send answers</button>';
+   form.innerHTML=(r.agent?`<p class="approval-agent">From subagent: ${esc(r.agent)}</p>`:'')+r.questions.map((q,i)=>`<fieldset><legend>${esc(q.question)}</legend>${q.options.map((o,j)=>`<label class="question-option"><input type="${q.multiple?'checkbox':'radio'}" name="q${i}" value="${j}"><span>${esc(o.label)}<small>${esc(o.description)}</small></span></label>`).join('')}<label class="question-custom">${q.options.length?'Or write an answer':'Your answer'}<input type="${q.isSecret?'password':'text'}" data-answer="${i}" autocomplete="off" maxlength="10000"></label></fieldset>`).join('')+'<p class="question-error" role="status"></p><button class="primary" type="submit">Send answers</button>';
    form.onsubmit=async e=>{
     e.preventDefault();const answers=Object.create(null),error=form.querySelector('.question-error'),b=form.querySelector('[type=submit]');
     for(let i=0;i<r.questions.length;i++){const q=r.questions[i],typed=form.querySelector(`[data-answer="${i}"]`).value.trim(),selected=[...form.querySelectorAll(`[name="q${i}"]:checked`)];const values=typed?[typed]:selected.map(option=>q.options[Number(option.value)].label);if(!values.length){error.textContent='Answer each question before sending.';return;}answers[q.id]=values;}
     b.disabled=true;
-    try{await api('/session/'+encodeURIComponent(id)+'/questions/'+r.id+'/answer',{method:'POST',body:JSON.stringify({answers})});form.innerHTML='<p>Answers sent to the agent.</p>';refreshQuestions(id);refreshSessions();}
+    try{
+     await api('/session/'+encodeURIComponent(id)+'/questions/'+r.id+'/answer',{method:'POST',body:JSON.stringify({answers})});
+     form.innerHTML='<p>Answers sent to the agent.</p>';refreshQuestions(id);refreshSessions();
+     // 1.82: the sheet closes itself once no question is left waiting.
+     let left=null;try{left=await api('/session/'+encodeURIComponent(id)+'/questions');}catch{}
+     if(sh.isConnected&&left&&!left.requests.length&&!left.interrupted){closeCurrentSheet?.();toast(r.questions.length===1?'Answer sent.':'Answers sent.');}
+    }
     catch(err){error.textContent=err.message;b.disabled=false;}
    };
    target.append(form);

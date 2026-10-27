@@ -28,7 +28,7 @@ import {parseRuleList, validateRules, matchTrusted} from './trusted.mjs';
 import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
 import {cacheFromTranscript,turnCacheSummary} from './cache.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
-import {AgentActivity,ClaudeAgentFiles} from './subagents.mjs';
+import {AgentActivity,ClaudeAgentFiles,SubagentIndex,subagentDir} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
 import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION,summarizeAway,awayDigest,awayWorthSummary,createRetitler,retitle,summarizeForTask} from './titles.mjs';
 import zlib from 'node:zlib';
@@ -896,13 +896,13 @@ function toolSummary(name, input) {
 
 // The transcript format drifts across CLI versions — one surprising line must cost
 // that line, never the whole session view.
-function normalizeLine(o) {
-  try { return normalizeLineInner(o); } catch { return null; }
+function normalizeLine(o, opts) {
+  try { return normalizeLineInner(o, opts); } catch { return null; }
 }
 
-function normalizeLineInner(o) {
-  // returns a display message or null
-  if (o.isSidechain) return null;
+function normalizeLineInner(o, { sidechain = false } = {}) {
+  // returns a display message or null. sidechain: reading a subagent's own transcript (1.82), where every line is one.
+  if (o.isSidechain && !sidechain) return null;
   // a message steered/queued into a running turn lands as an attachment line, not a user line
   if (o.type === 'attachment' && o.attachment?.type === 'queued_command') {
     // prompt was an array of content blocks in older CLI versions, a plain string in newer ones
@@ -948,14 +948,14 @@ function normalizeLineInner(o) {
   return null;
 }
 
-async function readTranscript(file, maxMsgs = 400) {
+async function readTranscript(file, maxMsgs = 400, opts) {
   const msgs = [];
   let total = 0;
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
   for await (const line of rl) {
     if (!line.trim()) continue;
     let o; try { o = JSON.parse(line); } catch { continue; }
-    const m = normalizeLine(o);
+    const m = normalizeLine(o, opts);
     if (m) { total++; msgs.push(m); if (msgs.length > maxMsgs * 2) msgs.splice(0, msgs.length - maxMsgs); }
   }
   return { msgs: msgs.slice(-maxMsgs), total };
@@ -1304,26 +1304,28 @@ function attachClaudeQuestions(turn,sessionId){
   turn.questions=new QuestionInbox({threadId:()=>sessionId,write:(reply,opts)=>{
     if(!turn.stdin||turn.stdin.destroyed||turn.stdin.writableEnded)throw new Error('Question connection closed');
     const input=inputs.get(reply.id);if(!input)throw new Error('Question expired');
-    if(opts?.skipped){turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:reply.id,response:{behavior:'deny',message:opts.skipped}}})+'\n');inputs.delete(reply.id);return;}
+    if(opts?.skipped){turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:reply.id,response:{behavior:'deny',message:opts.skipped}}})+'\n');inputs.delete(reply.id);turn.rawRequests?.delete(reply.id);return;}
     const answers=Object.fromEntries(input.questions.map((q,i)=>[q.question,reply.result.answers['question-'+i].answers.join(', ')]));
     turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:reply.id,response:{behavior:'allow',updatedInput:{...input,answers}}}})+'\n');
-    inputs.delete(reply.id);
+    inputs.delete(reply.id);turn.rawRequests?.delete(reply.id);
   },onChange:()=>{
     const pending=turn.questions.list().length;
     try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForInput=Boolean(pending||turn.approvals?.list().length);fs.writeFileSync(turn.files.meta,JSON.stringify(meta),{mode:0o600});}catch{}
     broadcast(turn,{type:'questions'});
-    const questionId=turn.questions.list().at(-1)?.id;
-    if(pending&&turn.questionNotified!==questionId&&!mutes.has(sessionId)){turn.questionNotified=questionId;pushNotify(sessionId,'Claude has a question','Open Pocket Code to answer it.').catch(()=>{});}
+    const last=turn.questions.list().at(-1);
+    if(pending&&turn.questionNotified!==last.id&&!mutes.has(sessionId)){turn.questionNotified=last.id;pushNotify(sessionId,last.agent?'A subagent has a question':'Claude has a question','Open Pocket Code to answer it.').catch(()=>{});}
+    maybeEndControlTurn(turn);
   }});
   turn.approvals=new ApprovalInbox({sessionId:()=>sessionId,turnId:()=>String(turn.startedAt),audit:auditApproval,write:(id,response)=>new Promise((resolve,reject)=>{
     if(!turn.stdin||turn.stdin.destroyed||turn.stdin.writableEnded)return reject(new Error('Approval connection closed'));
-    turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:id,response}})+'\n',e=>e?reject(e):resolve());
+    turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:id,response}})+'\n',e=>{if(!e)turn.rawRequests?.delete(id);e?reject(e):resolve();});
   }),onChange:()=>{
     const requests=turn.approvals?.list()||[];
     try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForApproval=Boolean(requests.length);meta.waitingForInput=Boolean(requests.length||turn.questions.list().length);fs.writeFileSync(turn.files.meta,JSON.stringify(meta),{mode:0o600});}catch{}
     broadcast(turn,{type:'approvals'});
-    const id=requests.at(-1)?.id;
-    if(id&&turn.approvalNotified!==id&&!mutes.has(sessionId)){turn.approvalNotified=id;pushNotify(sessionId,'Waiting for your OK','Open Pocket Code to review the pending action.').catch(()=>{});}
+    const last=requests.at(-1);
+    if(last&&turn.approvalNotified!==last.id&&!mutes.has(sessionId)){turn.approvalNotified=last.id;pushNotify(sessionId,last.agent?'A subagent is waiting for your OK':'Waiting for your OK','Open Pocket Code to review the pending action.').catch(()=>{});}
+    maybeEndControlTurn(turn);
   },onAutoError:(e,{tool})=>log(`trusted action reply not delivered session=${sessionId} tool=${tool}: ${e.message}`)});
 }
 function handleTurnLine(turn, line) {
@@ -1332,24 +1334,29 @@ function handleTurnLine(turn, line) {
   if (usageEvent) broadcast(turn, { type: 'usage', kind: usageEvent.kind });
   // 1.28: the turn's first request shows whether it resumed from a warm cache or wrote it again
   if (o.type === 'assistant' && !o.parent_tool_use_id && o.message?.usage && o.message.model !== '<synthetic>' && turn.cacheFirst === undefined) turn.cacheFirst = turnCacheSummary(o.message.usage);
+  if (turn.controlOnly && ['assistant', 'stream_event', 'result'].includes(o.type)) turn.controlOnly = false; // the agent is replying: a real turn now
   if(o.type==='control_request'){
+    // 1.82: the asking subagent's name, and the request itself so a reply that ends while it waits can carry it over.
+    const agent=o.request?.subtype==='can_use_tool'?askingAgent(turn,o.request.tool_use_id):null;
+    if(o.request?.subtype==='can_use_tool'&&o.request_id!=null)(turn.rawRequests??=new Map()).set(o.request_id,o);
     if(o.request?.subtype==='can_use_tool'&&o.request.tool_name==='AskUserQuestion'&&turn.questions){
       const input=o.request.input;const questions=Array.isArray(input?.questions)?input.questions.map((q,i)=>({id:'question-'+i,header:q.header,question:q.question,options:q.options,multiple:q.multiSelect})):[];
       turn.questionInputs.set(o.request_id,input);
-      if(turn.questions.receive({id:o.request_id,method:'item/tool/requestUserInput',params:{threadId:turn.sessionId,turnId:String(turn.startedAt),isBlocking:true,questions}},String(turn.startedAt)))return;
+      if(turn.questions.receive({id:o.request_id,method:'item/tool/requestUserInput',params:{threadId:turn.sessionId,turnId:String(turn.startedAt),isBlocking:true,questions}},String(turn.startedAt),{agent}))return;
       turn.questionInputs.delete(o.request_id);
     }
     if(o.request?.subtype==='can_use_tool'&&o.request.tool_name!=='AskUserQuestion'&&typeof o.request.tool_name==='string'&&o.request.input&&typeof o.request.input==='object'&&turn.approvals){
       const tool=o.request.tool_name;
       // 1.56: in Review actions only, a request matching a trusted rule is answered Allow and audited, no card.
       const rule=turn.approvalMode==='review'?matchTrusted(trustedRules(),tool,o.request.input):null;
-      if(rule&&turn.approvals.autoAllow({nativeId:o.request_id,turnId:String(turn.startedAt),kind:'tool',title:'Allow '+tool+'?',details:{tool,cwd:turn.cwd,input:o.request.input},allow:{behavior:'allow',updatedInput:o.request.input},deny:{behavior:'deny',message:'The user denied this action. Do not run it through another tool.'},rule,tool})){log(`trusted action allowed session=${turn.sessionId} tool=${tool} rule=${JSON.stringify(rule)}`);return;}
-      if(turn.approvals.receive({nativeId:o.request_id,turnId:String(turn.startedAt),kind:'tool',title:'Allow '+tool+'?',details:{tool,cwd:turn.cwd,input:o.request.input},allow:{behavior:'allow',updatedInput:o.request.input},deny:{behavior:'deny',message:'The user denied this action. Do not run it through another tool.'}}))return;
+      if(rule&&turn.approvals.autoAllow({nativeId:o.request_id,turnId:String(turn.startedAt),kind:'tool',title:'Allow '+tool+'?',details:{tool,cwd:turn.cwd,input:o.request.input},allow:{behavior:'allow',updatedInput:o.request.input},deny:{behavior:'deny',message:'The user denied this action. Do not run it through another tool.'},rule,tool})){turn.rawRequests?.delete(o.request_id);log(`trusted action allowed session=${turn.sessionId} tool=${tool} rule=${JSON.stringify(rule)}`);return;}
+      if(turn.approvals.receive({nativeId:o.request_id,turnId:String(turn.startedAt),kind:'tool',title:'Allow '+tool+'?',details:{tool,cwd:turn.cwd,input:o.request.input},allow:{behavior:'allow',updatedInput:o.request.input},deny:{behavior:'deny',message:'The user denied this action. Do not run it through another tool.'},agent}))return;
     }
+    turn.rawRequests?.delete(o.request_id);
     if(turn.stdin&&!turn.stdin.destroyed)turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:o.request_id,response:{behavior:'deny',message:'This interactive request is not supported in Pocket Code.'}}})+'\n');
     return;
   }
-  if(o.type==='control_cancel_request'){turn.questions?.resolve(o.request_id);turn.approvals?.resolve(o.request_id);return;}
+  if(o.type==='control_cancel_request'){turn.rawRequests?.delete(o.request_id);turn.questions?.resolve(o.request_id);turn.approvals?.resolve(o.request_id);return;}
   if (o.type === 'stream_event') {
     const ev = o.event;
     if (!o.parent_tool_use_id && ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) {
@@ -1375,6 +1382,13 @@ function handleTurnLine(turn, line) {
 // later reply showed the cost of all the earlier ones too. A turn costs the difference from the last total that
 // process reported (kept in its runner marker, so a restarted daemon carries on). A process adopted from before
 // 1.78.1 has no baseline: its next reply shows no cost rather than a wrong one.
+function carryRequests(r, carry) {
+  if (!r || !carry.length || r.turn || r.exited || r.closing) return;
+  const next = beginTurn(r, { autonomous: true, controlOnly: true });
+  log(`turn start (${carry.length} request(s) carried from the ended reply) session=${r.sessionId} pid=${r.pid}`);
+  for (const o of carry) handleTurnLine(next, JSON.stringify(o));
+  maybeEndControlTurn(next);
+}
 function turnCost(turn, total) {
   const spent = Number(total);
   if (total == null || !Number.isFinite(spent)) return null;
@@ -1478,12 +1492,14 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
   return r;
 }
 
-function beginTurn(r, { userText = '', retryAttempt, autonomous = false, offset }) {
+// controlOnly (1.82): a stand-in for a reply, opened to hold a permission request or question that arrived while no
+// reply was running (a background subagent asked). It ends as soon as nothing is waiting; output turns it into a reply.
+function beginTurn(r, { userText = '', retryAttempt, autonomous = false, offset, controlOnly = false }) {
   let size = r.tailOffset; try { size = fs.statSync(r.files.out).size; } catch { }
   const turn = {
     sessionId: r.sessionId, runner: r, pid: r.pid, stdin: r.writer, events: [], subs: new Set(), cwd: r.cwd,
     startedAt: Date.now(), userText, model: r.model, effort: r.effort, retryAttempt, approvalMode: r.approvalMode,
-    queue: [], files: r.files, offset: offset ?? size, autonomous, baseline: descendantCpu(r.pid).pids,
+    queue: [], files: r.files, offset: offset ?? size, autonomous, controlOnly, rawRequests: new Map(), baseline: descendantCpu(r.pid).pids,
   };
   attachClaudeQuestions(turn, r.sessionId);
   clearTimeout(r.idleTimer);
@@ -1514,14 +1530,35 @@ function handleRunnerLine(r, line, lineOffset) {
   let turn = r.turn;
   if (!turn) {
     // The CLI started a turn by itself, e.g. to report a finished background job.
-    const wakes = o.type === 'assistant' || o.type === 'stream_event' || (o.type === 'system' && o.subtype === 'init');
+    // 1.82: a permission request or question with no reply running comes from a background subagent. Dropping it
+    // left the agent waiting forever (and the conversation "working in background" with nothing to see).
+    const control = o.type === 'control_request' && o.request?.subtype === 'can_use_tool';
+    const wakes = control || o.type === 'assistant' || o.type === 'stream_event' || (o.type === 'system' && o.subtype === 'init');
     if (!wakes || r.exited) return;
-    turn = beginTurn(r, { autonomous: true, offset: lineOffset });
-    log(`turn start (started by the agent) session=${r.sessionId} pid=${r.pid}`);
+    turn = beginTurn(r, { autonomous: true, offset: lineOffset, controlOnly: control });
+    log(control ? `turn start (a background job asked for permission) session=${r.sessionId} pid=${r.pid}` : `turn start (started by the agent) session=${r.sessionId} pid=${r.pid}`);
     // Viewers in transcript-mirror mode resync on `done` and attach to this live turn.
     for (const t of tailers.get(r.sessionId) || []) { try { t.res.write('data: {"type":"done"}\n\n'); t.res.end(); } catch { } }
   }
   handleTurnLine(turn, line);
+  maybeEndControlTurn(turn);
+}
+// A control-only turn with nothing waiting any more is over: the conversation goes back to Working in background.
+function maybeEndControlTurn(turn) {
+  if (!turn?.controlOnly || turn.finalized || turn.questions?.list().length || turn.approvals?.list().length) return;
+  finalizeTurn(turn.sessionId, turn, 0).catch(e => log(`control turn close failed session=${turn.sessionId}: ${e.message}`));
+}
+// 1.82: which subagent asked. The request carries only its tool_use id; the agent's own transcript is where that id
+// is written, so the match is read from the session's subagents directory (null when the parent itself asked).
+const subagentIndex = new SubagentIndex();
+function sessionAgentDir(id, runner) {
+  if (runner && runner.sessionFile === undefined) runner.sessionFile = sessionFileSync(id);
+  const file = runner ? runner.sessionFile : sessionFileSync(id);
+  return file ? subagentDir(file, id) : null;
+}
+function askingAgent(turn, toolUseId) {
+  if (!toolUseId) return null;
+  try { return subagentIndex.agentFor(sessionAgentDir(turn.sessionId, turn.runner), toolUseId)?.name || null; } catch { return null; }
 }
 
 function drainRunnerLog(r) {
@@ -1656,9 +1693,23 @@ async function finalizeTurn(sessionId, turn, code) {
   turn.finalized = true;
   const r = turn.runner;
   if (r && r.turn === turn) r.turn = null; // later lines from the process belong to the next turn
+  // 1.82: requests still waiting when a reply ends came from a background subagent, which keeps waiting for them.
+  // They move to a control-only turn so they stay answerable; Stop, an exit or a stall withdraws them as before.
+  const carry = r && !r.exited && !r.closing && !turn.stopped && !turn.stalled && code === 0 ? [...(turn.rawRequests?.values() || [])] : [];
   turn.questions?.clear();
   turn.approvals?.clear();
   turn.finalizeDone = new Promise(resolve => { turn.finalizeResolve = resolve; });
+  if (turn.controlOnly) { // a stand-in for a reply: no outcome, no title, no queue, no notification
+    try {
+      broadcast(turn, { type: 'done' });
+      for (const res of turn.subs) { try { res.end(); } catch { } }
+      if (turns.get(sessionId) === turn) turns.delete(sessionId);
+      if (r && !r.exited) { writeRunnerMeta(r); scheduleIdle(r); }
+      log(`turn done (background job's request answered) session=${sessionId}`);
+      carryRequests(r, carry);
+    } finally { turn.finalizeResolve?.(); }
+    return;
+  }
   try {
   await restampEntrypoint(sessionId, ownedTranscriptSize.get(sessionId) ?? 0);
   try{const file=await findSessionFile(sessionId);if(file){const st=await fsp.stat(file);ownedTranscriptMtime.set(sessionId,st.mtimeMs);rememberOwnedSize(sessionId,st.size);}}catch{}
@@ -1703,6 +1754,7 @@ async function finalizeTurn(sessionId, turn, code) {
     return;
   }
   if (!turn.stopped) autoKeepTurnFiles(sessionId, turn.startedAt || 0);
+  carryRequests(r, carry);
   // 1.64: a reply that leaves background jobs running is not done. The CLI starts a turn by itself when
   // they finish, and that turn's end sends the notification; a push now would say Done too early.
   if (!watching && !turn.stopped && r && !r.exited && r.bgTasks.length) log(`notification held: ${r.bgTasks.length} background job(s) still running session=${sessionId}`);
@@ -2178,6 +2230,7 @@ async function sessionAgents(id) {
       const parsed=await agentFiles.read(source);truncated ||= parsed.truncated;
       for(const event of parsed.events)activity.claude(event);
     }
+    if(file)activity.files(subagentIndex.summary(subagentDir(file,id))); // 1.82: the agents' own transcripts
     const result=activity.snapshot({confirmed:Boolean(turns.get(id)),backgroundIds:(runner?.bgTasks||[]).filter(t=>/agent/.test(t.task_type||'')).map(t=>t.task_id)});
     return {...result,truncated:result.truncated||truncated};
   })();
@@ -2194,6 +2247,21 @@ app.get('/api/session/:id/agents',requireAuth,async(req,res)=>{
   catch(e){res.status(e.status||503).json({error:e.status?e.message:'Subagent activity could not be loaded. Try again.'});}
 });
 
+// 1.82: what a subagent has done so far, from its own transcript, in the conversation's message shape.
+app.get('/api/session/:id/agents/:agent/activity',requireAuth,async(req,res)=>{
+  res.set('Cache-Control','private, no-store');
+  const {id,agent}=req.params;
+  if(!anyId(id)||!/^[\w-]{1,64}$/.test(agent))return res.status(400).json({error:'Invalid conversation'});
+  if(isCx(id))return res.status(404).json({error:'Codex does not keep a transcript Pocket can show for its subagents.'});
+  try{
+    const file=await findSessionFile(id);
+    const info=file?subagentIndex.file(subagentDir(file,id),agent):null;
+    if(!info)return res.status(404).json({error:'This subagent has not written a transcript yet.'});
+    const {msgs,total}=await readTranscript(info.file,300,{sidechain:true});
+    const {file:_,...summary}=info;
+    res.json({agent:summary,messages:msgs,total,checkedAt:Date.now()});
+  }catch(e){res.status(503).json({error:'Subagent activity could not be loaded. Try again.'});}
+});
 app.get('/api/approval-policy',requireAuth,(_req,res)=>res.json({defaultMode:DEFAULT_APPROVAL_MODE,allowFullAccess:ALLOW_FULL_ACCESS}));
 app.get('/api/session/:id/approvals',requireAuth,(req,res)=>{
   res.set('Cache-Control','no-store');
@@ -2588,7 +2656,7 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
     // fall back to the queue when the pipe is gone (adopted without its pipe) or closing
     if (mode !== 'queue' && steerTurn(running, promptText(text, opts.attachments))) {
       broadcast(running, { type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
-      const skipped = skipQuestions(running.questions); // the message is in first, so Claude reads it with the skip
+      const skipped = running.controlOnly ? 0 : skipQuestions(running.questions); // the message is in first, so Claude reads it with the skip (1.82: a background subagent's question is not skipped)
       log(`steered message into running turn session=${id}${skipped ? ` skipped=${skipped} question request(s)` : ''}`);
       return res.status(202).json({ ok: true, steered: true, ...(skipped && { skippedQuestions: skipped }) });
     }
@@ -3802,7 +3870,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both.", "Two ways off a conversation, now on Claude and Codex. Side chat asks a quick question about the conversation: nothing is saved and nothing changes. Branch starts a new saved conversation that carries on from here with everything so far, and can do work on its own while the original stays as it is; it shows in your list as a branch, with a link back. Both buttons explain themselves when you hover over them, Conversation options describes each, and each one points to the other. Requested by Brad.", "On a computer, the Side chat button now sits in the row under the message box, next to Add project and Add task, labelled Side chat, and shows as pressed while the side chat is open; it is also there, as an icon, while Claude is working. Phones keep the speech-bubble button in the conversation's header. Suggested by Brad."];
+const RELEASE_NOTES = ["Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both.", "Two ways off a conversation, now on Claude and Codex. Side chat asks a quick question about the conversation: nothing is saved and nothing changes. Branch starts a new saved conversation that carries on from here with everything so far, and can do work on its own while the original stays as it is; it shows in your list as a branch, with a link back. Both buttons explain themselves when you hover over them, Conversation options describes each, and each one points to the other. Requested by Brad.", "On a computer, the Side chat button now sits in the row under the message box, next to Add project and Add task, labelled Side chat, and shows as pressed while the side chat is open; it is also there, as an icon, while Claude is working. Phones keep the speech-bubble button in the conversation's header. Suggested by Brad."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

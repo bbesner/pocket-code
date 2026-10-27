@@ -47,9 +47,26 @@ async function refreshApprovals(id){
   const b=$('#approvals-open');if(!b)return;
   b.hidden=!d.interrupted&&!d.requests.length;
   const n=d.requests.length,plain=!d.interrupted&&!d.requests.some(r=>r.status==='uncertain');
-  paintWaitBanner(b,{title:d.interrupted?'Approval connection interrupted':!plain?'Approval delivery uncertain':n===1?'Waiting for your OK':n+' requests waiting for your OK',note:plain?'The reply is paused until you allow or deny it.':'',cta:'Review',mark:IC.info});
+  // 1.82: one request answers from the banner: the question in plain words, the command or file it acts on, the
+  // asking subagent, and Allow / Don't allow. Details opens the sheet. Several requests still go to the sheet.
+  const one=n===1&&plain&&d.requests[0].status==='pending'?d.requests[0]:null;
+  if(one){
+   const words=approvalPlain(one),where=words.where||{};
+   const note=where.mono||where.text||(one.kind==='permissions'?'Grants the listed access for the rest of this reply.':one.kind==='network'?'Can release several pending requests to the shown destination.':'');
+   const actions=[{label:'Don’t allow',run:()=>decideFromBanner(id,one,'deny',b)}];
+   if(one.canAllow)actions.push({label:allowLabel(one),primary:true,run:()=>decideFromBanner(id,one,'allow',b)});
+   paintWaitBanner(b,{title:words.title,agent:one.agent||'',note,mono:Boolean(where.mono),cta:'Details',mark:IC.info,actions});
+  } else paintWaitBanner(b,{title:d.interrupted?'Approval connection interrupted':!plain?'Approval delivery uncertain':n+' requests waiting for your OK',note:plain?'The reply is paused until you allow or deny them.':'',agent:plain&&d.requests.every(r=>r.agent)?[...new Set(d.requests.map(r=>r.agent))].join(', '):'',cta:'Review',mark:IC.info});
   const label=$('#work-label');if(label)label.textContent=!b.hidden?'Waiting for your OK':'Working';
  }catch{if(chatId===id&&$('#approvals-open')){$('#approvals-open').hidden=false;paintWaitBanner($('#approvals-open'),{title:'Approval status unavailable',cta:'Retry',mark:IC.info});}}
+}
+const allowLabel=r=>r.kind==='permissions'?'Allow for this reply':r.kind==='network'?'Allow network access':'Allow';
+const decisionNote=decision=>decision==='allow'?'Allowed. Check the conversation for the result.':'Not allowed. The agent may try another approach.';
+async function decideFromBanner(id,r,decision,banner){
+ waitBannerBusy(banner,'Sending your decision…');
+ try{await api('/session/'+encodeURIComponent(id)+'/approvals/'+encodeURIComponent(r.id)+'/decision',{method:'POST',body:JSON.stringify({decision})});toast(decisionNote(decision));}
+ catch(e){toast(e.message);}
+ refreshApprovals(id);refreshSessions();
 }
 async function openApprovals(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet approvals-sheet';
@@ -72,11 +89,20 @@ async function openApprovals(id){
     // 1.59: the request as a plain question, the whole command or path it acts on, then the full request behind
     // Show details. Broad grants (permissions, network) keep their scope line in view; a request Pocket can't
     // summarise shows its details open.
-    card.innerHTML=`<h3>${esc(plain.title)}</h3>${plain.where?.text?`<p class="approval-where">${esc(plain.where.text)}</p>`:''}${plain.where?.mono?`<pre class="approval-what" tabindex="0" aria-label="What it runs or changes">${esc(plain.where.mono)}</pre>`:''}${r.kind==='permissions'||r.kind==='network'?`<p class="sheet-help">${esc(scope)}</p>`:''}<details class="approval-more"${plain.where?'':' open'}><summary>Show details</summary>${r.kind==='permissions'||r.kind==='network'?'':`<p class="sheet-help">${esc(scope)}</p>`}<pre tabindex="0" aria-label="Full action details">${esc(r.details)}</pre></details>${!r.canAllow?'<p class="approval-error">A complete, supported action preview is unavailable. Deny this request and ask for a different action.</p>':''}<p class="approval-outcome" role="status">${unavailable?'Decision sent or uncertain. Refresh and review the conversation before continuing.':''}</p><div class="approval-actions"><button class="chip" data-decision="deny" ${unavailable?'disabled':''}>Don’t allow</button><button class="chip approval-allow" data-decision="allow" ${unavailable||!r.canAllow?'disabled':''}>${r.kind==='permissions'?'Allow for this reply':r.kind==='network'?'Allow network access':'Allow'}</button></div>`;
+    card.innerHTML=`<h3>${esc(plain.title)}</h3>${r.agent?`<p class="approval-agent">From subagent: ${esc(r.agent)}</p>`:''}${plain.where?.text?`<p class="approval-where">${esc(plain.where.text)}</p>`:''}${plain.where?.mono?`<pre class="approval-what" tabindex="0" aria-label="What it runs or changes">${esc(plain.where.mono)}</pre>`:''}${r.kind==='permissions'||r.kind==='network'?`<p class="sheet-help">${esc(scope)}</p>`:''}<details class="approval-more"${plain.where?'':' open'}><summary>Show details</summary>${r.kind==='permissions'||r.kind==='network'?'':`<p class="sheet-help">${esc(scope)}</p>`}<pre tabindex="0" aria-label="Full action details">${esc(r.details)}</pre></details>${!r.canAllow?'<p class="approval-error">A complete, supported action preview is unavailable. Deny this request and ask for a different action.</p>':''}<p class="approval-outcome" role="status">${unavailable?'Decision sent or uncertain. Refresh and review the conversation before continuing.':''}</p><div class="approval-actions"><button class="chip" data-decision="deny" ${unavailable?'disabled':''}>Don’t allow</button><button class="chip approval-allow" data-decision="allow" ${unavailable||!r.canAllow?'disabled':''}>${r.kind==='permissions'?'Allow for this reply':r.kind==='network'?'Allow network access':'Allow'}</button></div>`;
     card.querySelectorAll('[data-decision]').forEach(button=>button.onclick=async()=>{
      const outcome=card.querySelector('.approval-outcome'),decision=button.dataset.decision;
      card.querySelectorAll('button').forEach(b=>b.disabled=true);outcome.textContent='Sending decision…';
-     try{await api('/session/'+encodeURIComponent(id)+'/approvals/'+encodeURIComponent(r.id)+'/decision',{method:'POST',body:JSON.stringify({decision})});outcome.textContent=decision==='allow'?'Allow decision sent. Check the conversation for the result.':'Denied. The agent may continue with another approach.';refreshApprovals(id);refreshSessions();}
+     try{
+      await api('/session/'+encodeURIComponent(id)+'/approvals/'+encodeURIComponent(r.id)+'/decision',{method:'POST',body:JSON.stringify({decision})});
+      outcome.textContent=decision==='allow'?'Allow decision sent. Check the conversation for the result.':'Denied. The agent may continue with another approach.';
+      refreshApprovals(id);refreshSessions();
+      // 1.82: the sheet closes itself once nothing else is waiting; with more requests it shows what is left.
+      let left=null;try{left=await api('/session/'+encodeURIComponent(id)+'/approvals');}catch{}
+      if(!sh.isConnected)return;
+      if(left&&!left.requests.length&&!left.interrupted){closeCurrentSheet?.();toast(decisionNote(decision));}
+      else if(left)load();
+     }
      catch(e){outcome.textContent=e.message+' Use Refresh to check the current request.';}
     });
     list.append(card);

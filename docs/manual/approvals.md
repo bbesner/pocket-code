@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.79.2
-sources: approvals.mjs, trusted.mjs, questions.mjs, public/approvals.js, public/workspace.js
+checked: 1.82.0
+sources: approvals.mjs, trusted.mjs, questions.mjs, subagents.mjs, public/approvals.js, public/workspace.js
 -->
 # Questions and approvals
 
@@ -16,10 +16,20 @@ When Claude uses its question tool (AskUserQuestion), or Codex asks a native que
 such as **Claude has a question for you** or **Codex has 2 questions for you**, and the conversation list marks the
 conversation **Needs your answer**.
 
+When it is one question with up to four options (and not a multiple-choice or secret one), the banner asks it
+directly: the question is the title and each option is a button. Tap one and the answer is sent. **Answer** opens the
+form instead, for a typed answer or to read the options' descriptions.
+
+Otherwise:
+
 1. Choose **Answer** (or **Answer all**) on the banner. The **Agent questions** sheet opens.
 2. For each question, pick an option (several when the question allows more than one), or type under **Or write an
    answer**. A typed answer replaces the options you ticked.
-3. Choose **Send answers**. Every question needs an answer before it sends.
+3. Choose **Send answers**. Every question needs an answer before it sends. The sheet closes itself once no question
+   is left waiting.
+
+A question from a subagent says so under the question: **From subagent: Review imports** (the name the agent was
+started with).
 
 A question Codex marks as secret takes its answer in a password field. Codex shows native questions mostly in **Plan
 first** mode (the Codex mode chip above the message box). A non-blocking Codex question says "Codex keeps working while it
@@ -69,14 +79,22 @@ In Assistant mode the permissions chip is hidden; replies use the conversation's
 
 ### Review an action
 
-In Review actions, when the agent asks to run something, the conversation shows **Waiting for your OK** (or **N requests
-waiting for your OK**) with **Review**, the Working row reads **Waiting for your OK**, and the conversation list shows **Needs
-approval**.
+In Review actions, when the agent asks to run something, the Working row reads **Waiting for your OK** and the
+conversation list shows **Needs approval**.
+
+When one request waits, the banner under the conversation header is the card: it asks in plain words what the agent
+wants to do ("Run: Run the import checks?", "Save report.csv?"), shows the command or the file under it, names the
+subagent when one asked (**From subagent: Review imports**), and carries **Don't allow** and **Allow**. One tap decides
+it. **Details** opens the sheet with the full request. A request Pocket cannot show in full offers only **Don't allow**
+and **Details**.
+
+When several requests wait, the banner reads **N requests waiting for your OK** with **Review**:
 
 1. Choose **Review**. The **Waiting for your OK** sheet lists each pending request as a card.
 2. Each card asks in plain words what the agent wants to do ("Run this command?", "Apply these file changes?") and shows
    the command, or the files it would change. **Show details** has the full request.
-3. Choose **Allow** or **Don't allow**.
+3. Choose **Allow** or **Don't allow**. The sheet closes itself once nothing is left waiting; with more requests left,
+   it shows them.
 
 The allow button names its scope:
 
@@ -113,7 +131,8 @@ and the audit record are in [Action approvals](../action-approvals.md#actions-th
 
 A new question or approval sends a push notification to every device with **Settings → Notifications & voice → Push to
 this device** and **Finished replies** on: **Claude has a question** or **Codex has a question** ("Open Pocket Code to
-answer it."), or **Waiting for your OK** ("Open Pocket Code to review the pending action."). The notification carries no command or argument details. Tapping it
+answer it."), or **Waiting for your OK** ("Open Pocket Code to review the pending action."); from a subagent, **A
+subagent has a question** or **A subagent is waiting for your OK**. The notification carries no command or argument details. Tapping it
 opens the conversation; answer or approve there. Action approvals cannot be answered from the notification itself.
 (Vault requests are different: those notifications carry Allow and Deny buttons; see
 [Vault](vault.md#answer-a-request).)
@@ -133,6 +152,11 @@ Nothing is decided for you. The reply waits until you answer:
 - Questions and approvals do not expire, and a reply waiting on one is never stopped for being quiet (the stall watchdog
   skips it).
 - **Stop** ends the reply and withdraws its questions and cards.
+- A request from a subagent outlives the reply that started it. When a reply ends while a background subagent's request
+  is still waiting, or a background subagent asks after the reply has ended, Pocket opens a stand-in turn for it: the
+  conversation reads **Needs approval** or **Needs your answer** and the card is shown as usual, named after the agent.
+  The stand-in ends the moment nothing is waiting and the conversation goes back to **Working in background**; it records
+  no reply of its own. A message you type meanwhile goes to the agent and does not skip a subagent's question.
 - If Pocket restarts while a request waits, the request cannot be answered any more. The restarted server reattaches to
   the agent process and answers each request sent before the restart with a deny (Codex: the matching decline), so the
   reply carries on and the agent can ask again. If Pocket cannot reach the process's input any more, the conversation
@@ -146,6 +170,7 @@ Nothing is decided for you. The reply waits until you answer:
 | Review actions | Permission mode `default`, with ask rules for Bash, PowerShell, Edit, Write, NotebookEdit, Agent, Task, WebFetch, WebSearch and every MCP tool. | Read-only sandbox, `untrusted` approval policy, the user as reviewer. |
 | Full access | `bypassPermissions` | `danger-full-access` sandbox, approval policy `never` |
 | Request kinds | One kind: a tool call, shown in plain words. | Command, file change, network access, additional permissions. |
+| From subagents | Shown with the agent's name, read from the agent's own transcript (`<project>/<session>/subagents/`). | Re-homed on the reply with the agent's name; a subagent's file change cannot be previewed, so it offers only Don't allow. |
 | Questions | AskUserQuestion, always shown as a question. | Native questions, mostly in Plan first. |
 | Actions that run without asking | Supported. | Not supported. |
 | Requests Pocket cannot show | Denied with "This interactive request is not supported in Pocket Code." | Declined (MCP elicitation requests are cancelled). |

@@ -25,14 +25,15 @@ export class ApprovalInbox {
  constructor({sessionId,turnId,write,audit=()=>{},onChange=()=>{},onAutoError=()=>{}}){
   this.onAutoError=onAutoError;this.autoAnswered=new Set();this.sessionId=sessionId;this.turnId=turnId;this.write=write;this.audit=audit;this.onChange=onChange;this.pending=new Map();this.answered=new Map();this.closed=false;
  }
- receive({nativeId,turnId,kind,title,details,allow,deny,canAllow=true}){
+ // 1.82: `agent` names the subagent that asked, when the request came from one; it is shown, never fingerprinted.
+ receive({nativeId,turnId,kind,title,details,allow,deny,canAllow=true,agent=null}){
   if(this.closed||nativeId==null||!turnId||turnId!==this.turnId()||this.pending.size>=20)return false;
   const text=JSON.stringify(details,null,2);
   if(!text||text.length>200000)return false; // Never approve a truncated preview.
   const fingerprint=createHash('sha256').update(JSON.stringify({kind,title,details,allow,deny})).digest('hex');
   const prior=[...this.pending.values()].find(r=>r.nativeId===nativeId);
   if(prior)return prior.fingerprint===fingerprint;
-  const row={id:randomUUID(),nativeId,turnId,kind,title,details:text,allow,deny,canAllow,fingerprint,createdAt:Date.now(),status:'pending'};
+  const row={id:randomUUID(),nativeId,turnId,kind,title,details:text,allow,deny,canAllow,fingerprint,createdAt:Date.now(),status:'pending',agent:typeof agent==='string'&&agent?agent.slice(0,240):null};
   try{this.audit({event:'requested',sessionId:this.sessionId(),turnId,requestId:row.id,kind,fingerprint});}catch{return false;}
   this.pending.set(row.id,row);this.onChange();return true;
  }

@@ -294,7 +294,7 @@ function sessionSheet(s, refresh) { // s: {id, title, pinned}
       s.id===chatId?'<button class="opt" id="so-find">'+IC.search+'<span>Find in conversation</span></button><button class="opt" id="so-changes">'+IC.diff+'<span>Changed files</span></button>':'',
       !PANE && chatId && s.id !== chatId && isWide() ? '<button class="opt" id="so-beside">'+IC.columns+'<span>Open beside<span class="sub">Show it next to the current conversation</span></span></button>' : '',
       s.id===chatId&&SideChat.available(s.id)?'<button class="opt" id="so-side">'+IC.chat+'<span>Side chat<span class="sub">'+SIDE_WHAT+'</span></span></button><button class="opt" id="so-branch">'+IC.branch+'<span>Branch<span class="sub">'+BRANCH_WHAT+'</span></span></button>':'',
-      `<button class="opt" id="so-agents">${IC.columns}<span>Subagents<span class="sub">Tasks, status and latest activity</span></span></button>`,
+      `<button class="opt" id="so-agents">${IC.columns}<span>Subagents<span class="sub">What each one is doing, and work in the background</span></span></button>`,
       s.id===chatId?'<button class="opt" id="so-usage">'+IC.gauge+'<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>':''])}
     ${optGroup('Organize', [
       `<button class="opt" id="so-pin">${IC.pin}<span>${s.pinned ? 'Unpin conversation' : 'Pin conversation'}<span class="sub">${s.pinned ? 'Back to its place by recency' : 'Keep it at the top of the list'}</span></span></button>`,
@@ -470,9 +470,20 @@ function toolIcon(name) {
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // 1.75.4: the question and approval banners are something to do, not a notice: --warn (Pocket's "waiting on you"),
 // what is waiting, whether the reply is paused, and an Answer/Review button. The whole banner opens the sheet.
-function paintWaitBanner(b,{title,note='',cta,mark=IC.ask}){
+// 1.82: one waiting item answers from the banner itself: `actions` are buttons (Allow / Don't allow, or a question's
+// options) beside the cta, which opens the sheet as before. `agent` names the subagent that asked. The banner is a
+// group now, not one button: a click anywhere outside the buttons still opens the sheet.
+function paintWaitBanner(b,{title,note='',mono=false,agent='',cta,mark=IC.ask,actions=[]}){
   if(!b)return;
-  b.innerHTML=`<span class="wb-mark">${mark}</span><span class="wb-text"><span class="wb-title">${esc(title)}</span>${note?`<span class="wb-note">${esc(note)}</span>`:''}</span><span class="wb-cta">${esc(cta)}${IC.fwd1}</span>`;
+  b.innerHTML=`<span class="wb-mark">${mark}</span><span class="wb-text"><span class="wb-title">${esc(title)}</span>${agent?`<span class="wb-agent">From subagent: ${esc(agent)}</span>`:''}${note?`<span class="wb-note${mono?' mono':''}">${esc(note)}</span>`:''}</span><span class="wb-actions">${actions.map((a,i)=>`<button type="button" class="wb-act${a.primary?' wb-allow':''}" data-act="${i}"${a.title?` title="${esc(a.title)}"`:''}>${esc(a.label)}</button>`).join('')}<button type="button" class="wb-cta">${esc(cta)}${IC.fwd1}</button></span>`;
+  b.setAttribute('role','group');b.setAttribute('aria-label',title);
+  b.querySelectorAll('[data-act]').forEach(button=>button.onclick=e=>{e.stopPropagation();actions[Number(button.dataset.act)]?.run?.(button);});
+}
+// The banner's buttons go quiet while a decision travels; the next refresh paints the banner again.
+function waitBannerBusy(b,note){
+  if(!b)return;
+  b.querySelectorAll('button').forEach(x=>x.disabled=true);
+  const n=b.querySelector('.wb-note');if(n&&note){n.textContent=note;n.classList.remove('mono');}
 }
 // code block with its own copy affordance — selecting text on a touchscreen is miserable
 const codeHTML = t => `<div class="codewrap"><button class="copybtn" data-copy aria-label="Copy code">${IC.copy}</button><pre><code>${esc(t)}</code></pre></div>`;
@@ -1618,7 +1629,8 @@ function paintSessionPanels() {
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
   const current = allSessions.find(s => s.id === chatId);
   const qb=$('#questions-open');if(qb){qb.hidden=!current?.state?.questions;if(!qb.hidden&&!qb.querySelector('.wb-cta'))paintWaitBanner(qb,{title:(String(chatId).startsWith('cx:')?'Codex':'Claude')+' is waiting for your answer',note:current.state.label==='Needs your answer'?'The reply is paused until you answer.':'',cta:'Answer'});} // refreshQuestions fills in the count
-  const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals)paintWaitBanner(ab,{title:current.state.label||'Action needs approval',note:current.state.label==='Needs approval'?'The reply is paused until you allow or deny it.':'',cta:'Review',mark:IC.info});}
+  const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals&&!ab.querySelector('.wb-cta'))paintWaitBanner(ab,{title:current.state.label||'Action needs approval',note:current.state.label==='Needs approval'?'The reply is paused until you allow or deny it.':'',cta:'Review',mark:IC.info});} // refreshApprovals paints the request itself
+  if(typeof paintAgents==='function')paintAgents(); // 1.82: the row under the controls also reports background jobs
   if (current && $('#chat-statebar') && !sessionsStale) markRead(chatId, current.state); // 1.35: the header's run status names the state; no second copy
   const queueButton=$('#queue-open');if(queueButton)queueButton.textContent='Queue'+(current?.state?.queued?' ('+current.state.queued+')':'');
   if(current?.state?.confirmed&&['finished','failed','stopped','ended'].includes(current.state.kind)&&!sessionsStale&&!loadOutbox(chatId)){deliveryNotices.delete(chatId);paintDelivery(chatId);}
@@ -2556,8 +2568,8 @@ async function renderChat(id, { away = false } = {}) {
     </header>
     <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><p class="lineage" id="lineage" hidden></p><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
     <button id="agents-open" class="agents-open" aria-haspopup="dialog" hidden></button>
-    <button class="question-banner" id="questions-open" hidden>${String(id).startsWith('cx:') ? 'Codex' : 'Claude'} has a question</button>
-    <button class="question-banner" id="approvals-open" hidden>Waiting for your OK · Review</button>
+    <div class="question-banner" id="questions-open" hidden>${String(id).startsWith('cx:') ? 'Codex' : 'Claude'} has a question</div>
+    <div class="question-banner" id="approvals-open" hidden>Waiting for your OK · Review</div>
     <p id="connection-state" class="connection-state" role="status" hidden></p>
     <div class="findbar" id="findbar" hidden>
       <input type="search" id="fq" placeholder="Find in conversation" autocomplete="off" enterkeyhint="search">
@@ -2577,8 +2589,8 @@ async function renderChat(id, { away = false } = {}) {
   $('#results-open').onclick = () => openResults(chatId);
   $('#queue-open').onclick = () => openQueue(chatId);
   $('#git-open').onclick = () => openGit(chatId);
-  $('#questions-open').onclick=()=>openQuestions(chatId);
-  $('#approvals-open').onclick=()=>openApprovals(chatId);
+  $('#questions-open').onclick=e=>{if(!e.target.closest?.('[data-act]'))openQuestions(chatId);};
+  $('#approvals-open').onclick=e=>{if(!e.target.closest?.('[data-act]'))openApprovals(chatId);};
   $('#chgb').onclick = () => openChanges();
   $('#findb').onclick = () => findOpen(!findIsOpen());
   const sideb = $('#sideb'); if (sideb) sideb.onclick = () => SideChat.toggle(chatId); // 1.78
@@ -2752,17 +2764,26 @@ function paintAway(id, since, renderVersion) {
 const agentCache = new Map(), agentFetches = new Map();
 const agentLabels = {running:'Working',pending:'Starting',completed:'Completed',failed:'Failed',interrupted:'Interrupted',closed:'Closed',unknown:'Status unconfirmed'};
 function agentsFresh(d) { return d && !d.error && Date.now()-d.receivedAt<15000; }
+// 1.82: the row also carries the session's background jobs (a command left running, an agent after the reply ended),
+// which before showed only in the status bar's tooltip, and each agent can open its own transcript.
+const backgroundOf=id=>allSessions.find(s=>s.id===id)?.state?.background||null;
 function paintAgents() {
-  const d=agentCache.get(chatId), b=$('#agents-open');
+  const d=agentCache.get(chatId), b=$('#agents-open'), bg=backgroundOf(chatId);
   if(b){
-    b.hidden=!d?.total;
-    if(d?.total){
-      const label=!agentsFresh(d)?'Subagents · status unavailable':d.running?`${d.running} subagent${d.running===1?'':'s'} working`:`Subagents · ${d.total} recorded`;
-      b.textContent=label+' · View'; b.setAttribute('aria-label',label+'. View tasks and activity');
+    b.hidden=!d?.total&&!bg;
+    if(!b.hidden){
+      const jobs=bg?.jobs?.filter(j=>j.kind==='job').length||0, plural=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
+      const label=d?.total&&!agentsFresh(d)?'Subagents · status unavailable'
+        :d?.running?`${plural(d.running,'subagent')} working${jobs?` · ${plural(jobs,'background job')}`:''}`
+        :bg?`Working in background · ${bg.summary}`
+        :`Subagents · ${d.total} recorded`;
+      b.textContent=label+' · View'; b.setAttribute('aria-label',label+'. View what each one is doing');
     }
   }
   const sh=document.querySelector('.agents-sheet');if(!sh)return;
-  const data=agentCache.get(sh.dataset.session);if(!data)return;
+  const data=agentCache.get(sh.dataset.session), jobsLine=sh.querySelector('.agents-jobs'), sbg=backgroundOf(sh.dataset.session);
+  if(jobsLine){const plain=sbg?.jobs?.filter(j=>j.kind==='job')||[];jobsLine.hidden=!plain.length;jobsLine.textContent=plain.length?`Background ${plain.length===1?'job':'jobs'}: ${plain.map(j=>j.description||'a command').join('; ')}.`:'';}
+  if(!data)return;
   const fresh=agentsFresh(data), status=sh.querySelector('.agents-status'), list=sh.querySelector('.agents-list');
   status.textContent=!fresh?'Activity could not be confirmed. Showing the last available details.':data.total?`${data.running} working · ${data.total} recorded. Updates every 5 seconds.`:'No subagents recorded in this conversation yet.';
   sh.querySelector('.agents-retry').hidden=fresh;
@@ -2771,17 +2792,52 @@ function paintAgents() {
   for(const a of data.agents||[]){
     keep.add(a.id);
     let row=[...list.children].find(el=>el.dataset.agent===a.id);
-    if(!row){row=document.createElement('details');row.className='agent-row';row.dataset.agent=a.id;row.innerHTML='<summary><span class="agent-name"></span><span class="agent-state"></span></summary><div class="agent-detail"></div>';list.append(row);}
+    if(!row){
+      row=document.createElement('details');row.className='agent-row';row.dataset.agent=a.id;
+      row.innerHTML='<summary><span class="agent-name"></span><span class="agent-state"></span></summary><div class="agent-detail"></div><div class="agent-more" hidden><button type="button" class="chip agent-activity-open" aria-expanded="false">Show activity</button><div class="agent-activity" role="log" aria-label="Subagent activity" hidden></div></div>';
+      row.querySelector('.agent-activity-open').onclick=()=>toggleAgentActivity(sh.dataset.session,row);
+      list.append(row);
+    }
     const name=row.querySelector('.agent-name'), badge=row.querySelector('.agent-state');
     name.textContent=a.name==='Subagent'?`Subagent ${a.id.slice(0,8)}`:a.name;
     const state=!fresh&&['running','pending'].includes(a.status)?'unknown':a.status;
     badge.textContent=agentLabels[state]||'Status unconfirmed';badge.dataset.state=state;
-    const facts=[a.kind,a.model].filter(Boolean).join(' · ');
+    const facts=[a.kind,a.model,a.background?'in the background':''].filter(Boolean).join(' · ');
+    const counts=a.usage?[Number.isFinite(a.usage.tools)?a.usage.tools+' tool calls':null,Number.isFinite(a.usage.tokens)?a.usage.tokens.toLocaleString()+' tokens':null]:[Number.isFinite(a.steps)?a.steps+' tool calls':null,Number.isFinite(a.messages)?a.messages+(a.messages===1?' message':' messages'):null];
     const html=(facts?`<p class="agent-meta">${esc(facts)}</p>`:'')+`<h3>Task</h3><p class="agent-copy">${esc(a.task||'The provider did not record a task description.')}</p><h3>Latest activity</h3><p class="agent-copy">${esc(a.latest||'No activity details reported yet.')}</p>`+
-      (a.usage?`<p class="agent-meta">${esc([Number.isFinite(a.usage.tools)?a.usage.tools+' tool calls':null,Number.isFinite(a.usage.tokens)?a.usage.tokens.toLocaleString()+' tokens':null].filter(Boolean).join(' · '))}</p>`:'');
+      (counts.filter(Boolean).length?`<p class="agent-meta">${esc(counts.filter(Boolean).join(' · '))}</p>`:'');
     const detail=row.querySelector('.agent-detail');if(detail.innerHTML!==html)detail.innerHTML=html;
+    row.querySelector('.agent-more').hidden=!a.activity;
+    if(row.dataset.activity==='1'&&row.open&&['running','pending'].includes(a.status))loadAgentActivity(sh.dataset.session,row); // follow a working agent
   }
   for(const row of [...list.children])if(!keep.has(row.dataset.agent))row.remove();
+}
+function toggleAgentActivity(id,row){
+  const button=row.querySelector('.agent-activity-open'), box=row.querySelector('.agent-activity'), open=row.dataset.activity!=='1';
+  row.dataset.activity=open?'1':'';button.setAttribute('aria-expanded',String(open));button.textContent=open?'Hide activity':'Show activity';box.hidden=!open;
+  if(open){box.innerHTML='<p class="sheet-help">Loading…</p>';loadAgentActivity(id,row);}
+}
+const agentActivityLoads=new Map();
+async function loadAgentActivity(id,row){
+  const key=id+'/'+row.dataset.agent;if(agentActivityLoads.has(key))return;
+  const box=row.querySelector('.agent-activity');
+  const load=(async()=>{
+    try{
+      const d=await api('/session/'+encodeURIComponent(id)+'/agents/'+encodeURIComponent(row.dataset.agent)+'/activity',{cache:'no-store',signal:AbortSignal.timeout(10000)});
+      if(!box.isConnected||row.dataset.activity!=='1')return;
+      const shown=d.messages.slice(-60);
+      const html=`<p class="agent-meta">${esc([d.agent.steps+' tool call'+(d.agent.steps===1?'':'s'),d.agent.messages+' message'+(d.agent.messages===1?'':'s'),d.total>shown.length?'last '+shown.length+' shown':''].filter(Boolean).join(' · '))}</p>`+
+        (shown.length?shown.map(m=>m.role==='user'?`<div class="agent-brief">${esc(m.text)}</div>`:msgHTML(m)).join(''):'<p class="sheet-help">Nothing written yet.</p>');
+      if(box.dataset.html===html)return;
+      const atEnd=box.scrollHeight-box.scrollTop-box.clientHeight<60||!box.dataset.html;
+      box.dataset.html=html;box.innerHTML=html;
+      box.querySelectorAll('details.ledgerwrap').forEach(f=>f.open=true); // the steps are the point here
+      box.querySelectorAll('.enter').forEach(n=>n.classList.remove('enter'));
+      if(atEnd)box.scrollTop=box.scrollHeight;
+    }catch(e){if(box.isConnected&&!box.dataset.html)box.innerHTML=`<p class="sheet-help">${esc(e.message||'Activity could not be loaded.')}</p>`;}
+    finally{agentActivityLoads.delete(key);}
+  })();
+  agentActivityLoads.set(key,load);return load;
 }
 async function refreshAgents(id) {
   if(!id)return;
@@ -2800,7 +2856,7 @@ function openAgentsPanel(id=chatId) {
   if(!id)return;
   const scrim=document.createElement('div');scrim.className='scrim';
   const sh=document.createElement('div');sh.className='sheet agents-sheet';sh.dataset.session=id;
-  sh.innerHTML='<h2>Subagents</h2><p class="sheet-help agents-status" role="status">Loading subagent activity…</p><button class="chip agents-retry" hidden>Retry</button><div class="agents-list"></div><p class="sheet-help agents-limit" hidden>Showing recent activity. Older details may be omitted.</p>';
+  sh.innerHTML='<h2>Subagents</h2><p class="sheet-help agents-jobs" hidden></p><p class="sheet-help agents-status" role="status">Loading subagent activity…</p><button class="chip agents-retry" hidden>Retry</button><div class="agents-list"></div><p class="sheet-help agents-limit" hidden>Showing recent activity. Older details may be omitted.</p>';
   sh.querySelector('.agents-retry').onclick=()=>refreshAgents(id);
   mountSheet(scrim,sh);paintAgents();refreshAgents(id);
 }

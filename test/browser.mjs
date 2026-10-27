@@ -338,6 +338,10 @@ const server=http.createServer(async(req,res)=>{
   }
   if(failNext){req.socket.destroy();return;}return json(receipts.get(body.clientMessageId),202);
  }
+ if(/\/agents\/[^/]+\/activity$/.test(url.pathname)){ // 1.82
+  if(!uiModes.agentActivity)return json({error:'This subagent has not written a transcript yet.'},404);
+  return json({...uiModes.agentActivity,checkedAt:Date.now()});
+ }
  if(url.pathname.endsWith('/agents')){
   if(uiModes.agentsFail)return json({error:'Temporarily unavailable'},503);
   const agents=uiModes.agents||[];return json({agents,total:agents.length,running:agents.filter(a=>a.status==='running').length,checkedAt:Date.now()});
@@ -510,15 +514,27 @@ try{
  questionRequests=[{id:'request-1',blocking:true,questions:[{id:'format',header:'Format',question:'Which format should the report use?',options:[{label:'CSV',description:'For spreadsheets'},{label:'PDF',description:'For reading'}]}]}];
  rows[1].state={kind:'input',label:'Needs your answer',questions:1};
  await p.goto(base+'/#/chat/'+rows[1].id);await p.waitForSelector('#questions-open:not([hidden])');
- // 1.75.4: the banner says what is waiting, that the reply is paused, and carries an Answer button
- await p.waitForFunction(()=>{const b=document.querySelector('#questions-open');return b?.querySelector('.wb-title')?.textContent==='Codex has a question for you'&&b.querySelector('.wb-note')?.textContent==='The reply is paused until you answer.'&&b.querySelector('.wb-cta')?.textContent==='Answer';});
+ // 1.75.4: the banner says what is waiting and that the reply is paused. 1.82: one question with a few options is
+ // asked in the banner itself, each option a button; Answer still opens the form.
+ await p.waitForFunction(()=>{const b=document.querySelector('#questions-open');return b?.querySelector('.wb-title')?.textContent==='Which format should the report use?'&&/The reply is paused until you answer/.test(b.querySelector('.wb-note')?.textContent)&&b.querySelector('.wb-cta')?.textContent==='Answer'&&b.getAttribute('role')==='group';});
+ assert.deepEqual(await p.$$eval('#questions-open .wb-act',e=>e.map(x=>[x.textContent,x.title])),[['CSV','For spreadsheets'],['PDF','For reading']]);
  await p.waitForFunction(()=>document.querySelector('#box')?.placeholder==='Answer above, or type here to skip the questions…'); // 1.76.1
  await p.screenshot({path:path.join(out,'question-banner-mobile.png')});await scan('question-banner-mobile');
- await clickControl(p,'#questions-open');await p.waitForSelector('.question-form');
+ await clickControl(p,'#questions-open .wb-cta');await p.waitForSelector('.question-form');
  await p.screenshot({path:path.join(out,'native-question-mobile.png')});await scan('native-question-mobile');
  await clickControl(p,'.question-form [type=submit]');assert.match(await p.$eval('.question-error',e=>e.textContent),/Answer each/);
- await clickControl(p,'.question-option input');await clickControl(p,'.question-form [type=submit]');await p.waitForFunction(()=>document.querySelector('.question-form')?.textContent.includes('Answers sent'));
- assert.deepEqual(questionAnswers,{format:['CSV']});await p.keyboard.press('Escape');
+ await clickControl(p,'.question-option input');await clickControl(p,'.question-form [type=submit]');
+ await p.waitForFunction(()=>!document.querySelector('.question-sheet'),'1.82: the form closes itself once nothing is waiting');
+ assert.deepEqual(questionAnswers,{format:['CSV']});
+ // The banner's own buttons answer without the form.
+ questionRequests=[{id:'request-1',blocking:true,agent:'Review imports',questions:[{id:'format',header:'Format',question:'Which format should the report use?',options:[{label:'CSV',description:'For spreadsheets'},{label:'PDF',description:'For reading'}]}]}];questionAnswers=null;
+ await p.evaluate(()=>refreshQuestions(chatId));await p.waitForFunction(()=>document.querySelector('#questions-open .wb-agent')?.textContent==='From subagent: Review imports');
+ await clickControl(p,'#questions-open .wb-act:nth-of-type(2)');await p.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Answer sent.');
+ assert.deepEqual(questionAnswers,{format:['PDF']});assert.equal(await p.$('.question-sheet'),null,'no form opened');
+ // Several questions, or a multiple-choice one, still go to the form.
+ questionRequests=[{id:'request-1',blocking:true,questions:[{id:'format',question:'Which format?',multiple:true,options:[{label:'CSV',description:''},{label:'PDF',description:''}]}]}];
+ await p.evaluate(()=>refreshQuestions(chatId));await p.waitForFunction(()=>document.querySelector('#questions-open .wb-title')?.textContent==='Codex has a question for you'&&!document.querySelector('#questions-open .wb-act'));
+ questionRequests=[];
  await clickControl(p,'#c-mode');await p.waitForSelector('[data-v="plan"]');await clickControl(p,'[data-v="plan"]');assert.match(await p.$eval('#c-mode',e=>e.textContent),/Plan first/);
  await p.evaluate(()=>openEnvironment());await p.waitForSelector('.provider-account');assert.match(await p.$eval('.provider-account',e=>e.textContent),/owner@example.test/);await p.keyboard.press('Escape');
  for(const width of [390,1440]){
@@ -704,8 +720,26 @@ try{
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   const before=approvalDecisions.length;await p.screenshot({path:path.join(out,'approval-'+width+'.png')});await scan('approval-'+width);
   assert.equal(approvalDecisions.length,before);await p.focus('[data-decision="deny"]');await p.keyboard.press('Enter');
-  await p.waitForFunction(()=>document.querySelector('.approval-outcome')?.textContent.startsWith('Denied'));
-  assert.equal(approvalDecisions.at(-1),'deny');await p.keyboard.press('Escape');
+  await p.waitForFunction(()=>!document.querySelector('.approvals-sheet'),'1.82: the sheet closes itself once nothing is waiting');
+  assert.equal(approvalDecisions.at(-1),'deny');
+  // 1.82: one request is answered from the banner: the question in plain words, the command, the asking subagent, Allow and Don't allow.
+  approvalRequests=[{id:'approval-3',title:'Allow Bash?',kind:'tool',agent:'Review imports',details:JSON.stringify({tool:'Bash',cwd:'/workspaces/reports',input:{command:'npm run import:check <script>window.__bannerXSS=1</script>',description:'Run the import checks'}},null,2),canAllow:true,status:'pending'}];
+  await p.evaluate(()=>refreshApprovals(chatId));
+  await p.waitForFunction(()=>document.querySelector('#approvals-open .wb-title')?.textContent==='Run: Run the import checks?'&&document.querySelector('#approvals-open .wb-agent')?.textContent==='From subagent: Review imports');
+  assert.equal(await p.evaluate(()=>Boolean(window.__bannerXSS)),false);
+  assert.match(await p.$eval('#approvals-open .wb-note.mono',e=>e.textContent),/npm run import:check/);
+  assert.deepEqual(await p.$$eval('#approvals-open .wb-act',e=>e.map(x=>x.textContent)),['Don’t allow','Allow']);
+  assert.equal(await p.$eval('#approvals-open .wb-cta',e=>e.textContent),'Details');
+  assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await p.screenshot({path:path.join(out,'approval-banner-'+width+'.png')});await scan('approval-banner-'+width);
+  await clickControl(p,'#approvals-open .wb-allow');await p.waitForFunction(()=>document.querySelector('#toast')?.textContent.startsWith('Allowed'));
+  assert.equal(approvalDecisions.at(-1),'allow');assert.equal(await p.$('.approvals-sheet'),null,'no sheet opened');
+  // Two requests keep the Review button and no inline decision.
+  approvalRequests=[{id:'approval-4',title:'Run this command?',kind:'command',details:JSON.stringify({command:'ls'}),canAllow:true,status:'pending'},{id:'approval-5',title:'Run this command?',kind:'command',details:JSON.stringify({command:'pwd'}),canAllow:true,status:'pending'}];
+  await p.evaluate(()=>refreshApprovals(chatId));await p.waitForFunction(()=>document.querySelector('#approvals-open .wb-title')?.textContent==='2 requests waiting for your OK'&&!document.querySelector('#approvals-open .wb-act')&&document.querySelector('#approvals-open .wb-cta')?.textContent==='Review');
+  // A request Pocket cannot preview offers only Don't allow and Details.
+  approvalRequests=[{id:'approval-6',title:'Run this command?',kind:'command',details:JSON.stringify({}),canAllow:false,status:'pending'}];
+  await p.evaluate(()=>refreshApprovals(chatId));await p.waitForFunction(()=>document.querySelectorAll('#approvals-open .wb-act').length===1&&document.querySelector('#approvals-open .wb-act')?.textContent==='Don’t allow');
  }
  approvalRequests=[{id:'approval-2',title:'Apply file changes?',kind:'fileChange',details:'+new line',canAllow:true,status:'pending'}];
  await p.evaluate(()=>openApprovals(chatId));await p.waitForSelector('[data-decision="allow"]');approvalFail=true;

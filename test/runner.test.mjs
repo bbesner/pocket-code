@@ -243,3 +243,46 @@ test('a reused process reports each turn\'s own cost, also after a daemon restar
  r=await result(id);assert.equal(r.cost,0.4,'after a restart: still its own cost, not 1.20');
  assert.equal(f.pids().size,1);
 });
+
+// 1.82: a background subagent's permission request arrives when no reply is running (or outlives the reply that
+// started it). Before, the daemon dropped it and the agent waited forever behind a conversation that read "Working in
+// background" with nothing to see. Now it opens a stand-in turn, shows the card named after the agent, and goes back
+// to the background once answered.
+test('a background subagent asking permission after the reply ended shows as a named approval, and the answer reaches it',async t=>{
+ const f=await fixture(t,18411,{POCKET_TEST_BG_MS:'900'});
+ const responses=()=>{try{return fs.readFileSync(path.join(f.dir,'calls.responses'),'utf8')}catch{return ''}};
+ const id=(await f.call('/new',{cwd:repo,...msg('__BG_ASK__ review the imports')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='input',6000),'the request opens a waiting state after the reply ended');
+ assert.match(f.logs(),/turn start \(a background job asked for permission\)/);
+ const row=(await f.call('/sessions')).body.sessions.find(s=>s.id===id);assert.equal(row.state.label,'Needs approval');
+ const {requests}=(await f.call(`/session/${id}/approvals`)).body;
+ assert.equal(requests.length,1);assert.equal(requests[0].agent,'Review imports','the card names the agent that asked');assert.match(requests[0].details,/import:check/);
+ const agents=(await f.call(`/session/${id}/agents`)).body;
+ assert.equal(agents.running,1);assert.equal(agents.agents[0].name,'Review imports');assert.equal(agents.agents[0].activity,true);assert.equal(agents.agents[0].latest,'Using Bash');assert.equal(agents.agents[0].steps,2);
+ const activity=(await f.call(`/session/${id}/agents/${agents.agents[0].id}/activity`)).body;
+ assert.equal(activity.agent.steps,2);assert.ok(activity.messages.some(m=>m.blocks?.some(b=>b.t==='tool'&&b.name==='Bash')),'the agent transcript reads as messages');
+ assert.equal((await f.call(`/session/${id}/agents/nope/activity`)).status,404);
+ assert.equal((await f.call(`/session/${id}/message`,msg('carry on'))).status,202,'a message typed meanwhile is not refused');
+ assert.equal((await f.call(`/session/${id}/approvals`)).body.requests.length,1,'and does not skip the agent\'s request');
+ const d=await f.call(`/session/${id}/approvals/${requests[0].id}/decision`,{decision:'allow'});assert.equal(d.status,200);
+ assert.ok(await f.until(()=>responses().includes('"request_id":"bg-ask","behavior":"allow"')),'the allow reached the CLI');
+ assert.ok(await f.until(async()=>['background','finished'].includes(await f.state(id))),'no stand-in turn is left running');
+ assert.match(f.logs(),/turn done \(background job's request answered\)/);
+ assert.ok(await f.until(async()=>await f.state(id)==='finished',6000),'the agent finishes and the CLI reports it');
+ assert.ok(f.transcript(id).includes('The background agent finished.'));
+ assert.equal(f.pids().size,1);
+});
+
+test('a request still waiting when the reply ends is carried to a stand-in turn instead of being withdrawn',async t=>{
+ const f=await fixture(t,18412,{POCKET_TEST_BG_MS:'900'});
+ const responses=()=>{try{return fs.readFileSync(path.join(f.dir,'calls.responses'),'utf8')}catch{return ''}};
+ const id=(await f.call('/new',{cwd:repo,...msg('__BG_ASK_EARLY__ review the imports')})).body.id;
+ assert.ok(await f.until(()=>/request\(s\) carried from the ended reply/.test(f.logs()),6000),'the ended reply hands its pending request over');
+ assert.ok(await f.until(async()=>await f.state(id)==='input'));
+ const {requests}=(await f.call(`/session/${id}/approvals`)).body;
+ assert.equal(requests.length,1);assert.equal(requests[0].agent,'Review imports');
+ assert.equal((await f.call(`/session/${id}/approvals/${requests[0].id}/decision`,{decision:'deny'})).status,200);
+ assert.ok(await f.until(()=>responses().includes('"request_id":"bg-ask","behavior":"deny"')));
+ assert.ok(await f.until(async()=>await f.state(id)==='finished',6000));
+ assert.equal((f.logs().match(/turn done session=/g)||[]).length,2,'the stand-in turn records no outcome of its own');
+});

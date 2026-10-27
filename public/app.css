@@ -743,6 +743,22 @@ header.bar { gap: 2px; padding-inline: 8px; }
 @media (max-width: 420px) { .question-banner { gap:10px;padding-left:12px; } .question-banner .wb-mark { display:none; } .question-banner .wb-title { text-wrap:pretty; } }
 @media (prefers-reduced-motion: reduce) { .question-banner { transition:none; } }
 .question-banner[hidden] { display:none; }.state-input { color:var(--warn); }
+/* 1.82: the banner is a group. One waiting item carries its own buttons (Allow / Don't allow, or a question's options)
+   beside the cta, which is now a real button opening the sheet; on a phone the buttons take a second row. The asking
+   subagent is named in --warn 600; a command or path sits under the title in the ledger mono, two lines at most. */
+.question-banner { flex-wrap:wrap; }
+.question-banner .wb-text { flex:1 1 220px; }
+.question-banner .wb-agent { font-size:13px;font-weight:600;color:var(--warn); }
+.question-banner .wb-note.mono { font:12.5px/1.5 ui-monospace,"Cascadia Mono",Menlo,monospace;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere; }
+.question-banner .wb-actions { flex:none;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;margin-left:auto;max-width:100%; }
+.question-banner .wb-act { min-height:36px;padding:0 14px;border:1px solid var(--warn);border-radius:8px;background:var(--surface);color:var(--text);font:600 14.5px/1.2 system-ui;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.question-banner .wb-act:hover { background:color-mix(in srgb,var(--warn) 18%,var(--surface)); }
+.question-banner .wb-act.wb-allow { background:var(--warn);color:var(--on-warn); }
+.question-banner .wb-act.wb-allow:hover, .question-banner .wb-cta:hover { background:color-mix(in srgb,var(--warn) 88%,var(--text)); }
+.question-banner .wb-act:focus-visible, .question-banner .wb-cta:focus-visible { outline:2px solid var(--warn);outline-offset:2px; }
+.question-banner .wb-act:disabled, .question-banner .wb-cta:disabled { opacity:.55; }
+@media (max-width: 600px) { .question-banner .wb-actions { flex-basis:100%;margin-left:0; } .question-banner .wb-act { max-width:100%; } }
+.approval-agent { font-size:13.5px;font-weight:600;color:var(--warn);margin:4px 0 8px; }
 .question-sheet { max-width:680px; }
 .question-form fieldset { border:0;padding:0;margin:0 0 24px;min-width:0; }
 .question-form legend { font-size:17px;font-weight:600;margin-bottom:12px; }
@@ -961,6 +977,18 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .agent-copy { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; }
 .agent-meta { color: var(--dim); font-size: 13px; overflow-wrap: anywhere; margin-top: 12px; }
 .agents-retry { min-height: 44px; }
+/* 1.82: what a subagent has done, from its own transcript: the conversation's own ledger lines and prose in a scrolling
+   box on --bg, steps unfolded; the parent's instructions to it in --dim. The row above the controls also names
+   background jobs. */
+.agents-jobs[hidden] { display: none; }
+.agent-more { padding: 0 0 16px 20px; }
+.agent-more[hidden] { display: none; }
+.agent-activity { margin-top: 12px; max-height: 48dvh; overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.agent-activity[hidden] { display: none; }
+.agent-activity .m-asst { font-size: 14.5px; margin: 8px 0; }
+.agent-activity .agent-brief { color: var(--dim); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 7.5em; overflow: hidden; margin: 8px 0; }
+.agent-activity .ledgerwrap > summary { display: none; }
+.agent-activity .choices { display: none; }
 
 /* ---------- 1.18: pinned tabs and pin order, quick voice mute ---------- */
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
