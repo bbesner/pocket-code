@@ -90,6 +90,9 @@ export const EXPORT_FORMAT = 'pocket-vault-export';
 
 // ---------- what agents are told ----------
 export function vaultInstructions(cli, sessionId) {
+  // 1.82.1: the skill's path is built from the CLI's own path, then quoted on its own; built from the quoted CLI path it
+  // carried a stray quote when the install path had a space.
+  const skill = shellArg(path.join(path.dirname(String(cli)), '..', 'skills', 'pocket-vault', 'SKILL.md'));
   cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
   return [
     'This Pocket Code keeps a Vault of credentials (API keys, tokens, logins) that agents use by name and never see.',
@@ -97,7 +100,7 @@ export function vaultInstructions(cli, sessionId) {
     'If the command answers `pending <id>`, the owner is being asked to allow it (a push with Allow and Deny went to their devices): say so in one line and end your reply offering "Allow <name> for this command" and "Deny <name>" as the choices; the owner answering either way, by the notification, the Vault view or that reply, settles the request, and you then continue with `wait <id>`. If it is refused, say so and stop; do not look for another way to the value.',
     'To type a stored value into a web page with the Playwright browser tools (a login form, say), put `{{vault:<name>.<field>}}` as the text to type or fill; Pocket fills in the real value on the way to the browser and removes it from what comes back. Never read a filled value back out of the page. Values go into typing and form-filling tools only, and once one has been typed, screenshots and other pictures from that browser are unavailable for the rest of the session (a value cannot be scrubbed out of a picture): use text snapshots.',
     `When you meet a secret in a file, a result or a message, store it at once with \`node ${cli} put <name> --kind <api_key|token|login|credentials|note> --stdin\` (or --from-file), tell the owner it was seen, and use the name from then on. \`list\` shows what exists. A \`{{vault:name}}\` in a message is the owner handing you a stored secret by name.`,
-    `The pocket-vault skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-vault', 'SKILL.md')}\`) has the procedure.${sessionId ? '' : ' Pass --cwd when the command depends on the working directory.'}`,
+    `The pocket-vault skill (\`${skill}\`) has the procedure.${sessionId ? '' : ' Pass --cwd when the command depends on the working directory.'}`,
   ].join(' ');
 }
 
@@ -141,7 +144,12 @@ export class VaultStore {
     // 1.73.6: the salt comes from the file being opened, not from memory, so it is always the one the file was written with.
     const buf = fs.readFileSync(this.file), h = storeHeader(buf), salt = h.version === 2 ? Buffer.from(h.salt) : this.salt;
     const k = deriveKey(passphrase, salt);
-    let data; try { data = decryptStore([k], buf); } catch { this.audit({ action: 'unlock-failed', by: 'owner' }); throw fail('Wrong passphrase.', 401); }
+    // 1.82.1: a failed audit write must not turn a wrong passphrase into a status-less error: the server would answer 500 and not
+    // count the try toward the hourly limit. The failure is logged instead.
+    let data; try { data = decryptStore([k], buf); } catch {
+      try { this.audit({ action: 'unlock-failed', by: 'owner' }); } catch (e) { this.log(`vault: could not record a failed unlock: ${e.message}`); }
+      throw fail('Wrong passphrase.', 401);
+    }
     this.salt = salt; this.keys = [k]; this.load(data); this.audit({ action: 'unlock', by: 'owner' }); return true;
   }
   lock() {
@@ -476,7 +484,15 @@ export class VaultStore {
     return new Promise(resolve => { const t = setTimeout(() => { r.waiters = r.waiters.filter(w => w !== done); resolve(null); }, ms); const done = () => { clearTimeout(t); resolve(r); }; r.waiters.push(done); });
   }
   expireRequests(now = this.now()) {
-    for (const [id, r] of this.requests) if (Date.parse(r.expiresAt) <= now || (r.answer && Date.parse(r.answer.at) + LIMITS.requestTtlMs <= now)) { if (!r.answer) { r.answer = { decision: 'expired', at: iso(now) }; for (const w of r.waiters.splice(0)) w(r); } this.requests.delete(id); }
+    // 1.82.1: an answered request lives until 15 minutes after the answer, as the second clause always meant; the first
+    // clause used to delete it at the request's own expiry first, so an approval given near the end of the window was gone
+    // a minute later. An unanswered request still expires at its own time.
+    for (const [id, r] of this.requests) {
+      const dead = r.answer ? Date.parse(r.answer.at) + LIMITS.requestTtlMs <= now : Date.parse(r.expiresAt) <= now;
+      if (!dead) continue;
+      if (!r.answer) { r.answer = { decision: 'expired', at: iso(now) }; for (const w of r.waiters.splice(0)) w(r); }
+      this.requests.delete(id);
+    }
   }
   // Values for a run that policy allows; recorded first. Returns the secrets to bind and the scrub list.
   // `action` is 'run' (a command the daemon spawns) or 'fill' (1.43: a value typed into a browser tool by pocket-mcp-proxy).
@@ -509,7 +525,16 @@ export function needlesFor(values) {
   for (const v of values.flatMap(x => typeof x === 'string' && x.toWellFormed && x.toWellFormed() !== x ? [x, x.toWellFormed()] : [x])) {
     if (typeof v !== 'string' || v.length < 4) continue; // a 1–3 character value would shred the output; it is not a secret anyone can keep
     out.add(v);
-    out.add(Buffer.from(v, 'utf8').toString('base64')); out.add(Buffer.from(v, 'utf8').toString('base64url'));
+    const bytes = Buffer.from(v, 'utf8'), std = bytes.toString('base64');
+    out.add(std); out.add(bytes.toString('base64url')); out.add(std.replace(/=+$/, '')); // 1.82.1: unpadded standard base64 too
+    // 1.82.1: a value inside a longer base64 text (an HTTP Basic header is base64 of "user:password"; tokens and config
+    // blobs carry values the same way) is spelled by one of three alignments. The characters of each alignment that depend
+    // on the value alone are a form, in standard and URL-safe spelling, when there are at least 7 of them (every value of 6
+    // characters or more; a 4–5 character value is caught only when it is encoded on its own).
+    for (let k = 0; k < 3; k++) {
+      const core = Buffer.concat([Buffer.alloc(k), bytes]).toString('base64').slice(Math.ceil(k * 8 / 6), Math.floor((k + bytes.length) * 8 / 6));
+      if (core.length >= 7) { out.add(core); out.add(core.replace(/\+/g, '-').replace(/\//g, '_')); }
+    }
     try { const e = encodeURIComponent(v); if (e !== v) out.add(e); } catch { }
     const j = JSON.stringify(v).slice(1, -1); if (j !== v) out.add(j);
     // PHP's json_encode writes "/" as "\/" and, like Python's json.dumps, non-ASCII as \uXXXX; a JSON string carried inside
@@ -567,9 +592,12 @@ export function runWithSecrets({ argv, cwd, env, secrets, placeholders, timeoutM
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     child.stdout.on('data', c => emit(onOut, out.push(c))); child.stderr.on('data', c => emit(onErr, err.push(c)));
     // The command is done: end what it left in its group, give the pipes a second to drain, then stop waiting for them.
+    // 1.82.1: the KILL a second later is its own timer, not part of the drain wait: when the pipes closed at once, settling
+    // cancelled the drain timer and the KILL with it, and a group member that ignored TERM outlived the run.
     child.on('exit', (code, sig) => {
       exited = [code, sig]; group('SIGTERM');
-      grace = setTimeout(() => { group('SIGKILL'); grace = setTimeout(() => { child.stdout.destroy(); child.stderr.destroy(); settle(...exited); }, 1000); }, 1000);
+      setTimeout(() => group('SIGKILL'), 1000);
+      grace = setTimeout(() => { child.stdout.destroy(); child.stderr.destroy(); settle(...exited); }, 2000);
     });
     child.on('close', (code, sig) => settle(...(exited || [code, sig])));
   });

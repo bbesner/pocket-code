@@ -3,6 +3,19 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.82.1] — 2026-10-27 · build 170
+
+Fixes from the first blind bug review of `vault.mjs` (the `bug-review` skill, after Casey's method): one agent wrote a behaviour spec from the source without seeing the tests, a second wrote tests from the spec alone without seeing the source, and every step that writes state or runs a process was failed in turn. 82 tests, 24 flags, 5 real faults; the 18 dismissed flags are recorded in `docs/bug-review-decisions.md`.
+
+- **A Vault run cannot leave a TERM-ignoring process behind** (DIV-22). After the command exits its group gets SIGTERM, and SIGKILL a second later on its own timer; the KILL used to share the pipe-drain timer, so when the pipes closed at once settling cancelled it and a group member that ignored TERM outlived the run with the values in its environment. The run still resolves within about two seconds of the exit.
+- **The scrubber catches values inside longer base64** (DIV-20). `needlesFor` adds, for each of the three byte alignments, the base64 characters that depend on the value alone (standard and URL-safe, at least 7 characters), so `Authorization: Basic base64(user:password)`, tokens and config blobs are scrubbed; and unpadded standard base64. Every value of 6 characters or more is caught at any offset (property-checked over 288,000 blobs); a 4–5 character value only when it is encoded on its own.
+- **An answered request lives 15 minutes from its answer** (DIV-7). `expireRequests` deleted an answered row at the request's own expiry, so the answer-time clause never ran and an approval given in the last minute was gone a minute later (the agent's `wait` got 404).
+- **A wrong passphrase answers 401 even when the audit row cannot be written** (DIV-16). The failed audit is logged; before, its error replaced the 401, the server answered 500, and the try did not count toward the hourly limit.
+- **The agent line's SKILL.md path** is built from the CLI's own path and quoted on its own (DIV-3); built from the quoted CLI path it carried a stray quote when the install path had a space (1.73.8 regression).
+- Not changed, for Brad to decide: agent calls reset the passphrase Vault's idle-lock timer (DIV-19), so an agent that keeps using the Vault keeps it unlocked.
+- Migration: none. Open browsers load build 170 at their next reload.
+- Tests: `test/vault-spec.test.mjs` (new, 63 tests: the review's behaviour contract for `vault.mjs`, including fail-every-step and restart checks; the five fixes' tests fail on 1.82.0).
+
 ## [1.82.0] — 2026-10-27 · build 169
 
 Two requests from Brad after talking with Casey: fewer steps to answer the agent, and subagents you can see, whose questions reach you.
