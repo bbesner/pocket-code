@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.79.2
+checked: 1.82.0
 sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs
 -->
 # Conversations (sessions)
@@ -117,7 +117,9 @@ The conversation list is the home screen on a phone and the rail on a desktop. C
 **All** groups the list by state: **Running**, **Working in background**, **Activity elsewhere**, **Needs
 attention**, **Waiting** and **Recent**, with pinned conversations first in each group. **Working in
 background** is a Claude conversation whose reply has ended while a background shell job or subagent it
-started is still running; its finished-reply notification waits until the agent reports back. Scheduled runs
+started is still running; its finished-reply notification waits until the agent reports back. When such a
+subagent asks permission or a question, the conversation moves to **Needs approval** or **Needs your answer**
+until you answer, then back (see [Questions and approvals](approvals.md#what-happens-if-you-dont-answer)). Scheduled runs
 (a first message starting `[cron:<id> Job name]`) are titled by the job name and sit in a collapsed
 **Automated** group at the end of All, unless they are pinned, running or need you.
 

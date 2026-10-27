@@ -992,13 +992,31 @@ function onSessionNotify(s, method, params) {
     if (method === 'turn/started') writeSessionMeta(s);
   } else if (method === 'account/rateLimits/updated') mergeCodexRateLimits(params?.rateLimits);
 }
+// 1.82: a request from one of this reply's subagent threads. Codex sends it with the agent's own thread and turn ids,
+// which the inboxes would refuse (and the connection would then decline it, so the agent never got an answer). It is
+// re-homed on the parent reply and labelled with the agent's name. Threads are known from the collaboration items
+// the reply has streamed; anything else keeps failing closed.
+export function agentThreadName(turn, threadId) {
+  if (!turn || typeof threadId !== 'string' || !threadId || threadId === turn.threadId) return null;
+  for (const it of turn.agentItems?.values() || []) {
+    if (it.type === 'subAgentActivity' && it.agentThreadId === threadId) return String(it.agentPath || '').split('/').pop() || 'Subagent';
+    if (it.type === 'collabAgentToolCall' && (Array.isArray(it.receiverThreadIds) ? it.receiverThreadIds : []).includes(threadId)) return String(it.agentsStates?.[threadId]?.name || it.agentsStates?.[threadId]?.agentPath || '').split('/').pop() || 'Subagent';
+  }
+  return null;
+}
+export function rehomeAgentRequest(turn, request) {
+  const agent = agentThreadName(turn, request?.params?.threadId);
+  if (!agent) return { request, agent: null };
+  return { request: { ...request, params: { ...request.params, threadId: turn.threadId, turnId: turn.turnId } }, agent };
+}
 function onSessionRequest(s, request) {
   s.lastActivityAt = Date.now();
   const turn = s.turn;
   if (!turn) return false;
-  if(turn.questions?.receive(request,turn.turnId))return true;
-  const approval=codexApproval(request,turn);
-  return approval ? turn.approvals?.receive(approval) || false : false;
+  const { request: req, agent } = rehomeAgentRequest(turn, request);
+  if(turn.questions?.receive(req,turn.turnId,{agent}))return true;
+  const approval=codexApproval(req,turn);
+  return approval ? turn.approvals?.receive({...approval,agent}) || false : false;
 }
 function wireSession(s, conn) {
   s.conn = conn;

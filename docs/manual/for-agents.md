@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.79.2
+checked: 1.82.0
 sources: skills.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # For agents
@@ -48,7 +48,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose --inc
        (--session-id <id> | --resume <id> | --resume <parent> --fork-session --session-id <id>)
 ```
 
-- **Review actions** runs with permission mode `default` and asks the user before `Bash`, `PowerShell`, `Edit`, `Write`, `NotebookEdit`, `Agent`, `Task`, `WebFetch`, `WebSearch` and every MCP tool (`mcp__*`), each as an approval card in Pocket, unless a trusted rule in **Settings → Agents & instance → Actions that run without asking** allows it. **Full access** runs with `bypassPermissions`. `AskUserQuestion` always reaches the user as a question card. See [Questions and approvals](approvals.md).
+- **Review actions** runs with permission mode `default` and asks the user before `Bash`, `PowerShell`, `Edit`, `Write`, `NotebookEdit`, `Agent`, `Task`, `WebFetch`, `WebSearch` and every MCP tool (`mcp__*`), each as an approval card in Pocket, unless a trusted rule in **Settings → Agents & instance → Actions that run without asking** allows it. **Full access** runs with `bypassPermissions`. `AskUserQuestion` always reaches the user as a question card. See [Questions and approvals](approvals.md). A request from one of your subagents reaches the user too, named after the agent, including a background subagent's request after your reply has ended (1.82): it waits for the user's answer like any other, so prefer agents that need no approvals when you run them in the background under Review actions.
 - The process runs in the conversation's workspace with the daemon's environment, minus Pocket's own secrets (its sign-in password, cookie-signing key, push private key, Vault keys, mail server settings and router key) and minus inherited `CLAUDECODE` and `CLAUDE_CODE_*` variables. Your global Claude Code settings, hooks, MCP servers and skills still apply.
 
 ### Codex

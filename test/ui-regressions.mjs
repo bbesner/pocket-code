@@ -720,6 +720,31 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('#agents-open',e=>e.hidden),true);
    await clickControl(page,'#chatmore');await clickControl(page,'#so-agents');await page.waitForFunction(()=>document.querySelector('.agents-status').textContent.includes('No subagents'));
    await page.keyboard.press('Escape');
+   // 1.82: an agent with a transcript of its own opens it (steps unfolded, text escaped), and the row under the controls
+   // also reports background jobs with the Subagents sheet naming them.
+   const working=[{...agents[0],status:'running',activity:true,steps:3,messages:1,background:true}];
+   setMode({agents:working,agentActivity:{agent:{id:'review',name:'Review imports',steps:3,messages:1},total:2,messages:[{role:'user',text:'Check duplicate SKUs across supplier imports.'},{role:'assistant',blocks:[{t:'text',text:'Looking at the imports <script>unsafe()</script>'},{t:'tool',name:'Read',detail:'supplier.csv'},{t:'tool',name:'Bash',detail:'npm run import:check'}]}]}});
+   rows[4].state={kind:'background',label:'Working in background · 1 job',confirmed:true,background:{count:1,summary:'1 job',jobs:[{kind:'job',description:'npm run build'}]}};
+   await page.evaluate(()=>{refreshSessions();return refreshAgents(chatId);});
+   await page.waitForFunction(()=>/1 subagent working · 1 background job · View/.test(document.querySelector('#agents-open')?.textContent));
+   await clickControl(page,'#agents-open');await page.waitForSelector('.agent-row');
+   assert.match(await page.$eval('.agents-jobs',e=>e.textContent),/Background job: npm run build/);
+   assert.match(await page.$eval('.agent-detail',e=>e.textContent),/in the background/);assert.match(await page.$eval('.agent-detail',e=>e.textContent),/3 tool calls · 1 message/);
+   await clickControl(page,'.agent-row summary');assert.equal(await page.$eval('.agent-more',e=>e.hidden),false);
+   await clickControl(page,'.agent-activity-open');await page.waitForSelector('.agent-activity .ledger');
+   assert.equal(await page.$eval('.agent-activity-open',e=>e.getAttribute('aria-expanded')),'true');
+   assert.equal(await page.$$eval('.agent-activity .ledger',e=>e.length),2);assert.equal(await page.$$eval('.agent-activity script',e=>e.length),0);
+   assert.match(await page.$eval('.agent-activity .agent-brief',e=>e.textContent),/Check duplicate SKUs/);
+   assert.equal(await page.$eval('.agent-activity details.ledgerwrap',e=>e.open),true,'the steps are unfolded');
+   await scan('subagent-activity');await page.screenshot({path:path.join(out,'subagent-activity.png')});
+   await clickControl(page,'.agent-activity-open');assert.equal(await page.$eval('.agent-activity',e=>e.hidden),true);
+   await page.keyboard.press('Escape');
+   // With no agents at all, the row still names the background work.
+   setMode({agents:[],agentActivity:null});await page.evaluate(()=>refreshAgents(chatId));
+   await page.waitForFunction(()=>document.querySelector('#agents-open')?.textContent==='Working in background · 1 job · View');
+   rows[4].state={kind:'idle',label:'Recent'};await page.evaluate(()=>refreshSessions());
+   await page.waitForFunction(()=>document.querySelector('#agents-open')?.hidden===true);
+   await page.keyboard.press('Escape');
   });
   await check('Pinned sessions: tabs carry the pin and follow the shared order; grip drag, arrow keys and Session options reorder',async()=>{
    await page.setViewport({width:1440,height:900});

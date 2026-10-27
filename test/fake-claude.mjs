@@ -74,7 +74,9 @@ let working=false,questionKeepAlive,spent=0; // spent: the process's running cos
 const append=o=>fs.appendFileSync(file,JSON.stringify({sessionId:id,cwd:process.cwd(),timestamp:new Date().toISOString(),...o})+'\n');
 lines.on('line',line=>{
   const obj=JSON.parse(line);
-  if(obj.type==='control_response'){clearInterval(questionKeepAlive);fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.responses',JSON.stringify({id,request_id:obj.response.request_id,behavior:obj.response.response?.behavior})+'\n');if(obj.response.request_id==='native-approval'&&obj.response.response.behavior==='allow')fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.approved',id+'\n');const msg={type:'assistant',message:{role:'assistant',content:[{type:'text',text:'Blue'}]}};append(msg);console.log(JSON.stringify(msg));console.log(JSON.stringify({type:'result',subtype:'success'}));return;}
+  if(obj.type==='control_response'){clearInterval(questionKeepAlive);fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.responses',JSON.stringify({id,request_id:obj.response.request_id,behavior:obj.response.response?.behavior})+'\n');
+    // 1.82: the background agent's request answered: the agent finishes a moment later, and the CLI reports it in a turn of its own
+    if(obj.response.request_id==='bg-ask'){setTimeout(()=>{console.log(JSON.stringify({type:'system',subtype:'background_tasks_changed',tasks:[]}));const msg={type:'assistant',message:{role:'assistant',content:[{type:'text',text:'The background agent finished.'}]}};append(msg);console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));console.log(JSON.stringify(msg));console.log(JSON.stringify({type:'result',subtype:'success'}));},Number(process.env.POCKET_TEST_BG_MS||600));return;}if(obj.response.request_id==='native-approval'&&obj.response.response.behavior==='allow')fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.approved',id+'\n');const msg={type:'assistant',message:{role:'assistant',content:[{type:'text',text:'Blue'}]}};append(msg);console.log(JSON.stringify(msg));console.log(JSON.stringify({type:'result',subtype:'success'}));return;}
   const text=obj.message.content[0].text;
   fs.appendFileSync(process.env.POCKET_TEST_CALLS,JSON.stringify({id,pid:process.pid,text,permissionMode:args[args.indexOf('--permission-mode')+1],model:args.includes('--model')?args[args.indexOf('--model')+1]:null,effort:JSON.parse(args[args.indexOf('--settings')+1]||'{}').effortLevel??null,choices:args.includes('--append-system-prompt')&&/```choices|`choices`/.test(args[args.indexOf('--append-system-prompt')+1]||''),projects:args.includes('--append-system-prompt')&&/pocket-board/.test(args[args.indexOf('--append-system-prompt')+1]||''),documents:args.includes('--append-system-prompt')&&/pocket-docs/.test(args[args.indexOf('--append-system-prompt')+1]||''),tasks:args.includes('--append-system-prompt')&&/pocket-tasks/.test(args[args.indexOf('--append-system-prompt')+1]||''),vault:args.includes('--append-system-prompt')&&/pocket-vault/.test(args[args.indexOf('--append-system-prompt')+1]||''),google:args.includes('--append-system-prompt')&&/pocket-google\/SKILL\.claude\.md/.test(args[args.indexOf('--append-system-prompt')+1]||''),runnerToken:process.env.POCKET_RUNNER_TOKEN||null,sessionEnv:process.env.POCKET_SESSION_ID||null,vaultKeySeen:'POCKET_VAULT_KEY' in process.env,daemonSecretsSeen:['POCKET_SMTP_URL','POCKET_SMTP_FROM','POCKET_ROUTER_KEY','POCKET_PASSWORD','POCKET_SECRET'].filter(k=>k in process.env)})+'\n');
   // like the real CLI, a message steered into a running turn reaches the transcript only at the next step
@@ -87,6 +89,25 @@ lines.on('line',line=>{
   if (working) return;
   working=true;
   if(text.includes('__HANG__'))return; // a stuck turn: no output, no result
+  // 1.82 __BG_ASK__: start a background subagent (with the transcript the real CLI writes for it), end the reply, then
+  // have the agent ask permission for a Bash command while no reply runs. __BG_ASK_EARLY__ asks before the reply ends.
+  if(text.includes('__BG_ASK')){
+    const early=text.includes('__BG_ASK_EARLY__'),agentId='a1b2c3d4e5f60718',toolUse='toolu_agent_bash_1',sub=path.join(dir,id,'subagents');
+    fs.mkdirSync(sub,{recursive:true});
+    fs.writeFileSync(path.join(sub,`agent-${agentId}.meta.json`),JSON.stringify({agentType:'general-purpose',description:'Review imports',toolUseId:'toolu_spawn_1',spawnDepth:1,requestShape:'background',model:'test-model'}));
+    const agentLine=o=>fs.appendFileSync(path.join(sub,`agent-${agentId}.jsonl`),JSON.stringify({agentId,isSidechain:true,sessionId:id,timestamp:new Date().toISOString(),...o})+'\n');
+    agentLine({type:'user',message:{role:'user',content:'Check duplicate SKUs across supplier imports.'}});
+    agentLine({type:'assistant',message:{role:'assistant',content:[{type:'text',text:'Looking at the imports.'},{type:'tool_use',id:'toolu_agent_read_1',name:'Read',input:{file_path:'/workspaces/inventory/supplier.csv'}}]}});
+    agentLine({type:'assistant',message:{role:'assistant',content:[{type:'tool_use',id:toolUse,name:'Bash',input:{command:'npm run import:check',description:'Run the import checks'}}]}});
+    const ask=()=>{questionKeepAlive=setInterval(()=>{},1000);console.log(JSON.stringify({type:'control_request',request_id:'bg-ask',request:{subtype:'can_use_tool',tool_name:'Bash',input:{command:'npm run import:check',description:'Run the import checks'},tool_use_id:toolUse}}));};
+    const spawn={type:'assistant',message:{role:'assistant',content:[{type:'text',text:'Started a review agent.'},{type:'tool_use',id:'toolu_spawn_1',name:'Agent',input:{description:'Review imports',prompt:'Check duplicate SKUs across supplier imports.',run_in_background:true}}]}};
+    append(spawn);console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));console.log(JSON.stringify(spawn));
+    console.log(JSON.stringify({type:'system',subtype:'task_started',task_id:agentId,tool_use_id:'toolu_spawn_1',description:'Review imports',subagent_type:'general-purpose',is_backgrounded:true,task_type:'local_agent',prompt:'Check duplicate SKUs across supplier imports.'}));
+    console.log(JSON.stringify({type:'system',subtype:'background_tasks_changed',tasks:[{task_id:agentId,task_type:'local_agent',description:'Review imports'}]}));
+    if(early)ask();
+    setTimeout(()=>{console.log(JSON.stringify({type:'result',subtype:'success',result:'Started a review agent.',duration_ms:200}));working=false;if(!early)setTimeout(ask,400);},300);
+    return;
+  }
   // quiet but legitimately waiting on a background job: must not be treated as stuck
   if(text.includes('__BGHANG__')){console.log(JSON.stringify({type:'system',subtype:'background_tasks_changed',tasks:[{task_id:'bg2',task_type:'local_bash',description:'long build'}]}));return;}
   const reply=(t,more)=>{append({type:'assistant',message:{role:'assistant',content:[{type:'text',text:t}]}});console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));console.log(JSON.stringify({type:'assistant',message:{role:'assistant',content:[{type:'text',text:t}]}}));more?.();console.log(JSON.stringify({type:'result',subtype:text.includes('__FAIL__')?'error':'success',result:'Test result',duration_ms:300}));};

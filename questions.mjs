@@ -3,7 +3,8 @@ const fail=(message,status=409)=>Object.assign(new Error(message),{status});
 // Pending questions belong to one live provider connection. Never infer them from prose.
 export class QuestionInbox {
  constructor({threadId,write,onChange=()=>{}}){this.threadId=threadId;this.write=write;this.onChange=onChange;this.pending=new Map();this.answered=new Map();}
- receive(request,turnId){
+ // 1.82: `agent` names the subagent that asked, when the request came from one.
+ receive(request,turnId,{agent=null}={}){
   const p=request.params;
   if(request.method!=='item/tool/requestUserInput'||p?.threadId!==this.threadId()||!p.turnId||(turnId&&p.turnId!==turnId))return false;
   if(!Array.isArray(p.questions)||!p.questions.length||p.questions.length>10)return false;
@@ -16,7 +17,7 @@ export class QuestionInbox {
   if([...this.pending.values()].some(r=>r.nativeId===request.id))return true;
   if(this.pending.size>=20)return false;
   const id=randomUUID();
-  this.pending.set(id,{id,nativeId:request.id,turnId:p.turnId,createdAt:Date.now(),blocking:p.isBlocking!==false,questions:p.questions.map(q=>({id:q.id,header:String(q.header||''),question:q.question,isSecret:Boolean(q.isSecret),multiple:Boolean(q.multiple),options:q.options?.map(o=>({label:o.label,description:o.description}))||[]}))});
+  this.pending.set(id,{id,nativeId:request.id,turnId:p.turnId,createdAt:Date.now(),blocking:p.isBlocking!==false,questions:p.questions.map(q=>({id:q.id,header:String(q.header||''),question:q.question,isSecret:Boolean(q.isSecret),multiple:Boolean(q.multiple),options:q.options?.map(o=>({label:o.label,description:o.description}))||[]})),agent:typeof agent==='string'&&agent?agent.slice(0,240):null});
   this.onChange();return true;
  }
  list(){return [...this.pending.values()].map(({nativeId,...row})=>row);}

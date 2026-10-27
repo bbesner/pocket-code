@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.79.2
+checked: 1.82.0
 sources: choices.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -258,12 +258,22 @@ branch, not two.
 
 ### Watch subagents
 
-When the agent delegates work to subagents, a **Subagents** button appears under the conversation's status controls, for
-example **2 subagents working · View** or **Subagents · 5 recorded · View**. **Conversation options → Subagents** opens the
-same view at any time.
+When the agent delegates work to subagents, or leaves work running in the background, a **Subagents** button appears
+under the conversation's status controls, for example **2 subagents working · View**, **1 subagent working · 1 background
+job · View**, **Working in background · 1 job · View** or **Subagents · 5 recorded · View**. **Conversation options →
+Subagents** opens the same view at any time.
 
-Expand an agent to read its task, its latest activity or result, its kind and model, and tool calls and tokens when the
-provider reports them. States are Working, Starting, Completed, Failed, Interrupted, Closed and **Status unconfirmed**.
+The sheet names the background jobs (commands the agent left running) first. Expand an agent to read its task, its
+latest step or sentence, its kind and model, whether it runs in the background, and its counts of tool calls and
+messages (or tokens when the provider reports them). States are Working, Starting, Completed, Failed, Interrupted,
+Closed and **Status unconfirmed**.
+
+**Show activity** (Claude agents with a transcript of their own) opens what the agent has done so far: its steps as
+ledger lines and what it wrote, from its own transcript (`<project>/<session>/subagents/agent-<id>.jsonl`), the last
+300 messages. While the agent works the box follows it every 5 seconds. **Hide activity** closes it.
+
+A permission request or question from a subagent reaches you like any other, named after the agent; see
+[Questions and approvals](approvals.md#review-an-action).
 
 - The view refreshes every 5 seconds while the app is visible. Reading it never sends anything to an agent.
 - "Working" is shown only while Pocket can confirm the conversation's reply is running (or the agent runs in the
@@ -398,5 +408,6 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | Side chat or Branch: "Claude account sign-in is in progress." | A Claude sign-in is open in **Accounts & instance**. | Finish or cancel the sign-in. |
 | Cost line missing under a reply | The reply finished while the conversation was closed, or the page was reloaded (the line is not saved), or the conversation's process was started by an older Pocket. | Use the **Ready** notification or the plan usage view. |
 | Subagents show **Status unconfirmed** | Pocket cannot confirm the reply is running (it ran elsewhere, or the status check failed). | **Retry**; the last details stay readable. |
+| An agent has no **Show activity** | It has not written a transcript yet, or it is a Codex agent (Codex keeps none Pocket can read). | Wait for its first step; read **Latest activity**. |
 
 Delivery and queue recovery after a restart: [Operations](../operations.md#delivery-and-queue-recovery).

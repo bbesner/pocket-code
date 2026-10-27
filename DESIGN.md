@@ -8,6 +8,23 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Answer from the banner, and subagents in view (1.82)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5; existing tokens and
+components, no new colour. Read: a person on a phone who gets a permission request several times an hour and wants
+it to be one tap, and who wants to know what the helpers are doing. The 1.75.4 banner keeps its material (`--warn`
+hairline and 12% wash, the drawn mark, 15px/600 title, 13.5px `--dim` note) and becomes a group. With one item
+waiting, the title is the request itself in plain words (the 1.59 phrasing), the note is the command or path in the
+ledger mono clamped to two lines, and the actions sit where the single button was: **Don't allow** as a 36px
+`--warn`-outlined button on `--surface`, **Allow** filled `--warn` in `--on-warn` ink, then **Details** in the cta
+style with its chevron; a question's options are the same outlined buttons. Below 600px the actions take a second
+row, right-aligned, so the title keeps its width. The asking subagent is one 13px/600 `--warn` line under the title
+(**From subagent: Review imports**), repeated in the approval card. Sheets close themselves after the answer and say
+what was sent in the toast, because the thing to do is done. The Subagents row keeps its 44px `--clay` text style and
+gains the background jobs; inside a row, **Show activity** is a `.chip` and the transcript is the conversation's own
+ledger lines and prose in a 48dvh box on `--bg` with a hairline, steps unfolded, the parent's instructions in
+13.5px `--dim`. No new motion.
+
 ## Features in Assistant mode (1.81)
 
 Pinned Operate refinement (variance 2, motion 1, density 5); existing tokens and components, no new colour. Read: a

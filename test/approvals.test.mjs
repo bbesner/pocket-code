@@ -43,3 +43,24 @@ test('Codex previews are bound to native thread/item and grants never exceed req
  const permissions={network:{enabled:true}};
  assert.deepEqual(codexApproval({method:'item/permissions/requestApproval',params:{...params,permissions}},turn).allow,{permissions,scope:'turn'});
 });
+
+// 1.82: a request from a subagent names the agent on the row; the name is shown, never part of the fingerprint.
+test('the asking subagent is kept on the row, and a Codex agent-thread request is re-homed on the parent reply',async()=>{
+ const {box}=inbox();
+ assert.equal(box.receive({...request,agent:'Review imports'}),true);assert.equal(box.list()[0].agent,'Review imports');
+ assert.equal(box.receive({...request,agent:'Someone else'}),true,'the same request again is the same request whoever is named');
+ assert.equal(box.receive({...request,nativeId:'native-2'}),true);assert.equal(box.list()[1].agent,null);
+ const {agentThreadName,rehomeAgentRequest}=await import('../codex.mjs');
+ const turn={threadId:'thread',turnId:'turn',agentItems:new Map([
+  ['i1',{type:'subAgentActivity',agentThreadId:'child-a',agentPath:'/root/review',kind:'started'}],
+  ['i2',{type:'collabAgentToolCall',tool:'spawnAgent',receiverThreadIds:['child-b'],agentsStates:{'child-b':{status:'running'}}}]])};
+ assert.equal(agentThreadName(turn,'child-a'),'review');assert.equal(agentThreadName(turn,'child-b'),'Subagent');
+ assert.equal(agentThreadName(turn,'thread'),null);assert.equal(agentThreadName(turn,'stranger'),null);assert.equal(agentThreadName(turn,undefined),null);
+ const req={id:9,method:'item/commandExecution/requestApproval',params:{threadId:'child-a',turnId:'child-turn',command:'ls'}};
+ const homed=rehomeAgentRequest(turn,req);
+ assert.equal(homed.agent,'review');assert.deepEqual(homed.request.params,{threadId:'thread',turnId:'turn',command:'ls'});assert.equal(homed.request.id,9);
+ assert.equal(req.params.threadId,'child-a','the original request is not changed');
+ const stranger=rehomeAgentRequest(turn,{...req,params:{...req.params,threadId:'stranger'}});
+ assert.equal(stranger.agent,null);assert.equal(stranger.request.params.threadId,'stranger','an unknown thread still fails closed downstream');
+ assert.equal(codexApproval(homed.request,{...turn,cwd:'/w',approvalItems:new Map()}).canAllow,true);
+});
