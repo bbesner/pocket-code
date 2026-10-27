@@ -135,7 +135,7 @@ When an agent runs `pocket-vault run --env TOKEN=billing-api -- node sync.mjs`:
 
 1. Pocket resolves each binding to a secret and field, and checks the policy. If approval is needed it files a request and waits up to 90 seconds (`--wait`, at most 300).
 2. Pocket starts the command itself, in the given folder, with the values set as environment variables. The command gets the daemon's environment (minus Pocket's own secrets) plus the bound variables, not the agent's shell environment. It has no terminal and no standard input.
-3. Output streams back with every value replaced by `{{vault:name}}`, including its base64, base64url, URL-encoded and JSON-escaped forms. Values shorter than 4 characters are not scrubbed.
+3. Output streams back with every value replaced by `{{vault:name}}`, including its base64, base64url, URL-encoded and JSON-escaped forms, and the value inside longer base64 text such as an HTTP Basic login header (values of 6 characters or more). Values shorter than 4 characters are not scrubbed.
 4. The run is recorded in the history before any value is released. If the record cannot be written, nothing is released.
 
 | Limit | Value |
@@ -149,7 +149,7 @@ When an agent runs `pocket-vault run --env TOKEN=billing-api -- node sync.mjs`:
 | Notes | 2,000 characters |
 | Tags | 20 per secret |
 | Approved commands | 50 per secret; the oldest is dropped |
-| Request lifetime | 15 minutes |
+| Request lifetime | 15 minutes to answer; an answer stays good for 15 minutes after it is given |
 
 The command leads its own process group. When it exits, times out or exceeds the output cap, everything it started is stopped too, so a run cannot leave a background process behind.
 

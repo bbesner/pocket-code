@@ -143,7 +143,8 @@ item (an existing name is refused, so an agent cannot replace a credential), rea
 session's history, and ask the daemon to run a command with values in that command's
 environment. The daemon starts the command itself, passes values only in the environment,
 never in arguments, and returns the output with each value and its base64 and URL-encoded
-forms replaced by `{{vault:name}}`. The command leads its own process group (1.73.7): when it
+forms replaced by `{{vault:name}}`, including a value carried inside longer base64 such as an HTTP
+Basic header (1.82.1; values of 6 characters or more). The command leads its own process group (1.73.7): when it
 exits, times out, passes the output cap or is stopped, everything still in that group is ended, so a
 run cannot leave a daemon behind with the values in its environment. A program that deliberately
 leaves the group (`setsid`, a double fork into a new session) is not followed. Reading a value, changing or removing an item, changing its
@@ -152,7 +153,7 @@ policy or recipes, answering requests and rotating the key need the owner's logi
 **What runs.** **Agent access** in Settings (1.41) sets the default, and each item can
 override it. *Ask once per command*, the default, runs a command only if it exactly matches a
 recipe the owner saved with *Always allow*; otherwise the owner is asked and the request
-expires after 15 minutes. *Ask every time* asks for every run and offers no *Always allow*.
+expires after 15 minutes; an answer stays good for 15 minutes after it is given (1.82.1). *Ask every time* asks for every run and offers no *Always allow*.
 *Free rein* runs any command without asking (every use is still recorded). *Only you* refuses
 agents. The owner answers from the Vault view, from the push notification's **Allow** and
 **Deny** buttons, or by replying in the conversation that raised the request; only the owner's
