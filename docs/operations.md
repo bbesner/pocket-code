@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.82.1
-sources: ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs
+checked: 1.85.0
+sources: cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # Operations, upgrades and recovery
 
@@ -74,6 +74,48 @@ options → Close conversation process**, or wait for idle close, before continu
 Claude ownership checks use transcript activity and replace stale Pocket processes
 after another surface writes new turns. External transcript activity is an estimate,
 not proof that an external process is still working.
+
+## CLI release checks and upgrades
+
+The daemon's CLI updater checks once per local date at or after 04:00. It uses the owner's
+saved browser time zone, then `POCKET_TZ`, then the server's time zone. It checks every minute
+whether the daily check is due; only the daily check contacts npm. A restart after 04:00
+catches up if that date has not been attempted. A failed check is visible in the review and
+can be retried with **Check now**. Discovery follows each official npm package's `latest`
+regular release, excluding prereleases; it does not install automatically.
+
+`POCKET_CLI_UPDATES=0` disables scheduled discovery and upgrades. `CLAUDE_BIN` and `CODEX_BIN`
+overrides stay externally managed and cannot be upgraded from Pocket. Installs without a
+provider do not gain it through this feature. Managed upgrades support Linux and macOS on
+x64/arm64 and need npm on the daemon's PATH.
+
+`$POCKET_DATA_DIR/cli-runtimes/state.json` is the atomic activation record. Each candidate has a
+unique installation directory beside it; never remove a directory an existing process still
+uses. npm runs against the official registry with an exact version, lifecycle scripts disabled,
+and an environment without daemon credentials. Claude's own package installer is run explicitly
+if present. Isolated probes check `--version` and Claude's stream initialization or Codex's
+app-server initialization and model listing. They do not inherit live agent configuration or
+credentials, and make no model calls. Managed Claude processes have self-updates disabled so a
+release cannot bypass Pocket's explicit selection and checks.
+
+Only browser-authenticated, same-origin JSON requests can start an upgrade. An accepted job
+runs independently of the browser, one job at a time. The original global install is left in
+place as the first restore target; subsequent managed installs retain their predecessor. A restore
+rechecks the target version and protocol, so an externally modified original is not silently
+accepted. The record is saved before runtime consumers switch. A failed job reports which
+providers completed; it never silently undoes a successful first provider.
+
+An IPC worker starts commands only after its identity has been saved, and kills its group if the daemon disconnects. Daemon shutdown also kills updater subprocess groups. On restart an interrupted job is marked interrupted,
+and a still-running recorded subprocess is killed only if its boot and start time match. A saved
+activation remains selected; an unfinished candidate cannot activate itself. The updater never
+replays an interrupted job. An unreadable state record or missing selected installation stops startup
+with an explicit error: restore the record/installation rather than silently selecting another CLI.
+Keep `cli-runtimes/` with runtime backups. Old directories are retained, not automatically pruned.
+
+The provider binary path is recorded with each persistent process. Updates leave running replies
+and approvals alone. The next requested turn reopens an idle process when its binary path differs;
+Claude also waits for its background jobs. Reader/model-list connections refresh on binary change.
+This does not restart Pocket or update other applications' global CLIs.
 
 ## Claude account switching
 

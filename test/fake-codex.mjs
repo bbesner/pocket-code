@@ -69,6 +69,14 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         const stored=text.includes('__ATTACHNOTE__')?text+'\n\n[Attached file — read as needed:\n/tmp/a.png\n]':text;
         fs.writeFileSync(f,JSON.stringify([...items,{turnId,item:{type:'userMessage',id:randomUUID(),content:[{type:'text',text:stored}]}}]));
       },900);
+      if(text.includes('__CHILD_LIFECYCLE__')){
+        const item={id:'child-start',type:'subAgentActivity',agentThreadId:'child-thread',agentPath:'/root/reviewer',kind:'started'};
+        notify('item/completed',{threadId:p.threadId,item});
+        notify('turn/started',{threadId:'child-thread',turn:{id:'child-turn',status:'inProgress'}});
+        notify('item/agentMessage/delta',{threadId:'child-thread',delta:'CHILD TEXT MUST NOT LEAK'});
+        notify('turn/completed',{threadId:'child-thread',turn:{id:'child-turn',status:'completed'}});
+        notify('item/completed',{threadId:p.threadId,item:{...item,id:'child-finish',kind:'completed'}});
+      }
       if(text.includes('__HANG__'))return;
       if(text.includes('__AGENTS__')){
         const item={id:'agent-spawn',type:'collabAgentToolCall',tool:'spawnAgent',status:'completed',receiverThreadIds:['child-agent'],agentsStates:{'child-agent':{status:'running'}},prompt:'Check parser failures',model:'gpt-test'};

@@ -8,6 +8,16 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## CLI updates (1.85)
+
+Pinned Operate extension: variance 2, motion 1, density 5. The existing warm ink palette and
+settings controls remain the visual authority. A full-width, 44px-minimum notice sits inside the
+conversation surface, reserving space instead of covering controls. It never opens itself or sends
+an overnight push. Review uses the existing sheet, two separated provider rows, native checkboxes,
+publisher release links, and one **Upgrade selected** action. Progress, failures, partial success,
+and older running sessions are text, with no speculative progress bar. Phone actions wrap; the
+sheet stays within 640px on desktop. Closing it preserves the server job.
+
 ## The / picker (1.83)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 7; existing tokens, no new colour.

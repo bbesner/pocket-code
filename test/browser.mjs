@@ -395,6 +395,7 @@ const scan=async label=>{
  scans.push({label,result:await p.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false}))});
 };
 try{
+ if(process.env.POCKET_CLI_UPDATES_ONLY){const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');await runCliUpdateRegressions({browser,base,out});throw Object.assign(Error('CLI updates only'),{docsOnly:true});}
  if(process.env.POCKET_THEME_ONLY){
   const {runThemeRegressions}=await import('./theme-browser.mjs');
   await runThemeRegressions({browser,base,rows,out,settings:fixtureSettings,modes:uiModes,setRequests:r=>{questionRequests=r.questions||[];approvalRequests=r.approvals||[];}});
@@ -904,6 +905,8 @@ try{
  await runSideChatRegressions({browser,base,rows,out,side:sideFixture,conversations});
  const {runSlashRegressions}=await import('./slash-browser.mjs');
  await runSlashRegressions({browser,base,rows,received,out});
+ const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');
+ await runCliUpdateRegressions({browser,base,out});
  const {runCleanupRegressions}=await import('./cleanup-ui.mjs');
  await runCleanupRegressions({browser,base,rows,out});
  const {runThemeRegressions}=await import('./theme-browser.mjs');
