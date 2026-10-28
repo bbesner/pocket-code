@@ -142,10 +142,12 @@ export function normalizeUpdate(update) {
   if (u === 'user_message_chunk') return { type: 'user_chunk', text: update.content?.text ?? '', messageId: update.messageId };
   if (u === 'agent_message_chunk' || u === 'agent_message') return { type: 'delta', text: update.content?.text ?? '', messageId: update.messageId };
   if (u === 'agent_thought_chunk') return { type: 'reasoning', text: update.content?.text ?? '' };
-  if (u === 'tool_call') return { type: 'tool', id: update.toolCallId, title: update.title, kind: update.kind, status: update.status || 'pending', input: update.rawInput || null, path: update.locations?.[0]?.path || null };
+  // 1.87: an edit's ACP `diff` content (path, oldText, newText) rides along for the Changes view
+  const diffs = Array.isArray(update.content) ? update.content.filter(c => c?.type === 'diff' && c.path).map(c => ({ path: c.path, old: c.oldText ?? null, new: c.newText ?? '' })) : [];
+  if (u === 'tool_call') return { type: 'tool', id: update.toolCallId, title: update.title, kind: update.kind, status: update.status || 'pending', input: update.rawInput || null, path: update.locations?.[0]?.path || null, ...(diffs.length ? { diffs } : {}) };
   // Live, OpenCode sends the call first with only its folder ({title:'bash', rawInput:{cwd}}) and the command a moment later
   // in an in_progress update (verified live, 1.19.4), so updates carry the same fields and are merged by id.
-  if (u === 'tool_call_update') return { type: 'tool', id: update.toolCallId, title: update.title, kind: update.kind, status: update.status, input: update.rawInput || null, path: update.locations?.[0]?.path || null, update: true };
+  if (u === 'tool_call_update') return { type: 'tool', id: update.toolCallId, title: update.title, kind: update.kind, status: update.status, input: update.rawInput || null, path: update.locations?.[0]?.path || null, ...(diffs.length ? { diffs } : {}), update: true };
   // OpenCode's running cost for the whole session, after each model step (verified live, 1.19.4)
   if (u === 'usage_update') return { type: 'acp_usage', cost: Number.isFinite(update.cost?.amount) ? update.cost.amount : null, used: update.used ?? null, size: update.size ?? null };
   if (u === 'plan') return { type: 'plan', entries: update.entries || [] };
@@ -160,8 +162,14 @@ const toolDetail = e => { const i = e.input || {}; return i.command || i.filePat
 export function toolBlock(e) {
   // a command's folder is not what it did: an execute call without its command falls back to the title, never the folder
   const detail = toolDetail(e) || (e.kind === 'execute' ? (e.title !== 'bash' ? e.title : '') : e.path || e.title) || '';
-  return { t: 'tool', name: TOOL_NAMES[e.kind] || clip(e.title, 40) || 'Tool', detail: clip(detail) };
+  const b = { t: 'tool', name: TOOL_NAMES[e.kind] || clip(e.title, 40) || 'Tool', detail: clip(detail) };
+  // 1.87: an edit carries its full path(s) and, when OpenCode sent them, the before/after text (the Changes view's, never the phone's)
+  if (Array.isArray(e.diffs) && e.diffs.length) { b.paths = [...new Set(e.diffs.map(d => d.path))]; b.changes = e.diffs.slice(0, 40).map(d => ({ path: d.path, kind: d.old == null ? 'add' : 'update', old: d.old == null ? null : String(d.old).slice(0, 40_000), new: String(d.new ?? '').slice(0, 40_000) })); }
+  else if (b.name === 'Edit' && (e.input?.filePath || e.path)) b.paths = [e.input?.filePath || e.path];
+  return b;
 }
+// What a message carries to the phone: the before/after text stays on the server for the Changes view.
+export const forClient = msg => msg?.blocks?.some(b => b.changes) ? { ...msg, blocks: msg.blocks.map(({ changes, ...b }) => b) } : msg;
 // What an approval card shows under its title: the command, or the files an edit touches (the shapes the
 // app's approval card reads for Codex requests).
 export function approvalCard(params) {
@@ -217,6 +225,8 @@ export function messagesFromEvents(events) {
 // sessionId (bare) -> { client, cwd, model, turn, hooks }. One child per session, kept between
 // turns, so concurrent sessions are independent processes (like Codex sessions today).
 export const acpSessions = new Map();
+let trustedMatch = null; // 1.87: (command, cwd) -> the trusted rule it matches, or null (server.mjs sets it)
+export const setTrustedMatcher = fn => { trustedMatch = fn; };
 // The commands (skills) OpenCode last listed for this machine, from any of its processes, for the / list.
 let knownCommands = [];
 export const acpCommands = () => knownCommands;
@@ -240,7 +250,7 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks 
   // The reply's text and thinking since the last tool line, shown as their own message when the next tool
   // line or the end of the turn arrives, so a turn reads in order: thinking, tools, text.
   turn.tools = new Map(); // tool id -> { info (merged events), shown }
-  turn.showTool = info => { turn.flush(); turn.emit({ type: 'assistant', msg: { role: 'assistant', text: '', blocks: [toolBlock(info)], ts: new Date().toISOString() } }); };
+  turn.showTool = info => { turn.flush(); turn.emit({ type: 'assistant', msg: forClient({ role: 'assistant', text: '', blocks: [toolBlock(info)], ts: new Date().toISOString() }) }); };
   turn.flush = () => {
     const blocks = [];
     if (turn.thought.trim()) blocks.push(thinkingBlock(turn.thought));
@@ -328,6 +338,11 @@ function wireTurnHandlers(turn) {
       // OpenCode itself is configured to ask, so Review actions still shows every request as an approval card.
       if (turn.approvalMode === 'full' && canAllow) return client.respond(id, allow);
       const card = approvalCard(params);
+      // 1.87: in Review actions, a command matching one of the owner's trusted read-only rules runs without a card (audited)
+      if (canAllow && card.kind === 'command' && trustedMatch && card.details.command) {
+        const rule = trustedMatch(String(card.details.command), turn.cwd);
+        if (rule && turn.approvals.autoAllow({ nativeId: id, turnId: turn.turnId, kind: 'command', title: params.toolCall?.title || 'Run this command?', details: card.details, allow, deny, rule, tool: 'Bash' })) return;
+      }
       const ok = turn.approvals.receive({
         nativeId: id, turnId: turn.turnId, kind: card.kind,
         title: params.toolCall?.title || params.title || 'Allow this action?',

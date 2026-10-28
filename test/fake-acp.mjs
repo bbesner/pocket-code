@@ -118,6 +118,15 @@ async function handlePrompt(id, params) {
   if (text.includes('__SLOW__')) await new Promise(r => setTimeout(r, 1500));
   if (text.includes('__HANG__')) { saveSess(sid, s); await new Promise(r => { const t = setInterval(() => { if (cancelled.has(sid)) { clearInterval(t); r(); } }, 50); }); cancelled.delete(sid); return reply(id, { stopReason: 'cancelled' }); }
   let heard = '';
+  // 1.87 parity markers: __PLAN__ (an ACP plan), __EDIT__ (an edit tool call with its diff), __LIMIT__ (OpenRouter's 429)
+  if (text.includes('__LIMIT__')) { saveSess(sid, s); return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Rate limit exceeded (429). Retry after 2 seconds.' } }); }
+  if (text.includes('__PLAN__')) { const u = { sessionUpdate: 'plan', entries: [{ content: 'Read the code', status: 'completed', priority: 'medium' }, { content: 'Fix the bug', status: 'in_progress', priority: 'high' }] }; notify('session/update', { sessionId: sid, update: u }); s.updates.push(u); }
+  if (text.includes('__EDIT__')) {
+    const eid = randomUUID(), file = path.join(s.cwd || '/tmp', 'parity.txt');
+    const call = { sessionUpdate: 'tool_call', toolCallId: eid, title: 'parity.txt', kind: 'edit', status: 'pending', locations: [{ path: file }], rawInput: { filePath: file } };
+    const done = { sessionUpdate: 'tool_call_update', toolCallId: eid, status: 'completed', kind: 'edit', content: [{ type: 'diff', path: file, oldText: 'old line', newText: 'new line' }] };
+    notify('session/update', { sessionId: sid, update: call }); notify('session/update', { sessionId: sid, update: done }); s.updates.push(call, done);
+  }
   if (text.includes('__QUESTION__')) heard = ' ' + await askPocket([{ header: 'Color', question: 'Which color?', options: [{ label: 'Blue', description: 'Cool' }, { label: 'Red', description: 'Warm' }], multiSelect: false }]);
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'tool_call_update', toolCallId: toolId, status: 'completed', title: 'echo ACP_OK' } });
   s.updates.push({ sessionUpdate: 'tool_call_update', toolCallId: toolId, status: 'completed', title: 'echo ACP_OK' });

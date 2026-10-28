@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.86.0
+checked: 1.87.0
 sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -304,25 +304,31 @@ capture. After setup, verify both directions: ask an OpenRouter session to searc
 a known memory and load a skill, then find a substantive new conversation in
 MemStem and check its model tags.
 
-## Claude Code vs Codex in Pocket
+## Claude Code, Codex and OpenRouter in Pocket
 
-| | Claude Code | Codex |
-|---|---|---|
-| Where conversations live | Transcripts in `~/.claude/projects/<folder>/<id>.jsonl` | Codex's own store under `CODEX_HOME` (`~/.codex`), read through `codex app-server` |
-| Id in Pocket links | The session UUID (`#/chat/<uuid>`) | `cx:` plus the thread id (`#/chat/cx:<uuid>`) |
-| Process kept between replies | One `claude` process | One app-server, which holds the thread's writer lock |
-| Same conversation open elsewhere | Pocket refuses to send for 45 seconds after another app wrote to it | Pocket cannot send while code-server or a terminal holds the thread; release it there first |
-| Models | Pocket's catalog, narrowed by Settings, `POCKET_CLAUDE_MODELS` and the managed policy | The CLI's own list |
-| Codex mode (Plan first) | Not offered | Offered |
-| Automatic model choice (Assistant mode) | Yes | No |
-| Auto-continue after a usage limit | Yes | No |
-| Working in background state | Yes | No |
-| Cost line after a reply | Yes | No |
-| Changed files | Files with before and after diffs | Touched files only, without diffs |
-| Skill line inserted by the spark | `Use the /name skill.` | `Use the $name skill at <path>.` |
-| Rename with name sync on | Written to the transcript as Claude Code's own rename record | Set as the thread's name |
+Since 1.86 every feature is built for all three agents, and since 1.87 Codex has what it lacked against Claude Code.
+What still differs is what an agent itself cannot do; Pocket hides those on its conversations.
 
-Side chat, Branch, questions, approvals, search, titles and plan usage work for both.
+| | Claude Code | Codex | OpenRouter |
+|---|---|---|---|
+| Where conversations live | Transcripts in `~/.claude/projects/<folder>/<id>.jsonl` | Codex's own store under `CODEX_HOME` (`~/.codex`), read through `codex app-server` | OpenCode's own store, read through `opencode acp` |
+| Id in Pocket links | The session UUID (`#/chat/<uuid>`) | `cx:` plus the thread id | `acp:` plus OpenCode's session id |
+| Process kept between replies | One `claude` process | One app-server, which holds the thread's writer lock | One `opencode acp`, closed after 20 minutes idle |
+| Same conversation open elsewhere | Pocket refuses to send for 45 seconds after another app wrote to it | Pocket cannot send while code-server or a terminal holds the thread; release it there first | — |
+| Models | Pocket's catalog, narrowed by Settings, `POCKET_CLAUDE_MODELS` and the managed policy | The CLI's own list | OpenRouter's live catalog of models that use tools |
+| Plan first | Not offered | Offered | Offered (OpenCode's plan mode) |
+| Automatic model choice (Assistant mode) | Yes | No | No |
+| Auto-continue after a usage limit | Yes | Yes (1.87) | Yes, for OpenRouter's rate limits (1.87) |
+| Under each reply | Its cost and time | Tokens used and time (Codex is billed by plan, not per token) | Its cost, time and cache share |
+| Changed files | Before and after for each edit | Each edit's diff (1.87) | Before and after for each edit (1.87) |
+| Plan checklist | From TodoWrite | From Codex's plan updates, when it sends them (Codex 0.156 does not) | From OpenCode's plan |
+| `/` commands | Claude Code's (compact, context, recap, init, code review…) | compact, review, recap, context (1.87) | OpenCode's own commands and skills |
+| Steer, Side chat, Branch, While you were away, Subagents | Yes | Yes | No |
+| Skill line inserted by the spark | `Use the /name skill.` | `Use the $name skill at <path>.` | `/name` |
+| Rename with name sync on | Written to the transcript as Claude Code's own rename record | Set as the thread's name | Pocket's name only |
+
+Questions, approvals, trusted read-only actions (Review actions), attachments, the context meter, search,
+titles, Results and file cards work for all three.
 
 ## How it works
 

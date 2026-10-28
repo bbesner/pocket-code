@@ -81,7 +81,10 @@ export async function runSlashRegressions({browser,base,rows,received,out}) {
   await page.setViewport({width:1440,height:900});
   await page.goto(base+'/?slash=cx#/chat/'+cx);await page.waitForSelector('#box');
   await page.type('#box','/');await page.waitForSelector('#slash:not([hidden]) [data-n="inventory-report"]');
-  assert.deepEqual(await groups(),['Pocket','Skills'],'no Claude Code commands in a Codex conversation');
+  // 1.87: Codex has its own counterparts of Claude Code's commands (run as Codex's own turns), not Claude's
+  assert.deepEqual(await groups(),['Codex','Pocket','Skills'],'Codex commands in a Codex conversation');
+  for(const n of ['compact','review','recap','context'])assert.ok((await names()).includes(n),n+' is offered on Codex');
+  assert.ok(!(await names()).includes('init'),'a Claude-only command is not');
   await page.type('#box','inv');await page.keyboard.press('Enter');
   assert.equal(await page.$eval('#box',e=>e.value),'Use the $inventory-report skill. ','a Codex skill is typed as its skill line');
   await page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));});

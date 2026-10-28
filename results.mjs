@@ -19,7 +19,7 @@ export function collectResults(messages,{limit=200}={}){
   for(const msg of messages){
     if(msg.role!=='assistant')continue;
     for(const b of msg.blocks||[]){
-      if(b.t==='tool' && ['Write','Edit','fileChange'].includes(b.name))add(reference(b.detail),msg.ts);
+      if(b.t==='tool' && ['Write','Edit','fileChange'].includes(b.name))for(const p of Array.isArray(b.paths)&&b.paths.length?b.paths:[b.detail])add(reference(p),msg.ts); // 1.87: every file a Codex edit touched
       if(b.t!=='text')continue;
       const text=String(b.text||'').slice(0,250000);
       try {marked.walkTokens(marked.lexer(text),token=>{

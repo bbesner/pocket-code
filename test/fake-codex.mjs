@@ -43,6 +43,13 @@ const reply=(id,result)=>send({jsonrpc:'2.0',id,result});
 const fail=(id,message)=>send({jsonrpc:'2.0',id,error:{code:-32600,message}});
 // 1.86: this fake's own requests to Pocket (a question), answered by id
 const asked=new Map();let askSeq=0;
+// 1.87 parity markers: __PLAN__ (a plan update), __EDIT__ (a file change with its diff, saved to the thread),
+// __LIMIT__ (a usage limit with its plan window full until 2 s from now), __CMDAPPROVAL__ (asks to run `echo CX_OK`);
+// every reply reports token usage; thread/compact/start and review/start run their own turns.
+// the account's limit is shared by every app-server process (Pocket reads it from its reader process), so it lives in a file
+const limitFile=path.join(root,'.limit');
+const limitAt=()=>{try{return Number(fs.readFileSync(limitFile,'utf8'))||0;}catch{return 0;}};
+const persist=(threadId,turnId,item)=>{const f=path.join(root,threadId+'.items.json');let items=[];try{items=JSON.parse(fs.readFileSync(f,'utf8'));}catch{}fs.writeFileSync(f,JSON.stringify([...items,{turnId,item}]));};
 const askPocket=(method,params)=>new Promise(r=>{const id='fake-ask-'+(++askSeq);asked.set(id,r);send({jsonrpc:'2.0',id,method,params});});
 readline.createInterface({input:process.stdin}).on('line',line=>{
   let m;try{m=JSON.parse(line)}catch{return}
@@ -94,7 +101,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         },1000);
       }
       // 1.86: __CHOICES__ ends with a ```choices block; __QUESTION__ asks Pocket (requestUserInput) and answers with the choice
-      const finish=said=>{notify('item/agentMessage/delta',{delta:'Codex test '});notify('item/completed',{item:{type:'agentMessage',id:randomUUID(),text:said}});notify('turn/completed',{turn:{id:turnId,status:'completed'}});};
+      const finish=said=>{notify('item/agentMessage/delta',{delta:'Codex test '});notify('item/completed',{item:{type:'agentMessage',id:randomUUID(),text:said}});notify('thread/tokenUsage/updated',{threadId:p.threadId,turnId,tokenUsage:{last:{totalTokens:1234,inputTokens:1000,cachedInputTokens:800,outputTokens:234},modelContextWindow:200000}});notify('turn/completed',{turn:{id:turnId,status:'completed'}});};
+      if(text.includes('__PLAN__'))notify('turn/plan/updated',{threadId:p.threadId,turnId,plan:[{step:'Read the code',status:'completed'},{step:'Fix the bug',status:'inProgress'}]});
+      if(text.includes('__EDIT__')){const item={type:'fileChange',id:randomUUID(),status:'completed',changes:[{path:path.join(fs.existsSync(path.join(root,p.threadId+'.cwd'))?fs.readFileSync(path.join(root,p.threadId+'.cwd'),'utf8'):process.cwd(),'parity.txt'),kind:{type:'update'},diff:'@@ -1 +1 @@\n-old line\n+new line\n'}]};persist(p.threadId,turnId,item);notify('item/completed',{threadId:p.threadId,turnId,item});}
+      if(text.includes('__LIMIT__')){fs.writeFileSync(limitFile,String(Date.now()+2000));const error={message:"You've hit your usage limit.",codexErrorInfo:'usageLimitExceeded'};setTimeout(()=>{notify('error',{threadId:p.threadId,turnId,willRetry:false,error});notify('turn/completed',{turn:{id:turnId,status:'failed',error}});},150);return;}
+      if(text.includes('__CMDAPPROVAL__')){askPocket('item/commandExecution/requestApproval',{threadId:p.threadId,turnId,itemId:randomUUID(),command:"/bin/bash -lc 'echo CX_OK'",cwd:process.cwd()}).then(r=>{fs.appendFileSync(calls+'.cxapprovals',JSON.stringify({decision:r?.decision})+'\n');finish('Codex ran it: '+(r?.decision||'none'));});return;}
       if(text.includes('__QUESTION__')){askPocket('item/tool/requestUserInput',{threadId:p.threadId,turnId,questions:[{id:'q-color',header:'Color',question:'Which color?',options:[{label:'Blue',description:'Cool'},{label:'Red',description:'Warm'}]}]}).then(r=>finish('Codex heard '+JSON.stringify(r?.answers||{})));return;}
       setTimeout(()=>finish(text.includes('__CHOICES__')?'Tests pass. Should I merge and deploy?\n\n```choices\nMerge and deploy\nNot yet\n```':'Codex test response.'),text.includes('__SLOW__')?1500:200);
       return;
@@ -121,6 +132,19 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     case 'model/list':return reply(m.id,{data:process.env.FAKE_CODEX_MODELS?JSON.parse(process.env.FAKE_CODEX_MODELS):[],nextCursor:null}); // FAKE_CODEX_MODELS: the models to list, in the app-server's shape
     case 'skills/list':return reply(m.id,{data:[],nextCursor:null});
     case 'thread/read':{let cwd=process.cwd();try{cwd=fs.readFileSync(path.join(root,p.threadId+'.cwd'),'utf8');}catch{}return reply(m.id,{thread:{id:p.threadId,turns:[],preview:'',cwd}});}
+    case 'account/rateLimits/read':{const at=limitAt();return reply(m.id,{rateLimits:{primary:{usedPercent:at>Date.now()?100:12,resetsAt:Math.ceil((at>Date.now()?at:Date.now()+3600_000)/1000),windowDurationMins:300},secondary:{usedPercent:5,resetsAt:Math.ceil(Date.now()/1000)+604800,windowDurationMins:10080}}});}
+    case 'thread/compact/start':case 'review/start':{ // 1.87: Codex's own turns on the thread
+      const turnId=randomUUID(),kind=m.method==='review/start'?'review':'compact';
+      fs.appendFileSync(calls+'.codex',JSON.stringify({threadId:p.threadId,pid:process.pid,text:'['+kind+']',target:p.target||null})+'\n');
+      reply(m.id,kind==='review'?{turn:{id:turnId}}:{});
+      notify('turn/started',{turnId});
+      setTimeout(()=>{
+        if(kind==='review'){notify('item/completed',{item:{type:'enteredReviewMode',id:randomUUID(),review:'the uncommitted changes'}});notify('item/completed',{item:{type:'exitedReviewMode',id:randomUUID(),review:'Review: no issues found.'}});}
+        else notify('item/completed',{item:{type:'contextCompaction',id:randomUUID()}});
+        notify('turn/completed',{turn:{id:turnId,status:'completed'}});
+      },200);
+      return;
+    }
     default:return fail(m.id,'unsupported in fake codex: '+m.method);
   }
 });

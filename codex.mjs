@@ -298,6 +298,8 @@ const clip = (s, n = 140) => (s == null ? '' : String(s).replace(/\s+/g, ' ').tr
 // Reply suggestions ride on the thread's developer instructions. A Codex config that sets its own
 // developer_instructions keeps them: Pocket never replaces an operator's instructions.
 let extraInstructions = () => '';
+let trustedMatch = null; // 1.87: (command, cwd) -> the trusted rule it matches, or null (server.mjs sets it)
+export const setTrustedMatcher = fn => { trustedMatch = fn; };
 export const setExtraInstructions = fn => { extraInstructions = fn; }; // 1.29: the server adds the projects line when that feature is on
 // 1.39: Settings says so when an operator's own developer_instructions keep Pocket's lines (projects, files, tasks, vault) from reaching Codex.
 export function instructionsOverridden() { try { return /^\s*developer_instructions\s*=/m.test(fs.readFileSync(path.join(CODEX_HOME, 'config.toml'), 'utf8')); } catch { return false; } }
@@ -319,15 +321,22 @@ function itemBlocks(it) {
       return parts.length ? [{ t: 'tool', name: 'Thinking', detail: clip(parts.join(' ')) }] : [];
     }
     case 'commandExecution': {
-      const cmd = (it.command || '').replace(/^\/bin\/(ba)?sh\s+-l?c\s+/, '');
+      const cmd = (it.command || '').replace(/^\/bin\/(ba)?sh\s+-l?c\s+/, '').replace(/^(['"])([\s\S]*)\1$/, '$2'); // 1.87: without the shell's quotes
       const bad = it.exitCode != null && it.exitCode !== 0;
       return [{ t: 'tool', name: 'Bash', detail: clip(cmd) + (bad ? ` (exit ${it.exitCode})` : '') }];
     }
     case 'fileChange': {
-      const paths = (it.changes || []).map(c => c.path).filter(Boolean);
-      const head = paths[0] ? paths[0].split('/').slice(-2).join('/') : '';
-      return [{ t: 'tool', name: 'Edit', detail: head + (paths.length > 1 ? ` +${paths.length - 1} more` : '') }];
+      // 1.87: full paths (Results, file cards and auto-keep read them, as they read Claude's Edit and Write) and each
+      // file's diff, which the Changes view shows; the diffs never go to the phone with the conversation (forClient).
+      const changes = (it.changes || []).filter(c => c?.path).slice(0, 40);
+      const paths = changes.map(c => c.path);
+      return [{ t: 'tool', name: 'Edit', detail: (paths[0] || '') + (paths.length > 1 ? ` +${paths.length - 1} more` : ''), paths,
+        changes: changes.map(c => ({ path: c.path, kind: c.kind?.type || 'update', ...(c.kind?.move_path ? { to: c.kind.move_path } : {}), diff: String(c.diff || '').slice(0, 40_000), ...(String(c.diff || '').length > 40_000 ? { trunc: true } : {}) })) }];
     }
+    case 'plan': // 1.87: Plan first's plan: its text, as the reply
+      return it.text?.trim() ? textBlocks(it.text) : [];
+    case 'pocketPlan': // 1.87: the checklist from turn/plan/updated, kept in the transcript cache as this item
+      return Array.isArray(it.plan) && it.plan.length ? [planTodo(it.plan)] : [];
     case 'webSearch':
       return [{ t: 'tool', name: 'Web', detail: clip(it.query || it.action?.url || '') }];
     case 'mcpToolCall':
@@ -340,6 +349,10 @@ function itemBlocks(it) {
       return [{ t: 'tool', name: 'Image', detail: clip(it.path || '') }];
     case 'sleep':
       return [{ t: 'tool', name: 'Sleep', detail: it.durationMs ? `${Math.round(it.durationMs / 1000)}s` : '' }];
+    case 'enteredReviewMode': // 1.87: /review
+      return [{ t: 'tool', name: 'Review', detail: clip(it.review || 'reviewing the changes') }];
+    case 'exitedReviewMode':
+      return it.review?.trim() ? textBlocks(it.review) : [];
     case 'contextCompaction':
       return [{ t: 'tool', name: 'Compact', detail: 'context compacted' }];
     case 'error':
@@ -350,6 +363,11 @@ function itemBlocks(it) {
 }
 
 // A user message can carry non-text blocks (images); keep the text, note the rest.
+// 1.87: a plan update as the UI's checklist block, the shape Claude's TodoWrite takes (statuses pending/inProgress/completed).
+export const planTodo = plan => ({ t: 'todo', todos: plan.map(p => ({ s: p?.status === 'inProgress' ? 'in_progress' : p?.status === 'completed' ? 'completed' : 'pending', c: String(p?.step || '') })) });
+// What a message carries to the phone: the diffs stay on the server for the Changes view.
+export const forClient = msg => msg?.blocks?.some(b => b.changes) ? { ...msg, blocks: msg.blocks.map(({ changes, ...b }) => b) } : msg;
+
 function userText(it) {
   const c = it.content;
   if (typeof c === 'string') return c;
@@ -369,9 +387,13 @@ export function normalizeItem(it, ts) {
   if (!it || typeof it !== 'object') return null;
   try {
     if (it.type === 'userMessage') {
-      const txt = userText(it).trim();
+      let txt = userText(it).trim();
       if (!txt) return null;
-      return { role: 'user', text: txt, ts };
+      // 1.87: the attachment note as file chips, as Claude's messages show it
+      let files;
+      const am = txt.match(/\n\n\[Attached files? — read as needed:\n([\s\S]*?)\n\]\s*$/);
+      if (am) { files = am[1].split('\n').filter(Boolean).map(p => ({ n: p.split('/').pop(), p })); txt = txt.slice(0, am.index).trim(); }
+      return { role: 'user', text: txt, ...(files ? { files } : {}), ts };
     }
     const blocks = itemBlocks(it);
     return blocks.length ? { role: 'assistant', blocks, ts } : null;
@@ -1021,6 +1043,13 @@ function onSessionRequest(s, request) {
   const { request: req, agent } = rehomeAgentRequest(turn, request);
   if(turn.questions?.receive(req,turn.turnId,{agent}))return true;
   const approval=codexApproval(req,turn);
+  // 1.87: in Review actions, a command matching one of the owner's trusted read-only rules runs without a card (audited),
+  // as Claude's do. Codex wraps commands in a login shell; the rule sees the command itself.
+  if(approval?.kind==='command'&&turn.approvalMode==='review'&&trustedMatch){
+    const cmd=(Array.isArray(approval.details?.command)?approval.details.command.join(' '):String(approval.details?.command||'')).replace(/^\/bin\/(ba)?sh\s+-l?c\s+/,'').replace(/^(['"])([\s\S]*)\1$/,'$2');
+    const rule=cmd?trustedMatch(cmd,turn.cwd):null;
+    if(rule&&turn.approvals?.autoAllow({...approval,rule,tool:'Bash'}))return true;
+  }
   return approval ? turn.approvals?.receive({...approval,agent}) || false : false;
 }
 function wireSession(s, conn) {
@@ -1089,7 +1118,7 @@ async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, 
   return s;
 }
 
-export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, emit, onFinish, onQuestion, onApproval, auditApproval }) {
+export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, action = null, emit, onFinish, onQuestion, onApproval, auditApproval }) {
   const existing = threadId && codexTurns.get(threadId);
   if (existing) throw Object.assign(new Error('busy'), { code: 409 });
   const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval };
@@ -1109,7 +1138,10 @@ export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, eff
 
   const input = [{ type: 'text', text: promptWithAttachments(text, attachments) }];
   try {
-    const r=await s.conn.request('turn/start', {
+    // 1.87: /compact and /review are Codex's own turns on the thread (thread/compact/start, review/start), streamed like any turn
+    const r = action?.kind === 'compact' ? await s.conn.request('thread/compact/start', { threadId: turn.threadId }, 120_000)
+      : action?.kind === 'review' ? await s.conn.request('review/start', { threadId: turn.threadId, target: action.target, delivery: 'inline' }, 120_000)
+      : await s.conn.request('turn/start', {
       threadId:turn.threadId,input,
       collaborationMode:{mode:executionMode==='plan'?'plan':'default',settings:{model:turn.effectiveModel,reasoning_effort:turn.effectiveEffort,developer_instructions:null}},
       ...(model?{model}:{}),...(effort?{effort}:{}),
@@ -1186,7 +1218,15 @@ function onTurnNotify(turn, method, params) {
       // our own prompt comes back as a userMessage item ~2s later; we already echoed it
       if (it?.type === 'userMessage') break;
       const msg = normalizeItem(it, new Date().toISOString());
-      if (msg) turn.emit({ type: 'assistant', msg });
+      if (msg) turn.emit({ type: 'assistant', msg: forClient(msg) });
+      break;
+    }
+    case 'turn/plan/updated': { // 1.87: the plan checklist, live and in the transcript (one entry per turn, updated in place)
+      const plan = Array.isArray(params?.plan) ? params.plan : [];
+      if (!plan.length) break;
+      const item = { type: 'pocketPlan', id: 'pocket-plan-' + (params.turnId || turn.turnId), plan };
+      if (turn.threadId) noteCodexItem(turn.threadId, params.turnId || turn.turnId || null, item);
+      turn.emit({ type: 'assistant', msg: { role: 'assistant', blocks: [planTodo(plan)], ts: new Date().toISOString(), planOf: item.id } });
       break;
     }
     case 'thread/tokenUsage/updated': {
@@ -1201,6 +1241,7 @@ function onTurnNotify(turn, method, params) {
         // nearly the whole context twice and pinned the meter at 100% from about 55% real
         // (Damon, 2026-10-14, Ramesh's session: 153k input / 152k cached shown as 118%).
         const used = contextUsed(last), cached = cachedTokens(last);
+        turn.tokenSum = (turn.tokenSum || 0) + (Number(last.totalTokens) || 0); // 1.87: the reply's tokens, shown under it
         const window = tu.modelContextWindow || null;
         codexUsage.context[turn.threadId] = {
           used, cached, window: window || estimateWindow(turn.effectiveModel, used),
@@ -1215,13 +1256,21 @@ function onTurnNotify(turn, method, params) {
     case 'account/rateLimits/updated':
       mergeCodexRateLimits(params?.rateLimits);
       break;
+    case 'model/rerouted': // 1.87: say so, as Claude's replies do when they run on another model
+      turn.emit({ type: 'note', text: `Codex ran this reply on ${params?.toModel || 'another model'} instead of ${params?.fromModel || 'the one you picked'}${params?.reason === 'highRiskCyberActivity' ? ' (a security-sensitive request)' : ''}.` });
+      break;
+    case 'error': // 1.87: a usage or rate limit that Codex will not retry itself; the reply resumes after the reset
+      if (!params?.willRetry && isCodexLimit(params?.error?.codexErrorInfo)) turn.limit = { message: params.error.message || 'Usage limit reached' };
+      break;
     case 'turn/completed': {
       const u = params?.usage || turn.usage || {};
+      if (!turn.limit && isCodexLimit(params?.turn?.error?.codexErrorInfo)) turn.limit = { message: params.turn.error.message || 'Usage limit reached' };
       finish(turn, {
-        type: 'result', ok: !turn.stopped && !turn.stalled && !['failed','interrupted'].includes(params?.turn?.status),
+        type: 'result', ok: !turn.stopped && !turn.stalled && !turn.limit && !['failed','interrupted'].includes(params?.turn?.status),
+        ...(turn.limit && !turn.stopped ? { limit: true } : {}),
         error:turn.stalled?`Stopped: no activity for ${Math.round(STALL_MS / 60_000)} minutes`:turn.stopped?'Stopped by you':params?.turn?.error?.message,
         duration_ms: Date.now() - turn.startedAt,
-        tokens: u.totalTokens ?? u.total_tokens ?? undefined,
+        tokens: u.totalTokens ?? u.total_tokens ?? (turn.tokenSum || undefined),
         cache: turn.cacheFirst || null,
       });
       break;
@@ -1420,6 +1469,17 @@ async function attachCache(sessions) {
 // need an active turn to show something), falling back to whatever a running turn last
 // pushed via the account/rateLimits/updated notification. Returns null — not an error —
 // when this Codex CLI build doesn't expose the method at all.
+// 1.87: a Codex usage or rate limit (TurnError.codexErrorInfo: the enum string or a {kind:{…}} variant).
+export const isCodexLimit = info => ['usageLimitExceeded', 'rateLimitExceeded'].some(k => info === k || (info && typeof info === 'object' && k in info));
+// When the limit that stopped a reply lifts: the reset of a plan window that is full (resetsAt, unix seconds), read
+// fresh from Codex; null when Codex does not say (the caller then estimates).
+export async function codexLimitReset() {
+  const rl = await codexRateLimits().catch(() => null) || codexUsage.rateLimits || {};
+  const wins = [rl.primary, rl.secondary].filter(w => w && Number.isFinite(w.resetsAt));
+  const full = wins.filter(w => w.usedPercent >= 100), pick = (full.length ? full : wins.filter(w => w.usedPercent >= 90));
+  if (!pick.length) return null;
+  return Math.max(...pick.map(w => w.resetsAt)) * 1000;
+}
 export async function codexRateLimits() {
   try {
     const r = await rpc('account/rateLimits/read', {}, 15_000);
