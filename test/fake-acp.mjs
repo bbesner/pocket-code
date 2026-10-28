@@ -48,6 +48,7 @@ async function handlePrompt(id, params) {
   } else if (!process.env.FAKE_ACP_NO_ASK) {
     const ans = await askClient('session/request_permission', { sessionId: sid, toolCallId: toolId,
       options: [{ optionId: 'allow_once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'reject_once', name: 'Reject', kind: 'reject_once' }] });
+    if (cancelled.has(sid) || ans?.cancelled) { cancelled.delete(sid); saveSess(sid, s); return reply(id, { stopReason: 'cancelled' }); }
     s.permissionOutcome = ans?.outcome?.outcome;
     if (ans?.outcome?.outcome !== 'selected' || /reject/.test(ans?.outcome?.optionId || '')) {
       saveSess(sid, s); return reply(id, { stopReason: 'refusal' });
@@ -70,7 +71,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   }
   if (!m.method) return;
   if (m.id == null) { // notification
-    if (m.method === 'session/cancel' && m.params?.sessionId) cancelled.add(m.params.sessionId);
+    if (m.method === 'session/cancel' && m.params?.sessionId) {
+      cancelled.add(m.params.sessionId);
+      // abort any permission the turn is blocked on, as a real agent does on cancel
+      for (const [id, res] of clientPending) { clientPending.delete(id); res({ cancelled: true }); }
+    }
     return;
   }
   switch (m.method) {
@@ -79,6 +84,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       agentCapabilities: { loadSession: !process.env.FAKE_ACP_NO_LOADSESSION, sessionCapabilities: { list: {}, resume: {}, fork: {}, close: {} }, promptCapabilities: { embeddedContext: true, image: true }, mcpCapabilities: { http: true, sse: true } },
       agentInfo: { name: 'FakeACP', version: '0.0.1' },
     });
+    case 'session/list': {
+      let files = []; try { files = fs.readdirSync(STORE).filter(f => f.endsWith('.json')); } catch { }
+      const sessions = files.map(f => { const sid = decodeURIComponent(f.replace(/\.json$/, '')); let st; try { st = fs.statSync(path.join(STORE, f)); } catch { } return { sessionId: sid, cwd: '/tmp', title: 'Session ' + sid.slice(0, 8), updatedAt: new Date(st?.mtimeMs || Date.now()).toISOString() }; });
+      return reply(m.id, { sessions });
+    }
     case 'session/new': { const sid = 'ses_' + randomUUID(); saveSess(sid, { updates: [] }); return reply(m.id, { sessionId: sid }); }
     case 'session/load': {
       if (process.env.FAKE_ACP_NO_LOADSESSION) return fail(m.id, 'loadSession not supported');

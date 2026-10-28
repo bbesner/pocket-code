@@ -3,19 +3,22 @@
 // A third engine alongside Claude Code and Codex: Pocket drives a model-agnostic ACP agent
 // (OpenCode today — `opencode acp`) pointed at OpenRouter, so a user can pick DeepSeek V4.1
 // Flash or any OpenRouter model. ACP is JSON-RPC 2.0 over stdio — the same wire shape as
-// Codex's app-server — so this reuses codex.mjs's LineBuffer framing and mirrors
-// startCodexTurn's callback contract ({emit, onApproval, onQuestion, onFinish}). See
-// docs/openrouter-acp-engine-spec.md.
+// Codex's app-server — so this reuses codex.mjs's LineBuffer framing and mirrors codex.mjs's
+// turn-object pattern: each turn builds an ApprovalInbox (request_permission maps straight onto
+// it), streams session/update events through turn.emit to SSE subscribers, and is tracked in
+// acpTurns so server.mjs's watch/approve endpoints find it. See docs/openrouter-acp-engine-spec.md.
 //
-// SLICE 1 (this file): the protocol client + per-session child + a prompt turn that streams
-// updates and routes request_permission / elicitation / cancel to callbacks. It is NOT yet
-// wired into server.mjs's dispatch, so it cannot affect the two shipped engines. Server
-// routing, the model picker, the key broker and MemStem ingest are follow-up slices.
+// Elicitation (model questions) is declined for v1: OpenCode delivers questions as plain text
+// (verified live), so there is no structured question inbox to wire yet (spec §7). fs/terminal
+// are NOT advertised, so the agent stays the executor under a client-gated permission policy and
+// Pocket stays the orchestrator (spec §6).
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { LineBuffer } from './codex.mjs';
+import { ApprovalInbox } from './approvals.mjs';
 import { DEFAULT_CURATED } from './openrouter.mjs';
 
 const HOME = os.homedir();
@@ -28,47 +31,43 @@ export const bareAcpId = id => isAcpId(id) ? id.slice(ACP.length) : id;
 
 const log = (...a) => console.log(new Date().toISOString(), '[acp]', ...a);
 
-// What Pocket advertises to the agent at initialize. Deliberately NOT fs/terminal: Pocket
-// stays the orchestrator and lets the agent execute tools under its own (client-gated)
-// permission policy, rather than becoming the executor (that would be Route B's burden —
-// spec §6). `elicitation.form` is advertised so an agent that asks structured questions can.
+// What Pocket advertises to the agent at initialize. Deliberately NOT fs/terminal: Pocket stays
+// the orchestrator and lets the agent execute tools under its own (client-gated) permission
+// policy (spec §6). elicitation.form is advertised but model questions are declined in v1.
 export const CLIENT_CAPABILITIES = { elicitation: { form: {} } };
 export const PROTOCOL_VERSION = 1;
 
-// A JSON-RPC-2.0-over-stdio client for one ACP agent child. Newline-delimited both ways.
-// Requests carry an id; a message with `method` and no id is a notification (the streaming
-// channel); a message with `method` AND id is a server->client request we must answer.
+// ---------- JSON-RPC-2.0-over-stdio client for one ACP agent child ----------
+// Newline-delimited both ways. Requests carry an id; `method` + no id is a notification; `method`
+// + id is a server->client request Pocket must answer (deferred — the handler responds via
+// respond(id, result) when ready, e.g. after the user decides an approval).
 export class AcpClient {
   constructor({ cmd, args = [], cwd, env = process.env, onNotify, onRequest, name = 'acp' } = {}) {
     this.name = name;
-    this.onNotify = onNotify;    // (method, params) => void   — session/update etc.
-    this.onRequest = onRequest;  // async (method, params) => result — request_permission, elicitation/create
+    this.onNotify = onNotify;    // (method, params) => void
+    this.onRequest = onRequest;  // (method, params, id) => void — MUST call respond(id, ...) eventually
     this.seq = 0;
-    this.pending = new Map();    // id -> {resolve, reject, timer}
+    this.pending = new Map();    // our outgoing request id -> {resolve, reject, timer}
     this.closed = false;
     this.buf = new LineBuffer();
+    this.stderr = '';
     this.proc = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd, env });
     this.pid = this.proc.pid;
-    this.stderr = '';
-    this.proc.stdin.on('error', () => { }); // EPIPE if it dies mid-write
+    this.proc.stdin.on('error', () => { });
     this.proc.stderr.on('data', d => { this.stderr = (this.stderr + d).slice(-4000); });
     this.proc.stdout.on('data', d => { for (const line of this.buf.push(d.toString())) this._line(line); });
     this.proc.on('error', e => this._fail(new Error(`acp spawn failed: ${e.message}`)));
     this.proc.on('exit', () => this._fail(new Error('acp agent exited')));
   }
-
+  writable() { return !this.closed; }
   _fail(err) {
     if (this.closed) return;
     this.closed = true;
     for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(err); }
     this.pending.clear();
   }
-
-  _write(obj, cb) {
-    try { this.proc.stdin.write(JSON.stringify(obj) + '\n', cb); } catch (e) { cb?.(e); }
-  }
-
-  async _line(line) {
+  _write(obj, cb) { try { this.proc.stdin.write(JSON.stringify(obj) + '\n', cb); } catch (e) { cb?.(e); } }
+  _line(line) {
     if (!line.trim()) return;
     let m; try { m = JSON.parse(line); } catch { return; }
     if (m.id != null && (m.result !== undefined || m.error !== undefined)) {
@@ -80,36 +79,28 @@ export class AcpClient {
     } else if (m.method && m.id == null) {
       try { this.onNotify?.(m.method, m.params || {}); } catch (e) { log(`notify handler threw: ${e.message}`); }
     } else if (m.method && m.id != null) {
-      // Server->client request. The handler answers; anything it can't/won't handle is declined.
-      let result;
-      try { result = this.onRequest ? await this.onRequest(m.method, m.params || {}) : undefined; }
-      catch (e) { return this._write({ jsonrpc: '2.0', id: m.id, error: { code: -32603, message: e.message } }); }
-      this._write({ jsonrpc: '2.0', id: m.id, result: result === undefined ? declineFor(m.method) : result });
+      if (this.onRequest) { try { this.onRequest(m.method, m.params || {}, m.id); } catch (e) { this.respond(m.id, declineFor(m.method)); log(`request handler threw: ${e.message}`); } }
+      else this.respond(m.id, declineFor(m.method)); // no handler -> fail closed
     }
   }
-
+  // Answer a server->client request (the deferred half of an approval/elicitation).
+  respond(id, result) { this._write({ jsonrpc: '2.0', id, result }); }
   request(method, params = {}, timeoutMs = 120_000) {
     return new Promise((resolve, reject) => {
       if (this.closed) return reject(new Error('acp client closed'));
       const id = ++this.seq;
       const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} timed out`)); }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this._write({ jsonrpc: '2.0', id, method, params }, e => {
-        if (e && this.pending.has(id)) { this.pending.delete(id); clearTimeout(timer); reject(e); }
-      });
+      this._write({ jsonrpc: '2.0', id, method, params }, e => { if (e && this.pending.has(id)) { this.pending.delete(id); clearTimeout(timer); reject(e); } });
     });
   }
-
   notify(method, params = {}) { this._write({ jsonrpc: '2.0', method, params }); }
-
-  initialize(clientCapabilities = CLIENT_CAPABILITIES) {
-    return this.request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities });
-  }
+  initialize(clientCapabilities = CLIENT_CAPABILITIES) { return this.request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities }); }
   newSession(params) { return this.request('session/new', params); }
   loadSession(params) { return this.request('session/load', params); }
+  listSessions() { return this.request('session/list', {}); }
   prompt(params, timeoutMs) { return this.request('session/prompt', params, timeoutMs); }
   cancel(sessionId) { this.notify('session/cancel', { sessionId }); }
-
   close() { this.closed = true; try { this.proc.kill('SIGTERM'); } catch { } }
 }
 
@@ -120,88 +111,192 @@ export function declineFor(method) {
   return null; // fs/* and terminal/* are not advertised; a well-behaved agent won't call them
 }
 
-// Pick the option id for an approval decision. `decision` is what onApproval returned:
-// an explicit optionId string, true/'allow' (first allow-ish option), or false/null/'deny'
-// (a reject option, else cancelled). Mirrors the request_permission options[] shape.
-export function permissionOutcome(options, decision) {
+// Pick the ACP outcome payload for an allow/deny decision from the request's options[].
+export function permissionOutcomes(options) {
   const opts = Array.isArray(options) ? options : [];
   const byKind = k => opts.find(o => o && o.kind === k)?.optionId;
-  if (typeof decision === 'string' && opts.some(o => o?.optionId === decision)) return { outcome: 'selected', optionId: decision };
-  if (decision === true || decision === 'allow') { const id = byKind('allow_once') || byKind('allow_always') || opts[0]?.optionId; return id ? { outcome: 'selected', optionId: id } : { outcome: 'cancelled' }; }
-  const rej = byKind('reject_once') || byKind('reject_always');
-  return rej ? { outcome: 'selected', optionId: rej } : { outcome: 'cancelled' };
+  const allowId = byKind('allow_once') || byKind('allow_always') || opts[0]?.optionId;
+  const rejectId = byKind('reject_once') || byKind('reject_always');
+  return {
+    allow: allowId ? { outcome: { outcome: 'selected', optionId: allowId } } : { outcome: { outcome: 'cancelled' } },
+    deny: rejectId ? { outcome: { outcome: 'selected', optionId: rejectId } } : { outcome: { outcome: 'cancelled' } },
+    canAllow: Boolean(allowId),
+  };
 }
 
-// Normalize a session/update notification into a small, engine-neutral event for `emit`.
-// The server-wiring slice maps these onto Pocket's transcript records.
+// Normalize a session/update notification into a Pocket SSE transcript event. Text streams as
+// `delta` (the UI's incremental-text event); tool calls stream as `tool`; the rest is best-effort.
 export function normalizeUpdate(update) {
   if (!update || typeof update !== 'object') return null;
   const u = update.sessionUpdate;
-  if (u === 'agent_message_chunk' || u === 'agent_message') return { type: 'text', text: update.content?.text ?? '' };
-  if (u === 'agent_thought_chunk') return { type: 'thought', text: update.content?.text ?? '' };
+  if (u === 'agent_message_chunk' || u === 'agent_message') return { type: 'delta', text: update.content?.text ?? '' };
+  if (u === 'agent_thought_chunk') return { type: 'reasoning', text: update.content?.text ?? '' };
   if (u === 'tool_call') return { type: 'tool', id: update.toolCallId, title: update.title, kind: update.kind, status: update.status || 'pending' };
-  if (u === 'tool_call_update') return { type: 'tool_update', id: update.toolCallId, title: update.title, status: update.status };
+  if (u === 'tool_call_update') return { type: 'tool', id: update.toolCallId, title: update.title, status: update.status, update: true };
   if (u === 'plan') return { type: 'plan', entries: update.entries || [] };
-  return { type: 'other', update: u };
+  return null;
 }
 
-// Live sessions: sessionId (bare) -> { client, cwd, model }. One child per session, kept between
-// turns, so concurrent sessions are independent processes (as Codex sessions are today).
+// ---------- sessions + turns ----------
+// sessionId (bare) -> { client, cwd, model, turn, hooks }. One child per session, kept between
+// turns, so concurrent sessions are independent processes (like Codex sessions today).
 export const acpSessions = new Map();
+// sessionId (bare) -> active turn. server.mjs's watch/approve/stop endpoints find turns here.
+export const acpTurns = new Map();
 
-// Run one prompt turn. Mirrors startCodexTurn's callback contract:
-//   emit(event)          — normalized stream events (text/tool/plan/...)
-//   onApproval(req)      — async; return an optionId | true/'allow' | false/'deny' for a tool permission
-//   onQuestion(req)      — async; return elicitation content, or undefined to cancel
-//   onFinish({stopReason, error})
-// `cmd`/`args` launch the agent; `model` is the OpenRouter slug. `sessionId` (bare) resumes.
-export async function startAcpTurn({ cmd, args = [], cwd, env, text, model, sessionId, resume = false,
-  emit = () => { }, onApproval, onQuestion, onFinish = () => { } }) {
-  let entry = sessionId && acpSessions.get(sessionId);
-  const onNotify = (method, params) => { if (method === 'session/update') { const e = normalizeUpdate(params.update); if (e) emit(e); } };
-  const onRequest = async (method, params) => {
-    if (method === 'session/request_permission') {
-      const decision = onApproval ? await onApproval(params) : false; // fail-closed default: deny
-      return { outcome: permissionOutcome(params.options, decision) };
-    }
-    if (method === 'elicitation/create') {
-      const content = onQuestion ? await onQuestion(params) : undefined;
-      return content === undefined ? { outcome: 'cancelled' } : { outcome: 'selected', content };
-    }
-    return undefined; // declined by declineFor
+export function acpTurnActive(sessionId) { return acpTurns.has(bareAcpId(sessionId)); }
+export function ownedAcpTurn(sessionId) { return acpTurns.get(bareAcpId(sessionId)); }
+
+// Build the Pocket turn object for an ACP session: emit→SSE subscribers, an ApprovalInbox fed by
+// request_permission, tracked in acpTurns. Mirrors codex.mjs makeTurn.
+function makeAcpTurn(session, { text, model, hooks }) {
+  const { emit, onFinish, onApproval, auditApproval } = hooks;
+  const client = session.client;
+  const turn = {
+    sessionId: session.sessionId, cwd: session.cwd, startedAt: Date.now(), userText: text,
+    model: model || session.model, events: [], subs: new Set(), done: false, turnId: randomUUID(),
+    client, session, onFinish,
   };
+  turn.emit = ev => {
+    turn.events.push(ev);
+    const data = `id: ${turn.events.length - 1}\ndata: ${JSON.stringify(ev)}\n\n`;
+    for (const res of turn.subs) { try { res.write(data); } catch { } }
+    emit?.(ev);
+  };
+  turn.approvals = new ApprovalInbox({
+    sessionId: () => ACP + turn.sessionId, turnId: () => turn.turnId, audit: auditApproval || (() => { }),
+    write: (nativeId, result) => new Promise((resolve, reject) => {
+      if (!client.writable()) return reject(new Error('Approval connection closed'));
+      try { client.respond(nativeId, result); resolve(); } catch (e) { reject(e); }
+    }),
+    onChange: () => { turn.emit({ type: 'approvals' }); if (turn.approvals?.list().length) onApproval?.(turn); },
+  });
+  session.turn = turn;
+  acpTurns.set(turn.sessionId, turn);
+  return turn;
+}
 
-  if (!entry) {
-    const client = new AcpClient({ cmd, args, cwd, env, onNotify, onRequest, name: sessionId || 'new' });
-    try {
-      await client.initialize();
-      let sid = sessionId;
-      if (resume && sessionId) await client.loadSession({ sessionId, cwd, mcpServers: [] });
-      else { const s = await client.newSession({ cwd, mcpServers: [] }); sid = s?.sessionId; }
-      if (!sid) throw new Error('acp: no session id');
-      entry = { client, cwd, model, sessionId: sid };
-      acpSessions.set(sid, entry);
-    } catch (e) {
-      client.close(); // never leak the child on a failed handshake/resume
-      onFinish({ stopReason: 'error', error: e.message });
-      throw e;
+// Route a live session/update + server->client request onto the turn. Set as the client handlers
+// for the duration of the turn.
+function wireTurnHandlers(turn) {
+  const client = turn.client;
+  client.onNotify = (method, params) => {
+    if (method === 'session/update' && params?.sessionId === turn.sessionId) {
+      const ev = normalizeUpdate(params.update);
+      if (ev) turn.emit(ev);
     }
-  } else { entry.client.onNotify = onNotify; entry.client.onRequest = onRequest; }
+  };
+  client.onRequest = (method, params, id) => {
+    if (method === 'session/request_permission') {
+      const { allow, deny, canAllow } = permissionOutcomes(params.options);
+      const ok = turn.approvals.receive({
+        nativeId: id, turnId: turn.turnId, kind: 'command',
+        title: params.toolCall?.title || params.title || 'Allow this action?',
+        details: { tool: params.toolCall || params.toolCallId || null, sessionId: params.sessionId },
+        allow, deny, canAllow,
+      });
+      if (!ok) client.respond(id, declineFor(method)); // couldn't register (closed/old turn) -> fail closed
+      return; // the response is sent later by the inbox's write when the user decides
+    }
+    if (method === 'elicitation/create') return client.respond(id, { outcome: 'cancelled' }); // v1: questions arrive as text
+    client.respond(id, declineFor(method)); // fs/* terminal/* not advertised
+  };
+}
 
-  emit({ type: 'user', text });
+// Open (or resume) an ACP session: spawn the child, initialize, new/load the session.
+async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume }) {
+  const client = new AcpClient({ cmd, args, cwd, env, name: sessionId || 'new' });
   try {
-    const r = await entry.client.prompt({ sessionId: entry.sessionId, prompt: [{ type: 'text', text }], ...(model ? { model } : {}) });
-    onFinish({ stopReason: r?.stopReason || 'end_turn' });
-    return { sessionId: entry.sessionId, stopReason: r?.stopReason || 'end_turn' };
-  } catch (e) {
-    onFinish({ stopReason: 'error', error: e.message });
-    throw e;
-  }
+    await client.initialize();
+    let sid = sessionId;
+    if (resume && sessionId) await client.loadSession({ sessionId, cwd, mcpServers: [] });
+    else { const s = await client.newSession({ cwd, mcpServers: [] }); sid = s?.sessionId; }
+    if (!sid) throw new Error('acp: no session id');
+    const session = { sessionId: sid, client, cwd, model, turn: null };
+    acpSessions.set(sid, session);
+    return session;
+  } catch (e) { client.close(); throw e; }
+}
+
+// Start (or continue/resume) a turn. hooks mirror startCodexTurn: {emit, onFinish, onApproval,
+// auditApproval}. Returns the turn; the reply streams through turn.emit / turn.approvals.
+export async function startAcpTurn({ sessionId, cwd, text, model, cmd, args = [], env, resume = false, hooks = {} }) {
+  const bare = sessionId ? bareAcpId(sessionId) : null;
+  let session = bare && acpSessions.get(bare);
+  if (session && acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
+  if (!session) session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume });
+  const turn = makeAcpTurn(session, { text, model, hooks });
+  wireTurnHandlers(turn);
+  turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
+  // Run the prompt in the background; the HTTP caller returns 202 immediately (like the codex path).
+  turn.promptDone = (async () => {
+    try {
+      const r = await session.client.prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text }], ...(turn.model ? { model: turn.model } : {}) });
+      finishAcpTurn(turn, { stopReason: r?.stopReason || 'end_turn' });
+    } catch (e) {
+      finishAcpTurn(turn, { stopReason: 'error', error: e.message });
+    }
+  })();
+  return turn;
+}
+
+function finishAcpTurn(turn, result) {
+  if (turn.done) return;
+  turn.done = true;
+  const text = turn.events.filter(e => e.type === 'delta').map(e => e.text).join('');
+  if (text) turn.emit({ type: 'assistant', msg: { role: 'assistant', text, ts: new Date().toISOString() } });
+  turn.approvals?.clear();
+  turn.emit({ type: 'result', ok: result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}) });
+  turn.emit({ type: 'done' });
+  acpTurns.delete(turn.sessionId);
+  try { turn.onFinish?.(result, turn); } catch (e) { log(`onFinish threw: ${e.message}`); }
+}
+
+export function steerAcpTurn(sessionId, text) {
+  const turn = acpTurns.get(bareAcpId(sessionId));
+  if (!turn) return false;
+  // ACP has no mid-turn steer; cancel so the user can send a fresh message (the UI treats a
+  // failed steer as "queue / send after"). Returning false lets the caller fall back to queue.
+  return false;
+}
+
+export function stopAcpTurn(sessionId) {
+  const turn = acpTurns.get(bareAcpId(sessionId));
+  if (!turn) return false;
+  turn.approvals?.clear();
+  try { turn.client.cancel(turn.sessionId); } catch { }
+  return true;
 }
 
 export function closeAcpSession(sessionId) {
-  const e = acpSessions.get(sessionId);
-  if (e) { e.client.close(); acpSessions.delete(sessionId); }
+  const bare = bareAcpId(sessionId);
+  const s = acpSessions.get(bare);
+  if (s) { try { s.client.close(); } catch { } acpSessions.delete(bare); acpTurns.delete(bare); }
+}
+
+// ---------- read-only listing + transcript (a short-lived reader client) ----------
+// List ACP sessions for the session picker. Spawns a throwaway reader, enumerates via session/list.
+export async function listAcpSessions({ cmd, args, env, limit = 60 } = {}) {
+  const client = new AcpClient({ cmd, args, env, name: 'reader' });
+  try {
+    await client.initialize();
+    const r = await client.listSessions();
+    const rows = (r?.sessions || []).slice(0, limit).map(s => ({ id: ACP + s.sessionId, title: s.title || '(untitled)', cwd: s.cwd || null, mtimeMs: Date.parse(s.updatedAt) || 0, provider: 'acp' }));
+    return rows;
+  } finally { client.close(); }
+}
+
+// Read a session's transcript by replaying session/load into normalized events.
+export async function readAcpTranscript({ sessionId, cwd, cmd, args, env } = {}) {
+  const bare = bareAcpId(sessionId);
+  const client = new AcpClient({ cmd, args, env, name: 'reader' });
+  const events = [];
+  client.onNotify = (method, params) => { if (method === 'session/update' && params?.sessionId === bare) { const e = normalizeUpdate(params.update); if (e) events.push(e); } };
+  try {
+    await client.initialize();
+    await client.loadSession({ sessionId: bare, cwd, mcpServers: [] });
+    return events;
+  } finally { client.close(); }
 }
 
 // ---------- runtime discovery + opt-in config ----------
