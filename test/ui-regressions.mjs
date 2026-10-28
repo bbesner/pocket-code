@@ -712,7 +712,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.match(await page.$eval('.agents-status',e=>e.textContent),/could not be confirmed/);
    assert.match(await page.$eval('.agent-state',e=>e.textContent),/unconfirmed/);
    setMode({agentsFail:false});agents[0].status='completed';agents[0].latest='No duplicates.';
-   await clickControl(page,'.agents-retry');await page.waitForFunction(()=>document.querySelector('.agents-status').textContent.includes('0 working'));
+   // The open panel also refreshes itself every 5 s (app.js setInterval), and with the fixture healthy again that poll
+   // can recover the panel — hiding Retry — between the line above and a pointer click. Fire Retry's handler directly so
+   // the click cannot race the poll; the wait below still proves the panel recovers.
+   await page.$eval('.agents-retry',e=>e.click());await page.waitForFunction(()=>document.querySelector('.agents-status').textContent.includes('0 working'));
    await page.setViewport({width:1440,height:900});await scan('subagents-desktop');await page.screenshot({path:path.join(out,'subagents-desktop.png')});
    await page.keyboard.press('Escape');assert.equal(await page.evaluate(()=>document.activeElement.id),'agents-open');
    await page.reload();await page.waitForSelector('#agents-open:not([hidden])');

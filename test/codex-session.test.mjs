@@ -299,10 +299,10 @@ test('adoption signals nothing it cannot prove is its own; the keeper gets the a
  const m=meta();assert.equal(m.bootId,BOOT);assert.match(String(m.pidStart),/^\d+$/);assert.match(String(m.keeperStart),/^\d+$/);
  const environ=fs.readFileSync(`/proc/${m.keeperPid}/environ`,'utf8').split('\0');
  assert.ok(!environ.some(e=>/^POCKET_(PASSWORD|SECRET)=/.test(e)),'the keeper does not carry the daemon secrets');
- const inode=fs.statSync(path.join(logDir,metaFile)).ino;
+ const metaPath=path.join(logDir,metaFile);const pin=fs.openSync(metaPath,'r');const inode=fs.fstatSync(pin).ino;// hold the fd open across the rewrite so the rename cannot reuse this inode number — a reuse collides and false-fails the notEqual below
  assert.equal((await f.call(`/session/${id}/message`,msg('again'))).status,202);
  assert.ok(await f.until(async()=>f.calls().length===2&&await f.idle(id)));
- assert.notEqual(fs.statSync(path.join(logDir,metaFile)).ino,inode,'rewritten through a temporary file and a rename');
+ assert.notEqual(fs.statSync(metaPath).ino,inode,'rewritten through a temporary file and a rename');fs.closeSync(pin);
  assert.ok(!fs.readdirSync(logDir).some(n=>n.endsWith('.tmp')));
  // Stale records: from another boot, with the wrong start times, and a pre-1.73.7 record written before this boot.
  await f.stop();
