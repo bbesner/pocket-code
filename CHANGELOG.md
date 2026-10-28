@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.85.0] — Unreleased · build 175
+## [1.85.0] — 2026-10-28 · build 175
 
 - Codex child-thread events no longer end the parent conversation or overwrite its turn ID. This fixes a conversation appearing finished while its agent is still working, reported during this build.
 
