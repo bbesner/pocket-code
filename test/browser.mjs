@@ -214,7 +214,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/pins/order'){let raw='';for await(const c of req)raw+=c;const ids=JSON.parse(raw||'{}').ids||[];pinOrders.push(ids);ids.forEach((id,i)=>{const r=rows.find(x=>x.id===id);if(r?.pinned)r.pinOrder=i;});return json({ok:true,order:ids});}
  if(url.pathname.startsWith('/api/start/'))return /^\/api\/start\/[0-9a-f]{12}$/.test(url.pathname)?json({ok:true,id:url.pathname.slice(11),text:'Oakridge: Robin asks that nobody be dispatched. Reach Jordan before 9 a.m.',directory:uiModes.startDirectory||'/workspaces/warehouse',provider:'claude'}):json({error:'missing'},404); // 1.57 start links; 1.77 the Inbox briefing; 1.81 startDirectory: a link to another folder
  if(url.pathname==='/api/projects')return json(uiModes.lockedWorkspace?{projects:['/workspaces/warehouse'],defaultCwd:'/workspaces/warehouse',locked:true}:{projects:['/workspaces/warehouse','/workspaces/products'],...(uiModes.defaultCwd&&{defaultCwd:uiModes.defaultCwd})}); // 1.55: lockedWorkspace = one folder, nothing to choose; 1.81 defaultCwd: POCKET_DEFAULT_CWD
- if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}]});
+ if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}],...(url.searchParams.get('provider')==='codex'?{}:{available:['context','compact','init','recap','code-review']})});
  if(url.pathname==='/api/claude/models')return json(Array.isArray(fixtureSettings.offeredClaudeModels)?{models:fixtureOffer(fixtureSettings.offeredClaudeModels).models.filter(m=>m.offered).map(({id,label,sub})=>({id,label,sub})),defaultLabel:'Test agent',limited:true}:{models:[{id:'test',label:'Test agent'},{id:'claude-opus-5-5[1m]',label:'Opus 5.5'}],defaultLabel:'Test agent'});
  if(url.pathname==='/api/codex/models')return json({models:[{id:'test',label:'Test agent'},...Array.from({length:8},(_,index)=>({id:'gpt-fixture-'+index,label:'Fixture '+index})),{id:'gpt-6-sol',label:'GPT-6 Sol',efforts:['low','medium','high','xhigh','max','ultra']},{id:'gpt-6-astra',label:'GPT-6 Astra',efforts:['low','medium','high','xhigh','max']}],defaultModel:'gpt-6-sol',pocketDefault:true});
  if(url.pathname==='/api/push/key')return json({});
@@ -902,6 +902,8 @@ try{
  await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),getMode:()=>uiModes,settingsState:()=>fixtureSettings,vaultFixture,received,voiceLog,conversations,pinOrders});
  const {runSideChatRegressions}=await import('./sidechat-browser.mjs');
  await runSideChatRegressions({browser,base,rows,out,side:sideFixture,conversations});
+ const {runSlashRegressions}=await import('./slash-browser.mjs');
+ await runSlashRegressions({browser,base,rows,received,out});
  const {runCleanupRegressions}=await import('./cleanup-ui.mjs');
  await runCleanupRegressions({browser,base,rows,out});
  const {runThemeRegressions}=await import('./theme-browser.mjs');

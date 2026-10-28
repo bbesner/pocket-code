@@ -8,6 +8,19 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## The / picker (1.83)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 7; existing tokens, no new colour.
+Read: one person who knows the terminal's `/` list and wants the same reach on a phone and a computer. It stays the
+`.slash` panel above the message box (`--surface`, hairline `--line`, `--shadow-menu`, radius 14px), now grouped:
+**Claude Code**, **Pocket**, **Skills**, each a sticky 12.5px/600 `--dim` sentence-case heading over a hairline (not an
+uppercase eyebrow). A command is the ledger mono in `--clay`, an optional argument in 13px mono `--faint` in brackets, the
+description 13px `--faint` with an ellipsis. The selected row and hover are `--raised`. On a phone a row is two lines,
+full width, at least 44px; from 900px the panel is a 640px menu at the box's left edge, one line per row (min 36px), names
+in a 13ch column so the descriptions line up, up to 60vh. No motion: it appears with the text that summons it.
+Detector on the open picker (1440, 390): the documented slash-menu shadow advisory, and text-occlusion reports for rows
+past the panel's own scroll edge and for the message the open menu covers; both are reached by scrolling or closing it.
+
 ## Answer from the banner, and subagents in view (1.82)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 5; existing tokens and
