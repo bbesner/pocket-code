@@ -32,7 +32,7 @@ const VIEW_TAB_RE=/^(?:projects(?:\/(?:scheduled|[a-z0-9][a-z0-9-]{0,79}))?|docu
 const isViewId=id=>typeof id==='string'&&VIEW_TAB_RE.test(id);
 const tabHref=id=>isViewId(id)?'#/'+id:'#/chat/'+encodeURIComponent(id).replaceAll('%3A',':');
 // The view the main column shows when it is not a conversation: a project view (1.29) or a document view (1.30).
-const currentView=()=>(typeof boardView!=='undefined'&&boardView)||(typeof docView!=='undefined'&&docView)||(typeof taskView!=='undefined'&&taskView)||(typeof vaultView!=='undefined'&&vaultView)||(typeof linkView!=='undefined'&&linkView)||null; // 1.39: vault; 1.54: a linked page
+const currentView=()=>(typeof boardView!=='undefined'&&boardView)||(typeof docView!=='undefined'&&docView)||(typeof taskView!=='undefined'&&taskView)||(typeof vaultView!=='undefined'&&vaultView)||(typeof linkView!=='undefined'&&linkView)||(typeof inboxView!=='undefined'&&inboxView)||null; // 1.39: vault; 1.54: a linked page; 1.85.1: the inbox
 // Native radio keyboard conventions for our button-based choices.
 function bindRadioGroup(group) {
  const radios=()=>[...group.querySelectorAll('[role="radio"]')].filter(el=>!el.disabled&&!el.hidden);

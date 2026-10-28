@@ -201,6 +201,67 @@ def test_resolving_in_pocket_closes_the_story():
     assert status("story-c") == "open", "restore reopens"
 
 
+def test_two_labelled_copies_share_one_entry():
+    # 2026-10-28: both copies of a reply labelled in Gmail, folded into one alert; the second follows the first's entry.
+    store, pocket = setup()
+    for tid in (A, B):
+        E.mark_label(store, tid, "incoming")
+    store.commit()
+    saved = {k: getattr(E, k) for k in ("decide", "in_quiet_hours")}
+    try:
+        E.decide = lambda store, archive, gmail, batch, until, related=None: [{**notify(b["thread_id"]), "issue_key": "reply"} for b in batch]
+        E.in_quiet_hours = lambda *a: False
+        _, notified, err = E.process(store, FakeArchive(), None, 7, [A, B], int(NOW) + 60, False, fetch_live=False)
+    finally:
+        for k, v in saved.items():
+            setattr(E, k, v)
+    assert err is None and notified == 1, (notified, err)
+    rows = store.db.execute("select id, thread_id, status, dedupe_key from alerts order by id").fetchall()
+    assert [r["status"] for r in rows] == ["sent", "merged"] and rows[0]["dedupe_key"].endswith("|7"), [tuple(r) for r in rows]
+    st = dict(store.db.execute("select thread_id, state from label_sync").fetchall())
+    assert st == {rows[0]["thread_id"]: "judged", rows[1]["thread_id"]: f"with:{rows[0]['id']}"}, st
+
+
+def test_tidy_leaves_a_restored_entry_alone():
+    # Restore in Pocket undoes a tidy; the next tidy must not take the entry off again.
+    store, _ = setup()
+
+    class Inbox:
+        inbox = True
+        acted = []
+
+        def inbox_open(self):
+            old = "2026-10-01T12:00:00Z"
+            return [{"id": "aaaaaaaaaaaa", "kind": "alert", "at": old, "title": "Restored", "story": None, "text": "x"},
+                    {"id": "bbbbbbbbbbbb", "kind": "alert", "at": old, "title": "Fresh", "story": None, "text": "y"}]
+
+        def act(self, eid, action, note):
+            self.acted.append(eid)
+    box = Inbox()
+    store.db.execute("insert into tidy_log(at,entry_id,issue_key,title,verdict,reason,evidence,acted) values(?,?,?,?,?,?,?,?)",
+                     (E.iso(), "aaaaaaaaaaaa", None, "Restored", "handled", "done", "[]", 1))
+    store.commit()
+    seen = []
+    saved = {k: getattr(E, k) for k in ("pocket_inbox", "call_judge", "tidy_memory")}
+    try:
+        E.pocket_inbox = lambda: box
+        E.tidy_memory = lambda e: []
+        E.call_judge = lambda msg, **k: seen.append(msg) or {"entries": [{"id": "bbbbbbbbbbbb", "verdict": "resolved", "reason": "over"}]}
+        out = E.tidy(store, FakeTidyArchive())
+    finally:
+        for k, v in saved.items():
+            setattr(E, k, v)
+    assert out["restored"] == 1 and box.acted == ["bbbbbbbbbbbb"], (out, box.acted)
+    assert "aaaaaaaaaaaa" not in seen[0], "the restored entry was sent to the tidy judge"
+
+
+class FakeTidyArchive:
+    class db:
+        @staticmethod
+        def execute(*a):
+            return []
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

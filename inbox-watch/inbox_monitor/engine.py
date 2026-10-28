@@ -1629,6 +1629,8 @@ def pending_skims(store: Store) -> list[dict]:
 #   labelled, not on the list ..................... synced before: finished in Pocket -> remove the label, and archive the
 #                                                    thread unless mail came in after the label went on (1.77.9);
 #                                                    unknown: the owner labelled it in Gmail -> judge it (and keep it in INBOX)
+#   labelled, folded into another thread's alert .. ("with:<alert id>", 1.85.1) follows that alert's entry: in step while it
+#                                                    is listed, the label comes off when it is finished
 # The first sync after the setting is turned on only adds labels: what was labelled before is left alone.
 def label_on() -> bool:
     return bool((SETTINGS.get("gmailLabel") or {}).get("enabled"))
@@ -1739,6 +1741,13 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
             adds.append(tid)
     for tid in labelled - set(listed):
         state = known.get(tid)
+        if state and state.startswith("with:"):
+            host = joined_thread(store, state)
+            if host is None:
+                mark_label(store, tid, None)  # the alert it joined never reached the list: judged afresh at the next sync
+            elif host and host not in listed and not baseline:
+                removes.append(tid)  # the entry it joined was finished in Pocket
+            continue  # "" while the alert waits to go out; in step while its entry is listed
         if state == "synced" and not baseline:
             removes.append(tid)  # finished in Pocket: the label comes off
         elif state in ("incoming", "judged"):
@@ -1810,6 +1819,20 @@ def mark_label(store: Store, tid: str, state: str | None) -> None:
     else:
         store.db.execute("insert into label_sync(thread_id,state,at) values(?,?,?) on conflict(thread_id) do update set state=excluded.state, at=excluded.at",
                          (tid, state, iso()))
+
+
+def joined_thread(store: Store, state: str) -> str | None:
+    """For a "with:<alert id>" thread: the thread whose entry carries that alert; "" while the alert waits to go out;
+    None when it will never be on the list (failed, a dry run, gone)."""
+    try:
+        row = store.db.execute("select thread_id, status from alerts where id=?", (int(state[5:]),)).fetchone()
+    except ValueError:
+        return None
+    if row is None:
+        return None
+    if row["status"] in ("queued", "held"):
+        return ""
+    return row["thread_id"] if row["status"] == "sent" else None
 
 
 def mark_added(store: Store, bundles: list[dict]) -> None:
@@ -1950,11 +1973,15 @@ def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, ba
         fact_hash = hashlib.sha1(d["new_fact"].encode()).hexdigest()[:10]
         if d["action"] == "notify" and d["confidence"] >= NOTIFY_MIN_CONFIDENCE and d.get("user_message"):
             hold = in_quiet_hours() and d["priority"] != "critical" and not added and not awake  # added or Check now: they are awake
-            key = f"{d['issue_key']}|added|{th['messages'][-1]['message_id']}" if added else f"{d['issue_key']}|{fact_hash}"
+            # added: one alert per labelling (the run), so a thread labelled again after its entry was finished comes back
+            # even when its newest message is the one already alerted on
+            key = f"{d['issue_key']}|added|{th['messages'][-1]['message_id']}|{run_id}" if added else f"{d['issue_key']}|{fact_hash}"
             waiting = store.undelivered_alert(d["issue_key"])
             if waiting is not None:
                 if store.merge_alert(waiting, key, d, title, th["messages"][-1]["from"]):
                     log(f"folded into waiting alert {waiting['id']} ({waiting['status']}): {title!r}")
+                    if added:  # the entry will link the other thread: this one follows that entry (label_sync, "with:")
+                        mark_label(store, d["thread_id"], f"with:{waiting['id']}")
                     if waiting["status"] == "held" and not hold:  # a held alert that now qualifies to go out
                         store.db.execute("update alerts set status='queued' where id=?", (waiting["id"],))
                         pending[waiting["id"]] = th
@@ -2221,6 +2248,10 @@ def tidy(store: Store, archive: Archive, dry_run: bool = False) -> dict:
     store.set("last_tidy_at", iso())
     store.commit()
     entries = [e for e in d.inbox_open() if e.get("kind") == "alert"]
+    # an entry the tidy took off and the owner restored is theirs to finish: never tidied again (1.85.1)
+    restored = {r[0] for r in store.db.execute("select distinct entry_id from tidy_log where acted=1 and verdict!='open'")}
+    out["restored"] = len([e for e in entries if e["id"] in restored])
+    entries = [e for e in entries if e["id"] not in restored]
     now = now_utc()
     young = [e for e in entries if (now - dt.datetime.fromisoformat(e["at"].replace("Z", "+00:00"))).total_seconds() < TIDY_MIN_AGE_S]
     out["skipped"] = len(young)

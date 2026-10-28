@@ -92,10 +92,12 @@ async function renderInbox(view){
  if(PANE){$('#pane-main').onclick=()=>paneSay('main',{view});$('#pane-close').onclick=()=>paneSay('close');}
  else if(!SOLO){bindViewBack($('#back'),view);$('#splitb').onclick=chooseBeside;}
  if(!SOLO)$('#kwin').onclick=()=>openInWindow(view);
+ const tog=$('#railtog');if(tog)tog.onclick=()=>{localStorage.setItem('pc-rail',railOpen()?'closed':'open');route();};
  try{await loadInbox(true);if(inboxFilter==='done')await loadInboxDismissed();}catch(e){const m=$('#inbox-main');if(m&&e.status===404)showLibraryError(m,e,'Inbox Watch',()=>renderInbox(view),false);else if(m)m.innerHTML=`<p class="sheet-help">The inbox could not load: ${esc(e.message||'error')}</p>`;return;} // 1.81: off says where to turn it on, like the other libraries
+ if(inboxView!==view)return;
  paintInboxView();
+ if(PANE)paneSay('route',{id:view,title:'Inbox'});else if(SOLO)document.title='Inbox · '+appName();else rememberOpenView(view,'Inbox'); // 1.85.1: a tab like Tasks and Vault, with its close button
  const open=/^#\/inbox\/([0-9a-f]{12})$/.exec(location.hash);if(open)inboxSheet(open[1]);
- if(typeof paintOpenSessions==='function')paintOpenSessions();
 }
 let inboxPainted='';
 function paintInboxView(){
@@ -151,6 +153,7 @@ function inboxListHTML(){
 }
 function bindInboxRows(root){
  root.querySelectorAll('[data-inbox-check]').forEach(b=>b.onclick=inboxCheckNow);
+ root.querySelectorAll('[data-inbox-done]').forEach(a=>a.addEventListener('click',async()=>{inboxFilter='done';if(inboxView){try{if(!inboxDismissed)await loadInboxDismissed();}catch{}paintInboxView();}})); // 1.85.1: the finished ones are under Done
  root.querySelectorAll('[data-inbox-open]').forEach(b=>b.onclick=()=>inboxSheet(b.dataset.inboxOpen)); // 1.69.1: read first; the sheet starts the conversation
  root.querySelectorAll('[data-inbox-read]').forEach(b=>b.onclick=()=>{const e=inboxById(b.dataset.inboxRead);if(!e)return;if(e.state==='new')inboxMarkRead(e);else inboxMarkUnread(e);}); // 1.77
  root.querySelectorAll('[data-inbox-dismiss]').forEach(b=>b.onclick=()=>inboxAct({action:'dismiss',id:b.dataset.inboxDismiss},'Dismissed'));
@@ -217,7 +220,7 @@ function railInboxHTML(){
  const rows=inboxSnap.entries.filter(inboxOpenState).sort((a,b)=>(a.state==='new'?0:1)-(b.state==='new'?0:1)||Date.parse(b.at)-Date.parse(a.at)),rest=inboxSnap.entries.length-rows.length;
  return `<div class="rail-projects rail-inbox"><div class="rail-project-actions"><a class="chip" href="${viewHref('inbox')}" data-view-link>All</a>${inboxCheckChip()}</div>
   ${rows.length?rows.slice(0,40).map(inboxRowHTML).join(''):'<p class="sheet-help">Nothing open from Inbox Watch.</p>'}
-  ${rest?`<a class="rail-done-link" href="${viewHref('inbox')}" data-view-link>${rest} more in All</a>`:''}</div>`;
+  ${rest?`<a class="rail-done-link" href="${viewHref('inbox')}" data-view-link data-inbox-done>${rest} finished</a>`:''}</div>`;
 }
 let railInboxPainted='';
 function paintRailInbox(){

@@ -116,6 +116,39 @@ def test_both_ways():
     assert Z in states(store) and "L1" in g.labels[Z], "the label the owner had before is never touched"
 
 
+def test_folded_thread_follows_its_entry():
+    # 2026-10-28: Brad labelled two copies of Justin's reply (his and the "Sent to Ari only" one); the judge folded the second
+    # into the first's alert, the entry linked only the first, and when it was finished the second kept the label for good,
+    # never on the list.
+    store, g, p = setup()
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    g.labels[A], g.labels[B] = {"L1"}, {"L1"}
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == {A, B}
+    aid = store.queue_alert("k|added|m1|1", issue_key="k", thread_id=A, kind="notify", priority="normal", text="t", next_step=None,
+                            subject="s", sender="x", status="queued")
+    E.mark_label(store, A, "judged")
+    E.mark_label(store, B, f"with:{aid}")
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    assert states(store)[B] == f"with:{aid}" and "L1" in g.labels[B], "waits while the alert has not gone out"
+    store.mark_sent(aid, None, None)
+    p.entry("e1", A)
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    assert states(store) == {A: "synced", B: f"with:{aid}"} and "L1" in g.labels[B], "in step with the entry it joined"
+    p.entries = []  # finished in Pocket
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    assert "L1" not in g.labels[A] and "L1" not in g.labels[B] and states(store) == {}, (g.labels, states(store))
+    # labelled again later: brought in afresh
+    g.labels[B].add("L1")
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == {B}
+    # an alert that never reached the list (failed): the thread is judged again rather than kept waiting
+    aid2 = store.queue_alert("k|added|m2|2", issue_key="k", thread_id=A, kind="notify", priority="normal", text="t", next_step=None,
+                             subject="s", sender="x", status="queued")
+    E.mark_label(store, B, f"with:{aid2}")
+    store.mark_sent(aid2, None, None, "failed")
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == set() and B not in states(store)
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == {B}
+
+
 def test_new_alert_gets_label_and_dry_run():
     store, g, p = setup()
     E.label_sync(store, g, bring_in=True, dry_run=False)

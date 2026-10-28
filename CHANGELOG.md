@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.85.1] — 2026-10-28 · build 176
+
+- **Inbox Watch: a labelled email folded into another's entry follows that entry.** Brad labelled both copies of Justin's reply (his and the one sent to Ari only); the judge folded the second into the first's alert (`merge_alert`), the Pocket entry linked only the first thread, and when the tidy pass finished it, the first lost its label while the second kept it as `judged` in `label_sync` for good, never on the list again. A thread folded this way is now recorded as `with:<alert id>`: in step while that alert's entry is open, its label comes off when the entry is finished, and if the alert never reaches the list (failed, dry run) it is judged afresh. An owner-added alert's dedupe key also carries the run, so labelling a thread again after its entry was finished brings it back even when its newest message was already alerted on.
+- **Inbox Watch: the tidy pass leaves a restored entry alone.** An entry the tidy took off and the owner restored went back to the tidy judge, which would take it off again; such entries (an acted, non-open verdict in `tidy_log`) are now skipped.
+- **The Inbox opens as a tab.** `renderInbox` never called `rememberOpenView` and `currentView()` did not know `inboxView`, so on a computer the Inbox list had no tab, no close button and no Back, and its sidebar button did nothing (`#railtog` unbound). It is now a tab like Tasks and the Vault. The rail's "N more in All" link counted finished entries but opened the Open list; it now reads "N finished" and opens Done.
+- Tests: `inbox-watch/tests/test_label.py` (`test_folded_thread_follows_its_entry`), `inbox-watch/tests/test_process.py` (`test_two_labelled_copies_share_one_entry`, `test_tidy_leaves_a_restored_entry_alone`). The manual's Inbox Watch page covers both behaviours.
+
 ## [1.85.0] — 2026-10-28 · build 175
 
 - Codex child-thread events no longer end the parent conversation or overwrite its turn ID. This fixes a conversation appearing finished while its agent is still working, reported during this build.

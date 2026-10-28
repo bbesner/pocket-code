@@ -211,6 +211,10 @@ in step, both ways, at every check:
   archived. A thread that got new mail after the label went on keeps its place in the inbox, so a reply you have not
   seen never disappears.
 - Restore puts the label back; the thread stays where it is.
+- Label two threads about the same thing (your copy of a reply and the copy sent to Ari only, say) and the check may
+  put both on your list as one entry. The second thread keeps its label while that entry is open and loses it when you
+  finish it, like the first.
+- An entry the tidy pass took off and you restored stays on your list until you finish it; the tidy leaves it alone.
 
 The first sync only adds labels; threads you labelled before it began are left alone. Only that label, and a thread's
 place in the inbox, are ever changed. This needs Gmail write access. Through Claude Code's connector, the connector
