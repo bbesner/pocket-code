@@ -35,14 +35,20 @@ test('pure helpers: permissionOutcomes + normalizeUpdate + declineFor', () => {
   assert.equal(declineFor('fs/read_text_file'), null);
 });
 
-test('messagesFromEvents groups replayed chunks into messages by role and messageId', () => {
+test('messagesFromEvents: a user message, then the agent\'s thinking, tool lines and text in order', () => {
   const m = messagesFromEvents([
     { type: 'user_chunk', text: 'Remember ', messageId: 'u1' }, { type: 'user_chunk', text: 'PERSIMMON', messageId: 'u1' },
+    { type: 'reasoning', text: 'Look it ' }, { type: 'reasoning', text: 'up.' },
+    { type: 'tool', id: 't1', kind: 'read', title: 'home/x/PROJECTS.md', input: { filePath: '/home/x/PROJECTS.md' } }, { type: 'tool', id: 't1', status: 'completed', update: true },
     { type: 'delta', text: 'Got ', messageId: 'a1' }, { type: 'delta', text: 'it.', messageId: 'a1' },
-    { type: 'tool', id: 't1', title: 'bash' }, { type: 'delta', text: 'Second reply', messageId: 'a2' },
+    { type: 'tool', id: 't2', kind: 'execute', title: 'ls', input: { command: 'ls -la' } }, { type: 'delta', text: 'Second part', messageId: 'a2' },
     { type: 'delta', text: '   ', messageId: 'a3' }, null,
+    { type: 'user_chunk', text: 'next', messageId: 'u2' }, { type: 'delta', text: 'ok', messageId: 'a4' },
   ]);
-  assert.deepEqual(m, [{ role: 'user', text: 'Remember PERSIMMON' }, { role: 'assistant', text: 'Got it.', blocks: [{ t: 'text', text: 'Got it.' }] }, { role: 'assistant', text: 'Second reply', blocks: [{ t: 'text', text: 'Second reply' }] }]);
+  assert.deepEqual(m, [
+    { role: 'user', text: 'Remember PERSIMMON' },
+    { role: 'assistant', text: 'Got it.\n\nSecond part', blocks: [{ t: 'tool', name: 'Thinking', detail: 'Look it up.' }, { t: 'tool', name: 'Read', detail: '/home/x/PROJECTS.md' }, { t: 'text', text: 'Got it.' }, { t: 'tool', name: 'Bash', detail: 'ls -la' }, { t: 'text', text: 'Second part' }] },
+    { role: 'user', text: 'next' }, { role: 'assistant', text: 'ok', blocks: [{ t: 'text', text: 'ok' }] }]);
   assert.deepEqual(messagesFromEvents(undefined), []);
 });
 
@@ -207,4 +213,46 @@ test('probeAcpEfforts maps each OpenRouter model to its effort levels; the probe
   const all = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE] });
   const shown = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], hideCwd: probe });
   assert.equal(all.filter(r => r.cwd === probe).length, 1); assert.equal(shown.filter(r => r.cwd === probe).length, 0);
+});
+
+// ---------- 1.84.2: Full access, the cost line, and what the agent is doing ----------
+test('Full access answers OpenCode\'s permission requests at once; Review actions still shows a card', async () => {
+  const store = mkStore();
+  let asked = 0;
+  const { turn, ev } = await (async () => { const ev = []; const turn = await startAcpTurn({ ...turnOpts(store), approvalMode: 'full', hooks: { emit: e => ev.push(e), onApproval: () => asked++ } }); await turn.promptDone; return { turn, ev }; })();
+  assert.ok(ev.some(e => e.type === 'result' && e.ok && e.stopReason === 'end_turn'), 'finished without anyone answering');
+  assert.equal(asked, 0, 'no approval card');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(store, encodeURIComponent(turn.sessionId) + '.json'), 'utf8')).permissionOutcome, 'selected');
+  afterEach();
+  const r = await startAcpTurn({ ...turnOpts(mkStore()), approvalMode: 'review', hooks: {} });
+  assert.ok(await waitFor(() => r.approvals.list().length > 0), 'review asks');
+  stopAcpTurn(r.sessionId); await r.promptDone; afterEach();
+});
+
+test('the turn shows thinking and tool lines as they happen, then the text, and reports cost, time and cache', async () => {
+  const store = mkStore();
+  const { ev } = await runAllowed(turnOpts(store));
+  const shown = ev.filter(e => e.type === 'assistant').map(e => e.msg.blocks);
+  assert.deepEqual(shown, [[{ t: 'tool', name: 'Thinking', detail: 'Checking with a quick command.' }], [{ t: 'tool', name: 'Bash', detail: 'echo ACP_OK' }], [{ t: 'text', text: 'ran it; echo of do the thing' }]]);
+  const r = ev.find(e => e.type === 'result');
+  assert.equal(r.cost, 0.0021); assert.ok(Number.isFinite(r.duration_ms)); assert.equal(r.cache.hit, 24000 / 25000);
+  assert.ok(!ev.some(e => e.type === 'acp_usage' || e.type === 'tool'), 'raw usage and tool events stay inside');
+  afterEach();
+});
+
+test('cost per reply: the change in OpenCode\'s running total, across turns and a reopen; unknown start = no cost', async () => {
+  const store = mkStore();
+  const { turn } = await runAllowed(turnOpts(store));
+  const id = 'acp:' + turn.sessionId;
+  const second = (await runAllowed(turnOpts(store, { sessionId: id }))).ev.find(e => e.type === 'result');
+  assert.equal(second.cost, 0.0021, 'the second reply alone, not the session so far');
+  assert.equal(acpSessions.get(turn.sessionId).costTotal, 0.0042);
+  closeAcpSession(id); // a restart: OpenCode does not report the total on reopen, so the caller passes the one it kept
+  const kept = (await runAllowed(turnOpts(store, { sessionId: id, resume: true, costBaseline: 0.0042 }))).ev.find(e => e.type === 'result');
+  assert.equal(kept.cost, 0.0021);
+  closeAcpSession(id);
+  const unknown = (await runAllowed(turnOpts(store, { sessionId: id, resume: true }))).ev.find(e => e.type === 'result');
+  assert.equal(unknown.cost, undefined, 'no starting total: no cost line rather than the whole session\'s');
+  assert.equal(acpSessions.get(turn.sessionId).costTotal, 0.0084, 'but the total is known for the next reply');
+  afterEach();
 });

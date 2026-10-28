@@ -138,25 +138,61 @@ export function normalizeUpdate(update) {
   if (u === 'user_message_chunk') return { type: 'user_chunk', text: update.content?.text ?? '', messageId: update.messageId };
   if (u === 'agent_message_chunk' || u === 'agent_message') return { type: 'delta', text: update.content?.text ?? '', messageId: update.messageId };
   if (u === 'agent_thought_chunk') return { type: 'reasoning', text: update.content?.text ?? '' };
-  if (u === 'tool_call') return { type: 'tool', id: update.toolCallId, title: update.title, kind: update.kind, status: update.status || 'pending' };
-  if (u === 'tool_call_update') return { type: 'tool', id: update.toolCallId, title: update.title, status: update.status, update: true };
+  if (u === 'tool_call') return { type: 'tool', id: update.toolCallId, title: update.title, kind: update.kind, status: update.status || 'pending', input: update.rawInput || null, path: update.locations?.[0]?.path || null };
+  // Live, OpenCode sends the call first with only its folder ({title:'bash', rawInput:{cwd}}) and the command a moment later
+  // in an in_progress update (verified live, 1.19.4), so updates carry the same fields and are merged by id.
+  if (u === 'tool_call_update') return { type: 'tool', id: update.toolCallId, title: update.title, kind: update.kind, status: update.status, input: update.rawInput || null, path: update.locations?.[0]?.path || null, update: true };
+  // OpenCode's running cost for the whole session, after each model step (verified live, 1.19.4)
+  if (u === 'usage_update') return { type: 'acp_usage', cost: Number.isFinite(update.cost?.amount) ? update.cost.amount : null, used: update.used ?? null, size: update.size ?? null };
   if (u === 'plan') return { type: 'plan', entries: update.entries || [] };
   return null;
 }
 
-// Fold replayed events into Pocket transcript messages ({role, text}): consecutive chunks of the same
-// role and messageId are one message. Text only for now: tool calls are not part of the history view.
+// A tool call as one of the UI's ledger lines ({t:'tool', name, detail}), the same shape Codex's items take.
+const clip = (v, n = 140) => (v == null ? '' : String(v).replace(/\s+/g, ' ').trim().slice(0, n));
+const TOOL_NAMES = { execute: 'Bash', read: 'Read', edit: 'Edit', delete: 'Edit', move: 'Edit', search: 'Search', fetch: 'Web', think: 'Thinking' };
+const toolDetail = e => { const i = e.input || {}; return i.command || i.filePath || i.path || i.pattern || i.url || i.query || ''; };
+export function toolBlock(e) {
+  // a command's folder is not what it did: an execute call without its command falls back to the title, never the folder
+  const detail = toolDetail(e) || (e.kind === 'execute' ? (e.title !== 'bash' ? e.title : '') : e.path || e.title) || '';
+  return { t: 'tool', name: TOOL_NAMES[e.kind] || clip(e.title, 40) || 'Tool', detail: clip(detail) };
+}
+// Merge a tool call's events (by id): later fields win, an empty input never replaces a known one.
+const mergeTool = (a, e) => ({ ...a, ...Object.fromEntries(Object.entries(e).filter(([k, v]) => v != null && k !== 'update' && !(k === 'input' && !toolDetail(e) && toolDetail(a)))) });
+const thinkingBlock = text => ({ t: 'tool', name: 'Thinking', detail: clip(text) });
+
+// Fold replayed events into Pocket transcript messages. A user message is {role, text}; everything the agent
+// did until the next user message is one assistant message whose blocks keep the order: Thinking and tool
+// lines, then text (consecutive text chunks of one messageId are one block). Shown the way the live turn was.
 export function messagesFromEvents(events) {
-  const out = [];
+  const out = []; let asst = null, thought = ''; const calls = new Map(); // tool id -> { info, block }
+  const flushThought = () => { if (thought.trim()) asst.blocks.push(thinkingBlock(thought)); thought = ''; };
   for (const e of events || []) {
-    const role = e?.type === 'user_chunk' ? 'user' : e?.type === 'delta' ? 'assistant' : null;
-    if (!role) continue;
-    const last = out[out.length - 1];
-    if (last && last.role === role && (e.messageId == null || last.mid === e.messageId)) last.text += e.text || '';
-    else out.push({ role, text: e.text || '', mid: e.messageId });
+    if (!e) continue;
+    if (e.type === 'user_chunk') {
+      if (asst) { flushThought(); asst = null; }
+      const last = out[out.length - 1];
+      if (last && last.role === 'user' && last.mid === e.messageId) last.text += e.text || '';
+      else out.push({ role: 'user', text: e.text || '', mid: e.messageId });
+      continue;
+    }
+    if (e.type === 'tool' && calls.has(e.id)) { const c = calls.get(e.id); c.info = mergeTool(c.info, e); Object.assign(c.block, toolBlock(c.info)); continue; }
+    if (!['delta', 'reasoning', 'tool'].includes(e.type) || (e.type === 'tool' && e.update)) continue;
+    if (!asst) { asst = { role: 'assistant', blocks: [] }; out.push(asst); }
+    if (e.type === 'reasoning') { thought += e.text || ''; continue; }
+    flushThought();
+    if (e.type === 'tool') { const block = toolBlock(e); asst.blocks.push(block); calls.set(e.id, { info: e, block }); continue; }
+    const last = asst.blocks[asst.blocks.length - 1];
+    if (last?.t === 'text' && (e.messageId == null || last.mid === e.messageId)) last.text += e.text || '';
+    else asst.blocks.push({ t: 'text', text: e.text || '', mid: e.messageId });
   }
+  if (asst) flushThought();
   // assistant messages render from `blocks` in the UI (msgHTML), user messages from `text`.
-  return out.filter(m => m.text.trim()).map(({ role, text }) => role === 'assistant' ? { role, text, blocks: [{ t: 'text', text }] } : { role, text });
+  return out.map(m => {
+    if (m.role === 'user') return { role: 'user', text: m.text };
+    const blocks = m.blocks.filter(b => b.t !== 'text' || b.text.trim()).map(({ mid, ...b }) => b);
+    return { role: 'assistant', text: blocks.filter(b => b.t === 'text').map(b => b.text).join('\n\n'), blocks };
+  }).filter(m => m.role === 'user' ? m.text.trim() : m.blocks.length);
 }
 
 // ---------- sessions + turns ----------
@@ -171,13 +207,24 @@ export function ownedAcpTurn(sessionId) { return acpTurns.get(bareAcpId(sessionI
 
 // Build the Pocket turn object for an ACP session: emit→SSE subscribers, an ApprovalInbox fed by
 // request_permission, tracked in acpTurns. Mirrors codex.mjs makeTurn.
-function makeAcpTurn(session, { text, model, hooks }) {
+function makeAcpTurn(session, { text, model, approvalMode, hooks }) {
   const { emit, onFinish, onApproval, auditApproval } = hooks;
   const client = session.client;
   const turn = {
     sessionId: session.sessionId, cwd: session.cwd, startedAt: Date.now(), userText: text,
-    model, events: [], subs: new Set(), done: false, turnId: randomUUID(),
-    client, session, onFinish,
+    model, approvalMode: approvalMode === 'full' ? 'full' : 'review', events: [], subs: new Set(), done: false, turnId: randomUUID(),
+    client, session, onFinish, text: '', thought: '', costStart: session.costTotal ?? null, costTotal: null, usage: null,
+  };
+  // The reply's text and thinking since the last tool line, shown as their own message when the next tool
+  // line or the end of the turn arrives, so a turn reads in order: thinking, tools, text.
+  turn.tools = new Map(); // tool id -> { info (merged events), shown }
+  turn.showTool = info => { turn.flush(); turn.emit({ type: 'assistant', msg: { role: 'assistant', text: '', blocks: [toolBlock(info)], ts: new Date().toISOString() } }); };
+  turn.flush = () => {
+    const blocks = [];
+    if (turn.thought.trim()) blocks.push(thinkingBlock(turn.thought));
+    if (turn.text.trim()) blocks.push({ t: 'text', text: turn.text });
+    turn.thought = ''; turn.text = '';
+    if (blocks.length) turn.emit({ type: 'assistant', msg: { role: 'assistant', text: blocks.filter(b => b.t === 'text').map(b => b.text).join(''), blocks, ts: new Date().toISOString() } });
   };
   turn.emit = ev => {
     turn.events.push(ev);
@@ -205,12 +252,25 @@ function wireTurnHandlers(turn) {
   client.onNotify = (method, params) => {
     if (method === 'session/update' && params?.sessionId === turn.sessionId) {
       const ev = normalizeUpdate(params.update);
-      if (ev) turn.emit(ev);
+      if (!ev) return;
+      if (ev.type === 'delta') { turn.text += ev.text; turn.emit(ev); return; }
+      if (ev.type === 'reasoning') { turn.thought += ev.text; return; }
+      if (ev.type === 'acp_usage') { if (ev.cost != null) turn.costTotal = ev.cost; return; }
+      if (ev.type === 'tool') {
+        const t = turn.tools.get(ev.id) || { info: {}, shown: false };
+        t.info = mergeTool(t.info, ev); turn.tools.set(ev.id, t);
+        if (!t.shown && (toolDetail(t.info) || (t.info.status && t.info.status !== 'pending'))) { t.shown = true; turn.showTool(t.info); }
+        return;
+      }
+      turn.emit(ev);
     }
   };
   client.onRequest = (method, params, id) => {
     if (method === 'session/request_permission') {
       const { allow, deny, canAllow } = permissionOutcomes(params.options);
+      // Full access: allow at once, as Claude (bypassPermissions) and Codex (approval never) run without asking.
+      // OpenCode itself is configured to ask, so Review actions still shows every request as an approval card.
+      if (turn.approvalMode === 'full' && canAllow) return client.respond(id, allow);
       const ok = turn.approvals.receive({
         nativeId: id, turnId: turn.turnId, kind: 'command',
         title: params.toolCall?.title || params.title || 'Allow this action?',
@@ -290,12 +350,12 @@ export async function probeAcpEfforts({ cmd, args, env, cwd }) {
 
 // Start (or continue/resume) a turn. hooks mirror startCodexTurn: {emit, onFinish, onApproval,
 // auditApproval}. Returns the turn; the reply streams through turn.emit / turn.approvals.
-export async function startAcpTurn({ sessionId, cwd, text, model, effort, cmd, args = [], env, resume = false, hooks = {} }) {
+export async function startAcpTurn({ sessionId, cwd, text, model, effort, approvalMode, costBaseline = null, cmd, args = [], env, resume = false, hooks = {} }) {
   const bare = sessionId ? bareAcpId(sessionId) : null;
   let session = bare && acpSessions.get(bare);
   if (session && acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
-  if (!session) session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume });
-  const turn = makeAcpTurn(session, { text, model, hooks });
+  if (!session) { session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume }); session.costTotal = resume ? costBaseline : 0; }
+  const turn = makeAcpTurn(session, { text, model, approvalMode, hooks });
   turn.effort = effort && effort !== 'default' ? effort : null;
   wireTurnHandlers(turn);
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
@@ -308,6 +368,7 @@ export async function startAcpTurn({ sessionId, cwd, text, model, effort, cmd, a
       const used = await applyAcpConfig(session, { model: turn.model, effort: turn.effort });
       turn.effort = used.effort;
       const r = await session.client.prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text }] }, PROMPT_TIMEOUT_MS);
+      turn.usage = r?.usage || null;
       finishAcpTurn(turn, { stopReason: r?.stopReason || 'end_turn' });
     } catch (e) {
       finishAcpTurn(turn, { stopReason: 'error', error: e.message });
@@ -319,10 +380,17 @@ export async function startAcpTurn({ sessionId, cwd, text, model, effort, cmd, a
 function finishAcpTurn(turn, result) {
   if (turn.done) return;
   turn.done = true;
-  const text = turn.events.filter(e => e.type === 'delta').map(e => e.text).join('');
-  if (text) turn.emit({ type: 'assistant', msg: { role: 'assistant', text, blocks: [{ t: 'text', text }], ts: new Date().toISOString() } });
+  for (const t of turn.tools.values()) if (!t.shown) { t.shown = true; turn.showTool(t.info); }
+  turn.flush();
   turn.approvals?.clear();
-  turn.emit({ type: 'result', ok: result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}) });
+  // Cost: OpenCode reports the session's running total, so this reply's cost is the change across it. With no
+  // known starting total (a conversation reopened before Pocket kept one) there is no cost line, never a wrong one.
+  if (turn.costTotal != null) turn.session.costTotal = turn.costTotal;
+  const cost = turn.costTotal != null && turn.costStart != null ? Math.round(Math.max(0, turn.costTotal - turn.costStart) * 1e9) / 1e9 : null; // OpenCode's precision
+  const u = turn.usage, read = Number(u?.cachedReadTokens) || 0, fresh = Number(u?.inputTokens) || 0;
+  const cache = read + fresh > 0 ? { hit: read / (read + fresh) } : null;
+  turn.emit({ type: 'result', ok: result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}),
+    ...(cost != null ? { cost } : {}), duration_ms: Date.now() - turn.startedAt, ...(cache ? { cache } : {}) });
   turn.emit({ type: 'done' });
   acpTurns.delete(turn.sessionId);
   try { turn.onFinish?.(result, turn); } catch (e) { log(`onFinish threw: ${e.message}`); }

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.84.1
+checked: 1.84.2
 sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -249,6 +249,14 @@ Differences from Claude Code and Codex:
   OpenCode does not offer the model or does not switch, the reply stops with that reason instead of
   running on OpenCode's own default model.
 - Questions from the model arrive as ordinary text, not as answer buttons. Reply in the message box.
+- Permissions work as for the others: **Review actions** shows each command, edit and web fetch as an
+  approval card (OpenCode is set to ask), **Full access** answers OpenCode at once so nothing waits.
+- While a reply works you see its thinking and each file it reads and command it runs, as ledger lines,
+  and they are still there when you reopen the conversation.
+- Each reply shows its cost under it (to four decimals below a cent), its time and how much was read from
+  cache. OpenCode reports a running total for the conversation; Pocket shows the change and keeps the
+  total, so the cost stays right after a restart. A conversation from before 1.84.2 shows no cost for its
+  first reply after the update, then does.
 - Approvals, the conversation list, reopening and continuing a conversation all work. Steering does
   not: a message sent during a reply waits for After this reply.
 - Gmail, Calendar and Drive connectors are not available.
