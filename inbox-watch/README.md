@@ -44,7 +44,11 @@ memory is the archive and the story ledger, so a fresh process per call works as
 
 **The connector source** (`mail_connector.py`). The connector has no history API, so a check searches
 `after:<last check - 15 min>` and counts a thread as changed when its newest message is one the watcher has not seen
-(`connector_seen` in `mail.sqlite`). Threads are read eight to a call; the fetch model (`mail.model`, Haiku by default)
+(`connector_seen` in `mail.sqlite`). Time bounds reach the connector as Gmail dates (`after:YYYY/MM/DD`, a day early;
+`before:`, two days late), because since 2026-10-27 the claude.ai connector answers the Unix-seconds form with nothing
+and no error; pages are read newest first and stop at the first with nothing unseen. A check that finds no threads at
+all while `newer_than:1d` does is a blind search: the third in a row fails the check so Pocket shows it (1.83.1).
+Threads are read eight to a call; the fetch model (`mail.model`, Haiku by default)
 only makes the calls, and the watcher takes each tool's JSON from the stream, so no message is retyped or summarized.
 Fetch calls are kept in `judge_calls` as `fetch` / `search` and counted in the day's cost.
 The call has to load the user's Claude Code settings (claude.ai connectors load with nothing less), and those may allow

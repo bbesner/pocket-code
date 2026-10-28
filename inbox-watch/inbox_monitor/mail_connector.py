@@ -11,6 +11,9 @@ retypes a message and its answer is ignored.
 
 The connector has no history API, so changes are found by time: every check searches `after:<cursor - overlap>` and a
 thread counts as changed when its newest message is one the watcher has not seen (`connector_seen` in mail.sqlite).
+Time bounds reach the connector in Gmail's date form (`after:YYYY/MM/DD`, a day of margin either side): since
+2026-10-27 the claude.ai connector answers the Unix-seconds form with no threads and no error (Damon's report,
+2026-10-28), and a check that finds nothing while `newer_than:1d` does is reported as a failure, not as a quiet day.
 
 Why the call loads the user's settings: claude.ai connectors only load with the user setting source and without
 --strict-mcp-config. Those settings can allow every Gmail tool (send included) and bypass permissions, so the call is
@@ -55,6 +58,9 @@ MAX_LOOKBACK_S = 3 * 86400
 PAGE = 50                # the connector's maximum page size
 THREADS_PER_CALL = 8     # every thread's text passes through the fetch model's context; keep a call well inside it
 SEARCH_PAGES = 4         # per check: 200 changed threads is a burst the backlog spreads over later runs anyway
+BLIND_RUNS = 3           # checks in a row that find nothing while newer_than:1d does before the check fails (1.83.1)
+PROBE_QUERY = "newer_than:1d -in:spam -in:trash -in:draft"
+EPOCH_RX = re.compile(r"\b(after|before):(\d{9,11})\b")
 
 
 class MailError(Exception):
@@ -63,6 +69,21 @@ class MailError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
         self.resp = type("Resp", (), {"status": status})()
+
+
+def date_form(query: str) -> str:
+    """`after:`/`before:` with Unix seconds rewritten as Gmail dates with a day of margin on the outside.
+
+    Since 2026-10-27 the claude.ai Gmail connector answers the seconds form with no threads and no error, while the date
+    form and `newer_than:` still work (Damon, 2026-10-28; the Gmail API itself takes both). Gmail reads a date as midnight
+    in the mailbox's time zone, which the watcher does not know here, so `after:` goes a day back and `before:` two days
+    on: wide in any zone. The extra threads cost nothing: a check skips mail it has seen (`connector_seen`), and a
+    lookup is clipped to its own time bound by the archive."""
+    def sub(m):
+        kind, ts = m.group(1), int(m.group(2))
+        day = dt.datetime.fromtimestamp(ts + (-86400 if kind == "after" else 2 * 86400), dt.timezone.utc)
+        return f"{kind}:{day:%Y/%m/%d}"
+    return EPOCH_RX.sub(sub, query)
 
 
 def _b64(text: str) -> str:
@@ -574,6 +595,7 @@ class ConnectorMail:
         self.db.execute("pragma busy_timeout=60000")
         self.db.execute("create table if not exists connector_seen(message_id text primary key, thread_id text, seen_at integer)")
         self.db.execute("create table if not exists connector_msg_thread(message_id text primary key, thread_id text)")
+        self.db.execute("create table if not exists connector_meta(key text primary key, value text)")
         self.db.commit()
 
     # -- transport
@@ -588,15 +610,26 @@ class ConnectorMail:
         """Threads matching query (newest first), up to cap, one call per page."""
         threads, token = [], None
         for _ in range(max(1, -(-cap // self.fetch.page))):
-            page, token = self._use(purpose, 1, self.fetch.search, query, cap - len(threads), token)
+            page, token = self._page(query, cap - len(threads), token, purpose)
             threads += page
             if not token or len(threads) >= cap:
                 break
-        for t in threads:
-            self.db.executemany("insert or replace into connector_msg_thread(message_id,thread_id) values(?,?)",
-                                [(m["id"], t["id"]) for m in t.get("messages") or [] if m.get("id")])
         self.db.commit()
         return threads[:cap]
+
+    def _page(self, query: str, size: int, token: str | None, purpose: str) -> tuple[list[dict], str | None]:
+        """One page of a search, time bounds in date form, each message's thread remembered."""
+        page, token = self._use(purpose, 1, self.fetch.search, date_form(query), size, token)
+        for t in page:
+            self.db.executemany("insert or replace into connector_msg_thread(message_id,thread_id) values(?,?)",
+                                [(m["id"], t["id"]) for m in t.get("messages") or [] if m.get("id")])
+        return page, token
+
+    def _meta(self, key: str, value=None):
+        if value is None:
+            row = self.db.execute("select value from connector_meta where key=?", (key,)).fetchone()
+            return row[0] if row else None
+        self.db.execute("insert or replace into connector_meta(key,value) values(?,?)", (key, str(value)))
 
     # -- what the engine calls
     @staticmethod
@@ -607,19 +640,52 @@ class ConnectorMail:
         return f"t:{int(time.time())}"
 
     def changed_threads(self, cursor: str) -> tuple[set[str], str, bool]:
+        """Threads with a message the watcher has not seen since the cursor (less the overlap), newest first.
+
+        The window reaches the connector as `after:<date>` (see `date_form`), so it holds a day or two of seen mail
+        besides the new; pages are read newest first and stop at the first page with nothing unseen, so a quiet check
+        is still one call. A check that finds no threads at all while `newer_than:1d` does is a blind search, not a quiet
+        mailbox: BLIND_RUNS of those in a row fail the check (1.83.1), so Pocket shows it instead of reporting healthy."""
         now = int(time.time())
         since = max(int(str(cursor)[2:]) - OVERLAP_S, now - MAX_LOOKBACK_S)
-        found = self._search(f"after:{since} -in:spam -in:trash -in:draft", PAGE * SEARCH_PAGES, "fetch")
+        query = f"after:{since} -in:spam -in:trash -in:draft"
         changed: set[str] = set()
-        for t in found:
-            msgs = [m for m in t.get("messages") or [] if m.get("id")]
-            fresh = [m for m in msgs if not self.db.execute("select 1 from connector_seen where message_id=?", (m["id"],)).fetchone()]
-            if fresh and not all(SKIP_LABELS & set(m.get("labelIds") or []) for m in fresh):
-                changed.add(t["id"])
-            self.db.executemany("insert or ignore into connector_seen(message_id,thread_id,seen_at) values(?,?,?)", [(m["id"], t["id"], now) for m in msgs])
+        found, token = 0, None
+        for _ in range(SEARCH_PAGES):
+            page, token = self._page(query, PAGE, token, "fetch")
+            found += len(page)
+            unseen = False
+            for t in page:
+                msgs = [m for m in t.get("messages") or [] if m.get("id")]
+                fresh = [m for m in msgs if not self.db.execute("select 1 from connector_seen where message_id=?", (m["id"],)).fetchone()]
+                unseen = unseen or bool(fresh)
+                if fresh and not all(SKIP_LABELS & set(m.get("labelIds") or []) for m in fresh):
+                    changed.add(t["id"])
+                self.db.executemany("insert or ignore into connector_seen(message_id,thread_id,seen_at) values(?,?,?)", [(m["id"], t["id"], now) for m in msgs])
+            if not token or not unseen:
+                break
         self.db.execute("delete from connector_seen where seen_at < ?", (now - 30 * 86400,))
+        blind = self._blind_check(found, query, now)
         self.db.commit()
+        if blind:
+            raise blind
         return changed, f"t:{now}", False
+
+    def _blind_check(self, found: int, query: str, now: int) -> MailError | None:
+        """Nothing in a window of a day or more, while `newer_than:1d` has mail, is the search failing silently."""
+        if found:
+            self._meta("blind_runs", 0)
+            return None
+        probe, _ = self._page(PROBE_QUERY, PAGE, None, "fetch")
+        if not probe:
+            self._meta("blind_runs", 0)
+            return None
+        runs = int(self._meta("blind_runs") or 0) + 1
+        self._meta("blind_runs", runs)
+        if runs < BLIND_RUNS:
+            return None
+        return MailError(502, f"the mail search is blind: {date_form(query).split(' ')[0]} found nothing in {runs} checks "
+                              f"while {PROBE_QUERY.split(' ')[0]} finds {len(probe)} thread(s); update Pocket Code, or report this if it is current")
 
     def baseline_threads(self, query: str | None = None, cap: int = 60) -> set[str]:
         found = self._search(query or self.baseline_query, cap, "fetch")

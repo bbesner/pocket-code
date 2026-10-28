@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.79.2
+checked: 1.83.1
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -227,8 +227,8 @@ filters that file whole kinds of mail past the inbox). `name` changes the label'
 ### A check
 
 1. The watcher applies the decisions you made in Pocket (Resolved, Not useful, Restore).
-2. The watcher finds threads with new messages since the last check (through a connector, by searching from 15
-   minutes before the last check) and syncs the Gmail label.
+2. The watcher finds threads with new messages since the last check (through a connector, by searching by date from
+   the day before the last check and skipping the messages it has already seen) and syncs the Gmail label.
 3. The [first pass](#first-pass), when on, sets aside clearly routine mail.
 4. The judge reads the rest in batches. With each thread it gets related mail from the archive, the open stories with
    their timelines, the alerts already sent, the same order, invoice or account numbers seen before, your rules and,
@@ -388,6 +388,13 @@ recognized from your Sent mail. Send one email from that account, or connect Cod
 **"Inbox Watch couldn't check your mail for … It tries again every minute."** The last run failed with the reason
 shown. After three failures in a row one push says *Inbox Watch can't check your mail*; the next good run clears it.
 A chatgpt.com bot check on a Codex read is temporary; with both agents connected the other one reads instead.
+
+**"Inbox Watch couldn't check your mail for …: the mail search is blind: after:… found nothing in 3 checks while
+newer_than:1d finds … thread(s)."** Through a connector, three checks in a row found no mail at all in a window of a day
+or more while a search for the last day's mail found some, so the connector is answering the watcher's search with
+nothing (as the claude.ai Gmail connector did for searches bounded in seconds from 2026-10-27 until 1.83.1). Update
+Pocket Code; if it is current, report it with the line from `state/monitor.log`. The watcher keeps checking every
+minute and catches up the missed mail once a search works again.
 
 **"Inbox Watch hasn't reported since …"** The watcher has been silent for a day. For Pocket's own watcher, check
 that `POCKET_INBOX_RUNNER` is not `0` and that there is no `STOP` file in `inbox-watch-data/`; `inbox-watch-data/status.json` and

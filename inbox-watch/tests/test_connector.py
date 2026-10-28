@@ -6,6 +6,7 @@ No mailbox, model or network: the fake reads the requested calls from the prompt
 """
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -23,6 +24,7 @@ box = json.load(open(os.environ["FAKE_BOX"]))
 log = open(os.environ["FAKE_LOG"], "a"); log.write(json.dumps(args) + "\n"); log.close()
 prompt = sys.stdin.read()
 calls = json.loads(prompt[prompt.index("["):])
+open(os.environ["FAKE_LOG"] + ".calls", "a").write(json.dumps(calls) + "\n")
 def emit(e): print(json.dumps(e))
 tools = [] if box.get("no_connector") else ["mcp__claude_ai_Gmail__" + t for t in ("search_threads", "get_thread", "get_message", "send_message", "list_labels", "create_label", "label_thread", "unlabel_thread")]
 emit({"type": "system", "subtype": "init", "tools": tools})
@@ -45,10 +47,25 @@ for i, c in enumerate(calls):
         res = {"id": c["input"]["threadId"], "labelIds": c["input"]["labelIds"]}
     elif name == "search_threads":
         q = c["input"]["query"]
-        threads = [t for t in box["threads"] if (m := re.search(r"after:(\d+)", q)) is None or max(int(x["internalDate"]) for x in t["messages"]) / 1000 > int(m.group(1))]
+        threads = sorted(box["threads"], key=lambda t: -max(int(x["internalDate"]) for x in t["messages"]))
+        newest = lambda t: max(int(x["internalDate"]) for x in t["messages"]) / 1000
+        import calendar, time as _t
+        day = lambda s: calendar.timegm(_t.strptime(s, "%Y/%m/%d"))
+        if re.search(r"\b(after|before):\d{9,}\b", q):  # the real connector since 2026-10-27: the seconds form finds nothing, no error
+            threads = []
+        if (m := re.search(r"after:(\d{4}/\d{2}/\d{2})", q)):
+            threads = [] if box.get("date_blind") else [t for t in threads if newest(t) >= day(m.group(1))]
+        if (m := re.search(r"before:(\d{4}/\d{2}/\d{2})", q)):
+            threads = [t for t in threads if newest(t) < day(m.group(1))]
+        if (m := re.search(r"newer_than:(\d+)d", q)):
+            threads = [t for t in threads if newest(t) >= _t.time() - int(m.group(1)) * 86400]
         if "in:sent" in q:
             threads = [t for t in box["threads"] if any("SENT" in x["labelIds"] for x in t["messages"])]
-        res = {"threads": [{"id": t["id"], "messageCount": len(t["messages"]), "messages": [{k: v for k, v in t["messages"][-1].items() if k != "plaintextBody"}]} for t in threads]}
+        start, size = int(c["input"].get("pageToken") or 0), int(c["input"].get("pageSize") or 50)
+        page = threads[start:start + size]
+        res = {"threads": [{"id": t["id"], "messageCount": len(t["messages"]), "messages": [{k: v for k, v in t["messages"][-1].items() if k != "plaintextBody"}]} for t in page]}
+        if start + size < len(threads):
+            res["nextPageToken"] = str(start + size)
     else:
         t = next((t for t in box["threads"] if t["id"] == c["input"].get("threadId")), None)
         if t is None:
@@ -179,6 +196,85 @@ def test_changed_threads_sees_new_messages_once():
     b.save()
     changed, _, _ = m.changed_threads(cur)
     assert changed == {"t1"}
+
+
+def searches(b):
+    """Every search_threads call the fake was asked for, in order."""
+    calls = (json.loads(x) for x in Path(str(b.log) + ".calls").read_text().splitlines())
+    return [c["input"] for call in calls for c in call if c["tool"].endswith("search_threads")]
+
+
+def test_time_bounds_reach_the_connector_as_dates():
+    """Since 2026-10-27 the claude.ai connector answers `after:<seconds>` with nothing and no error (Damon, 2026-10-28)."""
+    import datetime as dt
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now - 60)]}]
+    b.save()
+    m = b.mail()
+    assert m.changed_threads(f"t:{now - 300}")[0] == {"t1"}, "found through the date form; the fake answers the seconds form with nothing"
+    sent = searches(b)[-1]["query"]
+    since = now - 300 - C.OVERLAP_S
+    assert sent.startswith("after:" + dt.datetime.fromtimestamp(since - 86400, dt.timezone.utc).strftime("%Y/%m/%d") + " "), sent
+    assert not re.search(r"(after|before):\d{9,}", sent)
+    ids = m.search_ids(f"(from:pat@vendor.example) before:{now + 1} -in:spam", 25)
+    assert ids == ["m1"]
+    sent = searches(b)[-1]["query"]
+    assert "before:" + dt.datetime.fromtimestamp(now + 1 + 2 * 86400, dt.timezone.utc).strftime("%Y/%m/%d") in sent, sent
+    assert C.date_form("after:1793178247 -in:spam before:1793264647") == "after:2026/10/27 -in:spam before:2026/10/31", "a day back, two days on (both are 09:04 UTC)"
+    assert C.date_form("newer_than:2d before:2026/10/30 after:12345") == "newer_than:2d before:2026/10/30 after:12345", "only Unix seconds change"
+
+
+def test_paging_stops_at_mail_already_seen():
+    """The date window holds a day or two of seen mail; pages are newest first and stop once a page has nothing unseen."""
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": f"t{i}", "messages": [msg(f"m{i}", f"t{i}", now - 3600 - i * 10)]} for i in range(120)]
+    b.save()
+    m = b.mail()
+    changed, cur, _ = m.changed_threads(f"t:{now - 300}")
+    assert len(changed) == 120 and len(searches(b)) == 3, "50 + 50 + 20: every page had unseen mail"
+    b.data["threads"].append({"id": "new", "messages": [msg("mnew", "new", now)]})
+    b.save()
+    assert m.changed_threads(cur)[0] == {"new"}
+    assert len(searches(b)) == 5, "two pages: the first had the new thread, the second nothing unseen, so the third was not read"
+    assert m.changed_threads(cur)[0] == set() and len(searches(b)) == 6, "nothing new: one page"
+
+
+def test_a_blind_search_fails_the_check():
+    """Nothing found in a window of a day or more while newer_than:1d has mail: the third such check raises, status says why."""
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now - 600)]}]
+    b.data["date_blind"] = True
+    b.save()
+    m = b.mail()
+    for i in range(C.BLIND_RUNS - 1):
+        assert m.changed_threads(f"t:{now - 300}")[0] == set()
+        assert len(searches(b)) == 2 * (i + 1), "the window search and the newer_than:1d probe"
+    try:
+        m.changed_threads(f"t:{now - 300}")
+        assert False, "the third blind check should fail"
+    except C.MailError as e:
+        assert e.resp.status == 502 and "blind" in str(e) and "newer_than:1d finds 1 thread" in str(e) and "Gmail connector" not in str(e), str(e)
+    b.data["date_blind"] = False
+    b.save()
+    assert m.changed_threads(f"t:{now - 300}")[0] == {"t1"}, "the search works again: the check passes and the mail is seen"
+    assert m._meta("blind_runs") == "0"
+    b.data["date_blind"] = True
+    b.save()
+    assert m.changed_threads(f"t:{now - 300}")[0] == set(), "counting starts over"
+
+
+def test_a_quiet_mailbox_is_not_blind():
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "old", "messages": [msg("mo", "old", now - 10 * 86400)]}]
+    b.save()
+    m = b.mail()
+    for _ in range(C.BLIND_RUNS + 1):
+        assert m.changed_threads(f"t:{now - 300}")[0] == set()
+    assert m._meta("blind_runs") == "0" and len(searches(b)) == 2 * (C.BLIND_RUNS + 1), "the probe found nothing either: no mail in a day is just quiet"
 
 
 def test_spam_and_promotions_alone_do_not_count():
