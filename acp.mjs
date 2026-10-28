@@ -12,7 +12,13 @@
 // wired into server.mjs's dispatch, so it cannot affect the two shipped engines. Server
 // routing, the model picker, the key broker and MemStem ingest are follow-up slices.
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { LineBuffer } from './codex.mjs';
+import { DEFAULT_CURATED } from './openrouter.mjs';
+
+const HOME = os.homedir();
 
 // Session-id namespace: ACP sessions are prefixed so engineForSessionId() routes them, the
 // same way Codex ids carry 'cx:'. (engines.mjs already registers 'acp' with this prefix.)
@@ -197,3 +203,31 @@ export function closeAcpSession(sessionId) {
   const e = acpSessions.get(sessionId);
   if (e) { e.client.close(); acpSessions.delete(sessionId); }
 }
+
+// ---------- runtime discovery + opt-in config ----------
+// Resolve the ACP runtime (OpenCode) launch command. POCKET_ACP_CMD overrides it (with
+// POCKET_ACP_ARGS, default "acp"); otherwise look for `opencode` in the usual spots and on PATH.
+// Returns { cmd, args } or null when no runtime is installed — mirrors codex.mjs findCodex.
+export function findAcpRuntime(env = process.env) {
+  const explicit = (env.POCKET_ACP_CMD || '').trim();
+  if (explicit) return { cmd: explicit, args: (env.POCKET_ACP_ARGS || 'acp').split(/\s+/).filter(Boolean) };
+  const home = env.HOME || HOME;
+  const fixed = [path.join(home, '.npm-global', 'bin', 'opencode'), '/usr/local/bin/opencode', '/usr/bin/opencode'];
+  const onPath = (env.PATH || '').split(path.delimiter).filter(Boolean).map(d => path.join(d, 'opencode'));
+  const bin = [...fixed, ...onPath].find(p => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } });
+  return bin ? { cmd: bin, args: ['acp'] } : null;
+}
+
+// Opt-in gate: the ACP engine is OFF unless POCKET_ACP_ENABLE is set AND a runtime is found, so
+// default installs are unaffected until an operator turns it on. POCKET_ACP_MODELS adds curated
+// slugs beyond the probed default. Returns { cmd, args, curated } or null.
+export function acpConfig(env = process.env) {
+  if (!/^(1|true|yes|on)$/i.test(String(env.POCKET_ACP_ENABLE || '').trim())) return null;
+  const rt = findAcpRuntime(env);
+  if (!rt) return null;
+  const extra = (env.POCKET_ACP_MODELS || '').split(/[\s,]+/).filter(Boolean);
+  return { cmd: rt.cmd, args: rt.args, curated: [...new Set([...DEFAULT_CURATED, ...extra])] };
+}
+
+// Whether server.mjs should offer/route the ACP engine (opt-in + runtime present).
+export const acpAvailable = (env = process.env) => Boolean(acpConfig(env));
