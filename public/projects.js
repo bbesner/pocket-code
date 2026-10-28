@@ -344,7 +344,7 @@ function rememberOpenView(id,title){
  if(openSessions.length>12)openSessions.shift();
  writeLocal('pc-open-sessions',openSessions);paintOpenSessions();
 }
-const viewTabState=id=>{if(id==='vault')return typeof vaultTabState==='function'?vaultTabState():null;if(id==='tasks')return typeof taskTabState==='function'?taskTabState():null;if(id.startsWith('documents')||id.startsWith('link/'))return null;if(!boardSnap)return null;const p=id==='projects'||id==='projects/scheduled'?null:projectById(id.slice(9));if(!p&&dueListView()==='tasks')return null;const due=p?p.dueCount:boardDueCount();return due?{kind:'due',label:due===1?'A reminder is due':due+' reminders are due'}:null;};
+const viewTabState=id=>{if(id==='vault')return typeof vaultTabState==='function'?vaultTabState():null;if(id==='tasks')return typeof taskTabState==='function'?taskTabState():null;if(id.startsWith('documents')||id.startsWith('link/')||id.startsWith('inbox'))return null;if(!boardSnap)return null;const p=id==='projects'||id==='projects/scheduled'?null:projectById(id.slice(9));if(!p&&dueListView()==='tasks')return null;const due=p?p.dueCount:boardDueCount();return due?{kind:'due',label:due===1?'A reminder is due':due+' reminders are due'}:null;};
 function railProjectsHTML(){
  if(!boardSnap)return '<p class="sheet-help">Loading projects…</p>';
  const due=boardDueCount(),rows=boardSnap.projects.filter(p=>p.status!=='done');

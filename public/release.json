@@ -1,7 +1,8 @@
 {
-  "version": "1.85.0",
-  "assetV": 175,
+  "version": "1.85.1",
+  "assetV": 176,
   "notes": [
+    "Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to Ari only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by Brad.",
     "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.",
     "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.",
     "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by Brad.",
