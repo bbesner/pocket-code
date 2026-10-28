@@ -155,6 +155,14 @@ const effortList = () => {
   return [['default', 'Default', name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'], ...(offersUltra() ? [['ultra', 'Ultra', 'Maximum, with automatic task delegation']] : []), ...allowed];
 };
 const providerDefaults = { claude: {}, codex: {}, acp: {} };
+// 1.86: what each engine can do (engines.mjs, served at /api/engines). A feature an engine lists false is hidden on its
+// conversations rather than offered and failing. Until the server answers, OpenRouter's known gaps are assumed.
+const ENGINE_FEATURES = { claude: {}, codex: {}, acp: { steer: false, sideChat: false, branch: false, autoModel: false, awaySummary: false, subagents: false, connectors: false } };
+const providerOf = id => String(id || '').startsWith('cx:') ? 'codex' : String(id || '').startsWith('acp:') ? 'acp' : 'claude';
+const engineHas = (provider, feature) => ENGINE_FEATURES[provider]?.[feature] !== false;
+const ENGINE_LABELS = { claude: 'Claude', codex: 'Codex', acp: 'OpenRouter' };
+window.PocketEngines = { has: engineHas, providerOf, label: p => ENGINE_LABELS[p] || 'Claude' };
+api('/engines').then(r => { for (const [k, v] of Object.entries(r?.engines || {})) ENGINE_FEATURES[k] = { ...(v.features || {}) }; }).catch(() => { });
 const EFFORTS = [
   ['max', 'Max', 'Deepest reasoning'],
   ['xhigh', 'X-High', 'Slightly leaner than max'],
@@ -282,7 +290,7 @@ function renderToolbar() {
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
     ${tb.provider === 'acp' && !acpEffortLevels().length ? '' : `<button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>`}
     <button class="chip" id="c-approval" title="Permissions for the next reply" aria-label="Permissions for the next reply: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
-    ${tb.provider==='codex'?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
+    ${engineHas(tb.provider,'planMode')?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
     ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this conversation">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-side" id="side-open" hidden>Side chat</button><button class="chip conversation-branch" id="branch-open" hidden>Branch</button><button class="chip conversation-project" id="project-open" hidden>Project</button><button class="chip conversation-task" id="task-open" hidden>Add task</button>' : ''}`;
   const ar = $('#attrow');
   if (ar) {
@@ -307,7 +315,7 @@ function renderToolbar() {
     if(att)att.disabled=true;
     ar?.querySelectorAll('button').forEach(b => { b.disabled = true; });
   }
-  const mode=$('#c-mode');if(mode)mode.onclick=()=>sheet('Codex mode for the next reply',[['work','Work normally','Carry out your request'],['plan','Plan first','Explore an approach and answer native questions before implementation']],tb.prefs.executionMode||'work',v=>{tb.prefs.executionMode=v;setPrefs(tb.key,tb.prefs);renderToolbar();});
+  const mode=$('#c-mode');if(mode)mode.onclick=()=>sheet((ENGINE_LABELS[tb.provider]||'Codex')+' mode for the next reply',[['work','Work normally','Carry out your request'],['plan','Plan first','Explore an approach and answer native questions before implementation']],tb.prefs.executionMode||'work',v=>{tb.prefs.executionMode=v;setPrefs(tb.key,tb.prefs);renderToolbar();});
   $('#c-approval').onclick=()=>chooseApprovalMode();
   paintComposerDensity();
   paintUploadStatus();
@@ -495,7 +503,7 @@ function turnOpts() {
   normalizeModelPick();
   return {
     approvalMode:nextApprovalMode(),
-    executionMode:tb.provider==='codex'&&tb.prefs.executionMode==='plan'?'plan':'work',
+    executionMode:engineHas(tb.provider,'planMode')&&tb.prefs.executionMode==='plan'?'plan':'work',
     model: tb.prefs.model !== 'default' ? tb.prefs.model : undefined,
     effort: tb.prefs.effort !== 'default' ? tb.prefs.effort : undefined,
     attachments: tb.attachments.length ? tb.attachments.map(a => a.path) : undefined,
@@ -1671,7 +1679,7 @@ function paintSessionPanels() {
   });
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
   const current = allSessions.find(s => s.id === chatId);
-  const qb=$('#questions-open');if(qb){qb.hidden=!current?.state?.questions;if(!qb.hidden&&!qb.querySelector('.wb-cta'))paintWaitBanner(qb,{title:(String(chatId).startsWith('cx:')?'Codex':'Claude')+' is waiting for your answer',note:current.state.label==='Needs your answer'?'The reply is paused until you answer.':'',cta:'Answer'});} // refreshQuestions fills in the count
+  const qb=$('#questions-open');if(qb){qb.hidden=!current?.state?.questions;if(!qb.hidden&&!qb.querySelector('.wb-cta'))paintWaitBanner(qb,{title:(ENGINE_LABELS[providerOf(chatId)])+' is waiting for your answer',note:current.state.label==='Needs your answer'?'The reply is paused until you answer.':'',cta:'Answer'});} // refreshQuestions fills in the count
   const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals&&!ab.querySelector('.wb-cta'))paintWaitBanner(ab,{title:current.state.label||'Action needs approval',note:current.state.label==='Needs approval'?'The reply is paused until you allow or deny it.':'',cta:'Review',mark:IC.info});} // refreshApprovals paints the request itself
   if(typeof paintAgents==='function')paintAgents(); // 1.82: the row under the controls also reports background jobs
   if (current && $('#chat-statebar') && !sessionsStale) markRead(chatId, current.state); // 1.35: the header's run status names the state; no second copy
@@ -3103,8 +3111,8 @@ function scrollBottom(force) {
 // more is sent as soon as it is picked in a conversation; the rest are typed in, ready for the rest of the message.
 const SLASH_POCKET = [
   { name: 'btw', desc: 'Ask in a side chat, without adding to this conversation', where: 'chat', working: true, insert: true, ok: () => SideChat.available(chatId) },
-  { name: 'branch', desc: 'Start a saved conversation that carries on from here', where: 'chat', working: true, ok: () => SideChat.available(chatId), act: () => Branch.open(chatId) },
-  { name: 'new', desc: 'Start a new conversation in this folder', where: 'chat', working: true, act: () => { writeLocal('pc-new-start', { cwd: slashCwd }); localStorage.setItem('pc-provider', tb?.provider === 'codex' ? 'codex' : 'claude'); location.hash = '#/new'; } },
+  { name: 'branch', desc: 'Start a saved conversation that carries on from here', where: 'chat', working: true, ok: () => Boolean(chatId) && engineHas(providerOf(chatId), 'branch'), act: () => Branch.open(chatId) },
+  { name: 'new', desc: 'Start a new conversation in this folder', where: 'chat', working: true, act: () => { writeLocal('pc-new-start', { cwd: slashCwd }); localStorage.setItem('pc-provider', ['codex', 'acp'].includes(tb?.provider) ? tb.provider : 'claude'); location.hash = '#/new'; } },
   { name: 'model', desc: 'Choose the model for the next reply', where: 'both', ok: () => $('#c-model'), act: () => $('#c-model')?.click() },
   { name: 'effort', desc: 'Choose how much it thinks before answering', where: 'both', ok: () => $('#c-eff'), act: () => $('#c-eff')?.click() },
   { name: 'usage', desc: 'See how much of your plan is used', where: 'both', working: true, act: () => openUsagePanel() },
@@ -3147,7 +3155,7 @@ function slashGroups(q, { where, provider, working, list }) {
   // Claude Code's own commands only for Claude; OpenRouter (OpenCode) gets Pocket's actions and no Claude/Codex skills.
   const claude = provider === 'codex' || provider === 'acp' ? [] : SLASH_CLAUDE.filter(c => fits(c) && (!known || known.has(c.name)));
   const taken = new Set([...SLASH_POCKET, ...SLASH_CLAUDE].map(c => c.name));
-  const skills = working || provider === 'acp' ? [] : (list?.skills || []).filter(c => !taken.has(c.name)).map(c => ({ ...c, kind: 'skill' }));
+  const skills = working ? [] : (list?.skills || []).filter(c => !taken.has(c.name)).map(c => ({ ...c, kind: 'skill' }));
   const rank = arr => arr.map((c, i) => ({ c, s: slashScore(c, q), i })).filter(x => x.s >= 0).sort((a, b) => a.s - b.s || a.i - b.i);
   const groups = [['Claude Code', rank(claude)], ['Pocket', rank(pocket)], ['Skills', rank(skills)]];
   // a description is only searched when no name matches: /con is context and compact, not every "conversation"
@@ -3217,7 +3225,9 @@ function bindSlash(box, ctx) {
 
 const sendModes = new Map();
 // 1.60: in Assistant mode a message sent while Claude works waits for the current reply (the choice is hidden there).
-const defaultSendMode = () => assistantMode() ? 'queue' : 'steer';
+// 1.86: an engine that cannot take a message mid-reply (OpenRouter) sends it after the reply, the choice hidden as here.
+const canSteer = () => !assistantMode() && engineHas(providerOf(chatId), 'steer');
+const defaultSendMode = () => canSteer() ? 'steer' : 'queue';
 let composerWorking = false;
 function setComposer(working) {
   const c = $('#comp'); if (!c) return;
@@ -3231,9 +3241,9 @@ function setComposer(working) {
         <button class="chip stopchip" id="stopb" aria-label="Stop">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
     <div class="composer-entry">
-    ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this reply" aria-label="After this reply">After <span class="sm-x">this </span>reply</button></div>' : ''}
+    ${working && canSteer() ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this reply" aria-label="After this reply">After <span class="sm-x">this </span>reply</button></div>' : ''}
     ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button>${ctxRingHTML()}</div>` : ''}
-    <textarea id="box" rows="1" placeholder="${working ? (assistantMode() ? 'Send this after the current reply…' : "Add to what it's doing…") : (assistantMode() ? 'Reply…' : 'Reply, or / for commands')}" enterkeyhint="send"></textarea>
+    <textarea id="box" rows="1" placeholder="${working ? (!canSteer() ? 'Send this after the current reply…' : "Add to what it's doing…") : (assistantMode() ? 'Reply…' : 'Reply, or / for commands')}" enterkeyhint="send"></textarea>
     ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button></div>`;
   if (typeof paintChatProject === 'function') paintChatProject(); // the toolbar's chip, or the working row's folder button
   if (typeof paintChatTask === 'function') paintChatTask();
@@ -3667,7 +3677,7 @@ async function renderNew({ home = false } = {}) {
      A row of saved prompts above the task box and a Recent list. Choosing one fills the wording, workspace and
      agent (and model, effort, permissions or Codex mode when saved); you still press Start. */
   const formState = () => ({ text: first.value.trim(), cwd: $('#cpath').value.trim() || sel || null, provider,
-    model: tb.prefs.model, effort: tb.prefs.effort, approvalMode: nextApprovalMode(), executionMode: provider === 'codex' ? tb.prefs.executionMode : null });
+    model: tb.prefs.model, effort: tb.prefs.effort, approvalMode: nextApprovalMode(), executionMode: engineHas(provider, 'planMode') ? tb.prefs.executionMode : null });
   const describe = p => [p.cwd ? projName(p.cwd) : 'No workspace', p.provider === 'codex' ? 'Codex' : 'Claude Code',
     p.model ? modelLabel(p.model) : '', p.effort ? p.effort[0].toUpperCase() + p.effort.slice(1) : '', p.approvalMode === 'full' ? 'Full access' : p.approvalMode === 'review' ? 'Review actions' : '',
     p.executionMode === 'plan' ? 'Plan first' : ''].filter(Boolean).join(' · ');

@@ -125,8 +125,33 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-asst')].some(e => /echo of and again/.test(e.textContent)), { timeout: 15000 });
   assert.equal(await page.evaluate(() => window.__askedFull), false, 'no approval banner with Full access');
   await page.waitForFunction(() => document.querySelectorAll('#msgs .turnmeta').length >= 1 && /\$0\.0021/.test([...document.querySelectorAll('#msgs .turnmeta')].at(-1).textContent), { timeout: 10000 });
+
+  console.log('OpenRouter: the everyday features of the other agents (1.86)');
+  // the composer is redrawn as a reply ends: wait for it, then send through its handler (a pointer click can land mid-redraw)
+  const send = async text => { await page.waitForSelector('#tbar'); await sleep(400); await page.waitForSelector('#box:not([disabled])'); await page.$eval('#box', (e, v) => { e.focus(); e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); }, text); await page.$eval('#send', e => e.click()); };
+  // Plan first is offered (OpenCode's plan mode); Side chat and Branch, which OpenRouter cannot do yet, are not
+  await page.waitForSelector('#tbar', { timeout: 10000 }); // the composer is back once the reply has fully ended
+  assert.ok(await page.$('#c-mode'), 'Plan first chip');
+  assert.equal(await page.$eval('#side-open', e => e.hidden), true, 'no Side chat'); assert.equal(await page.$eval('#branch-open', e => e.hidden), true, 'no Branch');
+  // your message shows at once, stays through a reload while the reply runs, and there is no Steer toggle (OpenRouter cannot steer)
+  await send('parity slow __SLOW__');
+  const mine = () => page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-user')].some(e => /parity slow/.test(e.textContent)), { timeout: 8000 });
+  await mine(); await page.reload(); await mine();
+  assert.equal(await page.$('.send-mode'), null, 'no Steer / After this reply toggle while it runs');
+  await page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-asst')].some(e => /echo of parity slow/.test(e.textContent)), { timeout: 15000 });
+  // a ```choices block becomes reply buttons
+  await send('parity choices __CHOICES__');
+  await page.waitForFunction(() => [...document.querySelectorAll('.choices:not([hidden]) button')].some(b => /Merge and deploy/.test(b.textContent)), { timeout: 15000 });
+  assert.ok(!(await page.$eval('#msgs', e => e.textContent)).includes('```choices'), 'the raw block is not shown');
+  // a question from the model is a card with its options as buttons; tapping one answers it
+  await send('parity question __QUESTION__');
+  await page.waitForSelector('#questions-open:not([hidden]) [data-act]', { timeout: 15000 });
+  assert.match(await page.$eval('#questions-open', e => e.textContent), /OpenRouter is waiting for your answer|Which color/);
+  await page.evaluate(() => [...document.querySelectorAll('#questions-open [data-act]')].find(b => /Blue/.test(b.textContent)).click());
+  await page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-asst')].some(e => /Answer: Blue/.test(e.textContent)), { timeout: 15000 });
+
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, openrouter: { effortChip: true, approvalBanner: true, modelAndEffortApplied: true, toolLines: true, costLine: true, fullAccess: true, reopen: true } }));
+  console.log(JSON.stringify({ ok: true, openrouter: { messageAtOnce: true, replyButtons: true, questionCards: true, planFirst: true, unsupportedHidden: true, effortChip: true, approvalBanner: true, modelAndEffortApplied: true, toolLines: true, costLine: true, fullAccess: true, reopen: true } }));
 } catch (e) {
   console.error('Page errors:', errors); console.error('Server log tail:', logs.slice(-2000)); throw e;
 } finally {

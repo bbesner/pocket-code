@@ -20,29 +20,41 @@
 //   routed    — true when server.mjs can actually run a turn on this engine today.
 //   foreign   — model ids that clearly belong to ANOTHER engine, used to reject an obvious
 //               mismatch early. The generalized form of the old validateModel regexes.
+// features — what the app may offer on this engine's conversations (1.86). A feature that works on every engine is not
+//               listed; one listed false is hidden for that engine rather than offered and failing. The rule for new
+//               work: build a feature for every engine (server.mjs ENGINE_OPS), or list it here false where it cannot work.
+//   steer          a message sent during a reply goes into that reply
+//   sideChat       Side chat (a quick question beside the conversation)
+//   branch         Branch (a copy of the conversation to continue separately)
+//   planMode       "Plan first": explore and answer questions before changing anything
+//   autoModel      Automatic model choice
+//   awaySummary    "While you were away" (needs message times the engine records)
+//   subagents      the Subagents panel
+//   connectors     the account's Gmail, Calendar and Drive connectors
 export const ENGINES = {
   claude: {
     id: 'claude', label: 'Claude', idPrefix: null, routed: true,
     foreign: /^(?:gpt-|codex(?:$|-)|o\d(?:$|-))/i,
+    features: { steer: true, sideChat: true, branch: true, planMode: false, autoModel: true, awaySummary: true, subagents: true, connectors: true },
   },
   codex: {
     id: 'codex', label: 'Codex', idPrefix: 'cx:', routed: true,
     foreign: /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[))/i,
+    features: { steer: true, sideChat: true, branch: true, planMode: true, autoModel: false, awaySummary: true, subagents: true, connectors: true },
   },
-  // Registered as the extension target, NOT routed yet — its adapter (acp.mjs) is M1 in
-  // docs/openrouter-acp-engine-spec.md. Its models are provider-prefixed OpenRouter slugs
-  // (e.g. openrouter/deepseek/deepseek-v4.1-flash-1017); a Claude- or bare GPT/Codex-looking
-  // id is the obvious mismatch. Nothing dispatches engine 'acp' until M1 lands, so this entry
-  // changes no runtime behaviour today — it only makes the seam real and testable.
+  // OpenRouter models through OpenCode over ACP (acp.mjs), opt-in per server (POCKET_ACP_ENABLE). Its models are
+  // provider-prefixed OpenRouter slugs (openrouter/deepseek/deepseek-v4.1-flash-1017); a Claude- or GPT-looking id is a
+  // mismatch. ACP has no mid-reply input or fork that Pocket uses yet, replayed history carries no times, and OpenCode
+  // exposes no subagents or account connectors.
   acp: {
-    id: 'acp', label: 'OpenRouter', idPrefix: 'acp:', routed: false,
+    id: 'acp', label: 'OpenRouter', idPrefix: 'acp:', routed: true,
     foreign: /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[)|gpt-|codex(?:$|-)|o\d(?:$|-))/i,
+    features: { steer: false, sideChat: false, branch: false, planMode: true, autoModel: false, awaySummary: false, subagents: false, connectors: false },
   },
 };
 
 export const ENGINE_IDS = Object.keys(ENGINES);
-// Engines server.mjs can run a turn on right now (claude, codex). The picker/dispatch use this
-// so a not-yet-routed registry entry (acp, today) is never offered or dispatched.
+// Engines server.mjs can run a turn on (all three since 1.84; acp only where the server enables it).
 export const routedEngineIds = () => ENGINE_IDS.filter(id => ENGINES[id].routed);
 
 // The engine that owns a session id, by its prefix. Unprefixed ids are Claude (the default) —

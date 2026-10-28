@@ -9,7 +9,7 @@ const BRANCH_WHAT = 'Start a new saved conversation that carries on from here an
 const SideChat = (() => {
   const sides = new Map(); // conversation id -> its live side chat id
   let view = null;         // {parentId, sh, es, list, box, send, status, busy, total, model, ended, live}
-  const available = id => Boolean(id); // 1.79: Claude and Codex
+  const available = id => Boolean(id) && (window.PocketEngines?.has(window.PocketEngines.providerOf(id), 'sideChat') ?? true); // 1.86: where the engine has it
   const modelName = m => { if (!m) return 'Default model'; const hit = (typeof MODELS !== 'undefined' ? MODELS : []).find(x => x[0] === m); return hit ? hit[1] : m; };
   const money = n => '$' + (n < 0.01 && n > 0 ? n.toFixed(3) : n.toFixed(2));
   const ENDED = { idle: 'This side chat ended after a quiet spell.', 'account sign-in': 'This side chat ended because the Claude sign-in changed.',

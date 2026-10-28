@@ -159,3 +159,13 @@ vendor files or runtime dependencies as part of a documentation edit.
 The asset number invalidates browser caches; it is not the semantic version. Reverting
 frontend behavior still requires a fresh asset number. A copied `.env` or restored old
 queue is not part of an application rollback.
+
+## Every feature on every agent
+
+Pocket runs three agents: Claude Code, Codex and OpenRouter (through OpenCode). A feature is built for all
+of them. Server code reaches the agent behind a conversation through `engineOf(id)` in `server.mjs`
+(`ENGINE_OPS`: its turn, folder, transcript, how a queued message starts) rather than branching on the id.
+When an agent genuinely cannot do something, list it `false` in that agent's `features` in `engines.mjs`;
+the app reads them from `/api/engines` and hides the feature there instead of offering it and failing.
+`test/engine-parity.test.mjs` runs one checklist against all three agents' test fakes; add your feature to
+it, and give each fake the marker your check needs.

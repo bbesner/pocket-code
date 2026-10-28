@@ -41,8 +41,12 @@ const send=o=>process.stdout.write(JSON.stringify(o)+'\n');
 const notify=(method,params)=>send({jsonrpc:'2.0',method,params});
 const reply=(id,result)=>send({jsonrpc:'2.0',id,result});
 const fail=(id,message)=>send({jsonrpc:'2.0',id,error:{code:-32600,message}});
+// 1.86: this fake's own requests to Pocket (a question), answered by id
+const asked=new Map();let askSeq=0;
+const askPocket=(method,params)=>new Promise(r=>{const id='fake-ask-'+(++askSeq);asked.set(id,r);send({jsonrpc:'2.0',id,method,params});});
 readline.createInterface({input:process.stdin}).on('line',line=>{
   let m;try{m=JSON.parse(line)}catch{return}
+  if(m.id!=null&&!m.method&&asked.has(m.id)){const r=asked.get(m.id);asked.delete(m.id);return r(m.result);}
   if(m.id==null)return; // notifications and responses
   const p=m.params||{};
   if(m.method==='thread/start'||m.method==='thread/resume')fs.appendFileSync(calls+'.threads',JSON.stringify({method:m.method,choices:/`choices`/.test(p.developerInstructions||''),projects:/pocket-board/.test(p.developerInstructions||''),documents:/pocket-docs/.test(p.developerInstructions||''),google:/pocket-google\/SKILL\.codex\.md/.test(p.developerInstructions||'')})+'\n');
@@ -52,7 +56,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       // between reply() and close(), so it succeeds and waits for a response instead of EPIPE.
       if(process.env.FAKE_CODEX_CLOSE_STDIN){fs.closeSync(0);setInterval(()=>{},1000);}
       reply(m.id,{});return;
-    case 'thread/start':{const id=randomUUID();takeLock(id);return reply(m.id,{thread:{id},model:'gpt-test',reasoningEffort:null});}
+    case 'thread/start':{const id=randomUUID();takeLock(id);if(p.cwd)fs.writeFileSync(path.join(root,id+'.cwd'),p.cwd);return reply(m.id,{thread:{id},model:'gpt-test',reasoningEffort:null});} // 1.86: remembers its folder for thread/read
     case 'thread/resume':
       if(!takeLock(p.threadId))return fail(m.id,`thread ${p.threadId} already has an active writer`);
       return reply(m.id,{model:'gpt-test',reasoningEffort:null,cwd:p.cwd||process.cwd()});
@@ -89,11 +93,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
           notify('item/completed',{item:done});
         },1000);
       }
-      setTimeout(()=>{
-        notify('item/agentMessage/delta',{delta:'Codex test '});
-        notify('item/completed',{item:{type:'agentMessage',id:randomUUID(),text:'Codex test response.'}});
-        notify('turn/completed',{turn:{id:turnId,status:'completed'}});
-      },text.includes('__SLOW__')?1500:200);
+      // 1.86: __CHOICES__ ends with a ```choices block; __QUESTION__ asks Pocket (requestUserInput) and answers with the choice
+      const finish=said=>{notify('item/agentMessage/delta',{delta:'Codex test '});notify('item/completed',{item:{type:'agentMessage',id:randomUUID(),text:said}});notify('turn/completed',{turn:{id:turnId,status:'completed'}});};
+      if(text.includes('__QUESTION__')){askPocket('item/tool/requestUserInput',{threadId:p.threadId,turnId,questions:[{id:'q-color',header:'Color',question:'Which color?',options:[{label:'Blue',description:'Cool'},{label:'Red',description:'Warm'}]}]}).then(r=>finish('Codex heard '+JSON.stringify(r?.answers||{})));return;}
+      setTimeout(()=>finish(text.includes('__CHOICES__')?'Tests pass. Should I merge and deploy?\n\n```choices\nMerge and deploy\nNot yet\n```':'Codex test response.'),text.includes('__SLOW__')?1500:200);
       return;
     }
     // 1.79: a fork copies the source thread's items into a new thread; ephemeral ones are not saved and hold no lock.
@@ -117,7 +120,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     case 'thread/list':if(takeMarker(process.env.FAKE_CODEX_DIE_ON))process.exit(0);
     case 'model/list':return reply(m.id,{data:process.env.FAKE_CODEX_MODELS?JSON.parse(process.env.FAKE_CODEX_MODELS):[],nextCursor:null}); // FAKE_CODEX_MODELS: the models to list, in the app-server's shape
     case 'skills/list':return reply(m.id,{data:[],nextCursor:null});
-    case 'thread/read':return reply(m.id,{thread:{id:p.threadId,turns:[],preview:'',cwd:process.cwd()}});
+    case 'thread/read':{let cwd=process.cwd();try{cwd=fs.readFileSync(path.join(root,p.threadId+'.cwd'),'utf8');}catch{}return reply(m.id,{thread:{id:p.threadId,turns:[],preview:'',cwd}});}
     default:return fail(m.id,'unsupported in fake codex: '+m.method);
   }
 });

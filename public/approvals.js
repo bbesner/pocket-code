@@ -27,8 +27,8 @@ function nextApprovalMode(prefs=tb?.prefs){
 }
 function chooseApprovalMode(key=tb?.key){
  if(typeof key!=='string')return;
- const prefs=getPrefs(key),provider=key.startsWith('cx:')?'codex':key===NEW_KEY?tb?.provider:'claude';
- const choices=[['review','Review actions',provider==='codex'?'Use a read-only sandbox and review native permission requests. Safe reads and previously allowed tools can run without asking.':'Ask before commands, file edits, delegated tasks and external tools. Ordinary file reads can run without asking.']];
+ const prefs=getPrefs(key),provider=key===NEW_KEY?tb?.provider:(window.PocketEngines?.providerOf(key)||(key.startsWith('cx:')?'codex':'claude'));
+ const choices=[['review','Review actions',provider==='acp'?'Ask before each command, file edit and web fetch. Reading and searching files run without asking.':provider==='codex'?'Use a read-only sandbox and review native permission requests. Safe reads and previously allowed tools can run without asking.':'Ask before commands, file edits, delegated tasks and external tools. Ordinary file reads can run without asking.']];
  if(approvalPolicy.allowFullAccess)choices.push(['full','Full access','Run tools without routine permission prompts, using this server’s account access.']);
  sheet('Permissions for the next reply',choices,nextApprovalMode(prefs),mode=>{prefs.approvalMode=mode;prefs.approvalModeSource='user';setPrefs(key,prefs);if(tb?.key===key){tb.prefs=prefs;renderToolbar();}});
 }

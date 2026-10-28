@@ -213,7 +213,7 @@ function projectBriefing(p){
  if(notes.length)lines.push('','Recent notes:',...notes.map(h=>`- ${fmtDue(h.at)}: ${h.detail}`));
  if(p.reminders.length)lines.push('','Reminders:',...p.reminders.map(r=>`- ${r.label} (${r.due?'due ':''}${fmtDue(r.dueAt)})`));
  if(p.link)lines.push('','Link: '+p.link);
- if(sessions.length)lines.push('','Earlier conversations on this project, newest last:',...sessions.map(id=>`- ${sessionName(id)} (${id.startsWith('cx:')?'Codex':'Claude'} conversation ${id})`));
+ if(sessions.length)lines.push('','Earlier conversations on this project, newest last:',...sessions.map(id=>`- ${sessionName(id)} (${id.startsWith('cx:')?'Codex':id.startsWith('acp:')?'OpenRouter':'Claude'} conversation ${id})`));
  lines.push('',`(Pocket project ${p.id}; this conversation is linked to it. When the work reaches a stopping point, keep the card current: pocket-board update -p ${p.id} --summary "…" --next "…", pocket-board task done <step> -p ${p.id}, pocket-board note "…" -p ${p.id}.)`);
  return lines.join('\n');
 }
@@ -221,7 +221,7 @@ function startProject(p){
  saveBriefing(projectBriefing(p));
  writeLocal('pc-new-start',{project:p.id,projectName:p.name,cwd:p.directory||''});
  const last=p.sessions[p.sessions.length-1];
- try{if(p.directory)localStorage.setItem('pc-lastproj',p.directory);if(last)localStorage.setItem('pc-provider',last.startsWith('cx:')?'codex':'claude');}catch{}
+ try{if(p.directory)localStorage.setItem('pc-lastproj',p.directory);if(last)localStorage.setItem('pc-provider',last.startsWith('cx:')?'codex':last.startsWith('acp:')?'acp':'claude');}catch{}
  location.hash='#/new';
 }
 function reminderOptions(project,id){

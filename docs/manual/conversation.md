@@ -1,10 +1,10 @@
 <!-- manual
-checked: 1.83.0
+checked: 1.86.0
 sources: choices.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, public/secret-detect.js
 -->
 # Working in a conversation
 
-A conversation is one Claude Code or Codex session opened in Pocket Code: the replies, the message box under them, and the
+A conversation is one Claude Code, Codex or OpenRouter session opened in Pocket Code: the replies, the message box under them, and the
 panels around them for results, changed files, Git, the follow-up queue, side chats and subagents. This page covers
 everything you do inside one conversation, from sending a message to steering a reply that is still running. It is always
 on. Starting, finding and organizing conversations is in [Conversations (sessions)](sessions.md); questions from the
@@ -21,8 +21,8 @@ Type in the message box at the bottom and press the send button.
 - Your draft is saved on this browser as you type, per conversation, so it survives a reload, a closed tab or a phone that
   killed the app in the background. Drafts are not shared with your other devices.
 - The chips above the box set the next reply: model, reasoning effort, permissions (**Review actions** or **Full access**,
-  see [Questions and approvals](approvals.md#choose-review-actions-or-full-access)) and, on Codex, **Work normally** or
-  **Plan first**. These choices are remembered per conversation on this browser.
+  see [Questions and approvals](approvals.md#choose-review-actions-or-full-access)) and, on Codex and OpenRouter, **Work normally**
+  or **Plan first**. These choices are remembered per conversation on this browser.
 - When delivery cannot be confirmed (the network dropped mid-send), the message stays on the device and the box shows
   **Retry same message**, **Review conversation** and **Discard retry**. Retry resends with the same request id, so the
   server does not start a second reply for a message it already received. A message the server refused shows **Edit
@@ -182,7 +182,8 @@ snippet. Older-message search needs at least two characters and returns up to 50
 
 ### Steer a running reply or queue a follow-up
 
-While the agent works, the message box shows two buttons, **Steer now** and **After this reply**.
+While the agent works, the message box shows two buttons, **Steer now** and **After this reply**. OpenRouter
+conversations cannot be steered, so there the buttons are hidden and a message sent during a reply waits for it to end.
 
 - **Steer now** (the default in Developer mode) sends your message into the reply that is running. The agent sees it at
   its next step. It does not start a separate reply and does not change the running reply's model or permissions. If the
