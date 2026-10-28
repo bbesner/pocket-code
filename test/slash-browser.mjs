@@ -19,7 +19,12 @@ export async function runSlashRegressions({browser,base,rows,received,out}) {
  const clear=()=>page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));});
  // Typing can be swallowed while the composer finishes re-rendering (e.g. right after a send); re-type
  // until the picker shows the expected option rather than racing a single keystroke against the re-render.
- const typeUntil=async(text,dataN)=>{for(let i=0;i<4;i++){await clear();await page.type('#box',text);try{await page.waitForSelector(`#slash:not([hidden]) [data-n="${dataN}"]`,{timeout:3000});return;}catch{}}await page.waitForSelector(`#slash:not([hidden]) [data-n="${dataN}"]`,{timeout:3000});};
+ // Set the text in one step (focus, value, input event) rather than key by key: the composer can re-render while a
+ // reply the page is tracking settles, and keystrokes typed into the old box are lost. Re-set until the picker shows
+ // the option; if it never does, say what the page looked like so a CI failure explains itself.
+ const typeUntil=async(text,dataN)=>{for(let i=0;i<4;i++){await page.$eval('#box',(e,v)=>{e.focus();e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));},text);try{await page.waitForSelector(`#slash:not([hidden]) [data-n="${dataN}"]`,{timeout:3000});return;}catch{}}
+  const seen=await page.evaluate(()=>({box:document.querySelector('#box')?.value,disabled:document.querySelector('#box')?.disabled,slashHidden:document.querySelector('#slash')?.hidden,options:[...document.querySelectorAll('#slash [data-n]')].map(e=>e.dataset.n),focus:document.activeElement?.id||document.activeElement?.tagName}));
+  throw new Error(`/${dataN} never offered for "${text}": ${JSON.stringify(seen)}`);};
  try{
   console.log('Slash picker: / on a computer');
   await page.setViewport({width:1440,height:900});
