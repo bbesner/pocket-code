@@ -17,6 +17,9 @@ export async function runSlashRegressions({browser,base,rows,received,out}) {
  const names=()=>page.$$eval('#slash [role=option]',es=>es.map(e=>e.dataset.n));
  const selected=()=>page.$eval('#slash [aria-selected="true"]',e=>e.dataset.n);
  const clear=()=>page.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));});
+ // Typing can be swallowed while the composer finishes re-rendering (e.g. right after a send); re-type
+ // until the picker shows the expected option rather than racing a single keystroke against the re-render.
+ const typeUntil=async(text,dataN)=>{for(let i=0;i<4;i++){await clear();await page.type('#box',text);try{await page.waitForSelector(`#slash:not([hidden]) [data-n="${dataN}"]`,{timeout:3000});return;}catch{}}await page.waitForSelector(`#slash:not([hidden]) [data-n="${dataN}"]`,{timeout:3000});};
  try{
   console.log('Slash picker: / on a computer');
   await page.setViewport({width:1440,height:900});
@@ -48,8 +51,8 @@ export async function runSlashRegressions({browser,base,rows,received,out}) {
   await page.waitForFunction(()=>[...document.querySelectorAll('#msgs .m-user')].some(e=>e.textContent.includes('/context')));
   assert.equal(received.at(-1).text,'/context','a command that needs nothing more is sent at once');
   // a fresh page: the send above re-renders the composer (it starts a reply), which can swallow the next typing
-  await page.goto(base+'/?slash=usage#/chat/'+id);await page.waitForSelector('#msgs .m-asst');
-  await clear();await page.type('#box','/usa');await page.waitForSelector('#slash:not([hidden]) [data-n="usage"]');await page.keyboard.press('Enter');
+  await page.goto(base+'/?slash=usage#/chat/'+id);await page.waitForSelector('#msgs .m-asst');await page.waitForSelector('#box:not([disabled])');
+  await typeUntil('/usa','usage');await page.keyboard.press('Enter');
   await page.waitForSelector('.usage-sheet');assert.equal(await page.$eval('#box',e=>e.value),'','a Pocket action runs here and sends nothing');
   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.usage-sheet'));
   await clear();await page.type('#box','/stock');assert.deepEqual(await names(),['inventory-report'],'with no name match, descriptions are searched');

@@ -257,6 +257,9 @@ test('a background subagent asking permission after the reply ended shows as a n
  const row=(await f.call('/sessions')).body.sessions.find(s=>s.id===id);assert.equal(row.state.label,'Needs approval');
  const {requests}=(await f.call(`/session/${id}/approvals`)).body;
  assert.equal(requests.length,1);assert.equal(requests[0].agent,'Review imports','the card names the agent that asked');assert.match(requests[0].details,/import:check/);
+ // the subagent's activity is recorded as its steps stream in — wait for it to settle before reading,
+ // rather than racing the first read against the background job's emission.
+ assert.ok(await f.until(async()=>{const a=(await f.call(`/session/${id}/agents`)).body.agents?.[0];return a&&a.latest==='Using Bash'&&a.steps===2;},6000),'the agent activity is recorded');
  const agents=(await f.call(`/session/${id}/agents`)).body;
  assert.equal(agents.running,1);assert.equal(agents.agents[0].name,'Review imports');assert.equal(agents.agents[0].activity,true);assert.equal(agents.agents[0].latest,'Using Bash');assert.equal(agents.agents[0].steps,2);
  const activity=(await f.call(`/session/${id}/agents/${agents.agents[0].id}/activity`)).body;
