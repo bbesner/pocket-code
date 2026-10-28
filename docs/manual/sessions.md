@@ -253,6 +253,32 @@ Differences from Claude Code and Codex:
   not: a message sent during a reply waits for After this reply.
 - Gmail, Calendar and Drive connectors are not available.
 
+### Memory and skills with OpenRouter
+
+OpenRouter conversations use OpenCode's MCP settings. To give them shared memory,
+add the MemStem server to OpenCode's `mcp` configuration and a memory-first
+instruction file to its `instructions` list. Preserve the existing provider and
+permission settings. Use an absolute MemStem executable path and an explicit
+vault path. New and reopened agent processes load these settings.
+
+MemStem's search, get, list-skills and get-skill tools provide the shared memories
+and skills. When listing skills, omit `scope` to list them all; `all` is a literal
+filter. Retrieve a skill by its exact returned title, not its folder name.
+
+Saving these conversations requires MemStem's **OpenCode adapter** (ADR 0055),
+which is separate from MCP access and off by default. Enable it only in the
+intended vault. It reads OpenCode's SQLite database, backfills existing sessions,
+and records the actual provider and model for each assistant response. Changing
+models updates the same captured conversation. Exclude Pocket's `data/acp-probe`
+directory and other test directories from capture.
+
+See [MemStem's OpenCode setup](https://github.com/Memstem/memstem/tree/main/clients/opencode)
+for the configuration examples and verification steps. This requires a MemStem
+build containing the adapter; enabling OpenRouter in Pocket alone does not enable
+capture. After setup, verify both directions: ask an OpenRouter session to search
+a known memory and load a skill, then find a substantive new conversation in
+MemStem and check its model tags.
+
 ## Claude Code vs Codex in Pocket
 
 | | Claude Code | Codex |
