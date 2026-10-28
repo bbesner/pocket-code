@@ -36,6 +36,8 @@ const log = (...a) => console.log(new Date().toISOString(), '[acp]', ...a);
 // policy (spec §6). elicitation.form is advertised but model questions are declined in v1.
 export const CLIENT_CAPABILITIES = { elicitation: { form: {} } };
 export const PROTOCOL_VERSION = 1;
+// A prompt turn may sit on a pending approval for a long time; don't time it out from under the user.
+export const PROMPT_TIMEOUT_MS = Number(process.env.POCKET_ACP_TURN_TIMEOUT_MS) || 3_600_000;
 
 // ---------- JSON-RPC-2.0-over-stdio client for one ACP agent child ----------
 // Newline-delimited both ways. Requests carry an id; `method` + no id is a notification; `method`
@@ -129,12 +131,29 @@ export function permissionOutcomes(options) {
 export function normalizeUpdate(update) {
   if (!update || typeof update !== 'object') return null;
   const u = update.sessionUpdate;
-  if (u === 'agent_message_chunk' || u === 'agent_message') return { type: 'delta', text: update.content?.text ?? '' };
+  // session/load replays the user's own messages too (verified against real OpenCode), grouped by messageId.
+  if (u === 'user_message_chunk') return { type: 'user_chunk', text: update.content?.text ?? '', messageId: update.messageId };
+  if (u === 'agent_message_chunk' || u === 'agent_message') return { type: 'delta', text: update.content?.text ?? '', messageId: update.messageId };
   if (u === 'agent_thought_chunk') return { type: 'reasoning', text: update.content?.text ?? '' };
   if (u === 'tool_call') return { type: 'tool', id: update.toolCallId, title: update.title, kind: update.kind, status: update.status || 'pending' };
   if (u === 'tool_call_update') return { type: 'tool', id: update.toolCallId, title: update.title, status: update.status, update: true };
   if (u === 'plan') return { type: 'plan', entries: update.entries || [] };
   return null;
+}
+
+// Fold replayed events into Pocket transcript messages ({role, text}): consecutive chunks of the same
+// role and messageId are one message. Text only for now: tool calls are not part of the history view.
+export function messagesFromEvents(events) {
+  const out = [];
+  for (const e of events || []) {
+    const role = e?.type === 'user_chunk' ? 'user' : e?.type === 'delta' ? 'assistant' : null;
+    if (!role) continue;
+    const last = out[out.length - 1];
+    if (last && last.role === role && (e.messageId == null || last.mid === e.messageId)) last.text += e.text || '';
+    else out.push({ role, text: e.text || '', mid: e.messageId });
+  }
+  // assistant messages render from `blocks` in the UI (msgHTML), user messages from `text`.
+  return out.filter(m => m.text.trim()).map(({ role, text }) => role === 'assistant' ? { role, text, blocks: [{ t: 'text', text }] } : { role, text });
 }
 
 // ---------- sessions + turns ----------
@@ -233,7 +252,10 @@ export async function startAcpTurn({ sessionId, cwd, text, model, cmd, args = []
   // Run the prompt in the background; the HTTP caller returns 202 immediately (like the codex path).
   turn.promptDone = (async () => {
     try {
-      const r = await session.client.prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text }], ...(turn.model ? { model: turn.model } : {}) });
+      // A turn can wait on an approval for as long as the user takes; the per-turn watchdog, not this
+      // timeout, bounds a genuinely stuck turn, so allow a generous ceiling (default 120 s killed turns
+      // whose approval was not answered within two minutes).
+      const r = await session.client.prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text }], ...(turn.model ? { model: turn.model } : {}) }, PROMPT_TIMEOUT_MS);
       finishAcpTurn(turn, { stopReason: r?.stopReason || 'end_turn' });
     } catch (e) {
       finishAcpTurn(turn, { stopReason: 'error', error: e.message });
@@ -246,7 +268,7 @@ function finishAcpTurn(turn, result) {
   if (turn.done) return;
   turn.done = true;
   const text = turn.events.filter(e => e.type === 'delta').map(e => e.text).join('');
-  if (text) turn.emit({ type: 'assistant', msg: { role: 'assistant', text, ts: new Date().toISOString() } });
+  if (text) turn.emit({ type: 'assistant', msg: { role: 'assistant', text, blocks: [{ t: 'text', text }], ts: new Date().toISOString() } });
   turn.approvals?.clear();
   turn.emit({ type: 'result', ok: result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}) });
   turn.emit({ type: 'done' });
@@ -283,7 +305,8 @@ export async function listAcpSessions({ cmd, args, env, limit = 60 } = {}) {
   try {
     await client.initialize();
     const r = await client.listSessions();
-    const rows = (r?.sessions || []).slice(0, limit).map(s => ({ id: ACP + s.sessionId, title: s.title || '(untitled)', cwd: s.cwd || null, mtimeMs: Date.parse(s.updatedAt) || 0, provider: 'acp' }));
+    // OpenCode names a session "New session - <iso time>" until it titles it; treat that as untitled.
+    const rows = (r?.sessions || []).slice(0, limit).map(s => { const t = /^New session - /.test(s.title || '') ? '' : (s.title || ''); return { id: ACP + s.sessionId, title: t || '(untitled conversation)', untitled: !t, cwd: s.cwd || null, mtimeMs: Date.parse(s.updatedAt) || 0, provider: 'acp' }; });
     return rows;
   } finally { client.close(); }
 }

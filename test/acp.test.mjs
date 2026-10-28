@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AcpClient, startAcpTurn, acpSessions, acpTurns, closeAcpSession, stopAcpTurn, permissionOutcomes, normalizeUpdate, isAcpId, bareAcpId, declineFor, listAcpSessions, readAcpTranscript } from '../acp.mjs';
+import { AcpClient, messagesFromEvents, startAcpTurn, acpSessions, acpTurns, closeAcpSession, stopAcpTurn, permissionOutcomes, normalizeUpdate, isAcpId, bareAcpId, declineFor, listAcpSessions, readAcpTranscript } from '../acp.mjs';
 
 const FAKE = path.join(import.meta.dirname, 'fake-acp.mjs');
 const mkStore = () => fs.mkdtempSync(path.join(os.tmpdir(), 'acp-store-'));
@@ -33,6 +33,17 @@ test('pure helpers: permissionOutcomes + normalizeUpdate + declineFor', () => {
   assert.equal(normalizeUpdate({ sessionUpdate: 'tool_call', toolCallId: 't1' }).type, 'tool');
   assert.equal(declineFor('session/request_permission').outcome.outcome, 'cancelled');
   assert.equal(declineFor('fs/read_text_file'), null);
+});
+
+test('messagesFromEvents groups replayed chunks into messages by role and messageId', () => {
+  const m = messagesFromEvents([
+    { type: 'user_chunk', text: 'Remember ', messageId: 'u1' }, { type: 'user_chunk', text: 'PERSIMMON', messageId: 'u1' },
+    { type: 'delta', text: 'Got ', messageId: 'a1' }, { type: 'delta', text: 'it.', messageId: 'a1' },
+    { type: 'tool', id: 't1', title: 'bash' }, { type: 'delta', text: 'Second reply', messageId: 'a2' },
+    { type: 'delta', text: '   ', messageId: 'a3' }, null,
+  ]);
+  assert.deepEqual(m, [{ role: 'user', text: 'Remember PERSIMMON' }, { role: 'assistant', text: 'Got it.', blocks: [{ t: 'text', text: 'Got it.' }] }, { role: 'assistant', text: 'Second reply', blocks: [{ t: 'text', text: 'Second reply' }] }]);
+  assert.deepEqual(messagesFromEvents(undefined), []);
 });
 
 test('initialize advertises capabilities; no onRequest handler fails closed', async () => {

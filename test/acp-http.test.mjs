@@ -106,3 +106,37 @@ test('stop a running acp turn over HTTP', async t => {
   assert.equal(stop.status, 200);
   assert.equal(stop.body.ok, true);
 });
+
+test('an OpenRouter conversation opens in the app: live (active, stream from 0), then finished (history + list row)', async t => {
+  const s = await server(t, 18804);
+  const id = (await s.call('/new', { provider: 'acp', cwd: repo, text: 'do the thing' })).body.id;
+  const e = encodeURIComponent(id);
+  // live: the chat view's GET works and points the stream at the start of the turn
+  let live; for (let i = 0; i < 100; i++) { live = await s.call(`/session/${e}`); if (live.status === 200 && live.body.active) break; await sleep(50); }
+  assert.equal(live.status, 200, 'GET /api/session/:id serves an OpenRouter conversation: ' + JSON.stringify(live.body));
+  assert.equal(live.body.provider, 'acp'); assert.equal(live.body.active, true); assert.equal(live.body.turnEvents, 0);
+  assert.equal(live.body.model, 'openrouter/deepseek/deepseek-v4.1-flash-1017');
+  let card; for (let i = 0; i < 100 && !card; i++) { card = (await s.call(`/session/${e}/approvals`)).body?.requests?.[0]; if (!card) await sleep(50); }
+  await s.call(`/session/${e}/approvals/${card.id}/decision`, { decision: 'allow' });
+  for (let i = 0; i < 100; i++) { if (!(await s.call(`/session/${e}`)).body.active) break; await sleep(50); }
+  // finished: history comes from session/load, user and assistant both
+  const done = (await s.call(`/session/${e}`)).body;
+  assert.equal(done.active, false);
+  assert.deepEqual(done.messages.map(m => m.role), ['user', 'assistant']);
+  assert.equal(done.messages[0].text, 'do the thing'); assert.match(done.messages[1].text, /echo of do the thing/);
+  // the assistant message carries `blocks` so the UI (msgHTML) renders it; without this it shows blank on reopen
+  assert.deepEqual(done.messages[1].blocks, [{ t: 'text', text: done.messages[1].text }]);
+  assert.equal(done.messages[0].blocks, undefined, 'user messages render from text, no blocks');
+  assert.equal(done.title, 'do the thing', 'titled from the agent');
+  // and it is in the conversation list, labelled as OpenRouter
+  let row; for (let i = 0; i < 60 && !row; i++) { row = (await s.call('/sessions')).body.sessions.find(x => x.id === id); if (!row) await sleep(100); }
+  assert.ok(row, 'the finished conversation is in the list'); assert.equal(row.provider, 'acp'); assert.equal(row.title, 'do the thing');
+  // an idle stream does not replay history the GET already returned
+  const r = await fetch(`http://127.0.0.1:${s.port}/api/session/${e}/events`, { headers: s.headers });
+  assert.match(await r.text(), /"type":"idle"/); 
+  // the chat view's side panels return empty for OpenRouter instead of 404ing the console
+  const ag = await s.call(`/session/${e}/agents`); assert.equal(ag.status, 200); assert.deepEqual(ag.body, { running: 0, agents: [] });
+  const rs = await s.call(`/session/${e}/results`); assert.equal(rs.status, 200); assert.equal(rs.body.scannedMessages, 0);
+  // unknown OpenRouter ids are a clean 404
+  assert.equal((await s.call('/session/' + encodeURIComponent('acp:ses_nope'))).status, 404);
+});
