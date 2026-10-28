@@ -35,7 +35,7 @@ const tabHref=id=>isViewId(id)?'#/'+id:'#/chat/'+encodeURIComponent(id).replaceA
 const currentView=()=>(typeof boardView!=='undefined'&&boardView)||(typeof docView!=='undefined'&&docView)||(typeof taskView!=='undefined'&&taskView)||(typeof vaultView!=='undefined'&&vaultView)||(typeof linkView!=='undefined'&&linkView)||null; // 1.39: vault; 1.54: a linked page
 // Native radio keyboard conventions for our button-based choices.
 function bindRadioGroup(group) {
- const radios=()=>[...group.querySelectorAll('[role="radio"]')].filter(el=>!el.disabled);
+ const radios=()=>[...group.querySelectorAll('[role="radio"]')].filter(el=>!el.disabled&&!el.hidden);
  const items=radios(),selected=items.find(el=>el.getAttribute('aria-checked')==='true')||items[0];
  items.forEach(el=>{el.tabIndex=el===selected?0:-1;});
  group.onkeydown=e=>{

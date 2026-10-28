@@ -3583,15 +3583,14 @@ async function renderNew({ home = false } = {}) {
     (a === 'codex' ? loadCodexModels() : a === 'acp' ? loadAcpModels() : loadClaudeModels()).then(renderToolbar);context();
   };
   ap.querySelectorAll('.row').forEach(r => r.onclick = () => pickAgent(r.dataset.a));
-  // The OpenRouter engine is opt-in; show its row only when the server reports it enabled.
+  pickAgent(provider);
+  bindRadioGroup(ap);
+  // The OpenRouter engine is opt-in; reveal its row only when the server reports it enabled.
   loadAcpModels().then(() => {
     const row = ap.querySelector('[data-a="acp"]');
     if (row) row.hidden = !acpEnabled;
     if (provider === 'acp' && !acpEnabled) pickAgent('claude'); // a remembered pick that's no longer available
-    bindRadioGroup(ap);
   });
-  pickAgent(provider);
-  bindRadioGroup(ap);
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const first = $('#first');
   first.value = pendingNew?.payload.text || loadDraft(NEW_KEY);
