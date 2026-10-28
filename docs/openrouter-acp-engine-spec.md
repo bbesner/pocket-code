@@ -1,6 +1,21 @@
 # Route C — OpenRouter via an ACP third engine (OpenCode): build spec
 
-**Status:** proposed · **Author:** Claude Code · **Date:** 2026-10-28
+**Status:** backend COMPLETE + real-validated; frontend picker UI is the only remaining piece · **Author:** Claude Code · **Date:** 2026-10-28
+
+---
+## BUILD STATUS (2026-10-28, overnight)
+Stacked, CI-tested, opt-in (engine OFF unless `POCKET_ACP_ENABLE` + an OpenCode runtime), non-breaking PRs:
+- **#193** engine registry + profile-aware validateModel · **#194** versioned session overlay + engineConfig slot
+- **#195** acp.mjs client core · **#196** OpenRouter catalog · **#197** runtime discovery + opt-in config
+- **#199** acp.mjs turn-object (ApprovalInbox) + **server.mjs dispatch** (/api/new, resume, SSE, approvals, stop, /api/acp/models)
+
+**Validated end-to-end against REAL opencode + DeepSeek over the Pocket HTTP server:** new session, streaming reply, approval-card gating, follow-up **resume with cross-turn memory**, reopen transcript. Full suite 440/440. A deterministic server HTTP integration test (test/acp-http.test.mjs) covers the same paths against a fake agent in CI.
+
+**The ONLY remaining piece: the frontend engine-picker UI** (offer "OpenRouter" + a model menu in the New-session screen, send `provider:'acp'`). Customer-facing, so per the repo design rule it should go through design-studio/impeccable. The engine is fully usable via the API today.
+
+**Open decisions for Brad (non-blocking):** credential posture (env key now vs. a dedicated capped key vs. the broker); the choice-button gap (OpenCode sends questions as text — v1 ships that); data-routing/retention pins; whether to enable in your own install first.
+
+---
 **Decision record:** Council tasks #178, #179 + live probes this session.
 **Goal:** let a Pocket Code user select from *many* OpenRouter models (DeepSeek V4.1 Flash first; any OpenRouter slug, including models that don't exist yet) as a native, first-class engine — running concurrently with Claude Code and Codex sessions exactly as those two run side by side today.
 
