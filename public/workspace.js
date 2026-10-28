@@ -47,7 +47,7 @@ function bindRadioGroup(group) {
  };
 }
 function paintSessionFilterSummaries(){
- const parts=[workspaceFilter?projShort(workspaceFilter):'',providerFilter==='codex'?'Codex':providerFilter==='claude'?'Claude':'', ['new','pinned','hidden'].includes(sessionFilter)?({new:'New',pinned:'Pinned',hidden:'Hidden'}[sessionFilter]):''].filter(Boolean);
+ const parts=[workspaceFilter?projShort(workspaceFilter):'',providerFilter==='codex'?'Codex':providerFilter==='claude'?'Claude':providerFilter==='acp'?'OpenRouter':'', ['new','pinned','hidden'].includes(sessionFilter)?({new:'New',pinned:'Pinned',hidden:'Hidden'}[sessionFilter]):''].filter(Boolean);
  document.querySelectorAll('[data-filter-summary]').forEach(el=>{el.textContent=parts.length?' · '+parts.join(' · '):'';});
  document.querySelectorAll('[data-clear-more-filters]').forEach(el=>{el.hidden=!parts.length;});
 }
@@ -191,7 +191,7 @@ function paintWorkspaceDensity(){
  if(controls)controls.hidden=railFiltersCollapsed;
  const summary=document.getElementById('rail-filter-summary');
  if(summary){
-  const parts=[workspaceFilter?projShort(workspaceFilter):'',providerFilter==='codex'?'Codex':providerFilter==='claude'?'Claude':'',sessionFilter!=='all'?({active:'Active',attention:'Attention',new:'New',pinned:'Pinned',hidden:'Hidden'}[sessionFilter]||sessionFilter):''].filter(Boolean);
+  const parts=[workspaceFilter?projShort(workspaceFilter):'',providerFilter==='codex'?'Codex':providerFilter==='claude'?'Claude':providerFilter==='acp'?'OpenRouter':'',sessionFilter!=='all'?({active:'Active',attention:'Attention',new:'New',pinned:'Pinned',hidden:'Hidden'}[sessionFilter]||sessionFilter):''].filter(Boolean);
   summary.hidden=!parts.length;summary.querySelector('span').textContent=parts.join(' · ');
   summary.querySelector('button').onclick=()=>{
    workspaceFilter='';providerFilter='';sessionFilter='all';
@@ -239,16 +239,16 @@ function bindWorkspaceDensity(){
 let workspaceFilter=readLocal('pc-workspace-filter',''), providerFilter=readLocal('pc-provider-filter','');
 let hiddenSessions=readLocal('pc-hidden-sessions',{}), openSessions=readLocal('pc-open-sessions',[]);
 if(typeof workspaceFilter!=='string')workspaceFilter='';
-if(!['','claude','codex'].includes(providerFilter))providerFilter='';
+if(!['','claude','codex','acp'].includes(providerFilter))providerFilter='';
 if(!hiddenSessions||typeof hiddenSessions!=='object'||Array.isArray(hiddenSessions))hiddenSessions={};
-openSessions=Array.isArray(openSessions)?openSessions.filter(s=>s&&typeof s.id==='string'&&(/^(cx:)?[0-9a-f-]{36}$/.test(s.id)||isViewId(s.id))&&typeof s.title==='string').slice(-12):[];
+openSessions=Array.isArray(openSessions)?openSessions.filter(s=>s&&typeof s.id==='string'&&(/^(?:(?:cx:)?[0-9a-f-]{36}|acp:ses_[0-9A-Za-z-]{1,64})$/.test(s.id)||isViewId(s.id))&&typeof s.title==='string').slice(-12):[];
 let dockKind=readLocal('pc-dock-kind',''),dockSurface=null;
 const hasDockRoom=()=>matchMedia('(min-width: 1280px)').matches;
 function isHiddenSession(s){return hiddenSessions[s.id]>=Math.max(s.mtimeMs||0,s.state?.at||0)&&!['running','background','observed','waiting','input'].includes(rowState(s).kind);}
 function workspaceFilterHTML(){
  const paths=[...new Set(allSessions.map(s=>s.cwd).filter(Boolean))].sort();
  if(workspaceFilter&&!paths.includes(workspaceFilter))paths.unshift(workspaceFilter);
- return `<div class="workspace-filters"><label>Workspace<select data-workspace-filter><option value="">All workspaces</option>${paths.map(p=>`<option value="${esc(p)}" ${workspaceFilter===p?'selected':''}>${esc(projShort(p))}</option>`).join('')}</select></label><label>Agent<select data-provider-filter><option value="">All agents</option><option value="claude" ${providerFilter==='claude'?'selected':''}>Claude</option><option value="codex" ${providerFilter==='codex'?'selected':''}>Codex</option></select></label></div>`;
+ return `<div class="workspace-filters"><label>Workspace<select data-workspace-filter><option value="">All workspaces</option>${paths.map(p=>`<option value="${esc(p)}" ${workspaceFilter===p?'selected':''}>${esc(projShort(p))}</option>`).join('')}</select></label><label>Agent<select data-provider-filter><option value="">All agents</option><option value="claude" ${providerFilter==='claude'?'selected':''}>Claude</option><option value="codex" ${providerFilter==='codex'?'selected':''}>Codex</option>${allSessions.some(s=>s.provider==='acp')||providerFilter==='acp'?`<option value="acp" ${providerFilter==='acp'?'selected':''}>OpenRouter</option>`:''}</select></label></div>`;
 }
 function paintWorkspaceFilters(){
  document.querySelectorAll('[data-workspace-filters]').forEach(el=>{
@@ -361,7 +361,7 @@ document.addEventListener('keydown',e=>{
 const SKIP_PH='Answer above, or type here to skip the questions…';
 async function refreshQuestions(id){
  try{const d=await api('/session/'+encodeURIComponent(id)+'/questions');if(chatId!==id)return;const b=$('#questions-open');if(b){
-  const who=String(id).startsWith('cx:')?'Codex':'Claude',n=d.requests.reduce((t,r)=>t+(r.questions?.length||1),0);
+  const who=String(id).startsWith('cx:')?'Codex':String(id).startsWith('acp:')?'OpenRouter':'Claude',n=d.requests.reduce((t,r)=>t+(r.questions?.length||1),0);
   b.hidden=!d.requests.length&&!d.interrupted;
   // 1.76.1: typing instead of answering skips a blocking question (the server declines it), so the box says so
   const box=$('#box'),skip=!d.interrupted&&d.requests.some(r=>r.blocking!==false)&&sendModes.get(id)!=='queue';

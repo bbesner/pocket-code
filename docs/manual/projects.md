@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.79.2
+checked: 1.86.0
 sources: projects.mjs, public/projects.js, scripts/pocket-board.mjs, scripts/owner-zone.mjs, skills/pocket-projects/SKILL.md
 -->
 # Projects
@@ -109,7 +109,7 @@ A reminder's **⋯** offers **Open project**, **Remind later** and **Dismiss**.
 **Start conversation** on the card (or **Start a conversation** in its options) opens a new conversation:
 
 - in the project's directory, when it has one;
-- with the agent (Claude or Codex) that last worked on the project;
+- with the agent (Claude, Codex or OpenRouter) that last worked on the project;
 - with a briefing already written as the first message: where you left off, the next step, what it is waiting for, up to 20 open steps with their ids, the last three notes, open reminders, the link, the last three linked conversations, and the `pocket-board` commands to keep the card current.
 
 Edit the briefing if you like, then send it. The conversation is linked to the project as it starts. The project's chip above the message shows which project it will join; click it and choose **Remove the link** to start without the project.

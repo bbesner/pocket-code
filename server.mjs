@@ -15,8 +15,8 @@ import os from 'node:os';
 import readline from 'node:readline';
 import * as codex from './codex.mjs';
 import * as acp from './acp.mjs';
-import {validateModelForEngine, engineForSessionId} from './engines.mjs';
-import {migrateSmeta, readEngineConfig, VERSION_KEY} from './session-schema.mjs';
+import {validateModelForEngine, engineForSessionId, ENGINES, ENGINE_IDS} from './engines.mjs';
+import {migrateSmeta, readEngineConfig, overlayIds, VERSION_KEY} from './session-schema.mjs';
 import {fetchOpenRouterModels, tierModels} from './openrouter.mjs';
 import { DeliveryReceipts, withDeliveryReceipt } from './delivery.mjs';
 import { sessionState, prioritizeSessions } from './session-state.mjs';
@@ -143,6 +143,24 @@ const ACP_CFG = acp.acpConfig();
 const ACP_ON = Boolean(ACP_CFG);
 const isAcpId = acp.isAcpId;
 const acpLaunch = () => ({ cmd: ACP_CFG.cmd, args: ACP_CFG.args, env: spawnEnv() });
+// 1.86: an OpenCode process that runs replies gets Pocket's config merged over the user's (OpenCode appends its
+// instruction files and keeps the user's MCP servers and providers, verified live): this process's instruction file
+// (rewritten before each request), Pocket's ask tool (questions as question cards, acp-ask-mcp.mjs) under a key only
+// this process holds, and ask-first permissions so Review actions shows each edit, command and fetch as a card (Full
+// access answers them at once). The OpenRouter key comes from the environment.
+const ACP_RUN_DIR = path.join(DATA_DIR, 'data', 'acp-run');
+const ACP_ASK_MCP = path.join(import.meta.dirname, 'acp-ask-mcp.mjs');
+function acpTurnLaunch() {
+  fs.mkdirSync(ACP_RUN_DIR, { recursive: true, mode: 0o700 });
+  const askKey = randomBytes(24).toString('hex'), instructionsFile = path.join(ACP_RUN_DIR, askKey.slice(0, 16) + '.md');
+  fs.writeFileSync(instructionsFile, '', { mode: 0o600 });
+  let user = {}; try { user = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT || '{}') || {}; } catch { }
+  const content = { ...user, instructions: [...(Array.isArray(user.instructions) ? user.instructions : []), instructionsFile],
+    permission: { ...(user.permission || {}), edit: 'ask', bash: 'ask', webfetch: 'ask' },
+    provider: { ...(user.provider || {}), openrouter: { ...(user.provider?.openrouter || {}), options: { apiKey: '{env:OPENROUTER_API_KEY}', ...(user.provider?.openrouter?.options || {}) } } },
+    mcp: { ...(user.mcp || {}), pocket: { type: 'local', command: [process.execPath, ACP_ASK_MCP], environment: { POCKET_ASK_URL: `http://127.0.0.1:${PORT}/api/internal/acp-ask`, POCKET_ASK_KEY: askKey }, enabled: true } } };
+  return { ...acpLaunch(), env: { ...spawnEnv(), OPENCODE_CONFIG_CONTENT: JSON.stringify(content) }, instructionsFile, askKey };
+}
 const isCx = codex.isCodexId;
 // ACP (OpenCode) session ids are `ses_<token>` (uuid-ish or base62), not a bare UUID.
 const ACP_ID_RE = /^ses_[0-9a-zA-Z-]{1,64}$/;
@@ -383,7 +401,16 @@ const vaultOpen = (req, res, next) => {
 const AUTO_LOCK_CHOICES = [0, 15, 60, 480, 1440];
 setInterval(() => { try { if (vault && vault.idleLockDue(settings.vaultAutoLockMinutes || 0)) { vault.lock(); log(`vault locked after ${settings.vaultAutoLockMinutes} minutes idle`); } } catch (e) { log('vault idle lock: ' + e.message); } }, Math.max(1000, Number(process.env.POCKET_VAULT_IDLE_CHECK_MS) || 60_000)).unref();
 setInterval(() => { try { if (vault) { const gone = vault.purge(); if (gone.length) log(`vault purged from trash: ${gone.length}`); } } catch (e) { log('vault purge: ' + e.message); } }, 6 * 3600_000).unref();
-codex.setExtraInstructions(threadId => [settings.projects ? projectInstructions(BOARD_CLI, threadId ? 'cx:' + threadId : null) : '', settings.documents ? documentInstructions(DOCS_CLI, threadId ? 'cx:' + threadId : null) : '', settings.tasks ? taskInstructions(TASKS_CLI, threadId ? 'cx:' + threadId : null, { choices: process.env.POCKET_CHOICES !== '0' }) : '', settings.inbox ? inboxInstructions(INBOX_CLI, threadId ? 'cx:' + threadId : null) : '', vaultLive() ? vaultInstructions(VAULT_CLI, threadId ? 'cx:' + threadId : null) : '', googleInstructions('codex'), manualInstructions()].filter(Boolean).join(' '));
+// 1.86: Pocket's instructions for an agent, the same for every engine (Claude --append-system-prompt, Codex developer
+// instructions, OpenRouter an instruction file OpenCode reads each request). `sid` is the conversation id the CLIs are
+// told to record; Codex adds its suggested-reply text itself; OpenRouter has no Google connectors.
+function pocketInstructions(engine, sid) {
+  const choices = process.env.POCKET_CHOICES !== '0';
+  return [engine !== 'codex' && choices ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sid) : '', settings.documents ? documentInstructions(DOCS_CLI, sid) : '',
+    settings.tasks ? taskInstructions(TASKS_CLI, sid, { choices }) : '', settings.inbox ? inboxInstructions(INBOX_CLI, sid) : '', vaultLive() ? vaultInstructions(VAULT_CLI, sid) : '',
+    engine === 'acp' ? '' : googleInstructions(engine), manualInstructions()].filter(Boolean).join(' ');
+}
+codex.setExtraInstructions(threadId => pocketInstructions('codex', threadId ? 'cx:' + threadId : null));
 const syncAgentSkills = () => syncSkills({ settings: { ...settings, vault: vaultLive() }, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI, vault: VAULT_CLI, inbox: INBOX_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks, 1.39: pocket-vault, 1.69: pocket-inbox) for every agent on the box
 syncAgentSkills();
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
@@ -1484,11 +1511,12 @@ function writeRunnerMeta(r) {
 // one (no turn, no background job). Never refuses the new process.
 function reclaimProcess() {
   if (!(MAX_PROCESSES > 0)) return;
-  const live = runners.size + (CODEX_ON ? codex.codexSessions.size : 0);
+  const live = runners.size + (CODEX_ON ? codex.codexSessions.size : 0) + (ACP_ON ? acp.acpSessions.size : 0);
   if (live < MAX_PROCESSES) return;
   const idle = [
     ...[...runners.values()].filter(x => !x.turn && !x.bgTasks.length && !x.closing && !x.exited).map(x => ({ at: x.lastLineAt, close: () => closeRunner(x, 'process limit') })),
     ...(CODEX_ON ? [...codex.codexSessions.values()].filter(s => !s.turn && !s.closing && !s.exited).map(s => ({ at: s.lastActivityAt, close: () => codex.closeCodexSession(s, 'process limit') })) : []),
+    ...(ACP_ON ? [...acp.acpSessions.values()].filter(s => !acp.acpTurnActive(s.sessionId)).map(s => ({ at: s.lastActivityAt || 0, close: () => acp.closeAcpSession(s.sessionId) })) : []),
   ].sort((a, b) => a.at - b.at);
   if (idle[0]) idle[0].close();
 }
@@ -1497,7 +1525,7 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
   const policy = claudePermissionSettings(mode);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', policy.permissionMode, '--permission-prompt-tool', 'stdio'];
   if (model && MODELS.has(model)) args.push('--model', model);
-  const extra = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', settings.projects ? projectInstructions(BOARD_CLI, sessionId) : '', settings.documents ? documentInstructions(DOCS_CLI, sessionId) : '', settings.tasks ? taskInstructions(TASKS_CLI, sessionId, { choices: process.env.POCKET_CHOICES !== '0' }) : '', settings.inbox ? inboxInstructions(INBOX_CLI, sessionId) : '', vaultLive() ? vaultInstructions(VAULT_CLI, sessionId) : '', googleInstructions('claude'), manualInstructions()].filter(Boolean).join(' ');
+  const extra = pocketInstructions('claude', sessionId);
   if (extra) args.push('--append-system-prompt', extra);
   args.push('--settings', JSON.stringify({ permissions: policy.permissions, ...(effort && EFFORTS.has(effort) ? { effortLevel: effort } : {}) }));
   // 1.79 Branch: a new saved session, with this id, that starts with everything in `fork`; that transcript is only read.
@@ -1819,11 +1847,11 @@ async function finalizeTurn(sessionId, turn, code) {
 
 // 1.61: after a reply, keep the files it handed over (named in its text since the turn started) in Files, once each.
 const AUTO_KEEP_RE = /\.(pdf|docx|pptx|xlsx|csv|html?|md|png|jpe?g|gif|webp)$/i;
-async function autoKeepTurnFiles(sessionId, since) {
+async function autoKeepTurnFiles(sessionId, since, msgs = null) {
   if (!autoKeepOn()) return;
   try {
     resultCache.delete(sessionId);
-    const { results } = await sessionResults(sessionId);
+    const { results } = msgs ? collectResults(msgs) : await sessionResults(sessionId);
     for (const r of results) {
       if (r.kind !== 'file' || !r.inText || !AUTO_KEEP_RE.test(r.target) || !(Date.parse(r.at || 0) >= since - 2000)) continue;
       let real; try { real = await documentSource(r.target); } catch { continue; }
@@ -2190,18 +2218,17 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
   if (isAcpId(req.params.id)) { // OpenRouter (ACP): history from OpenCode's session/load; a live turn streams the rest
     const id = req.params.id, turn = acp.ownedAcpTurn(id);
     if (!ACP_ON) return res.status(404).json({ error: 'not found' });
-    let messages = acpHistory.get(id);
-    if (!messages && !turn) {
-      try { messages = acp.messagesFromEvents(await acp.readAcpTranscript({ sessionId: id, ...acpLaunch() })); acpHistory.set(id, messages); }
-      catch (e) { log(`acp history read failed session=${id}: ${e.message}`); return res.status(404).json({ error: 'not found' }); }
-    }
-    messages = messages || [];
+    let messages;
+    try { messages = await acpMessages(id, turn); }
+    catch (e) { if (!turn) { log(`acp history read failed session=${id}: ${e.message}`); return res.status(404).json({ error: 'not found' }); } messages = []; }
+    // 1.86: your message shows while its reply runs (the stream then starts after it), as in Claude and Codex
+    messages = withPendingUser(messages, turn);
     const row = acpListCache.rows.find(r => r.id === id), cwd = turn?.cwd || row?.cwd || null;
     return sendJson(req, res, {
       id, provider: 'acp', model: readEngineConfig(smeta[id])?.model || turn?.model || null,
       title: smeta[id]?.name || (row && !row.untitled ? row.title : '') || turn?.userText?.slice(0, 120) || messages.find(m => m.role === 'user')?.text.slice(0, 120) || 'New conversation',
       cwd, state: stateFor({ id, mtimeMs: row?.mtimeMs || 0 }), active: Boolean(turn),
-      turnEvents: turn ? 0 : null, // the history above excludes the live turn, so its stream replays from the start
+      turnEvents: turn ? 1 : null, // the history above ends with this reply's message; its stream replays from the event after it
       muted: mutes.has(id), pinned: isPinned(id), repo: isGitWorkspace(cwd), messages, total: messages.length, ...lineage(id),
     });
   }
@@ -2250,17 +2277,9 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
 // Extract references from assistant messages on demand; no second document store.
 const resultCache = new Map();
 async function sessionResults(id) {
-  // OpenRouter conversations have no Pocket-side transcript to mine for results (OpenCode owns the store).
-  if (isAcpId(id)) return { ...collectResults([]), truncated: false, scannedMessages: 0 };
   const cached = resultCache.get(id);
   if (cached && Date.now() - cached.at < 5000) return cached.value;
-  let transcript;
-  if (isCx(id)) transcript = await codex.readCodexThread(codex.bareId(id), 4000);
-  else {
-    const file = await findSessionFile(id);
-    if (!file) throw Object.assign(new Error('Conversation not found'), {status:404});
-    transcript = await readTranscript(file, 4000);
-  }
+  const transcript = await engineOf(id).transcript(id, 4000);
   const refs = collectResults(transcript.msgs);
   const value = { ...refs, truncated: transcript.total > transcript.msgs.length,
     scannedMessages: transcript.msgs.length };
@@ -2278,9 +2297,7 @@ function isGitWorkspace(cwd) {
 }
 async function workspaceCwd(id) {
   if(!anyId(id))throw Object.assign(new Error('Invalid conversation'),{status:400});
-  if(isCx(id))return codex.codexTurns.get(codex.bareId(id))?.cwd || (await codex.codexThreadMeta(codex.bareId(id)))?.cwd;
-  const file=await findSessionFile(id);
-  return turns.get(id)?.cwd || (file ? (await sessionMeta(file,id))?.cwd : null);
+  return engineOf(id).cwd(id);
 }
 // Read-only, cached per session; concurrent phone/pane requests share one provider read.
 const agentFiles = new ClaudeAgentFiles(), agentResponses = new Map();
@@ -2350,11 +2367,12 @@ app.post('/api/session/:id/approvals/:request/decision',requireAuth,async(req,re
 app.get('/api/session/:id/questions',requireAuth,(req,res)=>{
   res.setHeader('Cache-Control','private, no-store');
   if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
-  const turn=isCx(req.params.id)?codex.codexTurns.get(codex.bareId(req.params.id)):turns.get(req.params.id);
+  const turn=ownedTurn(req.params.id);
   res.json({supported:true,interrupted:Boolean(turn?.inputUnavailable),requests:turn?.questions?.list()||[]});
 });
 app.post('/api/session/:id/questions/:request/answer',requireAuth,(req,res)=>{
-  const turn=isCx(req.params.id)?codex.codexTurns.get(codex.bareId(req.params.id)):turns.get(req.params.id);
+  if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
+  const turn=ownedTurn(req.params.id);
   if(!turn?.questions||turn.done)return res.status(409).json({error:'This question is no longer active. Refresh the conversation.'});
   try{res.json(turn.questions.answer(req.params.request,req.body.answers));}
   catch(e){res.status(e.status||503).json({error:e.status?e.message:'Answer could not be confirmed. Refresh before trying again.'});}
@@ -2375,6 +2393,7 @@ app.post('/api/session/:id/away', requireAuth, async (req, res) => {
   const id = req.params.id, since = Number(req.body?.since);
   if (!anyId(id) || !Number.isFinite(since) || since <= 0) return res.status(400).json({ error: 'Invalid request' });
   if (!settings.awaySummaries) return res.json({ summary: null, reason: 'off' });
+  if (!ENGINES[engineForSessionId(id)].features.awaySummary) return res.json({ summary: null, reason: 'unsupported' }); // 1.86: no message times to summarize from
   refreshTitleProviders();
   const provider = helperProvider();
   if (!provider) return res.json({ summary: null, reason: 'unavailable' });
@@ -2449,6 +2468,10 @@ app.get('/api/session/:id/context', requireAuth, async (req, res) => {
   if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid conversation' });
   try {
     if (isCx(req.params.id)) return res.json({ ...(await codex.codexContextAndCache(codex.bareId(req.params.id))), serverNow: Date.now() });
+    if (isAcpId(req.params.id)) { // 1.86: OpenCode reports the context in use and the model's window with each step
+      const id = req.params.id, c = acp.ownedAcpTurn(id)?.context || acp.acpSessions.get(acp.bareAcpId(id))?.context || smeta[id]?.acpContext;
+      return res.json({ context: c ? { used: c.used, window: c.size, pct: c.size ? Math.min(1, c.used / c.size) : 0, estimated: false, model: readEngineConfig(smeta[id])?.model || null, lastAt: c.at || null } : null, cache: null, serverNow: Date.now() });
+    }
     const file = await findSessionFile(req.params.id);
     const context = await getSessionContext(usage, req.params.id, { transcriptFile: file, fsp, modelHint: runners.get(req.params.id)?.model });
     // 1.28: prompt-cache warmth, estimated from the transcript's last request. serverNow lets the
@@ -2462,8 +2485,8 @@ app.get('/api/session/:id/context', requireAuth, async (req, res) => {
 app.get('/api/session/:id/changes', requireAuth, async (req, res) => {
   // Codex records edits as unified diff hunks, not before/after pairs — the view can't
   // render those yet, so report the touched files rather than pretending there's nothing.
-  if (isCx(req.params.id)) {
-    const { msgs } = await codex.readCodexThread(codex.bareId(req.params.id)).catch(() => ({ msgs: [] }));
+  if (anyId(req.params.id) && engineForSessionId(req.params.id) !== 'claude') { // Claude records before/after pairs; the others name the files
+    const { msgs } = await engineOf(req.params.id).transcript(req.params.id).catch(() => ({ msgs: [] }));
     const paths = new Set();
     for (const m of msgs) for (const b of m.blocks || []) if (b.t === 'tool' && b.name === 'Edit' && b.detail) paths.add(b.detail);
     return res.json({ files: [...paths].map(p => ({ path: p, ops: [] })), failed: 0, diffless: true });
@@ -2564,8 +2587,9 @@ app.get('/api/search', requireAuth, async (req, res) => {
 app.get('/api/session/:id/search', requireAuth, async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return res.status(400).json({ error: 'query too short' });
-  if (isCx(req.params.id)) {
-    const { msgs } = await codex.readCodexThread(codex.bareId(req.params.id), 5000).catch(() => ({ msgs: [] }));
+  if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid conversation' });
+  if (engineForSessionId(req.params.id) !== 'claude') { // Claude's search reads its transcript file directly; the others search their messages
+    const { msgs } = await engineOf(req.params.id).transcript(req.params.id, 5000).catch(() => ({ msgs: [] }));
     return res.json(searchMsgs(msgs, q));
   }
   const file = await findSessionFile(req.params.id);
@@ -2610,13 +2634,50 @@ async function runNextFollowup(id, cwd) {
   return followups.dispatch(id, async row => {
     // 1.81: queued with Full access before it was turned off: it never starts, and the row says why (not "not confirmed").
     if (row.approvalMode === 'full' && !ALLOW_FULL_ACCESS) throw Object.assign(new Error('Full access is turned off on this server; send it again with Review actions.'), { status: 403, notStarted: true });
-    if (isCx(id)) return startCodexFromApi({id,threadId:codex.bareId(id),cwd,text:row.text,body:row});
-    const file=await findSessionFile(id);
-    const meta=file?await sessionMeta(file,id):null;
-    return startTurn({sessionId:id,cwd:cwd||meta?.cwd||HOME,text:row.text,resume:true,...turnOpts(row)});
+    return engineOf(id).startQueued(id, cwd, row);
   });
 }
-function ownedTurn(id){return isAcpId(id)?acp.ownedAcpTurn(id):isCx(id)?codex.codexTurns.get(codex.bareId(id)):turns.get(id);}
+// ---------- 1.86: the engine adapter ----------
+// What a feature needs from the engine behind a conversation, one entry per engine. Features call engineOf(id).x(...)
+// instead of branching on the id, so a feature written once works on every engine; an engine that cannot do
+// something says so in engines.mjs (features), and the app hides it. test/engine-parity.test.mjs runs the same
+// checks on all three.
+const ENGINE_OPS = {
+  claude: {
+    turn: id => turns.get(id),
+    exists: async id => Boolean(await findSessionFile(id)),
+    cwd: async id => { const file = await findSessionFile(id); return turns.get(id)?.cwd || (file ? (await sessionMeta(file, id))?.cwd : null); },
+    transcript: async (id, limit) => { const file = await findSessionFile(id); if (!file) throw Object.assign(new Error('Conversation not found'), { status: 404 }); return readTranscript(file, limit); },
+    startQueued: async (id, cwd, row) => { const file = await findSessionFile(id), meta = file ? await sessionMeta(file, id) : null; return startTurn({ sessionId: id, cwd: cwd || meta?.cwd || HOME, text: row.text, resume: true, ...turnOpts(row) }); },
+  },
+  codex: {
+    turn: id => codex.codexTurns.get(codex.bareId(id)),
+    exists: async id => Boolean(await codex.codexThreadMeta(codex.bareId(id))),
+    cwd: async id => codex.codexTurns.get(codex.bareId(id))?.cwd || (await codex.codexThreadMeta(codex.bareId(id)))?.cwd,
+    transcript: (id, limit) => codex.readCodexThread(codex.bareId(id), limit),
+    startQueued: (id, cwd, row) => startCodexFromApi({ id, threadId: codex.bareId(id), cwd, text: row.text, body: row }),
+  },
+  acp: {
+    turn: id => acp.ownedAcpTurn(id),
+    exists: async id => { if (!ACP_ON) return false; if (acp.acpSessions.has(acp.bareAcpId(id)) || acpListCache.rows.some(r => r.id === id)) return true; acpListCache.at = 0; await refreshAcpList(); return acpListCache.rows.some(r => r.id === id); },
+    cwd: async id => acp.ownedAcpTurn(id)?.cwd || acp.acpSessions.get(acp.bareAcpId(id))?.cwd || acpListCache.rows.find(r => r.id === id)?.cwd || null,
+    transcript: async id => { const msgs = await acpMessages(id); return { msgs, total: msgs.length }; },
+    startQueued: (id, cwd, row) => startAcpFromApi({ id, sessionId: acp.bareAcpId(id), cwd, text: row.text, body: row, resume: true }),
+  },
+};
+const engineOf = id => ENGINE_OPS[engineForSessionId(id)];
+function ownedTurn(id){return engineOf(id).turn(id);}
+// An OpenRouter conversation's history from OpenCode (session/load), cached until its next reply ends. While a reply
+// runs, the replay also holds that reply so far: it is cut at the reply's own message, which the stream replays.
+async function acpMessages(id, turn = null) {
+  if (acpHistory.has(id)) return acpHistory.get(id);
+  let msgs = acp.messagesFromEvents(await acp.readAcpTranscript({ sessionId: id, ...acpLaunch() }));
+  if (turn) {
+    const t = String(turn.userText || '').trim(), mine = m => m.role === 'user' && ((m.text || '').trim() === t || (m.text || '').startsWith(t + '\n\n[Attached file'));
+    const at = msgs.findLastIndex(mine); if (at >= 0) msgs = msgs.slice(0, at);
+  } else acpHistory.set(id, msgs);
+  return msgs;
+}
 function queueError(res,e){return res.status(e.status||503).json({error:e.status?e.message:'Queue could not be saved. Refresh and try again.'});}
 app.get('/api/session/:id/queue',requireAuth,(req,res)=>{
   if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
@@ -2658,7 +2719,9 @@ function acpHooks(id) {
   return {
     auditApproval,
     onApproval: turn => { const sid = id || (acp.ACP + turn.sessionId); const aid = turn.approvals.list().at(-1)?.id; if (aid && turn.approvalNotified !== aid && !mutes.has(sid)) { turn.approvalNotified = aid; pushNotify(sid, 'Waiting for your OK', 'Open Pocket Code to review the pending action.').catch(() => { }); } },
-    onFinish: (result, turn) => acpTurnFinished(id || (acp.ACP + turn.sessionId), turn, { ok: result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}) }),
+    onQuestion: turn => { const sid = id || (acp.ACP + turn.sessionId); const qid = turn.questions.list().at(-1)?.id; if (!mutes.has(sid) && turn.questionNotified !== qid) { turn.questionNotified = qid; pushNotify(sid, 'OpenRouter has a question', 'Open Pocket Code to answer it.').catch(() => { }); } },
+    instructions: sid => pocketInstructions('acp', sid),
+    onFinish: (result, turn) => acpTurnFinished(id || (acp.ACP + turn.sessionId), turn, { ok: !turn.stopped && result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}) }),
   };
 }
 async function startAcpFromApi({ id, sessionId, cwd, text, body, resume }) {
@@ -2668,8 +2731,22 @@ async function startAcpFromApi({ id, sessionId, cwd, text, body, resume }) {
   const effort = opts.effort && opts.effort !== 'default' && (!levels || levels.includes(opts.effort)) ? opts.effort : null;
   // the session's running OpenRouter cost as last seen (OpenCode does not report it on reopen), for the cost line
   const costBaseline = id && Number.isFinite(smeta[id]?.acpCost) ? smeta[id].acpCost : null;
-  return acp.startAcpTurn({ sessionId: sessionId || id, cwd, text, model, effort, approvalMode: opts.approvalMode, costBaseline, ...acpLaunch(), resume, hooks: acpHooks(id) });
+  // Attachments the way the other engines get them: the files named in the prompt (promptText), and images sent as
+  // images too (OpenCode takes ACP image blocks), up to 10 MB each.
+  const images = [];
+  for (const f of opts.attachments || []) {
+    const mimeType = IMAGE_MIME[path.extname(f).toLowerCase()];
+    if (!mimeType) continue;
+    try { const st = fs.statSync(f); if (st.size <= 10 * 1024 * 1024) images.push({ mimeType, data: fs.readFileSync(f).toString('base64') }); } catch { }
+  }
+  const bare = sessionId ? acp.bareAcpId(sessionId) : id ? acp.bareAcpId(id) : null;
+  const launch = bare && acp.acpSessions.has(bare) ? acpLaunch() : acpTurnLaunch(); // a live process keeps its own config
+  const turn = await acp.startAcpTurn({ sessionId: sessionId || id, cwd, text, prompt: promptText(text, opts.attachments), images, model, effort, approvalMode: opts.approvalMode, executionMode: opts.executionMode,
+    costBaseline, ...launch, resume, hooks: acpHooks(id) });
+  setSmeta(id || acp.ACP + turn.sessionId, { acpRunning: Date.now() }); // a restart mid-reply is recorded as a stop (below)
+  return turn;
 }
+const IMAGE_MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
 // OpenRouter conversations in the list: OpenCode's own session/list, read through a throwaway `opencode acp`
 // and cached, so the frequently polled list waits for OpenCode only on its first read.
 const acpListCache = { at: 0, rows: [], pending: null };
@@ -2696,14 +2773,26 @@ function refreshAcpEfforts() {
   return acpEfforts.pending;
 }
 if (ACP_ON) { refreshAcpEfforts(); setInterval(refreshAcpEfforts, 6 * 3600_000).unref(); }
+// 1.86: the housekeeping Claude and Codex replies get. A reply silent for POCKET_STALL_MS that is not waiting on you is
+// stopped; an OpenCode process with no reply for POCKET_ACP_IDLE_MS is closed (the next message reopens it).
+const ACP_IDLE_MS = msSetting('POCKET_ACP_IDLE_MS', 20 * 60_000);
+if (ACP_ON) setInterval(() => {
+  for (const t of acp.stalledAcpTurns(STALL_MS)) { log(`acp turn stalled session=${acp.ACP + t.sessionId}`); acp.stopAcpTurn(t.sessionId, `Stopped: no activity for ${Math.round(STALL_MS / 60_000)} minutes`); }
+  const closed = acp.closeIdleAcpSessions(ACP_IDLE_MS); if (closed) log(`acp closed ${closed} idle OpenCode process(es)`);
+}, 60_000).unref();
+// A reply that was running when Pocket stopped cannot be reattached (its OpenCode process went with Pocket): say so.
+for (const id of overlayIds(smeta)) if (isAcpId(id) && smeta[id]?.acpRunning) setSmeta(id, { acpRunning: null, outcome: { kind: 'stopped', label: 'Stopped', at: Date.now(), error: 'Pocket restarted during this reply. Send it again to continue.' } });
 // The history shown when an OpenRouter conversation opens (session/load replay), by session id. A live turn
 // streams its own events; this is what came before it. Dropped when a turn ends.
 const acpHistory = new Map();
 async function acpTurnFinished(id, turn, ev) {
   const watching = turn.subs.size > 0;
   acpHistory.delete(id); acpListCache.at = 0;
-  if (Number.isFinite(turn.session?.costTotal)) setSmeta(id, { acpCost: turn.session.costTotal });
+  setSmeta(id, { acpRunning: null, ...(Number.isFinite(turn.session?.costTotal) ? { acpCost: turn.session.costTotal } : {}), ...(turn.context ? { acpContext: { ...turn.context, at: Date.now() } } : {}) });
   recordOutcome(id, turn, ev);
+  retitler.request(id);
+  // the reply's own messages carry times (the replayed history does not), which auto-keep matches files by
+  if (!turn.stopped) autoKeepTurnFiles(id, turn.startedAt || 0, turn.events.filter(e => e.type === 'assistant').map(e => e.msg));
   if (!turn.stopped && ev.ok && followups.list(id)[0]?.status === 'pending') {
     if (ownedTurn(id)) return;
     await runNextFollowup(id, turn.cwd).catch(e => log(`acp queue start failed session=${id}: ${e.message}`));
@@ -2719,7 +2808,7 @@ function validateApprovalMode(req,res,next){
   catch(e){res.status(e.status||400).json({error:e.message});}
 }
 function validateTurnModel(req, res, next) {
-  const provider = req.params.id ? engineForSessionId(req.params.id) : (req.body?.provider === 'codex' ? 'codex' : 'claude');
+  const provider = req.params.id ? engineForSessionId(req.params.id) : (['codex', 'acp'].includes(req.body?.provider) ? req.body.provider : 'claude');
   try { validateModel(provider, req.body?.model); next(); }
   catch (error) { res.status(error.status || 400).json({ error: error.message }); }
 }
@@ -2744,7 +2833,7 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
   if(!['auto','steer','queue'].includes(mode))return res.status(400).json({error:'Invalid delivery mode'});
   if(mode==='steer'&&!ownedTurn(id))return res.status(409).json({error:'The reply has ended. Review the conversation, then send a new message.'});
   if(mode==='queue'&&!ownedTurn(id)){
-    if(isCx(id)?!await codex.codexThreadMeta(codex.bareId(id)):!await findSessionFile(id))return res.status(404).json({error:'Conversation not found'});
+    if(!await engineOf(id).exists(id))return res.status(404).json({error:'Conversation not found'});
     try{const item=followups.add(id,{text,...turnOpts(req.body)});return res.status(202).json({ok:true,queued:true,paused:true,itemId:item.id});}
     catch(e){return queueError(res,e);}
   }
@@ -2783,10 +2872,11 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
     } catch (e) { return res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) }); }
   }
   const file = await findSessionFile(id);
-  if (!file) return res.status(404).json({ error: 'not found' });
-  const meta = await sessionMeta(file, id);
-  const cwd = meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME;
   let running = turns.get(id);
+  // 1.86: a reply already running needs no transcript yet (a brand-new conversation's can be a moment behind)
+  if (!file && !running) return res.status(404).json({ error: 'not found' });
+  const meta = file ? await sessionMeta(file, id) : { cwd: running.cwd };
+  const cwd = meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME;
   if (running?.finalized) { await running.finalizeDone; running = turns.get(id); } // a turn that is just ending: send as the next turn, not a steer
   if (!running && busyElsewhere(id)) return res.status(409).json({ error: 'This conversation is being used in another app right now (code-server or a terminal). Send again once that reply has finished.' });
   if (running) {
@@ -3093,6 +3183,12 @@ app.post('/api/session/:id/mute', requireAuth, (req, res) => {
 app.post('/api/session/:id/release', requireAuth, (req, res) => {
   const id = req.params.id, stop = req.body?.stop === true;
   if (!anyId(id)) return res.status(400).json({ error: 'Invalid conversation' });
+  if (isAcpId(id)) { // 1.86: an OpenRouter conversation's OpenCode process, as for Codex
+    const live = acp.acpSessions.has(acp.bareAcpId(id));
+    if (acp.ownedAcpTurn(id)) { if (!stop) return res.status(409).json({ running: true }); acp.stopAcpTurn(id); }
+    if (live) acp.closeAcpSession(id);
+    return res.json({ released: live });
+  }
   if (isCx(id)) {
     const tid = codex.bareId(id), cs = codex.codexSessions.get(tid);
     if (codex.codexTurns.get(tid)) {
@@ -3274,6 +3370,10 @@ function readSkillDesc(file) {
 }
 app.get('/api/commands', requireAuth, async (req, res) => {
   const cwd = String(req.query.cwd || '');
+  if (req.query.provider === 'acp') { // 1.86: OpenCode's own commands and skills, run by sending /name
+    if (!ACP_ON) return res.json({ commands: [] });
+    return res.json({ commands: acp.acpCommands().map(c => ({ name: c.name, label: c.name, desc: c.description, path: '', invocation: '/' + c.name + ' ' })) });
+  }
   if(req.query.provider==='codex'){
     if(!CODEX_ON)return res.json({commands:[],warning:'Codex is not available on this instance.'});
     try{return res.json({commands:await codex.listCodexSkills(cwd.startsWith('/')?cwd:HOME)});}
@@ -4042,6 +4142,27 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // The OpenRouter model picker for the ACP engine: the live catalog, split into a curated/tested
 // tier and an experimental tier (openrouter.mjs). `enabled:false` when the engine is off, so the
 // UI can hide the picker. A catalog fetch failure returns enabled:true with empty tiers + error.
+// 1.86: Pocket's ask tool (acp-ask-mcp.mjs) inside an OpenRouter reply's OpenCode process. Direct loopback only, and
+// the key that one process was started with, which also names its conversation. Ask, then poll for the answer.
+function acpAskTurn(req, res) {
+  const direct = LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
+  const key = String(req.get('x-pocket-ask-key') || ''), session = direct && /^[0-9a-f]{48}$/.test(key) ? acp.acpSessionByAskKey(key) : null;
+  if (!session) { res.status(403).json({ error: 'not allowed' }); return null; }
+  return session;
+}
+app.post('/api/internal/acp-ask', (req, res) => {
+  const session = acpAskTurn(req, res); if (!session) return;
+  const turn = acp.ownedAcpTurn(session.sessionId);
+  try { res.json({ id: acp.askAcpQuestion(turn, req.body?.questions) }); }
+  catch (e) { res.status(e.status || 400).json({ error: e.message }); }
+});
+app.get('/api/internal/acp-ask/:id', (req, res) => {
+  if (!acpAskTurn(req, res)) return;
+  const st = acp.askState(req.params.id);
+  res.json({ state: st.state, ...(st.state === 'answered' ? { answers: st.answers, skipped: st.skipped || null } : {}) });
+});
+// 1.86: what each engine can do, so the app shows a feature only where it works (engines.mjs).
+app.get('/api/engines', requireAuth, (_req, res) => res.json({ engines: Object.fromEntries(ENGINE_IDS.map(e => [e, { label: ENGINES[e].label, features: ENGINES[e].features }])) }));
 app.get('/api/acp/models', requireAuth, async (_req, res) => {
   res.setHeader('Cache-Control', 'private, max-age=300');
   if (!ACP_ON) return res.json({ enabled: false, curated: [], experimental: [] });
@@ -4060,7 +4181,7 @@ app.get('/api/acp/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to Ari only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by Brad.", "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.", "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.", "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by Brad.", "OpenRouter conversations now work the way they should. Before, every reply ran on OpenCode's own free model whatever you picked, a conversation waiting for your OK said Recent with no Allow button, and there was no way to set the effort. Now the reply runs on the model you picked (Pocket checks with OpenCode first and stops rather than let it run on another), the approval shows on the banner with Allow and Don't allow, and the effort chip offers the levels the chosen model has, such as None, Low, High and Max for DeepSeek V4.1 Flash; a model with no effort setting shows no chip. Reported by Brad.", "OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by Brad.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
+const RELEASE_NOTES = ["OpenRouter conversations now have the everyday features Claude Code and Codex conversations have. Your message shows as soon as you send it. A question from the model is a question card with its options as buttons, and a reply that asks you to choose ends with reply buttons, because Pocket's instructions now reach OpenRouter too. Attachments and images reach it, Plan first works, Stop stops (a queued message waits), a message queued with After this reply runs on OpenRouter, and the context meter, Results, Search and the Git panel work. What OpenRouter cannot do yet (Steer, Side chat, Branch, While you were away) is hidden on its conversations instead of offered and failing. And OpenCode needs no setup of its own any more: Pocket starts it with the ask-first permissions it needs. Behind this, every feature now goes through one layer for all three agents, with one test run against each. Requested by Brad.", "Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to Ari only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by Brad.", "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.", "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.", "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by Brad.", "OpenRouter conversations now work the way they should. Before, every reply ran on OpenCode's own free model whatever you picked, a conversation waiting for your OK said Recent with no Allow button, and there was no way to set the effort. Now the reply runs on the model you picked (Pocket checks with OpenCode first and stops rather than let it run on another), the approval shows on the banner with Allow and Don't allow, and the effort chip offers the levels the chosen model has, such as None, Low, High and Max for DeepSeek V4.1 Flash; a model with no effort setting shows no chip. Reported by Brad.", "OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by Brad.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

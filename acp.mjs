@@ -19,6 +19,8 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { LineBuffer } from './codex.mjs';
 import { ApprovalInbox } from './approvals.mjs';
+import { QuestionInbox } from './questions.mjs';
+import { textBlocks } from './choices.mjs';
 import { DEFAULT_CURATED } from './openrouter.mjs';
 
 const HOME = os.homedir();
@@ -34,7 +36,9 @@ const log = (...a) => console.log(new Date().toISOString(), '[acp]', ...a);
 // What Pocket advertises to the agent at initialize. Deliberately NOT fs/terminal: Pocket stays
 // the orchestrator and lets the agent execute tools under its own (client-gated) permission
 // policy (spec §6). elicitation.form is advertised but model questions are declined in v1.
-export const CLIENT_CAPABILITIES = { elicitation: { form: {} } };
+// No elicitation: OpenCode 1.19 never sends it, and its own question tool waits on an answer ACP cannot deliver,
+// so questions reach Pocket through Pocket's ask tool (acp-ask-mcp.mjs) instead.
+export const CLIENT_CAPABILITIES = {};
 export const PROTOCOL_VERSION = 1;
 // A prompt turn may sit on a pending approval for a long time; don't time it out from under the user.
 export const PROMPT_TIMEOUT_MS = Number(process.env.POCKET_ACP_TURN_TIMEOUT_MS) || 3_600_000;
@@ -145,6 +149,7 @@ export function normalizeUpdate(update) {
   // OpenCode's running cost for the whole session, after each model step (verified live, 1.19.4)
   if (u === 'usage_update') return { type: 'acp_usage', cost: Number.isFinite(update.cost?.amount) ? update.cost.amount : null, used: update.used ?? null, size: update.size ?? null };
   if (u === 'plan') return { type: 'plan', entries: update.entries || [] };
+  if (u === 'available_commands_update') return { type: 'acp_commands', commands: (update.availableCommands || []).map(c => ({ name: c?.name, description: c?.description || '' })).filter(c => typeof c.name === 'string') };
   return null;
 }
 
@@ -157,9 +162,21 @@ export function toolBlock(e) {
   const detail = toolDetail(e) || (e.kind === 'execute' ? (e.title !== 'bash' ? e.title : '') : e.path || e.title) || '';
   return { t: 'tool', name: TOOL_NAMES[e.kind] || clip(e.title, 40) || 'Tool', detail: clip(detail) };
 }
+// What an approval card shows under its title: the command, or the files an edit touches (the shapes the
+// app's approval card reads for Codex requests).
+export function approvalCard(params) {
+  const call = params?.toolCall || {}, i = call.rawInput || {};
+  const files = [i.filePath, i.path, ...(call.locations || []).map(l => l?.path)].filter(Boolean);
+  if (call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move') return { kind: 'fileChange', details: { changes: [...new Set(files)].map(p => ({ path: p })), tool: call.title || null } };
+  return { kind: 'command', details: { command: i.command || call.title || null, tool: call.title || null } };
+}
 // Merge a tool call's events (by id): later fields win, an empty input never replaces a known one.
 const mergeTool = (a, e) => ({ ...a, ...Object.fromEntries(Object.entries(e).filter(([k, v]) => v != null && k !== 'update' && !(k === 'input' && !toolDetail(e) && toolDetail(a)))) });
 const thinkingBlock = text => ({ t: 'tool', name: 'Thinking', detail: clip(text) });
+// An ACP plan (entries of {content, status}) as the UI's checklist block, the shape Claude's TodoWrite takes.
+export const planBlock = entries => ({ t: 'todo', todos: (entries || []).map(e => ({ s: ['completed', 'in_progress'].includes(e?.status) ? e.status : 'pending', c: String(e?.content || '') })) });
+// Text the way the other engines show it: a trailing ```choices block becomes reply buttons.
+const shownText = text => textBlocks(text);
 
 // Fold replayed events into Pocket transcript messages. A user message is {role, text}; everything the agent
 // did until the next user message is one assistant message whose blocks keep the order: Thinking and tool
@@ -177,10 +194,11 @@ export function messagesFromEvents(events) {
       continue;
     }
     if (e.type === 'tool' && calls.has(e.id)) { const c = calls.get(e.id); c.info = mergeTool(c.info, e); Object.assign(c.block, toolBlock(c.info)); continue; }
-    if (!['delta', 'reasoning', 'tool'].includes(e.type) || (e.type === 'tool' && e.update)) continue;
+    if (!['delta', 'reasoning', 'tool', 'plan'].includes(e.type) || (e.type === 'tool' && e.update)) continue;
     if (!asst) { asst = { role: 'assistant', blocks: [] }; out.push(asst); }
     if (e.type === 'reasoning') { thought += e.text || ''; continue; }
     flushThought();
+    if (e.type === 'plan') { const last = asst.blocks.findLastIndex(b => b.t === 'todo'); if (last >= 0) asst.blocks[last] = planBlock(e.entries); else asst.blocks.push(planBlock(e.entries)); continue; }
     if (e.type === 'tool') { const block = toolBlock(e); asst.blocks.push(block); calls.set(e.id, { info: e, block }); continue; }
     const last = asst.blocks[asst.blocks.length - 1];
     if (last?.t === 'text' && (e.messageId == null || last.mid === e.messageId)) last.text += e.text || '';
@@ -190,7 +208,7 @@ export function messagesFromEvents(events) {
   // assistant messages render from `blocks` in the UI (msgHTML), user messages from `text`.
   return out.map(m => {
     if (m.role === 'user') return { role: 'user', text: m.text };
-    const blocks = m.blocks.filter(b => b.t !== 'text' || b.text.trim()).map(({ mid, ...b }) => b);
+    const blocks = m.blocks.flatMap(({ mid, ...b }) => b.t === 'text' ? (b.text.trim() ? shownText(b.text) : []) : [b]);
     return { role: 'assistant', text: blocks.filter(b => b.t === 'text').map(b => b.text).join('\n\n'), blocks };
   }).filter(m => m.role === 'user' ? m.text.trim() : m.blocks.length);
 }
@@ -199,6 +217,9 @@ export function messagesFromEvents(events) {
 // sessionId (bare) -> { client, cwd, model, turn, hooks }. One child per session, kept between
 // turns, so concurrent sessions are independent processes (like Codex sessions today).
 export const acpSessions = new Map();
+// The commands (skills) OpenCode last listed for this machine, from any of its processes, for the / list.
+let knownCommands = [];
+export const acpCommands = () => knownCommands;
 // sessionId (bare) -> active turn. server.mjs's watch/approve/stop endpoints find turns here.
 export const acpTurns = new Map();
 
@@ -207,13 +228,14 @@ export function ownedAcpTurn(sessionId) { return acpTurns.get(bareAcpId(sessionI
 
 // Build the Pocket turn object for an ACP session: emit→SSE subscribers, an ApprovalInbox fed by
 // request_permission, tracked in acpTurns. Mirrors codex.mjs makeTurn.
-function makeAcpTurn(session, { text, model, approvalMode, hooks }) {
-  const { emit, onFinish, onApproval, auditApproval } = hooks;
+function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks }) {
+  const { emit, onFinish, onApproval, onQuestion, auditApproval } = hooks;
   const client = session.client;
   const turn = {
     sessionId: session.sessionId, cwd: session.cwd, startedAt: Date.now(), userText: text,
     model, approvalMode: approvalMode === 'full' ? 'full' : 'review', events: [], subs: new Set(), done: false, turnId: randomUUID(),
     client, session, onFinish, text: '', thought: '', costStart: session.costTotal ?? null, costTotal: null, usage: null,
+    executionMode: executionMode === 'plan' ? 'plan' : 'work', stopped: false, stopNote: null, lastActivityAt: Date.now(), context: null, asks: new Map(),
   };
   // The reply's text and thinking since the last tool line, shown as their own message when the next tool
   // line or the end of the turn arrives, so a turn reads in order: thinking, tools, text.
@@ -222,7 +244,7 @@ function makeAcpTurn(session, { text, model, approvalMode, hooks }) {
   turn.flush = () => {
     const blocks = [];
     if (turn.thought.trim()) blocks.push(thinkingBlock(turn.thought));
-    if (turn.text.trim()) blocks.push({ t: 'text', text: turn.text });
+    if (turn.text.trim()) blocks.push(...shownText(turn.text));
     turn.thought = ''; turn.text = '';
     if (blocks.length) turn.emit({ type: 'assistant', msg: { role: 'assistant', text: blocks.filter(b => b.t === 'text').map(b => b.text).join(''), blocks, ts: new Date().toISOString() } });
   };
@@ -240,10 +262,36 @@ function makeAcpTurn(session, { text, model, approvalMode, hooks }) {
     }),
     onChange: () => { turn.emit({ type: 'approvals' }); if (turn.approvals?.list().length) onApproval?.(turn); },
   });
+  // Questions from Pocket's ask tool: the same inbox Claude's and Codex's questions use. The native id is the ask's
+  // id; answering resolves the ask the tool is polling, skipping or ending the turn resolves it with no answer.
+  turn.questions = new QuestionInbox({
+    threadId: () => turn.sessionId,
+    write: (reply, opts) => { const a = turn.asks.get(reply.id); if (!a) throw new Error('Question expired'); turn.asks.delete(reply.id); a.done({ answers: reply.result?.answers || {}, skipped: opts?.skipped || null }); },
+    onChange: () => { turn.emit({ type: 'questions' }); if (turn.questions?.list().length) onQuestion?.(turn); },
+  });
   session.turn = turn;
   acpTurns.set(turn.sessionId, turn);
   return turn;
 }
+
+// A question from Pocket's ask tool, in Claude's AskUserQuestion shape ({question, header, options[{label,
+// description}], multiSelect}). Returns the ask id; the answer arrives on askState(id). Throws when the turn
+// cannot take it (finished, malformed).
+const askStates = new Map(); // ask id -> { state: 'pending'|'answered'|'gone', answers, at }
+export function askAcpQuestion(turn, questions) {
+  if (!turn || turn.done) throw Object.assign(new Error('This reply has ended.'), { status: 409 });
+  const qs = (Array.isArray(questions) ? questions : []).map((q, i) => ({ id: 'question-' + i, header: String(q?.header || '').slice(0, 60), question: String(q?.question || ''),
+    options: Array.isArray(q?.options) ? q.options.map(o => ({ label: String(o?.label ?? o ?? ''), description: String(o?.description || '') })).filter(o => o.label) : undefined, multiple: Boolean(q?.multiSelect) }));
+  const id = randomUUID();
+  const ok = turn.questions.receive({ id, method: 'item/tool/requestUserInput', params: { threadId: turn.sessionId, turnId: turn.turnId, isBlocking: true, questions: qs } }, turn.turnId);
+  if (!ok) throw Object.assign(new Error('The question could not be shown.'), { status: 400 });
+  askStates.set(id, { state: 'pending', at: Date.now() });
+  turn.asks.set(id, { done: r => askStates.set(id, { state: 'answered', at: Date.now(), answers: Object.fromEntries(qs.map(q => [q.question, (r.answers[q.id]?.answers || [])])), skipped: r.skipped }) });
+  for (const [k, v] of askStates) if (Date.now() - v.at > 86_400_000) askStates.delete(k);
+  return id;
+}
+export const askState = id => askStates.get(id) || { state: 'gone' };
+const endAsks = turn => { for (const [id] of turn.asks) askStates.set(id, { state: 'gone', at: Date.now() }); turn.asks.clear(); turn.questions?.clear(); };
 
 // Route a live session/update + server->client request onto the turn. Set as the client handlers
 // for the duration of the turn.
@@ -251,11 +299,18 @@ function wireTurnHandlers(turn) {
   const client = turn.client;
   client.onNotify = (method, params) => {
     if (method === 'session/update' && params?.sessionId === turn.sessionId) {
+      turn.lastActivityAt = Date.now();
       const ev = normalizeUpdate(params.update);
       if (!ev) return;
+      if (ev.type === 'acp_commands') { turn.session.commands = knownCommands = ev.commands; return; }
+      if (ev.type === 'plan') { turn.flush(); turn.emit({ type: 'assistant', msg: { role: 'assistant', text: '', blocks: [planBlock(ev.entries)], ts: new Date().toISOString() } }); return; }
       if (ev.type === 'delta') { turn.text += ev.text; turn.emit(ev); return; }
       if (ev.type === 'reasoning') { turn.thought += ev.text; return; }
-      if (ev.type === 'acp_usage') { if (ev.cost != null) turn.costTotal = ev.cost; return; }
+      if (ev.type === 'acp_usage') {
+        if (ev.cost != null) turn.costTotal = ev.cost;
+        if (Number.isFinite(ev.used) && Number.isFinite(ev.size)) { turn.context = turn.session.context = { used: ev.used, size: ev.size }; turn.emit({ type: 'usage' }); }
+        return;
+      }
       if (ev.type === 'tool') {
         const t = turn.tools.get(ev.id) || { info: {}, shown: false };
         t.info = mergeTool(t.info, ev); turn.tools.set(ev.id, t);
@@ -266,15 +321,17 @@ function wireTurnHandlers(turn) {
     }
   };
   client.onRequest = (method, params, id) => {
+    turn.lastActivityAt = Date.now();
     if (method === 'session/request_permission') {
       const { allow, deny, canAllow } = permissionOutcomes(params.options);
       // Full access: allow at once, as Claude (bypassPermissions) and Codex (approval never) run without asking.
       // OpenCode itself is configured to ask, so Review actions still shows every request as an approval card.
       if (turn.approvalMode === 'full' && canAllow) return client.respond(id, allow);
+      const card = approvalCard(params);
       const ok = turn.approvals.receive({
-        nativeId: id, turnId: turn.turnId, kind: 'command',
+        nativeId: id, turnId: turn.turnId, kind: card.kind,
         title: params.toolCall?.title || params.title || 'Allow this action?',
-        details: { tool: params.toolCall || params.toolCallId || null, sessionId: params.sessionId },
+        details: card.details,
         allow, deny, canAllow,
       });
       if (!ok) client.respond(id, declineFor(method)); // couldn't register (closed/old turn) -> fail closed
@@ -286,7 +343,7 @@ function wireTurnHandlers(turn) {
 }
 
 // Open (or resume) an ACP session: spawn the child, initialize, new/load the session.
-async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume }) {
+async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume, instructionsFile = null, askKey = null }) {
   const client = new AcpClient({ cmd, args, cwd, env, name: sessionId || 'new' });
   try {
     await client.initialize();
@@ -297,7 +354,7 @@ async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume })
     if (resume && sessionId) { const c = cwd || await sessionCwd(client, sessionId); opened = await client.loadSession({ sessionId, cwd: c || '/', mcpServers: [] }); }
     else { opened = await client.newSession({ cwd, mcpServers: [] }); sid = opened?.sessionId; }
     if (!sid) throw new Error('acp: no session id');
-    const session = { sessionId: sid, client, cwd, config: opened?.configOptions || [], turn: null };
+    const session = { sessionId: sid, client, cwd, config: opened?.configOptions || [], turn: null, instructionsFile, askKey, lastActivityAt: Date.now(), commands: [], context: null };
     acpSessions.set(sid, session);
     return session;
   } catch (e) { client.close(); throw e; }
@@ -307,7 +364,7 @@ async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume })
 // Fail closed: a model OpenCode does not confirm stops the turn, rather than letting it run on OpenCode's
 // own default model (before 1.84.1 every OpenRouter turn ran on that default, opencode/big-pickle).
 // Effort: the model's own levels; 'default' or a level the model lacks resets to the model's default.
-export async function applyAcpConfig(session, { model, effort }) {
+export async function applyAcpConfig(session, { model, effort, executionMode }) {
   const opt = id => session.config.find(o => o.id === id);
   if (!model) throw new Error('No OpenRouter model was chosen for this reply.');
   // Set and confirm it every turn (one local call): nothing that resets the session between turns can
@@ -317,6 +374,12 @@ export async function applyAcpConfig(session, { model, effort }) {
   if (Array.isArray(r?.configOptions)) session.config = r.configOptions;
   const now = opt('model')?.currentValue;
   if (now !== model) throw new Error(`OpenCode did not switch to ${model}${now ? ` (it is on ${now})` : ''}, so the reply was not sent.`);
+  // Plan first: OpenCode's own plan mode (edits disallowed), set every turn since a reopened session starts in build.
+  const mode = opt('mode'), wantMode = executionMode === 'plan' ? 'plan' : 'build';
+  if (mode && (mode.options || []).some(o => o.value === wantMode) && mode.currentValue !== wantMode) {
+    const r = await session.client.setConfigOption(session.sessionId, 'mode', wantMode);
+    if (Array.isArray(r?.configOptions)) session.config = r.configOptions;
+  }
   const eff = opt('effort');
   if (!eff) return { model, effort: null };
   const levels = (eff.options || []).map(o => o.value);
@@ -334,6 +397,7 @@ export async function applyAcpConfig(session, { model, effort }) {
 // conversation list hides.
 export async function probeAcpEfforts({ cmd, args, env, cwd }) {
   const client = new AcpClient({ cmd, args, cwd, env, name: 'effort-probe' });
+  client.onNotify = (method, params) => { const ev = method === 'session/update' ? normalizeUpdate(params?.update) : null; if (ev?.type === 'acp_commands' && ev.commands.length) knownCommands = ev.commands; };
   try {
     await client.initialize();
     const s = await client.newSession({ cwd, mcpServers: [] });
@@ -350,12 +414,12 @@ export async function probeAcpEfforts({ cmd, args, env, cwd }) {
 
 // Start (or continue/resume) a turn. hooks mirror startCodexTurn: {emit, onFinish, onApproval,
 // auditApproval}. Returns the turn; the reply streams through turn.emit / turn.approvals.
-export async function startAcpTurn({ sessionId, cwd, text, model, effort, approvalMode, costBaseline = null, cmd, args = [], env, resume = false, hooks = {} }) {
+export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images = [], model, effort, approvalMode, executionMode, costBaseline = null, cmd, args = [], env, instructionsFile = null, askKey = null, resume = false, hooks = {} }) {
   const bare = sessionId ? bareAcpId(sessionId) : null;
   let session = bare && acpSessions.get(bare);
   if (session && acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
-  if (!session) { session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume }); session.costTotal = resume ? costBaseline : 0; }
-  const turn = makeAcpTurn(session, { text, model, approvalMode, hooks });
+  if (!session) { session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume, instructionsFile, askKey }); session.costTotal = resume ? costBaseline : 0; }
+  const turn = makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks });
   turn.effort = effort && effort !== 'default' ? effort : null;
   wireTurnHandlers(turn);
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
@@ -365,9 +429,13 @@ export async function startAcpTurn({ sessionId, cwd, text, model, effort, approv
       // A turn can wait on an approval for as long as the user takes; the per-turn watchdog, not this
       // timeout, bounds a genuinely stuck turn, so allow a generous ceiling (default 120 s killed turns
       // whose approval was not answered within two minutes).
-      const used = await applyAcpConfig(session, { model: turn.model, effort: turn.effort });
+      const used = await applyAcpConfig(session, { model: turn.model, effort: turn.effort, executionMode: turn.executionMode });
       turn.effort = used.effort;
-      const r = await session.client.prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text }] }, PROMPT_TIMEOUT_MS);
+      // Pocket's instructions for this conversation, written where this OpenCode process reads them (it reads its
+      // instruction files when it builds each request, verified live), so they carry the session id and today's settings.
+      if (session.instructionsFile && hooks.instructions) fs.writeFileSync(session.instructionsFile, hooks.instructions(ACP + session.sessionId) || '', { mode: 0o600 });
+      const blocks = [{ type: 'text', text: prompt ?? text }, ...images.filter(i => i?.data && i?.mimeType).map(i => ({ type: 'image', mimeType: i.mimeType, data: i.data }))];
+      const r = await session.client.prompt({ sessionId: session.sessionId, prompt: blocks }, PROMPT_TIMEOUT_MS);
       turn.usage = r?.usage || null;
       finishAcpTurn(turn, { stopReason: r?.stopReason || 'end_turn' });
     } catch (e) {
@@ -380,6 +448,10 @@ export async function startAcpTurn({ sessionId, cwd, text, model, effort, approv
 function finishAcpTurn(turn, result) {
   if (turn.done) return;
   turn.done = true;
+  // Stopped (by you, or by the watchdog): a stop, not a finished reply, the way the other engines report it.
+  if (turn.stopped || result.stopReason === 'cancelled') { turn.stopped = true; result = { ...result, stopReason: 'cancelled', error: turn.stopNote || 'Stopped by you' }; }
+  turn.session.lastActivityAt = Date.now();
+  endAsks(turn);
   for (const t of turn.tools.values()) if (!t.shown) { t.shown = true; turn.showTool(t.info); }
   turn.flush();
   turn.approvals?.clear();
@@ -389,7 +461,7 @@ function finishAcpTurn(turn, result) {
   const cost = turn.costTotal != null && turn.costStart != null ? Math.round(Math.max(0, turn.costTotal - turn.costStart) * 1e9) / 1e9 : null; // OpenCode's precision
   const u = turn.usage, read = Number(u?.cachedReadTokens) || 0, fresh = Number(u?.inputTokens) || 0;
   const cache = read + fresh > 0 ? { hit: read / (read + fresh) } : null;
-  turn.emit({ type: 'result', ok: result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}),
+  turn.emit({ type: 'result', ok: !turn.stopped && result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}),
     ...(cost != null ? { cost } : {}), duration_ms: Date.now() - turn.startedAt, ...(cache ? { cache } : {}) });
   turn.emit({ type: 'done' });
   acpTurns.delete(turn.sessionId);
@@ -404,10 +476,12 @@ export function steerAcpTurn(sessionId, text) {
   return false;
 }
 
-export function stopAcpTurn(sessionId) {
+export function stopAcpTurn(sessionId, note = null) {
   const turn = acpTurns.get(bareAcpId(sessionId));
   if (!turn) return false;
+  turn.stopped = true; if (note) turn.stopNote = note;
   turn.approvals?.clear();
+  endAsks(turn);
   try { turn.client.cancel(turn.sessionId); } catch { }
   return true;
 }
@@ -415,8 +489,18 @@ export function stopAcpTurn(sessionId) {
 export function closeAcpSession(sessionId) {
   const bare = bareAcpId(sessionId);
   const s = acpSessions.get(bare);
-  if (s) { try { s.client.close(); } catch { } acpSessions.delete(bare); acpTurns.delete(bare); }
+  if (s) { try { s.client.close(); } catch { } acpSessions.delete(bare); acpTurns.delete(bare); if (s.instructionsFile) fs.rm(s.instructionsFile, { force: true }, () => { }); }
 }
+// The session whose OpenCode process was started with this ask key (Pocket's ask tool presents it).
+export const acpSessionByAskKey = key => [...acpSessions.values()].find(s => s.askKey && s.askKey === key) || null;
+// Idle OpenCode processes (no reply running) are closed after `idleMs`, as Codex's are; the next message reopens.
+export function closeIdleAcpSessions(idleMs) {
+  let n = 0;
+  for (const s of [...acpSessions.values()]) if (!acpTurns.has(s.sessionId) && Date.now() - (s.lastActivityAt || 0) > idleMs) { closeAcpSession(s.sessionId); n++; }
+  return n;
+}
+// Replies with no sign of life for `quietMs` that are not waiting on you (an approval or a question).
+export const stalledAcpTurns = quietMs => [...acpTurns.values()].filter(t => !t.done && Date.now() - t.lastActivityAt > quietMs && !t.approvals?.list().length && !t.questions?.list().length);
 
 // ---------- read-only listing + transcript (a short-lived reader client) ----------
 // List ACP sessions for the session picker. Spawns a throwaway reader, enumerates via session/list.

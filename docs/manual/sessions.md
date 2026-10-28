@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.84.2
+checked: 1.86.0
 sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -227,11 +227,13 @@ who runs Pocket turns it on, and it needs three things on the server:
 - [OpenCode](https://opencode.ai) installed (`npm i -g opencode-ai`). Pocket drives it with
   `opencode acp`; set `POCKET_ACP_CMD` (and `POCKET_ACP_ARGS`) if it is somewhere unusual.
 - `POCKET_ACP_ENABLE=1` and `OPENROUTER_API_KEY` in Pocket's environment, then a restart.
-- OpenCode's permissions set to ask, in `~/.config/opencode/opencode.json`:
-  `"permission": {"edit": "ask", "bash": "ask", "webfetch": "ask"}`. OpenCode allows these by default,
-  and without this an OpenRouter reply edits files and runs commands with no approval card.
 - A working OpenRouter key. A revoked key fails every reply with `User not found`; check one with
   `curl -H "Authorization: Bearer $OPENROUTER_API_KEY" https://openrouter.ai/api/v1/key` (401 = dead).
+
+Nothing in OpenCode's own configuration is required. Since 1.86 Pocket starts each OpenCode process with
+its own settings on top of yours (OpenCode merges them): ask-first permissions for edits, commands and
+web fetches, Pocket's instructions, and Pocket's question tool. Your own MCP servers, instruction files
+and providers stay as they are.
 
 With it on, **OpenRouter** joins **Agent** in the setup card. Its model menu is OpenRouter's live
 catalog of models that can use tools: **Default** (`POCKET_ACP_MODEL`, else DeepSeek V4.1 Flash), the
@@ -239,27 +241,42 @@ catalog of models that can use tools: **Default** (`POCKET_ACP_MODEL`, else Deep
 **Experimental — unverified**. A model OpenRouter adds shows up without a Pocket update. Experimental
 means it may not use tools reliably.
 
-Differences from Claude Code and Codex:
+What works the same as Claude Code and Codex:
+
+- Your message shows as soon as you send it, the reply streams with its thinking and each file it reads
+  and command it runs as ledger lines, and all of it is there when you reopen the conversation.
+- Pocket's instructions reach it like the others (suggested replies, Projects, Files, Tasks, Inbox Watch,
+  the Vault, the manual), so a reply that asks you to choose ends with reply buttons.
+- Questions arrive as question cards with the options as buttons, through Pocket's own question tool
+  (`acp-ask-mcp.mjs`; OpenCode's own question tool cannot reach Pocket over ACP). A push says when one
+  is waiting.
+- Permissions: **Review actions** shows each command, edit and web fetch as an approval card, with the
+  command or file under it; **Full access** answers OpenCode at once so nothing waits.
+- **Plan first** (OpenCode's plan mode: no edits), attachments (images are sent as images), the effort
+  chip with the chosen model's own levels (OpenCode reports them; Pocket asks at start-up and every six
+  hours), Stop, After this reply, the context meter, Results, Search, the Git panel and changes, and
+  the `/` list with OpenCode's own commands and skills.
+- Each reply shows its cost under it (to four decimals below a cent), its time and how much was read from
+  cache. OpenCode reports a running total for the conversation; Pocket shows the change and keeps the
+  total, so the cost stays right after a restart.
+- A reply quiet for 30 minutes that is not waiting on you is stopped (`POCKET_STALL_MS`); an OpenCode
+  process with no reply for 20 minutes is closed and reopens with the next message (`POCKET_ACP_IDLE_MS`).
+
+What OpenRouter does not have (Pocket hides these on its conversations):
+
+- **Steer**: a message sent during a reply waits for After this reply.
+- **Side chat** and **Branch**, **While you were away** (OpenCode's history has no message times),
+  the **Subagents** panel, and the Gmail, Calendar and Drive connectors.
+- A reply running when Pocket restarts is not picked up again; the conversation says so, and you send
+  it again.
+
+Other points:
 
 - Every reply is billed to the OpenRouter key, per token. OpenCode sends about 23,000 tokens of its own
   instructions with each reply, so even a short one costs a fraction of a cent on DeepSeek.
-- The effort chip offers the chosen model's own levels (OpenCode reports them; Pocket asks at start-up
-  and every six hours). There is no Plan first.
 - Pocket sets the model (and effort) on OpenCode before every reply and checks OpenCode confirmed it. If
   OpenCode does not offer the model or does not switch, the reply stops with that reason instead of
   running on OpenCode's own default model.
-- Questions from the model arrive as ordinary text, not as answer buttons. Reply in the message box.
-- Permissions work as for the others: **Review actions** shows each command, edit and web fetch as an
-  approval card (OpenCode is set to ask), **Full access** answers OpenCode at once so nothing waits.
-- While a reply works you see its thinking and each file it reads and command it runs, as ledger lines,
-  and they are still there when you reopen the conversation.
-- Each reply shows its cost under it (to four decimals below a cent), its time and how much was read from
-  cache. OpenCode reports a running total for the conversation; Pocket shows the change and keeps the
-  total, so the cost stays right after a restart. A conversation from before 1.84.2 shows no cost for its
-  first reply after the update, then does.
-- Approvals, the conversation list, reopening and continuing a conversation all work. Steering does
-  not: a message sent during a reply waits for After this reply.
-- Gmail, Calendar and Drive connectors are not available.
 
 ### Memory and skills with OpenRouter
 

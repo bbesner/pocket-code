@@ -20,8 +20,12 @@ test('registry shape', () => {
   assert.deepEqual(ENGINE_IDS, ['claude', 'codex', 'acp']);
   assert.equal(ENGINES.claude.routed, true);
   assert.equal(ENGINES.codex.routed, true);
-  assert.equal(ENGINES.acp.routed, false, 'acp is registered but not yet routed');
-  assert.deepEqual(routedEngineIds(), ['claude', 'codex'], 'acp is not offered/dispatched yet');
+  assert.equal(ENGINES.acp.routed, true, 'acp runs turns (where the server enables it)');
+  assert.deepEqual(routedEngineIds(), ['claude', 'codex', 'acp']);
+  // 1.86: every engine declares the same feature keys, so the app can hide what an engine cannot do
+  const keys = Object.keys(ENGINES.claude.features).sort();
+  for (const e of ENGINE_IDS) assert.deepEqual(Object.keys(ENGINES[e].features).sort(), keys, e + ' declares every feature');
+  assert.equal(ENGINES.acp.features.planMode, true); assert.equal(ENGINES.acp.features.sideChat, false);
 });
 
 test('engineForSessionId maps by prefix; unprefixed = claude', () => {

@@ -5,7 +5,7 @@
 const SPLIT_MIN=380,SPLIT_MAX_PANES=3,SPLIT_GRIP=5;
 let splitRailObserver=null,observedSplitRail=null;
 // id null = the pane is on its New session screen until that session starts
-const validPane=p=>p&&typeof p.key==='string'&&/^[0-9a-f-]{36}$/.test(p.key)&&(p.id===null||typeof p.id==='string'&&(/^(cx:)?[0-9a-f-]{36}$/.test(p.id)||isViewId(p.id))); // 1.29: a pane may show a project view
+const validPane=p=>p&&typeof p.key==='string'&&/^[0-9a-f-]{36}$/.test(p.key)&&(p.id===null||typeof p.id==='string'&&(/^(?:(?:cx:)?[0-9a-f-]{36}|acp:ses_[0-9A-Za-z-]{1,64})$/.test(p.id)||isViewId(p.id))); // 1.29: a pane may show a project view
 let splitPanes=PANE?[]:readLocal('pc-split-panes',[]);
 splitPanes=Array.isArray(splitPanes)?splitPanes.filter(validPane).slice(0,SPLIT_MAX_PANES).map(p=>({key:p.key,id:p.id,w:Number.isFinite(p.w)?p.w:null})):[];
 const saveSplit=()=>writeLocal('pc-split-panes',splitPanes);

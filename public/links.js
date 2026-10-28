@@ -25,7 +25,7 @@ function linkViewTitle(id){
 function pocketViewOf(u){
  if(u.origin!==location.origin||!['/','/index.html'].includes(u.pathname))return null;
  const h=u.hash||'';
- if(h.startsWith('#/chat/')){let id='';try{id=decodeURIComponent(h.slice(7));}catch{}return /^(cx:)?[0-9a-f-]{36}$/.test(id)?id:null;}
+ if(h.startsWith('#/chat/')){let id='';try{id=decodeURIComponent(h.slice(7));}catch{}return /^(?:(?:cx:)?[0-9a-f-]{36}|acp:ses_[0-9A-Za-z-]{1,64})$/.test(id)?id:null;}
  const id=h.slice(2);return isViewId(id)&&!id.startsWith('link/')?id:null;
 }
 // Open a session or view id the way the setting says. Unlike openViewPreferred, "tab" is done here too: the

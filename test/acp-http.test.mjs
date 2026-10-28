@@ -111,14 +111,18 @@ test('stop a running acp turn over HTTP', async t => {
   assert.equal(stop.body.ok, true);
 });
 
-test('an OpenRouter conversation opens in the app: live (active, stream from 0), then finished (history + list row)', async t => {
+test('an OpenRouter conversation opens in the app: live (your message shown, stream after it), then finished (history + list row)', async t => {
   const s = await server(t, 18804);
   const id = (await s.call('/new', { provider: 'acp', cwd: repo, text: 'do the thing' })).body.id;
   const e = encodeURIComponent(id);
   // live: the chat view's GET works and points the stream at the start of the turn
   let live; for (let i = 0; i < 100; i++) { live = await s.call(`/session/${e}`); if (live.status === 200 && live.body.active) break; await sleep(50); }
   assert.equal(live.status, 200, 'GET /api/session/:id serves an OpenRouter conversation: ' + JSON.stringify(live.body));
-  assert.equal(live.body.provider, 'acp'); assert.equal(live.body.active, true); assert.equal(live.body.turnEvents, 0);
+  assert.equal(live.body.provider, 'acp'); assert.equal(live.body.active, true);
+  // 1.86: your message is in the conversation while its reply runs (it was hidden until the reply), and the stream
+  // starts after it
+  assert.equal(live.body.turnEvents, 1);
+  assert.deepEqual(live.body.messages.map(m => [m.role, m.text, m.pending]), [['user', 'do the thing', true]]);
   assert.equal(live.body.model, 'openrouter/deepseek/deepseek-v4.1-flash-1017');
   let card; for (let i = 0; i < 100 && !card; i++) { card = (await s.call(`/session/${e}/approvals`)).body?.requests?.[0]; if (!card) await sleep(50); }
   await s.call(`/session/${e}/approvals/${card.id}/decision`, { decision: 'allow' });
@@ -139,9 +143,9 @@ test('an OpenRouter conversation opens in the app: live (active, stream from 0),
   // an idle stream does not replay history the GET already returned
   const r = await fetch(`http://127.0.0.1:${s.port}/api/session/${e}/events`, { headers: s.headers });
   assert.match(await r.text(), /"type":"idle"/); 
-  // the chat view's side panels return empty for OpenRouter instead of 404ing the console
+  // the side panels: OpenCode has no subagents; Results reads the conversation like the other engines (1.86)
   const ag = await s.call(`/session/${e}/agents`); assert.equal(ag.status, 200); assert.deepEqual(ag.body, { running: 0, agents: [] });
-  const rs = await s.call(`/session/${e}/results`); assert.equal(rs.status, 200); assert.equal(rs.body.scannedMessages, 0);
+  const rs = await s.call(`/session/${e}/results`); assert.equal(rs.status, 200); assert.equal(rs.body.scannedMessages, 2);
   // unknown OpenRouter ids are a clean 404
   assert.equal((await s.call('/session/' + encodeURIComponent('acp:ses_nope'))).status, 404);
 });

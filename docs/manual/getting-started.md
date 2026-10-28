@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.85.0
+checked: 1.86.0
 sources: docs/install.md, scripts/pocket-init.mjs, access.mjs, public/manifest.webmanifest, public/sw.js, public/workspace.js
 -->
 # Getting started
@@ -83,7 +83,7 @@ every device.
 | | Developer mode | Assistant mode |
 |---|---|---|
 | Opens on | The conversation list (on a desktop, the conversation rail beside the open conversation) | A message box, **What would you like done?**, with **Waiting for you** cards and your five **Recent** conversations below |
-| Model and reasoning | Chips above the message box for model, reasoning, permissions and (Codex) Plan first | Hidden. **Automatic model choice** picks one when it is set up, otherwise the default model runs. **Try harder** under a Claude reply asks for a more careful pass on a stronger model |
+| Model and reasoning | Chips above the message box for model, reasoning, permissions and (Codex, OpenRouter) Plan first | Hidden. **Automatic model choice** picks one when it is set up, otherwise the default model runs. **Try harder** under a Claude reply asks for a more careful pass on a stronger model |
 | Workbench | Tabs, split view, **Results**, **Queue**, **Git**, changed files, filters, cost and timing | Hidden |
 | Steps | Each step in plain words, with the command or path beside it | Plain words only |
 | Files from replies | Kept in Files when **Keep files from replies** is on | Always kept (when Files is on) |

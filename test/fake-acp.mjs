@@ -6,7 +6,11 @@
 //
 // Env flags: POCKET_ACP_STORE (required, dir) · FAKE_ACP_NO_LOADSESSION (advertise loadSession:false)
 // · FAKE_ACP_ELICIT (ask an elicitation/create instead of permission) · FAKE_ACP_NO_ASK (skip permission)
-// · FAKE_ACP_DELAY_MS (how long the tool "runs") · FAKE_ACP_IGNORE_MODEL (accept set_config_option for the model but stay on the default, like a runtime
+// · FAKE_ACP_DELAY_MS (how long the tool "runs")
+// Prompt markers, the same the Claude and Codex fakes take: __SLOW__ (the tool runs 1.5 s), __HANG__ (never answers until
+// cancelled), __CHOICES__ (ends with a ```choices block), __QUESTION__ (asks through Pocket's ask tool, the MCP server
+// Pocket names in OPENCODE_CONFIG_CONTENT, and answers with what you chose). Each prompt records what reached it: the
+// prompt text, its image blocks, and the instruction files OpenCode would read (OPENCODE_CONFIG_CONTENT.instructions). · FAKE_ACP_IGNORE_MODEL (accept set_config_option for the model but stay on the default, like a runtime
 // that drops the request).
 //
 // Model and effort are session config options, as in OpenCode 1.19 (probed live 2026-10-28): session/new and
@@ -16,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 
 const STORE = process.env.POCKET_ACP_STORE;
 if (!STORE) throw new Error('POCKET_ACP_STORE required');
@@ -59,12 +64,28 @@ const configOptions = s => {
   return out;
 };
 
+// Pocket's ask tool, started the way OpenCode starts an MCP server from its config.
+async function askPocket(questions) {
+  const cfg = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT || '{}').mcp?.pocket;
+  if (!cfg) return 'no ask tool';
+  const child = spawn(cfg.command[0], cfg.command.slice(1), { env: { ...process.env, ...(cfg.environment || {}) }, stdio: ['pipe', 'pipe', 'inherit'] });
+  const lines = readline.createInterface({ input: child.stdout }); const waiting = new Map(); let n = 0;
+  lines.on('line', l => { const m = JSON.parse(l); waiting.get(m.id)?.(m); waiting.delete(m.id); });
+  const ask = (method, params) => new Promise(r => { const i = ++n; waiting.set(i, r); child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: i, method, params }) + '\n'); });
+  await ask('initialize', { protocolVersion: '2025-06-18', capabilities: {} });
+  const r = await ask('tools/call', { name: 'ask_user', arguments: { questions } });
+  child.kill();
+  return r.result?.content?.[0]?.text || JSON.stringify(r.error || r.result);
+}
+
 async function handlePrompt(id, params) {
   const sid = params.sessionId;
   const text = (params.prompt || []).map(p => p.text || '').join('');
+  const seen = { text, images: (params.prompt || []).filter(p => p.type === 'image').length, instructions: (JSON.parse(process.env.OPENCODE_CONFIG_CONTENT || '{}').instructions || []).map(f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } }).join('\n') };
   const s = loadSess(sid) || { updates: [] };
   const c = confOf(sid);
-  s.lastPrompt = text; s.ranOn = { model: c.model, effort: MODELS[c.model] ? c.effort : null };
+  s.lastPrompt = text; s.ranOn = { model: c.model, effort: MODELS[c.model] ? c.effort : null }; s.seen = seen;
+  (s.prompts ||= []).push(text);
   // like OpenCode: the user's prompt is part of the replayed history, and the session gets a title from it
   s.updates.push({ sessionUpdate: 'user_message_chunk', messageId: 'u_' + randomUUID(), content: { type: 'text', text } });
   if (!s.titled) { s.title = text.slice(0, 40); s.titled = true; }
@@ -94,12 +115,16 @@ async function handlePrompt(id, params) {
   }
   if (cancelled.has(sid)) { cancelled.delete(sid); saveSess(sid, s); return reply(id, { stopReason: 'cancelled' }); }
   if (process.env.FAKE_ACP_DELAY_MS) await new Promise(r => setTimeout(r, Number(process.env.FAKE_ACP_DELAY_MS))); // "running" the tool
+  if (text.includes('__SLOW__')) await new Promise(r => setTimeout(r, 1500));
+  if (text.includes('__HANG__')) { saveSess(sid, s); await new Promise(r => { const t = setInterval(() => { if (cancelled.has(sid)) { clearInterval(t); r(); } }, 50); }); cancelled.delete(sid); return reply(id, { stopReason: 'cancelled' }); }
+  let heard = '';
+  if (text.includes('__QUESTION__')) heard = ' ' + await askPocket([{ header: 'Color', question: 'Which color?', options: [{ label: 'Blue', description: 'Cool' }, { label: 'Red', description: 'Warm' }], multiSelect: false }]);
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'tool_call_update', toolCallId: toolId, status: 'completed', title: 'echo ACP_OK' } });
   s.updates.push({ sessionUpdate: 'tool_call_update', toolCallId: toolId, status: 'completed', title: 'echo ACP_OK' });
   // OpenCode reports the session's running cost (kept with the session, so it survives a new process; not sent on load)
   s.cost = Math.round(((s.cost || 0) + FAKE_TURN_COST) * 1e9) / 1e9;
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'usage_update', used: 24000, size: 1048576, cost: { amount: s.cost, currency: 'USD' } } });
-  const answer = `ran it; echo of ${text.slice(0, 40)}`;
+  const answer = text.includes('__CHOICES__') ? 'Tests pass. Should I merge and deploy?\n\n```choices\nMerge and deploy\nNot yet\n```' : `ran it; echo of ${text.slice(0, 40)}${heard}`;
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: answer } } });
   s.updates.push({ sessionUpdate: 'agent_message_chunk', messageId: 'a_' + randomUUID(), content: { type: 'text', text: answer } });
   saveSess(sid, s);
