@@ -5,7 +5,13 @@
 // session/load it (the crash+resume case).
 //
 // Env flags: POCKET_ACP_STORE (required, dir) · FAKE_ACP_NO_LOADSESSION (advertise loadSession:false)
-// · FAKE_ACP_ELICIT (ask an elicitation/create instead of permission) · FAKE_ACP_NO_ASK (skip permission).
+// · FAKE_ACP_ELICIT (ask an elicitation/create instead of permission) · FAKE_ACP_NO_ASK (skip permission)
+// · FAKE_ACP_IGNORE_MODEL (accept set_config_option for the model but stay on the default, like a runtime
+// that drops the request).
+//
+// Model and effort are session config options, as in OpenCode 1.19 (probed live 2026-10-28): session/new and
+// session/load return configOptions with a `model` select whose default is OpenCode's own model; setting a
+// model adds an `effort` select with that model's own levels. Each prompt records the model and effort it ran on.
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -33,11 +39,31 @@ const askClient = (method, params) => new Promise(res => { const id = ++seq; cli
 
 const cancelled = new Set(); // sessionIds cancelled mid-turn
 
+// What each model offers for effort (null = no effort setting), and the level it starts on.
+const MODELS = {
+  'opencode/big-pickle': null,
+  'openrouter/deepseek/deepseek-v4.1-flash-1017': { levels: ['none', 'low', 'high', 'max', 'default'], start: 'none' },
+  'openrouter/anthropic/claude-sonnet-5.5': { levels: ['low', 'medium', 'high', 'xhigh', 'max', 'default'], start: 'low' },
+  'openrouter/meta-llama/llama-4-scout': null,
+};
+// Like OpenCode, the model and effort live in this process's memory, per session, not in the store:
+// another process that loads the session starts on the default without touching this one.
+const conf = new Map(); // sessionId -> { model, effort }
+const confOf = sid => { if (!conf.has(sid)) conf.set(sid, { model: 'opencode/big-pickle', effort: null }); return conf.get(sid); };
+const configOptions = s => {
+  const out = [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: s.model, options: Object.keys(MODELS).map(v => ({ value: v, name: v })) }];
+  const m = MODELS[s.model];
+  if (m) out.push({ id: 'effort', name: 'Effort', category: 'effort', type: 'select', currentValue: s.effort, options: m.levels.map(v => ({ value: v, name: v })) });
+  out.push({ id: 'mode', name: 'Session Mode', category: 'mode', type: 'select', currentValue: 'build', options: [{ value: 'build', name: 'build' }, { value: 'plan', name: 'plan' }] });
+  return out;
+};
+
 async function handlePrompt(id, params) {
   const sid = params.sessionId;
   const text = (params.prompt || []).map(p => p.text || '').join('');
   const s = loadSess(sid) || { updates: [] };
-  s.lastPrompt = text;
+  const c = confOf(sid);
+  s.lastPrompt = text; s.ranOn = { model: c.model, effort: MODELS[c.model] ? c.effort : null };
   // like OpenCode: the user's prompt is part of the replayed history, and the session gets a title from it
   s.updates.push({ sessionUpdate: 'user_message_chunk', messageId: 'u_' + randomUUID(), content: { type: 'text', text } });
   if (!s.titled) { s.title = text.slice(0, 40); s.titled = true; }
@@ -49,7 +75,9 @@ async function handlePrompt(id, params) {
     const ans = await askClient('elicitation/create', { sessionId: sid, message: 'Pick one', mode: 'form' });
     s.elicitOutcome = ans?.outcome;
   } else if (!process.env.FAKE_ACP_NO_ASK) {
+    // like OpenCode: the request carries the tool call, titled with the command it will run
     const ans = await askClient('session/request_permission', { sessionId: sid, toolCallId: toolId,
+      toolCall: { toolCallId: toolId, title: 'echo ACP_OK', kind: 'execute', status: 'pending', rawInput: { command: 'echo ACP_OK' } },
       options: [{ optionId: 'allow_once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'reject_once', name: 'Reject', kind: 'reject_once' }] });
     if (cancelled.has(sid) || ans?.cancelled) { cancelled.delete(sid); saveSess(sid, s); return reply(id, { stopReason: 'cancelled' }); }
     s.permissionOutcome = ans?.outcome?.outcome;
@@ -92,12 +120,26 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       const sessions = files.map(f => { const sid = decodeURIComponent(f.replace(/\.json$/, '')); let st; try { st = fs.statSync(path.join(STORE, f)); } catch { } const d = loadSess(sid) || {}; return { sessionId: sid, cwd: d.cwd || '/tmp', title: d.title || 'New session - ' + new Date(d.createdAt || Date.now()).toISOString(), updatedAt: new Date(st?.mtimeMs || Date.now()).toISOString() }; });
       return reply(m.id, { sessions });
     }
-    case 'session/new': { const sid = 'ses_' + randomUUID(); saveSess(sid, { updates: [], cwd: m.params?.cwd, createdAt: Date.now() }); return reply(m.id, { sessionId: sid }); }
+    case 'session/new': { const sid = 'ses_' + randomUUID(); const s = { updates: [], cwd: m.params?.cwd, createdAt: Date.now() }; saveSess(sid, s); return reply(m.id, { sessionId: sid, configOptions: configOptions(confOf(sid)) }); }
+    case 'session/set_config_option': {
+      const { sessionId, configId, value } = m.params || {}; if (!loadSess(sessionId)) return fail(m.id, 'unknown session');
+      const s = confOf(sessionId);
+      if (configId === 'model') {
+        if (!(value in MODELS)) return fail(m.id, 'unknown model ' + value);
+        if (!process.env.FAKE_ACP_IGNORE_MODEL) { s.model = value; s.effort = MODELS[value]?.start ?? null; }
+      } else if (configId === 'effort') {
+        if (!MODELS[s.model]?.levels.includes(value)) return fail(m.id, 'unknown effort ' + value);
+        s.effort = value;
+      } else return fail(m.id, 'unknown config option ' + configId);
+      return reply(m.id, { configOptions: configOptions(s) });
+    }
     case 'session/load': {
       if (process.env.FAKE_ACP_NO_LOADSESSION) return fail(m.id, 'loadSession not supported');
       const s = loadSess(m.params?.sessionId); if (!s) return fail(m.id, 'unknown session');
       for (const u of s.updates) notify('session/update', { sessionId: m.params.sessionId, update: u });
-      return reply(m.id, {});
+      // like OpenCode, a session opened in this process starts on the runtime's default model again
+      conf.set(m.params.sessionId, { model: 'opencode/big-pickle', effort: null });
+      return reply(m.id, { configOptions: configOptions(confOf(m.params.sessionId)) });
     }
     case 'session/prompt': return void handlePrompt(m.id, m.params || {});
     default: return fail(m.id, 'method not found: ' + m.method);

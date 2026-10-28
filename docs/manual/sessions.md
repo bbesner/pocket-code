@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.82.0
+checked: 1.84.1
 sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -71,7 +71,7 @@ The chips above the message box apply to the next reply, on New conversation and
 | Chip | Choices |
 |---|---|
 | Model (**Model for this reply**) | **Default**, then the models the picker offers (see [Models in the picker](#models-in-the-picker)). Default's line names what it runs: the Pocket default, or your CLI's own setting. |
-| Effort (**Reasoning effort**) | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. For Codex, **Ultra** (maximum reasoning with automatic task delegation) is listed above **Max** only when the chosen model offers it; for **Default** that is the model in `POCKET_CODEX_MODEL`, if set. Changing to a model without it sets the effort back to **Default**. Not shown for OpenRouter, whose models take no effort setting. |
+| Effort (**Reasoning effort**) | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. For Codex, **Ultra** (maximum reasoning with automatic task delegation) is listed above **Max** only when the chosen model offers it; for **Default** that is the model in `POCKET_CODEX_MODEL`, if set. Changing to a model without it sets the effort back to **Default**. For OpenRouter, only the levels the chosen model has (DeepSeek V4.1 Flash: **Max**, **High**, **Low**, **None**; some models also have **Minimal**), and no chip for a model with no effort setting; changing to a model without the picked level sets it back to **Default**. |
 | Permissions | **Review actions** (actions wait for your approval) or **Full access**. See [Questions and approvals](approvals.md#choose-review-actions-or-full-access). |
 | Mode (Codex only, **Codex mode for the next reply**) | **Work normally** carries out the request; **Plan first** explores an approach and asks questions before implementing. Plan first is guidance for the agent, not a sandbox. |
 
@@ -230,6 +230,8 @@ who runs Pocket turns it on, and it needs three things on the server:
 - OpenCode's permissions set to ask, in `~/.config/opencode/opencode.json`:
   `"permission": {"edit": "ask", "bash": "ask", "webfetch": "ask"}`. OpenCode allows these by default,
   and without this an OpenRouter reply edits files and runs commands with no approval card.
+- A working OpenRouter key. A revoked key fails every reply with `User not found`; check one with
+  `curl -H "Authorization: Bearer $OPENROUTER_API_KEY" https://openrouter.ai/api/v1/key` (401 = dead).
 
 With it on, **OpenRouter** joins **Agent** in the setup card. Its model menu is OpenRouter's live
 catalog of models that can use tools: **Default** (`POCKET_ACP_MODEL`, else DeepSeek V4.1 Flash), the
@@ -239,8 +241,13 @@ means it may not use tools reliably.
 
 Differences from Claude Code and Codex:
 
-- Every reply is billed to the OpenRouter key, per token.
-- There is no reasoning-effort chip and no Plan first.
+- Every reply is billed to the OpenRouter key, per token. OpenCode sends about 23,000 tokens of its own
+  instructions with each reply, so even a short one costs a fraction of a cent on DeepSeek.
+- The effort chip offers the chosen model's own levels (OpenCode reports them; Pocket asks at start-up
+  and every six hours). There is no Plan first.
+- Pocket sets the model (and effort) on OpenCode before every reply and checks OpenCode confirmed it. If
+  OpenCode does not offer the model or does not switch, the reply stops with that reason instead of
+  running on OpenCode's own default model.
 - Questions from the model arrive as ordinary text, not as answer buttons. Reply in the message box.
 - Approvals, the conversation list, reopening and continuing a conversation all work. Steering does
   not: a message sent during a reply waits for After this reply.

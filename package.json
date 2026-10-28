@@ -1,6 +1,6 @@
 {
   "name": "pocket-code",
-  "version": "1.84.0",
+  "version": "1.84.1",
   "private": true,
   "type": "module",
   "bin": {
@@ -42,7 +42,7 @@
     "start": "node server.mjs",
     "init": "node scripts/pocket-init.mjs",
     "test": "POCKET_SKILLS=0 node --test test/*.test.mjs",
-    "test:browser": "node test/browser.mjs",
+    "test:browser": "node test/browser.mjs && node test/acp-browser.mjs",
     "vendor": "node scripts/vendor.mjs",
     "check:release": "node scripts/check-release.mjs",
     "check:manual": "node scripts/check-manual.mjs"

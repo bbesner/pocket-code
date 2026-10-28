@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v172';
-const SHELL = ['/theme.js?v=172', '/', '/release.json?v=172', '/app.css?v=172', '/app.js?v=172', '/workspace.js?v=172', '/sidechat.js?v=172', '/projects.js?v=172', '/documents.js?v=172', '/links.js?v=172', '/tasks.js?v=172', '/inbox.js?v=172', '/vault.js?v=172', '/secret-detect.js?v=172', '/phrases.js?v=172', '/approvals.js?v=172', '/split.js?v=172', '/tips.js?v=172', '/format.js?v=172', '/voice-text.js?v=172', '/voice.js?v=172', '/voice-worklet.js?v=172', '/vendor/marked.js?v=172', '/vendor/purify.js?v=172', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v173';
+const SHELL = ['/theme.js?v=173', '/', '/release.json?v=173', '/app.css?v=173', '/app.js?v=173', '/workspace.js?v=173', '/sidechat.js?v=173', '/projects.js?v=173', '/documents.js?v=173', '/links.js?v=173', '/tasks.js?v=173', '/inbox.js?v=173', '/vault.js?v=173', '/secret-detect.js?v=173', '/phrases.js?v=173', '/approvals.js?v=173', '/split.js?v=173', '/tips.js?v=173', '/format.js?v=173', '/voice-text.js?v=173', '/voice.js?v=173', '/voice-worklet.js?v=173', '/vendor/marked.js?v=173', '/vendor/purify.js?v=173', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });

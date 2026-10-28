@@ -67,6 +67,10 @@ test('/api/acp/models reports enabled + curated DeepSeek (catalog may be offline
   assert.equal(body.enabled, true, 'engine reports enabled');
   assert.equal(body.defaultModel, 'openrouter/deepseek/deepseek-v4.1-flash-1017');
   assert.ok(Array.isArray(body.curated) && Array.isArray(body.experimental));
+  // 1.84.1: each model carries the effort levels OpenCode offers for it (from the boot probe)
+  for (const m of [...body.curated, ...body.experimental]) assert.ok(Array.isArray(m.efforts), 'efforts on ' + m.slug);
+  const ds = body.curated.find(m => m.slug === 'openrouter/deepseek/deepseek-v4.1-flash-1017');
+  if (ds) assert.deepEqual(ds.efforts, ['none', 'low', 'high', 'max']);
 });
 
 test('new acp session: start → SSE stream → approval card → allow → assistant reply → done', async t => {
@@ -139,4 +143,31 @@ test('an OpenRouter conversation opens in the app: live (active, stream from 0),
   const rs = await s.call(`/session/${e}/results`); assert.equal(rs.status, 200); assert.equal(rs.body.scannedMessages, 0);
   // unknown OpenRouter ids are a clean 404
   assert.equal((await s.call('/session/' + encodeURIComponent('acp:ses_nope'))).status, 404);
+});
+
+// 1.84.1: an OpenRouter conversation waiting on an approval said "Recent" (idle) in the list and the chat, so the
+// phone showed Stop with no Allow card. It now reports Needs approval like Claude and Codex, and the turn runs on
+// the model and effort the message asked for.
+test('an OpenRouter approval shows as Needs approval; the turn runs on the chosen model and effort', async t => {
+  const s = await server(t, 18805);
+  const id = (await s.call('/new', { provider: 'acp', cwd: path.join(s.dir, 'cwd'), text: 'do the thing', effort: 'high' })).body.id;
+  const e = encodeURIComponent(id);
+  let card; for (let i = 0; i < 100 && !card; i++) { card = (await s.call(`/session/${e}/approvals`)).body?.requests?.[0]; if (!card) await sleep(50); }
+  assert.ok(card, 'approval pending');
+  const chat = (await s.call(`/session/${e}`)).body;
+  assert.equal(chat.state.kind, 'input'); assert.equal(chat.state.label, 'Needs approval'); assert.equal(chat.state.approvals, 1);
+  let row; for (let i = 0; i < 60 && !row; i++) { row = (await s.call('/sessions')).body.sessions.find(x => x.id === id); if (!row) await sleep(100); }
+  assert.equal(row?.state.kind, 'input', 'the list row says it needs you: ' + JSON.stringify(row?.state));
+  await s.call(`/session/${e}/approvals/${card.id}/decision`, { decision: 'allow' });
+  for (let i = 0; i < 100; i++) { if (!(await s.call(`/session/${e}`)).body.active) break; await sleep(50); }
+  const store = JSON.parse(fs.readFileSync(path.join(s.dir, 'acp-store', encodeURIComponent(id.slice(4)) + '.json'), 'utf8'));
+  assert.deepEqual(store.ranOn, { model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', effort: 'high' });
+  assert.equal((await s.call(`/session/${e}`)).body.state.kind, 'finished');
+  // an effort the model does not take is dropped by the server, so the model's default runs
+  const again = await s.call(`/session/${e}/message`, { text: 'again', effort: 'xhigh' });
+  assert.equal(again.status, 202, 'second message: ' + JSON.stringify(again.body));
+  card = null; for (let i = 0; i < 100 && !card; i++) { card = (await s.call(`/session/${e}/approvals`)).body?.requests?.[0]; if (!card) await sleep(50); }
+  await s.call(`/session/${e}/approvals/${card.id}/decision`, { decision: 'allow' });
+  for (let i = 0; i < 100; i++) { if (!(await s.call(`/session/${e}`)).body.active) break; await sleep(50); }
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(s.dir, 'acp-store', encodeURIComponent(id.slice(4)) + '.json'), 'utf8')).ranOn, { model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', effort: 'default' });
 });
