@@ -1950,6 +1950,13 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .cli-update-actions .chip, .cli-update-actions .primary { min-height: 44px; }
 .cli-update-choice { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
 .cli-update-choice input { width: 18px; height: 18px; accent-color: var(--clay); }
+.cli-older-list { margin-top: 8px; border-top: 1px solid var(--line); }
+.cli-older-session { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.cli-older-session > div { min-width: 0; overflow-wrap: anywhere; }
+.cli-older-session b, .cli-older-session .title-note { display: block; }
+.cli-older-session .title-note { margin-top: 3px; }
+.cli-older-session .chip { flex: 0 0 auto; min-height: 44px; }
+@media (max-width: 430px) { .cli-older-session { align-items: stretch; flex-direction: column; } .cli-older-session .chip { align-self: flex-start; } }
 #cli-job { margin: 18px 0 12px; }
 
 .cli-updates-sheet { padding-inline: 20px; }

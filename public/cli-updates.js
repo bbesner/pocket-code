@@ -5,10 +5,11 @@ cliUpdateNotice.type='button';cliUpdateNotice.className='cli-update-notice';cliU
 cliUpdateNotice.onclick=()=>openCliUpdates();
 function paintCliUpdateNotice(){
   const s=cliUpdateState, available=s?.providers?.filter(p=>p.available)||[];
+  const older=s?.providers?.reduce((n,p)=>n+(p.olderSessions||0),0)||0;
   const failed=s?.job&&['failed','interrupted'].includes(s.job.phase);
   let acknowledged='';try{acknowledged=localStorage.getItem('pc-cli-update-seen')||'';}catch{}
   const completed=s?.job?.phase==='complete'&&s.job.id!==acknowledged;
-  const text=completed?'CLI upgrade complete. View results':s?.job?.running?'CLI upgrade in progress. View progress':failed?'CLI upgrade needs attention. View details':available.length?available.map(p=>p.name).join(' and ')+' update available. Review':'';
+  const text=completed?'CLI upgrade complete. View results':s?.job?.running?'CLI upgrade in progress. View progress':failed?'CLI upgrade needs attention. View details':older?`${older} conversation${older===1?'':'s'} still using an older CLI. Review`:available.length?available.map(p=>p.name).join(' and ')+' update available. Review':'';
   cliUpdateNotice.textContent=text;cliUpdateNotice.hidden=!text;
   if(text&&!cliUpdateNotice.isConnected&&app?.isConnected)app.prepend(cliUpdateNotice);
 }
@@ -41,7 +42,7 @@ async function openCliUpdates(){
         <p class="title-note">${p.key==='claude'?'Runs Claude conversations in Pocket.':'Runs Codex conversations in Pocket.'}</p>
         <p>Installed: <b>${esc(p.installed||'Unavailable')}</b> · Available: <b>${esc(p.latest||'Not checked')}</b></p>
         ${p.error?`<p class="title-note">${esc(p.error)}</p>`:''}
-        ${p.olderSessions?`<p class="title-note">${p.olderSessions} conversation${p.olderSessions===1?'':'s'} still using an earlier version. They switch on their next turn when no work is pending.</p>`:''}
+        ${p.olderSessions?`<p class="title-note">${p.olderSessions} conversation${p.olderSessions===1?'':'s'} on the earlier CLI. Idle ones switch on their next turn. Restarting Pocket keeps those processes.</p><div class="cli-older-list">${(p.older||[]).map(o=>`<div class="cli-older-session"><div><b>${esc(o.title)}</b><span class="title-note">${o.busy?(o.background?'Background work running':'Working now'):'Idle'}${o.version?' · '+esc(o.version):''}</span></div><button class="chip" data-cli-switch="${esc(o.id)}" data-cli-key="${p.key}" data-cli-interrupt="${o.busy?'true':'false'}">${o.busy?'Stop work & switch':'Switch now'}</button></div>`).join('')}</div>`:''}
         <div class="cli-update-actions"><a class="chip" href="${esc(p.notes)}" target="_blank" rel="noopener noreferrer">${esc(p.name)} release notes</a>
         ${p.available&&p.canUpgrade?`<label class="cli-update-choice"><input type="checkbox" data-cli-select="${p.key}" ${selection.has(p.key)?'checked':''}> Upgrade to ${esc(p.latest)}</label>`:!p.canUpgrade?'<span class="title-note">Managed outside Pocket or unavailable on this server.</span>':'<span class="title-note">No newer release found.</span>'}
         ${p.previous&&p.canUpgrade?`<button class="chip" data-cli-rollback="${p.key}">Restore ${esc(p.previous)}</button>`:''}</div></section>`).join('');
@@ -51,16 +52,23 @@ async function openCliUpdates(){
         if(!confirm(`Restore ${p.name} ${p.previous}? Pocket will test it before switching new conversations.`))return;
         await act('/cli-updates/upgrade',{selections:[{key:p.key,version:p.previous}],rollback:true});
       });
+      sh.querySelectorAll('[data-cli-switch]').forEach(el=>el.onclick=async()=>{
+        const o=state.providers.find(p=>p.key===el.dataset.cliKey)?.older?.find(o=>o.id===el.dataset.cliSwitch);
+        if(!o)return refresh();
+        if(o.busy&&!confirm(`Stop the work in “${o.title}” now? Its current reply may be incomplete. The next turn will use the updated CLI.`))return;
+        await act('/cli-updates/switch',{key:o.key,id:o.id,interrupt:o.busy});
+        await refresh();
+      });
     }
     const j=s.job,labels={queued:'Preparing upgrade…',installing:'Downloading and installing…',testing:'Testing CLI compatibility…',activated:'Version selected. Finishing…',complete:'Upgrade complete. New processes use the selected versions.',failed:'Upgrade failed.',interrupted:'Upgrade interrupted.'};
     sh.querySelector('#cli-job').textContent=(j?labels[j.phase]||j.phase:'')+(j?.results?.length?' Completed: '+j.results.map(r=>`${r.key==='claude'?'Claude Code':'Codex'} ${r.version}`).join(', ')+'.':'')+(j?.error?' '+j.error:'');
     sh.querySelector('#cli-update-error').textContent=s.checkError||'';
-    sh.querySelectorAll('[data-cli-rollback],[data-cli-select]').forEach(el=>el.disabled=busy||!!j?.running||!!s.checking);
+    sh.querySelectorAll('[data-cli-rollback],[data-cli-select],[data-cli-switch]').forEach(el=>el.disabled=busy||!!j?.running||!!s.checking);
     buttons();
   };
   async function refresh(){if(fetching||busy||!sh.isConnected)return;fetching=true;try{const s=await api('/cli-updates',{signal:AbortSignal.timeout(10000)});if(sh.isConnected)render(s);}catch(e){if(sh.isConnected)sh.querySelector('#cli-update-error').textContent='Could not load updates. Use Check now to retry.';}finally{fetching=false;}}
-  async function act(url,body){busy=true;sh.querySelectorAll('[data-cli-rollback],[data-cli-select]').forEach(el=>el.disabled=true);buttons();sh.querySelector('#cli-update-error').textContent='';
-    try{const s=await api(url,{method:'POST',body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});if(sh.isConnected)render(s);}catch(e){if(sh.isConnected)sh.querySelector('#cli-update-error').textContent=e.message;}finally{busy=false;if(state){sh.querySelectorAll('[data-cli-rollback],[data-cli-select]').forEach(el=>el.disabled=!!state.job?.running||!!state.checking);}buttons();}}
+  async function act(url,body){busy=true;sh.querySelectorAll('[data-cli-rollback],[data-cli-select],[data-cli-switch]').forEach(el=>el.disabled=true);buttons();sh.querySelector('#cli-update-error').textContent='';
+    try{const s=await api(url,{method:'POST',body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});if(sh.isConnected){if(Array.isArray(s.providers))render(s);else sh.querySelector('#cli-job').textContent=s.message||'';}}catch(e){if(sh.isConnected)sh.querySelector('#cli-update-error').textContent=e.message;}finally{busy=false;if(state){sh.querySelectorAll('[data-cli-rollback],[data-cli-select],[data-cli-switch]').forEach(el=>el.disabled=!!state.job?.running||!!state.checking);}buttons();}}
   sh.querySelector('#cli-check').onclick=()=>act('/cli-updates/check',{});
   sh.querySelector('#cli-upgrade').onclick=()=>act('/cli-updates/upgrade',{selections:selected().map(p=>({key:p.key,version:p.latest}))});
   sh.querySelector('#cli-later').onclick=()=>closeCurrentSheet?.();

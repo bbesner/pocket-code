@@ -116,6 +116,9 @@ The provider binary path is recorded with each persistent process. Updates leave
 and approvals alone. The next requested turn reopens an idle process when its binary path differs;
 Claude also waits for its background jobs. Reader/model-list connections refresh on binary change.
 This does not restart Pocket or update other applications' global CLIs.
+The update API lists old Claude and Codex processes by conversation after activation. The owner
+can release an idle one from the review, or explicitly stop a working turn so its next turn starts
+the selected CLI. A restart of Pocket alone preserves old CLI processes; it is not a switch action.
 
 ## Claude account switching
 

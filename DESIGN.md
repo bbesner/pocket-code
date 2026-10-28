@@ -15,8 +15,10 @@ settings controls remain the visual authority. A full-width, 44px-minimum notice
 conversation surface, reserving space instead of covering controls. It never opens itself or sends
 an overnight push. Review uses the existing sheet, two separated provider rows, native checkboxes,
 publisher release links, and one **Upgrade selected** action. Progress, failures, partial success,
-and older running sessions are text, with no speculative progress bar. Phone actions wrap; the
-sheet stays within 640px on desktop. Closing it preserves the server job.
+and older running sessions are text, with no speculative progress bar. Each older process is named,
+marked idle or working, and gets one explicit switch control. Stopping work requires confirmation
+because a reply can be incomplete. Phone actions wrap; the sheet stays within 640px on desktop.
+Closing it preserves the server job.
 
 ## The / picker (1.83)
 
@@ -1040,4 +1042,3 @@ only when the parent is working in the same folder, a labelled `queue-editor`, t
 **Start branch**. A branch's `.lineage` line sits at the top of the conversation controls in `--dim` 13.5px with
 clay links: **Branch of …** on a branch, the first three branches on its parent. List rows add `· Branch` to the
 provider label. No new colours, type or motion.
-
