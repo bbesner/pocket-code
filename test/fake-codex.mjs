@@ -47,10 +47,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const p=m.params||{};
   if(m.method==='thread/start'||m.method==='thread/resume')fs.appendFileSync(calls+'.threads',JSON.stringify({method:m.method,choices:/`choices`/.test(p.developerInstructions||''),projects:/pocket-board/.test(p.developerInstructions||''),documents:/pocket-docs/.test(p.developerInstructions||''),google:/pocket-google\/SKILL\.codex\.md/.test(p.developerInstructions||'')})+'\n');
   switch(m.method){
-    case 'initialize':if(takeMarker(process.env.FAKE_CODEX_INIT_FAIL))return fail(m.id,'initialize refused');reply(m.id,{});
-      // FAKE_CODEX_CLOSE_STDIN: stop reading after initialize and stay up, so the next write gets EPIPE
+    case 'initialize':if(takeMarker(process.env.FAKE_CODEX_INIT_FAIL))return fail(m.id,'initialize refused');
+      // Close before advertising readiness. Otherwise a fast parent can write the next request
+      // between reply() and close(), so it succeeds and waits for a response instead of EPIPE.
       if(process.env.FAKE_CODEX_CLOSE_STDIN){fs.closeSync(0);setInterval(()=>{},1000);}
-      return;
+      reply(m.id,{});return;
     case 'thread/start':{const id=randomUUID();takeLock(id);return reply(m.id,{thread:{id},model:'gpt-test',reasoningEffort:null});}
     case 'thread/resume':
       if(!takeLock(p.threadId))return fail(m.id,`thread ${p.threadId} already has an active writer`);
