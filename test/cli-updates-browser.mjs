@@ -15,9 +15,10 @@ export async function runCliUpdateRegressions({browser,base,out}){
   for(const width of [390,1440]){
    reset();await page.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});await page.goto(base);await page.waitForSelector('[data-id]');
    await page.evaluate(()=>pollCliUpdates());await page.waitForSelector('.cli-update-notice:not([hidden])');assert.equal(posts.length,0,'discovery must never upgrade');
-   await page.click('.cli-update-notice');await page.waitForSelector('#cli-upgrade:not([disabled])');
+   await page.click('.cli-update-notice');await page.waitForSelector('#cli-upgrade:not([disabled])');await new Promise(r=>setTimeout(r,350));
    assert.match(await page.$eval('#cli-schedule',e=>e.textContent),/4:00 a.m. \(America\/New_York\)/);
    assert.equal(await page.$$eval('[data-cli-select]:checked',es=>es.length),2);
+   await page.screenshot({path:path.join(out,`cli-updates-${width}.png`)});
    await page.addScriptTag({path:path.resolve('node_modules/axe-core/axe.min.js')});
    const axe=await page.evaluate(async()=>axe.run('.cli-updates-sheet',{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));assert.deepEqual(axe.violations.map(x=>({id:x.id,nodes:x.nodes.map(n=>n.target)})),[]);
    await page.screenshot({path:path.join(out,`cli-updates-${width}.png`)});

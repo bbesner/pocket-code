@@ -23,7 +23,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 async function openCliUpdates(){
   const scrim=document.createElement('div');scrim.className='scrim';
   const sh=document.createElement('div');sh.className='sheet cli-updates-sheet';
-  sh.innerHTML='<h2>CLI updates</h2><p class="sheet-help" id="cli-schedule">Loading update status…</p><div id="cli-update-rows"></div><p id="cli-job" role="status" aria-live="polite"></p><p class="title-note">Upgrades run on the server. You can close Pocket while they finish. Current conversations keep their version until they can safely reopen.</p><p class="title-note">Checks verify the version and Pocket’s startup protocol without sending a prompt to a model. They do not test every connector or conversation.</p><div class="cli-update-actions"><button class="chip" id="cli-check">Check now</button><button class="primary" id="cli-upgrade" disabled>Upgrade selected</button><button class="chip" id="cli-later">Later</button></div><p class="title-note" id="cli-update-error" role="alert"></p>';
+  sh.innerHTML='<h2>CLI updates</h2><p class="sheet-help" id="cli-schedule">Loading update status…</p><div id="cli-update-rows"></div><p id="cli-job" role="status" aria-live="polite"></p><p class="title-note">Upgrades run on the server. You can close Pocket while they finish. Current conversations keep their version until they can safely reopen.</p><p class="title-note">Pocket checks that the CLI starts and connects correctly before switching. These checks do not cover every feature.</p><div class="cli-update-actions"><button class="primary" id="cli-upgrade" disabled>Upgrade selected</button><button class="chip" id="cli-check">Check now</button><button class="chip" id="cli-later">Later</button></div><p class="title-note" id="cli-update-error" role="alert"></p>';
   mountSheet(scrim,sh);
   let state=null,selection=new Set(),signature='',busy=false,fetching=false;
   const selected=()=>state?.providers.filter(p=>selection.has(p.key)&&p.available&&p.canUpgrade)||[];
@@ -38,7 +38,7 @@ async function openCliUpdates(){
       if(first||!selection.size)selection=new Set(s.providers.filter(p=>p.available&&p.canUpgrade).map(p=>p.key));
       sh.querySelector('#cli-update-rows').innerHTML=s.providers.map(p=>`<section class="cli-update-row" aria-labelledby="cli-name-${p.key}">
         <h3 id="cli-name-${p.key}">${esc(p.name)}</h3>
-        <p class="title-note">${p.key==='claude'?'Runs Claude conversations in Pocket.':'Runs Codex conversations in Pocket.'} Upgrading can bring new features and fixes.</p>
+        <p class="title-note">${p.key==='claude'?'Runs Claude conversations in Pocket.':'Runs Codex conversations in Pocket.'}</p>
         <p>Installed: <b>${esc(p.installed||'Unavailable')}</b> · Available: <b>${esc(p.latest||'Not checked')}</b></p>
         ${p.error?`<p class="title-note">${esc(p.error)}</p>`:''}
         ${p.olderSessions?`<p class="title-note">${p.olderSessions} conversation${p.olderSessions===1?'':'s'} still using an earlier version. They switch on their next turn when no work is pending.</p>`:''}
