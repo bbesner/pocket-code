@@ -47,7 +47,9 @@ export async function runSlashRegressions({browser,base,rows,received,out}) {
   for(let i=0;i<80&&received.length===sent;i++)await new Promise(r=>setTimeout(r,50));
   await page.waitForFunction(()=>[...document.querySelectorAll('#msgs .m-user')].some(e=>e.textContent.includes('/context')));
   assert.equal(received.at(-1).text,'/context','a command that needs nothing more is sent at once');
-  await clear();await page.type('#box','/usa');await page.keyboard.press('Enter');
+  // a fresh page: the send above re-renders the composer (it starts a reply), which can swallow the next typing
+  await page.goto(base+'/?slash=usage#/chat/'+id);await page.waitForSelector('#msgs .m-asst');
+  await clear();await page.type('#box','/usa');await page.waitForSelector('#slash:not([hidden]) [data-n="usage"]');await page.keyboard.press('Enter');
   await page.waitForSelector('.usage-sheet');assert.equal(await page.$eval('#box',e=>e.value),'','a Pocket action runs here and sends nothing');
   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.usage-sheet'));
   await clear();await page.type('#box','/stock');assert.deepEqual(await names(),['inventory-report'],'with no name match, descriptions are searched');
