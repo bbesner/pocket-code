@@ -617,7 +617,7 @@ function bindRailNavigation() {
 function agentSummary(){
  const model=tbLabel(modelList(),tb.prefs.model);
  // the ACP/OpenRouter engine has no reasoning-effort setting, so the summary omits it
- const effort=tb.provider==='acp'?'':(tbLabel(effortList(),tb.prefs.effort)==='Default'?'default reasoning':tbLabel(effortList(),tb.prefs.effort)+' reasoning');
+ const effort=tb.provider==='acp'&&effortList().length<2?'':(tbLabel(effortList(),tb.prefs.effort)==='Default'?'default reasoning':tbLabel(effortList(),tb.prefs.effort)+' reasoning');
  return [tb.provider==='codex'?'Codex':tb.provider==='acp'?'OpenRouter':'Claude Code',model==='Default'?'':model,effort].filter(Boolean).join(' · ');
 }
 function updateNewSummary() {

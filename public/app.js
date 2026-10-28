@@ -120,10 +120,12 @@ async function loadCodexModels() {
 // as the Claude/Codex lists ([value,label,sub,chip]); the sub carries the tier + context/price.
 let ACP_MODELS = [['default', 'Default', 'The instance default model']];
 let acpEnabled = null; // null = not yet checked; set by loadAcpModels
+// 1.84.1: the reasoning-effort levels OpenCode offers for each OpenRouter model (slug -> levels; [] = none).
+let acpEfforts = new Map();
 async function loadAcpModels() {
   if (acpEnabled !== null) return ACP_MODELS;
   try {
-    const { enabled, defaultModel, curated, experimental, error } = await api('/acp/models');
+    const { enabled, defaultModel, defaultEfforts, curated, experimental, error } = await api('/acp/models');
     acpEnabled = Boolean(enabled);
     if (enabled) {
       const defLabel = defaultModel && ([...(curated || []), ...(experimental || [])].find(m => m.slug === defaultModel)?.name || defaultModel);
@@ -132,6 +134,8 @@ async function loadAcpModels() {
         ...(curated || []).map(m => row(m, 'Tested')),
         ...(experimental || []).map(m => row(m, 'Experimental — unverified'))];
       providerDefaults.acp = { model: defaultModel || null };
+      acpEfforts = new Map([...(curated || []), ...(experimental || [])].map(m => [m.slug, Array.isArray(m.efforts) ? m.efforts : []]));
+      if (defaultModel && !acpEfforts.has(defaultModel) && Array.isArray(defaultEfforts)) acpEfforts.set(defaultModel, defaultEfforts); // the catalog can be unreachable
       if (error) ACP_MODELS.push(['default', 'Catalog unavailable', error]);
     }
   } catch { acpEnabled = false; }
@@ -139,7 +143,11 @@ async function loadAcpModels() {
 }
 const modelList = () => (tb?.provider === 'codex' ? CODEX_MODELS : tb?.provider === 'acp' ? ACP_MODELS : MODELS);
 // Default effort row names the level Pocket will send; without one it's the CLI's own setting.
+// OpenRouter: only the levels the reply's model takes, strongest first; none at all hides the chip.
+const acpModelNow = () => tb?.prefs.model === 'default' ? providerDefaults.acp.model : tb?.prefs.model;
+const acpEffortLevels = () => { const order = ['max', 'xhigh', 'high', 'medium', 'low', 'minimal', 'none']; return (acpEfforts.get(acpModelNow()) || []).filter(v => order.includes(v)).sort((a, b) => order.indexOf(a) - order.indexOf(b)); };
 const effortList = () => {
+  if (tb?.provider === 'acp') return [['default', 'Default', "The model's own default", 'Default'], ...acpEffortLevels().map(v => EFFORTS.find(e => e[0] === v) || ACP_EFFORTS[v])];
   const d = providerDefaults[tb?.provider === 'codex' ? 'codex' : 'claude'], name = d.effort && EFFORT_NAMES[d.effort];
   // 1.67: nothing above the managed policy's ceiling (maxEffortLevel) is offered for Claude.
   const cap = tb?.provider === 'codex' ? null : d.maxEffort, order = EFFORTS.map(e => e[0]).reverse();
@@ -154,7 +162,9 @@ const EFFORTS = [
   ['medium', 'Medium', 'Quicker, cheaper'],
   ['low', 'Low', 'Snappy, simple tasks'],
 ];
-const EFFORT_NAMES = Object.fromEntries([...EFFORTS.map(([v, l]) => [v, l]), ['ultra', 'Ultra']]);
+// Levels only some OpenRouter models take.
+const ACP_EFFORTS = { minimal: ['minimal', 'Minimal', 'Barely any reasoning'], none: ['none', 'None', 'No reasoning, fastest and cheapest'] };
+const EFFORT_NAMES = Object.fromEntries([...EFFORTS.map(([v, l]) => [v, l]), ['ultra', 'Ultra'], ['minimal', 'Minimal'], ['none', 'None']]);
 function getPrefs(key) {
   try {
     const p = { model: 'default', effort: 'default', ...JSON.parse(localStorage.getItem('pc-prefs-' + key) || '{}') };
@@ -250,6 +260,11 @@ function normalizeModelPick() {
     tb.prefs.model = 'default';
     setPrefs(tb.key, tb.prefs);
   }
+  // 1.84.1: an OpenRouter effort the reply's model does not take goes back to Default (once the levels are known).
+  if (tb.provider === 'acp' && tb.prefs.effort !== 'default' && acpEfforts.size && !acpEffortLevels().includes(tb.prefs.effort)) {
+    tb.prefs.effort = 'default';
+    setPrefs(tb.key, tb.prefs);
+  }
   // 1.81: an Ultra pick the model (or the agent) does not offer goes back to Default; until Codex's models load there is nothing to compare with.
   if (tb.prefs.effort === 'ultra' && (tb.provider !== 'codex' || codexEfforts.size) && !offersUltra()) {
     tb.prefs.effort = 'default';
@@ -265,7 +280,7 @@ function renderToolbar() {
   bar.innerHTML = `
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
-    ${tb.provider === 'acp' ? '' : `<button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>`}
+    ${tb.provider === 'acp' && !acpEffortLevels().length ? '' : `<button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>`}
     <button class="chip" id="c-approval" title="Permissions for the next reply" aria-label="Permissions for the next reply: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
     ${tb.provider==='codex'?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
     ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this conversation">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-side" id="side-open" hidden>Side chat</button><button class="chip conversation-branch" id="branch-open" hidden>Branch</button><button class="chip conversation-project" id="project-open" hidden>Project</button><button class="chip conversation-task" id="task-open" hidden>Add task</button>' : ''}`;
@@ -284,7 +299,7 @@ function renderToolbar() {
     ...(vaultOn() ? [['vault','Store in the Vault','Save a key or password here instead of pasting it into the message']] : [])],null,v=>{if(v==='file')$('#fpick')?.click();else if(v==='vault')addVaultItemFromComposer();else pasteClipboardImage();}); // 1.39: the Vault option
   $('#c-model').onclick = () => sheet('Model for this reply', modelList(), tb.prefs.model,
     v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
-  const eff = $('#c-eff'); // absent on the ACP engine (OpenRouter models take no reasoning-effort setting)
+  const eff = $('#c-eff'); // absent for an OpenRouter model that takes no reasoning-effort setting
   if (eff) eff.onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
     v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   if (loadOutbox(tb.key)) {

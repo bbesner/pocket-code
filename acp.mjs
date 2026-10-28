@@ -102,6 +102,9 @@ export class AcpClient {
   loadSession(params) { return this.request('session/load', params); }
   listSessions() { return this.request('session/list', {}); }
   prompt(params, timeoutMs) { return this.request('session/prompt', params, timeoutMs); }
+  // OpenCode takes the model and its reasoning effort as session config options, not as prompt fields
+  // (a `model` on session/prompt is ignored, and the turn runs on OpenCode's own default model).
+  setConfigOption(sessionId, configId, value) { return this.request('session/set_config_option', { sessionId, configId, value }); }
   cancel(sessionId) { this.notify('session/cancel', { sessionId }); }
   close() { this.closed = true; try { this.proc.kill('SIGTERM'); } catch { } }
 }
@@ -173,7 +176,7 @@ function makeAcpTurn(session, { text, model, hooks }) {
   const client = session.client;
   const turn = {
     sessionId: session.sessionId, cwd: session.cwd, startedAt: Date.now(), userText: text,
-    model: model || session.model, events: [], subs: new Set(), done: false, turnId: randomUUID(),
+    model, events: [], subs: new Set(), done: false, turnId: randomUUID(),
     client, session, onFinish,
   };
   turn.emit = ev => {
@@ -230,23 +233,70 @@ async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume })
     let sid = sessionId;
     // session/load requires {sessionId, cwd, mcpServers} (cwd a string). On resume the caller may
     // not know the original cwd; recover it from session/list. (Verified against real OpenCode.)
-    if (resume && sessionId) { const c = cwd || await sessionCwd(client, sessionId); await client.loadSession({ sessionId, cwd: c || '/', mcpServers: [] }); }
-    else { const s = await client.newSession({ cwd, mcpServers: [] }); sid = s?.sessionId; }
+    let opened;
+    if (resume && sessionId) { const c = cwd || await sessionCwd(client, sessionId); opened = await client.loadSession({ sessionId, cwd: c || '/', mcpServers: [] }); }
+    else { opened = await client.newSession({ cwd, mcpServers: [] }); sid = opened?.sessionId; }
     if (!sid) throw new Error('acp: no session id');
-    const session = { sessionId: sid, client, cwd, model, turn: null };
+    const session = { sessionId: sid, client, cwd, config: opened?.configOptions || [], turn: null };
     acpSessions.set(sid, session);
     return session;
   } catch (e) { client.close(); throw e; }
 }
 
+// Point the session at the model (and effort) this turn asked for, through OpenCode's config options.
+// Fail closed: a model OpenCode does not confirm stops the turn, rather than letting it run on OpenCode's
+// own default model (before 1.84.1 every OpenRouter turn ran on that default, opencode/big-pickle).
+// Effort: the model's own levels; 'default' or a level the model lacks resets to the model's default.
+export async function applyAcpConfig(session, { model, effort }) {
+  const opt = id => session.config.find(o => o.id === id);
+  if (!model) throw new Error('No OpenRouter model was chosen for this reply.');
+  // Set and confirm it every turn (one local call): nothing that resets the session between turns can
+  // leave a reply on another model.
+  if (opt('model') && !(opt('model').options || []).some(o => o.value === model)) throw new Error(`OpenCode does not offer ${model}. Pick another model.`);
+  const r = await session.client.setConfigOption(session.sessionId, 'model', model);
+  if (Array.isArray(r?.configOptions)) session.config = r.configOptions;
+  const now = opt('model')?.currentValue;
+  if (now !== model) throw new Error(`OpenCode did not switch to ${model}${now ? ` (it is on ${now})` : ''}, so the reply was not sent.`);
+  const eff = opt('effort');
+  if (!eff) return { model, effort: null };
+  const levels = (eff.options || []).map(o => o.value);
+  const want = effort && effort !== 'default' && levels.includes(effort) ? effort : levels.includes('default') ? 'default' : null;
+  if (want && eff.currentValue !== want) {
+    const r = await session.client.setConfigOption(session.sessionId, 'effort', want);
+    if (Array.isArray(r?.configOptions)) session.config = r.configOptions;
+  }
+  return { model, effort: want === 'default' ? null : want };
+}
+
+// The reasoning-effort levels OpenCode offers for each OpenRouter model, read by pointing one throwaway
+// session at every model in turn (all ~360 take well under a second, all local). {slug: [levels]} without
+// 'default'; a model with no effort setting maps to []. The probe session lives in `cwd`, which the
+// conversation list hides.
+export async function probeAcpEfforts({ cmd, args, env, cwd }) {
+  const client = new AcpClient({ cmd, args, cwd, env, name: 'effort-probe' });
+  try {
+    await client.initialize();
+    const s = await client.newSession({ cwd, mcpServers: [] });
+    const models = (s?.configOptions || []).find(o => o.id === 'model')?.options?.map(o => o.value).filter(v => v.startsWith('openrouter/')) || [];
+    const out = {};
+    for (const m of models) {
+      const r = await client.setConfigOption(s.sessionId, 'model', m);
+      const eff = (r?.configOptions || []).find(o => o.id === 'effort');
+      out[m] = eff ? (eff.options || []).map(o => o.value).filter(v => v !== 'default') : [];
+    }
+    return out;
+  } finally { client.close(); }
+}
+
 // Start (or continue/resume) a turn. hooks mirror startCodexTurn: {emit, onFinish, onApproval,
 // auditApproval}. Returns the turn; the reply streams through turn.emit / turn.approvals.
-export async function startAcpTurn({ sessionId, cwd, text, model, cmd, args = [], env, resume = false, hooks = {} }) {
+export async function startAcpTurn({ sessionId, cwd, text, model, effort, cmd, args = [], env, resume = false, hooks = {} }) {
   const bare = sessionId ? bareAcpId(sessionId) : null;
   let session = bare && acpSessions.get(bare);
   if (session && acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   if (!session) session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume });
   const turn = makeAcpTurn(session, { text, model, hooks });
+  turn.effort = effort && effort !== 'default' ? effort : null;
   wireTurnHandlers(turn);
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
   // Run the prompt in the background; the HTTP caller returns 202 immediately (like the codex path).
@@ -255,7 +305,9 @@ export async function startAcpTurn({ sessionId, cwd, text, model, cmd, args = []
       // A turn can wait on an approval for as long as the user takes; the per-turn watchdog, not this
       // timeout, bounds a genuinely stuck turn, so allow a generous ceiling (default 120 s killed turns
       // whose approval was not answered within two minutes).
-      const r = await session.client.prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text }], ...(turn.model ? { model: turn.model } : {}) }, PROMPT_TIMEOUT_MS);
+      const used = await applyAcpConfig(session, { model: turn.model, effort: turn.effort });
+      turn.effort = used.effort;
+      const r = await session.client.prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text }] }, PROMPT_TIMEOUT_MS);
       finishAcpTurn(turn, { stopReason: r?.stopReason || 'end_turn' });
     } catch (e) {
       finishAcpTurn(turn, { stopReason: 'error', error: e.message });
@@ -300,13 +352,13 @@ export function closeAcpSession(sessionId) {
 
 // ---------- read-only listing + transcript (a short-lived reader client) ----------
 // List ACP sessions for the session picker. Spawns a throwaway reader, enumerates via session/list.
-export async function listAcpSessions({ cmd, args, env, limit = 60 } = {}) {
+export async function listAcpSessions({ cmd, args, env, limit = 60, hideCwd = null } = {}) {
   const client = new AcpClient({ cmd, args, env, name: 'reader' });
   try {
     await client.initialize();
     const r = await client.listSessions();
     // OpenCode names a session "New session - <iso time>" until it titles it; treat that as untitled.
-    const rows = (r?.sessions || []).slice(0, limit).map(s => { const t = /^New session - /.test(s.title || '') ? '' : (s.title || ''); return { id: ACP + s.sessionId, title: t || '(untitled conversation)', untitled: !t, cwd: s.cwd || null, mtimeMs: Date.parse(s.updatedAt) || 0, provider: 'acp' }; });
+    const rows = (r?.sessions || []).filter(s => !hideCwd || s.cwd !== hideCwd).slice(0, limit).map(s => { const t = /^New session - /.test(s.title || '') ? '' : (s.title || ''); return { id: ACP + s.sessionId, title: t || '(untitled conversation)', untitled: !t, cwd: s.cwd || null, mtimeMs: Date.parse(s.updatedAt) || 0, provider: 'acp' }; });
     return rows;
   } finally { client.close(); }
 }

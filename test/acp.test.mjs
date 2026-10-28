@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AcpClient, messagesFromEvents, startAcpTurn, acpSessions, acpTurns, closeAcpSession, stopAcpTurn, permissionOutcomes, normalizeUpdate, isAcpId, bareAcpId, declineFor, listAcpSessions, readAcpTranscript } from '../acp.mjs';
+import { AcpClient, messagesFromEvents, startAcpTurn, acpSessions, acpTurns, closeAcpSession, stopAcpTurn, permissionOutcomes, normalizeUpdate, isAcpId, bareAcpId, declineFor, listAcpSessions, readAcpTranscript, probeAcpEfforts } from '../acp.mjs';
 
 const FAKE = path.join(import.meta.dirname, 'fake-acp.mjs');
 const mkStore = () => fs.mkdtempSync(path.join(os.tmpdir(), 'acp-store-'));
@@ -138,4 +138,73 @@ test('loadSession unsupported surfaces (capability varies by agent)', async () =
     /loadSession not supported|unknown session/,
   );
   afterEach();
+});
+
+// ---------- 1.84.1: model and effort reach OpenCode as session config options ----------
+// Before 1.84.1 the model rode on session/prompt, which OpenCode ignores, so every turn ran on OpenCode's own
+// default model (opencode/big-pickle) while Pocket showed the chosen one.
+const ranOn = (store, sid) => JSON.parse(fs.readFileSync(path.join(store, encodeURIComponent(sid) + '.json'), 'utf8')).ranOn;
+async function runAllowed(opts) {
+  const ev = []; const turn = await startAcpTurn({ ...opts, hooks: { emit: e => ev.push(e) } });
+  for (let i = 0; i < 500 && !turn.approvals.list().length && !ev.some(e => e.type === 'done'); i++) await new Promise(r => setTimeout(r, 20));
+  if (turn.approvals.list().length) await turn.approvals.decide(turn.approvals.list()[0].id, 'allow');
+  await turn.promptDone; return { turn, ev };
+}
+
+test('a turn runs on the model and effort it asked for', async () => {
+  const store = mkStore();
+  const { turn, ev } = await runAllowed(turnOpts(store, { effort: 'high' }));
+  assert.ok(ev.some(e => e.type === 'result' && e.ok), 'finished: ' + JSON.stringify(ev.at(-2)));
+  assert.deepEqual(ranOn(store, turn.sessionId), { model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', effort: 'high' });
+  afterEach();
+});
+
+test('effort Default, or a level the model lacks, runs on the model default; the next turn can switch model and effort', async () => {
+  const store = mkStore();
+  const { turn } = await runAllowed(turnOpts(store, { effort: 'xhigh' })); // DeepSeek has no xhigh
+  assert.deepEqual(ranOn(store, turn.sessionId), { model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', effort: 'default' });
+  assert.equal(turn.effort, null, 'the turn records that the default ran');
+  const id = 'acp:' + turn.sessionId;
+  await runAllowed(turnOpts(store, { sessionId: id, model: 'openrouter/anthropic/claude-sonnet-5.5', effort: 'xhigh' }));
+  assert.deepEqual(ranOn(store, turn.sessionId), { model: 'openrouter/anthropic/claude-sonnet-5.5', effort: 'xhigh' });
+  await runAllowed(turnOpts(store, { sessionId: id, model: 'openrouter/anthropic/claude-sonnet-5.5' }));
+  assert.deepEqual(ranOn(store, turn.sessionId), { model: 'openrouter/anthropic/claude-sonnet-5.5', effort: 'default' }, 'Default resets a level set by an earlier turn');
+  await runAllowed(turnOpts(store, { sessionId: id, model: 'openrouter/meta-llama/llama-4-scout', effort: 'high' }));
+  assert.deepEqual(ranOn(store, turn.sessionId), { model: 'openrouter/meta-llama/llama-4-scout', effort: null }, 'a model with no effort setting ignores one');
+  afterEach();
+});
+
+test('a reopened session is pointed at the model again (OpenCode reopens on its own default)', async () => {
+  const store = mkStore();
+  const { turn } = await runAllowed(turnOpts(store, { effort: 'max' }));
+  closeAcpSession('acp:' + turn.sessionId);
+  await runAllowed(turnOpts(store, { sessionId: 'acp:' + turn.sessionId, resume: true, effort: 'max' }));
+  assert.deepEqual(ranOn(store, turn.sessionId), { model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', effort: 'max' });
+  afterEach();
+});
+
+test('fail closed: a runtime that does not switch model, or does not offer it, never gets the prompt', async () => {
+  for (const [extra, env, re] of [[{}, { FAKE_ACP_IGNORE_MODEL: '1' }, /did not switch to openrouter\/deepseek\/deepseek-v4\.1-flash-1017 \(it is on opencode\/big-pickle\)/],
+    [{ model: 'openrouter/nobody/no-such-model' }, {}, /does not offer openrouter\/nobody\/no-such-model/], [{ model: undefined }, {}, /No OpenRouter model/]]) {
+    const store = mkStore();
+    const o = turnOpts(store, extra); o.env = { ...o.env, ...env };
+    const { turn, ev } = await runAllowed(o);
+    const r = ev.find(e => e.type === 'result');
+    assert.equal(r.ok, false); assert.match(r.error, re);
+    assert.equal(ranOn(store, turn.sessionId), undefined, 'no prompt reached the runtime');
+    afterEach();
+  }
+});
+
+test('probeAcpEfforts maps each OpenRouter model to its effort levels; the probe folder is hidden from the list', async () => {
+  const store = mkStore(), probe = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-probe-'));
+  const map = await probeAcpEfforts({ cmd: process.execPath, args: [FAKE], env: baseEnv(store), cwd: probe });
+  assert.deepEqual(map, {
+    'openrouter/deepseek/deepseek-v4.1-flash-1017': ['none', 'low', 'high', 'max'],
+    'openrouter/anthropic/claude-sonnet-5.5': ['low', 'medium', 'high', 'xhigh', 'max'],
+    'openrouter/meta-llama/llama-4-scout': [],
+  }, 'openrouter models only, without "default"');
+  const all = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE] });
+  const shown = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], hideCwd: probe });
+  assert.equal(all.filter(r => r.cwd === probe).length, 1); assert.equal(shown.filter(r => r.cwd === probe).length, 0);
 });
