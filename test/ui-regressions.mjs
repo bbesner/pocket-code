@@ -1094,8 +1094,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.goto(base+'/#/');await page.waitForSelector('[data-id]');
    await page.evaluate(id=>{location.hash='#/chat/'+id;},id);await page.waitForSelector('#away-divider');
    await page.waitForFunction(()=>document.querySelector('#away-card .away-body li'));await pause(500);
+   // the nearest message each side; a day divider sits between them when the hour before falls on either side of midnight
    const r=await page.evaluate(()=>{const d=document.getElementById('away-divider'),c=document.getElementById('away-card'),s=d.closest('main.scroll'),last=[...document.querySelectorAll('#msgs > .m-asst')].pop();
-    return {label:d.getAttribute('aria-label'),after:d.nextElementSibling?.dataset.ts,before:d.previousElementSibling?.dataset.ts,
+    const near=dir=>{let n=d[dir];while(n?.classList.contains('day-divider'))n=n[dir];return n?.dataset.ts;};
+    return {label:d.getAttribute('aria-label'),after:near('nextElementSibling'),before:near('previousElementSibling'),
      cardLabel:c.querySelector('#away-card-label').textContent,inLast:c.parentElement===last,beforeChoices:c.nextElementSibling?.classList.contains('choices')&&!c.nextElementSibling.hidden,
      gap:Math.round(s.scrollHeight-s.scrollTop-s.clientHeight),dividerAbove:d.getBoundingClientRect().bottom<s.getBoundingClientRect().top,anchored:Boolean(awayAnchor?.isConnected),following:awayFollow};});
    assert.match(r.label,/^New since (?:yesterday )?\d{1,2}:\d{2}/);
