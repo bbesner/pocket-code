@@ -172,7 +172,7 @@ function chooseBesideNow(loading=false){
   const groups=[['New and libraries',[['new','New conversation','Start a conversation in the new pane']]],['Conversations',[]],['Projects',[]],['Files',[]]];
   for(const s of [...openSessions.slice().reverse(),...allSessions.filter(s=>!isHiddenSession(s))]){
    if(taken.has(s.id)||seen.has(s.id)||isViewId(s.id))continue;seen.add(s.id);const full=allSessions.find(r=>r.id===s.id)||s;
-   groups[1][1].push([s.id,full.title||s.title,[projName(full.cwd),full.provider==='codex'?'Codex':'Claude',full.state?.label].filter(Boolean).join(' · ')]);
+   groups[1][1].push([s.id,full.title||s.title,[projName(full.cwd),full.provider==='codex'?'Codex':full.provider==='acp'?'OpenRouter':'Claude',full.state?.label].filter(Boolean).join(' · ')]);
   }
   if(projectsOn()){
    groups[0][1].push(['projects','Projects','All tracked projects'],['projects/scheduled','Scheduled','Reminders, due first']);

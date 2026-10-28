@@ -615,8 +615,10 @@ function bindRailNavigation() {
 }
 // 1.35: the collapsed setup names the model and reasoning level, so you see what will run without opening it.
 function agentSummary(){
- const model=tbLabel(modelList(),tb.prefs.model),effort=tbLabel(effortList(),tb.prefs.effort);
- return [tb.provider==='codex'?'Codex':'Claude Code',model==='Default'?'':model,effort==='Default'?'default reasoning':effort+' reasoning'].filter(Boolean).join(' · ');
+ const model=tbLabel(modelList(),tb.prefs.model);
+ // the ACP/OpenRouter engine has no reasoning-effort setting, so the summary omits it
+ const effort=tb.provider==='acp'?'':(tbLabel(effortList(),tb.prefs.effort)==='Default'?'default reasoning':tbLabel(effortList(),tb.prefs.effort)+' reasoning');
+ return [tb.provider==='codex'?'Codex':tb.provider==='acp'?'OpenRouter':'Claude Code',model==='Default'?'':model,effort].filter(Boolean).join(' · ');
 }
 function updateNewSummary() {
  const el=document.querySelector('#task-context');if(!el||!tb)return;

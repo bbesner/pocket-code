@@ -116,7 +116,28 @@ async function loadCodexModels() {
   } catch { }
   return CODEX_MODELS;
 }
-const modelList = () => (tb?.provider === 'codex' ? CODEX_MODELS : MODELS);
+// The OpenRouter (ACP) engine's models, fetched once when the engine is enabled. Same row shape
+// as the Claude/Codex lists ([value,label,sub,chip]); the sub carries the tier + context/price.
+let ACP_MODELS = [['default', 'Default', 'The instance default model']];
+let acpEnabled = null; // null = not yet checked; set by loadAcpModels
+async function loadAcpModels() {
+  if (acpEnabled !== null) return ACP_MODELS;
+  try {
+    const { enabled, defaultModel, curated, experimental, error } = await api('/acp/models');
+    acpEnabled = Boolean(enabled);
+    if (enabled) {
+      const defLabel = defaultModel && ([...(curated || []), ...(experimental || [])].find(m => m.slug === defaultModel)?.name || defaultModel);
+      const row = (m, tier) => { const ctx = m.contextLength ? Math.round(m.contextLength / 1000) + 'K ctx' : ''; return [m.slug, m.name, [tier, ctx].filter(Boolean).join(' · '), m.name]; };
+      ACP_MODELS = [['default', 'Default', defLabel ? `${defLabel} · instance default` : 'The instance default model', defLabel || 'Default'],
+        ...(curated || []).map(m => row(m, 'Tested')),
+        ...(experimental || []).map(m => row(m, 'Experimental — unverified'))];
+      providerDefaults.acp = { model: defaultModel || null };
+      if (error) ACP_MODELS.push(['default', 'Catalog unavailable', error]);
+    }
+  } catch { acpEnabled = false; }
+  return ACP_MODELS;
+}
+const modelList = () => (tb?.provider === 'codex' ? CODEX_MODELS : tb?.provider === 'acp' ? ACP_MODELS : MODELS);
 // Default effort row names the level Pocket will send; without one it's the CLI's own setting.
 const effortList = () => {
   const d = providerDefaults[tb?.provider === 'codex' ? 'codex' : 'claude'], name = d.effort && EFFORT_NAMES[d.effort];
@@ -125,7 +146,7 @@ const effortList = () => {
   const allowed = cap ? EFFORTS.filter(([v]) => order.indexOf(v) <= order.indexOf(cap)) : EFFORTS;
   return [['default', 'Default', name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'], ...(offersUltra() ? [['ultra', 'Ultra', 'Maximum, with automatic task delegation']] : []), ...allowed];
 };
-const providerDefaults = { claude: {}, codex: {} };
+const providerDefaults = { claude: {}, codex: {}, acp: {} };
 const EFFORTS = [
   ['max', 'Max', 'Deepest reasoning'],
   ['xhigh', 'X-High', 'Slightly leaner than max'],
@@ -215,11 +236,16 @@ let tb = null; // {key, prefs, attachments:[{path,name}], allowAttach}
 function normalizeModelPick() {
   if (!tb) return;
   const model = tb.prefs.model;
-  const incompatible = tb.provider === 'codex'
+  // ACP models are provider-prefixed OpenRouter slugs; a pick not in the loaded acp list goes back
+  // to Default (same rule as the Claude list), and any Claude/Codex-looking id is incompatible.
+  const incompatible = tb.provider === 'acp'
+    ? /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[)|gpt-|codex(?:$|-)|o\d(?:$|-))/i.test(model)
+    : tb.provider === 'codex'
     ? /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[))/i.test(model)
     : /^(?:gpt-|codex(?:$|-)|o\d(?:$|-))/i.test(model);
   // 1.52: a pick the picker no longer offers (Settings or this computer's Claude Code policy) goes back to Default.
-  const unoffered = tb.provider !== 'codex' && claudeModelsLoaded && model !== 'default' && !MODELS.some(m => m[0] === model);
+  const unoffered = (tb.provider === 'claude' && claudeModelsLoaded && model !== 'default' && !MODELS.some(m => m[0] === model))
+    || (tb.provider === 'acp' && acpEnabled && model !== 'default' && !ACP_MODELS.some(m => m[0] === model));
   if (incompatible || unoffered) {
     tb.prefs.model = 'default';
     setPrefs(tb.key, tb.prefs);
@@ -239,7 +265,7 @@ function renderToolbar() {
   bar.innerHTML = `
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
-    <button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>
+    ${tb.provider === 'acp' ? '' : `<button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>`}
     <button class="chip" id="c-approval" title="Permissions for the next reply" aria-label="Permissions for the next reply: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
     ${tb.provider==='codex'?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
     ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this conversation">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-side" id="side-open" hidden>Side chat</button><button class="chip conversation-branch" id="branch-open" hidden>Branch</button><button class="chip conversation-project" id="project-open" hidden>Project</button><button class="chip conversation-task" id="task-open" hidden>Add task</button>' : ''}`;
@@ -258,7 +284,8 @@ function renderToolbar() {
     ...(vaultOn() ? [['vault','Store in the Vault','Save a key or password here instead of pasting it into the message']] : [])],null,v=>{if(v==='file')$('#fpick')?.click();else if(v==='vault')addVaultItemFromComposer();else pasteClipboardImage();}); // 1.39: the Vault option
   $('#c-model').onclick = () => sheet('Model for this reply', modelList(), tb.prefs.model,
     v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
-  $('#c-eff').onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
+  const eff = $('#c-eff'); // absent on the ACP engine (OpenRouter models take no reasoning-effort setting)
+  if (eff) eff.onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
     v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   if (loadOutbox(tb.key)) {
     bar.querySelectorAll('button:not(#c-mute):not([data-voice-mute]):not(#project-open):not(#task-open):not(#side-open):not(#branch-open)').forEach(b => { b.disabled = true; });
@@ -1454,7 +1481,7 @@ function sessionRowHTML(s) {
   return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}" data-item="${esc(s.id)}">
     <button class="row" data-id="${esc(s.id)}">
       <span class="body"><span class="title">${esc(s.title)}</span>
-      <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${s.provider === 'codex' ? 'Codex' : 'Claude'}${s.branchOf ? ' · Branch' : ''}</span>
+      <span class="meta">${s.pinned ? `<span class="pinmark">${IC.pin}</span>` : ''}${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${s.provider === 'codex' ? 'Codex' : s.provider === 'acp' ? 'OpenRouter' : 'Claude'}${s.branchOf ? ' · Branch' : ''}</span>
       <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : background && !sessionsStale ? '<span class="ember dim" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
       <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
     </button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned conversation ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
@@ -1787,11 +1814,11 @@ function convoResultsHTML() {
   const scope = c.backend === 'memstem' ? 'Searched every conversation by wording and meaning (MemStem).'
     : `Exact phrase in ${c.complete ? 'the' : c.scanned + ' of the'} ${c.total} most recent conversations${c.complete ? '' : ', newest first'}.`;
   const rows = c.results.map(r => {
-    const who = r.related ? 'Related' : r.role === 'user' ? 'You' : r.provider === 'codex' ? 'Codex' : 'Claude';
+    const who = r.related ? 'Related' : r.role === 'user' ? 'You' : r.provider === 'codex' ? 'Codex' : r.provider === 'acp' ? 'OpenRouter' : 'Claude';
     const where = r.cwd && r.cwd !== sessionsHome ? esc(projName(r.cwd)) + ' · ' : '';
     return `<div class="session-item convo-item"><button class="row" data-convo-id="${esc(r.id)}">
       <span class="body"><span class="title">${esc(r.title || 'Untitled conversation')}</span>
-      <span class="meta">${where}${r.provider === 'codex' ? 'Codex' : 'Claude'}${r.mtimeMs ? ' · ' + esc(rel(r.mtimeMs)) : ''}</span>
+      <span class="meta">${where}${r.provider === 'codex' ? 'Codex' : r.provider === 'acp' ? 'OpenRouter' : 'Claude'}${r.mtimeMs ? ' · ' + esc(rel(r.mtimeMs)) : ''}</span>
       <span class="convo-snippet"><span class="convo-who">${who}:</span> ${r.related ? esc(r.snippet || '') : markTerms(r.snippet || '', c.q)}</span></span>
     </button></div>`;
   }).join('');
@@ -3505,6 +3532,7 @@ async function renderNew({ home = false } = {}) {
       <div><span class="h" id="agenth">Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth">
         <button class="row" role="radio" aria-checked="false" data-a="claude"><span class="dot"></span>${IC.term}<span class="p">Claude Code</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="codex"><span class="dot"></span>${IC.term}<span class="p">Codex</span></button>
+        <button class="row" role="radio" aria-checked="false" data-a="acp" hidden><span class="dot"></span>${IC.term}<span class="p">OpenRouter</span></button>
       </div></div>
       <div><span class="h" id="projh">Project</span><div class="projlist" id="plist" role="radiogroup" aria-labelledby="projh"><div class="empty">Loading…</div></div></div>
       <div><label class="h" for="cpath">Or a custom path</label><input type="text" id="cpath" placeholder="/full/path/to/project" autocapitalize="off" autocorrect="off"></div>
@@ -3519,10 +3547,10 @@ async function renderNew({ home = false } = {}) {
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   if (PANE) $('#pane-close').onclick = () => paneSay('close'); else if (home) { $('#settings').onclick = settingsSheet; bindAssistantIntro(); paintAssistantHome(); refreshSessions(); } else $('#back').onclick = () => { location.hash = '#/'; };
-  tb = { key: NEW_KEY, prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs(NEW_KEY), attachments: loadAttachments(NEW_KEY), allowAttach: true, provider: pendingNew?.payload.provider || (localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude') };
+  tb = { key: NEW_KEY, prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs(NEW_KEY), attachments: loadAttachments(NEW_KEY), allowAttach: true, provider: pendingNew?.payload.provider || (['codex','acp'].includes(localStorage.getItem('pc-provider')) ? localStorage.getItem('pc-provider') : 'claude') };
   renderToolbar();
   // which agent runs this session — remembered, since most days you stay on one
-  let provider = pendingNew?.payload.provider || (localStorage.getItem('pc-provider') === 'codex' ? 'codex' : 'claude');
+  let provider = pendingNew?.payload.provider || (['codex','acp'].includes(localStorage.getItem('pc-provider')) ? localStorage.getItem('pc-provider') : 'claude');
   let sel = null;
   // 1.49: Start session on a project card leaves its id here; the session is linked to the project when it starts.
   let startFrom = pendingNew?.payload.project ? { project: pendingNew.payload.project, projectName: pendingNew.payload.projectName || '' } : readLocal('pc-new-start', null);
@@ -3550,11 +3578,18 @@ async function renderNew({ home = false } = {}) {
     });
     tb.provider = a;
     const fm = $('#first');
-    if (fm) fm.placeholder = a === 'codex' ? 'What should Codex work on?' : 'What should Claude work on?';
+    if (fm) fm.placeholder = a === 'codex' ? 'What should Codex work on?' : a === 'acp' ? 'What should OpenRouter work on?' : 'What should Claude work on?';
     renderToolbar();
-    (a === 'codex' ? loadCodexModels() : loadClaudeModels()).then(renderToolbar);context();
+    (a === 'codex' ? loadCodexModels() : a === 'acp' ? loadAcpModels() : loadClaudeModels()).then(renderToolbar);context();
   };
   ap.querySelectorAll('.row').forEach(r => r.onclick = () => pickAgent(r.dataset.a));
+  // The OpenRouter engine is opt-in; show its row only when the server reports it enabled.
+  loadAcpModels().then(() => {
+    const row = ap.querySelector('[data-a="acp"]');
+    if (row) row.hidden = !acpEnabled;
+    if (provider === 'acp' && !acpEnabled) pickAgent('claude'); // a remembered pick that's no longer available
+    bindRadioGroup(ap);
+  });
   pickAgent(provider);
   bindRadioGroup(ap);
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
