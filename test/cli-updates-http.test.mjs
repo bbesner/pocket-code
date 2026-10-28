@@ -11,6 +11,7 @@ test('CLI updater routes require browser authentication, reject cross-site write
  assert.equal((await fetch(base)).status,401);
  assert.equal((await fetch(base,{headers:{authorization:'Bearer '+fs.readFileSync(path.join(dir,'cli-token'),'utf8').trim()}})).status,401);
  assert.equal((await fetch(base+'/upgrade',{method:'POST',headers:{...headers,origin:'https://outside.test'},body:'{}'})).status,403);
+ assert.equal((await fetch(base+'/switch',{method:'POST',headers:{...headers,origin:'https://outside.test'},body:'{}'})).status,403);
  assert.equal((await fetch(base+'/upgrade',{method:'POST',headers:{...headers,'content-type':'text/plain'},body:'{}'})).status,415);
  assert.equal((await fetch(base+'/upgrade',{method:'POST',headers,body:JSON.stringify({selections:[{key:'claude',version:'1.2.3; echo nope'}]})})).status,409);
  const s=await(await fetch(base,{headers})).json();assert.equal(s.hour,4);assert.equal(s.providers[0].canUpgrade,false);assert.equal(s.job,null);assert.equal(fs.existsSync(path.join(dir,'cli-runtimes','state.json')),false,'no automatic install or network check for custom runtime');
@@ -31,8 +32,24 @@ test('selected binaries survive restart; existing Claude and Codex processes are
  t.after(async()=>{await stop();for(const key of ['claude','codex']){try{for(const m of metas(key))for(const pid of [m.pid,m.keeperPid]){try{process.kill(-pid,'SIGKILL');}catch{}}}catch{}}fs.rmSync(dir,{recursive:true,force:true});});
  await boot();const sessions={};
  for(const key of ['claude','codex']){sessions[key]=(await call('/new',{cwd:dir,provider:key,text:'first message',clientMessageId:crypto.randomUUID()})).id;await idle();}
- const previous=Object.fromEntries(['claude','codex'].map(k=>[k,metas(k)[0]]));await stop();
+ const previous=Object.fromEntries(['claude','codex'].map(k=>[k,metas(k)[0]]));
+ await call('/session/'+sessions.claude+'/message',{text:'__HANG__ working',clientMessageId:crypto.randomUUID()});
+ await stop();
  fs.writeFileSync(path.join(runtime,'state.json'),JSON.stringify({providers:Object.fromEntries(['claude','codex'].map(key=>[key,{active:{bin:path.join(runtime,key+'.mjs'),version:'2.0.0'}}])),job:null}));
  await boot();
- for(const key of ['claude','codex']){assert.equal(metas(key)[0].pid,previous[key].pid,'restart must adopt the old process');await call('/session/'+sessions[key]+'/message',{text:'second message',clientMessageId:crypto.randomUUID()});await idle();const current=metas(key).find(m=>m.cliBin===path.join(runtime,key+'.mjs'));assert.ok(current,key+' wrote the selected binary to process metadata');assert.notEqual(current.pid,previous[key].pid,'next turn uses a new process');assert.equal(current.cliBin,path.join(runtime,key+'.mjs'));}
+ for(const key of ['claude','codex']){
+  assert.equal(metas(key)[0].pid,previous[key].pid,'restart must adopt the old process');
+  const provider=(await call('/cli-updates')).providers.find(p=>p.key===key);
+  assert.equal(provider.olderSessions,1);
+  assert.equal(provider.older[0].id,sessions[key]);assert.equal(provider.older[0].busy,key==='claude');
+  if(key==='claude'){
+   assert.equal((await fetch(base+'/api/cli-updates/switch',{method:'POST',headers,body:JSON.stringify({key,id:sessions[key],interrupt:false})})).status,409,'idle action refuses a running turn');
+   assert.equal((await fetch(base+'/api/cli-updates/switch',{method:'POST',headers,body:JSON.stringify({key,id:sessions[key],interrupt:true})})).status,202,'explicit stop interrupts only the selected turn');
+   await idle();
+  }else assert.equal((await fetch(base+'/api/cli-updates/switch',{method:'POST',headers,body:JSON.stringify({key,id:sessions[key],interrupt:false})})).status,202,'an explicit switch can release an idle process');
+  for(let i=0;i<100&&metas(key).some(m=>m.pid===previous[key].pid);i++)await new Promise(r=>setTimeout(r,30));
+  assert.equal((await call('/cli-updates')).providers.find(p=>p.key===key).olderSessions,0);
+  await call('/session/'+sessions[key]+'/message',{text:'second message',clientMessageId:crypto.randomUUID()});await idle();
+  const current=metas(key).find(m=>m.cliBin===path.join(runtime,key+'.mjs'));assert.ok(current,key+' wrote the selected binary to process metadata');assert.notEqual(current.pid,previous[key].pid,'next turn uses a new process');assert.equal(current.cliBin,path.join(runtime,key+'.mjs'));
+ }
 });

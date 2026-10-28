@@ -38,6 +38,25 @@ export async function runCliUpdateRegressions({browser,base,out}){
   // The success notice is visible after a closed-browser completion and read only once.
   await page.keyboard.press('Escape');state.providers.forEach(p=>{p.installed=p.latest;p.available=false;});state.job={id:'success-job',running:false,phase:'complete',results:[{key:'claude',version:'2.1.0'}]};
   await page.evaluate(()=>pollCliUpdates());assert.match(await page.$eval('.cli-update-notice',e=>e.textContent),/complete/);await page.click('.cli-update-notice');await page.waitForFunction(()=>document.querySelector('#cli-job').textContent.includes('Upgrade complete'));
+  await page.keyboard.press('Escape');state.job=null;
+  state.providers[0].olderSessions=1;state.providers[0].older=[{key:'claude',id:'12345678-1234-1234-1234-123456789abc',title:'Review invoices',busy:false,version:'2.0.0'}];
+  state.providers[1].olderSessions=1;state.providers[1].older=[{key:'codex',id:'cx:12345678-1234-1234-1234-123456789abd',title:'Build report',busy:true,version:'0.150.0'}];
+  await page.evaluate(()=>pollCliUpdates());await page.waitForFunction(()=>document.querySelector('.cli-update-notice')?.textContent.includes('2 conversations'));
+  await page.click('.cli-update-notice');await page.waitForSelector('[data-cli-switch]');
+  assert.equal(await page.$$eval('[data-cli-switch]',es=>es.length),2);
+  assert.match(await page.$eval('.cli-updates-sheet',e=>e.textContent),/Restarting Pocket keeps those processes/);
+  assert.match(await page.$eval('[data-cli-interrupt="true"]',e=>e.textContent),/Stop work & switch/);
+  await page.setViewport({width:390,height:900,isMobile:false,hasTouch:false});
+  await new Promise(r=>setTimeout(r,350)); // let the sheet's entrance finish before contrast is measured
+  assert.ok(await page.$eval('.cli-updates-sheet',e=>e.getBoundingClientRect().width)<=390);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'older session actions fit the phone');
+  await page.addScriptTag({path:path.resolve('node_modules/axe-core/axe.min.js')});
+  const olderAxe=await page.evaluate(async()=>axe.run('.cli-updates-sheet',{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+  assert.deepEqual(olderAxe.violations.map(x=>({id:x.id,nodes:x.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})),[]);
+  await page.screenshot({path:path.join(out,'cli-updates-older-390.png')});
+  if(process.env.POCKET_DESIGN_SCANNER){await page.addScriptTag({path:process.env.POCKET_DESIGN_SCANNER});fs.writeFileSync(path.join(out,'cli-updates-older-design-390.json'),JSON.stringify(await page.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false})),null,2));}
+  await page.click('[data-cli-interrupt="false"]');
+  assert.deepEqual(posts.at(-1),{key:'claude',id:state.providers[0].older[0].id,interrupt:false});
   assert.deepEqual(errors,[]);console.log('CLI update browser checks passed: review, explicit selection, reconnect, failure, retry, success, accessibility at 390/1440.');
  }finally{await page.close();}
 }

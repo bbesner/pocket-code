@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.86.1] — 2026-10-28 · build 178
+
+- CLI upgrade status now flags every Claude Code and Codex conversation still using an older process, with its title, old version and working/idle state. Idle processes can be released immediately; stopping active work requires an explicit confirmation and the next turn uses the selected CLI. Pocket does not restart the service to switch versions.
+- The update notice remains visible until older processes have switched.
+- Migration: none. Frontend assets bump to build 178.
+
 ## [1.86.0] — 2026-10-28 · build 177
 
 Requested by Brad after comparing OpenRouter conversations with Claude Code and Codex: his message was hidden until the reply, there were no question cards or reply buttons, "and any time we add features, they should always apply to all sessions, not just one model's sessions."
