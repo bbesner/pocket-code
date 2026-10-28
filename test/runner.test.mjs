@@ -286,3 +286,31 @@ test('a request still waiting when the reply ends is carried to a stand-in turn 
  assert.ok(await f.until(async()=>await f.state(id)==='finished',6000));
  assert.equal((f.logs().match(/turn done session=/g)||[]).length,2,'the stand-in turn records no outcome of its own');
 });
+
+// 1.83: the / picker offers the built-ins the CLI reports on its init line and its plugin skills; a slash command and its
+// output read back after a reload as typed and as the reply, and a skill's own instructions are not shown as the message.
+test('slash commands: the CLI\'s own list reaches the picker, and a command reads back as typed with its output',async t=>{
+ const f=await fixture(t,18762);
+ const before=(await f.call('/commands?provider=claude&cwd='+encodeURIComponent(repo))).body;
+ assert.equal(before.available,null,'unknown until a reply has started');
+ const id=(await f.call('/new',{cwd:repo,...msg('setup')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ const r=(await f.call('/commands?provider=claude&cwd='+encodeURIComponent(repo))).body;
+ assert.deepEqual(r.available,['context','compact','init','anthropic-skills:pdf'],'internal names are left out');
+ const pdf=r.commands.find(c=>c.name==='anthropic-skills:pdf');
+ assert.ok(pdf,'a plugin skill that is not on disk is offered');assert.equal(pdf.label,'pdf');
+ const file=path.join(f.dir,'sessions','test-workspace',fs.readdirSync(path.join(f.dir,'sessions','test-workspace')).find(n=>n.startsWith(id)));
+ const ts=new Date().toISOString(),line=o=>fs.appendFileSync(file,JSON.stringify({sessionId:id,timestamp:ts,...o})+'\n');
+ line({type:'user',isMeta:true,message:{role:'user',content:'<local-command-caveat>The command below was run directly.</local-command-caveat>'}});
+ line({type:'user',message:{role:'user',content:'<command-name>/context</command-name>\n            <command-message>context</command-message>\n            <command-args></command-args>'}});
+ line({type:'system',subtype:'local_command',content:'<local-command-stdout>## Context Usage\n\n**Tokens:** 31.8k / 1m</local-command-stdout>'});
+ line({type:'user',message:{role:'user',content:'<command-message>hello</command-message>\n<command-name>/hello</command-name>\n<command-args>there</command-args>'}});
+ line({type:'user',isMeta:true,message:{role:'user',content:[{type:'text',text:'Reply with exactly the word: hi\n\nARGUMENTS: there'}]}});
+ line({type:'user',isMeta:true,message:{role:'user',content:'Another Claude session sent a message: check the build'}});
+ const m=(await f.call(`/session/${id}`)).body.messages.slice(-4);
+ assert.deepEqual(m.map(x=>x.role),['user','assistant','user','user']);
+ assert.equal(m[0].text,'/context');
+ assert.match(JSON.stringify(m[1].blocks),/Context Usage/,'the command\'s output is the reply');
+ assert.equal(m[2].text,'/hello there','typed command with its arguments, not the skill body');
+ assert.equal(m[3].text,'Another Claude session sent a message: check the build','a message from another session still shows');
+});

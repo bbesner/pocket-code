@@ -2580,7 +2580,7 @@ async function renderChat(id, { away = false } = {}) {
     </div>
     <div class="fmore" id="fmore" hidden></div></section>
     <main class="scroll"><div class="msgs" id="msgs"></div></main>
-    <section class="composerwrap" aria-label="Message composer"><div class="delivery-status" id="delivery-status" role="status" hidden></div><div class="slash" id="slash" hidden></div><div class="voice-strip" id="voice-strip" role="status" aria-live="polite" hidden></div><div class="composer" id="comp"></div></section>`;
+    <section class="composerwrap" aria-label="Message composer"><div class="delivery-status" id="delivery-status" role="status" hidden></div><div class="slash" id="slash" role="listbox" aria-label="Commands and skills" tabindex="0" hidden></div><div class="voice-strip" id="voice-strip" role="status" aria-live="polite" hidden></div><div class="composer" id="comp"></div></section>`;
   app.innerHTML = withShell(chatCol) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   if (PANE) { $('#pane-main').onclick = () => paneSay('main'); $('#pane-close').onclick = () => paneSay('close'); }
@@ -2627,9 +2627,9 @@ async function renderChat(id, { away = false } = {}) {
   (isCx ? loadCodexModels() : loadClaudeModels()).then(renderToolbar);
   chatMuted = Boolean(s.muted);
   if(s.executionMode){tb.prefs.executionMode=s.executionMode;setPrefs(id,tb.prefs);}
-  chatCmds = null;
-  // 1.79.1: /btw is offered on Codex too, and picking it types /btw rather than a skill line
-  api('/commands?provider=' + (isCx?'codex':'claude') + '&cwd=' + encodeURIComponent(s.cwd || '')).then(r => { chatCmds = [{ name: 'btw', desc: 'Ask in a side chat, without adding to this conversation', invocation: '/btw' }, ...(r.commands || []).filter(c => c.name !== 'btw')]; }).catch(() => { });
+  slashCwd = s.cwd || '';
+  // 1.83: the / picker's skills and the CLI's own commands for this folder (1.79.1: /btw on Codex too, in SLASH_POCKET)
+  slashLists.delete((isCx ? 'codex' : 'claude') + '|' + slashCwd); slashLoad(isCx ? 'codex' : 'claude', slashCwd);
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const msgs = $('#msgs');
   paintTranscript(id, s, msgs);
@@ -3053,22 +3053,122 @@ function scrollBottom(force) {
   if (force || near) m.scrollTop = m.scrollHeight;
 }
 
-let chatCmds = null;
-function slashUpdate(box) {
-  const panel = $('#slash'); if (!panel) return;
-  const v = box.value;
-  const m = v.match(/^\/([\w:-]*)$/);
-  if (!m || !chatCmds) { panel.hidden = true; return; }
-  const hits = chatCmds.filter(c => c.name.startsWith(m[1])).slice(0, 8);
-  if (!hits.length) { panel.hidden = true; return; }
-  panel.innerHTML = hits.map(c => `
-    <button data-n="${esc(c.name)}"><span class="cmd">/${esc(c.name)}</span>${c.desc ? `<span class="d">${esc(c.desc)}</span>` : ''}</button>`).join('');
-  panel.querySelectorAll('button').forEach(b => b.onclick = () => {
-    const skill=chatCmds.find(s=>s.name===b.dataset.n);
-    box.value = (tb?.provider==='codex'?(skill?.invocation||'Use the $'+b.dataset.n+' skill.'):'/'+b.dataset.n)+' ';
-    saveDraft(chatId,box.value);panel.hidden = true; box.focus();
-  });
+/* ---------- 1.83: the / picker ---------- */
+// Typing / at the start of a message lists what can go there, like the terminal: the Claude Code commands most worth
+// having (sent to the session, and only those this CLI reports on its init line), Pocket's own actions (they run here
+// and send nothing), then the installed skills. Arrow keys move, Enter or Tab picks, Escape closes. A command that needs nothing
+// more is sent as soon as it is picked in a conversation; the rest are typed in, ready for the rest of the message.
+const SLASH_POCKET = [
+  { name: 'btw', desc: 'Ask in a side chat, without adding to this conversation', where: 'chat', working: true, insert: true, ok: () => SideChat.available(chatId) },
+  { name: 'branch', desc: 'Start a saved conversation that carries on from here', where: 'chat', working: true, ok: () => SideChat.available(chatId), act: () => Branch.open(chatId) },
+  { name: 'new', desc: 'Start a new conversation in this folder', where: 'chat', working: true, act: () => { writeLocal('pc-new-start', { cwd: slashCwd }); localStorage.setItem('pc-provider', tb?.provider === 'codex' ? 'codex' : 'claude'); location.hash = '#/new'; } },
+  { name: 'model', desc: 'Choose the model for the next reply', where: 'both', ok: () => $('#c-model'), act: () => $('#c-model')?.click() },
+  { name: 'effort', desc: 'Choose how much it thinks before answering', where: 'both', ok: () => $('#c-eff'), act: () => $('#c-eff')?.click() },
+  { name: 'usage', desc: 'See how much of your plan is used', where: 'both', working: true, act: () => openUsagePanel() },
+];
+const SLASH_CLAUDE = [
+  { name: 'compact', arg: 'focus', desc: 'Summarize the conversation so far to free up context', where: 'chat' },
+  { name: 'context', desc: 'Show what is filling the context window', where: 'chat', run: true },
+  { name: 'recap', desc: 'Sum up where this conversation stands', where: 'chat', run: true },
+  { name: 'init', desc: 'Write a CLAUDE.md that describes this project', where: 'both', run: true },
+  { name: 'code-review', arg: 'level', desc: 'Review the current changes for bugs', where: 'both' },
+  { name: 'security-review', desc: 'Check the pending changes for security problems', where: 'both', run: true },
+  { name: 'simplify', desc: 'Clean up the code that was just changed', where: 'both', run: true },
+  { name: 'mcp', desc: 'Show which MCP servers are connected', where: 'chat', run: true },
+];
+const slashLists = new Map(); // provider|cwd -> {skills, available}, or a promise while it loads
+let slashCwd = '';
+function slashLoad(provider, cwd) {
+  const key = provider + '|' + cwd, have = slashLists.get(key);
+  if (have) return have;
+  const p = api('/commands?provider=' + provider + '&cwd=' + encodeURIComponent(cwd || ''))
+    .then(r => { const v = { skills: r.commands || [], available: Array.isArray(r.available) ? r.available : null }; slashLists.set(key, v); return v; })
+    .catch(() => { slashLists.delete(key); return { skills: [], available: null }; });
+  slashLists.set(key, p);
+  return p;
+}
+// 0 exact, 1 starts the name, 2 starts a word of it, 3 inside it, 4 in the description; -1 no match
+function slashScore(c, q) {
+  if (!q) return 1;
+  const n = c.name.toLowerCase();
+  if (n === q) return 0;
+  if (n.startsWith(q)) return 1;
+  if (n.split(/[-_:]/).some(w => w.startsWith(q))) return 2;
+  if (n.includes(q)) return 3;
+  return ((c.label || '') + ' ' + (c.desc || '')).toLowerCase().includes(q) ? 4 : -1;
+}
+function slashGroups(q, { where, provider, working, list }) {
+  const fits = c => (c.where === 'both' || c.where === where) && (!working || c.working) && (!c.ok || c.ok());
+  const pocket = SLASH_POCKET.filter(fits);
+  const known = list?.available ? new Set(list.available) : null;
+  const claude = provider === 'codex' ? [] : SLASH_CLAUDE.filter(c => fits(c) && (!known || known.has(c.name)));
+  const taken = new Set([...SLASH_POCKET, ...SLASH_CLAUDE].map(c => c.name));
+  const skills = working ? [] : (list?.skills || []).filter(c => !taken.has(c.name)).map(c => ({ ...c, kind: 'skill' }));
+  const rank = arr => arr.map((c, i) => ({ c, s: slashScore(c, q), i })).filter(x => x.s >= 0).sort((a, b) => a.s - b.s || a.i - b.i);
+  const groups = [['Claude Code', rank(claude)], ['Pocket', rank(pocket)], ['Skills', rank(skills)]];
+  // a description is only searched when no name matches: /con is context and compact, not every "conversation"
+  const byName = groups.some(([, hits]) => hits.some(x => x.s < 4));
+  return groups.map(([t, hits]) => [t, byName ? hits.filter(x => x.s < 4) : hits]).filter(([, hits]) => hits.length);
+}
+function slashClose(box) {
+  const panel = box?.closest('.composerwrap')?.querySelector('.slash'); if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+  box?.removeAttribute('aria-activedescendant');
+}
+// ctx: { where: 'chat' | 'new', provider, cwd, working, onRun(text) }
+function slashUpdate(box, ctx) {
+  const panel = box.closest('.composerwrap')?.querySelector('.slash'); if (!panel) return;
+  const m = box.value.match(/^\/([\w:-]*)$/);
+  if (!m) return slashClose(box);
+  const q = m[1].toLowerCase();
+  const loaded = slashLists.get(ctx.provider + '|' + (ctx.cwd || ''));
+  if (!loaded || loaded instanceof Promise) slashLoad(ctx.provider, ctx.cwd || '').then(() => { if (box.isConnected && box.value === m[0]) slashUpdate(box, ctx); });
+  const groups = slashGroups(q, { ...ctx, list: loaded instanceof Promise ? null : loaded });
+  if (!groups.length) return slashClose(box);
+  const items = [];
+  let best = null;
+  panel.innerHTML = groups.map(([title, hits], g) => `<div role="group" aria-labelledby="slash-g${g}"><div class="slash-h" id="slash-g${g}">${esc(title)}</div>${hits.map(({ c, s }) => {
+    const i = items.push(c) - 1; if (!best || s < best.s) best = { i, s };
+    return `<button type="button" role="option" tabindex="-1" id="slash-o${i}" data-i="${i}" data-n="${esc(c.name)}" aria-selected="false"><span class="cmd">/${esc(c.name)}</span>${c.arg ? `<span class="arg">${esc(c.arg)}</span>` : ''}${c.desc ? `<span class="d">${esc(c.desc)}</span>` : ''}</button>`;
+  }).join('')}</div>`).join('');
   panel.hidden = false;
+  const select = i => {
+    panel.querySelectorAll('[role=option]').forEach(o => o.setAttribute('aria-selected', String(Number(o.dataset.i) === i)));
+    const o = panel.querySelector('#slash-o' + i); if (!o) return;
+    box.setAttribute('aria-activedescendant', o.id); o.scrollIntoView({ block: 'nearest' });
+  };
+  const pick = i => {
+    const c = items[i]; if (!c) return;
+    slashClose(box);
+    if (c.act) { box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); c.act(); return; }
+    const text = ctx.provider === 'codex' && !c.insert ? (c.invocation || 'Use the $' + c.name + ' skill.') : '/' + c.name;
+    if (c.run && ctx.where === 'chat' && ctx.onRun) { box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); ctx.onRun(text); return; }
+    box.value = text + ' '; box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.focus(); box.setSelectionRange(box.value.length, box.value.length);
+  };
+  select(best.i);
+  panel.onmousedown = e => e.preventDefault(); // the message box keeps focus (and the phone keyboard stays up)
+  panel.onclick = e => { const o = e.target.closest('[role=option]'); if (o) pick(Number(o.dataset.i)); };
+  panel.slash = { select, pick, count: items.length };
+}
+// Arrow keys, Enter, Tab and Escape while the picker is open; true when the key was the picker's
+function slashKey(e, box) {
+  const panel = box.closest('.composerwrap')?.querySelector('.slash');
+  if (!panel || panel.hidden || !panel.slash || e.isComposing) return false;
+  const cur = Number(panel.querySelector('[aria-selected="true"]')?.dataset.i ?? 0), n = panel.slash.count;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); panel.slash.select((cur + (e.key === 'ArrowDown' ? 1 : n - 1)) % n); return true; }
+  if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') { e.preventDefault(); panel.slash.pick(cur); return true; }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); slashClose(box); return true; }
+  return false;
+}
+function bindSlash(box, ctx) {
+  box.setAttribute('aria-controls', box.closest('.composerwrap')?.querySelector('.slash')?.id || '');
+  box.setAttribute('aria-autocomplete', 'list');
+  // after a tap on an option lands; the list itself can take focus (it scrolls), and keeps the message box's keys
+  box.addEventListener('blur', () => setTimeout(() => { const a = document.activeElement; if (a !== box && !a?.closest?.('.slash')) slashClose(box); }, 150));
+  const panel = box.closest('.composerwrap')?.querySelector('.slash');
+  if (panel) panel.onkeydown = e => { if (slashKey(e, box)) box.focus(); };
+  box.addEventListener('keydown', e => { if (slashKey(e, box)) e.stopImmediatePropagation(); }, true);
+  return () => slashUpdate(box, typeof ctx === 'function' ? ctx() : ctx);
 }
 
 const sendModes = new Map();
@@ -3089,7 +3189,7 @@ function setComposer(working) {
     <div class="composer-entry">
     ${working ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this reply" aria-label="After this reply">After <span class="sm-x">this </span>reply</button></div>' : ''}
     ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button>${ctxRingHTML()}</div>` : ''}
-    <textarea id="box" rows="1" placeholder="${working ? (assistantMode() ? 'Send this after the current reply…' : "Add to what it's doing…") : 'Reply…'}" enterkeyhint="send"></textarea>
+    <textarea id="box" rows="1" placeholder="${working ? (assistantMode() ? 'Send this after the current reply…' : "Add to what it's doing…") : (assistantMode() ? 'Reply…' : 'Reply, or / for commands')}" enterkeyhint="send"></textarea>
     ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button></div>`;
   if (typeof paintChatProject === 'function') paintChatProject(); // the toolbar's chip, or the working row's folder button
   if (typeof paintChatTask === 'function') paintChatTask();
@@ -3110,10 +3210,11 @@ function setComposer(working) {
   const grow = () => sizeComposerBox();
   const draft = loadOutbox(chatId)?.text || loadDraft(chatId);
   if (draft) { box.value = draft; grow(); }
+  const slash = bindSlash(box, () => ({ where: 'chat', provider: tb?.provider === 'codex' ? 'codex' : 'claude', cwd: slashCwd, working, onRun: t => sendMsg(t) }));
   box.oninput = () => {
     grow();
     saveDraft(chatId, box.value);
-    if (!working) slashUpdate(box);
+    slash();
     paintChoices();                                   // typing your own answer hides the suggested replies
   };
   box.onkeydown = e => { // desktop: Enter sends, Shift+Enter for a newline
@@ -3410,7 +3511,7 @@ async function renderNew({ home = false } = {}) {
       </div></details>
       ${home ? '<section class="home-recent" id="home-recent" aria-labelledby="home-recent-h"></section>' : ''}
     </div></main>
-    <section class="composerwrap" aria-label="New conversation message"><div id="new-delivery" class="delivery-status" role="status" hidden></div><p class="start-hint" id="start-hint" role="alert" hidden></p><div class="voice-strip" id="voice-strip" role="status" aria-live="polite" hidden></div>
+    <section class="composerwrap" aria-label="New conversation message"><div id="new-delivery" class="delivery-status" role="status" hidden></div><div class="slash" id="slash" role="listbox" aria-label="Commands and skills" tabindex="0" hidden></div><p class="start-hint" id="start-hint" role="alert" hidden></p><div class="voice-strip" id="voice-strip" role="status" aria-live="polite" hidden></div>
       <div class="composer" id="comp"><div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>
         <div class="composer-entry"><div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button><button class="icon" id="choose-skill" aria-label="Choose a skill" title="Choose a skill">${IC.spark}</button><button class="icon" id="save-prompt" aria-label="Save as prompt" title="Save as prompt" disabled>${IC.bookmark}</button></div>
         <textarea id="first" rows="1" placeholder="Describe the task, or choose a skill" enterkeyhint="send" aria-describedby="start-hint"></textarea>
@@ -3460,7 +3561,8 @@ async function renderNew({ home = false } = {}) {
   const first = $('#first');
   first.value = pendingNew?.payload.text || loadDraft(NEW_KEY);
   let savedPrompts = [], recentStarts = [], activeStarter = null; // 1.23 (declared before the handlers that read them)
-  first.oninput = () => { sizeComposerBox(); saveDraft(NEW_KEY, first.value); const h = $('#start-hint'); if (h) h.hidden = true; paintSaveButton(); if (activeStarter && first.value !== activeStarter.text) { activeStarter = null; paintStarters(); } };
+  const slashNew = bindSlash(first, () => ({ where: 'new', provider, cwd: $('#cpath')?.value.trim() || sel || '' }));
+  first.oninput = () => { sizeComposerBox(); saveDraft(NEW_KEY, first.value); slashNew(); const h = $('#start-hint'); if (h) h.hidden = true; paintSaveButton(); if (activeStarter && first.value !== activeStarter.text) { activeStarter = null; paintStarters(); } };
   first.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && isWide()) { e.preventDefault(); startSession(); } }; // like the conversation: Enter starts, Shift+Enter for a newline
   sizeComposerBox();
   try {

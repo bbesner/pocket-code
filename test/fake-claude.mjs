@@ -123,7 +123,7 @@ lines.on('line',line=>{
     // __USAGE__: emit the rate-limit and context figures the real CLI reports
     const usage=text.includes('__USAGE__');
     const model='claude-opus-5-5[1m]';
-    console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));
+    console.log(JSON.stringify({type:'system',subtype:'init',session_id:id,slash_commands:['context','compact','init','anthropic-skills:pdf','__remote-workflow']}));
     if(usage)console.log(JSON.stringify({type:'rate_limit_event',rate_limit_info:{status:'allowed',resetsAt:1791141000,rateLimitType:'five_hour',overageStatus:'rejected',overageDisabledReason:'out_of_credits',isUsingOverage:false,unifiedWindows:{five_hour:{utilization:0.07,resetsAt:1791141000},seven_day:{utilization:0.02,resetsAt:1791295200}}},session_id:id}));
     const assistantMsg={type:'assistant',message:{role:'assistant',content:[{type:'text',text:text.includes('__CHOICES__')?'Tests pass. Should I merge and deploy?\n\n```choices\nMerge and deploy\nDon\'t merge yet\n```':text.includes('__FILE__ ')?'Here it is: [The deck]('+text.slice(text.indexOf('__FILE__ ')+9).split(/\s/)[0]+')':'Test response.'}],...(usage?{model,usage:{input_tokens:900,cache_read_input_tokens:800,cache_creation_input_tokens:300,cache_creation:{ephemeral_1h_input_tokens:300,ephemeral_5m_input_tokens:0}}}:{})}};
     append(assistantMsg);

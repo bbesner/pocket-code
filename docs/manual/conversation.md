@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.82.0
+checked: 1.83.0
 sources: choices.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -47,20 +47,50 @@ references survive a reload on the same browser.
 
 ### Use slash commands and skills
 
-Type `/` at the start of an empty message box to see matching commands, up to eight at a time, each with its description.
+Type `/` at the start of the message box to open the list of commands, on New conversation as well as in a conversation.
+Keep typing to narrow it: names are matched first, and descriptions only when no name matches. The best match is
+selected. On a computer, use the up and down arrows, then Enter or Tab to pick and Escape to close; on a phone, tap one.
 
-- For Claude, the list is the skills and commands in `~/.claude/skills` and `~/.claude/commands`, plus the conversation
-  folder's own `.claude/skills` and `.claude/commands`. A skill whose `SKILL.md` says `user-invocable: false` is left out.
-  Picking one types `/name ` into the box.
-- For Codex, the list is the skills Codex reports for the conversation's folder. Picking one types a line such as
-  `Use the $name skill at <path>.`
-- `/btw` is first in both lists and opens the [side chat](#ask-a-side-question-side-chat).
+The list has three groups:
 
-Pocket handles only `/btw` itself. Any other `/command` is sent to the agent as you typed it, so the CLI's own
-commands and skills work as they do in a terminal.
+- **Claude Code** (Claude conversations): the CLI's own commands that work through Pocket. Pocket offers only the
+  ones your Claude Code lists, so one it does not have is left out.
 
-On the **New conversation** screen, the spark button **Choose a skill** opens a searchable list of the same skills and puts the
-chosen one at the top of your first message.
+  | Command | What it does |
+  |---------|--------------|
+  | `/compact [focus]` | Summarizes the conversation so far to free up context; add what to keep in focus, or send it as is |
+  | `/context` | Shows what is filling the context window |
+  | `/recap` | Sums up where the conversation stands |
+  | `/init` | Writes a `CLAUDE.md` that describes the project |
+  | `/code-review [level]` | Reviews the current changes for bugs |
+  | `/security-review` | Checks the pending changes for security problems |
+  | `/simplify` | Cleans up the code that was just changed |
+  | `/mcp` | Shows which MCP servers are connected |
+
+- **Pocket**: actions Pocket runs itself. Nothing is sent to the agent.
+
+  | Command | What it does |
+  |---------|--------------|
+  | `/btw` | Opens the [side chat](#ask-a-side-question-side-chat); type your question after it |
+  | `/branch` | Opens [Branch](#branch-into-a-new-conversation) |
+  | `/new` | Starts a new conversation in this conversation's folder |
+  | `/model`, `/effort` | Open the model and effort choices, the same as the chips |
+  | `/usage` | Opens Plan usage |
+
+- **Skills**: for Claude, the skills and commands in `~/.claude/skills` and `~/.claude/commands`, the conversation
+  folder's own `.claude/skills` and `.claude/commands`, and plugin skills (`plugin:skill`). A skill whose `SKILL.md` says
+  `user-invocable: false` is left out. For Codex, the skills Codex reports for the conversation's folder.
+
+In a conversation, a command that needs nothing more (`/context`, `/recap`, `/init`, …) is sent as soon as you pick it.
+The others are typed into the box with a space after them, ready for the rest of the message. A Codex skill is typed as
+its skill line, such as `Use the $name skill at <path>.` While a reply is running, only `/btw`, `/branch`, `/new` and
+`/usage` are offered. On New conversation, only what works without a conversation is offered, and picking one types it in.
+
+Any `/command` you type in full is sent to the agent as typed, so every command and skill of the CLI works as it does in
+a terminal, listed or not. A command's answer, such as the `/context` table, shows as the reply and stays after a reload.
+
+On the **New conversation** screen, the spark button **Choose a skill** also opens a searchable list of the skills and
+puts the chosen one at the top of your first message.
 
 ### Pick a suggested reply
 
