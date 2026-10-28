@@ -46,5 +46,7 @@ export function tierModels(models, curated = []) {
   return { curated: curatedTier, experimental };
 }
 
-// The default curated set: the model the owner asked for and we have probed end-to-end.
-export const DEFAULT_CURATED = ['deepseek/deepseek-v4.1-flash-1017'];
+// The default curated set: the model the owner asked for and we have probed end-to-end. Stored as
+// the engine slug (openrouter/<id>) — that is the model id passed to OpenCode; tierModels matches
+// curated against both id and slug, so catalog rows (keyed by id) still tier correctly.
+export const DEFAULT_CURATED = ['openrouter/deepseek/deepseek-v4.1-flash-1017'];

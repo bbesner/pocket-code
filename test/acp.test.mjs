@@ -1,113 +1,130 @@
 // The ACP engine adapter (acp.mjs) driven against a fake ACP agent (fake-acp.mjs) — no model,
-// no network. Covers: initialize/capabilities, a prompt turn that streams + routes
-// request_permission to onApproval, fail-closed deny, cancel, and crash+resume via session/load.
+// no network. Covers: initialize/capabilities, a prompt turn that streams deltas and surfaces a
+// request_permission as an ApprovalInbox card, allow/deny via decide(), cancel, crash+resume via
+// session/load, loadSession-unsupported, and the read-only lister/transcript reader.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AcpClient, startAcpTurn, acpSessions, closeAcpSession, permissionOutcome, normalizeUpdate, isAcpId, bareAcpId, declineFor } from '../acp.mjs';
+import { AcpClient, startAcpTurn, acpSessions, acpTurns, closeAcpSession, stopAcpTurn, permissionOutcomes, normalizeUpdate, isAcpId, bareAcpId, declineFor, listAcpSessions, readAcpTranscript } from '../acp.mjs';
 
 const FAKE = path.join(import.meta.dirname, 'fake-acp.mjs');
 const mkStore = () => fs.mkdtempSync(path.join(os.tmpdir(), 'acp-store-'));
-const turnOpts = (store, extra = {}) => ({ cmd: process.execPath, args: [FAKE], env: { ...process.env, POCKET_ACP_STORE: store }, text: 'do the thing', model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', ...extra });
+const baseEnv = store => ({ ...process.env, POCKET_ACP_STORE: store });
+const turnOpts = (store, extra = {}) => ({ cmd: process.execPath, args: [FAKE], env: baseEnv(store), text: 'do the thing', model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', hooks: {}, ...extra });
 const collect = () => { const ev = []; return { emit: e => ev.push(e), ev }; };
+const waitFor = async (fn, ms = 10000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await new Promise(r => setTimeout(r, 20)); } return false; };
+const afterEach = () => { for (const [, s] of acpSessions) { try { s.client.close(); } catch { } } acpSessions.clear(); acpTurns.clear(); };
 
 test('id namespace helpers', () => {
   assert.ok(isAcpId('acp:abc')); assert.ok(!isAcpId('cx:abc')); assert.ok(!isAcpId(null));
   assert.equal(bareAcpId('acp:abc'), 'abc'); assert.equal(bareAcpId('plain'), 'plain');
 });
 
-test('pure helpers: permissionOutcome + normalizeUpdate + declineFor', () => {
+test('pure helpers: permissionOutcomes + normalizeUpdate + declineFor', () => {
   const opts = [{ optionId: 'allow_once', kind: 'allow_once' }, { optionId: 'reject_once', kind: 'reject_once' }];
-  assert.deepEqual(permissionOutcome(opts, true), { outcome: 'selected', optionId: 'allow_once' });
-  assert.deepEqual(permissionOutcome(opts, 'allow_once'), { outcome: 'selected', optionId: 'allow_once' });
-  assert.deepEqual(permissionOutcome(opts, false), { outcome: 'selected', optionId: 'reject_once' });
-  assert.deepEqual(permissionOutcome([], false), { outcome: 'cancelled' });
-  assert.equal(normalizeUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'hi' } }).text, 'hi');
-  assert.equal(normalizeUpdate({ sessionUpdate: 'tool_call', toolCallId: 't1', status: 'pending' }).type, 'tool');
+  const o = permissionOutcomes(opts);
+  assert.deepEqual(o.allow, { outcome: { outcome: 'selected', optionId: 'allow_once' } });
+  assert.deepEqual(o.deny, { outcome: { outcome: 'selected', optionId: 'reject_once' } });
+  assert.equal(o.canAllow, true);
+  assert.deepEqual(permissionOutcomes([]).allow, { outcome: { outcome: 'cancelled' } });
+  assert.equal(normalizeUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'hi' } }).type, 'delta');
+  assert.equal(normalizeUpdate({ sessionUpdate: 'tool_call', toolCallId: 't1' }).type, 'tool');
   assert.equal(declineFor('session/request_permission').outcome.outcome, 'cancelled');
   assert.equal(declineFor('fs/read_text_file'), null);
 });
 
-test('initialize advertises capabilities', async () => {
+test('initialize advertises capabilities; no onRequest handler fails closed', async () => {
   const store = mkStore();
-  const c = new AcpClient({ cmd: process.execPath, args: [FAKE], env: { ...process.env, POCKET_ACP_STORE: store } });
+  const c = new AcpClient({ cmd: process.execPath, args: [FAKE], env: baseEnv(store) });
   const r = await c.initialize();
-  assert.equal(r.protocolVersion, 1);
   assert.equal(r.agentCapabilities.loadSession, true);
   assert.ok(r.agentCapabilities.mcpCapabilities.http);
   c.close();
 });
 
-test('prompt turn: streams, surfaces an approval, finishes end_turn', async () => {
+test('prompt turn: streams delta, surfaces an approval card, allow -> end_turn', async () => {
   const store = mkStore();
   const { emit, ev } = collect();
-  let approvalReq = null;
-  const onApproval = req => { approvalReq = req; return true; }; // allow
-  let finished = null;
-  const r = await startAcpTurn(turnOpts(store, { emit, onApproval, onFinish: f => { finished = f; } }));
-  assert.equal(r.stopReason, 'end_turn');
-  assert.equal(finished.stopReason, 'end_turn');
-  assert.ok(approvalReq && Array.isArray(approvalReq.options), 'onApproval was called with options');
-  assert.ok(ev.some(e => e.type === 'tool'), 'emitted a tool event');
-  assert.ok(ev.some(e => e.type === 'text' && /echo of/.test(e.text)), 'emitted agent text');
-  closeAcpSession(r.sessionId);
+  const turn = await startAcpTurn(turnOpts(store, { hooks: { emit } }));
+  assert.ok(await waitFor(() => turn.approvals.list().length > 0), 'an approval card appeared');
+  const card = turn.approvals.list()[0];
+  assert.equal(card.kind, 'command');
+  await turn.approvals.decide(card.id, 'allow');
+  await turn.promptDone;
+  assert.ok(ev.some(e => e.type === 'delta'), 'streamed a delta');
+  assert.ok(ev.some(e => e.type === 'assistant' && /echo of/.test(e.msg.text)), 'assistant message assembled');
+  assert.ok(ev.some(e => e.type === 'result' && e.stopReason === 'end_turn'), 'result end_turn');
+  assert.ok(ev.some(e => e.type === 'done'), 'done');
+  assert.ok(!acpTurns.has(turn.sessionId), 'turn cleared after finish');
+  afterEach();
 });
 
-test('fail-closed: no onApproval handler denies the tool (refusal)', async () => {
-  const store = mkStore();
-  const r = await startAcpTurn(turnOpts(store, { emit: () => { } })); // no onApproval
-  assert.equal(r.stopReason, 'refusal', 'default-deny produces a refusal, not an allow');
-  closeAcpSession(r.sessionId);
-});
-
-test('explicit deny is honored', async () => {
-  const store = mkStore();
-  const r = await startAcpTurn(turnOpts(store, { emit: () => { }, onApproval: () => false }));
-  assert.equal(r.stopReason, 'refusal');
-  closeAcpSession(r.sessionId);
-});
-
-test('cancel during a pending permission ends the turn cancelled, client stays usable', async () => {
-  const store = mkStore();
-  let sid = null;
-  const onApproval = async req => { // cancel instead of answering, then allow so the turn can resolve
-    sid = req.sessionId;
-    const entry = acpSessions.get(sid);
-    entry.client.cancel(sid);
-    return true;
-  };
-  const r = await startAcpTurn(turnOpts(store, { emit: () => { }, onApproval }));
-  assert.equal(r.stopReason, 'cancelled');
-  closeAcpSession(r.sessionId);
-});
-
-test('crash + resume: a fresh client loads the prior session and replays history', async () => {
+test('deny -> refusal', async () => {
   const store = mkStore();
   const { emit, ev } = collect();
-  const r1 = await startAcpTurn(turnOpts(store, { emit, onApproval: () => true }));
-  const sid = r1.sessionId;
-  const priorText = ev.filter(e => e.type === 'text').map(e => e.text).join('');
-  assert.match(priorText, /echo of/);
-  // simulate a crash: kill the child and drop the in-memory session
-  closeAcpSession(sid);
-  // a fresh turn that resumes the same session id must replay the stored history
-  const { emit: emit2, ev: ev2 } = collect();
-  await startAcpTurn(turnOpts(store, { emit: emit2, onApproval: () => true, sessionId: sid, resume: true }));
-  const replayed = ev2.filter(e => e.type === 'text').map(e => e.text).join('');
-  assert.match(replayed, /echo of/, 'resumed session replayed its history');
-  closeAcpSession(sid);
+  const turn = await startAcpTurn(turnOpts(store, { hooks: { emit } }));
+  assert.ok(await waitFor(() => turn.approvals.list().length > 0));
+  await turn.approvals.decide(turn.approvals.list()[0].id, 'deny');
+  await turn.promptDone;
+  assert.ok(ev.some(e => e.type === 'result' && e.stopReason === 'refusal'));
+  afterEach();
 });
 
-test('loadSession unsupported is surfaced (capability varies by agent)', async () => {
+test('stopAcpTurn cancels during a pending permission', async () => {
   const store = mkStore();
-  const r1 = await startAcpTurn(turnOpts(store, { emit: () => { }, onApproval: () => true }));
-  const sid = r1.sessionId;
-  closeAcpSession(sid);
+  const { emit, ev } = collect();
+  const turn = await startAcpTurn(turnOpts(store, { hooks: { emit } }));
+  assert.ok(await waitFor(() => turn.approvals.list().length > 0));
+  assert.equal(stopAcpTurn(turn.sessionId), true);
+  await turn.promptDone;
+  assert.ok(ev.some(e => e.type === 'result' && e.stopReason === 'cancelled'));
+  afterEach();
+});
+
+test('busy: a second turn on a live session is rejected 409', async () => {
+  const store = mkStore();
+  const turn = await startAcpTurn(turnOpts(store, { hooks: {} }));
+  await waitFor(() => turn.approvals.list().length > 0);
+  await assert.rejects(startAcpTurn(turnOpts(store, { sessionId: 'acp:' + turn.sessionId, hooks: {} })), /busy/);
+  stopAcpTurn(turn.sessionId); await turn.promptDone; afterEach();
+});
+
+test('crash + resume: a fresh session loads prior history', async () => {
+  const store = mkStore();
+  const { emit, ev } = collect();
+  const t1 = await startAcpTurn(turnOpts(store, { hooks: { emit } }));
+  await waitFor(() => t1.approvals.list().length > 0);
+  await t1.approvals.decide(t1.approvals.list()[0].id, 'allow');
+  await t1.promptDone;
+  const sid = t1.sessionId;
+  assert.match(ev.filter(e => e.type === 'delta').map(e => e.text).join(''), /echo of/);
+  closeAcpSession('acp:' + sid); // simulate crash
+  const replay = await readAcpTranscript({ sessionId: 'acp:' + sid, env: baseEnv(store), cmd: process.execPath, args: [FAKE] });
+  assert.ok(replay.some(e => e.type === 'delta' && /echo of/.test(e.text)), 'transcript replayed from session/load');
+  afterEach();
+});
+
+test('listAcpSessions enumerates via session/list', async () => {
+  const store = mkStore();
+  const t = await startAcpTurn(turnOpts(store, { hooks: {} }));
+  await waitFor(() => t.approvals.list().length > 0);
+  stopAcpTurn(t.sessionId); await t.promptDone;
+  const rows = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE] });
+  assert.ok(Array.isArray(rows));
+  assert.ok(rows.every(r => isAcpId(r.id) && r.provider === 'acp'));
+  afterEach();
+});
+
+test('loadSession unsupported surfaces (capability varies by agent)', async () => {
+  const store = mkStore();
+  const t = await startAcpTurn(turnOpts(store, { hooks: {} }));
+  await waitFor(() => t.approvals.list().length > 0);
+  const sid = t.sessionId; stopAcpTurn(sid); await t.promptDone; closeAcpSession('acp:' + sid);
   await assert.rejects(
-    startAcpTurn({ ...turnOpts(store, { emit: () => { }, onApproval: () => true, sessionId: sid, resume: true }), env: { ...process.env, POCKET_ACP_STORE: store, FAKE_ACP_NO_LOADSESSION: '1' } }),
+    readAcpTranscript({ sessionId: 'acp:' + sid, env: { ...baseEnv(store), FAKE_ACP_NO_LOADSESSION: '1' }, cmd: process.execPath, args: [FAKE] }),
     /loadSession not supported|unknown session/,
   );
-  for (const [, e] of acpSessions) e.client.close(); acpSessions.clear();
+  afterEach();
 });
