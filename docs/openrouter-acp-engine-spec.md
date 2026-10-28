@@ -1,6 +1,46 @@
 # Route C — OpenRouter via an ACP third engine (OpenCode): build spec
 
-**Status:** proposed · **Author:** Claude Code · **Date:** 2026-10-28
+**Status:** in progress — engine core built, tested & real-validated; live wiring pending decisions · **Author:** Claude Code · **Date:** 2026-10-28
+
+---
+
+## BUILD STATUS (2026-10-28, overnight autonomous session)
+
+Built as stacked, CI-tested, **non-breaking** PRs (the engine is OFF by default; nothing is
+merged or deployed — that's Brad's call). Each is behaviour-preserving for the two shipped
+engines.
+
+| PR | Slice | What |
+|----|-------|------|
+| #193 | M0·1 | `engines.mjs` — engine registry + profile-aware `validateModel` (parity-tested) |
+| #194 | M0·2 | `session-schema.mjs` — versioned session-meta overlay + typed `engineConfig` slot |
+| #195 | M1·1 | `acp.mjs` — ACP client + `startAcpTurn` (fake-agent tested) |
+| #196 | M1·2 | `openrouter.mjs` — live model catalog, tool-capable filter, curated/experimental tiers |
+| #197 | M1·3 | ACP runtime discovery + opt-in config (`POCKET_ACP_ENABLE`, off by default) |
+
+**Real end-to-end validation (not just fakes):** the actual `acp.mjs` drove **real `opencode` +
+DeepSeek V4.1 Flash over OpenRouter** — tool call executed, `request_permission` surfaced to
+`onApproval`, output returned, clean `end_turn`. Full suite 436/436 green at each slice.
+
+### Remaining — needs Brad's decisions + real-env integration (NOT done overnight, by design)
+1. **Live dispatch wiring** (`server.mjs`): route a turn to `startAcpTurn` when the session's
+   engine is `acp`; connect `onApproval`/`onQuestion` to `ApprovalInbox`/`QuestionInbox`; map
+   `emit` events to Pocket's SSE transcript format. Gate entirely behind `acpAvailable()` so
+   default installs are untouched. *(Touches the shared turn path real users depend on — wanted
+   human review before writing, not a blind overnight diff.)*
+2. **Transcript / session display**: read OpenCode's on-disk session store for listing + history
+   (format needs confirming against the real store; it's a moving target — version-gate it).
+3. **Credential broker** (spec §3): localhost proxy injecting a dedicated credit-limited
+   OpenRouter key so the agent holds only a dummy token; the header-exfil canary. *(Money +
+   secret-handling decision — Brad's.)*
+4. **Picker UI + `/api/acp/models`** surfacing the curated/experimental tiers.
+5. **Optional MemStem ingest** adapter (kept out of core).
+6. **Decisions for Brad:** the elicitation/choice-button gap (ship text questions on this engine?
+   §7); the data-routing/retention pins (§5); whether to enable in his own install first.
+
+---
+
+**Original spec below.** · **Date:** 2026-10-28
 **Decision record:** Council tasks #178, #179 + live probes this session.
 **Goal:** let a Pocket Code user select from *many* OpenRouter models (DeepSeek V4.1 Flash first; any OpenRouter slug, including models that don't exist yet) as a native, first-class engine — running concurrently with Claude Code and Codex sessions exactly as those two run side by side today.
 
