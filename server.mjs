@@ -14,6 +14,7 @@ import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
 import * as codex from './codex.mjs';
+import {validateModelForEngine, engineForSessionId} from './engines.mjs';
 import { DeliveryReceipts, withDeliveryReceipt } from './delivery.mjs';
 import { sessionState, prioritizeSessions } from './session-state.mjs';
 import { collectResults } from './results.mjs';
@@ -177,13 +178,9 @@ const POCKET_DEFAULTS = {
 };
 for (const [name, ok] of [['POCKET_CLAUDE_MODEL', POCKET_DEFAULTS.claude.model], ['POCKET_CLAUDE_EFFORT', POCKET_DEFAULTS.claude.effort], ['POCKET_CODEX_MODEL', POCKET_DEFAULTS.codex.model], ['POCKET_CODEX_EFFORT', POCKET_DEFAULTS.codex.effort]])
   if (process.env[name] && !ok) console.warn(`${name}=${process.env[name]} is not a supported value; using the CLI default`);
-function validateModel(provider, model) {
-  if (model == null || model === 'default') return;
-  const incompatible = typeof model !== 'string' || (provider === 'codex'
-    ? /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[))/i.test(model)
-    : /^(?:gpt-|codex(?:$|-)|o\d(?:$|-))/i.test(model));
-  if (incompatible) throw Object.assign(new Error(`Choose a ${provider === 'codex' ? 'Codex' : 'Claude'} model from the model menu, then send again.`), { status: 400, code: 400 });
-}
+// The per-engine model-compatibility check now lives in engines.mjs (the engine registry),
+// so a third engine is a registry entry, not another branch here. `provider` is the engine id.
+const validateModel = (provider, model) => validateModelForEngine(provider, model);
 // A Claude model the picker does not offer (unchosen, blocked by the managed policy, unknown) is never
 // passed to the CLI: the turn runs on the default instead and `modelFallback` says so.
 const withDefaults = (provider, opts) => {
@@ -2607,7 +2604,7 @@ function validateApprovalMode(req,res,next){
   catch(e){res.status(e.status||400).json({error:e.message});}
 }
 function validateTurnModel(req, res, next) {
-  const provider = req.params.id ? (isCx(req.params.id) ? 'codex' : 'claude') : (req.body?.provider === 'codex' ? 'codex' : 'claude');
+  const provider = req.params.id ? engineForSessionId(req.params.id) : (req.body?.provider === 'codex' ? 'codex' : 'claude');
   try { validateModel(provider, req.body?.model); next(); }
   catch (error) { res.status(error.status || 400).json({ error: error.message }); }
 }
