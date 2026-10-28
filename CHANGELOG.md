@@ -3,6 +3,12 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.84.0] — 2026-10-28 · build 172
+
+- **OpenRouter engine (opt-in).** A third agent beside Claude Code and Codex for OpenRouter models paid by the token with your own key (DeepSeek V4.1 Flash and others). Off unless the server has OpenCode installed, an `OPENROUTER_API_KEY` and `POCKET_ACP_ENABLE=1`; OpenCode's permissions must be set to ask. In the app it is an **Agent** choice on New conversation with a tested/experimental model menu from OpenRouter's live catalogue; replies, approvals, the list, reopening and continuing all work. Questions come as text, no reasoning-effort chip, no Plan first, no Google connectors. Built across engine registry, session-engine-config, the ACP adapter (`acp.mjs`), the OpenRouter catalogue, server dispatch and the picker UI. Server files: `engines.mjs`, `session-schema.mjs`, `acp.mjs`, `openrouter.mjs`, `server.mjs`, `public/app.js`, `public/workspace.js`. New env: `POCKET_ACP_ENABLE`, `POCKET_ACP_CMD`, `POCKET_ACP_ARGS`, `POCKET_ACP_MODELS`, `POCKET_ACP_MODEL`, `POCKET_ACP_TURN_TIMEOUT_MS`.
+- Flaky-test hardening: the background-subagent approval test, the subagents agent-detail re-render, the `/usage` slash picker, and the subagents Retry click no longer race async state.
+- Migration: none. Frontend assets bump to build 172, so open browsers refresh to the new UI. The engine is off by default; installs without it enabled are unchanged.
+
 ## [1.83.1] — 2026-10-28 · build 171
 
 Reported by Damon: Inbox Watch through the claude.ai Gmail connector had seen no new mail since Monday Oct 27 about 2 PM EDT, with status healthy; about 58 threads were missed, one of them an urgent client thread.

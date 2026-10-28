@@ -2115,7 +2115,7 @@ function paintChoices() {
 // the conversation keeps that choice afterwards (the server remembers it).
 function paintTryHarder(msgs) {
   msgs.querySelectorAll('.try-harder').forEach(b => b.remove());
-  if (!assistantMode() || !chatId || String(chatId).startsWith('cx:') || composerWorking || sendsInFlight.has(chatId)) return;
+  if (!assistantMode() || !chatId || /^(cx|acp):/.test(String(chatId)) || composerWorking || sendsInFlight.has(chatId)) return; // Automatic model choice picks Claude models only
   const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop();
   if (!last?.matches('.m-asst') || !last.textContent.trim()) return;
   const b = document.createElement('button'); b.type = 'button'; b.className = 'chip try-harder'; b.textContent = 'Try harder';
@@ -2595,7 +2595,7 @@ async function renderChat(id, { away = false } = {}) {
     </header>
     <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><p class="lineage" id="lineage" hidden></p><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
     <button id="agents-open" class="agents-open" aria-haspopup="dialog" hidden></button>
-    <div class="question-banner" id="questions-open" hidden>${String(id).startsWith('cx:') ? 'Codex' : 'Claude'} has a question</div>
+    <div class="question-banner" id="questions-open" hidden>${String(id).startsWith('cx:') ? 'Codex' : String(id).startsWith('acp:') ? 'OpenRouter' : 'Claude'} has a question</div>
     <div class="question-banner" id="approvals-open" hidden>Waiting for your OK · Review</div>
     <p id="connection-state" class="connection-state" role="status" hidden></p>
     <div class="findbar" id="findbar" hidden>
@@ -2649,14 +2649,14 @@ async function renderChat(id, { away = false } = {}) {
     else { renderChat(chatId); return; } // name cleared → resync the derived title
     railCache.at = 0; if (isWide()) paintRail();
   });
-  const isCx = id.startsWith('cx:');
-  tb = { key: id, prefs: getPrefs(id), attachments: loadAttachments(id), allowAttach: true, allowMute: true, provider: isCx ? 'codex' : 'claude' };
-  (isCx ? loadCodexModels() : loadClaudeModels()).then(renderToolbar);
+  const isCx = id.startsWith('cx:'), isAcp = id.startsWith('acp:'), prov = isCx ? 'codex' : isAcp ? 'acp' : 'claude';
+  tb = { key: id, prefs: getPrefs(id), attachments: loadAttachments(id), allowAttach: true, allowMute: true, provider: prov };
+  (isCx ? loadCodexModels() : isAcp ? loadAcpModels() : loadClaudeModels()).then(renderToolbar);
   chatMuted = Boolean(s.muted);
   if(s.executionMode){tb.prefs.executionMode=s.executionMode;setPrefs(id,tb.prefs);}
   slashCwd = s.cwd || '';
   // 1.83: the / picker's skills and the CLI's own commands for this folder (1.79.1: /btw on Codex too, in SLASH_POCKET)
-  slashLists.delete((isCx ? 'codex' : 'claude') + '|' + slashCwd); slashLoad(isCx ? 'codex' : 'claude', slashCwd);
+  slashLists.delete(prov + '|' + slashCwd); slashLoad(prov, slashCwd);
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const msgs = $('#msgs');
   paintTranscript(id, s, msgs);
@@ -3128,9 +3128,10 @@ function slashGroups(q, { where, provider, working, list }) {
   const fits = c => (c.where === 'both' || c.where === where) && (!working || c.working) && (!c.ok || c.ok());
   const pocket = SLASH_POCKET.filter(fits);
   const known = list?.available ? new Set(list.available) : null;
-  const claude = provider === 'codex' ? [] : SLASH_CLAUDE.filter(c => fits(c) && (!known || known.has(c.name)));
+  // Claude Code's own commands only for Claude; OpenRouter (OpenCode) gets Pocket's actions and no Claude/Codex skills.
+  const claude = provider === 'codex' || provider === 'acp' ? [] : SLASH_CLAUDE.filter(c => fits(c) && (!known || known.has(c.name)));
   const taken = new Set([...SLASH_POCKET, ...SLASH_CLAUDE].map(c => c.name));
-  const skills = working ? [] : (list?.skills || []).filter(c => !taken.has(c.name)).map(c => ({ ...c, kind: 'skill' }));
+  const skills = working || provider === 'acp' ? [] : (list?.skills || []).filter(c => !taken.has(c.name)).map(c => ({ ...c, kind: 'skill' }));
   const rank = arr => arr.map((c, i) => ({ c, s: slashScore(c, q), i })).filter(x => x.s >= 0).sort((a, b) => a.s - b.s || a.i - b.i);
   const groups = [['Claude Code', rank(claude)], ['Pocket', rank(pocket)], ['Skills', rank(skills)]];
   // a description is only searched when no name matches: /con is context and compact, not every "conversation"
@@ -3237,7 +3238,7 @@ function setComposer(working) {
   const grow = () => sizeComposerBox();
   const draft = loadOutbox(chatId)?.text || loadDraft(chatId);
   if (draft) { box.value = draft; grow(); }
-  const slash = bindSlash(box, () => ({ where: 'chat', provider: tb?.provider === 'codex' ? 'codex' : 'claude', cwd: slashCwd, working, onRun: t => sendMsg(t) }));
+  const slash = bindSlash(box, () => ({ where: 'chat', provider: tb?.provider || 'claude', cwd: slashCwd, working, onRun: t => sendMsg(t) }));
   box.oninput = () => {
     grow();
     saveDraft(chatId, box.value);

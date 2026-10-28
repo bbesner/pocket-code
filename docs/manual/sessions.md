@@ -1,6 +1,6 @@
 <!-- manual
 checked: 1.82.0
-sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs
+sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
 
@@ -8,7 +8,8 @@ A conversation is one Claude Code or Codex session that Pocket Code runs on your
 from **New conversation**, follow it from any device, and come back to it later from the conversation
 list. Pocket drives the installed `claude` and `codex` command-line tools and reads their own session
 stores, so a session started in a terminal or code-server is in the list too. Conversations are always
-on; Codex appears when the `codex` CLI is installed.
+on; Codex appears when the `codex` CLI is installed. A third agent, **OpenRouter**, appears only when
+the server turns it on (see [OpenRouter models](#openrouter-models)).
 
 The app says *conversation* and *reply* where the code and the CLIs say *session* and *turn*. This page
 uses the app's words.
@@ -24,7 +25,8 @@ box a conversation uses.
 1. Check the setup card above the box. It names the **Workspace**, the **Agent** with its model and
    reasoning (for example *Claude Code · Opus 5.5 · High reasoning*) and the **Permissions**.
 2. To change the agent or workspace, tap **Edit setup** (it becomes **Close setup**):
-   - **Agent**: **Claude Code** or **Codex**. The choice is remembered on this browser.
+   - **Agent**: **Claude Code**, **Codex** or, when the server has it on, **OpenRouter**. The choice is
+     remembered on this browser.
    - **Project**: the ten most recently used workspaces, with the configured default first.
    - **Or a custom path**: any folder on the server, as a full path (`/home/alex/projects/website`). It
      must already exist on the server; a path on your phone or laptop does not work.
@@ -69,7 +71,7 @@ The chips above the message box apply to the next reply, on New conversation and
 | Chip | Choices |
 |---|---|
 | Model (**Model for this reply**) | **Default**, then the models the picker offers (see [Models in the picker](#models-in-the-picker)). Default's line names what it runs: the Pocket default, or your CLI's own setting. |
-| Effort (**Reasoning effort**) | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. For Codex, **Ultra** (maximum reasoning with automatic task delegation) is listed above **Max** only when the chosen model offers it; for **Default** that is the model in `POCKET_CODEX_MODEL`, if set. Changing to a model without it sets the effort back to **Default**. |
+| Effort (**Reasoning effort**) | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. For Codex, **Ultra** (maximum reasoning with automatic task delegation) is listed above **Max** only when the chosen model offers it; for **Default** that is the model in `POCKET_CODEX_MODEL`, if set. Changing to a model without it sets the effort back to **Default**. Not shown for OpenRouter, whose models take no effort setting. |
 | Permissions | **Review actions** (actions wait for your approval) or **Full access**. See [Questions and approvals](approvals.md#choose-review-actions-or-full-access). |
 | Mode (Codex only, **Codex mode for the next reply**) | **Work normally** carries out the request; **Plan first** explores an approach and asks questions before implementing. Plan first is guidance for the agent, not a sandbox. |
 
@@ -215,6 +217,34 @@ saved prompt, a queued message) runs on Default, and the conversation and a toas
 *Opus 5.5 is not offered in Settings, so this reply uses the default model (Sonnet 5.5).*
 
 Codex's model menu is whatever the installed Codex CLI reports; Pocket does not filter it.
+
+### OpenRouter models
+
+OpenRouter is a third agent for models you pay for by the token through your own OpenRouter key, such
+as DeepSeek V4.1 Flash, instead of through a Claude or ChatGPT subscription. It is off until the person
+who runs Pocket turns it on, and it needs three things on the server:
+
+- [OpenCode](https://opencode.ai) installed (`npm i -g opencode-ai`). Pocket drives it with
+  `opencode acp`; set `POCKET_ACP_CMD` (and `POCKET_ACP_ARGS`) if it is somewhere unusual.
+- `POCKET_ACP_ENABLE=1` and `OPENROUTER_API_KEY` in Pocket's environment, then a restart.
+- OpenCode's permissions set to ask, in `~/.config/opencode/opencode.json`:
+  `"permission": {"edit": "ask", "bash": "ask", "webfetch": "ask"}`. OpenCode allows these by default,
+  and without this an OpenRouter reply edits files and runs commands with no approval card.
+
+With it on, **OpenRouter** joins **Agent** in the setup card. Its model menu is OpenRouter's live
+catalog of models that can use tools: **Default** (`POCKET_ACP_MODEL`, else DeepSeek V4.1 Flash), the
+**Tested** models (the default list plus any in `POCKET_ACP_MODELS`), then everything else marked
+**Experimental — unverified**. A model OpenRouter adds shows up without a Pocket update. Experimental
+means it may not use tools reliably.
+
+Differences from Claude Code and Codex:
+
+- Every reply is billed to the OpenRouter key, per token.
+- There is no reasoning-effort chip and no Plan first.
+- Questions from the model arrive as ordinary text, not as answer buttons. Reply in the message box.
+- Approvals, the conversation list, reopening and continuing a conversation all work. Steering does
+  not: a message sent during a reply waits for After this reply.
+- Gmail, Calendar and Drive connectors are not available.
 
 ## Claude Code vs Codex in Pocket
 

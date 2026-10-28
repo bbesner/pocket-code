@@ -38,6 +38,9 @@ async function handlePrompt(id, params) {
   const text = (params.prompt || []).map(p => p.text || '').join('');
   const s = loadSess(sid) || { updates: [] };
   s.lastPrompt = text;
+  // like OpenCode: the user's prompt is part of the replayed history, and the session gets a title from it
+  s.updates.push({ sessionUpdate: 'user_message_chunk', messageId: 'u_' + randomUUID(), content: { type: 'text', text } });
+  if (!s.titled) { s.title = text.slice(0, 40); s.titled = true; }
   // stream a tool call
   const toolId = randomUUID();
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'tool_call', toolCallId: toolId, title: 'bash', kind: 'execute', status: 'pending' } });
@@ -58,7 +61,7 @@ async function handlePrompt(id, params) {
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'tool_call_update', toolCallId: toolId, status: 'completed', title: 'echo ACP_OK' } });
   const answer = `ran it; echo of ${text.slice(0, 40)}`;
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: answer } } });
-  s.updates.push({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: answer } });
+  s.updates.push({ sessionUpdate: 'agent_message_chunk', messageId: 'a_' + randomUUID(), content: { type: 'text', text: answer } });
   saveSess(sid, s);
   reply(id, { stopReason: 'end_turn' });
 }
@@ -86,10 +89,10 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     });
     case 'session/list': {
       let files = []; try { files = fs.readdirSync(STORE).filter(f => f.endsWith('.json')); } catch { }
-      const sessions = files.map(f => { const sid = decodeURIComponent(f.replace(/\.json$/, '')); let st; try { st = fs.statSync(path.join(STORE, f)); } catch { } return { sessionId: sid, cwd: '/tmp', title: 'Session ' + sid.slice(0, 8), updatedAt: new Date(st?.mtimeMs || Date.now()).toISOString() }; });
+      const sessions = files.map(f => { const sid = decodeURIComponent(f.replace(/\.json$/, '')); let st; try { st = fs.statSync(path.join(STORE, f)); } catch { } const d = loadSess(sid) || {}; return { sessionId: sid, cwd: d.cwd || '/tmp', title: d.title || 'New session - ' + new Date(d.createdAt || Date.now()).toISOString(), updatedAt: new Date(st?.mtimeMs || Date.now()).toISOString() }; });
       return reply(m.id, { sessions });
     }
-    case 'session/new': { const sid = 'ses_' + randomUUID(); saveSess(sid, { updates: [] }); return reply(m.id, { sessionId: sid }); }
+    case 'session/new': { const sid = 'ses_' + randomUUID(); saveSess(sid, { updates: [], cwd: m.params?.cwd, createdAt: Date.now() }); return reply(m.id, { sessionId: sid }); }
     case 'session/load': {
       if (process.env.FAKE_ACP_NO_LOADSESSION) return fail(m.id, 'loadSession not supported');
       const s = loadSess(m.params?.sessionId); if (!s) return fail(m.id, 'unknown session');

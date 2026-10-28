@@ -2100,6 +2100,11 @@ async function listAllSessions(limit) {
       })));
     } catch (e) { log(`codex list failed: ${e.message}`); warnings.push('Codex conversations are temporarily unavailable.'); }
   }
+  if (ACP_ON) {
+    if (Date.now() - acpListCache.at > 15_000) { const p = refreshAcpList(); if (!acpListCache.at) await p; }
+    rows.push(...acpListCache.rows.map(s => ({ ...s, title: smeta[s.id]?.name || s.title, untitled: !smeta[s.id]?.name && s.untitled,
+      pinned: isPinned(s.id) || undefined, active: acp.acpTurnActive(s.id) })));
+  }
   // Owned runs must stay visible even before the CLI writes a transcript, or
   // after their last transcript update falls outside the recent-history window.
   const known = new Set(rows.map(s => s.id));
@@ -2113,7 +2118,7 @@ async function listAllSessions(limit) {
     rows.push({...meta,id,provider:sessionEngine(id),title:smeta[id]?.name||meta?.title||'Queued conversation',mtimeMs:meta?.mtimeMs||followups.list(id)[0].createdAt});
   }
   // Scratch and test workspaces stay out of the list for both agents unless pinned or running.
-  rows = rows.filter(s => !(s.provider === 'codex' && s.cwd?.startsWith('/tmp/') && !s.pinned && !s.active));
+  rows = rows.filter(s => !((s.provider === 'codex' || s.provider === 'acp') && s.cwd?.startsWith('/tmp/') && !s.pinned && !s.active));
   rows = rows.map(s => ({ ...finishTitle(s, true), state: stateFor(s) })).sort((a,b) => b.mtimeMs-a.mtimeMs);
   // pins first, in their chosen order (unordered pins by recency); everything else keeps recency
   rows.sort((a, b) => (a.pinned ? pinRank(a.id) : Infinity) < (b.pinned ? pinRank(b.id) : Infinity) ? -1 : (a.pinned ? pinRank(a.id) : Infinity) > (b.pinned ? pinRank(b.id) : Infinity) ? 1 : 0);
@@ -2170,6 +2175,24 @@ function withPendingUser(messages, turn) {
 }
 
 app.get('/api/session/:id', requireAuth, async (req, res) => {
+  if (isAcpId(req.params.id)) { // OpenRouter (ACP): history from OpenCode's session/load; a live turn streams the rest
+    const id = req.params.id, turn = acp.ownedAcpTurn(id);
+    if (!ACP_ON) return res.status(404).json({ error: 'not found' });
+    let messages = acpHistory.get(id);
+    if (!messages && !turn) {
+      try { messages = acp.messagesFromEvents(await acp.readAcpTranscript({ sessionId: id, ...acpLaunch() })); acpHistory.set(id, messages); }
+      catch (e) { log(`acp history read failed session=${id}: ${e.message}`); return res.status(404).json({ error: 'not found' }); }
+    }
+    messages = messages || [];
+    const row = acpListCache.rows.find(r => r.id === id), cwd = turn?.cwd || row?.cwd || null;
+    return sendJson(req, res, {
+      id, provider: 'acp', model: readEngineConfig(smeta[id])?.model || turn?.model || null,
+      title: smeta[id]?.name || (row && !row.untitled ? row.title : '') || turn?.userText?.slice(0, 120) || messages.find(m => m.role === 'user')?.text.slice(0, 120) || 'New conversation',
+      cwd, state: stateFor({ id, mtimeMs: row?.mtimeMs || 0 }), active: Boolean(turn),
+      turnEvents: turn ? 0 : null, // the history above excludes the live turn, so its stream replays from the start
+      muted: mutes.has(id), pinned: isPinned(id), repo: isGitWorkspace(cwd), messages, total: messages.length, ...lineage(id),
+    });
+  }
   if (isCx(req.params.id)) {
     const tid = codex.bareId(req.params.id);
     const meta = await codex.codexThreadMeta(tid).catch(() => null);
@@ -2215,6 +2238,8 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
 // Extract references from assistant messages on demand; no second document store.
 const resultCache = new Map();
 async function sessionResults(id) {
+  // OpenRouter conversations have no Pocket-side transcript to mine for results (OpenCode owns the store).
+  if (isAcpId(id)) return { ...collectResults([]), truncated: false, scannedMessages: 0 };
   const cached = resultCache.get(id);
   if (cached && Date.now() - cached.at < 5000) return cached.value;
   let transcript;
@@ -2251,6 +2276,7 @@ async function sessionAgents(id) {
   const prior=agentResponses.get(id);
   if(prior && (prior.pending || Date.now()-prior.at<4000))return prior.promise;
   const promise=(async()=>{
+    if(isAcpId(id))return {running:0,agents:[]}; // OpenRouter (OpenCode) exposes no subagents
     if(isCx(id))return codex.readCodexAgents(codex.bareId(id));
     const file=await findSessionFile(id), runner=runners.get(id);
     if(!file&&!runner)throw Object.assign(new Error('Conversation not found'),{status:404});
@@ -2628,8 +2654,23 @@ async function startAcpFromApi({ id, sessionId, cwd, text, body, resume }) {
   const model = opts.model || ACP_CFG.curated[0];
   return acp.startAcpTurn({ sessionId: sessionId || id, cwd, text, model, ...acpLaunch(), resume, hooks: acpHooks(id) });
 }
+// OpenRouter conversations in the list: OpenCode's own session/list, read through a throwaway `opencode acp`
+// and cached, so the frequently polled list waits for OpenCode only on its first read.
+const acpListCache = { at: 0, rows: [], pending: null };
+function refreshAcpList() {
+  if (!ACP_ON) return Promise.resolve();
+  if (!acpListCache.pending) acpListCache.pending = acp.listAcpSessions({ ...acpLaunch(), limit: 200 })
+    .then(rows => { acpListCache.rows = rows; acpListCache.at = Date.now(); })
+    .catch(e => { acpListCache.at = Date.now(); log(`acp list failed: ${e.message}`); })
+    .finally(() => { acpListCache.pending = null; });
+  return acpListCache.pending;
+}
+// The history shown when an OpenRouter conversation opens (session/load replay), by session id. A live turn
+// streams its own events; this is what came before it. Dropped when a turn ends.
+const acpHistory = new Map();
 async function acpTurnFinished(id, turn, ev) {
   const watching = turn.subs.size > 0;
+  acpHistory.delete(id); acpListCache.at = 0;
   recordOutcome(id, turn, ev);
   if (!turn.stopped && ev.ok && followups.list(id)[0]?.status === 'pending') {
     if (ownedTurn(id)) return;
@@ -2784,6 +2825,7 @@ app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secre
     try { // OpenCode mints the session id; the client learns it from the response
       const turn = await startAcpFromApi({ id: null, sessionId: null, cwd, text, body: req.body });
       const id = acp.ACP + turn.sessionId;
+      acpListCache.at = 0; // the list picks the new conversation up on its next read
       // persist the engine config so the session resumes as acp with its model (session-schema slot)
       try { setSmeta(id, { engineConfig: { engine: 'acp', inferenceProvider: 'openrouter', model: turn.model } }); } catch { }
       if (!req.body?.project) try { promptStore.recordRecent({ text, cwd, provider: 'acp' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
@@ -3275,9 +3317,7 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
       req.on('close', () => { clearInterval(ka); aTurn.subs.delete(res); });
       return;
     }
-    // no live turn: replay the stored transcript via session/load (read-only), then idle
-    res.write(`data: {"type":"watch"}\n\n`);
-    if (ACP_ON) try { const evs = await acp.readAcpTranscript({ sessionId: id, ...acpLaunch() }); evs.forEach((e, i) => res.write(`id: ${i}\ndata: ${JSON.stringify(e)}\n\n`)); } catch (e) { log(`acp transcript read failed session=${id}: ${e.message}`); }
+    // no live turn: the history came with GET /api/session/:id (Pocket does not follow an OpenCode session written elsewhere)
     clearInterval(ka); res.write(`data: {"type":"idle"}\n\n`); return res.end();
   }
   if (turn) { // a turn our daemon is running: replay + live events
@@ -3986,7 +4026,7 @@ app.get('/api/acp/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
+const RELEASE_NOTES = ["OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, there is no reasoning-effort chip, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by Brad.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
