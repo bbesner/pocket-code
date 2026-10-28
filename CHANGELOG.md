@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.85.0] — Unreleased · build 174
+## [1.85.0] — Unreleased · build 175
 
 - Codex child-thread events no longer end the parent conversation or overwrite its turn ID. This fixes a conversation appearing finished while its agent is still working, reported during this build.
 
@@ -11,6 +11,16 @@ build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-co
 - Upgrades install exact approved releases in separate directories and check their version and headless startup protocol before selecting them. The browser may close while the job runs. Previous installations remain available for tested restoration.
 - Running conversations retain their process; an idle conversation reopens on the selected CLI on its next turn. Claude background jobs prevent reopening. Recorded binary paths survive daemon restarts.
 - Interrupted upgrades do not retry or activate themselves. Failed checks retain prior discovery; partial upgrade results name which CLI completed. Custom binary overrides remain externally managed.
+
+## [1.84.2] — 2026-10-28 · build 174
+
+Reported by Brad after testing 1.84.1: Full access still asked permission for everything, and no reply showed its cost. He asked for the session to be checked for anything else; it showed the agent's work was invisible while it ran.
+
+- **Full access.** `startAcpFromApi` never passed the reply's permission mode, and OpenCode is configured to ask (`permission: ask`), so every command and file read under Full access waited for Allow. The turn now carries `approvalMode`; with `full`, `session/request_permission` is answered allow at once (as Claude's `bypassPermissions` and Codex's `approvalPolicy: never` run). Review actions is unchanged.
+- **The cost line.** OpenCode sends `usage_update` with the session's running cost (`cost.amount`, USD) after each model step, and nothing on `session/load` (both verified live). The reply's `result` now carries `cost` (the change across the turn, rounded to OpenCode's nine decimals), `duration_ms` and `cache.hit` (`cachedReadTokens` share of input). The running total is kept per conversation (`acpCost` in session meta), so a reopened session's next reply is right; with no known starting total (a conversation from before this version) there is no cost line rather than a wrong one. The app shows costs under a cent to four decimals (`$0.0013`, not `$0.00`).
+- **What the reply is doing.** OpenCode's `tool_call` and `agent_thought_chunk` updates were dropped by the app. Each tool call is now an assistant ledger line once its command or path is known (live, OpenCode announces a call with only its folder and sends the command a moment later, so a call's updates are merged by id) (`Bash`/`Read`/`Edit`/`Search`/`Web`, with the command or path, the same `{t:'tool'}` blocks Codex uses), thinking becomes a `Thinking` line, and the text before a tool line is shown as its own message, so a turn reads in order. `messagesFromEvents` builds the same blocks from the `session/load` replay, so they are there on reopen.
+- Migration: none. Frontend assets bump to build 174.
+- Tests: the fake ACP agent thinks, titles its tool call with the command, keeps a running cost with the session and reports usage, and can take a while (`FAKE_ACP_DELAY_MS`). `test/acp.test.mjs` (Full access vs Review, live thinking/tool/text order with cost, time and cache, cost across turns, a reopen with and without a known total; the history test now expects tool and thinking blocks), `test/acp-http.test.mjs` (Full access over HTTP with per-reply cost and the saved total), `test/acp-browser.mjs` (the ledger lines live and after reload, the `$0.0021` cost line, a Full access reply with no banner). Each new check fails with its fix removed.
 
 ## [1.84.1] — 2026-10-28 · build 173
 

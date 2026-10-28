@@ -6,7 +6,7 @@
 //
 // Env flags: POCKET_ACP_STORE (required, dir) · FAKE_ACP_NO_LOADSESSION (advertise loadSession:false)
 // · FAKE_ACP_ELICIT (ask an elicitation/create instead of permission) · FAKE_ACP_NO_ASK (skip permission)
-// · FAKE_ACP_IGNORE_MODEL (accept set_config_option for the model but stay on the default, like a runtime
+// · FAKE_ACP_DELAY_MS (how long the tool "runs") · FAKE_ACP_IGNORE_MODEL (accept set_config_option for the model but stay on the default, like a runtime
 // that drops the request).
 //
 // Model and effort are session config options, as in OpenCode 1.19 (probed live 2026-10-28): session/new and
@@ -38,6 +38,7 @@ const clientPending = new Map();
 const askClient = (method, params) => new Promise(res => { const id = ++seq; clientPending.set(id, res); send({ jsonrpc: '2.0', id, method, params }); });
 
 const cancelled = new Set(); // sessionIds cancelled mid-turn
+const FAKE_TURN_COST = 0.0021; // what each prompt adds to the session's running cost
 
 // What each model offers for effort (null = no effort setting), and the level it starts on.
 const MODELS = {
@@ -67,9 +68,15 @@ async function handlePrompt(id, params) {
   // like OpenCode: the user's prompt is part of the replayed history, and the session gets a title from it
   s.updates.push({ sessionUpdate: 'user_message_chunk', messageId: 'u_' + randomUUID(), content: { type: 'text', text } });
   if (!s.titled) { s.title = text.slice(0, 40); s.titled = true; }
-  // stream a tool call
+  // think, then stream a tool call titled with its command, as OpenCode does (both replayed on session/load)
   const toolId = randomUUID();
-  notify('session/update', { sessionId: sid, update: { sessionUpdate: 'tool_call', toolCallId: toolId, title: 'bash', kind: 'execute', status: 'pending' } });
+  const thought = { sessionUpdate: 'agent_thought_chunk', messageId: 'r_' + randomUUID(), content: { type: 'text', text: 'Checking with a quick command.' } };
+  // live: first the call with only its folder, then the command in an in_progress update; the replay has it all
+  const where = [{ path: s.cwd || '/tmp' }];
+  notify('session/update', { sessionId: sid, update: thought });
+  notify('session/update', { sessionId: sid, update: { sessionUpdate: 'tool_call', toolCallId: toolId, title: 'bash', kind: 'execute', status: 'pending', locations: where, rawInput: { cwd: s.cwd || '/tmp' } } });
+  notify('session/update', { sessionId: sid, update: { sessionUpdate: 'tool_call_update', toolCallId: toolId, status: 'in_progress', kind: 'execute', title: 'echo ACP_OK', locations: where, rawInput: { command: 'echo ACP_OK', cwd: s.cwd || '/tmp' } } });
+  s.updates.push(thought, { sessionUpdate: 'tool_call', toolCallId: toolId, title: 'echo ACP_OK', kind: 'execute', status: 'pending', locations: where, rawInput: { command: 'echo ACP_OK' } });
   // ask the client before "running" the tool (permission), or an elicitation question
   if (process.env.FAKE_ACP_ELICIT) {
     const ans = await askClient('elicitation/create', { sessionId: sid, message: 'Pick one', mode: 'form' });
@@ -86,12 +93,17 @@ async function handlePrompt(id, params) {
     }
   }
   if (cancelled.has(sid)) { cancelled.delete(sid); saveSess(sid, s); return reply(id, { stopReason: 'cancelled' }); }
+  if (process.env.FAKE_ACP_DELAY_MS) await new Promise(r => setTimeout(r, Number(process.env.FAKE_ACP_DELAY_MS))); // "running" the tool
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'tool_call_update', toolCallId: toolId, status: 'completed', title: 'echo ACP_OK' } });
+  s.updates.push({ sessionUpdate: 'tool_call_update', toolCallId: toolId, status: 'completed', title: 'echo ACP_OK' });
+  // OpenCode reports the session's running cost (kept with the session, so it survives a new process; not sent on load)
+  s.cost = Math.round(((s.cost || 0) + FAKE_TURN_COST) * 1e9) / 1e9;
+  notify('session/update', { sessionId: sid, update: { sessionUpdate: 'usage_update', used: 24000, size: 1048576, cost: { amount: s.cost, currency: 'USD' } } });
   const answer = `ran it; echo of ${text.slice(0, 40)}`;
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: answer } } });
   s.updates.push({ sessionUpdate: 'agent_message_chunk', messageId: 'a_' + randomUUID(), content: { type: 'text', text: answer } });
   saveSess(sid, s);
-  reply(id, { stopReason: 'end_turn' });
+  reply(id, { stopReason: 'end_turn', usage: { inputTokens: 1000, outputTokens: 10, totalTokens: 25010, cachedReadTokens: 24000 } });
 }
 
 readline.createInterface({ input: process.stdin }).on('line', line => {

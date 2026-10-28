@@ -34,6 +34,7 @@ const server = spawn(process.execPath, ['server.mjs'], { cwd: repo, stdio: ['ign
   POCKET_CODEX: '0', POCKET_SESSION_ROOT: path.join(dir, 'sessions'), POCKET_DATA_DIR: path.join(dir, 'data'), CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs'),
   POCKET_ACP_ENABLE: '1', POCKET_ACP_CMD: process.execPath, POCKET_ACP_ARGS: path.join(repo, 'test/fake-acp.mjs'), POCKET_ACP_STORE: store,
   POCKET_OPENROUTER_MODELS_URL: `http://127.0.0.1:${catalog.address().port}/models`,
+  FAKE_ACP_DELAY_MS: '1500', // a real reply takes seconds; one that ends before the chat's stream attaches shows no cost line
 } });
 let logs = ''; server.stdout.on('data', d => logs += d); server.stderr.on('data', d => logs += d);
 const base = `http://127.0.0.1:${port}`;
@@ -103,6 +104,11 @@ try {
   await page.evaluate(() => [...document.querySelectorAll('#approvals-open [data-act]')].find(b => /^Allow/.test(b.textContent.trim())).click());
   await page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-asst')].some(e => /echo of do the thing/.test(e.textContent)), { timeout: 15000 });
   await page.waitForFunction(() => document.querySelector('#approvals-open')?.hidden !== false, { timeout: 10000 });
+  // 1.84.2: what it did shows as it happens (Thinking, then the command), and the reply's cost is under it
+  const steps = await page.$$eval('#msgs .ledger', es => es.map(e => [e.querySelector('.name')?.textContent, e.querySelector('.det')?.textContent]));
+  assert.deepEqual(steps, [['Thinking', 'Checking with a quick command.'], ['Bash', 'echo ACP_OK']], 'tool lines: ' + JSON.stringify(steps));
+  await page.waitForSelector('#msgs .turnmeta');
+  assert.match(await page.$eval('#msgs .turnmeta', e => e.textContent), /^\$0\.0021 · /, 'a fraction of a cent, not $0.00');
   const ran = JSON.parse(fs.readFileSync(path.join(store, encodeURIComponent(id.slice(4)) + '.json'), 'utf8')).ranOn;
   assert.deepEqual(ran, { model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', effort: 'max' }, 'the reply ran on the picked model and effort');
 
@@ -110,8 +116,17 @@ try {
   await page.reload();
   await page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-asst')].some(e => /echo of do the thing/.test(e.textContent)), { timeout: 15000 });
   assert.ok(await page.$eval('#c-eff', e => /Max/.test(e.textContent)), 'the conversation keeps its effort pick');
+  assert.equal((await page.$$('#msgs .ledger')).length, 2, 'the tool lines are there after a reload too');
+
+  console.log('OpenRouter: Full access runs the next reply without asking');
+  await page.click('#c-approval'); await page.waitForSelector('.sheet .opt[data-v="full"]'); await page.click('.sheet .opt[data-v="full"]'); await sleep(200);
+  await page.evaluate(() => { window.__askedFull = false; new MutationObserver(() => { const b = document.querySelector('#approvals-open'); if (b && !b.hidden) window.__askedFull = true; }).observe(document.body, { subtree: true, childList: true, attributes: true }); });
+  await page.type('#box', 'and again'); await page.click('#send');
+  await page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-asst')].some(e => /echo of and again/.test(e.textContent)), { timeout: 15000 });
+  assert.equal(await page.evaluate(() => window.__askedFull), false, 'no approval banner with Full access');
+  await page.waitForFunction(() => document.querySelectorAll('#msgs .turnmeta').length >= 1 && /\$0\.0021/.test([...document.querySelectorAll('#msgs .turnmeta')].at(-1).textContent), { timeout: 10000 });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, openrouter: { effortChip: true, approvalBanner: true, modelAndEffortApplied: true, reopen: true } }));
+  console.log(JSON.stringify({ ok: true, openrouter: { effortChip: true, approvalBanner: true, modelAndEffortApplied: true, toolLines: true, costLine: true, fullAccess: true, reopen: true } }));
 } catch (e) {
   console.error('Page errors:', errors); console.error('Server log tail:', logs.slice(-2000)); throw e;
 } finally {

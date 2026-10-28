@@ -3465,7 +3465,9 @@ function openES() {
         const secs = d.duration_ms ? Math.round(d.duration_ms / 1000) : null;
         // 1.28: whether the turn resumed from a warm prompt cache or wrote it again
         const cached = d.cache && Number.isFinite(d.cache.hit) ? (d.cache.hit >= 0.5 ? `${Math.floor(d.cache.hit * 100)}% cached` : 'cold start') : '';
-        const parts = [d.cost != null ? `$${d.cost.toFixed(2)}` : '', secs ? (secs >= 90 ? Math.round(secs / 60) + 'm' : secs + 's') : '', cached].filter(Boolean);
+        // 1.84.2: an OpenRouter reply can cost a fraction of a cent; show it rather than $0.00
+        const money = c => c >= 0.01 || c === 0 ? `$${c.toFixed(2)}` : c >= 0.0001 ? `$${c.toFixed(4)}` : '<$0.0001';
+        const parts = [d.cost != null ? money(d.cost) : '', secs ? (secs >= 90 ? Math.round(secs / 60) + 'm' : secs + 's') : '', cached].filter(Boolean);
         lastMeta = { id: chatId, html: `<div class="turnmeta">${parts.join(' · ')}</div>` };
         msgs.insertAdjacentHTML('beforeend', lastMeta.html);
       }
