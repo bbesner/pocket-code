@@ -14,8 +14,10 @@ import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
 import * as codex from './codex.mjs';
+import * as acp from './acp.mjs';
 import {validateModelForEngine, engineForSessionId} from './engines.mjs';
 import {migrateSmeta, readEngineConfig, VERSION_KEY} from './session-schema.mjs';
+import {fetchOpenRouterModels, tierModels} from './openrouter.mjs';
 import { DeliveryReceipts, withDeliveryReceipt } from './delivery.mjs';
 import { sessionState, prioritizeSessions } from './session-state.mjs';
 import { collectResults } from './results.mjs';
@@ -123,8 +125,17 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Codex threads live behind a `cx:` prefix (see codex.mjs) — their ids are UUID-shaped
 // too, so every id check below has to ask the prefix, not the regex.
 const CODEX_ON = process.env.POCKET_CODEX !== '0' && codex.codexAvailable();
+// The ACP/OpenRouter engine is OFF unless POCKET_ACP_ENABLE is set AND a runtime (OpenCode) is
+// found (acp.acpConfig). Every acp code path below is gated on ACP_ON, so a default install —
+// and the two shipped engines — are untouched. acpLaunch() is the child's launch spec.
+const ACP_CFG = acp.acpConfig();
+const ACP_ON = Boolean(ACP_CFG);
+const isAcpId = acp.isAcpId;
+const acpLaunch = () => ({ cmd: ACP_CFG.cmd, args: ACP_CFG.args, env: spawnEnv() });
 const isCx = codex.isCodexId;
-const anyId = id => isCx(id) ? UUID_RE.test(codex.bareId(id)) : UUID_RE.test(id);
+// ACP (OpenCode) session ids are `ses_<token>` (uuid-ish or base62), not a bare UUID.
+const ACP_ID_RE = /^ses_[0-9a-zA-Z-]{1,64}$/;
+const anyId = id => acp.isAcpId(id) ? ACP_ID_RE.test(acp.bareAcpId(id)) : isCx(id) ? UUID_RE.test(codex.bareId(id)) : UUID_RE.test(id);
 const UPLOAD_DIR = path.join(HOME, 'pocket-uploads');
 // Claude model picker. The catalog (models.mjs CLAUDE_MODELS) is every model Pocket knows; the picker
 // offers the ones the owner chose (Settings → Agents & instance, else POCKET_CLAUDE_MODELS, else all)
@@ -176,6 +187,8 @@ const envPick = (name, ok) => { const v = (process.env[name] || '').trim(); retu
 const POCKET_DEFAULTS = {
   claude: { model: envPick('POCKET_CLAUDE_MODEL', v => MODELS.has(v)), effort: envPick('POCKET_CLAUDE_EFFORT', v => EFFORTS.has(v)) },
   codex: { model: envPick('POCKET_CODEX_MODEL', v => /^[\w.-]{1,64}$/.test(v)), effort: envPick('POCKET_CODEX_EFFORT', v => CODEX_EFFORTS.has(v)) },
+  // acp model ids are provider-prefixed OpenRouter slugs (openrouter/vendor/model); effort is unused.
+  acp: { model: envPick('POCKET_ACP_MODEL', v => /^[\w./-]{1,120}$/.test(v)), effort: undefined },
 };
 for (const [name, ok] of [['POCKET_CLAUDE_MODEL', POCKET_DEFAULTS.claude.model], ['POCKET_CLAUDE_EFFORT', POCKET_DEFAULTS.claude.effort], ['POCKET_CODEX_MODEL', POCKET_DEFAULTS.codex.model], ['POCKET_CODEX_EFFORT', POCKET_DEFAULTS.codex.effort]])
   if (process.env[name] && !ok) console.warn(`${name}=${process.env[name]} is not a supported value; using the CLI default`);
@@ -2090,7 +2103,7 @@ async function listAllSessions(limit) {
   // Owned runs must stay visible even before the CLI writes a transcript, or
   // after their last transcript update falls outside the recent-history window.
   const known = new Set(rows.map(s => s.id));
-  const owned = [...turns.entries(), ...[...codex.codexTurns].map(([id, t]) => [codex.CX + id, t])];
+  const owned = [...turns.entries(), ...[...codex.codexTurns].map(([id, t]) => [codex.CX + id, t]), ...[...acp.acpTurns].map(([id, t]) => [acp.ACP + id, t])];
   for (const [id, t] of owned) if (!known.has(id)) rows.push({ id, title: smeta[id]?.name || t.userText?.slice(0,120) || 'New conversation',
     cwd: t.cwd, provider: sessionEngine(id), active: true, mtimeMs: t.startedAt, pinned: isPinned(id) });
   for(const id of new Set(followups.rows.map(r=>r.sessionId))){
@@ -2565,7 +2578,7 @@ async function runNextFollowup(id, cwd) {
     return startTurn({sessionId:id,cwd:cwd||meta?.cwd||HOME,text:row.text,resume:true,...turnOpts(row)});
   });
 }
-function ownedTurn(id){return isCx(id)?codex.codexTurns.get(codex.bareId(id)):turns.get(id);}
+function ownedTurn(id){return isAcpId(id)?acp.ownedAcpTurn(id):isCx(id)?codex.codexTurns.get(codex.bareId(id)):turns.get(id);}
 function queueError(res,e){return res.status(e.status||503).json({error:e.status?e.message:'Queue could not be saved. Refresh and try again.'});}
 app.get('/api/session/:id/queue',requireAuth,(req,res)=>{
   if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
@@ -2601,6 +2614,29 @@ async function startCodexFromApi({ id, threadId, forkFrom, cwd, text, body }) {
   if (!threadId || !codex.codexSessions.has(threadId)) reclaimProcess();
   const opts = withDefaults('codex', turnOpts(body));
   return codex.startCodexTurn({ threadId, forkFrom, cwd, text, ...opts, ...codexHooks(id) });
+}
+// ---------- ACP/OpenRouter engine bridge (mirrors the codex bridge; gated on ACP_ON) ----------
+function acpHooks(id) {
+  return {
+    auditApproval,
+    onApproval: turn => { const sid = id || (acp.ACP + turn.sessionId); const aid = turn.approvals.list().at(-1)?.id; if (aid && turn.approvalNotified !== aid && !mutes.has(sid)) { turn.approvalNotified = aid; pushNotify(sid, 'Waiting for your OK', 'Open Pocket Code to review the pending action.').catch(() => { }); } },
+    onFinish: (result, turn) => acpTurnFinished(id || (acp.ACP + turn.sessionId), turn, { ok: result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}) }),
+  };
+}
+async function startAcpFromApi({ id, sessionId, cwd, text, body, resume }) {
+  const opts = withDefaults('acp', turnOpts(body));
+  const model = opts.model || ACP_CFG.curated[0];
+  return acp.startAcpTurn({ sessionId: sessionId || id, cwd, text, model, ...acpLaunch(), resume, hooks: acpHooks(id) });
+}
+async function acpTurnFinished(id, turn, ev) {
+  const watching = turn.subs.size > 0;
+  recordOutcome(id, turn, ev);
+  if (!turn.stopped && ev.ok && followups.list(id)[0]?.status === 'pending') {
+    if (ownedTurn(id)) return;
+    await runNextFollowup(id, turn.cwd).catch(e => log(`acp queue start failed session=${id}: ${e.message}`));
+    return;
+  }
+  if (!watching && !turn.stopped && !mutes.has(id)) pushNotify(id, smeta[id]?.name || 'OpenRouter conversation', ev.ok ? 'Ready' : 'Something went wrong. Tap to see what happened').catch(() => { });
 }
 if (CODEX_ON) codex.adoptCodexSessions(threadId => codexHooks(codex.CX + threadId));
 if (CODEX_ON) codex.pruneTranscriptCache(); // 1.53.5: the on-disk transcript cache keeps its newest files only
@@ -2660,6 +2696,18 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
     } catch (e) {
       return res.status(e.code === 409 ? 409 : e.code === 423 ? 423 : 500).json({ error: String(e.message) });
     }
+  }
+  if (isAcpId(id)) {
+    if (!ACP_ON) return res.status(400).json({ error: 'the OpenRouter engine is not enabled on this box' });
+    if (acp.acpTurnActive(id)) { // ACP has no mid-turn steer; queue after the current reply
+      if (mode === 'steer') return res.status(409).json({ error: 'This reply cannot accept steering. Choose After this reply to queue it.' });
+      try { const item = followups.add(id, { text, ...turnOpts(req.body) }); return res.status(202).json({ ok: true, queued: true, itemId: item.id }); }
+      catch (e) { return queueError(res, e); }
+    }
+    try {
+      await startAcpFromApi({ id, sessionId: acp.bareAcpId(id), text, body: req.body, resume: true });
+      return res.status(202).json({ ok: true });
+    } catch (e) { return res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) }); }
   }
   const file = await findSessionFile(id);
   if (!file) return res.status(404).json({ error: 'not found' });
@@ -2730,6 +2778,19 @@ app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secre
       linkStartLink(req.body?.start, codex.CX + turn.threadId);
       return res.status(202).json({ id: codex.CX + turn.threadId });
     } catch (e) { return res.status(500).json({ error: String(e.message) }); }
+  }
+  if (req.body?.provider === 'acp') {
+    if (!ACP_ON) return res.status(400).json({ error: 'the OpenRouter engine is not enabled on this box' });
+    try { // OpenCode mints the session id; the client learns it from the response
+      const turn = await startAcpFromApi({ id: null, sessionId: null, cwd, text, body: req.body });
+      const id = acp.ACP + turn.sessionId;
+      // persist the engine config so the session resumes as acp with its model (session-schema slot)
+      try { setSmeta(id, { engineConfig: { engine: 'acp', inferenceProvider: 'openrouter', model: turn.model } }); } catch { }
+      if (!req.body?.project) try { promptStore.recordRecent({ text, cwd, provider: 'acp' }); } catch (e) { log(`recent prompt not saved: ${e.message}`); }
+      linkStartedSession(req.body?.project, id);
+      linkStartLink(req.body?.start, id);
+      return res.status(202).json({ id });
+    } catch (e) { return res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) }); }
   }
   const id = randomUUID();
   const opts = turnOpts(req.body);
@@ -2977,6 +3038,11 @@ app.post('/api/session/:id/release', requireAuth, (req, res) => {
 });
 
 app.post('/api/session/:id/stop', requireAuth, (req, res) => {
+  if (isAcpId(req.params.id)) {
+    if (!acp.stopAcpTurn(req.params.id)) return res.status(404).json({ error: 'nothing is running' });
+    log(`stop requested session=${req.params.id}`);
+    return res.json({ ok: true });
+  }
   if (isCx(req.params.id)) {
     if (!codex.stopCodexTurn(codex.bareId(req.params.id))) return res.status(404).json({ error: 'nothing is running' });
     log(`stop requested session=${req.params.id}`);
@@ -3198,6 +3264,21 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
     const stop = codex.watchCodexThread(tid, ev => { try { res.write(`${ev.itemId ? `id: ${ev.itemId}\n` : ''}data: ${JSON.stringify(ev)}\n\n`); } catch { } }, { after });
     req.on('close', () => { clearInterval(ka); stop(); });
     return;
+  }
+  if (isAcpId(id)) {
+    const aTurn = acp.ownedAcpTurn(id);
+    if (aTurn) { // our own acp turn: replay what the client missed, then stream live (same shape as codex/claude)
+      res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${aTurn.startedAt}` })}\n\n`);
+      const from = replayFrom(req, aTurn);
+      for (let i = from; i < aTurn.events.length; i++) res.write(`id: ${i}\ndata: ${JSON.stringify(aTurn.events[i])}\n\n`);
+      aTurn.subs.add(res);
+      req.on('close', () => { clearInterval(ka); aTurn.subs.delete(res); });
+      return;
+    }
+    // no live turn: replay the stored transcript via session/load (read-only), then idle
+    res.write(`data: {"type":"watch"}\n\n`);
+    if (ACP_ON) try { const evs = await acp.readAcpTranscript({ sessionId: id, ...acpLaunch() }); evs.forEach((e, i) => res.write(`id: ${i}\ndata: ${JSON.stringify(e)}\n\n`)); } catch (e) { log(`acp transcript read failed session=${id}: ${e.message}`); }
+    clearInterval(ka); res.write(`data: {"type":"idle"}\n\n`); return res.end();
   }
   if (turn) { // a turn our daemon is running: replay + live events
     res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${turn.startedAt}` })}\n\n`);
@@ -3885,6 +3966,22 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
   const defaults = { defaultModel: model || null, defaultEffort: effort || null, pocketDefault: Boolean(model || effort) };
   if (!CODEX_ON) return res.json({ models: [], ...defaults });
   res.json({ models: await codex.codexModels().catch(() => []), ...defaults });
+});
+// The OpenRouter model picker for the ACP engine: the live catalog, split into a curated/tested
+// tier and an experimental tier (openrouter.mjs). `enabled:false` when the engine is off, so the
+// UI can hide the picker. A catalog fetch failure returns enabled:true with empty tiers + error.
+app.get('/api/acp/models', requireAuth, async (_req, res) => {
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  if (!ACP_ON) return res.json({ enabled: false, curated: [], experimental: [] });
+  const defaultModel = POCKET_DEFAULTS.acp.model || ACP_CFG.curated[0] || null;
+  try {
+    const models = await fetchOpenRouterModels();
+    const { curated, experimental } = tierModels(models, ACP_CFG.curated);
+    res.json({ enabled: true, defaultModel, curated, experimental });
+  } catch (e) {
+    log(`openrouter catalog fetch failed: ${e.message}`);
+    res.json({ enabled: true, defaultModel, curated: [], experimental: [], error: 'The OpenRouter model catalog is unavailable right now.' });
+  }
 });
 
 // What changed in the current asset version — shown under "What's new" in the settings

@@ -209,7 +209,9 @@ async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume })
   try {
     await client.initialize();
     let sid = sessionId;
-    if (resume && sessionId) await client.loadSession({ sessionId, cwd, mcpServers: [] });
+    // session/load requires {sessionId, cwd, mcpServers} (cwd a string). On resume the caller may
+    // not know the original cwd; recover it from session/list. (Verified against real OpenCode.)
+    if (resume && sessionId) { const c = cwd || await sessionCwd(client, sessionId); await client.loadSession({ sessionId, cwd: c || '/', mcpServers: [] }); }
     else { const s = await client.newSession({ cwd, mcpServers: [] }); sid = s?.sessionId; }
     if (!sid) throw new Error('acp: no session id');
     const session = { sessionId: sid, client, cwd, model, turn: null };
@@ -286,7 +288,14 @@ export async function listAcpSessions({ cmd, args, env, limit = 60 } = {}) {
   } finally { client.close(); }
 }
 
-// Read a session's transcript by replaying session/load into normalized events.
+// The cwd a session was created in, from session/list — session/load requires it (real OpenCode).
+async function sessionCwd(client, bareSessionId) {
+  try { const r = await client.listSessions(); return (r?.sessions || []).find(s => s.sessionId === bareSessionId)?.cwd || null; }
+  catch { return null; }
+}
+
+// Read a session's transcript by replaying session/load into normalized events. Resolves the
+// session's original cwd (session/load requires it) via session/list when not supplied.
 export async function readAcpTranscript({ sessionId, cwd, cmd, args, env } = {}) {
   const bare = bareAcpId(sessionId);
   const client = new AcpClient({ cmd, args, env, name: 'reader' });
@@ -294,7 +303,8 @@ export async function readAcpTranscript({ sessionId, cwd, cmd, args, env } = {})
   client.onNotify = (method, params) => { if (method === 'session/update' && params?.sessionId === bare) { const e = normalizeUpdate(params.update); if (e) events.push(e); } };
   try {
     await client.initialize();
-    await client.loadSession({ sessionId: bare, cwd, mcpServers: [] });
+    const c = cwd || await sessionCwd(client, bare);
+    await client.loadSession({ sessionId: bare, cwd: c || '/', mcpServers: [] });
     return events;
   } finally { client.close(); }
 }
