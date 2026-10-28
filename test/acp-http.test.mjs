@@ -14,7 +14,7 @@ const repo = path.resolve(import.meta.dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(POCKET|VAPID|CODEX|CLAUDE)_/.test(k)));
 
-async function server(t, port) {
+async function server(t, port, extraEnv = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-http-'));
   fs.mkdirSync(path.join(dir, 'cwd'), { recursive: true });
   const secret = 'sek-' + port;
@@ -29,7 +29,7 @@ async function server(t, port) {
       CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs'),
       // ACP engine on, pointed at the fake agent
       POCKET_ACP_ENABLE: '1', POCKET_ACP_CMD: process.execPath, POCKET_ACP_ARGS: path.join(repo, 'test/fake-acp.mjs'),
-      POCKET_ACP_STORE: path.join(dir, 'acp-store'),
+      POCKET_ACP_STORE: path.join(dir, 'acp-store'), ...extraEnv,
     },
   });
   let logs = ''; child.stdout.on('data', d => logs += d); child.stderr.on('data', d => logs += d);
@@ -128,8 +128,9 @@ test('an OpenRouter conversation opens in the app: live (active, stream from 0),
   assert.equal(done.active, false);
   assert.deepEqual(done.messages.map(m => m.role), ['user', 'assistant']);
   assert.equal(done.messages[0].text, 'do the thing'); assert.match(done.messages[1].text, /echo of do the thing/);
-  // the assistant message carries `blocks` so the UI (msgHTML) renders it; without this it shows blank on reopen
-  assert.deepEqual(done.messages[1].blocks, [{ t: 'text', text: done.messages[1].text }]);
+  // the assistant message carries `blocks` so the UI (msgHTML) renders it (blank on reopen without them), with the
+  // thinking and tool lines in the order the live turn showed them (1.84.2)
+  assert.deepEqual(done.messages[1].blocks, [{ t: 'tool', name: 'Thinking', detail: 'Checking with a quick command.' }, { t: 'tool', name: 'Bash', detail: 'echo ACP_OK' }, { t: 'text', text: done.messages[1].text }]);
   assert.equal(done.messages[0].blocks, undefined, 'user messages render from text, no blocks');
   assert.equal(done.title, 'do the thing', 'titled from the agent');
   // and it is in the conversation list, labelled as OpenRouter
@@ -170,4 +171,30 @@ test('an OpenRouter approval shows as Needs approval; the turn runs on the chose
   await s.call(`/session/${e}/approvals/${card.id}/decision`, { decision: 'allow' });
   for (let i = 0; i < 100; i++) { if (!(await s.call(`/session/${e}`)).body.active) break; await sleep(50); }
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(s.dir, 'acp-store', encodeURIComponent(id.slice(4)) + '.json'), 'utf8')).ranOn, { model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', effort: 'default' });
+});
+
+// 1.84.2: Full access ran every tool call past an approval card (OpenCode is set to ask, and Pocket never passed the
+// mode on), and no reply showed its cost. Now Full access answers OpenCode at once and each reply's result carries
+// what it cost, kept across a restart of the session through the conversation's saved running total.
+test('Full access over HTTP runs without approvals, and each reply reports its own cost', async t => {
+  const s = await server(t, 18806, { FAKE_ACP_DELAY_MS: '2000' }); // a reply that waits for nobody must not end before the stream attaches
+  const results = [];
+  const runTurn = async (pathname, body) => {
+    const r = await s.call(pathname, body); assert.equal(r.status, 202, JSON.stringify(r.body));
+    const id = r.body.id || decodeURIComponent(pathname.split('/')[2]);
+    await readSSE(`http://127.0.0.1:${s.port}/api/session/${encodeURIComponent(id)}/events`, s.headers, ev => { if (ev.type === 'result') results.push(ev); return ev.type === 'done'; });
+    return id;
+  };
+  const id = await runTurn('/new', { provider: 'acp', cwd: path.join(s.dir, 'cwd'), text: 'do the thing', approvalMode: 'full' });
+  assert.ok(results[0], 'a result on the stream; server log: ' + s.logs().slice(-1500));
+  assert.equal(results[0].ok, true, 'finished with nobody answering: ' + JSON.stringify(results[0]));
+  assert.equal(results[0].cost, 0.0021);
+  assert.equal((await s.call(`/session/${encodeURIComponent(id)}/approvals`)).body.requests.length, 0);
+  await runTurn(`/session/${encodeURIComponent(id)}/message`, { text: 'again', approvalMode: 'full' });
+  assert.equal(results[1].cost, 0.0021, 'the second reply alone');
+  const store = JSON.parse(fs.readFileSync(path.join(s.dir, 'acp-store', encodeURIComponent(id.slice(4)) + '.json'), 'utf8'));
+  assert.equal(store.cost, 0.0042, 'OpenCode\'s running total');
+  // and Pocket kept it, so the cost line is right after a restart reopens the session (OpenCode does not report it then)
+  let meta; for (let i = 0; i < 40; i++) { try { meta = JSON.parse(fs.readFileSync(path.join(s.dir, 'data', 'session-meta.json'), 'utf8'))[id]; } catch { } if (meta?.acpCost) break; await sleep(50); }
+  assert.equal(meta?.acpCost, 0.0042);
 });

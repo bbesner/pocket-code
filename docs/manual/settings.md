@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.84.1
+checked: 1.84.2
 sources: public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
