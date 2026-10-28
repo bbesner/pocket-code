@@ -358,3 +358,21 @@ test('/api/codex/models lists each model\'s supported effort names', async t => 
  assert.equal(r.status, 200);
  assert.deepEqual(r.body.models.map(m => [m.id, m.efforts]), [['gpt-fixture-a', ['low', 'high', 'max', 'ultra']], ['gpt-fixture-b', ['low', 'high', 'max']], ['gpt-fixture-c', undefined]]);
 });
+
+
+test('child thread lifecycle cannot complete the parent or replace its turn id',async t=>{
+ const f=await fixture(t,18689);
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('__CHILD_LIFECYCLE__ __HANG__')})).body.id;
+ assert.ok(await f.until(()=>f.calls().length===1));
+ await sleep(150);
+ const response=(await f.call(`/session/${id}`)).body;
+ assert.equal(response.active,true,'parent stays active after child completion');
+ assert.equal(response.state.kind,'running');
+ const files=fs.readdirSync(path.join(f.dir,'data','turnlogs-codex')).filter(n=>n.endsWith('.session.json'));
+ const meta=JSON.parse(fs.readFileSync(path.join(f.dir,'data','turnlogs-codex',files[0]),'utf8'));
+ assert.notEqual(meta.turn.turnId,'child-turn','steering and interrupt still target the parent');
+ const agents=(await f.call(`/session/${id}/agents`)).body;
+ assert.equal(agents.total,1,'parent-owned subagent activity is still projected');assert.equal(agents.agents[0].status,'completed');
+ await f.call(`/session/${id}/stop`,{});
+ assert.ok(await f.until(()=>f.idle(id)));
+});

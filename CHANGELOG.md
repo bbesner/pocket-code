@@ -3,6 +3,15 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.85.0] — 2026-10-28 · build 175
+
+- Codex child-thread events no longer end the parent conversation or overwrite its turn ID. This fixes a conversation appearing finished while its agent is still working, reported during this build.
+
+- Daily CLI release checks at 4 a.m. in the owner's time zone, with daylight saving support and one catch-up check after downtime. A notice opens release notes and explicit selection of Claude Code, Codex, or both.
+- Upgrades install exact approved releases in separate directories and check their version and headless startup protocol before selecting them. The browser may close while the job runs. Previous installations remain available for tested restoration.
+- Running conversations retain their process; an idle conversation reopens on the selected CLI on its next turn. Claude background jobs prevent reopening. Recorded binary paths survive daemon restarts.
+- Interrupted upgrades do not retry or activate themselves. Failed checks retain prior discovery; partial upgrade results name which CLI completed. Custom binary overrides remain externally managed.
+
 ## [1.84.2] — 2026-10-28 · build 174
 
 Reported by Brad after testing 1.84.1: Full access still asked permission for everything, and no reply showed its cost. He asked for the session to be checked for anything else; it showed the agent's work was invisible while it ran.

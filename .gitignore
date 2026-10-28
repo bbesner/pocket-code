@@ -52,3 +52,6 @@ saved-prompts.json*
 # Design-scanner cache from local UI work
 .impeccable/
 codex-transcripts/
+
+# Managed CLI installations and updater state
+/cli-runtimes/

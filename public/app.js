@@ -802,7 +802,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
-      <button class="chip" id="s-check">Check again</button><button class="primary" id="s-refresh" hidden></button>
+      <button class="chip" id="s-cli-updates">CLI updates</button><button class="chip" id="s-check">Check again</button><button class="primary" id="s-refresh" hidden></button>
     </details>
     <details class="settings-details" id="s-notes"><summary>What's new</summary><div class="whatsnew" id="s-notes-body">Loading release notes…</div></details>
     <details class="settings-details" id="s-feedback"><summary>Bugs & feature requests</summary>
@@ -1373,6 +1373,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     sh.querySelector('#s-notes-body').innerHTML = Array.isArray(notes) && notes.length ? '<ul>' + notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '<p>Release notes are unavailable. Check again to retry.</p>';
     check.disabled = false;
   };
+  sh.querySelector('#s-cli-updates').onclick = () => openCliUpdates();
   sh.querySelector('#s-check').onclick = checkVersion;
   sh.querySelector('#s-refresh').onclick = hardRefresh;
   // The sheet is already usable; these independent services update only their own rows.

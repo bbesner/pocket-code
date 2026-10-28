@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.84.2
-sources: public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
+checked: 1.85.0
+sources: cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
 
@@ -216,6 +216,29 @@ voice is available on the server. Details: [Voice](voice.md).
   **Report it privately**, not a public issue.
 
 After an update, the first load shows a toast pointing to **What's new**.
+
+**CLI updates** inside **About & updates** manages Claude Code and Codex separately from Pocket.
+Pocket checks once a day at 4 a.m. in the owner's time zone, including daylight saving changes.
+A notice appears when a release is available. Open it to see installed and available versions and
+links to the publisher's release notes. Choose either CLI or both, then **Upgrade selected**.
+**Later** closes the review; the notice remains. **Check now** checks immediately.
+
+Upgrades continue on the server when you close the browser. Pocket downloads the exact selected
+release into a separate installation and tests its version and startup protocol before selecting it.
+These checks send no model prompts and do not test every connector or conversation. Active work
+keeps its current process. Existing conversations switch on their next turn once no work is pending;
+Claude background jobs prevent the switch. The review shows how many conversations still use an
+earlier installation. Side chats keep their process until closed; new side chats use the selected CLI.
+
+The result shows success, failure, or interruption. If one CLI succeeds and the other fails, it lists
+the completed upgrade. Failed candidates are not selected. **Restore [version]** tests and selects
+the previous installation; it does not undo conversation history. A server restart during installation
+stops the job and offers a retry instead of automatically continuing. If activation had already been
+saved, the selected version stays selected and the interrupted result says to check it before retrying.
+
+An explicit server binary override remains managed outside Pocket. The server can turn off this
+feature with `POCKET_CLI_UPDATES=0`. No overnight push notification is sent.
+
 
 ## Where preferences live
 

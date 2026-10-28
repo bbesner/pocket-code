@@ -60,7 +60,8 @@ function findCodex() {
   const onPath = (process.env.PATH || '').split(path.delimiter).filter(Boolean).map(d => path.join(d, 'codex'));
   return [...fixed, ...onPath].find(p => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } }) || null;
 }
-export const CODEX_BIN = findCodex();
+export let CODEX_BIN = findCodex();
+export function setCodexBinary(bin){CODEX_BIN=bin;}
 export const CX = 'cx:'; // id namespace: Codex thread ids are UUID-shaped too, so the
                          // prefix — not a regex — is what tells the two providers apart
 export const isCodexId = id => typeof id === 'string' && id.startsWith(CX);
@@ -820,7 +821,7 @@ function writeSessionMeta(s) {
   const t = s.conn?.transport, turn = s.turn;
   if (!t || !s.threadId || s.exited) return;
   const meta = {
-    threadId: s.threadId, pid: t.pid, keeperPid: t.keeperPid, key: t.key, bootId: BOOT_ID, pidStart: t.pidStart ?? null, keeperStart: t.keeperStart ?? null, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort, runnerToken: s.runnerToken || null,
+    threadId: s.threadId, cliBin:s.cliBin||null, pid: t.pid, keeperPid: t.keeperPid, key: t.key, bootId: BOOT_ID, pidStart: t.pidStart ?? null, keeperStart: t.keeperStart ?? null, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort, runnerToken: s.runnerToken || null,
     turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode } : null,
     waitingForInput: Boolean(turn && (turn.questions?.list().length || turn.approvals?.list().length || turn.inputUnavailable || turn.approvalUnavailable)),
     waitingForApproval: Boolean(turn?.approvals?.list().length || turn?.approvalUnavailable),
@@ -870,7 +871,7 @@ export function adoptCodexSessions(hooksFor) {
     const t = makeTransport({ pid: m.pid, keeperPid: m.keeperPid, key: m.key, files, writer, offset, skipBefore: size });
     t.pidStart = m.pidStart ?? startTime(m.pid); t.keeperStart = m.keeperStart ?? (commandLine(m.keeperPid).includes('pocket-keeper') ? startTime(m.keeperPid) : null);
     t.poll = setInterval(() => { if (!pidAlive(m.pid)) t.exit(null); }, 1000);
-    const s = { threadId: m.threadId, approvalMode: m.approvalMode, cwd: m.cwd, model: m.model, effort: m.effort, turn: null, hooks: hooksFor(m.threadId), lastActivityAt: Date.now(), runnerToken: typeof m.runnerToken === 'string' ? m.runnerToken : null };
+    const s = { threadId: m.threadId, cliBin:m.cliBin||(CODEX_BIN?.includes('/cli-runtimes/')?null:CODEX_BIN), approvalMode: m.approvalMode, cwd: m.cwd, model: m.model, effort: m.effort, turn: null, hooks: hooksFor(m.threadId), lastActivityAt: Date.now(), runnerToken: typeof m.runnerToken === 'string' ? m.runnerToken : null };
     wireSession(s, new AppServer({ name: `codex ${m.threadId}`, transport: t, onNotify: (method, params) => onSessionNotify(s, method, params), onRequest: request => onSessionRequest(s, request) }));
     codexSessions.set(s.threadId, s);
     live.add(m.key);
@@ -982,6 +983,10 @@ function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, auton
 }
 
 function onSessionNotify(s, method, params) {
+  // App-server also streams child threads. A child's completion must never finish
+  // the parent turn, replace its turn id, or charge its usage to the parent.
+  // Parent-owned subAgentActivity items still pass through normally.
+  if (params?.threadId && s.threadId && params.threadId !== s.threadId) return;
   s.lastActivityAt = Date.now();
   if (!s.turn && method === 'turn/started' && s.threadId) { // Codex started a turn by itself
     makeTurn(s, { text: '', hooks: s.hooks, autonomous: true });
@@ -1031,7 +1036,7 @@ function wireSession(s, conn) {
 }
 
 async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, hooks }) {
-  const s = { threadId, approvalMode, cwd, turn: null, hooks, lastActivityAt: Date.now(), runnerToken: randomBytes(16).toString('hex') };
+  const s = { threadId, cliBin:CODEX_BIN, approvalMode, cwd, turn: null, hooks, lastActivityAt: Date.now(), runnerToken: randomBytes(16).toString('hex') };
   const conn = new AppServer({
     name: `codex ${threadId || 'new'}`, transport: spawnTransport({ POCKET_RUNNER_TOKEN: s.runnerToken, ...(threadId ? { POCKET_SESSION_ID: 'cx:' + threadId } : {}) }),
     onNotify: (method, params) => onSessionNotify(s, method, params),
@@ -1091,7 +1096,7 @@ export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, eff
   let s = threadId && codexSessions.get(threadId);
   // Permissions ride on thread/resume, so a change needs a fresh process (after the old
   // one has let go of the writer lock).
-  if (s && (s.closing || s.exited || s.approvalMode !== approvalMode || (cwd && s.cwd && cwd !== s.cwd))) {
+  if (s && (s.closing || s.exited || s.cliBin !== CODEX_BIN || s.approvalMode !== approvalMode || (cwd && s.cwd && cwd !== s.cwd))) {
     await closeCodexSession(s, s.closing || s.exited ? 'closing' : 'settings changed');
     s = null;
   }

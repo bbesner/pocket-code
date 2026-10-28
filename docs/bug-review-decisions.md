@@ -8,6 +8,7 @@ Rows are added in the same pull request as the fixes from the run that produced 
 
 The files bug reviews target here: they hold secrets, write state, start or stop processes, or decide who may act.
 
+- `cli-updates.mjs` and `cli-update-worker.mjs` (reviewed 2026-10-28)
 - `vault.mjs` (reviewed 2026-10-27, 1.82.0)
 - `approvals.mjs`
 - `access.mjs`
@@ -40,3 +41,20 @@ Run 2026-10-27 on `vault.mjs` at 1.82.0. The five real faults (DIV-3, 7, 16, 20,
 
 Open, for the owner to decide (not settled): DIV-19, any agent call resets the passphrase Vault's idle-lock timer, so an
 agent that keeps using the Vault keeps it unlocked.
+
+
+## CLI updater review — 2026-10-28
+
+Blind spec: Codex GPT-6 Sol; blind contract tests and independent verification: Claude Opus.
+The new failure-path checks found four issues, fixed before release: early promise settlement
+before subprocess cleanup; suppressing a never-finished daily check after a crash; persisting
+unrecognized request fields; and a detached installer starting before its PID was saved. The
+worker now waits for authorization over IPC after identity persistence and dies with its owner.
+
+| Finding | Ruling | Reason |
+|---|---|---|
+| DIV-4: if saving the failed job also fails, the UI error differs from the on-disk job | Deliberate | The UI reports the persistence failure instead of showing an installer that has already stopped. Selected binaries and completed results remain the last committed ones. Restart marks the durable running job interrupted and never replays it. The contract test now verifies these invariants rather than requiring display status to equal disk. |
+
+The original installer remains the first restore target; another application may change it.
+Restoration rechecks its version and protocol and refuses a changed target. Managed installations
+are retained without pruning so running processes are never stripped of their package files.

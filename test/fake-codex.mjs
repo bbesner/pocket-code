@@ -47,10 +47,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const p=m.params||{};
   if(m.method==='thread/start'||m.method==='thread/resume')fs.appendFileSync(calls+'.threads',JSON.stringify({method:m.method,choices:/`choices`/.test(p.developerInstructions||''),projects:/pocket-board/.test(p.developerInstructions||''),documents:/pocket-docs/.test(p.developerInstructions||''),google:/pocket-google\/SKILL\.codex\.md/.test(p.developerInstructions||'')})+'\n');
   switch(m.method){
-    case 'initialize':if(takeMarker(process.env.FAKE_CODEX_INIT_FAIL))return fail(m.id,'initialize refused');reply(m.id,{});
-      // FAKE_CODEX_CLOSE_STDIN: stop reading after initialize and stay up, so the next write gets EPIPE
+    case 'initialize':if(takeMarker(process.env.FAKE_CODEX_INIT_FAIL))return fail(m.id,'initialize refused');
+      // Close before advertising readiness. Otherwise a fast parent can write the next request
+      // between reply() and close(), so it succeeds and waits for a response instead of EPIPE.
       if(process.env.FAKE_CODEX_CLOSE_STDIN){fs.closeSync(0);setInterval(()=>{},1000);}
-      return;
+      reply(m.id,{});return;
     case 'thread/start':{const id=randomUUID();takeLock(id);return reply(m.id,{thread:{id},model:'gpt-test',reasoningEffort:null});}
     case 'thread/resume':
       if(!takeLock(p.threadId))return fail(m.id,`thread ${p.threadId} already has an active writer`);
@@ -69,6 +70,14 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         const stored=text.includes('__ATTACHNOTE__')?text+'\n\n[Attached file — read as needed:\n/tmp/a.png\n]':text;
         fs.writeFileSync(f,JSON.stringify([...items,{turnId,item:{type:'userMessage',id:randomUUID(),content:[{type:'text',text:stored}]}}]));
       },900);
+      if(text.includes('__CHILD_LIFECYCLE__')){
+        const item={id:'child-start',type:'subAgentActivity',agentThreadId:'child-thread',agentPath:'/root/reviewer',kind:'started'};
+        notify('item/completed',{threadId:p.threadId,item});
+        notify('turn/started',{threadId:'child-thread',turn:{id:'child-turn',status:'inProgress'}});
+        notify('item/agentMessage/delta',{threadId:'child-thread',delta:'CHILD TEXT MUST NOT LEAK'});
+        notify('turn/completed',{threadId:'child-thread',turn:{id:'child-turn',status:'completed'}});
+        notify('item/completed',{threadId:p.threadId,item:{...item,id:'child-finish',kind:'completed'}});
+      }
       if(text.includes('__HANG__'))return;
       if(text.includes('__AGENTS__')){
         const item={id:'agent-spawn',type:'collabAgentToolCall',tool:'spawnAgent',status:'completed',receiverThreadIds:['child-agent'],agentsStates:{'child-agent':{status:'running'}},prompt:'Check parser failures',model:'gpt-test'};

@@ -1937,3 +1937,23 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .branch-alt .chip { min-height: 44px; }
 .text-link { color: var(--clay); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; font: inherit; padding: 0; background: none; }
 
+
+/* CLI release discovery stays visible without covering work or opening a dialog on its own. */
+.cli-update-notice { flex: 0 0 auto; width: 100%; min-height: 44px; padding: 10px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: var(--raised); color: var(--clay); text-align: left; font-size: 14px; font-weight: 600; }
+.cli-update-notice:hover { background: var(--surface); }
+.cli-update-notice[hidden] { display: none; }
+.cli-updates-sheet { max-width: 640px; }
+.cli-update-row { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.cli-update-row h3 { margin: 0 0 8px; font-size: 17px; }
+.cli-update-row p { margin: 8px 0; overflow-wrap: anywhere; }
+.cli-update-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.cli-update-actions .chip, .cli-update-actions .primary { min-height: 44px; }
+.cli-update-choice { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+.cli-update-choice input { width: 18px; height: 18px; accent-color: var(--clay); }
+#cli-job { margin: 18px 0 12px; }
+
+.cli-updates-sheet { padding-inline: 20px; }
+.cli-updates-sheet > h2 { padding-inline: 0; }
+.cli-updates-sheet > .cli-update-actions { position: sticky; bottom: -10px; display: grid; grid-template-columns: 1fr 1fr; background: var(--surface); padding: 12px 0; }
+.cli-updates-sheet > .cli-update-actions .primary { grid-column: 1 / -1; }
+.cli-updates-sheet > .cli-update-actions .chip { justify-content: center; }
