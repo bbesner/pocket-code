@@ -14,6 +14,8 @@ import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
 import * as codex from './codex.mjs';
+import {validateModelForEngine, engineForSessionId} from './engines.mjs';
+import {migrateSmeta, readEngineConfig, VERSION_KEY} from './session-schema.mjs';
 import { DeliveryReceipts, withDeliveryReceipt } from './delivery.mjs';
 import { sessionState, prioritizeSessions } from './session-state.mjs';
 import { collectResults } from './results.mjs';
@@ -177,13 +179,9 @@ const POCKET_DEFAULTS = {
 };
 for (const [name, ok] of [['POCKET_CLAUDE_MODEL', POCKET_DEFAULTS.claude.model], ['POCKET_CLAUDE_EFFORT', POCKET_DEFAULTS.claude.effort], ['POCKET_CODEX_MODEL', POCKET_DEFAULTS.codex.model], ['POCKET_CODEX_EFFORT', POCKET_DEFAULTS.codex.effort]])
   if (process.env[name] && !ok) console.warn(`${name}=${process.env[name]} is not a supported value; using the CLI default`);
-function validateModel(provider, model) {
-  if (model == null || model === 'default') return;
-  const incompatible = typeof model !== 'string' || (provider === 'codex'
-    ? /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[))/i.test(model)
-    : /^(?:gpt-|codex(?:$|-)|o\d(?:$|-))/i.test(model));
-  if (incompatible) throw Object.assign(new Error(`Choose a ${provider === 'codex' ? 'Codex' : 'Claude'} model from the model menu, then send again.`), { status: 400, code: 400 });
-}
+// The per-engine model-compatibility check now lives in engines.mjs (the engine registry),
+// so a third engine is a registry entry, not another branch here. `provider` is the engine id.
+const validateModel = (provider, model) => validateModelForEngine(provider, model);
 // A Claude model the picker does not offer (unchosen, blocked by the managed policy, unknown) is never
 // passed to the CLI: the turn runs on the default instead and `modelFallback` says so.
 const withDefaults = (provider, opts) => {
@@ -241,10 +239,15 @@ const saveMutes = () => atomicWrite(MUTES_FILE, [...mutes]);
 // per-session pin + custom name: the CLI's session store has no field for either, so they
 // live in an overlay here (same pattern as mutes) — transcripts stay untouched
 const SMETA_FILE = path.join(DATA_DIR, 'session-meta.json');
-const loadSmeta = () => { try { return JSON.parse(fs.readFileSync(SMETA_FILE, 'utf8')); } catch { return {}; } };
+// The overlay is migrated to the current schema on load (migrateSmeta stamps the version and
+// is a no-op for today's records); it persists on the next natural save. See session-schema.mjs.
+const loadSmeta = () => { let raw = null; try { raw = JSON.parse(fs.readFileSync(SMETA_FILE, 'utf8')); } catch { } return migrateSmeta(raw); };
 let smeta = loadSmeta();
 const saveSmeta = () => atomicWrite(SMETA_FILE, smeta);
 const isPinned = id => Boolean(smeta[id]?.pin);
+// The engine that owns a session: a persisted engine config wins (set by engines that need it,
+// e.g. the ACP/OpenRouter engine), else it's derived from the id prefix — the long-standing rule.
+const sessionEngine = id => readEngineConfig(smeta[id])?.engine || engineForSessionId(id);
 // Pinned-session order chosen in the rail (drag, or Move up/down). Pins without an order follow by recency.
 const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder : Number.MAX_SAFE_INTEGER;
 // server-wide options (one tenant per install). titleSync: share session names with
@@ -2089,12 +2092,12 @@ async function listAllSessions(limit) {
   const known = new Set(rows.map(s => s.id));
   const owned = [...turns.entries(), ...[...codex.codexTurns].map(([id, t]) => [codex.CX + id, t])];
   for (const [id, t] of owned) if (!known.has(id)) rows.push({ id, title: smeta[id]?.name || t.userText?.slice(0,120) || 'New conversation',
-    cwd: t.cwd, provider: codex.isCodexId(id) ? 'codex' : 'claude', active: true, mtimeMs: t.startedAt, pinned: isPinned(id) });
+    cwd: t.cwd, provider: sessionEngine(id), active: true, mtimeMs: t.startedAt, pinned: isPinned(id) });
   for(const id of new Set(followups.rows.map(r=>r.sessionId))){
     if(rows.some(s=>s.id===id))continue;
     const file=!isCx(id)?await findSessionFile(id):null;
     const meta=isCx(id)?await codex.codexThreadMeta(codex.bareId(id)).catch(()=>null):file?await sessionMeta(file,id):null;
-    rows.push({...meta,id,provider:isCx(id)?'codex':'claude',title:smeta[id]?.name||meta?.title||'Queued conversation',mtimeMs:meta?.mtimeMs||followups.list(id)[0].createdAt});
+    rows.push({...meta,id,provider:sessionEngine(id),title:smeta[id]?.name||meta?.title||'Queued conversation',mtimeMs:meta?.mtimeMs||followups.list(id)[0].createdAt});
   }
   // Scratch and test workspaces stay out of the list for both agents unless pinned or running.
   rows = rows.filter(s => !(s.provider === 'codex' && s.cwd?.startsWith('/tmp/') && !s.pinned && !s.active));
@@ -2449,7 +2452,7 @@ async function readHead(file, maxBytes) {
   finally { await fh.close(); }
 }
 const CODEX_SESSIONS_ROOT = path.join(process.env.CODEX_HOME || path.join(HOME, '.codex'), 'sessions');
-const searchRow = (s, extra) => ({ id: s.id, title: s.title, provider: s.provider || (isCx(s.id) ? 'codex' : 'claude'), cwd: s.cwd || null,
+const searchRow = (s, extra) => ({ id: s.id, title: s.title, provider: s.provider || sessionEngine(s.id), cwd: s.cwd || null,
   mtimeMs: s.mtimeMs || 0, automated: s.automated || undefined, pinned: s.pinned || undefined, ...extra });
 app.get('/api/search', requireAuth, async (req, res) => {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -2607,7 +2610,7 @@ function validateApprovalMode(req,res,next){
   catch(e){res.status(e.status||400).json({error:e.message});}
 }
 function validateTurnModel(req, res, next) {
-  const provider = req.params.id ? (isCx(req.params.id) ? 'codex' : 'claude') : (req.body?.provider === 'codex' ? 'codex' : 'claude');
+  const provider = req.params.id ? engineForSessionId(req.params.id) : (req.body?.provider === 'codex' ? 'codex' : 'claude');
   try { validateModel(provider, req.body?.model); next(); }
   catch (error) { res.status(error.status || 400).json({ error: error.message }); }
 }
@@ -3069,7 +3072,7 @@ const titleOf = id => { const m = smeta[id] || {}; return m.name || storedAutoTi
 function lineage(id) {
   const m = smeta[id] || {};
   const branchOf = m.branchOf ? { id: m.branchOf, title: m.branchOfTitle || 'the earlier conversation' } : null;
-  const branches = Object.entries(smeta).filter(([, v]) => v?.branchOf === id).sort((a, b) => (b[1].branchedAt || 0) - (a[1].branchedAt || 0))
+  const branches = Object.entries(smeta).filter(([k, v]) => k !== VERSION_KEY && v?.branchOf === id).sort((a, b) => (b[1].branchedAt || 0) - (a[1].branchedAt || 0))
     .slice(0, 20).map(([cid, v]) => ({ id: cid, title: titleOf(cid) || 'Branch: ' + v.branchNote, at: v.branchedAt || null }));
   return { branchOf, branches };
 }

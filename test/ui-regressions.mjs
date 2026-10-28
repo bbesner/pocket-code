@@ -705,6 +705,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('.agents-retry',e=>getComputedStyle(e).display),'none');
    await scan('subagents-mobile');await page.screenshot({path:path.join(out,'subagents-mobile.png')});
    agents[0].latest='Checking duplicates now';await page.evaluate(()=>refreshAgents(chatId));
+   await page.waitForFunction(()=>document.querySelector('.agent-detail')?.textContent.includes('Checking duplicates now'),{timeout:8000}); // the re-render is async; wait for it before reading
    assert.equal(await page.$eval('.agent-row',e=>e.open),true,'refresh preserves disclosure');
    assert.match(await page.$eval('.agent-detail',e=>e.textContent),/Checking duplicates now/);
    setMode({agentsFail:true});await page.evaluate(()=>refreshAgents(chatId));
