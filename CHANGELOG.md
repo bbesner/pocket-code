@@ -3,6 +3,15 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.83.1] — 2026-10-28 · build 171
+
+Reported by Damon: Inbox Watch through the claude.ai Gmail connector had seen no new mail since Monday Oct 27 about 2 PM EDT, with status healthy; about 58 threads were missed, one of them an urgent client thread.
+
+- **The connector reads new mail again.** Since 2026-10-27 the claude.ai Gmail connector's `search_threads` answers a bound in Unix seconds (`after:1793178247`) with no threads and no error, while `after:2026/10/27` and `newer_than:1d` still work. `ConnectorMail` now sends every time bound in the date form (`date_form` in `mail_connector.py`): `after:` a day early, `before:` two days late, so the window is wide in any mailbox time zone; `connector_seen` skips the mail already seen, and a judge's lookup (`before:<until>` from `run_lookups`) is clipped to its time bound by the archive as before. `changed_threads` reads pages newest first and stops at the first page with nothing unseen, so a quiet check is still one call. The first check after the update catches up the mail missed since the day before the last cursor (up to 200 threads, spread over the following checks by the backlog). A watcher on the Gmail API (`mail.provider = "gmail"`), which takes both forms, was not affected.
+- **A blind search is a failure, not a quiet day.** A check that finds no threads at all while `newer_than:1d` finds some counts as blind; the third in a row fails the check with `the mail search is blind: after:… found nothing in 3 checks while newer_than:1d finds N thread(s)`, which the Inbox shows as *Inbox Watch couldn't check your mail*, and the third failed run sends the usual push. A check that finds mail, or a probe that finds none, resets the count. The probe runs only when the window search came back empty.
+- Migration: none. No frontend change: open browsers keep build 171. `mail.sqlite` gains `connector_meta` (the blind count) on the first check.
+- Tests: `inbox-watch/tests/test_connector.py` (the fake connector now answers the seconds form with nothing, as the real one does, and pages; date bounds and their margins, paging that stops at seen mail, the blind check and its reset, a quiet mailbox is not blind).
+
 ## [1.83.0] — 2026-10-28 · build 171
 
 Requested by Brad: typing `/` should open a searchable list of the commands, like the terminal, with the most useful ones in it.
