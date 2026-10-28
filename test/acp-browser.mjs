@@ -150,8 +150,13 @@ try {
   await page.evaluate(() => [...document.querySelectorAll('#questions-open [data-act]')].find(b => /Blue/.test(b.textContent)).click());
   await page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-asst')].some(e => /Answer: Blue/.test(e.textContent)), { timeout: 15000 });
 
+  // 1.87: the Changes view draws a unified diff (Codex records edits that way) as removed and added lines
+  const drawn = await page.evaluate(() => { const d = document.createElement('div'); d.innerHTML = diffHTML({ tool: 'Edit', patch: '--- a/parity.txt\n+++ b/parity.txt\n@@ -1 +1 @@\n-old line\n+new line\n' }); return [...d.querySelectorAll('pre span')].map(x => [x.className, x.textContent]); });
+  assert.deepEqual(drawn.filter(([c]) => c !== 'dx'), [['dd', '- old line'], ['da', '+ new line']], JSON.stringify(drawn));
+  assert.ok(!drawn.some(([, t]) => /parity\.txt/.test(t)), 'file headers are left out');
+
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, openrouter: { messageAtOnce: true, replyButtons: true, questionCards: true, planFirst: true, unsupportedHidden: true, effortChip: true, approvalBanner: true, modelAndEffortApplied: true, toolLines: true, costLine: true, fullAccess: true, reopen: true } }));
+  console.log(JSON.stringify({ ok: true, unifiedDiff: true, openrouter: { messageAtOnce: true, replyButtons: true, questionCards: true, planFirst: true, unsupportedHidden: true, effortChip: true, approvalBanner: true, modelAndEffortApplied: true, toolLines: true, costLine: true, fullAccess: true, reopen: true } }));
 } catch (e) {
   console.error('Page errors:', errors); console.error('Server log tail:', logs.slice(-2000)); throw e;
 } finally {

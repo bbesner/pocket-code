@@ -411,6 +411,10 @@ function pocketInstructions(engine, sid) {
     engine === 'acp' ? '' : googleInstructions(engine), manualInstructions()].filter(Boolean).join(' ');
 }
 codex.setExtraInstructions(threadId => pocketInstructions('codex', threadId ? 'cx:' + threadId : null));
+// 1.87: the trusted read-only actions (Settings -> Agents) apply to every agent's commands in Review actions
+const trustedCommand = command => matchTrusted(trustedRules(), 'Bash', { command }); // the command alone: the matcher refuses fields it does not know
+codex.setTrustedMatcher(trustedCommand);
+acp.setTrustedMatcher(trustedCommand);
 const syncAgentSkills = () => syncSkills({ settings: { ...settings, vault: vaultLive() }, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI, vault: VAULT_CLI, inbox: INBOX_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks, 1.39: pocket-vault, 1.69: pocket-inbox) for every agent on the box
 syncAgentSkills();
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
@@ -1315,17 +1319,28 @@ function armRetry(m) {
 function scheduleRetry(sessionId, turn, resetAt) {
   const m = {
     sessionId, cwd: turn.cwd, at: resetAt, createdAt: Date.now(), userText: turn.userText,
-    model: turn.model, effort: turn.effort, approvalMode:turn.approvalMode, attempt: (turn.retryAttempt || 0) + 1, fork: turn.runner?.fork || null,
+    model: turn.model || turn.requestedModel || null, effort: turn.effort || null, approvalMode:turn.approvalMode, attempt: (turn.retryAttempt || 0) + 1, fork: turn.runner?.fork || null,
   };
   try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m)); } catch { }
   armRetry(m);
   log(`rate limited session=${sessionId} — auto-resume at ${fmtOwnerTime(resetAt)} (attempt ${m.attempt})`);
 }
 async function fireRetry(m) {
-  if (claudeLogin.active) return armRetry({...m,at:Date.now()+15_000});
+  if (claudeLogin.active && engineForSessionId(m.sessionId) === 'claude') return armRetry({...m,at:Date.now()+15_000});
   retryTimers.delete(m.sessionId);
   try { fs.unlinkSync(turnFiles(m.sessionId).retry); } catch { }
-  if (turns.has(m.sessionId)) return log(`retry skipped (turn already running) session=${m.sessionId}`);
+  if (ownedTurn(m.sessionId)) return log(`retry skipped (turn already running) session=${m.sessionId}`);
+  if (engineForSessionId(m.sessionId) !== 'claude') { // 1.87: Codex and OpenRouter pick up again the same way
+    const id = m.sessionId, body = { model: m.model, effort: m.effort, approvalMode: m.approvalMode };
+    try {
+      const t = isCx(id) ? await startCodexFromApi({ id, threadId: codex.bareId(id), cwd: m.cwd, text: RETRY_PROMPT, body })
+        : await startAcpFromApi({ id, sessionId: acp.bareAcpId(id), cwd: m.cwd, text: RETRY_PROMPT, body, resume: true });
+      if (t) t.retryAttempt = m.attempt; // three resumes at most, as on Claude
+      log(`auto-resume after usage limit session=${id} attempt=${m.attempt}`);
+      pushNotify(id, smeta[id]?.name || `${ENGINES[engineForSessionId(id)].label} conversation`, 'Usage limit reset. Picking the task back up').catch(() => { });
+    } catch (e) { log(`auto-resume failed session=${id}: ${e.message}`); }
+    return;
+  }
   const file = await findSessionFile(m.sessionId);
   try { // the user (or code-server) may have moved the session along during the wait
     if (file && (await fsp.stat(file)).mtimeMs > m.createdAt + 15_000) {
@@ -2081,7 +2096,7 @@ function stateFor(s) {
   const cx = codex.isCodexId(s.id), ac = isAcpId(s.id);
   const turn = ac ? acp.ownedAcpTurn(s.id) : cx ? codex.codexTurns.get(codex.bareId(s.id)) : turns.get(s.id);
   let retryAt = null;
-  if (!cx && !ac && retryTimers.has(s.id)) {
+  if (retryTimers.has(s.id)) { // 1.87: every engine's usage-limit wait, not only Claude's
     try { retryAt = JSON.parse(fs.readFileSync(turnFiles(s.id).retry, 'utf8')).at; } catch { }
   }
   const queue=followups.list(s.id);
@@ -2222,7 +2237,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
     try { messages = await acpMessages(id, turn); }
     catch (e) { if (!turn) { log(`acp history read failed session=${id}: ${e.message}`); return res.status(404).json({ error: 'not found' }); } messages = []; }
     // 1.86: your message shows while its reply runs (the stream then starts after it), as in Claude and Codex
-    messages = withPendingUser(messages, turn);
+    messages = withPendingUser(messages.map(acp.forClient), turn);
     const row = acpListCache.rows.find(r => r.id === id), cwd = turn?.cwd || row?.cwd || null;
     return sendJson(req, res, {
       id, provider: 'acp', model: readEngineConfig(smeta[id])?.model || turn?.model || null,
@@ -2243,7 +2258,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       if (turn?.userText) { messages = [{ role: 'user', text: turn.userText }]; total = 1; }
       else return res.status(502).json({ error: String(e.message) });
     }
-    messages = withPendingUser(messages, turn);
+    messages = withPendingUser(messages.map(codex.forClient), turn); // 1.87: edits' diffs stay here for the Changes view
     return sendJson(req, res, {
       id: req.params.id, provider: 'codex',
       title: smeta[req.params.id]?.name || (meta ? finishTitle({ ...meta, untitled: meta.untitled }).title : turn?.userText?.slice(0, 120)) || 'New conversation',
@@ -2338,7 +2353,16 @@ app.get('/api/session/:id/agents/:agent/activity',requireAuth,async(req,res)=>{
   res.set('Cache-Control','private, no-store');
   const {id,agent}=req.params;
   if(!anyId(id)||!/^[\w-]{1,64}$/.test(agent))return res.status(400).json({error:'Invalid conversation'});
-  if(isCx(id))return res.status(404).json({error:'Codex does not keep a transcript Pocket can show for its subagents.'});
+  if(isAcpId(id))return res.status(404).json({error:'OpenRouter has no subagents.'});
+  if(isCx(id)){ // 1.87: a Codex subagent is a thread of its own; show it once it is confirmed to be this conversation's
+    try{
+      const {agents=[]}=await codex.readCodexAgents(codex.bareId(id));
+      const a=agents.find(x=>x.id===agent);
+      if(!a)return res.status(404).json({error:'This subagent is not part of this conversation.'});
+      const {msgs,total}=await codex.readCodexThread(agent,300);
+      return res.json({agent:a,messages:msgs.map(codex.forClient),total,checkedAt:Date.now()});
+    }catch(e){return res.status(503).json({error:'Subagent activity could not be loaded. Try again.'});}
+  }
   try{
     const file=await findSessionFile(id);
     const info=file?subagentIndex.file(subagentDir(file,id),agent):null;
@@ -2485,11 +2509,19 @@ app.get('/api/session/:id/context', requireAuth, async (req, res) => {
 app.get('/api/session/:id/changes', requireAuth, async (req, res) => {
   // Codex records edits as unified diff hunks, not before/after pairs — the view can't
   // render those yet, so report the touched files rather than pretending there's nothing.
-  if (anyId(req.params.id) && engineForSessionId(req.params.id) !== 'claude') { // Claude records before/after pairs; the others name the files
-    const { msgs } = await engineOf(req.params.id).transcript(req.params.id).catch(() => ({ msgs: [] }));
-    const paths = new Set();
-    for (const m of msgs) for (const b of m.blocks || []) if (b.t === 'tool' && b.name === 'Edit' && b.detail) paths.add(b.detail);
-    return res.json({ files: [...paths].map(p => ({ path: p, ops: [] })), failed: 0, diffless: true });
+  if (anyId(req.params.id) && engineForSessionId(req.params.id) !== 'claude') {
+    // 1.87: Codex records each edit as a unified diff per file (kept on the transcript's Edit lines); OpenRouter names the
+    // files. Claude records before/after pairs (collectChanges, below). The Changes view shows either.
+    const { msgs } = await engineOf(req.params.id).transcript(req.params.id, 5000).catch(() => ({ msgs: [] }));
+    const files = new Map(), add = (p, op) => { if (!files.has(p)) files.set(p, []); if (op) files.get(p).push(op); };
+    for (const m of msgs) for (const b of m.blocks || []) {
+      if (b.t !== 'tool' || b.name !== 'Edit') continue;
+      if (Array.isArray(b.changes) && b.changes.length) for (const c of b.changes) add(c.path, typeof c.diff === 'string'
+        ? { tool: c.kind === 'add' ? 'Write' : c.kind === 'delete' ? 'Delete' : 'Edit', patch: c.diff, ...(c.to ? { to: c.to } : {}), ...(c.trunc ? { trunc: true } : {}), ts: m.ts || null } // Codex: a unified diff
+        : { tool: c.old == null ? 'Write' : 'Edit', old: c.old, new: c.new, ts: m.ts || null }); // OpenRouter: before/after, as Claude's
+      else for (const p of b.paths || (b.detail ? [b.detail.replace(/ \+\d+ more$/, '')] : [])) add(p, null);
+    }
+    return res.json({ files: [...files.entries()].map(([path, ops]) => ({ path, ops })), failed: 0, ...([...files.values()].some(o => !o.length) ? { diffless: true } : {}) });
   }
   const file = await findSessionFile(req.params.id);
   if (!file) return res.status(404).json({ error: 'not found' });
@@ -2615,6 +2647,15 @@ async function codexTurnFinished(id, turn, ev) {
   // 1.81: the push follows Claude's rules: none while a browser has the conversation open (its stream is still attached
   // here, read before any await) and none for a reply the user stopped. It used to push for both.
   const watching = turn.subs.size > 0;
+  // 1.87: a usage limit waits for the reset and picks the task up again, as Claude's replies do
+  if (ev.limit && !turn.stopped && (turn.retryAttempt || 0) < 3) {
+    const at = await codex.codexLimitReset().catch(() => null);
+    const resetAt = Math.min(at && at > Date.now() ? at : (detectRateLimit(ev.error || 'usage limit')?.resetAt || Date.now() + 3600_000), Date.now() + RETRY_MAX_DELAY_MS) + (at ? RETRY_BUFFER_MS : 0);
+    scheduleRetry(id, turn, resetAt);
+    recordOutcome(id, turn, ev, resetAt);
+    if (!mutes.has(id)) pushNotify(id, smeta[id]?.name || 'Codex conversation', `Usage limit reached. Picks up again at ${fmtOwnerTime(resetAt)}`).catch(() => { });
+    return;
+  }
   recordOutcome(id, turn, ev);
   retitler.request(id); // 1.29.1
   if (!turn.stopped) autoKeepTurnFiles(id, turn.startedAt || 0);
@@ -2627,7 +2668,9 @@ async function codexTurnFinished(id, turn, ev) {
   }
   if (!watching && !turn.stopped && !mutes.has(id)) {
     const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
-    pushNotify(id, meta?.title || 'Codex conversation', ev.ok ? 'Ready' : 'Something went wrong. Tap to see what happened').catch(() => {});
+    // 1.87: the same body Claude's pushes have (the reply's time; tokens where Claude shows its cost)
+    const body = !ev.ok ? 'Something went wrong. Tap to see what happened' : assistantOn() ? 'Ready' : `Ready${Number.isFinite(ev.tokens) && ev.tokens > 0 ? ` · ${ev.tokens >= 1e3 ? Math.round(ev.tokens / 1e3) + 'k' : ev.tokens} tokens` : ''}${ev.duration_ms ? ` · ${Math.round(ev.duration_ms / 1000)}s` : ''}`;
+    pushNotify(id, meta?.title || 'Codex conversation', body).catch(() => {});
   }
 }
 async function runNextFollowup(id, cwd) {
@@ -2709,10 +2752,24 @@ function codexHooks(id) {
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
   };
 }
+// 1.87: the Claude Code commands that have a Codex counterpart. /compact and /review run Codex's own turns; /recap asks
+// for the same short summary Claude's gives. (/context opens Pocket's context panel in the app.)
+const RECAP_PROMPT = 'Sum up where this conversation stands: what was asked, what is done, what is left and anything waiting on me, in a few short lines.';
+function codexCommand(text) {
+  const m = /^\/(compact|review|recap)(?:\s+(.*))?$/i.exec(String(text || '').trim()); if (!m) return null;
+  const arg = (m[2] || '').trim(), kind = m[1].toLowerCase();
+  if (kind === 'compact') return { action: { kind } };
+  if (kind === 'recap') return { prompt: RECAP_PROMPT };
+  const commit = /^commit\s+([0-9a-f]{6,40})$/i.exec(arg);
+  return { action: { kind, target: commit ? { type: 'commit', sha: commit[1] } : arg ? { type: 'baseBranch', branch: arg } : { type: 'uncommittedChanges' } } };
+}
 async function startCodexFromApi({ id, threadId, forkFrom, cwd, text, body }) {
+  if (id) cancelRetry(id); // 1.87: a reply you start replaces a pending usage-limit resume, as on Claude
   if (!threadId || !codex.codexSessions.has(threadId)) reclaimProcess();
   const opts = withDefaults('codex', turnOpts(body));
-  return codex.startCodexTurn({ threadId, forkFrom, cwd, text, ...opts, ...codexHooks(id) });
+  const cmd = threadId ? codexCommand(text) : null; // a command needs a thread; on a new conversation it is just text
+  if (cmd?.prompt) return codex.startCodexTurn({ threadId, forkFrom, cwd, text: cmd.prompt, ...opts, ...codexHooks(id) });
+  return codex.startCodexTurn({ threadId, forkFrom, cwd, text, ...opts, ...(cmd?.action ? { action: cmd.action } : {}), ...codexHooks(id) });
 }
 // ---------- ACP/OpenRouter engine bridge (mirrors the codex bridge; gated on ACP_ON) ----------
 function acpHooks(id) {
@@ -2725,6 +2782,7 @@ function acpHooks(id) {
   };
 }
 async function startAcpFromApi({ id, sessionId, cwd, text, body, resume }) {
+  if (id) cancelRetry(id); // 1.87: as on Claude and Codex
   const opts = withDefaults('acp', turnOpts(body));
   const model = opts.model || ACP_CFG.curated[0];
   const levels = acpEfforts.map[model];
@@ -2789,6 +2847,14 @@ async function acpTurnFinished(id, turn, ev) {
   const watching = turn.subs.size > 0;
   acpHistory.delete(id); acpListCache.at = 0;
   setSmeta(id, { acpRunning: null, ...(Number.isFinite(turn.session?.costTotal) ? { acpCost: turn.session.costTotal } : {}), ...(turn.context ? { acpContext: { ...turn.context, at: Date.now() } } : {}) });
+  // 1.87: OpenRouter's own rate limits (429, "retry after") wait and pick up again, as Claude's and Codex's usage limits do
+  const limited = !ev.ok && !turn.stopped && (turn.retryAttempt || 0) < 3 ? detectRateLimit(ev.error || '') : null;
+  if (limited) {
+    scheduleRetry(id, turn, limited.resetAt);
+    recordOutcome(id, turn, ev, limited.resetAt);
+    if (!mutes.has(id)) pushNotify(id, smeta[id]?.name || 'OpenRouter conversation', `Rate limited. Picks up again at ${fmtOwnerTime(limited.resetAt)}`).catch(() => { });
+    return;
+  }
   recordOutcome(id, turn, ev);
   retitler.request(id);
   // the reply's own messages carry times (the replayed history does not), which auto-keep matches files by
@@ -4181,7 +4247,7 @@ app.get('/api/acp/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["After a CLI upgrade, Pocket shows which Claude Code and Codex conversations still have an older process. The update notice stays visible until they switch. The review names each conversation, shows whether it is idle or working, and offers Switch now for idle work. Stop work & switch asks before interrupting a running reply; the next turn opens the selected CLI. Restarting Pocket does not switch those processes.", "OpenRouter conversations now have the everyday features Claude Code and Codex conversations have. Your message shows as soon as you send it. A question from the model is a question card with its options as buttons, and a reply that asks you to choose ends with reply buttons, because Pocket's instructions now reach OpenRouter too. Attachments and images reach it, Plan first works, Stop stops (a queued message waits), a message queued with After this reply runs on OpenRouter, and the context meter, Results, Search and the Git panel work. What OpenRouter cannot do yet (Steer, Side chat, Branch, While you were away) is hidden on its conversations instead of offered and failing. And OpenCode needs no setup of its own any more: Pocket starts it with the ask-first permissions it needs. Behind this, every feature now goes through one layer for all three agents, with one test run against each. Requested by Brad.", "Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to Ari only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by Brad.", "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.", "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.", "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by Brad.", "OpenRouter conversations now work the way they should. Before, every reply ran on OpenCode's own free model whatever you picked, a conversation waiting for your OK said Recent with no Allow button, and there was no way to set the effort. Now the reply runs on the model you picked (Pocket checks with OpenCode first and stops rather than let it run on another), the approval shows on the banner with Allow and Don't allow, and the effort chip offers the levels the chosen model has, such as None, Low, High and Max for DeepSeek V4.1 Flash; a model with no effort setting shows no chip. Reported by Brad.", "OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by Brad.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
+const RELEASE_NOTES = ["Codex conversations now have what Claude Code conversations had over them. Changed files shows each Codex edit's diff, and files Codex writes become file cards and are kept in Files like Claude's. When Codex hits its usage limit, the conversation waits for the reset and picks the task up again by itself, as Claude's do, and tells you when. The / list offers compact, review (the uncommitted changes, or against a base branch), recap and context. Your attachments show as file chips, a subagent's activity opens, the trusted read-only actions in Settings apply to Codex (and OpenRouter) commands, each reply shows the tokens it used, a reply Codex moves to another model says so, the Usage sheet reads 5-hour and Weekly, and Plan first shows its plan. OpenRouter gets the same diffs in Changed files and picks up again after a rate limit. Requested by Brad.", "After a CLI upgrade, Pocket shows which Claude Code and Codex conversations still have an older process. The update notice stays visible until they switch. The review names each conversation, shows whether it is idle or working, and offers Switch now for idle work. Stop work & switch asks before interrupting a running reply; the next turn opens the selected CLI. Restarting Pocket does not switch those processes.", "OpenRouter conversations now have the everyday features Claude Code and Codex conversations have. Your message shows as soon as you send it. A question from the model is a question card with its options as buttons, and a reply that asks you to choose ends with reply buttons, because Pocket's instructions now reach OpenRouter too. Attachments and images reach it, Plan first works, Stop stops (a queued message waits), a message queued with After this reply runs on OpenRouter, and the context meter, Results, Search and the Git panel work. What OpenRouter cannot do yet (Steer, Side chat, Branch, While you were away) is hidden on its conversations instead of offered and failing. And OpenCode needs no setup of its own any more: Pocket starts it with the ask-first permissions it needs. Behind this, every feature now goes through one layer for all three agents, with one test run against each. Requested by Brad.", "Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to Ari only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by Brad.", "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.", "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.", "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by Brad.", "OpenRouter conversations now work the way they should. Before, every reply ran on OpenCode's own free model whatever you picked, a conversation waiting for your OK said Recent with no Allow button, and there was no way to set the effort. Now the reply runs on the model you picked (Pocket checks with OpenCode first and stops rather than let it run on another), the approval shows on the banner with Allow and Don't allow, and the effort chip offers the levels the chosen model has, such as None, Low, High and Max for DeepSeek V4.1 Flash; a model with no effort setting shows no chip. Reported by Brad.", "OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by Brad.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".

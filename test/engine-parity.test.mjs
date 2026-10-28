@@ -4,7 +4,10 @@
 // fails here; an engine that cannot do something lists it false in engines.mjs, and the app hides it there.
 //
 // Each fake takes the same prompt markers: __SLOW__ (the reply takes a while), __HANG__ (it runs until stopped),
-// __CHOICES__ (it ends with a ```choices block), __QUESTION__ (it asks "Which color?" with Blue and Red).
+// __CHOICES__ (it ends with a ```choices block), __QUESTION__ (it asks "Which color?" with Blue and Red);
+// 1.87: __PLAN__ (a plan of two steps), __EDIT__ (edits parity.txt, "old line" to "new line"), __LIMIT__ (hits a usage or
+// rate limit that lifts 2 s later), and a command it asks to run (Claude __TOOLREQ__ Bash, Codex __CMDAPPROVAL__,
+// OpenRouter every reply), which the trusted list covers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -28,9 +31,10 @@ async function boot(t, port) {
     POCKET_SESSION_ROOT: path.join(dir, 'sessions'), POCKET_DATA_DIR: path.join(dir, 'data'), POCKET_TEST_CALLS: path.join(dir, 'calls'),
     CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs'), CODEX_BIN: path.join(repo, 'test/fake-codex.mjs'),
     POCKET_ACP_ENABLE: '1', POCKET_ACP_CMD: process.execPath, POCKET_ACP_ARGS: path.join(repo, 'test/fake-acp.mjs'), POCKET_ACP_STORE: path.join(dir, 'acp-store'), POCKET_ASK_POLL_MS: '100',
+    POCKET_RETRY_BUFFER_MS: '0', POCKET_TRUSTED_ACTIONS: 'Bash(echo PARITY_OK), Bash(echo CX_OK), Bash(echo ACP_OK)',
   } });
   let logs = ''; child.stdout.on('data', d => logs += d); child.stderr.on('data', d => logs += d);
-  t.after(() => { try { child.kill('SIGKILL'); } catch { } fs.rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { try { child.kill('SIGKILL'); } catch { } if (process.env.PARITY_LOG) fs.writeFileSync(process.env.PARITY_LOG, logs); fs.rmSync(dir, { recursive: true, force: true }); });
   for (let i = 0; ; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) break; } catch { } if (i > 200) throw new Error('server did not start: ' + logs); await sleep(30); }
   const call = async (p, body, method) => { const r = await fetch(`http://127.0.0.1:${port}/api${p}`, { method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch { } return { status: r.status, body: j }; };
   const e = id => encodeURIComponent(id);
@@ -120,6 +124,56 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
       const id = await s.start(engine, `parity attach ${engine}`, { attachments: [file] });
       await s.idle(id);
       assert.ok(s.prompts(engine).some(c => c.text.startsWith(`parity attach ${engine}`) && c.text.includes(file)), `${engine} was given the file`);
+    });
+
+    // ---------- 1.87 ----------
+    await t.test(`${engine}: a plan shows as a checklist`, async () => {
+      const id = await s.start(engine, `parity plan ${engine} __PLAN__`);
+      const evs = await s.sse(id, ev => ev.type === 'done' || ev.type === 'idle');
+      const todo = evs.filter(ev => ev.type === 'assistant').flatMap(ev => ev.msg?.blocks || []).find(b => b.t === 'todo');
+      assert.deepEqual(todo?.todos?.map(x => [x.c, x.s]), [['Read the code', 'completed'], ['Fix the bug', 'in_progress']], `${engine}: ${JSON.stringify(todo)}`);
+      await s.idle(id);
+    });
+
+    await t.test(`${engine}: edits show in Changes with what changed`, async () => {
+      const id = await s.start(engine, `parity edit ${engine} __EDIT__`);
+      await s.idle(id);
+      const c = await s.until(async () => { const r = (await s.call(`/session/${s.e(id)}/changes`)).body; return r?.files?.some(f => f.path.endsWith('parity.txt')) ? r : null; }, 10000, 'the edit in Changes');
+      const ops = c.files.find(f => f.path.endsWith('parity.txt')).ops;
+      assert.ok(ops.length && ops.every(o => (typeof o.patch === 'string' && o.patch.includes('+new line')) || (o.old === 'old line' && o.new === 'new line')), `${engine}: ${JSON.stringify(ops)}`);
+      const sent = JSON.stringify((await s.session(id)).messages);
+      assert.ok(!sent.includes('"changes"'), 'the diff itself does not travel with the conversation');
+    });
+
+    await t.test(`${engine}: a usage limit waits for the reset, then picks the task up again`, async () => {
+      const id = await s.start(engine, `parity limit ${engine} __LIMIT__`);
+      const w = await s.until(async () => { const b = await s.session(id); return b?.state?.kind === 'waiting' ? b : null; }, 10000, 'the waiting state');
+      assert.equal(w.state.label, 'Waiting for usage reset'); assert.ok(w.state.retryAt > Date.now() - 60_000);
+      await s.until(() => s.prompts(engine).some(c => /interrupted by an API rate limit/.test(c.text)), 20000, `${engine} to be resumed`);
+      await s.idle(id);
+    });
+
+    await t.test(`${engine}: a trusted read-only command runs without an approval card`, async () => {
+      const text = engine === 'claude' ? `parity trusted claude __TOOLREQ__ {"tool":"Bash","input":{"command":"echo PARITY_OK"}}` : engine === 'codex' ? 'parity trusted codex __CMDAPPROVAL__' : 'parity trusted acp';
+      const id = await s.start(engine, text, { approvalMode: 'review' });
+      const b = await s.idle(id); // with no card to answer, the reply only ends because the command was allowed
+      assert.notEqual(b.state.kind, 'input');
+      if (engine === 'claude') assert.ok(fs.readFileSync(path.join(s.dir, 'calls.responses'), 'utf8').includes('"behavior":"allow"'));
+      if (engine === 'codex') assert.match(fs.readFileSync(path.join(s.dir, 'calls.cxapprovals'), 'utf8'), /"decision":"accept"/);
+      if (engine === 'acp') assert.ok(fs.readdirSync(path.join(s.dir, 'acp-store')).some(f => JSON.parse(fs.readFileSync(path.join(s.dir, 'acp-store', f), 'utf8')).lastPrompt === 'parity trusted acp' && JSON.parse(fs.readFileSync(path.join(s.dir, 'acp-store', f), 'utf8')).permissionOutcome === 'selected'));
+    });
+
+    await t.test(`${engine}: each reply reports what it cost or used, and /compact reaches the agent`, async () => {
+      const id = await s.start(engine, `parity meter ${engine} __COST__`);
+      const evs = await s.sse(id, ev => ev.type === 'done' || ev.type === 'idle');
+      const r = evs.find(ev => ev.type === 'result');
+      assert.ok(Number.isFinite(r?.cost) || r?.tokens > 0, `${engine}: ${JSON.stringify(r)}`);
+      await s.idle(id);
+      const before = s.prompts(engine).length;
+      assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: '/compact', approvalMode: 'full' })).status, 202);
+      await s.until(() => s.prompts(engine).slice(engine === 'acp' ? 0 : before).some(c => c.text === '/compact' || c.text === '[compact]'), 10000, `${engine} to get /compact`);
+      if (engine === 'codex') assert.ok(s.prompts('codex').some(c => c.text === '[compact]'), 'Codex compacts with its own method');
+      await s.idle(id);
     });
 
     await t.test(`${engine}: the Git panel, Results and Search answer`, async () => {

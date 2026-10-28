@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.86.0
+checked: 1.87.0
 sources: choices.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -66,6 +66,17 @@ The list has three groups:
   | `/security-review` | Checks the pending changes for security problems |
   | `/simplify` | Cleans up the code that was just changed |
   | `/mcp` | Shows which MCP servers are connected |
+
+- **Codex** (Codex conversations, since 1.87): Codex's counterparts, run as Codex's own turns.
+
+  | Command | What it does |
+  |---------|--------------|
+  | `/compact` | Compacts the conversation so far to free up context |
+  | `/review [base branch]` | Reviews the uncommitted changes, or the branch against a base branch (`/review commit <sha>` for one commit); the findings are the reply |
+  | `/recap` | Sums up where the conversation stands |
+  | `/context` | Shows what is filling the context window |
+
+- **OpenRouter** conversations list OpenCode's own commands and skills.
 
 - **Pocket**: actions Pocket runs itself. Nothing is sent to the agent.
 
@@ -163,7 +174,7 @@ Open** in Results). **Settings → Projects, files, tasks & vault → Keep files
 
 - **Changed files** (the diff button in the header, or **Conversation options → Changed files**) lists every file this
   conversation edited or wrote, read from its transcript, with the before and after of each edit. Failed edits are counted
-  but not shown. For Codex conversations it lists the touched files without diffs.
+  but not shown. Codex conversations show each edit's diff (since 1.87); OpenRouter's show before and after, as Claude's do.
 - **Git** in the header shows the whole working tree of the conversation's repository: branch, changed files and their
   diffs, including changes made by other conversations or by hand. It is read-only. Pick a file to see its **Working tree** or
   **Staged** diff. Untracked files are listed without content. The Git button is hidden when the conversation's folder is

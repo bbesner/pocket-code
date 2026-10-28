@@ -721,7 +721,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       <span class="vault-set-actions"><button class="chip" id="s-models-reset" hidden>Use the server's list</button></span></div>
     <div class="title-settings model-offer trusted-actions" id="s-trusted" role="group" aria-labelledby="s-trusted-h" aria-describedby="s-trusted-lead">
       <p class="vault-set-head" id="s-trusted-h">Actions that run without asking</p>
-      <p class="title-note" id="s-trusted-lead">In Review actions, Claude runs the read-only actions listed here without an approval card. Everything else still asks.</p>
+      <p class="title-note" id="s-trusted-lead">In Review actions, Claude Code, Codex and OpenRouter run the read-only actions listed here without an approval card. Everything else still asks.</p>
       <ul class="trusted-list" id="s-trusted-list" aria-labelledby="s-trusted-h" aria-busy="true"></ul>
       <form class="trusted-add" id="s-trusted-form" novalidate>
         <label class="trusted-label" for="s-trusted-input">Add an action</label>
@@ -2393,7 +2393,12 @@ function openOlderMatches(q, matches) {
 function diffHTML(op) {
   const CTX = 2, CAP = 300;
   const rows = [];
-  if (op.old == null) {
+  if (typeof op.patch === 'string') { // 1.87: a unified diff (Codex), shown as it is; file headers dropped, hunk lines kept
+    for (const l of op.patch.split('\n')) {
+      if (/^(diff |index |--- |\+\+\+ )/.test(l)) continue;
+      rows.push(l.startsWith('@@') ? [' ', l] : [l[0] === '+' ? '+' : l[0] === '-' ? '-' : ' ', l.slice(1)]);
+    }
+  } else if (op.old == null) {
     for (const l of String(op.new ?? '').split('\n')) rows.push(['+', l]);
   } else {
     const a = op.old.split('\n'), b = String(op.new ?? '').split('\n');
@@ -2423,11 +2428,11 @@ async function openChanges() {
   if (!d.files.length) { m.innerHTML = '<div class="empty">This conversation hasn’t edited any files.</div>'; return; }
   const n = (k, w) => k ? `${k} ${w}${k > 1 ? 's' : ''}` : '';
   m.innerHTML = d.files.map((f, i) => {
-    const edits = f.ops.filter(o => o.tool === 'Edit').length, writes = f.ops.length - edits;
+    const edits = f.ops.filter(o => o.tool === 'Edit').length, deletes = f.ops.filter(o => o.tool === 'Delete').length, writes = f.ops.length - edits - deletes;
     return `<details class="chg"${d.files.length === 1 ? ' open' : ''}>
       <summary><span class="fname">&lrm;${esc(projShort(f.path))}</span>
-        <span class="fmeta">${[n(edits, 'edit'), n(writes, 'write')].filter(Boolean).join(' · ')}</span></summary>
-      ${f.ops.map(diffHTML).join('')}</details>`;
+        <span class="fmeta">${[n(edits, 'edit'), n(writes, 'write'), deletes ? 'deleted' : ''].filter(Boolean).join(' · ')}</span></summary>
+      ${f.ops.length ? f.ops.map(diffHTML).join('') : '<div class="chgnote">Edited; this agent did not record the change itself.</div>'}</details>`;
   }).join('') + (d.failed ? `<div class="chgnote">${d.failed} failed edit${d.failed > 1 ? 's' : ''} not shown</div>` : '');
 }
 
@@ -3029,7 +3034,7 @@ async function openContextPanel() {
        <dl class="ctx-facts"><div><dt>Window</dt><dd>${esc(fmtTokens(ctx.window))} tokens</dd></div><div><dt>Used</dt><dd>${esc(fmtTokens(ctx.used))} tokens</dd></div><div><dt>Free</dt><dd>${esc(fmtTokens(Math.max(0, ctx.window - ctx.used)))} tokens</dd></div></dl>
        <p class="usage-asof">${ctx.estimated ? 'Estimated from the transcript. ' : ''}As of ${esc(fmtAsOf(ctx.lastAt))}</p></div>`
     : '<div class="usage-block"><h3>This conversation</h3><p class="usage-empty">Context use appears after the next reply reports it.</p></div>';
-  sh.innerHTML = `<h2>Usage</h2><p class="sheet-help">Only updates when a reply runs, not live.</p><div class="usage-body">${ctxBlock}${codexSession ? '' : cacheBlockHTML(cacheData.get(id))}</div><div class="usage-body" id="usage-body">Loading plan usage…</div>`;
+  sh.innerHTML = `<h2>Usage</h2><p class="sheet-help">Only updates when a reply runs, not live.</p><div class="usage-body">${ctxBlock}${cacheBlockHTML(cacheData.get(id))}</div><div class="usage-body" id="usage-body">Loading plan usage…</div>`;
   mountSheet(scrim, sh);
   let d;
   try { d = await api('/usage'); } catch (e) { sh.querySelector('#usage-body').innerHTML = `<p class="usage-empty">Plan usage could not be loaded: ${esc(e.message)}</p>`; return; }
@@ -3073,7 +3078,8 @@ function claudeUsageBlockHTML(d) {
   return `<div class="usage-block"><h3>Claude Code</h3>${rows.join('')}${overage}<p class="usage-asof">As of ${esc(fmtAsOf(d.observedAt))}</p></div>`;
 }
 function codexUsageBlockHTML(d) {
-  const label = w => w?.windowDurationMins ? Math.round(w.windowDurationMins / 60) + 'h window' : 'Window';
+  // 1.87: the plan windows in words (Codex reports them in minutes: 300 = 5 hours, 10080 = a week)
+  const label = w => { const m = w?.windowDurationMins; if (!m) return 'Window'; if (m === 10080) return 'Weekly'; if (m % 1440 === 0) return (m / 1440) + '-day'; return Math.round(m / 60) + '-hour'; };
   const rows = [
     d.primary && usageWindowRow(label(d.primary), (d.primary.usedPercent || 0) / 100, d.primary.resetsAt ? d.primary.resetsAt * 1000 : null),
     d.secondary && usageWindowRow(label(d.secondary), (d.secondary.usedPercent || 0) / 100, d.secondary.resetsAt ? d.secondary.resetsAt * 1000 : null),
@@ -3117,6 +3123,13 @@ const SLASH_POCKET = [
   { name: 'effort', desc: 'Choose how much it thinks before answering', where: 'both', ok: () => $('#c-eff'), act: () => $('#c-eff')?.click() },
   { name: 'usage', desc: 'See how much of your plan is used', where: 'both', working: true, act: () => openUsagePanel() },
 ];
+// 1.87: the Claude Code commands Codex has a counterpart for (the server runs them as Codex's own turns).
+const SLASH_CODEX = [
+  { name: 'compact', desc: 'Summarize the conversation so far to free up context', where: 'chat', run: true },
+  { name: 'review', arg: 'base branch', desc: 'Review the uncommitted changes, or the branch against a base branch', where: 'chat' },
+  { name: 'recap', desc: 'Sum up where this conversation stands', where: 'chat', run: true },
+  { name: 'context', desc: 'Show what is filling the context window', where: 'chat', act: () => openUsagePanel() },
+];
 const SLASH_CLAUDE = [
   { name: 'compact', arg: 'focus', desc: 'Summarize the conversation so far to free up context', where: 'chat' },
   { name: 'context', desc: 'Show what is filling the context window', where: 'chat', run: true },
@@ -3153,11 +3166,11 @@ function slashGroups(q, { where, provider, working, list }) {
   const pocket = SLASH_POCKET.filter(fits);
   const known = list?.available ? new Set(list.available) : null;
   // Claude Code's own commands only for Claude; OpenRouter (OpenCode) gets Pocket's actions and no Claude/Codex skills.
-  const claude = provider === 'codex' || provider === 'acp' ? [] : SLASH_CLAUDE.filter(c => fits(c) && (!known || known.has(c.name)));
-  const taken = new Set([...SLASH_POCKET, ...SLASH_CLAUDE].map(c => c.name));
+  const claude = provider === 'acp' ? [] : provider === 'codex' ? SLASH_CODEX.filter(fits) : SLASH_CLAUDE.filter(c => fits(c) && (!known || known.has(c.name)));
+  const taken = new Set([...SLASH_POCKET, ...SLASH_CLAUDE, ...SLASH_CODEX].map(c => c.name));
   const skills = working ? [] : (list?.skills || []).filter(c => !taken.has(c.name)).map(c => ({ ...c, kind: 'skill' }));
   const rank = arr => arr.map((c, i) => ({ c, s: slashScore(c, q), i })).filter(x => x.s >= 0).sort((a, b) => a.s - b.s || a.i - b.i);
-  const groups = [['Claude Code', rank(claude)], ['Pocket', rank(pocket)], ['Skills', rank(skills)]];
+  const groups = [[provider === 'codex' ? 'Codex' : 'Claude Code', rank(claude)], ['Pocket', rank(pocket)], ['Skills', rank(skills)]];
   // a description is only searched when no name matches: /con is context and compact, not every "conversation"
   const byName = groups.some(([, hits]) => hits.some(x => x.s < 4));
   return groups.map(([t, hits]) => [t, byName ? hits.filter(x => x.s < 4) : hits]).filter(([, hits]) => hits.length);
@@ -3471,13 +3484,15 @@ function openES() {
       setTimeout(() => paintFileCards($('#msgs'), true), 600); // 1.61: the reply's files, and any it kept in Files
       if (!d.ok && !/^Stopped/.test(String(d.error || ''))) paintTurnFailure({ error: String(d.error || '').slice(0, 300) });
       // 1.48: a Codex turn has no cost line, but its time and cache start show the same way
-      if (d.cost != null || (d.cache && Number.isFinite(d.cache.hit))) {
+      if (d.cost != null || Number.isFinite(d.tokens) || (d.cache && Number.isFinite(d.cache.hit))) {
         const secs = d.duration_ms ? Math.round(d.duration_ms / 1000) : null;
         // 1.28: whether the turn resumed from a warm prompt cache or wrote it again
         const cached = d.cache && Number.isFinite(d.cache.hit) ? (d.cache.hit >= 0.5 ? `${Math.floor(d.cache.hit * 100)}% cached` : 'cold start') : '';
         // 1.84.2: an OpenRouter reply can cost a fraction of a cent; show it rather than $0.00
         const money = c => c >= 0.01 || c === 0 ? `$${c.toFixed(2)}` : c >= 0.0001 ? `$${c.toFixed(4)}` : '<$0.0001';
-        const parts = [d.cost != null ? money(d.cost) : '', secs ? (secs >= 90 ? Math.round(secs / 60) + 'm' : secs + 's') : '', cached].filter(Boolean);
+        // 1.87: an agent billed by plan, not per token (Codex), shows the reply's tokens where Claude shows its cost
+        const toks = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n);
+        const parts = [d.cost != null ? money(d.cost) : Number.isFinite(d.tokens) && d.tokens > 0 ? toks(d.tokens) + ' tokens' : '', secs ? (secs >= 90 ? Math.round(secs / 60) + 'm' : secs + 's') : '', cached].filter(Boolean);
         lastMeta = { id: chatId, html: `<div class="turnmeta">${parts.join(' · ')}</div>` };
         msgs.insertAdjacentHTML('beforeend', lastMeta.html);
       }

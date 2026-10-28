@@ -120,6 +120,11 @@ lines.on('line',line=>{
       if(!text.includes('__BG_LONG__'))setTimeout(()=>{console.log(JSON.stringify({type:'system',subtype:'background_tasks_changed',tasks:[]}));reply('The background job finished.');},Number(process.env.POCKET_TEST_BG_MS||600));
       return;
     }
+    // 1.87 parity markers: __PLAN__ (a TodoWrite list), __EDIT__ (an Edit with before/after, in the transcript),
+    // __LIMIT__ (a usage limit that resets 2 s from now, as the real CLI words it)
+    if(text.includes('__LIMIT__')){const at=Math.ceil((Date.now()+2000)/1000);console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));console.log(JSON.stringify({type:'result',subtype:'error_during_execution',is_error:true,result:'Claude AI usage limit reached|'+at,error:'Claude AI usage limit reached|'+at,duration_ms:100}));working=false;return;}
+    if(text.includes('__PLAN__')){const m={type:'assistant',message:{role:'assistant',content:[{type:'tool_use',id:'toolu_plan_'+Date.now(),name:'TodoWrite',input:{todos:[{content:'Read the code',status:'completed',activeForm:'Reading the code'},{content:'Fix the bug',status:'in_progress',activeForm:'Fixing the bug'}]}}]}};append(m);console.log(JSON.stringify(m));}
+    if(text.includes('__EDIT__')){const tid='toolu_edit_'+Date.now(),m={type:'assistant',message:{role:'assistant',content:[{type:'tool_use',id:tid,name:'Edit',input:{file_path:path.join(process.cwd(),'parity.txt'),old_string:'old line',new_string:'new line'}}]}};append(m);console.log(JSON.stringify(m));const r={type:'user',message:{role:'user',content:[{type:'tool_result',tool_use_id:tid,content:'The file was edited.'}]}};append(r);console.log(JSON.stringify(r));}
     // __USAGE__: emit the rate-limit and context figures the real CLI reports
     const usage=text.includes('__USAGE__');
     const model='claude-opus-5-5[1m]';
