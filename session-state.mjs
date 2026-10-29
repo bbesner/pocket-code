@@ -13,7 +13,10 @@ export function backgroundSummary(tasks) {
   return { count: jobs.length, summary: parts.join(', '), jobs };
 }
 
-export function sessionState({ turn, external = false, retryAt = null, outcome = null, mtimeMs = 0, background = [] }) {
+// quietSince: the transcript has had no message from another app since our last turn ended. The CLI
+// appends its own bookkeeping when its process exits (an idle close, or the process limit making room
+// seconds after a reply), and that write alone must not turn Response ready into Recent (1.88.1).
+export function sessionState({ turn, external = false, retryAt = null, outcome = null, mtimeMs = 0, background = [], quietSince = false }) {
   if (turn) return {
     kind: 'running', label: 'Running', confirmed: true,
     startedAt: turn.startedAt, queued: turn.queue?.length || 0,
@@ -23,7 +26,7 @@ export function sessionState({ turn, external = false, retryAt = null, outcome =
   if (bg) return { kind: 'background', label: `Working in background · ${bg.summary}`, confirmed: true, background: bg };
   // A newer external turn invalidates our older outcome. Filesystem flushes can
   // trail our completion callback, so tolerate a small bounded delay.
-  if (outcome && mtimeMs <= outcome.at + 5000) return { ...outcome, confirmed: true };
+  if (outcome && (mtimeMs <= outcome.at + 5000 || quietSince)) return { ...outcome, confirmed: true };
   if (external) return { kind: 'observed', label: 'Activity elsewhere', confirmed: false };
   return { kind: 'idle', label: 'Recent', confirmed: false };
 }

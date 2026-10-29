@@ -68,6 +68,8 @@ if(forkOf&&!fs.existsSync(file)){const src=path.join(dir,forkOf+'.jsonl');if(!fs
   fs.writeFileSync(file,fs.readFileSync(src,'utf8').split('\n').filter(Boolean).map(l=>{const o=JSON.parse(l);return JSON.stringify({...o,sessionId:id});}).join('\n')+'\n');
   fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.forks',JSON.stringify({id,forkOf})+'\n');}
 const lines=readline.createInterface({input:process.stdin});
+// 1.88.1: like the real CLI, a process whose input closes appends its bookkeeping, lines with no timestamp.
+lines.on('close',()=>{try{if(fs.existsSync(file))fs.appendFileSync(file,JSON.stringify({type:'cost-state',sessionId:id,totalCostUSD:spent})+'\n'+JSON.stringify({type:'last-prompt',sessionId:id,lastPrompt:'…'})+'\n');}catch{}});
 // Session processes outlive their server by design; a fixture's process ends with its test dir.
 setInterval(()=>{if(!fs.existsSync(root))process.exit(0)},300).unref();
 let working=false,questionKeepAlive,spent=0; // spent: the process's running cost, as the real CLI reports it

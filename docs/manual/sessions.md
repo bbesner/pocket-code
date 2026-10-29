@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.88.0
+checked: 1.88.1
 sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -344,7 +344,9 @@ Pocket keeps no chat database. The conversation record is the agent's own: Claud
 session started in a terminal or in code-server shows in the list, and why a conversation started in
 Pocket can be continued there with `claude --resume`. When another app writes to a Claude transcript,
 the conversation shows **Activity elsewhere** for 45 seconds and its replies stream into an open view.
-Recent writes alone cannot prove that work is still running, so that state is marked unconfirmed.
+Recent writes alone cannot prove that work is still running, so that state is marked unconfirmed. Only a
+message counts: the bookkeeping the CLI adds when its process closes (its cost total, the last prompt) leaves
+**Response ready** and the conversation's place in **Attention** as they were.
 
 The list holds the 200 most recently updated conversations, plus every pinned, running, waiting or
 queued one. It is checked every five seconds while the app is visible. If no fresh answer arrives for

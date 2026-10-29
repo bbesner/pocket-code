@@ -33,3 +33,11 @@ test('a session working in the background never ages out of the list',()=>{
   const rows=[{id:'a',state:{kind:'idle'}},{id:'b',state:{kind:'background'}},{id:'c',state:{kind:'idle'}}];
   assert.deepEqual(prioritizeSessions(rows,2).map(r=>r.id),['b','a']);
 });
+
+test('a transcript written after the outcome keeps it only when nothing but bookkeeping was added',()=>{
+  assert.equal(sessionState({turn:null,outcome,mtimeMs:99000}).kind,'idle','a later write ends the outcome');
+  assert.equal(sessionState({turn:null,outcome,mtimeMs:99000,external:true}).kind,'observed');
+  assert.equal(sessionState({turn:null,outcome,mtimeMs:99000,quietSince:true}).kind,'finished','process-exit bookkeeping keeps it');
+  assert.equal(sessionState({turn:null,outcome:null,mtimeMs:99000,quietSince:true}).kind,'idle','no outcome, nothing to keep');
+  assert.equal(sessionState({turn:{startedAt:5},outcome,quietSince:true}).kind,'running','a live turn still leads');
+});

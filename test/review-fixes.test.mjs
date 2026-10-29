@@ -173,6 +173,28 @@ test('the process cap closes the longest-idle process before a new one starts',a
  assert.equal(await f.state(a),'finished','the closed session is untouched');
 });
 
+// 1.88.1: the closed process appends its bookkeeping, often well after the reply (an idle hour, or seconds when the
+// cap makes room for an Inbox Watch burst). Response ready stays, so the row stays in Attention; a real turn from
+// another app still replaces it.
+test('a process closed after its reply keeps Response ready; a turn from another app does not',async t=>{
+ const f=await fixture(t,18429,{POCKET_MAX_PROCESSES:'1'});
+ const a=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(a)==='finished'));
+ const file=path.join(f.dir,'sessions','test-workspace',a+'.jsonl');
+ const b=(await f.call('/new',{cwd:repo,...msg('second')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(b)==='finished'));
+ assert.ok(await f.until(()=>/"type":"cost-state"/.test(fs.readFileSync(file,'utf8'))),'the closed process wrote its bookkeeping');
+ const later=new Date(Date.now()+60_000);fs.utimesSync(file,later,later); // as if it closed a minute after the reply
+ await sleep(300);
+ const row=(await f.call('/sessions')).body.sessions.find(s=>s.id===a);
+ assert.equal(row.state.kind,'finished','bookkeeping is not activity');assert.equal(row.state.label,'Response ready');
+ assert.notEqual(row.active,true,'and not activity elsewhere');
+ assert.equal((await f.call(`/session/${a}`)).body.state.kind,'finished','the open conversation agrees');
+ fs.appendFileSync(file,JSON.stringify({type:'user',sessionId:a,timestamp:new Date().toISOString(),message:{role:'user',content:[{type:'text',text:'from a terminal'}]}})+'\n');
+ const later2=new Date(Date.now()+120_000);fs.utimesSync(file,later2,later2);
+ assert.ok(await f.until(async()=>await f.state(a)!=='finished'),'a terminal turn ends Response ready');
+});
+
 test('watch mode numbers events by transcript offset so a reconnect resumes, and owned streams carry an attach key',async t=>{
  const f=await fixture(t,18418);
  const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
