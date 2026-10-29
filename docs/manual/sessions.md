@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.87.0
+checked: 1.88.0
 sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -240,6 +240,11 @@ catalog of models that can use tools: **Default** (`POCKET_ACP_MODEL`, else Deep
 **Tested** models (the default list plus any in `POCKET_ACP_MODELS`), then everything else marked
 **Experimental — unverified**. A model OpenRouter adds shows up without a Pocket update. Experimental
 means it may not use tools reliably.
+
+The menu has a search box at the top (1.88). Type any words of a model's name or maker, such as `kimi`
+or `sonnet 5.5`: the list narrows as you type, keeps Default and Tested first and says how many match.
+Enter picks the first match and the arrow keys move through the list; on a phone the keyboard opens only
+when you tap the box. Escape clears the box, a second Escape closes the menu.
 
 What works the same as Claude Code and Codex:
 
