@@ -228,17 +228,48 @@ function mountSheet(scrim, sh, trigger = document.activeElement) {
   return close;
 }
 
-function sheet(title, options, current, onPick) {
+// 1.88: `search` (a noun, e.g. 'models') adds a find box above a long list, such as OpenRouter's hundreds of models.
+// Every word typed must appear in the row's name, line or id, so "kimi 3.1" finds Kimi K3.1 Pro; rows keep their order,
+// so Default and Tested stay first. Enter picks the first match, Down moves into the list.
+function sheet(title, options, current, onPick, { search = '' } = {}) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet';
-  sh.innerHTML = `<h2>${esc(title)}</h2>` + options.map(([val, label, sub]) => `
+  sh.innerHTML = `<h2>${esc(title)}</h2>` + (search ? `
+    <div class="sheet-find"><div class="session-search">${IC.search}<input type="search" aria-label="Search ${esc(search)}" placeholder="Search ${esc(search)}" autocomplete="off" spellcheck="false" enterkeyhint="go"></div>
+    <p class="sheet-search-status" role="status"></p></div>` : '') + options.map(([val, label, sub]) => `
     <button class="opt ${val === current ? 'sel' : ''}" data-v="${esc(val)}">
       <span class="dot"></span><span>${esc(label)}<span class="sub">${esc(sub)}</span></span>
     </button>`).join('');
   const close = () => closeCurrentSheet?.();
   scrim.onclick = close;
-  sh.querySelectorAll('.opt').forEach(b => b.onclick = () => { close(); onPick(b.dataset.v); });
+  const opts = [...sh.querySelectorAll('.opt')];
+  opts.forEach(b => b.onclick = () => { close(); onPick(b.dataset.v); });
+  const input = search && sh.querySelector('.sheet-find input');
+  if (input) {
+    const status = sh.querySelector('.sheet-search-status');
+    const haystack = opts.map((b, i) => [options[i][0], options[i][1], options[i][2]].join(' ').toLowerCase());
+    const shown = () => opts.filter(b => !b.hidden);
+    input.oninput = () => {
+      const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+      opts.forEach((b, i) => { b.hidden = !words.every(w => haystack[i].includes(w)); });
+      const n = shown().length;
+      status.textContent = !words.length ? '' : n ? `${n} of ${opts.length} ${search}` : `No ${search} match “${input.value.trim()}”`;
+    };
+    input.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); shown()[0]?.click(); }
+      else if (e.key === 'Escape' && input.value) { e.preventDefault(); e.stopPropagation(); input.value = ''; input.oninput(); } // first Escape clears, the next closes
+      else if (e.key === 'ArrowDown') { e.preventDefault(); shown()[0]?.focus(); }
+    };
+    sh.addEventListener('keydown', e => { // Up/Down walk the matches; Up from the first goes back to the box
+      if (!e.target.matches?.('.opt') || !['ArrowDown', 'ArrowUp'].includes(e.key)) return;
+      const list = shown(), i = list.indexOf(e.target); e.preventDefault();
+      (e.key === 'ArrowDown' ? list[i + 1] : i > 0 ? list[i - 1] : input)?.focus();
+    });
+  }
   mountSheet(scrim, sh);
+  // On a phone the keyboard would cover the Default and Tested rows, so the box waits for a tap there.
+  if (input && matchMedia('(pointer: coarse)').matches) sh.focus({ preventScroll: true });
+  sh.querySelector('.opt.sel')?.scrollIntoView({ block: 'nearest' });
 }
 
 // 1.52: the server ran a turn on the default because the picked model is not offered. Say so, refresh the
@@ -306,7 +337,7 @@ function renderToolbar() {
   if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard'],
     ...(vaultOn() ? [['vault','Store in the Vault','Save a key or password here instead of pasting it into the message']] : [])],null,v=>{if(v==='file')$('#fpick')?.click();else if(v==='vault')addVaultItemFromComposer();else pasteClipboardImage();}); // 1.39: the Vault option
   $('#c-model').onclick = () => sheet('Model for this reply', modelList(), tb.prefs.model,
-    v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
+    v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); }, { search: modelList().length > 12 ? 'models' : '' });
   const eff = $('#c-eff'); // absent for an OpenRouter model that takes no reasoning-effort setting
   if (eff) eff.onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
     v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });

@@ -516,6 +516,15 @@ button:disabled { cursor: default; opacity: .55; }
 .session-search { display: flex; align-items: center; gap: 10px; margin: 0 18px 12px; padding: 0 12px; min-height: 46px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--dim); }
 .session-search input { min-width: 0; width: 100%; padding: 11px 0; color: var(--text); background: none; border: 0; font: inherit; font-size: 16px; }
 .session-search input::placeholder { color: var(--faint); }
+/* 1.88: the find box in a long sheet (OpenRouter's models) stays put while the list scrolls under it */
+.sheet-find { position: sticky; top: -14px; z-index: 1; margin: 0 -10px 4px; padding: 10px 14px 4px; background: var(--surface); }
+.sheet-find .session-search { margin: 0; }
+.sheet-find .session-search:focus-within { border-color: var(--clay); }
+.sheet-find input:focus-visible { outline: none; } /* the box shows focus, not the field inside it */
+.sheet-search-status { margin: 0 14px; color: var(--dim); font-size: 13.5px; }
+.sheet-search-status:not(:empty) { padding: 4px 0 8px; }
+.sheet-find ~ .opt { scroll-margin-top: 84px; } /* a row brought into view lands below the box, not under it */
+.sheet .opt[hidden] { display: none; }
 .session-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 14px 14px; }
 .session-filters button { display: inline-flex; gap: 6px; align-items: center; justify-content: center; min-height: 44px; padding: 8px 12px; border-radius: 10px; font-size: 14px; color: var(--dim); }
 .session-filters button[aria-pressed="true"] { color: var(--text); background: var(--clay-deep); }

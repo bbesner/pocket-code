@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.88.0] — Unreleased · build 180
+
+Requested by Brad: "there are so many models in OpenRouter, we need a search feature built into the model search."
+
+- **Find box in the OpenRouter model menu.** `sheet()` takes `{ search: 'models' }`; the model chip passes it when the menu has more than 12 rows (OpenRouter's live catalog offers about 390 tool-capable models; Claude's and Codex's menus stay as they are). Every word typed must appear in the row's name, line or id, so "kimi 3.1" finds Kimi K3.1 Pro and "moonshotai" finds the maker's models; rows keep their order, so Default and Tested stay first. A status line (`role="status"`) says "10 of 392 models" or "No models match “…”". Enter picks the first match, Down and Up move through the matches and back to the box, the first Escape clears the box and the next closes the menu. The box sticks to the top while the list scrolls and the current pick is scrolled into view. On a touch screen the box is not focused on open, so the keyboard does not cover Default and Tested.
+- Migration: none. Frontend assets bump to build 180.
+- Tests: `test/acp-browser.mjs` adds 12 catalog rows and checks the box: no keyboard on open at phone size, two-word match with its count, the empty state, Escape clears without closing, Enter picks the first match. Rendered at 390 px and 1280 px against the live OpenRouter catalog (392 models); the impeccable detector found nothing on the sheet (its three findings are app-wide and predate this change).
+
 ## [1.87.0] — 2026-10-28 · build 179
 
 Requested by Brad: compare Codex with Claude Code the way OpenRouter was compared (audit in Files, "Codex feature parity audit (Oct 28)"), and keep parity from now on.

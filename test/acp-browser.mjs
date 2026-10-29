@@ -25,6 +25,8 @@ const catalog = http.createServer((_q, r) => { r.setHeader('content-type', 'appl
   { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash', context_length: 131072, supported_parameters: ['tools'] },
   { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', context_length: 1000000, supported_parameters: ['tools'] },
   { id: 'meta-llama/llama-4-scout', name: 'Llama 4 Scout', context_length: 131072, supported_parameters: ['tools'] },
+  // 1.88: enough rows that the model sheet offers its find box
+  ...Array.from({ length: 12 }, (_, i) => ({ id: `filler/model-${i}`, name: `Filler Model ${i}`, context_length: 32768, supported_parameters: ['tools'] })),
 ] })); });
 await new Promise(r => catalog.listen(0, '127.0.0.1', r));
 
@@ -81,6 +83,28 @@ try {
   // back on DeepSeek, X-High is not one of its levels, so the pick goes back to Default
   await pick('#c-model', 'default');
   assert.match(await chipText('#c-eff'), /Default/, 'an effort the model lacks resets to Default');
+  await pick('#c-eff', 'max');
+
+  console.log('OpenRouter: the model sheet finds a model by any words of its name');
+  await page.click('#c-model'); await page.waitForSelector('.sheet .sheet-find input');
+  assert.notEqual(await page.evaluate(() => document.activeElement?.type), 'search', 'on a phone the keyboard does not open by itself');
+  const visibleRows = () => page.$$eval('.sheet .opt', es => es.filter(e => !e.hidden).map(e => e.dataset.v));
+  const status = () => page.$eval('.sheet-search-status', e => e.textContent);
+  assert.equal((await visibleRows()).length, 16, 'every model before typing');
+  await page.type('.sheet-find input', 'sonnet 5.5');
+  assert.deepEqual(await visibleRows(), ['openrouter/anthropic/claude-sonnet-5.5']);
+  assert.equal(await status(), '1 of 16 models');
+  await page.$eval('.sheet-find input', e => { e.value = ''; }); await page.type('.sheet-find input', 'nothing like this');
+  assert.deepEqual(await visibleRows(), []);
+  assert.match(await status(), /^No models match “nothing like this”$/);
+  await page.keyboard.press('Escape');
+  assert.ok(await page.$('.sheet'), 'the first Escape clears the box and leaves the sheet open');
+  assert.equal((await visibleRows()).length, 16);
+  await page.type('.sheet-find input', 'llama');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => !document.querySelector('.sheet'));
+  assert.match(await chipText('#c-model'), /Llama 4 Scout/, 'Enter picks the first match');
+  await pick('#c-model', 'default');
   await pick('#c-eff', 'max');
 
   console.log('OpenRouter: the approval shows on the banner, Allow runs it, the reply arrives');
