@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.88.0
+checked: 1.88.1
 sources: cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings

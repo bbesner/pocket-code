@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.88.1] — 2026-10-29 · build 180
+
+Reported by Brad: sessions with reply cards waiting (the "Phone agents tunnel probe failures" and Douglas Immler Inbox Watch alerts) were not in the Attention tab.
+
+- **Response ready survives the CLI's exit write.** When its process exits, the Claude CLI appends untimestamped bookkeeping lines (`cost-state`, `last-prompt`, sometimes `ai-title`, `atis-latch`, `mode`) to the transcript. Pocket closes a process after `POCKET_IDLE_CLOSE_MS` (one hour) or, under `POCKET_MAX_PROCESSES` (8), as soon as another conversation starts: at 15:29 a burst of Inbox Watch alerts closed `df09b314` 11 s and `e7774d1f` 25 s after their replies. `sessionState` dropped any outcome older than the transcript's mtime by more than 5 s, and the watcher flagged the write as Activity elsewhere, so an unopened reply became Recent and left Attention. Every message line carries a `timestamp`; bookkeeping lines carry none. `quietSinceOwned` now asks `foreignTurns` (the check runner reuse already trusts) whether any user or assistant line follows our last turn's recorded size, cached per mtime; if none, the outcome stands and the watcher ignores the write. A turn from a terminal or code-server still replaces it.
+- Migration: none. Outcomes in `session-meta.json` that were hidden this way come back: on this install 492 rows return to Response ready, 11 of them unread and in the list (Oct 24 onward), which show in Attention once; Mark all reviewed clears them.
+- Tests: `test/fake-claude.mjs` appends `cost-state`/`last-prompt` when its input closes, like the CLI. `test/review-fixes.test.mjs` closes a finished session through the process cap, moves its mtime a minute on, and expects Response ready in the list and the conversation (not Activity elsewhere), then a terminal user line ends it; fails on 1.88.0 with `observed`. `test/session-state.test.mjs` covers `quietSince`.
+
 ## [1.88.0] — 2026-10-29 · build 180
 
 Requested by Brad: "there are so many models in OpenRouter, we need a search feature built into the model search."
