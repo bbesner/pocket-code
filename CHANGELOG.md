@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.88.0] — Unreleased · build 180
+## [1.88.0] — 2026-10-29 · build 180
 
 Requested by Brad: "there are so many models in OpenRouter, we need a search feature built into the model search."
 
