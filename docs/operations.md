@@ -164,8 +164,12 @@ a disconnect. API-key and cloud-provider environment overrides block this flow.
 Start is refused while a Claude turn in Pocket is active. Claude side chats close; idle Claude runners close;
 runners with background jobs stay alive and persist an `accountStale` marker. New
 turns are blocked while sign-in is pending. After sign-in, a retained session refuses
-new requested turns until its jobs finish, then reopens with the current login on its
-next requested turn. Autonomous background completion can use the earlier login.
+new requested turns until its jobs finish (409, `code: account_stale_jobs`, with the jobs
+listed), then reopens with the current login on its next requested turn. A message sent
+with `replaceStaleLogin: true` (the app's **Stop background jobs and send**) closes the
+retained process instead, which ends its jobs, and the reply starts on the current login once
+it has exited. Autonomous background completion can use the earlier login. A refused (4xx)
+message keeps no delivery receipt, so a retry with the same `clientMessageId` is checked again.
 Rate-limit events from retained processes do not replace the new account’s cached
 plan limits. Rate-limit retries wait during sign-in; Codex is unaffected.
 Other applications sharing the Claude configuration

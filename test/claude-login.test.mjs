@@ -94,8 +94,11 @@ test('authenticated HTTP login: CSRF, privacy, reconnect, turn gate, completion 
   const background=await (await request('new',{cwd:dir,text:'__BG_LONG__ __SLOW__'})).json();assert.ok(background.id);
   assert.equal((await request('claude/login/start',{})).status,409);
   await waitIdle();
-  const runnerFile=()=>path.join(dir,'data','turnlogs',fs.readdirSync(path.join(dir,'data','turnlogs')).find(file=>file.startsWith(background.id)&&file.endsWith('.runner.json')));
+  const runnerFile=(id=background.id)=>path.join(dir,'data','turnlogs',fs.readdirSync(path.join(dir,'data','turnlogs')).find(file=>file.startsWith(id)&&file.endsWith('.runner.json')));
   const originalRunner=JSON.parse(fs.readFileSync(runnerFile(),'utf8'));assert.equal(originalRunner.bgTasks.length,1);
+  // 1.89.1: a second conversation whose job never ends by itself, stopped from the refusal instead
+  const watcher=await (await request('new',{cwd:dir,text:'__BG_LONG__'})).json();assert.ok(watcher.id);await waitIdle();
+  const watcherRunner=JSON.parse(fs.readFileSync(runnerFile(watcher.id),'utf8'));assert.equal(watcherRunner.bgTasks.length,1);
   const started=await (await request('claude/login/start',{})).json();assert.ok(started.id);
   assert.equal(JSON.parse(fs.readFileSync(runnerFile(),'utf8')).accountStale,true);process.kill(originalRunner.pid,0);
   assert.equal((await (await request('claude/login/start',{})).json()).id,started.id);
@@ -110,7 +113,17 @@ test('authenticated HTTP login: CSRF, privacy, reconnect, turn gate, completion 
   assert.equal(state.status,'success');assert.equal(state.account.email,'owner@example.test');assert.equal(state.url,null);
   const previous=child,exited=once(previous,'exit');previous.kill('SIGTERM');await exited;await boot();
   const adopted=JSON.parse(fs.readFileSync(runnerFile(),'utf8'));assert.equal(adopted.pid,originalRunner.pid);assert.equal(adopted.accountStale,true);process.kill(originalRunner.pid,0);
-  const held=await request('session/'+background.id+'/message',{text:'Use the new account'});assert.equal(held.status,409);assert.match((await held.json()).error,/background jobs/);
+  const held=await request('session/'+background.id+'/message',{text:'Use the new account'});assert.equal(held.status,409);
+  const heldBody=await held.json();assert.match(heldBody.error,/earlier Claude login because a background job is running \(sleep\)/);
+  assert.equal(heldBody.code,'account_stale_jobs');assert.deepEqual(heldBody.jobs,[{id:'bg1',description:'sleep'}]);
+  // the refusal is not kept as the message's receipt: the same message, now asking to stop the jobs, is sent
+  const clientMessageId=randomUUID();
+  const refused=await request('session/'+watcher.id+'/message',{text:'Continue on the new account',clientMessageId});assert.equal(refused.status,409);assert.equal((await refused.json()).code,'account_stale_jobs');
+  assert.equal((await request('session/'+watcher.id+'/message',{text:'Continue on the new account',clientMessageId})).status,409,'a retry asks the server again');
+  assert.equal((await request('session/'+watcher.id+'/message',{text:'Continue on the new account',clientMessageId,replaceStaleLogin:true})).status,202);await waitIdle();
+  const replaced=JSON.parse(fs.readFileSync(runnerFile(watcher.id),'utf8'));assert.notEqual(replaced.pid,watcherRunner.pid);assert.equal(replaced.accountStale,false);
+  assert.throws(()=>process.kill(watcherRunner.pid,0),'the process holding the earlier login has exited');
+  assert.match(logs,/stopping 1 background job\(s\) on the earlier Claude login session=/);
   assert.equal((await request('new',{cwd:dir,text:'A fresh session can use the new account'})).status,202);await waitIdle();
   fs.appendFileSync(runnerFile().replace('.runner.json','.out.ndjson'),JSON.stringify({type:'system',subtype:'background_tasks_changed',tasks:[]})+'\n');
   for(let attempt=0;attempt<100&&JSON.parse(fs.readFileSync(runnerFile(),'utf8')).bgTasks.length;attempt++)await new Promise(resolve=>setTimeout(resolve,30));
@@ -120,6 +133,7 @@ test('authenticated HTTP login: CSRF, privacy, reconnect, turn gate, completion 
   assert.equal((await request('claude/login/code',{id:started.id,code:'old'})).status,409);
   const cancel=await (await request('claude/login/cancel',{id:next.id})).json();assert.equal(cancel.status,'cancelled');
   assert.equal((await request('session/'+background.id+'/release',{stop:true})).status,200);
+  assert.equal((await request('session/'+watcher.id+'/release',{stop:true})).status,200);
   assert.doesNotMatch(logs,/test-code|private-test-code|code_challenge/);
 });
 

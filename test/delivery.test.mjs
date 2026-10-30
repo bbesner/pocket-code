@@ -32,6 +32,16 @@ test('a crash between reservation and acknowledgment is explicit, never re-execu
   const r = await new DeliveryReceipts(file).run('key', {}, () => assert.fail('must not rerun ambiguous work'));
   assert.equal(r.body.code,'delivery_uncertain');
 });
+test('a refusal is not kept, so a retry asks again and may change its options', async t => {
+  const { receipts, file } = store(t); let calls = 0;
+  const refuse = async () => { calls++; return { status: 409, body: { error: 'held', code: 'account_stale_jobs' } }; };
+  assert.equal((await receipts.run('key', {text:'Go'}, refuse)).status, 409);
+  assert.equal((await receipts.run('key', {text:'Go'}, refuse)).status, 409); assert.equal(calls, 2);
+  assert.equal(new DeliveryReceipts(file).records.key, undefined);
+  const r = await receipts.run('key', {text:'Go', replaceStaleLogin:true}, async () => ({status:202,body:{ok:true}}));
+  assert.equal(r.status, 202);
+  assert.deepEqual(await receipts.run('key', {text:'Go', replaceStaleLogin:true}, () => assert.fail('accepted once')), r);
+});
 test('receipt storage failure prevents dispatch', async t => {
   const { receipts } = store(t); receipts.save = () => { throw Error('disk unavailable'); };
   const r = await receipts.run('key', {}, () => assert.fail('no receipt, no action'));

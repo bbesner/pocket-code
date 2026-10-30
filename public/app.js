@@ -3348,8 +3348,13 @@ function paintDelivery(id = chatId) {
   el.classList.toggle('delivery-problem', Boolean(pending && !sending));
   if (pending) {
     const label = sending ? 'Sending…' : pending.error || 'Delivery was not confirmed. Retry checks the same message.';
-    el.innerHTML = `<p>${esc(label)}</p>${!sending ? `<div class="delivery-actions"><button class="chip" id="retry-message">Retry same message</button>${pending.rejected ? '<button class="chip" id="edit-message">Edit message</button>' : '<button class="chip" id="review-message">Review conversation</button>'}<button class="chip" id="discard-message">Discard retry</button></div>` : ''}`;
+    el.innerHTML = `<p>${esc(label)}</p>${!sending ? `<div class="delivery-actions">${pending.staleJobs ? '<button class="chip" id="stop-jobs-send">Stop background jobs and send</button>' : ''}<button class="chip" id="retry-message">Retry same message</button>${pending.rejected ? '<button class="chip" id="edit-message">Edit message</button>' : '<button class="chip" id="review-message">Review conversation</button>'}<button class="chip" id="discard-message">Discard retry</button></div>` : ''}`;
     const retry = $('#retry-message'); if (retry) retry.onclick = () => submitPending(id);
+    const stopJobs = $('#stop-jobs-send'); if (stopJobs) stopJobs.onclick = () => {
+      const p = loadOutbox(id); if (!p) return;
+      try { saveOutbox(id, { ...p, opts: { ...p.opts, replaceStaleLogin: true }, staleJobs: false, error: undefined }); } catch { }
+      submitPending(id);
+    };
     const edit = $('#edit-message'); if (edit) edit.onclick = () => { saveOutbox(id, null); deliveryNotices.delete(id); paintDelivery(id); $('#box')?.focus(); };
     const review = $('#review-message'); if (review) review.onclick = () => renderChat(id);
     const discard = $('#discard-message'); if (discard) discard.onclick = () => { saveOutbox(id, null); clearDraft(id); deliveryNotices.delete(id); const box = $('#box'); if (box) box.value = ''; paintDelivery(id); };
@@ -3426,6 +3431,7 @@ async function submitPending(id) {
     }
     const rejected = e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain';
     pending.rejected = rejected;
+    pending.staleJobs = e.code === 'account_stale_jobs'; // 1.89.1: background jobs hold the earlier Claude login; offer to stop them
     pending.error = e.code === 'delivery_uncertain' ? e.message
       : rejected ? `Not sent: ${e.message}` : 'Delivery not confirmed. Your message is saved. Retry checks the same request.';
     try { saveOutbox(id, pending); } catch { }

@@ -60,7 +60,7 @@ export async function runSlashRegressions({browser,base,rows,received,out}) {
   await typeUntil('/usa','usage');await page.keyboard.press('Enter');
   await page.waitForSelector('.usage-sheet');assert.equal(await page.$eval('#box',e=>e.value),'','a Pocket action runs here and sends nothing');
   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.usage-sheet'));
-  await clear();await page.type('#box','/stock');assert.deepEqual(await names(),['inventory-report'],'with no name match, descriptions are searched');
+  await clear();await typeUntil('/stock','inventory-report');assert.deepEqual(await names(),['inventory-report'],'with no name match, descriptions are searched'); // 1.89.1: typed in one step after the usage sheet, which raced on CI
   await clear();await page.type('#box','/zzz');assert.equal(await page.$eval('#slash',e=>e.hidden),true,'no match, no list');
   await clear();await page.type('#box','/inventory-report check');assert.equal(await page.$eval('#slash',e=>e.hidden),true,'gone once the message goes on');
   await clear();

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.88.1
+checked: 1.89.1
 sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -481,6 +481,7 @@ for a provisioned install, set `POCKET_CLAUDE_MODELS` and restart Pocket.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| *This conversation is still on the earlier Claude login because a background job is running* | You switched Claude accounts while a job the agent left running (a test run, a watcher) was still going, so its process kept the earlier sign-in. | **Stop background jobs and send** ends the job and continues on the new account. Or wait until the job finishes and use **Retry same message**. |
 | *This conversation is being used in another app right now (code-server or a terminal).* | Another app wrote a Claude reply to this transcript in the last 45 seconds. | Wait for that reply to finish, then send again. |
 | *This thread is open in another surface (code-server or a terminal). Close it there to send from Pocket.* | Another app holds the Codex thread's writer lock. | Close the thread there. In the other direction, use **Close conversation process** in Pocket before continuing in code-server. |
 | *invalid project directory* or **Choose a workspace above** | The custom path is not an existing folder on the server. | Pick a listed workspace or enter a full server path. |

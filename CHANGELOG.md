@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.89.1] — 2026-10-30 · build 182
+
+Reported by Brad: after a 5-hour limit he switched Claude accounts, and one conversation ("Casey's Go port bug batch") would not continue while the others did. At the sign-in it had one background job left, a `tail -f` watcher on a test run that had already finished. Pocket keeps such a process on the earlier login so the job is not cut off, and refused every message until the job ended, which a watcher never does. Retrying did not help either: the delivery receipt replayed the first refusal.
+
+- **Conversations held on the earlier login.** The refusal is a 409 with `code: account_stale_jobs`, names the jobs (up to three, then a count) and says how to go on. A message sent with `replaceStaleLogin: true` closes the retained process (EOF, then SIGTERM and SIGKILL to its process group 3 s apart), which ends its jobs; the reply waits for it to exit and starts on the current login, as any replaced process does since 1.89.0. The app's Not sent card shows **Stop background jobs and send** for this refusal.
+- **Retry same message.** A refused (4xx) message keeps no delivery receipt, since nothing was dispatched, so a retry with the same `clientMessageId` is checked again (and may carry changed options). It used to replay the first refusal for a week, even after its reason had gone. Accepted messages, uncertain deliveries and changed content under a used id behave as before.
+- Tests: `claude-login.test.mjs` (the refusal's code and jobs, a retry re-checked, the replaced process on the new login, the old one gone), `delivery.test.mjs` (a refusal not kept), `browser.mjs` (the button, the flag and the shared message id). The new checks fail on 1.89.0. `slash-browser.mjs` types its description-search check in one step (`typeUntil`), as the checks around it do; it raced the closing usage sheet on CI.
+
 ## [1.89.0] — 2026-10-30 · build 181
 
 Casey Sardoss re-checked his list against 1.88.1 (`dd93e6f`) by reading the code and sent 22 faults plus a private six-item security report, found while bringing Pocket's newer features into his Go port. Each item was tested against 1.88.1 before anything changed: 24 are real (F-9 and F-17 narrower than described), two were already fixed (F-5 in 1.82.0, F-14 in 1.83.0), one is not a fault (F-13) and one is a measured trade-off left as it is (F-21). Every real fault has a test that fails on 1.88.1 (`test/casey-1881-*.test.mjs`; Casey's ids in brackets). The six security items are GitHub advisories GHSA-7x69-vwp4-vmqq, GHSA-m899-2j2c-4m7f, GHSA-rwg5-2r2c-c2mh, GHSA-pcmm-3r32-jg6p, GHSA-vvfj-fq67-gmr3 and GHSA-j8pf-7jw9-g68r.
