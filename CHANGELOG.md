@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.89.1] — Unreleased · build 182
+## [1.89.1] — 2026-10-30 · build 182
 
 Reported by Brad: after a 5-hour limit he switched Claude accounts, and one conversation ("Casey's Go port bug batch") would not continue while the others did. At the sign-in it had one background job left, a `tail -f` watcher on a test run that had already finished. Pocket keeps such a process on the earlier login so the job is not cut off, and refused every message until the job ended, which a watcher never does. Retrying did not help either: the delivery receipt replayed the first refusal.
 
