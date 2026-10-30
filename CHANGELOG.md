@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.89.2] — Unreleased · build 183
+## [1.89.2] — 2026-10-30 · build 183
 
 Reported by Brad: after switching Claude accounts he sent "please continue" to a conversation ("Ask DAD sales tool, then production deploy") whose agent had left a job waiting for a staging build. Pocket refused it (*Not sent: … background jobs keeping its earlier Claude login*), so the conversation sat for about 50 minutes until the build finished, and the only advice it gave was to start a new conversation. 1.89.1 added a way to stop the jobs; this release no longer asks you to choose.
 
