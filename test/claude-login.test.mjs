@@ -78,7 +78,7 @@ test('authenticated HTTP login: CSRF, privacy, reconnect, turn gate, completion 
   let child,logs='',base;
   const boot=async()=>{
     let startup='';
-    child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...env,POCKET_SKILLS:'0',PORT:'0',POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_AUTO_TITLES:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_CONFIG_DIR:path.join(dir,'config'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
+    child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...env,POCKET_SKILLS:'0',PORT:'0',POCKET_ENV_FILE:'',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_AUTO_TITLES:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),POCKET_AFTER_JOBS_GRACE_MS:'50',CLAUDE_CONFIG_DIR:path.join(dir,'config'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
     child.stdout.on('data',data=>{logs+=data;startup+=data;});child.stderr.on('data',data=>{logs+=data;startup+=data;});
     for(let attempt=0;attempt<150&&!startup.includes('listening on');attempt++)await new Promise(resolve=>setTimeout(resolve,40));
     const port=startup.match(/listening on 127\.0\.0\.1:(\d+)/)?.[1];assert.ok(port,startup);base='http://127.0.0.1:'+port;
@@ -113,22 +113,29 @@ test('authenticated HTTP login: CSRF, privacy, reconnect, turn gate, completion 
   assert.equal(state.status,'success');assert.equal(state.account.email,'owner@example.test');assert.equal(state.url,null);
   const previous=child,exited=once(previous,'exit');previous.kill('SIGTERM');await exited;await boot();
   const adopted=JSON.parse(fs.readFileSync(runnerFile(),'utf8'));assert.equal(adopted.pid,originalRunner.pid);assert.equal(adopted.accountStale,true);process.kill(originalRunner.pid,0);
-  const held=await request('session/'+background.id+'/message',{text:'Use the new account'});assert.equal(held.status,409);
-  const heldBody=await held.json();assert.match(heldBody.error,/earlier Claude login because a background job is running \(sleep\)/);
-  assert.equal(heldBody.code,'account_stale_jobs');assert.deepEqual(heldBody.jobs,[{id:'bg1',description:'sleep'}]);
-  // the refusal is not kept as the message's receipt: the same message, now asking to stop the jobs, is sent
-  const clientMessageId=randomUUID();
-  const refused=await request('session/'+watcher.id+'/message',{text:'Continue on the new account',clientMessageId});assert.equal(refused.status,409);assert.equal((await refused.json()).code,'account_stale_jobs');
-  assert.equal((await request('session/'+watcher.id+'/message',{text:'Continue on the new account',clientMessageId})).status,409,'a retry asks the server again');
-  assert.equal((await request('session/'+watcher.id+'/message',{text:'Continue on the new account',clientMessageId,replaceStaleLogin:true})).status,202);await waitIdle();
+  // 1.89.2: a message sent while a background job holds the earlier login waits for the job (which is not cut off)
+  const held=await request('session/'+background.id+'/message',{text:'Use the new account',clientMessageId:randomUUID()});assert.equal(held.status,202);
+  const heldBody=await held.json();assert.equal(heldBody.queued,true);assert.equal(heldBody.afterJobs,true);assert.deepEqual(heldBody.jobs,[{id:'bg1',description:'sleep'}]);
+  const heldQueue=await (await request('session/'+background.id+'/queue')).json();assert.deepEqual(heldQueue.waitingForJobs,[{id:'bg1',description:'sleep'}]);
+  assert.equal(heldQueue.items.length,1);assert.equal(heldQueue.items[0].afterJobs,true);assert.equal(heldQueue.items[0].status,'pending');
+  assert.equal(JSON.parse(fs.readFileSync(runnerFile(),'utf8')).pid,originalRunner.pid);process.kill(originalRunner.pid,0);
+  // a job that never ends by itself: Stop background jobs and send now. Without the flag the start is refused and the message stays queued.
+  const queued=await (await request('session/'+watcher.id+'/message',{text:'Continue on the new account'})).json();assert.equal(queued.afterJobs,true);
+  const notNow=await request('session/'+watcher.id+'/queue/start',{itemId:queued.itemId});assert.equal(notNow.status,409);assert.match((await notNow.json()).error,/earlier Claude login because a background job is running/);
+  assert.equal((await (await request('session/'+watcher.id+'/queue')).json()).items[0].status,'pending','a refused start leaves the message queued');
+  assert.equal((await request('session/'+watcher.id+'/queue/start',{itemId:queued.itemId,replaceStaleLogin:true})).status,200);await waitIdle();
+  assert.deepEqual((await (await request('session/'+watcher.id+'/queue')).json()).items,[]);
   const replaced=JSON.parse(fs.readFileSync(runnerFile(watcher.id),'utf8'));assert.notEqual(replaced.pid,watcherRunner.pid);assert.equal(replaced.accountStale,false);
   assert.throws(()=>process.kill(watcherRunner.pid,0),'the process holding the earlier login has exited');
   assert.match(logs,/stopping 1 background job\(s\) on the earlier Claude login session=/);
   assert.equal((await request('new',{cwd:dir,text:'A fresh session can use the new account'})).status,202);await waitIdle();
+  // the job finishes: the held message starts by itself on a new process (the current login)
   fs.appendFileSync(runnerFile().replace('.runner.json','.out.ndjson'),JSON.stringify({type:'system',subtype:'background_tasks_changed',tasks:[]})+'\n');
-  for(let attempt=0;attempt<100&&JSON.parse(fs.readFileSync(runnerFile(),'utf8')).bgTasks.length;attempt++)await new Promise(resolve=>setTimeout(resolve,30));
-  assert.equal((await request('session/'+background.id+'/message',{text:'Background job finished; refresh this session login'})).status,202);await waitIdle();
-  const refreshed=JSON.parse(fs.readFileSync(runnerFile(),'utf8'));assert.notEqual(refreshed.pid,originalRunner.pid);assert.equal(refreshed.accountStale,false);
+  const current=()=>{try{return JSON.parse(fs.readFileSync(runnerFile(),'utf8'));}catch{return null;}};
+  for(let attempt=0;attempt<150&&current()?.pid===originalRunner.pid;attempt++)await new Promise(resolve=>setTimeout(resolve,40));
+  await waitIdle();
+  const refreshed=current();assert.notEqual(refreshed.pid,originalRunner.pid);assert.equal(refreshed.accountStale,false);
+  assert.match(logs,/starting the message held for them session=/);assert.deepEqual((await (await request('session/'+background.id+'/queue')).json()).items,[]);
   const next=await (await request('claude/login/start',{})).json();assert.notEqual(next.id,started.id);
   assert.equal((await request('claude/login/code',{id:started.id,code:'old'})).status,409);
   const cancel=await (await request('claude/login/cancel',{id:next.id})).json();assert.equal(cancel.status,'cancelled');

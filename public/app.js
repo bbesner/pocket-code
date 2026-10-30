@@ -1952,8 +1952,9 @@ async function openQueue(id) {
     try{
       const d=await api('/session/'+encodeURIComponent(id)+'/queue');if(!sh.isConnected)return;
       const target=sh.querySelector('#queue-items');
-      target.innerHTML=d.items.length?d.items.map((r,i)=>`<article class="queue-item"><div class="result-detail">${i+1} · ${r.status==='pending'?(d.active?'After the current reply':'Paused'):r.status==='editing'?'Editing · paused':r.status==='dispatching'?'Starting…':'Needs review'}</div><p>${esc(r.text)}</p><div class="result-detail">${permissionLabel(r.approvalMode||approvalPolicy.defaultMode)}</div>${r.error?`<p class="sheet-help">${esc(r.error)}</p>`:''}<div class="queue-actions">${['pending','editing'].includes(r.status)?`<button class="chip" data-edit="${r.id}">${r.status==='editing'?'Continue editing':'Edit'}</button>`:''}${r.status!=='dispatching'?`<button class="chip" data-remove="${r.id}">Remove</button>`:''}</div></article>`).join(''):'<p class="empty">No queued instructions. While the agent works, choose After this reply before sending.</p>';
-      if(d.items[0]?.status==='pending'&&!d.active)target.insertAdjacentHTML('beforeend',`<button class="primary" id="queue-start" ${d.external?'disabled':''}>Run next instruction</button>${d.external?'<p class="sheet-help">Recent activity was seen elsewhere. Refresh after that reply finishes.</p>':''}`);
+      target.innerHTML=d.items.length?d.items.map((r,i)=>`<article class="queue-item"><div class="result-detail">${i+1} · ${r.status==='pending'?(d.active?'After the current reply':d.waitingForJobs?'After the background jobs':'Paused'):r.status==='editing'?'Editing · paused':r.status==='dispatching'?'Starting…':'Needs review'}</div><p>${esc(r.text)}</p><div class="result-detail">${permissionLabel(r.approvalMode||approvalPolicy.defaultMode)}</div>${r.error?`<p class="sheet-help">${esc(r.error)}</p>`:''}<div class="queue-actions">${['pending','editing'].includes(r.status)?`<button class="chip" data-edit="${r.id}">${r.status==='editing'?'Continue editing':'Edit'}</button>`:''}${r.status!=='dispatching'?`<button class="chip" data-remove="${r.id}">Remove</button>`:''}</div></article>`).join(''):'<p class="empty">No queued instructions. While the agent works, choose After this reply before sending.</p>';
+      const held=d.waitingForJobs; // 1.89.2: background jobs keep this conversation on the earlier Claude login
+      if(d.items[0]?.status==='pending'&&!d.active)target.insertAdjacentHTML('beforeend',`${held?`<p class="sheet-help">${esc(heldForJobsText(held).replace(/^Held/,'Waiting'))}</p>`:''}<button class="primary" id="queue-start" ${d.external?'disabled':''}>${held?'Stop background jobs and run it':'Run next instruction'}</button>${d.external?'<p class="sheet-help">Recent activity was seen elsewhere. Refresh after that reply finishes.</p>':''}`);
       target.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{const r=d.items.find(x=>x.id===b.dataset.remove);b.disabled=true;
         try{await api('/session/'+id+'/queue/'+r.id,{method:'DELETE',body:JSON.stringify({revision:r.revision})});await load();refreshSessions();}catch(e){toast(e.message);b.disabled=false;}
       });
@@ -1969,7 +1970,7 @@ async function openQueue(id) {
         article.querySelector('[data-save]').onclick=e=>save(input.value,e.currentTarget);
       });
       const start=target.querySelector('#queue-start');if(start)start.onclick=async()=>{start.disabled=true;
-        try{await api('/session/'+id+'/queue/start',{method:'POST',body:JSON.stringify({itemId:d.items[0].id})});closeCurrentSheet?.();if(chatId===id)renderChat(id);}
+        try{await api('/session/'+id+'/queue/start',{method:'POST',body:JSON.stringify({itemId:d.items[0].id,...(held&&{replaceStaleLogin:true})})});closeCurrentSheet?.();if(chatId===id)renderChat(id);}
         catch(e){toast(e.message);await load();}
       };
     }catch(e){if(sh.isConnected)sh.querySelector('#queue-items').textContent=e.message;}
@@ -3348,21 +3349,27 @@ function paintDelivery(id = chatId) {
   el.classList.toggle('delivery-problem', Boolean(pending && !sending));
   if (pending) {
     const label = sending ? 'Sending…' : pending.error || 'Delivery was not confirmed. Retry checks the same message.';
-    el.innerHTML = `<p>${esc(label)}</p>${!sending ? `<div class="delivery-actions">${pending.staleJobs ? '<button class="chip" id="stop-jobs-send">Stop background jobs and send</button>' : ''}<button class="chip" id="retry-message">Retry same message</button>${pending.rejected ? '<button class="chip" id="edit-message">Edit message</button>' : '<button class="chip" id="review-message">Review conversation</button>'}<button class="chip" id="discard-message">Discard retry</button></div>` : ''}`;
+    el.innerHTML = `<p>${esc(label)}</p>${!sending ? `<div class="delivery-actions"><button class="chip" id="retry-message">Retry same message</button>${pending.rejected ? '<button class="chip" id="edit-message">Edit message</button>' : '<button class="chip" id="review-message">Review conversation</button>'}<button class="chip" id="discard-message">Discard retry</button></div>` : ''}`;
     const retry = $('#retry-message'); if (retry) retry.onclick = () => submitPending(id);
-    const stopJobs = $('#stop-jobs-send'); if (stopJobs) stopJobs.onclick = () => {
-      const p = loadOutbox(id); if (!p) return;
-      try { saveOutbox(id, { ...p, opts: { ...p.opts, replaceStaleLogin: true }, staleJobs: false, error: undefined }); } catch { }
-      submitPending(id);
-    };
     const edit = $('#edit-message'); if (edit) edit.onclick = () => { saveOutbox(id, null); deliveryNotices.delete(id); paintDelivery(id); $('#box')?.focus(); };
     const review = $('#review-message'); if (review) review.onclick = () => renderChat(id);
     const discard = $('#discard-message'); if (discard) discard.onclick = () => { saveOutbox(id, null); clearDraft(id); deliveryNotices.delete(id); const box = $('#box'); if (box) box.value = ''; paintDelivery(id); };
+  } else if (notice?.itemId) {
+    el.innerHTML = `<p>${esc(notice.text)}</p><div class="delivery-actions"><button class="chip" id="stop-jobs-now">Stop background jobs and send now</button></div>`;
+    const stop = $('#stop-jobs-now'); stop.onclick = async () => {
+      stop.disabled = true;
+      try { await api('/session/' + id + '/queue/start', { method: 'POST', body: JSON.stringify({ itemId: notice.itemId, replaceStaleLogin: true }) }); deliveryNotices.set(id, 'Message delivered.'); paintDelivery(id); if (chatId === id) renderChat(id); }
+      catch (e) { deliveryNotices.delete(id); paintDelivery(id); toast(e.message); }
+    };
   } else el.textContent = notice || '';
   const box = $('#box'), send = $('#send');
   if (box) box.readOnly = Boolean(pending);
   document.querySelectorAll('#c-att,#c-model,#c-eff,#attrow button,[data-mode]').forEach(b => { b.disabled = Boolean(pending); });
   if (send) { send.disabled = Boolean(pending); send.setAttribute('aria-label', pending ? 'Resolve pending delivery first' : 'Send'); }
+}
+function heldForJobsText(jobs = []) {
+  const n = jobs.length, named = jobs.slice(0, 2).map(j => j.description).join('; ') + (n > 2 ? `; and ${n - 2} more` : '');
+  return `Held until ${n === 1 ? 'a background job finishes' : `${n || 'its'} background jobs finish`}${named ? ` (${named})` : ''}. It sends by itself then, on your current Claude account.`;
 }
 async function sendMsg(text, {allowSecrets = false, matches = null} = {}) {
   text = text.trim(); const id = chatId;
@@ -3412,7 +3419,9 @@ async function submitPending(id) {
     saveOutbox(id, null); clearDraft(id);
     if (pending.files.length) localStorage.removeItem('pc-attachments-' + id);
     if (result.steered) steeredEchoes.set(id, [...(steeredEchoes.get(id) || []), { text: pending.text.trim(), at: Date.now() }]);
-    deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current reply.' : result.steered ? (result.skippedQuestions ? 'Questions skipped. Your message went to the running reply.' : 'Sent to the running reply.') : 'Message delivered.');
+    // 1.89.2: held for background jobs on the earlier Claude login: it sends by itself when they finish, or now with Stop
+    if (result.afterJobs) deliveryNotices.set(id, { text: heldForJobsText(result.jobs), itemId: result.itemId });
+    else deliveryNotices.set(id, result.queued ? result.paused ? 'Saved in Queue. Open Queue to start it when ready.' : 'Queued after the current reply.' : result.steered ? (result.skippedQuestions ? 'Questions skipped. Your message went to the running reply.' : 'Sent to the running reply.') : 'Message delivered.');
     if (result.modelFallback) modelFellBack(id, result.modelFallback);
     if (chatId === id) {
       if (tb?.key === id && pending.files.length) tb.attachments = [];
@@ -3431,7 +3440,6 @@ async function submitPending(id) {
     }
     const rejected = e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain';
     pending.rejected = rejected;
-    pending.staleJobs = e.code === 'account_stale_jobs'; // 1.89.1: background jobs hold the earlier Claude login; offer to stop them
     pending.error = e.code === 'delivery_uncertain' ? e.message
       : rejected ? `Not sent: ${e.message}` : 'Delivery not confirmed. Your message is saved. Retry checks the same request.';
     try { saveOutbox(id, pending); } catch { }
