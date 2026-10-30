@@ -9,7 +9,7 @@ Reported by Brad: after a 5-hour limit he switched Claude accounts, and one conv
 
 - **Conversations held on the earlier login.** The refusal is a 409 with `code: account_stale_jobs`, names the jobs (up to three, then a count) and says how to go on. A message sent with `replaceStaleLogin: true` closes the retained process (EOF, then SIGTERM and SIGKILL to its process group 3 s apart), which ends its jobs; the reply waits for it to exit and starts on the current login, as any replaced process does since 1.89.0. The app's Not sent card shows **Stop background jobs and send** for this refusal.
 - **Retry same message.** A refused (4xx) message keeps no delivery receipt, since nothing was dispatched, so a retry with the same `clientMessageId` is checked again (and may carry changed options). It used to replay the first refusal for a week, even after its reason had gone. Accepted messages, uncertain deliveries and changed content under a used id behave as before.
-- Tests: `claude-login.test.mjs` (the refusal's code and jobs, a retry re-checked, the replaced process on the new login, the old one gone), `delivery.test.mjs` (a refusal not kept), `browser.mjs` (the button, the flag and the shared message id). The new checks fail on 1.89.0.
+- Tests: `claude-login.test.mjs` (the refusal's code and jobs, a retry re-checked, the replaced process on the new login, the old one gone), `delivery.test.mjs` (a refusal not kept), `browser.mjs` (the button, the flag and the shared message id). The new checks fail on 1.89.0. `slash-browser.mjs` types its description-search check in one step (`typeUntil`), as the checks around it do; it raced the closing usage sheet on CI.
 
 ## [1.89.0] — 2026-10-30 · build 181
 
