@@ -23,10 +23,10 @@ import { sessionState, prioritizeSessions } from './session-state.mjs';
 import { collectResults } from './results.mjs';
 import { pipeDirs, ensurePipeDir } from './pipes.mjs';
 import { FollowupQueue } from './queue.mjs';
-import {workspaceStatus,workspaceDiff} from './workspace.mjs';
+import {workspaceStatus,workspaceDiff,gitAvailable} from './workspace.mjs';
 import {readClaudeIdentity,agentEnv} from './environment.mjs';
 import {QuestionInbox} from './questions.mjs';
-import {descendantCpu, commandLine, signalGroup} from './proctree.mjs';
+import {descendantCpu, commandLine, signalGroup, startTime, BOOT_ID} from './proctree.mjs';
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 import {parseRuleList, validateRules, matchTrusted} from './trusted.mjs';
 import {UsageStore,getSessionContext,atomicWrite} from './usage.mjs';
@@ -51,7 +51,7 @@ import {TaskStore, taskInstructions} from './tasks.mjs';
 import {InboxStore, inboxInstructions} from './inbox.mjs';
 import { InboxRunner } from './inbox-runner.mjs';
 import { StartStore } from './starts.mjs';
-import {Thumbnailer} from './thumbnails.mjs';
+import {Thumbnailer,openChecked} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
 import { SideChats } from './sidechat.mjs';
 import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
@@ -699,21 +699,42 @@ function makeCookie(ms = 90 * 24 * 3600 * 1000) {
   const exp = Date.now() + ms;
   return `${exp}.${sign(exp)}`;
 }
+// 1.89 (S-6): exactly `<digits>.<sig>`. split('.') ignored anything after a second dot, so `<cookie>.1`, `.2` and so on
+// were each a valid cookie, and each a fresh key for the per-session Vault count.
 function checkCookie(v) {
-  if (!v) return false;
+  if (!v || !/^\d+\.[^.]+$/.test(v)) return false;
   const [exp, sig] = v.split('.');
   if (!exp || !sig || Number(exp) < Date.now()) return false;
   const want = sign(exp);
   return sig.length === want.length && timingSafeEqual(Buffer.from(sig), Buffer.from(want));
 }
-const loginAttempts = new Map(); // ip -> {n, resetAt}
+// 1.89 (S-6): only wrong passwords count, twenty an hour per address, as the Vault's tries have since 1.81. Every attempt
+// used to count, so on a tunnel without Access (every caller is 127.0.0.1) twenty stray POSTs, or twenty sign-ins, made
+// the owner's next correct password wait an hour.
+const loginAttempts = new Map(); // address -> {n wrong, resetAt}
 function rateLimited(ip) {
-  const now = Date.now();
   const rec = loginAttempts.get(ip);
+  if (rec && rec.resetAt < Date.now()) { loginAttempts.delete(ip); return false; }
+  return (rec?.n || 0) >= 20;
+}
+function loginFailed(ip) {
+  const now = Date.now(), rec = loginAttempts.get(ip);
   if (loginAttempts.size > 5000) for (const [k, v] of loginAttempts) if (v.resetAt < now) loginAttempts.delete(k);
-  if (!rec || rec.resetAt < now) { loginAttempts.set(ip, { n: 1, resetAt: now + 3600_000 }); return false; }
-  rec.n++;
-  return rec.n > 20;
+  if (!rec || rec.resetAt < now) loginAttempts.set(ip, { n: 1, resetAt: now + 3600_000 }); else rec.n++;
+}
+// 1.89 (S-6): the address the login and Vault attempt limits count against. cf-connecting-ip is Cloudflare's, but any
+// caller that reaches the port can type it, so a new value on each try never ran out of tries. It counts only when the
+// request carries a Cloudflare Access token that verifies for this application (the result accessSignIn already got is
+// reused), or when POCKET_TRUSTED_PROXY=1 says the port is reachable only through a proxy that sets the header. Otherwise
+// the socket's address: through a tunnel with neither, every caller is the tunnel's 127.0.0.1 and shares one count.
+const TRUSTED_PROXY = process.env.POCKET_TRUSTED_PROXY === '1';
+async function clientAddress(req) {
+  const socket = req.socket.remoteAddress || '?', cf = req.get('cf-connecting-ip');
+  if (!cf) return socket;
+  if (TRUSTED_PROXY) return cf;
+  const token = access.on ? req.get('cf-access-jwt-assertion') : null;
+  if (token && req.accessResult === undefined) req.accessResult = await access.verify(token).catch(e => ({ error: e.message }));
+  return token && req.accessResult?.through ? cf : socket;
 }
 function getCookie(req, name) {
   const h = req.headers.cookie || '';
@@ -750,7 +771,7 @@ async function accessSignIn(req, res) {
   // same-site request may sign in this way; Pocket's own cookie keeps SameSite=Lax as before.
   const site = req.get('sec-fetch-site'), origin = req.get('origin');
   if (req.method !== 'GET' && req.method !== 'HEAD' && (site === 'cross-site' || (origin && origin !== `https://${req.get('host')}` && origin !== `http://${req.get('host')}`))) return false;
-  const r = await access.verify(token).catch(e => ({ error: e.message }));
+  const r = req.accessResult = await access.verify(token).catch(e => ({ error: e.message })); // 1.89: kept for clientAddress
   if (r.email) {
     // Signed in for a day at most, and never past the Access token's own expiry: someone removed from Access (or
     // from POCKET_ACCESS_EMAILS) is out within a day, and the next request through Access signs in again quietly.
@@ -795,11 +816,18 @@ function scanMetaLine(line, acc) {
     const txt = typeof c === 'string' ? c : (Array.isArray(c) ? c.filter(b => b.type === 'text').map(b => b.text).join(' ') : '');
     // "Workdir: /path." prefixes (a common session template) are boilerplate — the
     // project is already shown on the row; title should be the actual ask
-    const clean = (txt || '').replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, '').replace(/\s+/g, ' ')
+    // 1.89: the title is the prompt's first 300 characters (TITLE_CAP), so the tag strip runs on its first 16 KB, not on a
+    // pasted 500 KB; a cut title keeps the whole prompt's hash, so two long prompts that start alike are not one conversation
+    const clean = (txt || '').slice(0, 16_000).replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, '').replace(/\s+/g, ' ')
       .replace(/^\s*Workdir:\s*\S+\s*[.,;—-]*\s*/i, '').trim();
-    if (clean) acc.firstUser = clean;
+    // (the title generator still reads the first 1,500, through an internal prompt field the routes never send)
+    if (clean) acc.firstUser = capTitle(clean);
+    if (clean.length > TITLE_CAP) acc.prompt = clean.slice(0, 1500);
+    if (clean && (clean.length > TITLE_CAP || txt.length > 16_000)) acc.promptKey = createHash('sha1').update(txt).digest('base64url');
   }
 }
+const TITLE_CAP = 300; // 1.89: a row titled by its opening request; the conversation itself keeps the whole request
+const capTitle = t => t && t.length > TITLE_CAP ? t.slice(0, TITLE_CAP - 1).replace(/\s+\S*$/, '') + '…' : t;
 // Title records live at the end of the transcript (appended on each rename), past the
 // 128KB head window — read a generous tail chunk too. A record buried mid-file in a
 // very large session can escape both windows; Pocket's own renames also land in the
@@ -827,7 +855,7 @@ const composeTitle = m => {
   const ov = smeta[m.id]?.name;
   const live = liveAutoTitle(m.id);
   const named = settings.titleSync ? (m.customTitle || ov || live || m.aiTitle) : (ov || live || m.aiTitle);
-  const dedupeTitle = (settings.titleSync ? (m.customTitle || ov || m.aiTitle) : ov) || m.title;
+  const dedupeTitle = (settings.titleSync ? (m.customTitle || ov || m.aiTitle) : ov) || (m.promptKey ? m.title + '\u0000' + m.promptKey : m.title);
   const untitled = !named && Boolean(m.fromPrompt);
   return { ...m, title: named || (untitled && storedAutoTitle(m.id)) || m.title, untitled, dedupeTitle };
 };
@@ -854,16 +882,17 @@ async function sessionMeta(file, id) {
     if (!acc.firstUser && !acc.title) {
       const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
       for await (const line of rl) {
-        if (line.length > 500_000) continue;
+        // 1.89: a long line is parsed only when it is a user line (snapshots and queue records are skipped unread)
+        if (line.length > 500_000 || (line.length > 128 * 1024 && !line.includes('"type":"user"'))) continue;
         scanMetaLine(line, acc);
         if (acc.firstUser || acc.title) break;
       }
       rl.close();
     }
   } catch { /* unreadable — show what we have */ }
-  const { title, cwd, firstUser, customTitle, aiTitle } = acc;
+  const { title, cwd, firstUser, customTitle, aiTitle, promptKey, prompt } = acc;
   // noise = no human message and no summary anywhere: hook runs, subagent scratch, warmups
-  const meta = { id, title: title || firstUser || '(untitled conversation)', cwd, noise: !firstUser && !title, customTitle, aiTitle, fromPrompt: !title && Boolean(firstUser) };
+  const meta = { id, title: title || firstUser || '(untitled conversation)', cwd, noise: !firstUser && !title, customTitle, aiTitle, fromPrompt: !title && Boolean(firstUser), promptKey: !title && promptKey || undefined, prompt: !title && prompt || undefined };
   metaCache.set(file, { mtimeMs: st.mtimeMs, meta });
   return composeTitle({ ...meta, mtimeMs: st.mtimeMs, size: st.size });
 }
@@ -958,6 +987,14 @@ function normalizeLine(o, opts) {
   try { return normalizeLineInner(o, opts); } catch { return null; }
 }
 
+// Our attachment block at the end of a message reads back as file chips (name + path, so the client can thumbnail
+// images), not raw bracket text. 1.89: a steered message is saved as a queued_command line, so both branches use it.
+function splitAttachments(txt) {
+  const am = txt.match(/\n\n\[Attached files? — read as needed:\n([\s\S]*?)\n\]\s*$/);
+  if (!am) return { text: txt.trim() };
+  return { text: txt.slice(0, am.index).trim(), files: am[1].split('\n').filter(Boolean).map(p => ({ n: p.split('/').pop(), p })) };
+}
+
 function normalizeLineInner(o, { sidechain = false } = {}) {
   // returns a display message or null. sidechain: reading a subagent's own transcript (1.82), where every line is one.
   if (o.isSidechain && !sidechain) return null;
@@ -965,11 +1002,12 @@ function normalizeLineInner(o, { sidechain = false } = {}) {
   if (o.type === 'attachment' && o.attachment?.type === 'queued_command') {
     // prompt was an array of content blocks in older CLI versions, a plain string in newer ones
     const p = o.attachment.prompt;
-    const txt = (typeof p === 'string' ? p
+    const raw = typeof p === 'string' ? p
       : Array.isArray(p) ? p.filter(b => b?.type === 'text').map(b => b.text).join('\n')
-        : '').trim();
+        : '';
+    const txt = raw.trim();
     if (!txt || /^\s*<(local-command|command-name|system-remind|task-notification)/.test(txt)) return null;
-    return { role: 'user', text: txt, ts: o.timestamp };
+    return { role: 'user', ...splitAttachments(raw), ts: o.timestamp };
   }
   // 1.83: a built-in slash command (/context, /usage, /compact…) answers in a system line; it is the reply.
   if (o.type === 'system' && o.subtype === 'local_command' && typeof o.content === 'string') {
@@ -977,6 +1015,12 @@ function normalizeLineInner(o, { sidechain = false } = {}) {
     return out ? { role: 'assistant', blocks: textBlocks(out), ts: o.timestamp } : null;
   }
   if (o.type === 'user') {
+    // 1.89: a compaction's summary is written as a user line for the model (isCompactSummary, no isMeta); the owner
+    // never sent it. The reader has no note row to say "compacted" with, so the line is left out.
+    if (o.isCompactSummary) return null;
+    // 1.89: Claude Code 2.1.199+ writes a background task's finish as a plain user line (origin.kind task-notification,
+    // no isMeta); hidden as in the queued_command branch above, which shows nothing for it either
+    if (o.origin?.kind === 'task-notification') return null;
     const c = o.message?.content;
     let txt = null;
     if (typeof c === 'string') txt = c;
@@ -990,15 +1034,8 @@ function normalizeLineInner(o, { sidechain = false } = {}) {
     // 1.83: a slash command is saved as tags; show what was typed (/hello there), not nothing
     const cmd = txt && /^\s*<command-(?:name|message)>/.test(txt) && txt.match(/<command-name>\/?([^<]+)<\/command-name>/);
     if (cmd) { const args = txt.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1].trim(); return { role: 'user', text: '/' + cmd[1].trim() + (args ? ' ' + args : ''), ts: o.timestamp }; }
-    if (!txt || !txt.trim() || /^\s*<(local-command|command-name|command-message|system-remind)/.test(txt)) return null;
-    // render our attachment block as file chips, not raw bracket text
-    let files;
-    const am = txt.match(/\n\n\[Attached files? — read as needed:\n([\s\S]*?)\n\]\s*$/);
-    if (am) { // name + path so the client can thumbnail image attachments
-      files = am[1].split('\n').filter(Boolean).map(p => ({ n: p.split('/').pop(), p }));
-      txt = txt.slice(0, am.index);
-    }
-    return { role: 'user', text: txt.trim(), files, ts: o.timestamp };
+    if (!txt || !txt.trim() || /^\s*<(local-command|command-name|command-message|system-remind|task-notification)/.test(txt)) return null;
+    return { role: 'user', ...splitAttachments(txt), ts: o.timestamp };
   }
   if (o.type === 'assistant') {
     const blocks = [];
@@ -1390,7 +1427,13 @@ function spawnEnv() {
 const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 // pid-reuse guard: only trust a marker whose pid's cmdline still names this session
 const isTurnProc = (pid, id) => commandLine(pid).includes(id); // /proc on Linux, ps on macOS (1.47)
+// 1.89 (F-10): and, when the marker recorded them (1.89 on), the same boot and the same process start time, as Codex's
+// records have had since 1.73.7: a reused pid has a later start, even when its command line names the session.
+const sameRunner = m => Boolean(m?.sessionId && m.pid && m.key) && pidAlive(m.pid) && isTurnProc(m.pid, m.sessionId)
+  && (!m.bootId || m.bootId === BOOT_ID) && (!m.procStart || startTime(m.pid) === m.procStart);
 function signalTurn(turn, sig = 'SIGTERM') {
+  if (turn.pending) return void turn.cancel?.(); // 1.89 (F-8): a reply still waiting for its process ends here
+  if (!(turn.pid > 0)) return; // never kill(0): that is Pocket's own process group
   try { process.kill(-turn.pid, sig); } // negative pid = whole (detached) process group
   catch { try { process.kill(turn.pid, sig); } catch { } }
 }
@@ -1434,7 +1477,8 @@ function handleTurnLine(turn, line) {
   if (usageEvent) broadcast(turn, { type: 'usage', kind: usageEvent.kind });
   // 1.28: the turn's first request shows whether it resumed from a warm cache or wrote it again
   if (o.type === 'assistant' && !o.parent_tool_use_id && o.message?.usage && o.message.model !== '<synthetic>' && turn.cacheFirst === undefined) turn.cacheFirst = turnCacheSummary(o.message.usage);
-  if (turn.controlOnly && ['assistant', 'stream_event', 'result'].includes(o.type)) turn.controlOnly = false; // the agent is replying: a real turn now
+  // 1.89 (F-19): a background subagent's own output (parent_tool_use_id set) is not the agent replying; the stand-in stays one.
+  if (turn.controlOnly && ['assistant', 'stream_event', 'result'].includes(o.type) && !o.parent_tool_use_id) turn.controlOnly = false; // the agent is replying: a real turn now
   if(o.type==='control_request'){
     // 1.82: the asking subagent's name, and the request itself so a reply that ends while it waits can carry it over.
     const agent=o.request?.subtype==='can_use_tool'?askingAgent(turn,o.request.tool_use_id):null;
@@ -1524,17 +1568,27 @@ function trackTurn(sessionId, turn) {
   turn.tailTimer = setInterval(() => drainTurnLog(turn), 300);
 }
 
-function writeRunnerMeta(r) {
+// 1.89: procStart and bootId prove the pid is still this process on adoption (F-10); closing marks one being closed, which
+// a restart stops rather than adopts (F-10); outOffset is how far its output has been handled, so a restart replays what
+// the CLI printed while Pocket was down, e.g. a turn it ran by itself when a background job finished (F-9).
+// `strict` rethrows a failed write: a process Pocket could not record is not started (F-11).
+function writeRunnerMeta(r, { strict = false } = {}) {
   const t = r.turn;
   const meta = {
     sessionId: r.sessionId, cliBin:r.cliBin||null, pid: r.pid, keeperPid: r.keeperPid, key: r.key, cwd: r.cwd, startedAt: r.startedAt,
+    procStart: r.procStart || null, bootId: BOOT_ID, closing: Boolean(r.closing), outOffset: Number.isFinite(r.doneOffset) ? r.doneOffset : null,
     model: r.model, effort: r.effort, approvalMode: r.approvalMode, runnerToken: r.runnerToken || null,
     turn: t ? { startedAt: t.startedAt, userText: t.userText, offset: t.offset, autonomous: Boolean(t.autonomous) } : null,
     bgTasks: r.bgTasks, accountStale: Boolean(r.accountStale), spent: Number.isFinite(r.spent) ? r.spent : null,
     waitingForInput: Boolean(t && (t.questions?.list().length || t.approvals?.list().length || t.inputUnavailable || t.approvalUnavailable)),
     waitingForApproval: Boolean(t?.approvals?.list().length || t?.approvalUnavailable),
   };
-  try { atomicWrite(r.files.meta, meta); } catch { }
+  try { atomicWrite(r.files.meta, meta); r.metaFailed = false; }
+  catch (e) {
+    if (strict) throw e;
+    if (!r.metaFailed) log(`session process marker not written session=${r.sessionId} pid=${r.pid}: ${e.message}`);
+    r.metaFailed = true;
+  }
 }
 
 // Keep the number of live CLI processes under MAX_PROCESSES by closing the longest-idle
@@ -1582,27 +1636,38 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
   writer.on('error', () => { });
   const r = {
     sessionId, key, cliBin: CLAUDE_BIN, pid: proc.pid, keeperPid: keeper.pid, writer, cwd, model, effort, approvalMode: mode, files, runnerToken, fork: fork || null,
-    startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: '', spent: 0,
+    startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: '', doneOffset: 0, spent: 0, procStart: startTime(proc.pid),
   };
+  // 1.89 (F-11): the marker is written before the first prompt. A process Pocket could not record would outlive a restart
+  // unmanaged (neither adopted nor stopped), so when the write fails the CLI and its keeper are killed and the start refused.
+  try { writeRunnerMeta(r, { strict: true }); }
+  catch (e) {
+    r.exited = true; proc.on('error', () => { });
+    signalGroup(keeper.pid, 'SIGKILL'); signalGroup(proc.pid, 'SIGKILL');
+    try { writer.destroy(); } catch { }
+    for (const f of [files.fifo, files.meta + '.tmp', files.out, files.err]) { try { fs.unlinkSync(f); } catch { } }
+    log(`session process refused session=${sessionId} pid=${proc.pid}: its marker could not be written (${e.message})`);
+    throw Object.assign(new Error(`Pocket Code could not record the Claude process on disk, so it did not start it (${e.code || e.message}). Check the server's free disk space, then send again.`), { code: 500 });
+  }
   runners.set(sessionId, r);
   r.tailTimer = setInterval(() => drainRunnerLog(r), 300);
   proc.on('exit', code => onRunnerExit(r, code));
   proc.on('error', () => onRunnerExit(r, -1));
-  writeRunnerMeta(r);
   log(`session process start session=${sessionId} resume=${!!resume}${fork ? ` fork=${fork}` : ''} pid=${proc.pid} cwd=${cwd}`);
   return r;
 }
 
 // controlOnly (1.82): a stand-in for a reply, opened to hold a permission request or question that arrived while no
 // reply was running (a background subagent asked). It ends as soon as nothing is waiting; output turns it into a reply.
-function beginTurn(r, { userText = '', retryAttempt, autonomous = false, offset, controlOnly = false }) {
+// 1.89 (F-8): `into` is a reply that waited for its process (waitingTurn); it keeps its events, viewers and inboxes.
+function beginTurn(r, { userText = '', retryAttempt, autonomous = false, offset, controlOnly = false, into = null }) {
   let size = r.tailOffset; try { size = fs.statSync(r.files.out).size; } catch { }
-  const turn = {
-    sessionId: r.sessionId, runner: r, pid: r.pid, stdin: r.writer, events: [], subs: new Set(), cwd: r.cwd,
-    startedAt: Date.now(), userText, model: r.model, effort: r.effort, retryAttempt, approvalMode: r.approvalMode,
-    queue: [], files: r.files, offset: offset ?? size, autonomous, controlOnly, rawRequests: new Map(), baseline: descendantCpu(r.pid).pids,
-  };
-  attachClaudeQuestions(turn, r.sessionId);
+  const turn = Object.assign(into || { events: [], subs: new Set(), queue: [], rawRequests: new Map(), startedAt: Date.now() }, {
+    sessionId: r.sessionId, runner: r, pid: r.pid, stdin: r.writer, cwd: r.cwd,
+    userText, model: r.model, effort: r.effort, retryAttempt, approvalMode: r.approvalMode,
+    files: r.files, offset: offset ?? size, autonomous, controlOnly, baseline: descendantCpu(r.pid).pids,
+  });
+  if (!into) attachClaudeQuestions(turn, r.sessionId);
   clearTimeout(r.idleTimer);
   r.turn = turn;
   turns.set(r.sessionId, turn);
@@ -1634,8 +1699,11 @@ function handleRunnerLine(r, line, lineOffset) {
     // 1.82: a permission request or question with no reply running comes from a background subagent. Dropping it
     // left the agent waiting forever (and the conversation "working in background" with nothing to see).
     const control = o.type === 'control_request' && o.request?.subtype === 'can_use_tool';
-    const wakes = control || o.type === 'assistant' || o.type === 'stream_event' || (o.type === 'system' && o.subtype === 'init');
-    if (!wakes || r.exited) return;
+    // 1.89 (F-19): a background subagent's output (parent_tool_use_id set) opens no reply: the conversation stays Working
+    // in background and a typed message starts a turn of its own instead of steering into the subagent's.
+    const wakes = control || ((o.type === 'assistant' || o.type === 'stream_event') && !o.parent_tool_use_id) || (o.type === 'system' && o.subtype === 'init');
+    // 1.89 (F-8): a closing process whose successor's reply is already waiting must not take that reply's place.
+    if (!wakes || r.exited || (r.closing && turns.has(r.sessionId))) return;
     turn = beginTurn(r, { autonomous: true, offset: lineOffset, controlOnly: control });
     log(control ? `turn start (a background job asked for permission) session=${r.sessionId} pid=${r.pid}` : `turn start (started by the agent) session=${r.sessionId} pid=${r.pid}`);
     // Viewers in transcript-mirror mode resync on `done` and attach to this live turn.
@@ -1677,6 +1745,7 @@ function drainRunnerLog(r) {
       r.tailRem = lines.pop() ?? '';
       for (const l of lines) {
         const lineOffset = at; at += Buffer.byteLength(l) + 1;
+        r.doneOffset = at; // 1.89 (F-9): a marker written while this line is handled counts it as handled
         if (l.trim()) handleRunnerLine(r, l, lineOffset);
       }
     } finally { fs.closeSync(fh); }
@@ -1690,19 +1759,42 @@ function scheduleIdle(r) {
   r.idleTimer = setTimeout(() => { if (!r.turn && !r.bgTasks.length) closeRunner(r, 'idle'); }, IDLE_CLOSE_MS);
 }
 
-function closeRunner(r, why) {
+// `waiting`: a reply is waiting for this process to go (startTurn), so the close uses the short steps (escalateClose).
+function closeRunner(r, why, { waiting = false } = {}) {
   if (r.closing || r.exited) return;
   r.closing = true;
   clearTimeout(r.idleTimer);
   log(`session process closing session=${r.sessionId} pid=${r.pid} reason=${why}`);
   try { process.kill(-r.keeperPid, 'SIGTERM'); } catch { try { process.kill(r.keeperPid, 'SIGTERM'); } catch { } }
   try { r.writer?.end(); } catch { } // last write end closed → the CLI reads EOF and exits 0
-  r.forceTimer = setTimeout(() => { if (!r.exited) signalTurn(r); }, 30_000);
+  writeRunnerMeta(r); // 1.89 (F-10): a restart stops a closing process instead of adopting it
+  escalateClose(r, waiting ? RUNNER_CLOSE_STEP_MS : RUNNER_CLOSE_GRACE_MS);
 }
+// 1.89 (F-8): a closing process that has not exited on EOF gets SIGTERM, and SIGKILL RUNNER_CLOSE_STEP_MS later, both to
+// its process group (its MCP servers and tools go with it), as Codex sessions and Vault runs do. It used to get one SIGTERM
+// after 30 s, so a CLI that ignored it ran on beside its replacement for good. An ordinary close (idle, process limit,
+// sign-in change) keeps the 30 s grace before SIGTERM, for SessionEnd hooks, MCP shutdowns and the last transcript
+// write; when a reply is waiting for the process to go, SIGTERM comes one step after EOF. A shorter call replaces a
+// longer schedule; one whose SIGTERM is already sent keeps its SIGKILL.
+const RUNNER_CLOSE_STEP_MS = 3000, RUNNER_CLOSE_GRACE_MS = 30_000;
+function escalateClose(r, wait = RUNNER_CLOSE_STEP_MS) {
+  const due = Date.now() + wait;
+  if (r.exited || (r.termDue && r.termDue <= due)) return;
+  r.termDue = due; clearTimeout(r.forceTimer);
+  const step = (sig, then) => {
+    if (r.exited || !r.procStart || startTime(r.pid) !== r.procStart) return; // gone, or not provably this process (no start time)
+    log(`session process still running after ${sig === 'SIGTERM' ? 'EOF' : 'SIGTERM'}; sending ${sig} session=${r.sessionId} pid=${r.pid}`);
+    signalTurn(r, sig); then?.();
+  };
+  r.forceTimer = setTimeout(() => step('SIGTERM', () => { r.forceTimer = setTimeout(() => step('SIGKILL'), RUNNER_CLOSE_STEP_MS); }), wait);
+}
+// Resolves when the process has exited (onRunnerExit).
+const runnerGone = r => r.exited ? Promise.resolve() : (r.gone ??= new Promise(resolve => { r.goneResolve = resolve; }));
 
 function onRunnerExit(r, code) {
   if (r.exited) return;
   r.exited = true;
+  r.goneResolve?.();
   clearInterval(r.tailTimer); clearInterval(r.pollTimer); clearTimeout(r.idleTimer); clearTimeout(r.forceTimer);
   drainRunnerLog(r);
   if (runners.get(r.sessionId) === r) runners.delete(r.sessionId);
@@ -1851,7 +1943,13 @@ async function finalizeTurn(sessionId, turn, code) {
   if (retryAt) scheduleRetry(sessionId, turn, retryAt); // after turns.delete — cancelRetry in startTurn
   // Drain one saved follow-up at a time; each entry gets its own turn.
   if (!turn.stopped && [...turn.events].reverse().find(e=>e.type==='result')?.ok && followups.list(sessionId)[0]?.status === 'pending') {
-    runNextFollowup(sessionId, turn.cwd).catch(e => log(`queue start failed session=${sessionId}: ${e.message}`));
+    // 1.89 (F-16): a background agent's request still waiting moves into the reply the queued message starts on the same
+    // process (its answer goes to that process); with no such reply it gets its stand-in turn as below.
+    runNextFollowup(sessionId, turn.cwd).then(next => {
+      if (!carry.length) return;
+      if (next && next.runner === r && r.turn === next && !next.finalized) { for (const o of carry) handleTurnLine(next, JSON.stringify(o)); log(`${carry.length} request(s) carried into the queued reply session=${sessionId}`); }
+      else carryRequests(r, carry);
+    }, e => { log(`queue start failed session=${sessionId}: ${e.message}`); carryRequests(r, carry); });
     return;
   }
   if (!turn.stopped) autoKeepTurnFiles(sessionId, turn.startedAt || 0);
@@ -1945,7 +2043,7 @@ function startTurn({ sessionId, cwd, text, resume, fork, model, effort, attachme
   ({ model, effort, modelFallback } = withDefaults('claude', { model, effort }));
   if (modelFallback) log(`model fallback session=${sessionId} requested=${modelFallback.requested} reason=${modelFallback.reason} using=${modelFallback.used}`);
   const mode=approvalMode(requestedMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);
-  let r = runners.get(sessionId);
+  let r = runners.get(sessionId), old = null;
   if (r) {
     if (r.accountStale && r.bgTasks.length) throw Object.assign(new Error('This conversation has background jobs keeping its earlier Claude login. Let them finish, or start a new conversation with the current account.'), {code:409});
     // A process can only carry on if nothing it was started with has changed, and if no
@@ -1954,15 +2052,87 @@ function startTurn({ sessionId, cwd, text, resume, fork, model, effort, attachme
       : r.cliBin !== CLAUDE_BIN && !r.bgTasks.length ? 'CLI updated' : r.cwd !== cwd ? 'workspace changed' : r.model !== model ? 'model changed'
         : r.effort !== effort ? 'effort changed' : r.approvalMode !== mode ? 'permissions changed'
           : foreignTurns(sessionId, ownedTranscriptSize.get(sessionId)).since ? 'continued in another app' : null;
-    if (why) { if (why !== 'closing') closeRunner(r, why); r = null; }
+    if (why) { if (why !== 'closing') closeRunner(r, why, { waiting: true }); else escalateClose(r); old = r; r = null; }
   }
   const reused = Boolean(r);
-  if (!r) r = spawnRunner({ sessionId, cwd, resume, fork: resume ? undefined : fork, model, effort, mode });
-  const turn = beginTurn(r, { userText: text, retryAttempt });
+  // 1.89 (F-8): a process that could not be reused is still closing. Its replacement starts once it has exited (at most
+  // the close's SIGTERM and SIGKILL steps later), so two CLIs never run on one conversation; the reply is registered now,
+  // so a second message steers into it or queues as usual.
+  const waitFor = !r && old && !old.exited ? old : null;
+  if (!r && !waitFor) r = spawnRunner({ sessionId, cwd, resume, fork: resume ? undefined : fork, model, effort, mode });
+  const turn = waitFor ? waitingTurn({ sessionId, cwd, text, attachments, retryAttempt, resume, fork: resume ? undefined : fork, model, effort, mode }, waitFor)
+    : beginTurn(r, { userText: text, retryAttempt });
   if (modelFallback) { turn.modelFallback = { ...modelFallback, message: fallbackText(modelFallback) }; broadcast(turn, { type: 'note', text: turn.modelFallback.message }); }
+  if (waitFor) { log(`turn start session=${sessionId} process=new (once pid=${waitFor.pid} has exited) cwd=${cwd}`); return turn; }
   try { r.writer.write(userJSON(promptText(text, attachments))); } catch { }
   log(`turn start session=${sessionId} process=${reused ? 'reused' : 'new'} pid=${r.pid} cwd=${cwd}`);
   return turn;
+}
+
+// 1.89 (F-8): a reply waiting for the conversation's closing process to exit. It is in `turns` (viewers attach, a second
+// message steers into it: the text waits in `held` and follows the prompt), and Stop ends it before any process starts.
+// When the old process has gone, or the close's steps have run out, the new one is spawned and the reply moves onto it.
+function waitingTurn({ sessionId, cwd, text, attachments, retryAttempt, resume, fork, model, effort, mode }, old) {
+  const held = [];
+  const turn = {
+    sessionId, runner: null, pending: true, pid: null, events: [], subs: new Set(), queue: [], rawRequests: new Map(), cwd,
+    startedAt: Date.now(), userText: text, model, effort, retryAttempt, approvalMode: mode, files: {}, offset: 0, autonomous: false, controlOnly: false, baseline: new Set(),
+    stdin: { destroyed: false, writableEnded: false, write: s => { held.push(s); return true; } },
+  };
+  attachClaudeQuestions(turn, sessionId);
+  turns.set(sessionId, turn);
+  // 1.89 (F-8): the text also waits in the follow-up queue (held, first in line, not shown while this reply waits),
+  // so a restart in the wait runs it as the next message (resumeHeldReplies) instead of dropping it; the route has already
+  // answered 202. It leaves the queue when the reply starts, is stopped, or fails to start.
+  let row = null;
+  try { row = followups.hold(sessionId, { text, cwd, attachments, model, effort, approvalMode: mode }); }
+  catch (e) { log(`waiting reply not saved to the queue session=${sessionId}: ${e.message}`); }
+  const unhold = () => { if (!row) return; try { followups.discard(row.id); } catch (e) { log(`held reply not removed from the queue session=${sessionId}: ${e.message}`); } row = null; };
+  turn.cancel = () => {
+    if (!turn.pending) return;
+    turn.pending = false; unhold();
+    log(`turn stopped before its process started session=${sessionId}`);
+    finalizeTurn(sessionId, turn, null).catch(e => log(`turn close failed session=${sessionId}: ${e.message}`));
+  };
+  const steps = new Promise(resolve => setTimeout(resolve, 3 * RUNNER_CLOSE_STEP_MS));
+  Promise.race([runnerGone(old), steps]).then(() => {
+    if (!turn.pending) return;
+    turn.pending = false; unhold();
+    let r;
+    // 1.89 (F-8): anything that throws here fails the reply and releases the conversation (sends and Stop work
+    // again), and a process already spawned for it is closed; before, the reply stayed "running" with no process for good.
+    try {
+      if (!old.exited) log(`session process still running after SIGKILL session=${sessionId} pid=${old.pid}; starting its replacement anyway`);
+      r = spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode });
+      beginTurn(r, { userText: text, retryAttempt, into: turn });
+      try { r.writer.write(userJSON(promptText(text, attachments))); for (const s of held) r.writer.write(s); } catch { }
+      log(`turn start session=${sessionId} process=new pid=${r.pid} cwd=${cwd} (the closing process has exited)`);
+    } catch (e) {
+      try {
+        log(`turn start failed session=${sessionId}: ${e.message}`);
+        if (r) closeRunner(r, 'start failed');
+        broadcast(turn, { type: 'result', ok: false, error: e.message });
+      } catch { }
+      return finalizeTurn(sessionId, turn, -1).catch(e2 => { log(`turn close failed session=${sessionId}: ${e2.message}`); if (turns.get(sessionId) === turn) turns.delete(sessionId); });
+    }
+  });
+  return turn;
+}
+// After a restart: a reply that was waiting for its conversation's closing process (held in the queue, first in line) starts
+// now, as the next message would, once any process the restart stopped for that conversation has gone (at most the stop's
+// two steps). A start that fails marks the row for review, as any queued message does.
+function resumeHeldReplies() {
+  for (const id of new Set(followups.rows.filter(x => x.held && x.status === 'pending').map(x => x.sessionId))) {
+    const head = followups.list(id)[0]; if (!head?.held || head.status !== 'pending') continue;
+    const stopped = strayStops.get(id) || [], until = Date.now() + 3 * RUNNER_CLOSE_STEP_MS;
+    const go = () => {
+      if (stopped.some(pidAlive) && Date.now() < until) return void setTimeout(go, 200);
+      if (ownedTurn(id)) return; // a reply is running after all; the queue drains when it ends
+      log(`starting the reply that was waiting when Pocket stopped session=${id}`);
+      runNextFollowup(id, head.cwd && fs.existsSync(head.cwd) ? head.cwd : undefined).catch(e => log(`held reply start failed session=${id}: ${e.message}`));
+    };
+    go();
+  }
 }
 
 // Another app (code-server, a terminal) wrote a turn to this session moments ago and may
@@ -1976,14 +2146,38 @@ function busyElsewhere(sessionId) {
 
 // Reattach session processes (and pre-1.7 turns) that survived a server restart; sweep
 // stale logs.
+// 1.89 (F-10): a live session process a restart does not adopt (an older duplicate, or one that was closing). Its keeper
+// and its process group get SIGTERM, and SIGKILL one step later if the same process is still there; its marker and pipe go.
+const strayStops = new Map(); // sessionId -> pids stopped at boot, which a held reply waits out (resumeHeldReplies)
+function stopStrayRunner(m, files, full, kept) {
+  log(`stopping session process session=${m.sessionId} pid=${m.pid} (${kept ? `pid ${kept.pid} is newer` : 'it was closing'})`);
+  strayStops.set(m.sessionId, [...(strayStops.get(m.sessionId) || []), m.pid]);
+  const start = m.procStart || startTime(m.pid);
+  if (new RegExp(`pocket-keeper[\\s\\0]${m.pid}(\\D|$)`).test(commandLine(m.keeperPid))) signalGroup(m.keeperPid, 'SIGTERM'); // still this CLI's keeper
+  signalGroup(m.pid, 'SIGTERM');
+  setTimeout(() => { if (pidAlive(m.pid) && startTime(m.pid) === start) { log(`session process still running after SIGTERM; sending SIGKILL session=${m.sessionId} pid=${m.pid}`); signalGroup(m.pid, 'SIGKILL'); } }, RUNNER_CLOSE_STEP_MS).unref();
+  for (const x of [full, files.fifo, files.legacyFifo]) { try { fs.unlinkSync(x); } catch { } }
+}
 function adoptOrphans() {
   let entries = []; try { entries = fs.readdirSync(TURNLOG_DIR); } catch { return; }
+  // 1.89 (F-10): one process per conversation. Of the live markers for a session (a closing process outlived its
+  // replacement's start before 1.89), the newest is adopted and the others are stopped; so is one that was closing with no
+  // reply in flight. Each must still be the process the marker recorded (sameRunner).
+  const keep = new Map();
+  for (const f of entries) {
+    if (!f.endsWith('.runner.json')) continue;
+    let m; try { m = JSON.parse(fs.readFileSync(path.join(TURNLOG_DIR, f), 'utf8')); } catch { continue; }
+    if (!sameRunner(m) || (m.closing && !m.turn)) continue;
+    const k = keep.get(m.sessionId);
+    if (!k || (Number(m.startedAt) || 0) > (Number(k.startedAt) || 0)) keep.set(m.sessionId, { f, pid: m.pid, startedAt: m.startedAt });
+  }
   for (const f of entries) {
     const full = path.join(TURNLOG_DIR, f);
     if (f.endsWith('.runner.json')) {
       let m; try { m = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { try { fs.unlinkSync(full); } catch { } continue; }
       const files = runnerFiles(m.sessionId, m.key);
-      if (m.sessionId && m.pid && m.key && pidAlive(m.pid) && isTurnProc(m.pid, m.sessionId)) {
+      if (m.sessionId && keep.get(m.sessionId)?.f !== f && sameRunner(m)) stopStrayRunner(m, files, full, keep.get(m.sessionId));
+      else if (keep.get(m.sessionId)?.f === f) {
         let writer = null;
         if (!fs.existsSync(files.fifo) && fs.existsSync(files.legacyFifo)) files.fifo = files.legacyFifo; // started before 1.73.2
         try { writer = fs.createWriteStream(null, { fd: fs.openSync(files.fifo, fs.constants.O_RDWR) }); writer.on('error', () => { }); } catch { }
@@ -1991,9 +2185,15 @@ function adoptOrphans() {
         const r = {
           sessionId: m.sessionId, cliBin:m.cliBin||(cliUpdates.state.providers.claude?.active?null:CLAUDE_BIN), key: m.key, pid: m.pid, keeperPid: m.keeperPid, writer, cwd: m.cwd, model: m.model, effort: m.effort,
           approvalMode: m.approvalMode || 'full', files, startedAt: m.startedAt || Date.now(), turn: null, bgTasks: Array.isArray(m.bgTasks) ? m.bgTasks : [], accountStale: m.accountStale === true, runnerToken: typeof m.runnerToken === 'string' ? m.runnerToken : null, spent: Number.isFinite(m.spent) ? m.spent : undefined,
-          lastLineAt: Date.now(), tailOffset: m.turn ? Math.min(m.turn.offset || 0, size) : size, tailRem: '', adopted: true,
+          // 1.89 (F-9): with no reply in flight, the output is read again from where the last marker said it was handled
+          // (outOffset), not from its end: a turn the CLI ran by itself while Pocket was down (a background job finished) is
+          // opened and finished as it would have been live, so its transcript lines count as Pocket's, not another app's,
+          // and its background-job list is current. Markers from before 1.89 have no offset and start at the end as before.
+          lastLineAt: Date.now(), tailOffset: m.turn ? Math.min(m.turn.offset || 0, size) : Number.isFinite(m.outOffset) ? Math.min(m.outOffset, size) : size, tailRem: '', adopted: true,
           skipControlBefore: size, // requests answered (or lost) before the restart can't be answered now
+          procStart: m.procStart || startTime(m.pid),
         };
+        r.doneOffset = r.tailOffset;
         runners.set(m.sessionId, r);
         if (m.turn) {
           const turn = beginTurn(r, { userText: m.turn.userText, autonomous: m.turn.autonomous, offset: r.tailOffset });
@@ -2010,6 +2210,7 @@ function adoptOrphans() {
           r.forceTimer = setTimeout(() => { if (!r.exited && !r.turn) signalTurn(r); }, 30_000);
         }
         r.tailTimer = setInterval(() => drainRunnerLog(r), 300);
+        setImmediate(() => drainRunnerLog(r)); // the replay lands before the first message can be sent (F-9)
         r.pollTimer = setInterval(() => { if (!pidAlive(r.pid)) onRunnerExit(r, null); }, 1000);
         if (!r.turn) scheduleIdle(r);
         log(`adopted session process session=${m.sessionId} pid=${m.pid} turn=${Boolean(m.turn)}`);
@@ -2087,8 +2288,8 @@ app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index
   setHeaders(res, file) { if (['index.html', 'sw.js'].includes(path.basename(file))) res.setHeader('Cache-Control', 'no-cache'); },
 }));
 
-app.post('/api/login', (req, res) => {
-  const ip = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '?';
+app.post('/api/login', async (req, res) => {
+  const ip = await clientAddress(req); // 1.89 (S-6)
   if (rateLimited(ip)) return res.status(429).json({ error: 'too many attempts' });
   const given = String(req.body?.password || '');
   const digest = s => createHash('sha256').update(s, 'utf8').digest();
@@ -2096,6 +2297,7 @@ app.post('/api/login', (req, res) => {
     res.setHeader('Set-Cookie', `pc_auth=${makeCookie()}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${90 * 24 * 3600}`);
     return res.json({ ok: true });
   }
+  loginFailed(ip);
   log(`login FAIL from ${ip}`);
   res.status(403).json({ error: 'wrong password' });
 });
@@ -2114,7 +2316,7 @@ function stateFor(s) {
   if (retryTimers.has(s.id)) { // 1.87: every engine's usage-limit wait, not only Claude's
     try { retryAt = JSON.parse(fs.readFileSync(turnFiles(s.id).retry, 'utf8')).at; } catch { }
   }
-  const queue=followups.list(s.id);
+  const queue=shownQueue(s.id);
   if(turn?.approvalUnavailable)return {kind:'input',label:'Approval connection interrupted',confirmed:true,approvals:1,queued:queue.length};
   const approvals=turn?.approvals?.list()||[];
   if(approvals.length)return {kind:'input',label:approvals.some(a=>a.status==='uncertain')?'Approval delivery uncertain':'Needs approval',confirmed:true,approvals:approvals.length,questions:turn.questions?.list().length||0,startedAt:turn.startedAt,queued:queue.length};
@@ -2141,7 +2343,7 @@ function recordOutcome(id, turn, result, retryAt = null) {
 // for a generated title when the row has none (recent sessions only, one model call at a time).
 const TITLE_WINDOW_MS = 14 * 86400_000;
 function finishTitle(s, request = false) {
-  const out = { ...s, untitled: undefined, dedupeTitle: undefined, fromPrompt: undefined };
+  const out = { ...s, untitled: undefined, dedupeTitle: undefined, fromPrompt: undefined, promptKey: undefined, prompt: undefined }; // prompt: the generator's input, server-side only
   if (smeta[s.id]?.name) return out;
   const a = automation(s.title);
   if (a.automated) return { ...out, automated: true, title: a.title || s.title };
@@ -2156,7 +2358,7 @@ function finishTitle(s, request = false) {
 }
 // JSON over 1 KB is gzipped when the client accepts it (the session list is ~70 KB every 5 s).
 function sendJson(req, res, body) {
-  const buf = Buffer.from(JSON.stringify(body));
+  const buf = Buffer.from(typeof body === 'string' ? body : JSON.stringify(body)); // a string is JSON already serialised
   res.set('Content-Type', 'application/json; charset=utf-8'); res.vary('Accept-Encoding');
   if (buf.length > 1024 && /\bgzip\b/.test(req.get('accept-encoding') || '')) { res.set('Content-Encoding', 'gzip'); return res.end(zlib.gzipSync(buf, { level: 4 })); }
   res.end(buf);
@@ -2167,7 +2369,7 @@ async function listAllSessions(limit) {
   if (CODEX_ON) {
     try {
       rows.push(...(await codex.listCodexSessions(limit)).map(s => ({ ...s,
-        title: smeta[s.id]?.name || s.title, untitled: !smeta[s.id]?.name && s.untitled, pinned: isPinned(s.id) || undefined,
+        title: smeta[s.id]?.name || capTitle(s.title), untitled: !smeta[s.id]?.name && s.untitled, pinned: isPinned(s.id) || undefined, // 1.89: Codex often names a thread by its whole first message
         active: codex.codexTurnActive(codex.bareId(s.id)) || codex.codexExtActive(codex.bareId(s.id)),
       })));
     } catch (e) { log(`codex list failed: ${e.message}`); warnings.push('Codex conversations are temporarily unavailable.'); }
@@ -2187,7 +2389,7 @@ async function listAllSessions(limit) {
     if(rows.some(s=>s.id===id))continue;
     const file=!isCx(id)?await findSessionFile(id):null;
     const meta=isCx(id)?await codex.codexThreadMeta(codex.bareId(id)).catch(()=>null):file?await sessionMeta(file,id):null;
-    rows.push({...meta,id,provider:sessionEngine(id),title:smeta[id]?.name||meta?.title||'Queued conversation',mtimeMs:meta?.mtimeMs||followups.list(id)[0].createdAt});
+    rows.push({...meta,id,provider:sessionEngine(id),title:smeta[id]?.name||capTitle(meta?.title)||'Queued conversation',mtimeMs:meta?.mtimeMs||followups.list(id)[0].createdAt});
   }
   // Scratch and test workspaces stay out of the list for both agents unless pinned or running.
   rows = rows.filter(s => !((s.provider === 'codex' || s.provider === 'acp') && s.cwd?.startsWith('/tmp/') && !s.pinned && !s.active));
@@ -2199,6 +2401,7 @@ async function listAllSessions(limit) {
   return result;
 }
 
+let listJsonCache = { json: '', etag: '' }; // the last list served and its ETag
 app.get('/api/sessions', requireAuth, async (req, res) => {
   try {
     const sessions = await listAllSessions(Math.min(Number(req.query.limit) || 60, 200));
@@ -2210,10 +2413,14 @@ app.get('/api/sessions', requireAuth, async (req, res) => {
     // 1.19: the list rarely changes between 5 s polls. A matching If-None-Match gets 304 with the
     // check time in a header, which still counts as a fresh server confirmation for the client.
     const payload = { sessions, warnings: sessions.warnings, home: DEFAULT_CWD || HOME }; // 1.20.1: rows omit the workspace when it is this one
-    const etag = '"' + createHash('sha1').update(JSON.stringify(payload)).digest('base64url') + '"', checkedAt = Date.now();
+    // 1.89: serialised once per poll, and an unchanged list reuses the tag it was hashed to. The list itself is still
+    // built each poll: row states follow live turns, queues and the clock, and no one signal says the list changed.
+    const json = JSON.stringify(payload);
+    if (json !== listJsonCache.json) listJsonCache = { json, etag: '"' + createHash('sha1').update(json).digest('base64url') + '"' };
+    const etag = listJsonCache.etag, checkedAt = Date.now();
     res.set({ ETag: etag, 'X-Pocket-Checked-At': String(checkedAt), 'Cache-Control': 'no-store' });
     if (req.get('if-none-match') === etag) return res.status(304).end();
-    sendJson(req, res, { ...payload, checkedAt });
+    sendJson(req, res, json.slice(0, -1) + ',"checkedAt":' + checkedAt + '}'); // { ...payload, checkedAt }
   } catch { res.status(503).json({ error: 'Conversation status is unavailable. Please retry.' }); }
 });
 
@@ -2278,7 +2485,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
     messages = withPendingUser(messages.map(codex.forClient), turn); // 1.87: edits' diffs stay here for the Changes view
     return sendJson(req, res, {
       id: req.params.id, provider: 'codex',
-      title: smeta[req.params.id]?.name || (meta ? finishTitle({ ...meta, untitled: meta.untitled }).title : turn?.userText?.slice(0, 120)) || 'New conversation',
+      title: smeta[req.params.id]?.name || (meta ? capTitle(finishTitle({ ...meta, untitled: meta.untitled }).title) : turn?.userText?.slice(0, 120)) || 'New conversation',
       cwd: meta?.cwd || turn?.cwd || null, model: meta?.model, source: meta?.source,
       state: stateFor({ id: req.params.id, mtimeMs: meta?.mtimeMs || 0 }),
       executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid), turnEvents: turn?.events.length ?? null,
@@ -2320,12 +2527,9 @@ async function sessionResults(id) {
   return value;
 }
 // 1.20.1: the conversation hides its Git control when the workspace is not inside a Git repository.
+// 1.89: or when the folder or its repository is outside home, where the Git route always refuses (workspace.mjs rootFor).
 function isGitWorkspace(cwd) {
-  if (!cwd) return false;
-  for (let d = path.resolve(cwd); ; d = path.dirname(d)) {
-    if (fs.existsSync(path.join(d, '.git'))) return true;
-    if (d === path.dirname(d)) return false;
-  }
+  return gitAvailable(cwd, HOME);
 }
 async function workspaceCwd(id) {
   if(!anyId(id))throw Object.assign(new Error('Invalid conversation'),{status:400});
@@ -2462,18 +2666,22 @@ app.get('/api/session/:id/results', requireAuth, async (req,res) => {
 });
 app.get('/api/session/:id/artifact', requireAuth, async (req,res) => {
   if(!anyId(req.params.id)) return res.status(400).json({error:'Invalid conversation'});
-  const requested=String(req.query.path || '');
+  const requested=String(req.query.path || '');let h=null;
   try {
     const {results}=await sessionResults(req.params.id);
     if(!results.some(r=>r.kind==='file'&&r.target===requested))return res.status(403).json({error:'This file is not a result referenced by the conversation.'});
-    const real=await fsp.realpath(requested);
-    if(!real.startsWith(HOME+'/')||real.slice(HOME.length+1).split('/').some(p=>p.startsWith('.')))return res.status(403).json({error:'File is outside the supported report location.'});
-    const stat=await fsp.stat(real);if(!stat.isFile())return res.status(404).end();
+    // 1.89 (S-4): the file is opened once, its last step never through a link, and the rule is applied to the path that
+    // descriptor really names; the picture, the inline view and the download all read that descriptor. The name used to
+    // be checked with realpath and then reopened, so a file swapped for a link in between served the link's target.
+    try{h=openChecked(requested,real=>real.startsWith(HOME+'/')&&!real.slice(HOME.length+1).split('/').some(p=>p.startsWith('.')));}
+    catch(e){if(e.code==='EOUTSIDE'||e.code==='ELOOP')return res.status(403).json({error:'File is outside the supported report location.'});if(e.code==='ENOTFILE'||e.code==='EISDIR')return res.status(404).end();throw e;}
+    const real=h.real,opened=h;
     // 1.61: ?thumb=1 is the file card's picture: the first page of a PDF or a scaled image, never an HTML page (an
     // agent-made page is not rendered by a browser on the server). 404 when there is none; the card shows its type.
     if(req.query.thumb==='1'){
       const kind=/\.pdf$/i.test(real)?'pdf':/\.(png|jpe?g|gif|webp)$/i.test(real)?'image':null;
-      const t=kind?await artifactThumbs.get({id:'a'+createHash('sha256').update(real).digest('hex').slice(0,20),kind,file:real}).catch(()=>null):null;
+      h=null; // the Thumbnailer owns the handle from here (and closes it), as does the close below when there is no kind
+      const t=kind?await artifactThumbs.get({id:'a'+createHash('sha256').update(real).digest('hex').slice(0,20),kind,file:real},opened).catch(()=>null):(opened.close(),null);
       if(!t)return res.status(404).end();
       res.setHeader('Cache-Control','private, max-age=300');res.type(t.type);return res.sendFile(t.path);
     }
@@ -2487,10 +2695,11 @@ app.get('/api/session/:id/artifact', requireAuth, async (req,res) => {
       const text=/\.(md|txt|csv|tsv|json)$/i.test(real);
       res.setHeader('Content-Disposition','inline; filename="'+path.basename(requested).replace(/[^\w.\- ]+/g,'_')+'"');
       if(text)res.type('text/plain; charset=utf-8');else res.type(path.extname(real));
-      return res.sendFile(real,err=>{if(err&&!res.headersSent)res.status(404).end();});
+      h=null;return res.sendFile(opened.path,err=>{opened.close();if(err&&!res.headersSent)res.status(404).end();});
     }
-    res.download(real,path.basename(requested),err=>{if(err&&!res.headersSent)res.status(404).end();});
-  }catch(e){res.status(e.code==='ENOENT'||e.status===404?404:503).json({error:'This result is not available. It may have moved or been removed.'});}
+    res.type(path.extname(real)||'bin'); // opened.path (/proc/self/fd/<n>) has no extension to take the type from
+    h=null;res.download(opened.path,path.basename(requested),err=>{opened.close();if(err&&!res.headersSent)res.status(404).end();});
+  }catch(e){h?.close();res.status(e.code==='ENOENT'||e.status===404?404:503).json({error:'This result is not available. It may have moved or been removed.'});}
 });
 
 // ---------- usage visibility (Feature G) ----------
@@ -2738,11 +2947,13 @@ async function acpMessages(id, turn = null) {
   } else acpHistory.set(id, msgs);
   return msgs;
 }
+// 1.89 (F-8): a reply's own text, held in the queue while it waits for the closing process (waitingTurn), is not a queued message.
+const shownQueue = id => { const t = turns.get(id); return followups.list(id).filter(x => !(x.held && t?.pending)); };
 function queueError(res,e){return res.status(e.status||503).json({error:e.status?e.message:'Queue could not be saved. Refresh and try again.'});}
 app.get('/api/session/:id/queue',requireAuth,(req,res)=>{
   if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
   const id=req.params.id;
-  res.json({items:followups.list(id),active:Boolean(ownedTurn(id)),external:isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)});
+  res.json({items:shownQueue(id),active:Boolean(ownedTurn(id)),external:isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)});
 });
 app.patch('/api/session/:id/queue/:item',requireAuth,(req,res)=>{
   if(req.body.editing===true){try{return res.json({item:followups.beginEdit(req.params.id,req.params.item,req.body.revision)});}catch(e){return queueError(res,e);}}
@@ -2780,13 +2991,13 @@ function codexCommand(text) {
   const commit = /^commit\s+([0-9a-f]{6,40})$/i.exec(arg);
   return { action: { kind, target: commit ? { type: 'commit', sha: commit[1] } : arg ? { type: 'baseBranch', branch: arg } : { type: 'uncommittedChanges' } } };
 }
-async function startCodexFromApi({ id, threadId, forkFrom, cwd, text, body }) {
+async function startCodexFromApi({ id, threadId, forkFrom, cwd, text, body, onForked }) {
   if (id) cancelRetry(id); // 1.87: a reply you start replaces a pending usage-limit resume, as on Claude
   if (!threadId || !codex.codexSessions.has(threadId)) reclaimProcess();
   const opts = withDefaults('codex', turnOpts(body));
   const cmd = threadId ? codexCommand(text) : null; // a command needs a thread; on a new conversation it is just text
   if (cmd?.prompt) return codex.startCodexTurn({ threadId, forkFrom, cwd, text: cmd.prompt, ...opts, ...codexHooks(id) });
-  return codex.startCodexTurn({ threadId, forkFrom, cwd, text, ...opts, ...(cmd?.action ? { action: cmd.action } : {}), ...codexHooks(id) });
+  return codex.startCodexTurn({ threadId, forkFrom, cwd, text, ...opts, ...(cmd?.action ? { action: cmd.action } : {}), ...codexHooks(id), onForked });
 }
 // ---------- ACP/OpenRouter engine bridge (mirrors the codex bridge; gated on ACP_ON) ----------
 function acpHooks(id) {
@@ -3320,13 +3531,20 @@ const sideChats = new SideChats({
   max: Math.max(1, Math.floor(Number(process.env.POCKET_SIDE_CHAT_MAX ?? 4)) || 4),
   codex: CODEX_ON ? { AppServer: codex.AppServer, normalizeItem: codex.normalizeItem, config: codex.sideChatConfig } : null, // 1.79
 });
-process.on('exit', () => sideChats.closeAll('daemon stopped'));
+process.on('exit', () => sideChats.closeAll('daemon stopped', null, { now: true })); // 1.89: no timer runs after exit
 // The conversation's own model, so the aside reads the same context the same way: the live process's, else the
 // one Assistant mode routed it to, else this Pocket's default.
 function sideModel(id) {
   const r = runners.get(id);
   if (r?.model) return r.model;
   try { return withDefaults('claude', { model: smeta[id]?.routed?.model || 'default' }).model || null; } catch { return null; }
+}
+// 1.89 (S-2): a Claude side chat may search the web only when the conversation would do it without asking: its live
+// process (else this Pocket's default) is in Full access, or the owner trusts WebSearch. The page sends the mode its next
+// message would use (`approvalMode`, as the message routes do); one the server cannot use counts as review.
+function sideSearch(id, requested) {
+  let mode; try { mode = approvalMode(requested ?? (runners.get(id)?.approvalMode || DEFAULT_APPROVAL_MODE), DEFAULT_APPROVAL_MODE, ALLOW_FULL_ACCESS); } catch { mode = 'review'; }
+  return mode === 'full' || Boolean(matchTrusted(trustedRules(), 'WebSearch', {}));
 }
 const sideView = c => ({ side: c.id, parent: c.parentId, provider: c.provider, model: c.model, busy: c.busy, closed: c.closed, total: c.provider === 'codex' ? null : c.total, turns: c.turns });
 app.post('/api/session/:id/side', requireAuth, secretGuard, async (req, res) => {
@@ -3349,7 +3567,7 @@ app.post('/api/session/:id/side', requireAuth, secretGuard, async (req, res) => 
       const file = await findSessionFile(id);
       if (!file) return res.status(409).json({ error: 'Send a message in the conversation first, so the side chat has something to start from.' });
       const meta = await sessionMeta(file, id);
-      chat = sideChats.open({ parentId: id, cwd: meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME, model: sideModel(id) });
+      chat = sideChats.open({ parentId: id, cwd: meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME, model: sideModel(id), allowSearch: sideSearch(id, req.body?.approvalMode) });
     }
     sideChats.send(chat, text);
     res.status(202).json({ ok: true, ...sideView(chat) });
@@ -3406,9 +3624,12 @@ app.post('/api/session/:id/branch', requireAuth, validateApprovalMode, validateT
     const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
     if (!meta) return res.status(409).json({ error: 'Send a message in the conversation first, so the branch has something to start from.' });
     try {
-      const turn = await startCodexFromApi({ threadId: null, forkFrom: codex.bareId(id), cwd: meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : undefined, text, body: req.body });
+      // 1.89 (F-3): the lineage is written as soon as thread/fork answers, before turn/start; a restart while the first
+      // turn starts used to leave the saved fork with no parent. The write after it is for a fork the hook missed.
+      const lineage = nid => { if (!smeta[nid]?.branchOf) setSmeta(nid, { branchOf: id, branchOfTitle: smeta[id]?.name || storedAutoTitle(id) || meta.title || null, branchNote: note, branchedAt: Date.now() }); };
+      const turn = await startCodexFromApi({ threadId: null, forkFrom: codex.bareId(id), cwd: meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : undefined, text, body: req.body, onForked: tid => lineage(codex.CX + tid) });
       const nid = codex.CX + turn.threadId;
-      setSmeta(nid, { branchOf: id, branchOfTitle: smeta[id]?.name || storedAutoTitle(id) || meta.title || null, branchNote: note, branchedAt: Date.now() });
+      lineage(nid);
       titler.request(nid, text);
       log(`branch session=${nid} from=${id}`);
       return res.status(202).json({ id: nid });
@@ -3447,8 +3668,20 @@ function readSkillDesc(file) {
   try {
     const head = fs.readFileSync(file, 'utf8').slice(0, 2000);
     if(/^user-invocable:\s*false\s*$/mi.test(head))return null;
-    const m = head.match(/^description:\s*(.+)$/m);
-    return m ? m[1].replace(/^['"]|['"]$/g, '').slice(0, 90) : '';
+    // 1.89: only the front matter (between the leading --- lines; to the end of the read if it runs past it) names the
+    // description; a description: line in the body is the skill's text, and a file with no front matter has none
+    const front = /^﻿?---[ \t]*\r?\n([\s\S]*?)(?:\r?\n---[ \t]*(?:\r?\n|$)|$)/.exec(head)?.[1] || '';
+    const m = front.match(/^description:\s*(.+)$/m);
+    if (!m) return '';
+    // 1.89: a YAML block (|) or folded (>) description is the more-indented lines under the key, not the indicator:
+    // a block keeps its line breaks, a folded one reads as one line
+    const block = /^([|>])[-+]?\d*\s*$/.exec(m[1]);
+    if (!block) return m[1].replace(/^['"]|['"]$/g, '').slice(0, 90);
+    const lines = [];
+    for (const l of front.slice(m.index + m[0].length + 1).split('\n')) { if (l.trim() && !/^\s/.test(l)) break; lines.push(l); }
+    const indent = Math.min(...lines.filter(l => l.trim()).map(l => l.match(/^\s*/)[0].length));
+    const text = block[1] === '|' ? lines.map(l => l.slice(indent).trimEnd()).join('\n') : lines.map(l => l.trim()).filter(Boolean).join(' ');
+    return text.trim().slice(0, 90).trimEnd();
   } catch { return ''; }
 }
 app.get('/api/commands', requireAuth, async (req, res) => {
@@ -3808,15 +4041,32 @@ app.get('/api/vault', requireBoardAuth, vaultOn, vaultNoStore, (req, res) => {
 // 1.40: lock, unlock, the passphrase, export and import. Owner only; a wrong passphrase is rate-limited like the login.
 // 1.81 (#177): only wrong tries count, ten an hour per address, and a right one clears them. Every try used to count, so an
 // owner who locked and unlocked often was locked out for an hour. A recovery key that does not open the store counts too.
-const unlockFails = new Map();
-function tooManyUnlocks(ip) { const rec = unlockFails.get(ip); if (rec && rec.resetAt < Date.now()) unlockFails.delete(ip); return (unlockFails.get(ip)?.n || 0) >= 10; }
-function unlockFailed(ip) { const now = Date.now(), rec = unlockFails.get(ip); if (!rec || rec.resetAt < now) unlockFails.set(ip, { n: 1, resetAt: now + 3600_000 }); else rec.n += 1; }
-app.post('/api/vault/unlock', requireAuth, vaultOn, sameOrigin, vaultNoStore, (req, res) => {
-  const ip = req.get('cf-connecting-ip') || req.socket.remoteAddress || '';
+// 1.89 (S-6): and fifty wrong tries an hour across the whole instance (every session, unlock and restore-key together, kept
+// under the key '*'), a backstop for whatever can mint sessions without the login's limit (a replayed Access token).
+const unlockFails = new Map(), UNLOCK_CAP = { key: 10, all: 50 };
+const unlockCount = k => { const rec = unlockFails.get(k); if (rec && rec.resetAt < Date.now()) unlockFails.delete(k); return unlockFails.get(k)?.n || 0; };
+function tooManyUnlocks(ip) {
+  if (unlockCount(ip) >= UNLOCK_CAP.key) return true;
+  if (unlockCount('*') < UNLOCK_CAP.all) return false;
+  const rec = unlockFails.get('*'); if (!rec.logged) { rec.logged = true; log(`vault: ${UNLOCK_CAP.all} wrong passphrases or keys within the hour across all sessions; every unlock and key restore waits until ${new Date(rec.resetAt).toISOString()}`); }
+  return true;
+}
+function unlockFailed(ip) { const now = Date.now(); for (const k of [ip, '*']) { const rec = unlockFails.get(k); if (!rec || rec.resetAt < now) unlockFails.set(k, { n: 1, resetAt: now + 3600_000 }); else rec.n += 1; } }
+// 1.89 (S-6): the tries count per signed-in session, not per address: the limit is there to stop a session guessing the
+// passphrase, a header can name any address, and a new session can only be had through the login's own limit. The key is
+// a hash of the session cookie; a request signed in by its Access token alone counts under that email, and anything else
+// (none reaches these routes today) under clientAddress. An unexpected error still goes to Express as a throw did.
+async function vaultTryKey(req) {
+  const c = getCookie(req, 'pc_auth');
+  if (checkCookie(c)) { const [exp, sig] = c.split('.'); return 'session:' + createHash('sha256').update(exp + '.' + sig).digest('hex'); } // the parsed session, not its spelling
+  if (req.accessResult?.email) return 'access:' + req.accessResult.email;
+  return 'address:' + await clientAddress(req);
+}
+app.post('/api/vault/unlock', requireAuth, vaultOn, sameOrigin, vaultNoStore, (req, res, next) => vaultTryKey(req).then(ip => {
   if (tooManyUnlocks(ip)) return res.status(429).json({ error: 'Too many tries. Wait an hour.' });
   try { vault.unlock(String(req.body?.passphrase || '')); unlockFails.delete(ip); log('vault unlocked by the owner'); res.json({ ok: true }); }
   catch (e) { if (!e.status) throw e; if (e.status === 401) unlockFailed(ip); log(`vault unlock refused: ${e.message}`); res.status(e.status).json({ error: e.message }); }
-});
+}).catch(next));
 app.post('/api/vault/lock', requireAuth, vaultOn, sameOrigin, vaultNoStore, (_req, res) => {
   try { vault.lock(); log('vault locked by the owner'); res.json({ ok: true }); } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
 });
@@ -3890,8 +4140,7 @@ app.post('/api/vault/recovery-key', requireAuth, vaultOn, vaultOpen, sameOrigin,
   vault.audit({ action: 'recovery-key-view', by: 'owner' });
   res.json({ key: vault.envKey.toString('base64') }); // 1.73.6: the key the store is written under, whatever a failed rotation left elsewhere
 });
-app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, res) => {
-  const ip = req.get('cf-connecting-ip') || req.socket.remoteAddress || '';
+app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, res, next) => vaultTryKey(req).then(ip => { // 1.89 (S-6): per signed-in session
   if (tooManyUnlocks(ip)) return res.status(429).json({ error: 'Too many tries. Wait an hour.' });
   if (!vaultNeedsKey()) return res.status(409).json({ error: 'The Vault does not need its key restored.' });
   let k, v; try { k = normalKey(req.body?.key || ''); v = openVault(k); } catch { unlockFailed(ip); log('vault key restore refused: the key does not open the store'); return res.status(400).json({ error: 'That key does not open this Vault.' }); }
@@ -3900,7 +4149,7 @@ app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, 
   vault = v; VAULT_KEY_RAW = k; vaultError = ''; vault.audit({ action: 'key-restored', by: 'owner' });
   log('vault key restored from the recovery key and saved to .env');
   res.json({ ok: true });
-});
+}).catch(next));
 // A run: the daemon binds the values, checks policy, asks the owner when it must, spawns the child itself and streams
 // scrubbed output back as JSON lines. The CLI never receives a value.
 const vaultRuns = new Set();
@@ -4013,16 +4262,17 @@ function sendDocument(res, r, { download = false, framed = false } = {}) {
   res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(r.file)}`);
   res.type(mimeOf(r.file));
   const file = storedDocument(r); if (!file) return res.status(404).end();
-  res.sendFile(file, { dotfiles: 'allow', headers: { 'Content-Type': mimeOf(r.file) } }, err => { if (err && !res.headersSent) res.status(err.code === 'ENOENT' ? 404 : 503).end(); });
+  res.sendFile(file.path, { dotfiles: 'allow', headers: { 'Content-Type': mimeOf(r.file) } }, err => { file.close(); if (err && !res.headersSent) res.status(err.code === 'ENOENT' ? 404 : 503).end(); });
 }
 // 1.76.3: the stored copy is sent only when it is a regular file inside the library reached through no link. A stored file
 // replaced by a symlink (anything running as the daemon's user can do it) used to serve the link's target on a public link.
+// 1.89 (S-4): checked as opened (openChecked): the file is opened once without following a link, the real path of that
+// descriptor must be inside the library, and the caller sends or pictures that descriptor and closes it. The check used to
+// look at the name and the send reopened it, so a swap in between still served the link's target.
 function storedDocument(r) {
-  const p = docs.filePath(r);
   try {
-    if (fs.lstatSync(p).isSymbolicLink()) return null;
-    const real = fs.realpathSync(p), root = fs.realpathSync(docs.dir);
-    return real.startsWith(root + path.sep) && fs.statSync(real).isFile() ? real : null;
+    const root = fs.realpathSync(docs.dir);
+    return openChecked(docs.filePath(r), real => real.startsWith(root + path.sep));
   } catch { return null; }
 }
 // A source path an agent or the Results panel may hand in: a regular file under the home directory, outside dot-directories.
@@ -4084,7 +4334,10 @@ app.get('/api/documents/:id/raw', requireAuth, docsOn, (req, res) => {
 app.get('/api/documents/:id/thumb', requireAuth, docsOn, async (req, res) => {
   let r; try { r = docs.get(req.params.id); } catch (e) { return docError(res, e); }
   if (r.trashedAt || r.missing) return res.status(404).end();
-  const t = await thumbs.get(r);
+  // 1.89 (S-4): the picture is made from the stored file as storedDocument opened and checked it, as a send is; this route
+  // used to hand the path to the renderer, which followed a stored file replaced by a link with no race needed.
+  const file = thumbs.can(r) ? storedDocument(r) : null;
+  const t = file ? await thumbs.get(r, file) : null;
   if (!t) return res.status(404).json({ error: 'No thumbnail for this file.' });
   res.setHeader('Cache-Control', 'private, max-age=86400'); res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Content-Security-Policy', "default-src 'none'");
   res.type(t.type); res.sendFile(t.path, { dotfiles: 'allow', headers: { 'Content-Type': t.type } }, err => { if (err && !res.headersSent) res.status(404).end(); });
@@ -4168,8 +4421,13 @@ app.post('/api/notify', requireBoardAuth, async (req, res) => {
   if (!title) return res.status(400).json({ error: 'A title is needed.', code: 'no_title' });
   const base = publicBase();
   let url = String(b.url || '').trim().slice(0, 500);
-  if (url && !(url.startsWith('/') || (base && url.startsWith(base + '/')))) return res.status(400).json({ error: 'The link must be a Pocket path (/#/…) or start with the public address.', code: 'bad_url' });
+  // 1.89 (S-3): the public address comes off first, then what is left must stay on Pocket's own site: one leading slash
+  // not followed by another or a backslash, no control characters (a browser drops a tab or newline, so /<tab>/host is
+  // //host), and it must resolve to the same origin. //host, /\host and <public address>//host used to pass and open
+  // another site when the notification was tapped.
   if (url && base && url.startsWith(base + '/')) url = url.slice(base.length);
+  const own = u => { try { return /^\/(?![/\\])/.test(u) && !/[\x00-\x1f\x7f]/.test(u) && new URL(u, 'http://pocket.invalid').origin === 'http://pocket.invalid'; } catch { return false; } };
+  if (url && !own(url)) return res.status(400).json({ error: 'The link must be a Pocket path (/#/…) or start with the public address.', code: 'bad_url' });
   const tag = String(b.tag || '').trim().slice(0, 80) || Date.now().toString(36);
   const actor = req.boardActor || 'ui';
   const devices = await pushRaw(title, body, { tag: 'alert:' + tag, url: url || '/', kind: 'alerts' });
@@ -4264,7 +4522,7 @@ app.get('/api/acp/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Finished replies stay in Attention. A conversation whose reply you had not opened could drop out of Attention and read Recent, with its reply buttons still waiting inside. When Pocket closes an idle conversation's process (after an hour, or seconds after a reply when several conversations start at once, such as a burst of Inbox Watch alerts), Claude Code writes a little bookkeeping to the transcript, and Pocket took that for work in another app. It now counts only messages, so Response ready stays until you open the conversation. Replies hidden this way since the problem began reappear in Attention once; Mark all reviewed clears them. Reported by Brad.", "The OpenRouter model menu has a search box. OpenRouter offers hundreds of models; type any words of a model's name or maker, such as kimi or sonnet 5.5, and the list narrows as you type, with Default and the tested models still first. It says how many match, or that none do. Enter picks the first match and the arrow keys move through the list; on a phone the keyboard waits until you tap the box. Escape clears the box, a second Escape closes the menu. Requested by Brad.", "Codex conversations now have what Claude Code conversations had over them. Changed files shows each Codex edit's diff, and files Codex writes become file cards and are kept in Files like Claude's. When Codex hits its usage limit, the conversation waits for the reset and picks the task up again by itself, as Claude's do, and tells you when. The / list offers compact, review (the uncommitted changes, or against a base branch), recap and context. Your attachments show as file chips, a subagent's activity opens, the trusted read-only actions in Settings apply to Codex (and OpenRouter) commands, each reply shows the tokens it used, a reply Codex moves to another model says so, the Usage sheet reads 5-hour and Weekly, and Plan first shows its plan. OpenRouter gets the same diffs in Changed files and picks up again after a rate limit. Requested by Brad.", "After a CLI upgrade, Pocket shows which Claude Code and Codex conversations still have an older process. The update notice stays visible until they switch. The review names each conversation, shows whether it is idle or working, and offers Switch now for idle work. Stop work & switch asks before interrupting a running reply; the next turn opens the selected CLI. Restarting Pocket does not switch those processes.", "OpenRouter conversations now have the everyday features Claude Code and Codex conversations have. Your message shows as soon as you send it. A question from the model is a question card with its options as buttons, and a reply that asks you to choose ends with reply buttons, because Pocket's instructions now reach OpenRouter too. Attachments and images reach it, Plan first works, Stop stops (a queued message waits), a message queued with After this reply runs on OpenRouter, and the context meter, Results, Search and the Git panel work. What OpenRouter cannot do yet (Steer, Side chat, Branch, While you were away) is hidden on its conversations instead of offered and failing. And OpenCode needs no setup of its own any more: Pocket starts it with the ask-first permissions it needs. Behind this, every feature now goes through one layer for all three agents, with one test run against each. Requested by Brad.", "Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to Ari only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by Brad.", "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.", "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.", "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by Brad.", "OpenRouter conversations now work the way they should. Before, every reply ran on OpenCode's own free model whatever you picked, a conversation waiting for your OK said Recent with no Allow button, and there was no way to set the effort. Now the reply runs on the model you picked (Pocket checks with OpenCode first and stops rather than let it run on another), the approval shows on the banner with Allow and Don't allow, and the effort chip offers the levels the chosen model has, such as None, Low, High and Max for DeepSeek V4.1 Flash; a model with no effort setting shows no chip. Reported by Brad.", "OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by Brad.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
+const RELEASE_NOTES = ["Fixes from Casey's second review, checked against 1.88.1. Side chats: a Codex side chat now switches off every MCP server Codex knows about, however it is written in the config file, and refuses to start when it cannot ask; a Claude side chat searches the web only when the conversation is in Full access; Stop on a stuck Codex side chat closes it; a side chat that reconnects after a long run gets the right events. Processes: a replacement Claude process waits for the old one to exit, a Pocket restart adopts the right process and stops duplicates, and work the agent did while Pocket was down counts as Pocket's own instead of as another app's. A background agent's request that is waiting when a reply ends with an After this reply message now reaches you, and a subagent working alone no longer makes the conversation read Running. Transcript bookkeeping (a task notification, a compaction summary) no longer shows as a message you sent, a steered message with a file shows once, long first prompts no longer bloat the conversation list, a skill whose description spans several lines shows it in the / list, and a pasted HEIC or TIFF keeps its name. Security: notification links can only open Pocket's own pages, file previews and downloads read the file they checked, pictures are decoded only as what their name says, and the login and Vault attempt limits can no longer be reset by a caller naming its own address (see POCKET_TRUSTED_PROXY in the install guide). Reported by Casey.", "Finished replies stay in Attention. A conversation whose reply you had not opened could drop out of Attention and read Recent, with its reply buttons still waiting inside. When Pocket closes an idle conversation's process (after an hour, or seconds after a reply when several conversations start at once, such as a burst of Inbox Watch alerts), Claude Code writes a little bookkeeping to the transcript, and Pocket took that for work in another app. It now counts only messages, so Response ready stays until you open the conversation. Replies hidden this way since the problem began reappear in Attention once; Mark all reviewed clears them. Reported by Brad.", "The OpenRouter model menu has a search box. OpenRouter offers hundreds of models; type any words of a model's name or maker, such as kimi or sonnet 5.5, and the list narrows as you type, with Default and the tested models still first. It says how many match, or that none do. Enter picks the first match and the arrow keys move through the list; on a phone the keyboard waits until you tap the box. Escape clears the box, a second Escape closes the menu. Requested by Brad.", "Codex conversations now have what Claude Code conversations had over them. Changed files shows each Codex edit's diff, and files Codex writes become file cards and are kept in Files like Claude's. When Codex hits its usage limit, the conversation waits for the reset and picks the task up again by itself, as Claude's do, and tells you when. The / list offers compact, review (the uncommitted changes, or against a base branch), recap and context. Your attachments show as file chips, a subagent's activity opens, the trusted read-only actions in Settings apply to Codex (and OpenRouter) commands, each reply shows the tokens it used, a reply Codex moves to another model says so, the Usage sheet reads 5-hour and Weekly, and Plan first shows its plan. OpenRouter gets the same diffs in Changed files and picks up again after a rate limit. Requested by Brad.", "After a CLI upgrade, Pocket shows which Claude Code and Codex conversations still have an older process. The update notice stays visible until they switch. The review names each conversation, shows whether it is idle or working, and offers Switch now for idle work. Stop work & switch asks before interrupting a running reply; the next turn opens the selected CLI. Restarting Pocket does not switch those processes.", "OpenRouter conversations now have the everyday features Claude Code and Codex conversations have. Your message shows as soon as you send it. A question from the model is a question card with its options as buttons, and a reply that asks you to choose ends with reply buttons, because Pocket's instructions now reach OpenRouter too. Attachments and images reach it, Plan first works, Stop stops (a queued message waits), a message queued with After this reply runs on OpenRouter, and the context meter, Results, Search and the Git panel work. What OpenRouter cannot do yet (Steer, Side chat, Branch, While you were away) is hidden on its conversations instead of offered and failing. And OpenCode needs no setup of its own any more: Pocket starts it with the ask-first permissions it needs. Behind this, every feature now goes through one layer for all three agents, with one test run against each. Requested by Brad.", "Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to Ari only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by Brad.", "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.", "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.", "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by Brad.", "OpenRouter conversations now work the way they should. Before, every reply ran on OpenCode's own free model whatever you picked, a conversation waiting for your OK said Recent with no Allow button, and there was no way to set the effort. Now the reply runs on the model you picked (Pocket checks with OpenCode first and stops rather than let it run on another), the approval shows on the banner with Allow and Don't allow, and the effort chip offers the levels the chosen model has, such as None, Low, High and Max for DeepSeek V4.1 Flash; a model with no effort setting shows no chip. Reported by Brad.", "OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by Brad.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
@@ -4460,4 +4718,5 @@ app.use((err, req, res, _next) => {
 });
 const server = app.listen(PORT, '127.0.0.1', () => log(`pocket-claude listening on 127.0.0.1:${server.address().port}`));
 cliUpdates.start();
+resumeHeldReplies(); // 1.89 (F-8): after adoptOrphans and the engine table, which it needs
 refreshTitleProviders(0).catch(() => { }); // know which CLIs can make titles before the first list request

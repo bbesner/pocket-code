@@ -156,6 +156,21 @@ and the `Upgrade`/`Connection` headers passed through, so streamed replies are n
 Whichever you use, `POCKET_FRAME_ANCESTORS` in `.env` is only needed if another page will embed
 Pocket in a frame.
 
+**Who counts as one caller (1.89).** The login allows 20 wrong passwords an hour per address; a
+correct password does not use up a try (the Vault's ten wrong passphrases count per signed-in
+session instead, with 50 an hour across all sessions as a backstop). Behind a proxy every request arrives from `127.0.0.1`, so
+Pocket uses the `cf-connecting-ip` header for the address, but only when it can trust it: the
+request carries a Cloudflare Access token that verifies (One sign-in above is set up), or you set
+`POCKET_TRUSTED_PROXY=1` in `.env`. Set it only when the port is reachable through that proxy and
+nothing else (the usual case for a Cloudflare Tunnel, whose `cloudflared` sets the header on
+every request), because anything that reaches the port directly can then pick its own address.
+Without either, all callers through the proxy share one count: a stranger who uses up the tries
+keeps the password page closed for an hour for you too, though a browser already signed in is
+not affected. On a Cloudflare Tunnel install without Access, with the port bound to `127.0.0.1`,
+set `POCKET_TRUSTED_PROXY=1` so each caller counts on its own. Tailscale Serve, Caddy and nginx
+do not set `cf-connecting-ip` (they pass on whatever the client sent), so leave the setting off
+behind them.
+
 ## macOS notes
 
 Pocket Code runs on macOS since 1.47. The differences from Linux:

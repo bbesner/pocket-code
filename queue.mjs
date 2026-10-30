@@ -20,6 +20,14 @@ export class FollowupQueue {
     const row={...data,sessionId,id:randomUUID(),revision:1,status:'pending',createdAt:Date.now()};
     this.save([...this.rows,row]);return row;
   }
+  // 1.89 (F-8): a reply waiting for its conversation's closing process keeps its text here until it starts: first in line,
+  // outside the ten-message cap, marked held. A restart in that wait then runs it (server.mjs resumeHeldReplies) instead of
+  // losing it. discard() takes it out whatever its status, once the reply has started, was stopped or could not start.
+  hold(sessionId,data){
+    const row={...data,sessionId,id:randomUUID(),revision:1,status:'pending',createdAt:Date.now(),held:true};
+    this.save([row,...this.rows]);return row;
+  }
+  discard(id){if(this.rows.some(x=>x.id===id))this.save(this.rows.filter(x=>x.id!==id));}
   beginEdit(sessionId,id,revision){
     const r=this.rows.find(x=>x.id===id&&x.sessionId===sessionId);
     if(!r||r.revision!==revision||!['pending','editing'].includes(r.status))throw Object.assign(Error('The queue changed. Refresh before editing.'),{status:409});

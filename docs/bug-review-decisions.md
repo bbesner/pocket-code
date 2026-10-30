@@ -58,3 +58,17 @@ worker now waits for authorization over IPC after identity persistence and dies 
 The original installer remains the first restore target; another application may change it.
 Restoration rechecks its version and protocol and refuses a changed target. Managed installations
 are retained without pruning so running processes are never stripped of their package files.
+
+
+## Casey's 1.88.1 batch — 2026-10-30
+
+22 faults (`faults-1.88.1.md`) and a six-item private security report, checked by reading `dd93e6f`; each item was
+tested against 1.88.1 before anything changed (`test/casey-1881-*.test.mjs`). 24 real (fixed in 1.89.0), two already
+fixed (F-5 in 1.82.0, F-14 in 1.83.0), and the two below left as they are.
+
+| Finding | Ruling | Reason |
+|---|---|---|
+| F-13: the "Message delivered." note stays while the state is `background` | Not a fault | `background` means the reply is still working (1.64); the CLI's own turn ends finished, failed or stopped and clears it, and the next send clears the old note before showing its own (`public/app.js` `sendMessage`). |
+| F-21: every sheet toggles `app.inert`, which recalculates style for the whole page | Deliberate | Measured on a 5,377-element page (headless Chrome, median of 5): 27 ms per open-and-close at normal speed, 123 ms at 4× CPU slowdown, 100 / 83 ms open / close at 4× with accessibility on (Casey measured 56, and 451 / 971 with accessibility on). A focus trap without `inert` is faster but lets find-in-page match text behind the sheet and leaves assistive technology relying on `aria-modal`. Kept; `test/casey-1881-sheet-perf.mjs` (`POCKET_PERF=1`) re-measures it. |
+| F-12: `closeCodexSession` resolved two seconds after SIGKILL by design (1.73.7) | Changed | The intent (never block forever) stands, but the close now reports the truth: it completes only on a confirmed exit and fails with 423 after five more seconds, so a replacement is not started beside a live process. |
+| F-9 as described (ignore transcript growth while Pocket's CLI is alive) | Not adopted | It would break `test/runner.test.mjs:151`: a terminal turn written while Pocket's idle process is alive must still count as another app's. The fault itself (a turn the CLI ran while the daemon was down read as foreign after a restart) is fixed by replaying the runner output from the offset the marker records. |

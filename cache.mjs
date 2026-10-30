@@ -40,9 +40,10 @@ export function hitShare(c) {
 const isMainAssistant = o => o?.type === 'assistant' && !o.isSidechain && o.message?.usage && o.message.model !== '<synthetic>';
 // A person's message (or a steer), not a tool result or a CLI meta line.
 function isPrompt(o) {
-  if (o?.type !== 'user' || o.isSidechain || o.isMeta || o.isCompactSummary) return false;
+  // 1.89: a background task's finish is a plain user line too (origin.kind task-notification, no isMeta); not a person's
+  if (o?.type !== 'user' || o.isSidechain || o.isMeta || o.isCompactSummary || o.origin?.kind === 'task-notification') return false;
   const c = o.message?.content;
-  if (typeof c === 'string') return !c.startsWith('<command-') && !c.startsWith('<local-command');
+  if (typeof c === 'string') return !c.startsWith('<command-') && !c.startsWith('<local-command') && !c.startsWith('<task-notification>');
   return Array.isArray(c) && c.some(b => b?.type === 'text') && !c.some(b => b?.type === 'tool_result');
 }
 

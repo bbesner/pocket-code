@@ -37,13 +37,37 @@ activity from programs started by the turn; reported Claude background jobs are 
 Codex is interrupted first and its process is closed if the interruption is unanswered.
 Closing a Codex session sends SIGTERM to the app-server's process group and, since 1.73.7,
 SIGKILL five seconds later if it is still running, so a hung app-server no longer keeps the
-thread's writer lock. A session record (`turnlogs-codex/*.session.json`) carries the boot id
+thread's writer lock. Since 1.89 the close completes only when the process has really exited: if it
+is still running five seconds after the SIGKILL (stuck in the kernel, for example on a hung network
+filesystem), a message that needs a new process for that thread (after a permissions or folder
+change) is refused with "The previous Codex process … has not exited yet" instead of starting a
+second process beside it, and the log says `codex session still running after SIGKILL`. A session record (`turnlogs-codex/*.session.json`) carries the boot id
 and the start times of the app-server and its keeper (1.73.7); after a restart Pocket adopts or
 signals a recorded process only when both match, so a record left from before a reboot is
 removed without signalling whatever process now has that pid. Records written before 1.73.7
 count as this boot's only when the file is newer than the boot. macOS has no boot id: there the
 start times come from `ps -o lstart=` and decide alone, and the boot time comes from
 `sysctl kern.boottime` (1.81).
+
+Closing a Claude session process ends its input (EOF). An ordinary close (idle, the process limit,
+an account sign-in, Release) leaves it 30 seconds to finish (SessionEnd hooks, MCP servers shutting
+down); if it is still running then, its process group gets SIGTERM, and since 1.89 SIGKILL three
+seconds after that (the log says `session process still running after …; sending …`). It used to get
+the SIGTERM alone. When a message needs a new process (another model, effort, folder or permission
+mode, or the conversation continued in another app), the steps are short: SIGTERM three seconds after
+EOF, SIGKILL three seconds later. The new process starts only once the old one has exited, so two CLIs
+never work on one conversation; the reply waits at most those two steps plus three seconds, then
+starts anyway and logs `session process still running after SIGKILL`. The waiting message is also
+kept in the conversation's queue (not shown there), so if Pocket restarts during that wait the
+message starts once Pocket is back, instead of being lost. A Claude runner marker
+(`turnlogs/*.runner.json`) records the CLI's boot id and start time (1.89): a restart adopts a process
+only when its pid, command line and start time still match, adopts only the newest live process of a
+conversation and stops any other (SIGTERM, then SIGKILL), and stops one that was being closed. The
+marker also records how far the process's output has been read, so a restart reads on from there: a
+reply the CLI ran by itself while Pocket was down (a background job finishing) is finished and
+counted as Pocket's own, not as another app's. The marker is written before the first prompt; when
+it cannot be written (a full disk), the process is killed and the reply fails with "Pocket Code could
+not record the Claude process on disk", rather than running where a restart could neither find nor stop it.
 
 `POCKET_MAX_PROCESSES` defaults to 8 (`0` means no cap) and reclaims the longest-idle eligible process
 before starting another. It is a **soft target**: active work is not evicted, and a
@@ -55,10 +79,16 @@ session process, counted and closed like any other.
 
 A side chat is a separate, short-lived process beside a conversation: for Claude,
 `claude -p --resume <id> --fork-session --no-session-persistence` with read-only tools, no MCP
-servers and no hooks; for Codex, its own `codex app-server` on an ephemeral, read-only fork. Side
-chats keep their turns in memory only and are never reattached. One ends when it is closed, after
-`POCKET_SIDE_CHAT_IDLE_MS` (default 30 minutes) without a question, when the daemon stops or
-restarts, and (Claude only) when the Claude sign-in changes. At most `POCKET_SIDE_CHAT_MAX` (default
+servers and no hooks (WebSearch only when the conversation is in Full access or `WebSearch` is a
+trusted action); for Codex, its own `codex app-server` on an ephemeral, read-only fork, with every
+server `codex mcp list --json` reports switched off (a side chat is refused when that command fails).
+Since 1.89 each side chat process leads its own process group: closing it ends stdin (Claude) or
+sends SIGTERM (Codex), signals the group with SIGTERM (after three seconds for Claude) and with
+SIGKILL three seconds later if anything in it is left, whether or not the leader has already
+exited; when the daemon exits the groups get SIGTERM at once. Side chats keep their turns in memory
+only and are never reattached. One ends when it is closed, after `POCKET_SIDE_CHAT_IDLE_MS`
+(default 30 minutes) without a question, when the daemon stops or restarts, when a Codex side chat
+does not answer Stop within 20 seconds, and (Claude only) when the Claude sign-in changes. At most `POCKET_SIDE_CHAT_MAX` (default
 4) are open at once: opening another closes the longest-quiet one, and is refused while every one is
 answering. A Claude side chat stops at `POCKET_SIDE_CHAT_BUDGET_USD` (default 5; `0` removes the
 cap). Side chats are not counted in `POCKET_MAX_PROCESSES` or in health. `POCKET_SIDE_CHAT=0`
@@ -353,7 +383,22 @@ log. Test the command with sample JSON before relying on it.
 already on the host: Chrome or Chromium for HTML, `pdftoppm` for PDFs, ImageMagick's
 `convert` (or `magick`) for images, or Chrome when ImageMagick is missing. `POCKET_CHROME`, `POCKET_PDFTOPPM` and `POCKET_CONVERT` choose a
 binary, or turn one off with an empty value. Without a tool, that kind of file shows its
-name on the card instead.
+name on the card instead. Since 1.89 the tool reads a private copy taken from the file as
+Pocket opened and checked it (in a temporary folder that is removed afterwards), and an image's
+format is read from the file's first bytes and must be PNG, JPEG, GIF or WebP, whatever its
+extension; any other file (a `.png` holding PostScript, say) gets no picture, and the daemon
+log says `thumbnail failed … not a PNG, JPEG, GIF or WebP picture`.
+
+**Login and Vault attempt limits (1.89).** The login counts wrong passwords, 20 an hour per address; a
+correct one does not count. `cf-connecting-ip` is used
+as the address only when the request carries a verified Cloudflare Access token or
+`POCKET_TRUSTED_PROXY=1` is set (the port is reachable only through a proxy that sets the
+header); otherwise it is the connection's address, which behind a tunnel is `127.0.0.1` for
+everyone. The Vault's wrong passphrases and recovery keys count per signed-in session (a hash
+of its cookie), whatever the address: ten an hour per session, and 50 an hour across all
+sessions together, after which every unlock and key restore waits out the hour and the log says
+`vault: 50 wrong passphrases or keys within the hour across all sessions`. See `docs/install.md`
+and `SECURITY.md`.
 
 **Trash.** Removing a file moves it to `.trash/` in the documents folder. The daemon
 purges files trashed more than 30 days ago, checking a minute after start and then every six

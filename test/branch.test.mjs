@@ -93,7 +93,7 @@ test('Codex: Branch forks a saved thread; side chat forks an unsaved, read-only 
  assert.equal(ev[2].msg.blocks[0].text,'Codex test response.');assert.equal(ev[3].ok,true);assert.equal(ev[3].cost,null);
  forks=lines(path.join(f.dir,'calls.forks'));const side=forks.at(-1);
  assert.equal(side.threadId,bare);assert.equal(side.ephemeral,true);assert.equal(side.sandbox,'read-only');assert.equal(side.approvalPolicy,'never');assert.equal(side.side,true);
- assert.deepEqual(side.config,{'features.apps':false,'mcp_servers.memstem.enabled':false,'mcp_servers.web-tools.enabled':false},'MCP servers and apps off, nested tables untouched');
+ assert.deepEqual(side.config,{'features.apps':false,mcp_servers:{memstem:{enabled:false},'web-tools':{enabled:false}}},'MCP servers and apps off, nested tables untouched (1.89: the names Codex lists, in the nested form)');
  assert.notEqual(side.pid,forks[0].pid,'its own app-server, not the conversation\'s');
  // A follow-up reuses it; Stop interrupts and keeps it.
  assert.equal((await f.call(`/session/${parent}/side`,{text:'Long one __HANG__',side:s.body.side})).status,202);

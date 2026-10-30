@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.79.2
+checked: 1.89.0
 sources: documents.mjs, public/documents.js, scripts/pocket-docs.mjs, skills/pocket-files/SKILL.md, thumbnails.mjs
 -->
 # Files
@@ -134,6 +134,8 @@ The grid's previews are made once with tools already on the server and cached in
 | Image | ImageMagick `convert` or `magick`, else Chrome | `POCKET_CONVERT` |
 
 Each variable takes a path; an empty value turns that tool off. Without a tool for a kind, the card shows the kind's name instead. Pocket makes two pictures at a time, gives each 20 seconds, and after a failure waits 10 minutes before trying the same file again.
+
+Since 1.89 the tool reads a private copy of the file as Pocket opened and checked it, never the file by its name, and an image's format is read from the file's first bytes and must be PNG, JPEG, GIF or WebP. A JPEG or WebP saved under a `.png` name still gets its picture. Any other file, such as a `.png` that holds SVG or PostScript, gets no picture; the card shows the kind's name and the daemon log says `thumbnail failed … not a PNG, JPEG, GIF or WebP picture`.
 
 ### Limits
 

@@ -505,7 +505,10 @@ async function uploadFiles(fileList, target = attachmentTarget()) {
   if(tb?.key===target){renderToolbar();paintUploadStatus();}
 }
 function clipboardFile(blob, index=0) {
-  const ext=({'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'})[blob.type]||'png';
+  // 1.89: any other image type keeps its own extension (heic, avif, bmp…), so the agent is not handed HEIC bytes named .png;
+  // png only when the browser names no type
+  const ext=({'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif','image/tiff':'tif','image/svg+xml':'svg','image/x-ms-bmp':'bmp','image/x-icon':'ico','image/vnd.microsoft.icon':'ico'})[blob.type]
+    ||(/^image\/([\w.+-]+)$/.exec(blob.type||'')?.[1]||'').replace(/^x-/,'').replace(/\+.*/,'').replace(/\W/g,'')||'png';
   return new File([blob],`screenshot-${Date.now()}-${index}.${ext}`,{type:blob.type});
 }
 async function pasteClipboardImage() {
@@ -3450,7 +3453,8 @@ let recentSends = []; // for deduping our own messages when they echo back via t
 // agent's next step; until then the canonical re-render would hide it. Keep showing it.
 const steeredEchoes = new Map(); // sessionId -> [{text, at}]
 function steeredHTML(id, messages) {
-  const recentUser = messages.slice(-40).filter(m => m.role === 'user').map(m => (m.text || '').trim());
+  // 1.89: a row that still carries our attachment block (an older server, an API caller's format) is compared without it
+  const recentUser = messages.slice(-40).filter(m => m.role === 'user').map(m => (m.text || '').replace(/\n\n\[Attached files? — read as needed:\n[\s\S]*?\n\]\s*$/, '').trim());
   const left = (steeredEchoes.get(id) || []).filter(x => Date.now() - x.at < 30 * 60000 && !recentUser.some(t => t === x.text || t.endsWith(x.text)));
   if (left.length) steeredEchoes.set(id, left); else steeredEchoes.delete(id);
   return left.map(x => msgHTML({ role: 'user', text: x.text })).join('');

@@ -67,10 +67,12 @@ export class AccessVerifier {
     if (!aud.includes(this.aud)) return { error: 'audience' };
     if (!Number.isFinite(payload.exp) || payload.exp + skew < t) return { error: 'expired' };
     if (Number.isFinite(payload.nbf) && payload.nbf - skew > t) return { error: 'not yet valid' };
+    // 1.89: from here the request provably came through this Access application (`through`), whoever the person is, so
+    // the server may believe the cf-connecting-ip Cloudflare put on it (the login and Vault attempt limits count by it).
     // ASCII only, lower-cased the ASCII way, so no Unicode case folding can turn one address into another.
-    if (typeof payload.email !== 'string' || !/^[\x21-\x7e]{3,254}$/.test(payload.email.trim())) return { error: 'email' };
+    if (typeof payload.email !== 'string' || !/^[\x21-\x7e]{3,254}$/.test(payload.email.trim())) return { error: 'email', through: true };
     const email = payload.email.trim().replace(/[A-Z]/g, c => c.toLowerCase());
-    if (!this.emails.has(email)) return { error: 'email' };
-    return { email, exp: payload.exp };
+    if (!this.emails.has(email)) return { error: 'email', through: true };
+    return { email, exp: payload.exp, through: true };
   }
 }
