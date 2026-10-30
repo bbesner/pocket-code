@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.89.1
+checked: 1.89.2
 sources: cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
@@ -77,7 +77,7 @@ Everything here applies to the whole install.
 
 | Control | What it does |
 |---|---|
-| **Accounts & instance** | Opens a page with the Claude Code and Codex accounts, plan and sign-in method. Under Claude Code, **Switch account** (or **Sign in**) changes the server's Claude login through a sign-in link and a pasted code. Idle conversations move to the new login at once; one with a background job still running keeps the earlier login until the job ends, and a message sent there shows **Stop background jobs and send** to end the job and continue on the new account. **Stop all Claude replies** stops every running Claude reply after a second tap on **Stop replies**; the page shows how many are active. Codex sign-in is managed on the server |
+| **Accounts & instance** | Opens a page with the Claude Code and Codex accounts, plan and sign-in method. Under Claude Code, **Switch account** (or **Sign in**) changes the server's Claude login through a sign-in link and a pasted code. Idle conversations move to the new login at once; one with a background job still running keeps the earlier login until the job ends. A message sent there waits and sends by itself on the new account when the job finishes; **Stop background jobs and send now** ends the job and sends it at once. **Stop all Claude replies** stops every running Claude reply after a second tap on **Stop replies**; the page shows how many are active. Codex sign-in is managed on the server |
 | **Connectors** | Shows whether each agent can reach Gmail, Google Calendar and Google Drive through its own account (claude.ai connectors for Claude Code, ChatGPT apps for Codex), with **Connect**, **Reconnect**, **Manage on claude.ai** or **chatgpt.com**, and **Refresh status** |
 | **Plan usage** | The 5-hour and weekly limits and extra-usage status, for Claude Code and for Codex when it is installed. Updates only when a reply runs |
 | **Claude models in the picker** | Tap a model to offer it, or stop offering it, in the model menu on every device. At least one stays on. A model blocked by this computer's Claude Code managed settings is marked and cannot be turned on. **Use the server's list** forgets the choice |

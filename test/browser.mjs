@@ -129,6 +129,7 @@ const fixtureTitles=()=>{const using=!fixtureSettings.autoTitles?null:fixtureSet
   last:{provider:'claude',model:'claude-haiku-4-5-20251001',at:Date.now()},checkedAt:Date.now()};};
 let questionRequests=[];let questionAnswers=null;
 let approvalRequests=[],approvalDecisions=[],approvalFail=false;
+const queueStarts=[]; // 1.89.2: queue/start requests (Stop background jobs and send now)
 const queueRows=[{id:'q1',revision:1,text:'Check incoming quantities before placing an order.',status:'pending'}];
 // 1.54.1: with Files on, the first session's conversation ends with a link to one of the kept files (the link test clicks it).
 const messagesOf=id=>{const m=conversations.get(id);if(id!==rows[0].id||!fixtureSettings.documents)return m;const d=docStore.documents.find(x=>x.file==='weekly-summary.md');return d?[...m,{role:'assistant',blocks:[{t:'text',text:'Kept in Files: [Weekly summary]('+base+'/#/documents/'+d.id+').'}]}]:m;};
@@ -367,6 +368,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname.includes('/queue')){
   if(req.method==='GET'){if(uiModes.queueSeed){queueRows.push(uiModes.queueSeed);uiModes.queueSeed=null;}return json({items:queueRows,active:true,external:false});} // queueSeed: a check that needs a queued row adds one
   let raw='';for await(const chunk of req)raw+=chunk;const b=JSON.parse(raw);const id=url.pathname.split('/').at(-1),idx=queueRows.findIndex(x=>x.id===id);
+  if(id==='start'&&req.method==='POST'){queueStarts.push({id:decodeURIComponent(url.pathname.split('/')[3]),...b});return json({ok:true,started:true});} // 1.89.2
   if(req.method==='PATCH'){queueRows[idx]={...queueRows[idx],...(b.editing?{status:'editing'}:{text:b.text,status:'pending'}),revision:queueRows[idx].revision+1};return json({item:queueRows[idx]});}
   if(req.method==='DELETE'){queueRows.splice(idx,1);return json({ok:true});}
  }
@@ -375,7 +377,7 @@ const server=http.createServer(async(req,res)=>{
   if(!match[2]){if(uiModes.sessionDelay)await new Promise(r=>setTimeout(r,uiModes.sessionDelay));/* sessionDelay: a slow transcript read, so a check can see the view while it waits */const messages=messagesOf(id);return json({...r,...(sideFixture.lineage[id]||{}),active:r.state.kind==='running',ext:false,messages,total:messages.length});}
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   const held=secretRefusal(body);if(held)return json(held,422);
-  if(body.text.includes('__STALE__')&&!body.replaceStaleLogin)return json({error:'This conversation is still on the earlier Claude login because a background job is running (test-suite results). Stop it and send to continue on the current account, or wait until it finishes.',code:'account_stale_jobs',jobs:[{id:'bg1',description:'test-suite results'}]},409); // 1.89.1
+  if(body.text.includes('__STALE__')){dispatches++;return json({ok:true,queued:true,afterJobs:true,jobs:[{id:'bg1',description:'test-suite results'}],itemId:'held-1'},202);} // 1.89.2: held for the jobs (accepted, so a dispatch)
   if(!receipts.has(body.clientMessageId)){dispatches++;receipts.set(body.clientMessageId,{ok:true});conversations.get(id).push({role:'user',text:body.text});}
   if(failNext){req.socket.destroy();return;}
   return json(receipts.get(body.clientMessageId),202);
@@ -455,15 +457,15 @@ try{
  assert.deepEqual(received[0].attachments,['/fixture/stock.csv']);
  assert.equal(await p.$eval('#box',e=>e.value),'');
  assert.equal(await p.$$eval('.m-user',els=>els.filter(e=>e.textContent==='Exclude discontinued products.').length),1);
- // 1.89.1: background jobs holding the earlier Claude login: the refusal offers to stop them, and that send carries the request
- await p.type('#box','__STALE__ carry on');await clickControl(p,'#send');await p.waitForSelector('#stop-jobs-send');
- assert.match(await p.$eval('#delivery-status',e=>e.textContent),/Not sent: This conversation is still on the earlier Claude login/);
- assert.equal(await p.$eval('#send',e=>e.disabled),true);
- assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'stale-login card overflow');
- await p.screenshot({path:path.join(out,'stale-login-refusal.png')});
- await clickControl(p,'#stop-jobs-send');await p.waitForFunction(id=>!localStorage.getItem('pc-outbox-'+id),{},idle.id);
- assert.equal(received.at(-1).replaceStaleLogin,true);assert.equal(received.at(-1).clientMessageId,received.at(-2).clientMessageId);
- assert.equal(await p.$$eval('#stop-jobs-send',e=>e.length),0);assert.equal(dispatches,2,'the refused send dispatched nothing');
+ // 1.89.2: background jobs holding the earlier Claude login: the message is held for them, and Stop sends it now
+ await p.type('#box','__STALE__ carry on');await clickControl(p,'#send');await p.waitForSelector('#stop-jobs-now');
+ assert.match(await p.$eval('#delivery-status',e=>e.textContent),/Held until a background job finishes \(test-suite results\)\. It sends by itself then/);
+ assert.equal(await p.$eval('#send',e=>e.disabled),false,'the composer stays free');assert.equal(await p.$eval('#box',e=>e.value),'');
+ assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'held-message notice overflow');
+ await p.screenshot({path:path.join(out,'stale-login-held.png')});
+ const startsBefore=queueStarts.length;await clickControl(p,'#stop-jobs-now');await p.waitForFunction(()=>!document.querySelector('#stop-jobs-now'));
+ assert.deepEqual(queueStarts.slice(startsBefore),[{id:idle.id,itemId:'held-1',replaceStaleLogin:true}]);
+ assert.match(await p.$eval('#delivery-status',e=>e.textContent),/Message delivered/);
  // A failed list refresh retains the last list but removes any implied live status.
  stale=true;await p.evaluate(()=>refreshSessions());
  assert.match(await p.$eval('#session-switch',e=>e.textContent),/unavailable/);

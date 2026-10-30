@@ -163,13 +163,19 @@ a disconnect. API-key and cloud-provider environment overrides block this flow.
 
 Start is refused while a Claude turn in Pocket is active. Claude side chats close; idle Claude runners close;
 runners with background jobs stay alive and persist an `accountStale` marker. New
-turns are blocked while sign-in is pending. After sign-in, a retained session refuses
-new requested turns until its jobs finish (409, `code: account_stale_jobs`, with the jobs
-listed), then reopens with the current login on its next requested turn. A message sent
-with `replaceStaleLogin: true` (the app's **Stop background jobs and send**) closes the
-retained process instead, which ends its jobs, and the reply starts on the current login once
-it has exited. Autonomous background completion can use the earlier login. A refused (4xx)
-message keeps no delivery receipt, so a retry with the same `clientMessageId` is checked again.
+turns are blocked while sign-in is pending. After sign-in, a message sent to a retained
+session waits in its follow-up queue (`afterJobs`; the response is 202 with `queued`,
+`afterJobs`, the jobs and the item id) and starts on the current login once the jobs have
+finished or the process has exited: from the end of the CLI's own job-report reply, or
+`POCKET_AFTER_JOBS_GRACE_MS` (default 5 s) after the jobs end when no reply starts. A held
+message whose process ended while Pocket was down starts at the next startup. The queue
+does not drain while the jobs run; a queue start without `replaceStaleLogin: true` is refused
+(409, naming the jobs) and leaves the item pending. With the flag (the
+app's **Stop background jobs and send now**, on `queue/start` or `message`) the retained process
+is closed instead, which ends its jobs, and the reply starts on the current login once it has
+exited. Autonomous background completion can use the earlier login. A refused (4xx)
+message keeps no delivery receipt (one kept by an earlier release is forgotten at its retry), so a
+retry with the same `clientMessageId` is checked again.
 Rate-limit events from retained processes do not replace the new account’s cached
 plan limits. Rate-limit retries wait during sign-in; Codex is unaffected.
 Other applications sharing the Claude configuration

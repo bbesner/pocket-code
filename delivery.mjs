@@ -32,7 +32,11 @@ export class DeliveryReceipts {
 
   async run(key, payload, action) {
     const hash = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
-    const prior = this.records[key];
+    let prior = this.records[key];
+    // 1.89.2: a refusal kept before 1.89.1 (which stopped keeping them) is forgotten here, so its retry runs, with changed
+    // options too, instead of replaying the refusal for up to a week.
+    const refused = s => s >= 400 && s < 500;
+    if (prior && !this.pending.has(key) && refused(prior.response?.status)) { delete this.records[key]; prior = undefined; }
     if (prior) {
       if (prior.hash !== hash) return { status: 409, body: { error: 'This message identifier was already used for different content.', code: 'message_conflict' } };
       if (this.pending.has(key)) return this.pending.get(key);
@@ -46,7 +50,7 @@ export class DeliveryReceipts {
     const promise = Promise.resolve().then(action).then(response => {
       // 1.89.1: a refusal (4xx) dispatched nothing, so it is not kept: Retry same message asks the server again instead of
       // replaying the refusal (a conversation held by background jobs stayed refused after they finished).
-      if (response.status >= 400 && response.status < 500) { delete this.records[key]; try { this.save(); } catch { } return response; }
+      if (refused(response.status)) { delete this.records[key]; try { this.save(); } catch { } return response; }
       this.records[key].response = response;
       try { this.save(); }
       catch {

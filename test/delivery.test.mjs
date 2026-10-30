@@ -42,6 +42,15 @@ test('a refusal is not kept, so a retry asks again and may change its options', 
   assert.equal(r.status, 202);
   assert.deepEqual(await receipts.run('key', {text:'Go', replaceStaleLogin:true}, () => assert.fail('accepted once')), r);
 });
+test('a refusal kept before 1.89.1 is forgotten, so its retry runs', async t => {
+  const { file } = store(t);
+  fs.writeFileSync(file, JSON.stringify({ key: { hash: 'from-1.89.0', at: Date.now(), response: { status: 409, body: { error: 'held' } } }, ok: { hash: 'x', at: Date.now(), response: { status: 202, body: { ok: true } } } }));
+  const receipts = new DeliveryReceipts(file); let calls = 0;
+  const r = await receipts.run('key', {text:'Go'}, async () => { calls++; return {status:202,body:{ok:true}}; });
+  assert.equal(r.status, 202); assert.equal(calls, 1);
+  assert.deepEqual(await receipts.run('key', {text:'Go'}, () => assert.fail('accepted once')), r);
+  assert.equal((await receipts.run('ok', {text:'Other'}, () => assert.fail('must not run'))).body.code, 'message_conflict');
+});
 test('receipt storage failure prevents dispatch', async t => {
   const { receipts } = store(t); receipts.save = () => { throw Error('disk unavailable'); };
   const r = await receipts.run('key', {}, () => assert.fail('no receipt, no action'));
