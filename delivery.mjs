@@ -44,6 +44,9 @@ export class DeliveryReceipts {
     catch { delete this.records[key]; return { status: 503, body: { error: 'Could not save a delivery receipt. No message was dispatched.', code: 'receipt_unavailable' } }; }
     // Defer action one microtask so the reservation is visible to simultaneous sends.
     const promise = Promise.resolve().then(action).then(response => {
+      // 1.89.1: a refusal (4xx) dispatched nothing, so it is not kept: Retry same message asks the server again instead of
+      // replaying the refusal (a conversation held by background jobs stayed refused after they finished).
+      if (response.status >= 400 && response.status < 500) { delete this.records[key]; try { this.save(); } catch { } return response; }
       this.records[key].response = response;
       try { this.save(); }
       catch {
