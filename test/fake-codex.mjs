@@ -5,6 +5,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import {randomUUID} from 'node:crypto';
+// 1.89 side chat (codex.mjs sideChatConfig): `codex mcp list --json` lists the servers in $CODEX_HOME/config.toml (plain and
+// double-quoted [mcp_servers.<name>] headers only; the real CLI reads every form). FAKE_CODEX_MCP_LIST=fail makes it fail.
+if(process.argv[2]==='mcp'&&process.argv[3]==='list'){
+  if(process.env.FAKE_CODEX_MCP_LIST==='fail'){console.error('Error: failed to load configuration');process.exit(1);}
+  let toml='';try{toml=fs.readFileSync(path.join(process.env.CODEX_HOME||path.join(process.env.HOME,'.codex'),'config.toml'),'utf8');}catch{}
+  console.log(JSON.stringify([...toml.matchAll(/^\[mcp_servers\.(?:"([^"]+)"|([A-Za-z0-9_-]+))\]\s*$/gm)].map(m=>({name:m[1]||m[2],enabled:true}))));
+} else
 // One-shot title call (titles.mjs): `codex exec --ephemeral … --json -` reads the prompt on stdin and prints JSONL events.
 if(process.argv[2]==='exec'&&process.argv.includes('--ephemeral')){
   let input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{

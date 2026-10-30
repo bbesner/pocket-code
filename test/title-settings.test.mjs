@@ -61,7 +61,7 @@ test('Settings: titles on by default with Claude; off shows the request and make
 });
 
 test('Settings: with no usable CLI, titles say why and nothing is attempted',async t=>{
-  const f=await fixture(t,18661,{CLAUDE_BIN:'/nonexistent/claude',POCKET_CODEX:'0',PATH:'/usr/bin:/bin'});
+  const f=await fixture(t,18668,{CLAUDE_BIN:'/nonexistent/claude',POCKET_CODEX:'0',PATH:'/usr/bin:/bin'});
   const s=(await f.call('/settings')).body.titles;
   assert.equal(s.enabled,true);assert.equal(s.using,null);
   assert.equal(s.claude.available,false);assert.match(s.claude.reason,/not installed/);

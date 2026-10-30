@@ -66,7 +66,9 @@ const SideChat = (() => {
     if (v.busy) return toast('Wait for the answer, or stop it, before asking again.');
     v.send.disabled = true;
     try {
-      const r = await api(`/session/${v.parentId}/side`, { method: 'POST', body: JSON.stringify({ text, side: v.ended ? undefined : sides.get(v.parentId) }) });
+      // 1.89 (S-2): the mode the conversation's next message would use, so a Full access conversation's side chat can search the web
+      const approvalMode = typeof nextApprovalMode === 'function' && typeof getPrefs === 'function' ? nextApprovalMode(getPrefs(v.parentId)) : undefined;
+      const r = await api(`/session/${v.parentId}/side`, { method: 'POST', body: JSON.stringify({ text, side: v.ended ? undefined : sides.get(v.parentId), approvalMode }) });
       v.box.value = ''; sizeBox(v.box);
       v.model = r.model;
       if (r.side !== v.side || !v.es) { sides.set(v.parentId, r.side); connect(v, r.side); }

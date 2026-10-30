@@ -78,10 +78,11 @@ test('HTTP: the Vault creates its key on first switch-on, survives a restart, ro
   assert.equal((await call('/vault/restore-key',{key:'nonsense'})).status,400);
   assert.equal((await call('/vault/restore-key',{key:old},{'content-type':'application/json',authorization:'Bearer '+token})).status,401,'owner only');
   // 1.81 (#177): a key that does not open the store counts against the unlock limit; one that does clears the count.
-  const other={...headers,'cf-connecting-ip':'203.0.113.9'};
+  // 1.89 (S-6): the tries count per signed-in session, so the other caller is a second session (its own cookie), not a header.
+  const exp2=exp+1000,other={...headers,cookie:'pc_auth='+exp2+'.'+createHmac('sha256',secret).update(String(exp2)).digest('hex')};
   for(let i=0;i<10;i++)assert.equal((await call('/vault/restore-key',{key:'nonsense'},other)).status,400);
-  assert.equal((await call('/vault/restore-key',{key:old},other)).status,429,'ten wrong keys from one address, then a wait');
-  for(let i=0;i<7;i++)assert.equal((await call('/vault/restore-key',{key:'nonsense'})).status,400,'this address had two wrong keys; nine is still under the limit');
+  assert.equal((await call('/vault/restore-key',{key:old},other)).status,429,'ten wrong keys from one session, then a wait');
+  for(let i=0;i<7;i++)assert.equal((await call('/vault/restore-key',{key:'nonsense'})).status,400,'this session had two wrong keys; nine is still under the limit');
   const back=await call('/vault/restore-key',{key:`POCKET_VAULT_KEY=${old}`});assert.equal(back.status,200,JSON.stringify(back.body));
   assert.equal(keyLine(fs.readFileSync(envFile,'utf8')),old,'saved again');
   assert.equal((await call('/settings',{vault:true})).body.vault,true);assert.equal((await call('/vault')).body.items[0].name,'zoho-books','everything is back');

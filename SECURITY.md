@@ -20,9 +20,16 @@ has the OS user's credentials. Treat the password like an SSH key.
 
 Built in:
 - The server listens on `127.0.0.1` only. Expose it through an HTTPS tunnel or reverse proxy.
-- Constant-time password comparison, and a limit of 20 login attempts per hour per IP
-  (keyed on `cf-connecting-ip`, so it is reliable behind Cloudflare; another proxy that
-  passes that header through unverified lets a client reset its own bucket).
+- Constant-time password comparison, and a limit of 20 wrong passwords per hour per address (a correct one does not count).
+  Since 1.89 the address is the caller's `cf-connecting-ip` only when Pocket can trust it: the
+  request carries a Cloudflare Access token that verifies for this application (One sign-in is
+  set up), or `POCKET_TRUSTED_PROXY=1` says the port is reachable only through a proxy that sets
+  the header itself. Otherwise it is the connection's own address, so a caller that types a new
+  header on each try no longer gets a fresh count. The trade-off: through a tunnel with neither,
+  every caller arrives from the tunnel's `127.0.0.1` and shares one count, so a stranger who
+  uses up the 20 tries locks the owner's password page for the hour too (a signed-in browser
+  is not affected). Set `POCKET_TRUSTED_PROXY=1` only when nothing but that proxy can reach the
+  port: with it, anything that reaches the port directly can again choose its own address.
 - An HMAC-signed, `HttpOnly`, `Secure`, `SameSite=Lax` session cookie with a 90-day expiry.
 - A Content-Security-Policy on every response: same-origin scripts, styles and
   connections only, no remote images (so Markdown written by an agent cannot load an
@@ -70,6 +77,20 @@ and the rest of the app stay behind Pocket's own login whatever the proxy allows
 Pocket checks its cookie itself. Test a link in a private window before you send it.
 Since 1.76.3 a public, shared or signed-in file is sent only when the stored copy is a regular
 file inside the library reached through no link; a stored copy replaced by a symlink answers 404.
+Since 1.89 that check is made on the file as opened (no link followed at the last step, the
+real path of the open file inside the library), and the send, and the Files grid's preview
+picture, read that same open file; the check used to look at the name, and the send reopened
+it, so a swap in between still served the link's target. A file card in a conversation works
+the same way: the file must be a regular file whose real path is in the home directory outside
+any hidden folder, it is opened once, and its download, inline view and picture all come from
+that open file. A file card that is itself a symlink is refused.
+
+**Preview pictures.** Thumbnails (the Files grid and a conversation's file cards) are made by
+Chrome, `pdftoppm` or ImageMagick from a private copy of the checked file, never by its name.
+Since 1.89 an image's format is read from the file's first bytes and must be PNG, JPEG, GIF or
+WebP; ImageMagick is told that coder (`png:`, `jpeg:`, `gif:`, `webp:`), so a `.png` holding
+PostScript or SVG gets no picture instead of reaching Ghostscript or the SVG reader (which can
+read other local files into the picture). A JPEG or WebP saved as `.png` is pictured as what it is. You can also restrict ImageMagick's coders in its `policy.xml`.
 
 **CLI token.** The `pocket-board`, `pocket-docs`, `pocket-tasks` and `pocket-vault` commands
 use a bearer token that the daemon writes to `cli-token` in the data directory (mode `0600`)
@@ -111,7 +132,14 @@ cannot catch every secret.
 from it (scrypt) that the daemon holds in memory only while unlocked; after a restart, a lock
 or the idle time, nothing on the disk can open the store, including an agent that reads
 `.env`. While unlocked the daemon serves agents as before, so the passphrase protects a
-locked store, not a running one. Wrong passphrases are limited to ten an hour per address.
+locked store, not a running one. Wrong passphrases (and recovery keys that do not open the
+store) are limited to ten wrong tries an hour per signed-in session (since 1.89; it was per
+address, and a caller could name a new address on each try). A new session can only be had
+through the login and its own limit, or a Cloudflare Access sign-in. As a backstop for sessions
+minted without the login's limit (a replayed Access token), the whole instance also allows only
+50 wrong tries an hour across all sessions, unlocks and key restores together; past that every
+unlock and restore answers "Too many tries. Wait an hour.", the owner's included, and the daemon
+log says so.
 Exports are encrypted under their own passphrase; a lost passphrase cannot be recovered.
 
 **At rest.** The store is one file, `vault.enc`, encrypted with AES-256-GCM under

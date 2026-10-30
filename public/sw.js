@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v180';
-const SHELL = ['/theme.js?v=180', '/', '/release.json?v=180', '/app.css?v=180', '/app.js?v=180', '/cli-updates.js?v=180', '/workspace.js?v=180', '/sidechat.js?v=180', '/projects.js?v=180', '/documents.js?v=180', '/links.js?v=180', '/tasks.js?v=180', '/inbox.js?v=180', '/vault.js?v=180', '/secret-detect.js?v=180', '/phrases.js?v=180', '/approvals.js?v=180', '/split.js?v=180', '/tips.js?v=180', '/format.js?v=180', '/voice-text.js?v=180', '/voice.js?v=180', '/voice-worklet.js?v=180', '/vendor/marked.js?v=180', '/vendor/purify.js?v=180', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v181';
+const SHELL = ['/theme.js?v=181', '/', '/release.json?v=181', '/app.css?v=181', '/app.js?v=181', '/cli-updates.js?v=181', '/workspace.js?v=181', '/sidechat.js?v=181', '/projects.js?v=181', '/documents.js?v=181', '/links.js?v=181', '/tasks.js?v=181', '/inbox.js?v=181', '/vault.js?v=181', '/secret-detect.js?v=181', '/phrases.js?v=181', '/approvals.js?v=181', '/split.js?v=181', '/tips.js?v=181', '/format.js?v=181', '/voice-text.js?v=181', '/voice.js?v=181', '/voice-worklet.js?v=181', '/vendor/marked.js?v=181', '/vendor/purify.js?v=181', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -38,7 +38,11 @@ self.addEventListener('push', e => {
   const setBadge = () => { if (typeof d.badge !== 'number' || !('setAppBadge' in self.navigator)) return; try { const p = d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge(); return p && p.catch(() => {}); } catch { } };
   e.waitUntil(self.registration.showNotification(d.title || 'Pocket Code', opts).then(setBadge, setBadge));
 });
+// 1.89: a notification opens only a page on Pocket's own origin; any other link (//host, /\host, a full outside address)
+// opens Pocket's start page instead, whichever server code sent the push.
+const ownPage = url => { try { const u = new URL(url, self.location.origin); return u.origin === self.location.origin ? u.href : '/'; } catch { return '/'; } };
 const openUrl = url => clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+  url = ownPage(url);
   // split-view panes are window clients too; open the notification in the top-level window
   for (const c of list) if (c.frameType !== 'nested' && 'focus' in c) { c.navigate(url); return c.focus(); }
   return clients.openWindow(url);

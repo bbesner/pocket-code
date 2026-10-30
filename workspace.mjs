@@ -2,6 +2,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import fs from 'node:fs/promises';
+import {realpathSync,existsSync} from 'node:fs';
 import path from 'node:path';
 const exec = promisify(execFile);
 const MAX = 256 * 1024;
@@ -20,6 +21,15 @@ async function rootFor(cwd,home){
  const rootReal=await fs.realpath(root);
  if(rootReal!==allowed&&!rootReal.startsWith(allowed+path.sep))throw fail('Repository is outside this instance’s home directory.',403);
  return rootReal;
+}
+// 1.89: whether rootFor would answer, without running git: the folder, and the nearest folder at or above it that holds
+// .git, both inside home. The conversation offers its Git control only then (sync and cheap: every detail read asks).
+export function gitAvailable(cwd,home){
+ if(!cwd)return false;
+ let real,allowed;try{real=realpathSync(cwd);allowed=realpathSync(home);}catch{return false;}
+ const inside=d=>d===allowed||d.startsWith(allowed+path.sep);
+ for(let d=real;inside(d);d=path.dirname(d)){if(existsSync(path.join(d,'.git')))return true;if(d===path.dirname(d))break;}
+ return false;
 }
 export function parseStatus(raw){
  const fields=raw.split('\0'),rows=[];

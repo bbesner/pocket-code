@@ -178,7 +178,7 @@ Open** in Results). **Settings → Projects, files, tasks & vault → Keep files
 - **Git** in the header shows the whole working tree of the conversation's repository: branch, changed files and their
   diffs, including changes made by other conversations or by hand. It is read-only. Pick a file to see its **Working tree** or
   **Staged** diff. Untracked files are listed without content. The Git button is hidden when the conversation's folder is
-  not in a Git repository.
+  not in a Git repository, or when the folder or its repository is outside the server user's home directory.
 
 Git limits: the first 250 changed files, 256 KB per diff. The repository must be inside the server user's home directory.
 Files in hidden folders, symlinks that point outside the repository, and names that look like keys or credentials
@@ -261,9 +261,13 @@ How it behaves:
 
 - It starts from the conversation as it is when you ask the first question, then remembers its own questions and answers.
   **New side chat** starts over from the conversation as it is now.
-- Claude's side chat can read files, search them and search the web. It cannot run commands or edit anything. Codex's side
-  chat runs in a read-only sandbox and can also run read-only commands. Neither uses MCP servers or app connectors, and
-  Claude Code hooks do not run in it.
+- Claude's side chat can read files and search them. It searches the web only when the conversation would do that
+  without asking: in Full access, or when you trust `WebSearch`
+  ([Let read-only actions run without asking](approvals.md#let-read-only-actions-run-without-asking)). In Review
+  actions it does not search the web, because the side chat cannot ask you. It cannot run commands or edit anything. Codex's side chat runs in a read-only sandbox and can also run read-only
+  commands. Neither uses MCP servers or app connectors, and Claude Code hooks do not run in it.
+- A Codex side chat asks Codex which MCP servers it has and turns each one off. If Codex cannot list them (for example,
+  its `config.toml` does not load), the side chat does not start and says why.
 - It uses the conversation's model.
 - The server holds it while it is open, so closing the panel, reloading, or opening the conversation on another device
   shows the same side chat. One side chat per conversation.
@@ -271,7 +275,8 @@ How it behaves:
   chats), or when a newer one replaces it. Your next question starts a new one.
 - Claude answers show their cost and the footer the running total. The first question reads the whole conversation, so it
   costs the most; follow-ups read it from the prompt cache. Codex answers show their time only.
-- **Stop** (the Ask button while it answers) stops the answer.
+- **Stop** (the Ask button while it answers) stops the answer. If a Codex side chat does not answer Stop within 20
+  seconds, Pocket ends that side chat; your next question starts a new one.
 - **Need work done? Branch instead** moves your typed text to [Branch](#branch-into-a-new-conversation) without sending it.
 
 The side chat needs at least one message in the conversation first. Its messages go through the same
@@ -373,10 +378,12 @@ options and cuts each at 120 characters. Conversations run from a terminal or co
 ### Side chat processes
 
 A Claude side chat is a separate Claude Code process started as a fork of the conversation that is never saved
-(`--fork-session --no-session-persistence`), with only the Read, Grep, Glob and WebSearch tools, no MCP servers and hooks
-disabled. A Codex side chat runs its own `codex app-server` with an ephemeral, read-only fork of the thread, approvals off,
-and MCP servers and app connectors switched off. At most 4 side chats run at once across Pocket; when a fifth is needed,
-the one idle longest is closed.
+(`--fork-session --no-session-persistence`), with only the Read, Grep and Glob tools (plus WebSearch when the
+conversation is in Full access or `WebSearch` is a trusted action), no MCP servers and hooks disabled. A Codex side chat
+runs its own `codex app-server` with an ephemeral, read-only fork of the thread, approvals off, and app connectors and
+every MCP server that `codex mcp list` reports for the conversation's folder switched off. Either process leads its own
+process group, and closing the side chat ends the whole group, so nothing it started outlives it. At most 4 side chats
+run at once across Pocket; when a fifth is needed, the one idle longest is closed.
 
 ### Settings
 
@@ -441,7 +448,7 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | "This result is not available. It may have moved or been removed." | The file named in the reply no longer exists at that path. | Ask the agent where the file is now. |
 | "This file is not a result referenced by the conversation." | The download link was opened from another conversation or the file is not in Results. | Open it from Results in the conversation that mentions it. |
 | Git: "This workspace is not an available Git repository." | The conversation's folder is not in a repository. | Nothing to fix; Git only shows repositories. |
-| Git: "Workspace is outside this instance's home directory." | The conversation runs in a folder outside the server user's home. | Git is not available there; use Changed files. |
+| No Git button in a conversation that is in a repository | The conversation runs in a folder outside the server user's home, or its repository starts above home. Git only reads repositories inside home, so the button is not shown there. | Use Changed files for that conversation's edits. |
 | Git: "This diff exceeds the 256 KB preview limit." | The diff is too large to preview. | Ask the agent for a summary or inspect it in an editor. |
 | Side chat: "Send a message in the conversation first…" | The conversation has no transcript yet. | Send a first message, then ask again. |
 | Side chat: "This side chat reached its spending cap." | One Claude side chat spent `POCKET_SIDE_CHAT_BUDGET_USD`. | **New side chat**. |

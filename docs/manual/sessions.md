@@ -105,7 +105,9 @@ prompts, a name of up to 60 characters, a task of up to 8,000 characters.
 The conversation list is the home screen on a phone and the rail on a desktop. Ctrl/⌘ K opens it as a
 **Switch conversation** sheet from anywhere a conversation or the list is on screen.
 
-- **Search recent conversations** filters by title and workspace path as you type.
+- **Search recent conversations** filters by title and workspace path as you type. A title that is the opening
+  request holds only its first 300 characters, so text further into a long request is found by **In conversations**
+  below.
 - With three or more characters, after a short pause, an **In conversations** section also searches
   inside conversations. Each result shows the matching passage and who wrote it; tapping one opens the
   conversation with Find on the match. See [How search works](#how-search-works).
@@ -364,7 +366,8 @@ Some transcripts are folded or left out:
 ### Titles
 
 A row's title is, first to last: your rename; Pocket's updated title; the agent's own title (Claude
-Code's generated title, or the Codex thread's name); Pocket's generated title; the opening request.
+Code's generated title, or the Codex thread's name); Pocket's generated title; the opening request (its first 300
+characters; the conversation itself keeps all of it).
 With **Sync names with code-server** on, a rename recorded in the Claude transcript (made in Pocket,
 Claude Code or code-server) comes before all of them. A branch is titled *Branch: <instruction>* until it
 has a generated title.
@@ -416,7 +419,9 @@ and are kept in `starts.json`, at most 500, oldest dropped first.
 Each Claude conversation keeps a `claude` process and each Codex conversation an app-server between
 replies, so working context and background jobs continue. A process closes after
 `POCKET_IDLE_CLOSE_MS` with no reply and no background job (default one hour). At most
-`POCKET_MAX_PROCESSES` (default 8) are kept; starting another closes the longest-idle one. A reply with
+`POCKET_MAX_PROCESSES` (default 8) are kept; starting another closes the longest-idle one. When a message
+needs a new Claude process (you picked another model, effort or permission mode, for example), the old one
+is closed first, so that reply can take a few seconds longer to start. A reply with
 no output, nothing waiting on you and no CPU use by its programs for `POCKET_STALL_MS` (default 30
 minutes) is stopped. See [operations](../operations.md) for restarts and recovery.
 

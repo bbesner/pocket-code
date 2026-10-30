@@ -17,7 +17,7 @@
 
 import {AgentActivity} from './subagents.mjs';
 import {agentEnv} from './environment.mjs';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFile, execFileSync } from 'node:child_process';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -951,21 +951,32 @@ export function sessionForRunnerToken(token) {
 export function closeCodexSession(s, why) {
   if (!s) return Promise.resolve();
   if (s.exited) return Promise.resolve();
+  if (s.closeFailed && !pidAlive(s.conn.pid)) return Promise.resolve(); // 1.89: gone since the close gave up on it
   if (!s.closing) {
     s.closing = true;
     clearTimeout(s.idleTimer);
     log(`codex session closing thread=${s.threadId} pid=${s.conn.pid} reason=${why}`);
-    // 1.73.7: an app-server that ignores SIGTERM is killed after 5 s (it held the thread's writer lock, so later turns got 423),
-    // and the close resolves on its exit or 2 s after that.
-    s.closed = new Promise(resolve => {
+    // 1.73.7: an app-server that ignores SIGTERM is killed after 5 s (it held the thread's writer lock, so later turns got 423).
+    // 1.89 (F-12): the close resolves only on a confirmed exit (the exit hook, or the pid gone). Still running 5 s after the
+    // SIGKILL, it rejects instead, so a caller that awaits it (a settings change) reports that rather than starting a
+    // replacement beside the old process; it never waits forever. Callers that do not await it are not affected.
+    s.closed = new Promise((resolve, reject) => {
       s.exitResolve = resolve;
       setTimeout(() => {
         if (s.exited) return resolve();
         log(`codex session did not exit after SIGTERM; killing thread=${s.threadId} pid=${s.conn.pid}`);
         signalGroup(s.conn.pid, 'SIGKILL'); if (s.conn.transport?.keeperPid) signalGroup(s.conn.transport.keeperPid, 'SIGKILL');
-        setTimeout(() => { if (!s.exited) log(`codex session still running after SIGKILL thread=${s.threadId} pid=${s.conn.pid}`); resolve(); }, 2000);
+        const pid = s.conn.pid, until = Date.now() + 5000;
+        const poll = setInterval(() => {
+          if (s.exited || !pidAlive(pid)) { clearInterval(poll); return resolve(); }
+          if (Date.now() < until) return;
+          clearInterval(poll); s.closeFailed = true;
+          log(`codex session still running after SIGKILL thread=${s.threadId} pid=${pid}`);
+          reject(Object.assign(new Error('The previous Codex process for this conversation has not exited yet, so a new one was not started. Try again in a minute; if this keeps happening, restart Pocket.'), { code: 423 }));
+        }, 250);
       }, 5000);
     });
+    s.closed.catch(() => { }); // handled here for the callers that do not await it
     try { process.kill(-s.conn.pid, 'SIGTERM'); } catch { } // its MCP servers go with it
     s.conn.close();
   }
@@ -1064,7 +1075,7 @@ function wireSession(s, conn) {
   };
 }
 
-async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, hooks }) {
+async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, hooks, onForked }) {
   const s = { threadId, cliBin:CODEX_BIN, approvalMode, cwd, turn: null, hooks, lastActivityAt: Date.now(), runnerToken: randomBytes(16).toString('hex') };
   const conn = new AppServer({
     name: `codex ${threadId || 'new'}`, transport: spawnTransport({ POCKET_RUNNER_TOKEN: s.runnerToken, ...(threadId ? { POCKET_SESSION_ID: 'cx:' + threadId } : {}) }),
@@ -1092,6 +1103,9 @@ async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, 
       s.model = r.model; s.effort = r.reasoningEffort || null; s.cwd = r.cwd || cwd;
       s.threadId = r?.thread?.id;
       if (!s.threadId) throw new Error('thread/fork returned no id');
+      // 1.89 (F-3): the fork is saved from here on, so the caller records its lineage now, not after turn/start answers
+      // (a restart in between left a branch with no parent).
+      try { onForked?.(s.threadId); } catch (e) { log(`branch record failed thread=${s.threadId}: ${e.message}`); }
     } else {
       const r = await conn.request('thread/start', {
         cwd, ...codexPermissionSettings(approvalMode), ...choiceInstructions(),
@@ -1118,7 +1132,7 @@ async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, 
   return s;
 }
 
-export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, action = null, emit, onFinish, onQuestion, onApproval, auditApproval }) {
+export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, action = null, emit, onFinish, onQuestion, onApproval, auditApproval, onForked }) {
   const existing = threadId && codexTurns.get(threadId);
   if (existing) throw Object.assign(new Error('busy'), { code: 409 });
   const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval };
@@ -1130,7 +1144,7 @@ export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, eff
     s = null;
   }
   const reused = Boolean(s);
-  if (!s) s = await openCodexSession({ threadId, forkFrom: threadId ? undefined : forkFrom, cwd, model, approvalMode, hooks });
+  if (!s) s = await openCodexSession({ threadId, forkFrom: threadId ? undefined : forkFrom, cwd, model, approvalMode, hooks, onForked });
   s.hooks = hooks;
   if (codexTurns.get(s.threadId)) throw Object.assign(new Error('busy'), { code: 409 });
   const turn = makeTurn(s, { text, model, effort, executionMode, hooks });
@@ -1499,11 +1513,37 @@ export async function accountSummary(){
 }
 
 // 1.79: a side chat runs with no MCP servers and no app connectors, like Claude's (--strict-mcp-config): it only reads
-// and answers. Codex has no "none" switch, so each server named in config.toml is turned off by name.
-export function sideChatConfig() {
-  const config = { 'features.apps': false };
-  let toml = ''; try { toml = fs.readFileSync(path.join(CODEX_HOME, 'config.toml'), 'utf8'); } catch { }
-  for (const m of toml.matchAll(/^\s*\[mcp_servers\.("?)([A-Za-z0-9_-]+)\1\]\s*$/gm)) config[`mcp_servers.${m[2]}.enabled`] = false;
-  return config;
+// and answers. Codex has no "none" switch, so each server is turned off by name.
+// 1.89 (S-1): the names come from Codex itself, `codex mcp list --json` run with the same binary, CODEX_HOME and folder as
+// the side chat (a trusted project's .codex/config.toml adds servers), not from reading config.toml: TOML writes a table
+// many ways, and a name the old pattern missed stayed on in a fork that never asks. Each is turned off in the nested form,
+// which Codex merges (a dotted key cannot name a server with a dot in it). When Codex cannot list them the side chat does
+// not start. The list is kept until the binary or one of the config files it reads changes.
+const sideMcpCache = new Map();
+function mcpConfigStamp(cwd) {
+  const files = ['/etc/codex/config.toml', path.join(CODEX_HOME, 'config.toml')];
+  for (let d = path.resolve(cwd); ; d = path.dirname(d)) { files.push(path.join(d, '.codex', 'config.toml')); if (path.dirname(d) === d) break; }
+  return [binStamp(CODEX_BIN), ...files.map(f => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } })].join('|');
+}
+function listMcpServers(cwd) {
+  return new Promise((resolve, reject) => execFile(CODEX_BIN, ['mcp', 'list', '--json'], { cwd, env: agentEnv(process.env), timeout: 20_000, killSignal: 'SIGKILL', maxBuffer: 4 << 20 }, (e, out, err) => {
+    const said = String(err || '').split('\n').map(l => l.trim()).filter(l => l && !/^WARNING\b/.test(l)).slice(0, 3).join(' ');
+    if (e) return reject(new Error(`codex mcp list failed: ${(said || e.message).slice(0, 200)}`));
+    let list; try { list = JSON.parse(out); } catch { return reject(new Error('codex mcp list did not print JSON')); }
+    if (!Array.isArray(list) || !list.every(s => typeof s?.name === 'string' && s.name)) return reject(new Error('codex mcp list did not print a list of named servers'));
+    resolve(list.map(s => s.name));
+  }));
+}
+export async function sideChatConfig(cwd = HOME) {
+  if (!CODEX_BIN) throw new Error('Codex is not installed, so its MCP servers cannot be listed');
+  const stamp = mcpConfigStamp(cwd);
+  let names = sideMcpCache.get(cwd)?.stamp === stamp ? sideMcpCache.get(cwd).names : null;
+  if (!names) {
+    try { names = await listMcpServers(cwd); }
+    catch (e) { throw new Error(`Pocket could not ask Codex which MCP servers it has, so it will not start a side chat that might leave them on (${e.message}).`); }
+    sideMcpCache.delete(cwd); sideMcpCache.set(cwd, { stamp, names });
+    if (sideMcpCache.size > 50) sideMcpCache.delete(sideMcpCache.keys().next().value);
+  }
+  return { 'features.apps': false, ...(names.length ? { mcp_servers: Object.fromEntries(names.map(n => [n, { enabled: false }])) } : {}) };
 }
 
