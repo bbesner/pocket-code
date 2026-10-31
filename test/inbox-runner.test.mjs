@@ -38,7 +38,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "mcp_tool_call", "t
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 1}}))
 `;
 
-function rig({ profiles = {}, tz = 'America/New_York', box = {}, claude = true, codex = false } = {}) {
+function rig({ profiles = {}, tz = 'America/New_York', box = {}, claude = true, codex = false, codexModel } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inbox-runner-'));
   const bin = path.join(dir, 'claude'), boxFile = path.join(dir, 'box.json');
   fs.writeFileSync(bin, FAKE, { mode: 0o755 });
@@ -50,7 +50,7 @@ function rig({ profiles = {}, tz = 'America/New_York', box = {}, claude = true, 
   fs.mkdirSync(path.join(dir, '.codex')); fs.writeFileSync(path.join(dir, '.codex', 'auth.json'), '{}');
   const runner = new InboxRunner({ dataDir: data, appDir: repo, claudeBin: claude ? bin : path.join(dir, 'no-claude'), codexBin: codex ? codexBin : null,
     codexHome: path.join(dir, '.codex'), sessionDir: dir, home: dir, settings: () => settings, store: { profiles }, log: m => logs.push(m),
-    notify: (t, b) => pushes.push([t, b]), env: () => ({ ...process.env, FAKE_BOX: boxFile, POCKET_DATA_DIR: data, HOME: dir }) });
+    notify: (t, b) => pushes.push([t, b]), env: () => ({ ...process.env, FAKE_BOX: boxFile, POCKET_DATA_DIR: data, HOME: dir }), ...(codexModel ? { codexModel } : {}) });
   return { dir, data, runner, settings, logs, pushes, boxFile };
 }
 
@@ -144,6 +144,14 @@ test('a Codex-only server reads Gmail and judges with Codex', async () => {
   assert.match(cfg, /\[pocket\][^[]*provider = "codex"/);
   assert.doesNotMatch(cfg, /fallback_agent/);
   assert.equal(r.runner.status().agent, 'codex');
+});
+
+test('1.91.1: a Codex setup writes the newest version of each model the installed Codex lists', async () => {
+  const r = rig({ claude: false, codex: true, codexModel: id => ({ 'gpt-6-sol': 'gpt-6.1-sol', 'gpt-6-luna': 'gpt-6.2-luna' })[id] || id });
+  await r.runner.step();
+  const cfg = fs.readFileSync(path.join(r.data, 'inbox-watch-data', 'config.toml'), 'utf8');
+  assert.match(cfg, /agent = "codex"\nbin = .*\nmodel = "gpt-6.2-luna"/);
+  assert.match(cfg, /\[judge\]\nkind = "codex"\nbin = .*\nmodel = "gpt-6.1-sol"/);
 });
 
 test('with both, Claude reads and Codex is the fallback', async () => {

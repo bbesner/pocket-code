@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.91.1] — Unreleased · build 184
+
+Requested by Brad: move Pocket's remaining GPT-6 Sol default, the Inbox Watch Codex judge, to GPT-6.1 Sol.
+
+- **Inbox Watch setup.** `InboxRunner` takes `codexModel` (the server passes `codex.codexSuccessor`, from 1.91.0), and the Codex judge (`gpt-6-sol`) and Codex mail reader (`gpt-6-luna`) it writes into `config.toml` are mapped through it: the newest version of each family that the installed Codex's `model/list` reports. A hard-coded `gpt-6.1-sol` would fail on an older Codex: on 2026-10-31 OpenAI refused GPT-6.1 Sol to codex-cli 0.156.1 (*not supported when using Codex with a ChatGPT account*) while Pocket's managed 0.166.0 ran it. Existing watcher configs are not rewritten.
+- Tests: `inbox-runner.test.mjs` (a Codex setup writes the mapped judge and reader models).
+
 ## [1.91.0] — 2026-10-31 · build 184
 
 Requested by Brad: the Codex model menu showed GPT-6 Sol as the default (`POCKET_CODEX_MODEL=gpt-6-sol`) and listed it beside GPT-6.1 Sol, GPT-5.6 Sol, Terra and Luna; he wants the newest version of each model only, kept current without a Pocket update, and the same for Claude, where Sonnet 5 and Haiku 4.5 sat beside Sonnet 5.5 and Haiku 5.5.
