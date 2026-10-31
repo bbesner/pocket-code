@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.83.1
+checked: 1.91.1
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -53,8 +53,8 @@ While this happens the Inbox shows a status line: *Setting up Inbox Watch for al
 
 | Setting | Value written | Change it in |
 |---|---|---|
-| Mail source | Claude Code's Gmail connector (reads made by Haiku), else Codex's Gmail app (GPT-6-Luna, low reasoning); the other one as fallback when both reach the same mailbox | `config.toml`, `[mail]` |
-| Judge | Claude Code with Sonnet, medium reasoning, when Claude Code runs on the server; otherwise Codex with GPT-6-Sol, medium | Schedule sheet, **Models** |
+| Mail source | Claude Code's Gmail connector (reads made by Haiku), else Codex's Gmail app (the newest GPT Luna this Codex lists, low reasoning); the other one as fallback when both reach the same mailbox | `config.toml`, `[mail]` |
+| Judge | Claude Code with Sonnet, medium reasoning, when Claude Code runs on the server; otherwise Codex with the newest GPT Sol this Codex lists (GPT-6.1 Sol today), medium. Both are written when the watcher is set up; an existing `config.toml` keeps its models | Schedule sheet, **Models** |
 | Schedule | every 5 minutes, quiet hours 10 PM to 8 AM, digest at 8 AM, look-aheads at 8 AM and 5 PM | Schedule sheet |
 | First pass | on, Jev, skip at 80% sure (works only once a key is present) | Schedule sheet, **First pass** |
 | Tidy | on, every 2 hours | Schedule sheet, **Keep the Inbox tidy** |

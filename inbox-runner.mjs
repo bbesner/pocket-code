@@ -20,8 +20,10 @@ const BACKFILL_DAYS = 14; // the connector reads a thread per call slot; two wee
 const toml = v => JSON.stringify(String(v)); // TOML basic strings take JSON's escapes
 
 export class InboxRunner {
-  constructor({ dataDir, appDir, claudeBin, codexBin = null, codexHome = null, sessionDir, env, settings, store, log, notify, python = 'python3', home = process.env.HOME || '', now = () => Date.now() }) {
-    Object.assign(this, { appDir, claudeBin, codexBin, codexHome, sessionDir, env, settings, store, log, notify, python, home, now });
+  // 1.91.1: codexModel maps a Codex model to the newest version of its family the installed Codex lists (codex.codexSuccessor),
+  // so a new setup writes GPT-6.1 Sol rather than GPT-6 Sol, and an older Codex that does not list 6.1 keeps GPT-6 Sol.
+  constructor({ dataDir, appDir, claudeBin, codexBin = null, codexHome = null, sessionDir, env, settings, store, log, notify, python = 'python3', home = process.env.HOME || '', now = () => Date.now(), codexModel = id => id }) {
+    Object.assign(this, { appDir, claudeBin, codexBin, codexHome, sessionDir, env, settings, store, log, notify, python, home, now, codexModel });
     this.dir = path.join(dataDir, 'inbox-watch-data'); // not 'inbox-watch': the default data dir is the checkout, which has the watcher's code there
     this.config = path.join(this.dir, 'config.toml');
     this.statusFile = path.join(this.dir, 'status.json');
@@ -134,11 +136,11 @@ export class InboxRunner {
     const backup = found.find(f => f.agent !== main.agent && f.who.email === who.email);
     const claudeRuns = found.some(f => f.agent === 'claude') || failed.claude?.status === 401; // signed in, just no Gmail connector
     const mailKeys = f => f.agent === 'codex'
-      ? [`bin = ${toml(f.bin)}`, 'model = "gpt-6-luna"', 'reasoning = "low"', ...(this.codexHome ? [`codex_home = ${toml(this.codexHome)}`] : [])]
+      ? [`bin = ${toml(f.bin)}`, `model = ${toml(this.codexModel('gpt-6-luna'))}`, 'reasoning = "low"', ...(this.codexHome ? [`codex_home = ${toml(this.codexHome)}`] : [])]
       : [`bin = ${toml(f.bin)}`, 'model = "haiku"'];
     const judge = claudeRuns
       ? ['[judge]', 'kind = "claude"', `bin = ${toml(this.claudeBin)}`, 'model = "sonnet"', 'reasoning = "medium"', 'timeout = 300']
-      : ['[judge]', 'kind = "codex"', `bin = ${toml(this.codexBin)}`, 'model = "gpt-6-sol"', 'reasoning = "medium"', 'timeout = 300   # isolated: its own CODEX_HOME, no apps'];
+      : ['[judge]', 'kind = "codex"', `bin = ${toml(this.codexBin)}`, `model = ${toml(this.codexModel('gpt-6-sol'))}`, 'reasoning = "medium"', 'timeout = 300   # isolated: its own CODEX_HOME, no apps'];
     const key = [path.join(this.home, '.config', 'openrouter', 'keys', 'inbox-monitor.key')].find(f => fs.existsSync(f));
     const name = who.name || who.email.split('@')[0];
     const lines = [
