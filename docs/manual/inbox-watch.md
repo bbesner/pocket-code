@@ -133,7 +133,7 @@ The **X** on a row dismisses it directly.
 | Choice | In Pocket | What the watcher does at its next check |
 |---|---|---|
 | **Resolved** | moves to Done | Closes the story: it stops following it and no longer treats it as open |
-| **Not useful** | moves to Done | Adds a line to your rules under *From Inbox in Pocket* ("do not alert on this kind of thing again; a digest line at most"), with your note if you gave one, and lowers the story to low priority |
+| **Not useful** | moves to Done | Learns from it (see [Learning from your choices](#learning-from-your-choices)): a rule under *Learned from your choices* saying what kind of mail is a digest line at most, with your note taken into account, and lowers the story to low priority |
 | **Dismiss** | moves to Done | Nothing; the story is unchanged |
 | **Restore** | back to Open | Reopens a story that Resolved had closed |
 
@@ -162,8 +162,8 @@ until it has. **Use the config file's settings** hands control back to `config.t
 - **Your rules**: your own words about what you always or never want to hear about ("Tell me when a customer asks for
   a quote", "Never alert me about newsletters"). The watcher follows them in every decision, the first pass, the
   look-ahead and the tidy pass, and they win over its own judgment, even for something it would call critical. The
-  box shows the watcher's rules file, including lines **Not useful** added. Saving replaces the file; the watcher keeps
-  the previous version. Up to 8,000 characters.
+  box shows the watcher's rules file, including the rules it learned (*Learned from your choices*, at the end). Saving
+  replaces the file; the watcher keeps the previous version. Up to 8,000 characters.
 - **Your list in Gmail**: the *Pocket Inbox* label (below).
 - **Schedule**: an interval for *the rest of the time* (from *Every minute* to *Every 4 hours*, or *Don't check*),
   and up to 12 periods, each with a name, days, *From*, *Until* and its own interval. An *Until* earlier than *From*
@@ -205,7 +205,13 @@ in step, both ways, at every check:
 
 - An alert's thread gets the *Pocket Inbox* label (created when missing) and stays in your Gmail inbox.
 - Give a thread that label in Gmail and the next check judges it and puts it on your list as an alert with a summary,
-  even in quiet hours, and moves it back to your Gmail inbox if it had been moved out.
+  even in quiet hours, and moves it back to your Gmail inbox if it had been moved out. The watcher also learns from it
+  (below).
+- A Gmail filter can add the label too (to put a kind of mail on your list as it arrives). The watcher tells the two
+  apart: mail that arrives already carrying the label was labelled by a filter, so its alert says *Your Gmail filter put
+  this on your list*, not *You added this*, and it teaches the watcher nothing. A label you add to mail already in your
+  mailbox is yours. This needs the Gmail API (the service account or your own sign-in); through a connector the
+  watcher cannot see when a label went on, so every label counts as yours.
 - Take the label off in Gmail and the entry is dismissed in Pocket.
 - Finish an entry in Pocket (resolved, not useful, dismissed, or tidied) and the label comes off and the thread is
   archived. A thread that got new mail after the label went on keeps its place in the inbox, so a reply you have not
@@ -226,11 +232,28 @@ Two config keys under `[gmail_label]` have no Pocket setting: `archive = false` 
 (only the label comes off), and `inbox = true` also puts a thread into the inbox, once, when it gets the label (for
 filters that file whole kinds of mail past the inbox). `name` changes the label's name.
 
+### Learning from your choices
+
+Two things you do teach the watcher what you want:
+
+- **You label an email Pocket Inbox in Gmail** that is not on your list. The watcher records what it had done with it:
+  ignored it, kept it for the digest, filed it as a quiet update, skipped it as routine, or not looked at it yet.
+- **You mark an alert Not useful**, with or without a note.
+
+At the same check, one judge turn turns the new examples into rules, as narrow as they allow: one email teaches it
+about that sender and topic ("Alert on website-content requests from Acme Paving"), several of a kind from different
+senders teach it the kind. It merges a new example into a rule it sharpens, rewrites or drops a rule a newer example
+contradicts, and notes in the log when an example conflicts with a rule you wrote (it then writes only the narrow
+exception). The rules go at the end of your rules file under *Learned from your choices*, one line each with the
+evidence in brackets (`(you added 2, Oct 31)`), at most 15 lines; the judge and the first pass read them with the rest.
+You see and edit them in the rules box; a line you delete stays deleted unless a new example supports it again.
+Labels a Gmail filter put on and alerts you resolved or dismissed teach it nothing.
+
 ## How it works
 
 ### A check
 
-1. The watcher applies the decisions you made in Pocket (Resolved, Not useful, Restore).
+1. The watcher applies the decisions you made in Pocket (Resolved, Not useful, Restore) and learns from new examples.
 2. The watcher finds threads with new messages since the last check (through a connector, by searching by date from
    the day before the last check and skipping the messages it has already seen) and syncs the Gmail label.
 3. The [first pass](#first-pass), when on, sets aside clearly routine mail.

@@ -53,7 +53,7 @@ from .memory_search import make_search
 
 # Set by configure(): paths, owner, clock, judge and deliveries. Module globals so the engine reads like one program.
 CFG: cfgmod.Config | None = None
-ROOT = STATE = DB_PATH = ARCHIVE_PATH = LOCK_PATH = LOG_PATH = STOP_FILE = PROMPT_FILE = CHECKIN_FILE = TIDY_FILE = PREFS_FILE = None
+ROOT = STATE = DB_PATH = ARCHIVE_PATH = LOCK_PATH = LOG_PATH = STOP_FILE = PROMPT_FILE = CHECKIN_FILE = TIDY_FILE = LEARN_FILE = PREFS_FILE = None
 MAILBOX = OWNER = ASSISTANT = ""
 TZ = ZoneInfo("UTC")
 QUIET_START_H, QUIET_END_H = 22, 8
@@ -87,6 +87,7 @@ def configure(cfg: cfgmod.Config) -> None:
     g["PROMPT_FILE"] = cfg.prompts_dir / "decide.md"
     g["CHECKIN_FILE"] = cfg.prompts_dir / "lookahead.md"
     g["TIDY_FILE"] = cfg.prompts_dir / "tidy.md"
+    g["LEARN_FILE"] = cfg.prompts_dir / "learn.md"
     g["PREFS_FILE"] = cfg.preferences_file
     g["MAILBOX"] = cfg.owner_email.lower()
     g["OWNER"] = cfg.owner_name
@@ -299,6 +300,9 @@ create table if not exists tidy_log(id integer primary key autoincrement, at tex
   reason text, evidence text, acted integer);
 create index if not exists tidy_log_entry on tidy_log(entry_id);
 create table if not exists label_sync(thread_id text primary key, state text, at text);
+create table if not exists label_filed(thread_id text primary key, labels text, at text);
+create table if not exists lessons(id integer primary key autoincrement, ref text unique, at text, kind text, thread_id text, issue_key text,
+  title text, sender text, subject text, excerpt text, before text, note text, learned_at text);
 """
 JUDGE_CALL_COLUMNS = {"turns": "integer", "tool_calls": "integer", "tools": "text", "memory_items": "integer"}
 ISSUE_COLUMNS = {"title": "text", "unknowns": "text", "memory_at": "text"}
@@ -1092,10 +1096,10 @@ def rules_tail() -> str:
     prefs = PREFS_FILE.read_text() if PREFS_FILE.exists() else ""
     if not prefs.strip():
         return ""
-    return (f"\n## {OWNER}'s rules (these win)\n{OWNER} wrote these, or they were learned from {OWNER}'s Not useful. They override the "
+    return (f"\n## {OWNER}'s rules (these win)\n{OWNER} wrote these, or the watcher learned them from what {OWNER} labelled and marked Not useful. They override the "
             f"guidance at the top and your own judgment, including what counts as critical: when a rule says never, it is never "
             f"(answer `ignore`, no digest line); when it says always, it is always. One exception: a thread marked `added_in_gmail` "
-            f"is one {OWNER} put on their list by hand in Gmail, so it is `notify` whatever these say.\n\n{prefs.strip()}\n\n"
+            f"was put on {OWNER}'s list in Gmail (by hand, or by their own Gmail filter), so it is `notify` whatever these say.\n\n{prefs.strip()}\n\n"
             f"Before you answer, check every decision against these rules and change any that breaks one.\n")
 
 
@@ -1684,6 +1688,33 @@ def label_status(store: Store, gmail=None) -> dict:
     return out
 
 
+INCOMING = ("incoming", "incoming-filter")  # labelled in Gmail, waiting for the judge: by the owner's hand, or by a Gmail filter
+FILED_KEEP_S = 14 * 86400
+
+
+def note_arrived(store: Store, gmail) -> None:
+    """Remember the threads whose new mail arrived already carrying a user label: a Gmail filter put it there (only the Gmail
+    API's history can tell; a connector's search cannot, so its labels all count as the owner's). label_sync reads these
+    to tell "your filter put this on your list" from "you added this" (2026-10-31: a Sent-to-Ari-only filter adds the Pocket
+    Inbox label, and the alert said the owner had added it)."""
+    for tid, labels in (getattr(gmail, "arrived_labels", None) or {}).items():
+        user = sorted(x for x in labels if x.startswith("Label_"))
+        if user:
+            store.db.execute("insert into label_filed(thread_id,labels,at) values(?,?,?) on conflict(thread_id) do update set "
+                             "labels=excluded.labels, at=excluded.at", (tid, json.dumps(user), iso()))
+    cutoff = (now_utc() - dt.timedelta(seconds=FILED_KEEP_S)).isoformat(timespec="seconds")
+    store.db.execute("delete from label_filed where at < ?", (cutoff,))
+    store.commit()
+
+
+def filed_by_rule(store: Store, tid: str, label: str) -> bool:
+    row = store.db.execute("select labels from label_filed where thread_id=?", (tid,)).fetchone()
+    try:
+        return bool(row) and label in json.loads(row["labels"])
+    except ValueError:
+        return False
+
+
 def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool = False, fresh: set[str] = frozenset()) -> set[str]:
     """One pass of the table above. Returns the threads the owner labelled in Gmail that this check should judge
     (only when bring_in; the end-of-run pass reuses the first pass's search and just labels the alerts this run sent).
@@ -1750,14 +1781,14 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
             continue  # "" while the alert waits to go out; in step while its entry is listed
         if state == "synced" and not baseline:
             removes.append(tid)  # finished in Pocket: the label comes off
-        elif state in ("incoming", "judged"):
+        elif state in INCOMING or state == "judged":
             continue
         elif baseline:
             mark_label(store, tid, "judged")  # labelled before the sync began: left as it is
         elif bring_in:
             brings.append(tid)  # the owner labelled it in Gmail: judged at this check, and kept in their inbox
     for tid in set(known) - labelled - set(listed):  # gone from both sides
-        if known[tid] != "incoming":
+        if known[tid] not in INCOMING:
             mark_label(store, tid, None)
     archive = {t for t in removes if label_archive() and not mail_since(store, t, since.get(t), set(fresh))}
     changes = ([(t, [label, "INBOX"] if label_in_inbox() else [label], []) for t in adds] + [(t, [], [label, "INBOX"] if t in archive else [label]) for t in removes]
@@ -1778,11 +1809,13 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     for t in adds:
         if t in ok:
             mark_label(store, t, "synced")
+            store.db.execute("delete from label_filed where thread_id=?", (t,))
     for t in removes:
         if t in ok:
             mark_label(store, t, None)
     for t in brings:  # judged even if putting it back in INBOX failed
-        mark_label(store, t, "incoming")
+        mark_label(store, t, "incoming-filter" if filed_by_rule(store, t, label) else "incoming")
+        store.db.execute("delete from label_filed where thread_id=?", (t,))
         incoming.add(t)
     dismissed = 0
     for tid, ids in dismiss:
@@ -1836,11 +1869,19 @@ def joined_thread(store: Store, state: str) -> str | None:
 
 
 def mark_added(store: Store, bundles: list[dict]) -> None:
-    """Flag the bundles the owner labelled in Gmail (label_sync checked they are not on the list)."""
-    want = {r["thread_id"] for r in store.db.execute("select thread_id from label_sync where state='incoming'")}
+    """Flag the bundles labelled in Gmail (label_sync checked they are not on the list): `added_by` "owner" for a label put
+    on by hand, which is also a lesson for the watcher (learn()), or "filter" for one a Gmail filter put on as the mail came in."""
+    want = {r["thread_id"]: r for r in store.db.execute("select thread_id, state, at from label_sync where state in (?,?)", INCOMING)}
     for b in bundles:
-        if b["thread_id"] in want:
-            b["added_in_gmail"] = True
+        row = want.get(b["thread_id"])
+        if not row:
+            continue
+        b["added_in_gmail"] = True
+        b["added_by"] = "filter" if row["state"] == "incoming-filter" else "owner"
+        if b["added_by"] == "owner" and not MODE.replay:
+            newest = b["messages"][-1]
+            add_lesson(store, f"added:{b['thread_id']}:{row['at']}", "added", b["thread_id"], None, b["subject"], newest.get("from", ""),
+                       b["subject"], newest.get("body", ""), watcher_before(store, b["thread_id"]))
 
 
 def added_decision(d: dict, th: dict) -> None:
@@ -1849,9 +1890,14 @@ def added_decision(d: dict, th: dict) -> None:
     newest = th["messages"][-1]
     if not d.get("evidence"):
         d["evidence"] = [{"message_id": newest["message_id"], "excerpt": ""}]
-    d["new_fact"] = d.get("new_fact") or f"{OWNER} added this to their list in Gmail."
+    if th.get("added_by") == "filter":
+        d["new_fact"] = d.get("new_fact") or f"A Gmail filter put this on {OWNER}'s list."
+        fallback = f"Your Gmail filter put this on your list: {th['subject']}, from {newest.get('from', 'unknown sender')}."
+    else:
+        d["new_fact"] = d.get("new_fact") or f"{OWNER} added this to their list in Gmail."
+        fallback = f"You added this in Gmail: {th['subject']}, from {newest.get('from', 'unknown sender')}."
     if d["action"] != "notify" or not d.get("user_message"):
-        d["user_message"] = d.get("user_message") or f"You added this in Gmail: {th['subject']}, from {newest.get('from', 'unknown sender')}."
+        d["user_message"] = d.get("user_message") or fallback
         d["action"] = "notify"
     d["confidence"] = max(d["confidence"], NOTIFY_MIN_CONFIDENCE)
     if d.get("priority") == "low":
@@ -1961,7 +2007,7 @@ def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, ba
         added = bool(th.get("added_in_gmail"))
         if added:
             added_decision(d, th)
-            store.db.execute("update label_sync set state='judged', at=? where thread_id=? and state='incoming'", (iso(), d["thread_id"]))
+            store.db.execute("update label_sync set state='judged', at=? where thread_id=? and state in (?,?)", (iso(), d["thread_id"], *INCOMING))
         store.record_decision(run_id, d["thread_id"], d)
         ev_ids = [e["message_id"] for e in d["evidence"]]
         if d["action"] in ("notify", "digest", "update"):
@@ -2037,12 +2083,12 @@ def apply_feedback(store: Store) -> None:
                 store.db.execute("update issues set status='resolved', updated_at=? where issue_key=?", (iso(), key))
                 store.add_event(key, "feedback", f"{OWNER} marked this resolved in Pocket ({when}).", [])
             elif action == "not_useful":
-                line = f"- Not useful ({when}): \"{title}\"" + (f" — {it['note'][:200]}" if it.get("note") else "") + ". Do not alert on this kind of thing again; a digest line at most.\n"
-                try:
-                    with PREFS_FILE.open("a") as f:
-                        f.write(("\n## From Inbox in Pocket\n" if "## From Inbox in Pocket" not in (PREFS_FILE.read_text() if PREFS_FILE.exists() else "") else "") + line)
-                except OSError as ex:
-                    log(f"could not write preferences: {ex}")
+                # a lesson: learn() turns it into a rule (with the pattern behind it) before this check judges any mail
+                a = store.db.execute("select thread_id, sender, subject, text from alerts where issue_key=? and status in ('sent','merged') "
+                                     "order by id desc limit 1", (key,)).fetchone() if key else None
+                add_lesson(store, f"not_useful:{it['id']}", "not_useful", a["thread_id"] if a else None, key or None, title,
+                           a["sender"] if a else "", a["subject"] if a else title, "", f"alerted: {clip(a['text'], 400)}" if a else "alerted",
+                           (it.get("note") or "")[:300])
                 if story:
                     store.db.execute("update issues set priority='low', updated_at=? where issue_key=?", (iso(), key))
                     store.add_event(key, "feedback", f"{OWNER} marked an alert on this story not useful in Pocket ({when}).", [])
@@ -2321,6 +2367,122 @@ def tidy(store: Store, archive: Archive, dry_run: bool = False) -> dict:
     return out
 
 
+# ---------------------------------------------------------------- learning from what the owner does
+LEARNED_HEADER = "## Learned from {owner}'s choices"
+LEARNED_HEADERS = ("## Learned from ", "## From Inbox in Pocket")  # the second: lines Not useful appended before 1.90
+LEARN_MAX_RULES = 15
+LEARN_MAX_CHARS = 1800
+LEARN_BATCH = 20
+LEARN_EARLIER = 30
+
+
+def learn_safely(store: Store, dry_run: bool) -> None:
+    try:
+        learn(store, dry_run)
+    except Exception as ex:  # noqa: BLE001 - a failed learn never fails the check; the lessons wait for the next one
+        log(f"learn failed: {str(ex)[:200]}")
+
+
+def add_lesson(store: Store, ref: str, kind: str, thread_id: str | None, issue_key: str | None, title: str, sender: str, subject: str,
+               excerpt: str, before: str, note: str = "") -> None:
+    """One thing the owner did that the watcher should learn from: a thread they labelled by hand, an alert marked Not useful.
+    `ref` keeps a retried check from recording it twice."""
+    store.db.execute("insert or ignore into lessons(ref,at,kind,thread_id,issue_key,title,sender,subject,excerpt,before,note) "
+                     "values(?,?,?,?,?,?,?,?,?,?,?)", (ref, iso(), kind, thread_id, issue_key, clip(title, 160), clip(sender, 160),
+                                                       clip(subject, 200), clip(excerpt, 600), clip(before, 500), note))
+    store.commit()
+
+
+def watcher_before(store: Store, tid: str) -> str:
+    """What the watcher had done with a thread before the owner labelled it."""
+    if store.db.execute("select 1 from alerts where thread_id=? and status in ('sent','merged') limit 1", (tid,)).fetchone():
+        return "already alerted earlier"
+    row = store.db.execute("select action, raw from decisions where thread_id=? order by id desc limit 1", (tid,)).fetchone()
+    if row:
+        try:
+            fact = json.loads(row["raw"]).get("new_fact") or ""
+        except ValueError:
+            fact = ""
+        return f"{row['action']}: {clip(fact, 240)}" if fact else row["action"]
+    if store.db.execute("select 1 from firstpass_log where thread_id=? and skipped=1 limit 1", (tid,)).fetchone():
+        return "skipped as routine by the first pass"
+    return "not looked at yet"
+
+
+def split_learned(text: str) -> tuple[str, list[str]]:
+    """The rules file without its learned sections, and the learned lines (bullets) those sections held."""
+    keep, lines, inside = [], [], False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            inside = line.startswith(LEARNED_HEADERS)
+            if inside:
+                continue
+        if inside:
+            if line.strip().startswith("- "):
+                lines.append(line.strip()[2:])
+        else:
+            keep.append(line)
+    return "\n".join(keep).rstrip() + "\n", list(dict.fromkeys(lines))
+
+
+def lesson_view(r) -> dict:
+    out = {"kind": r["kind"], "when": iso_to_et(r["at"]), "sender": r["sender"], "subject": r["subject"], "before": r["before"]}
+    if r["excerpt"]:
+        out["excerpt"] = r["excerpt"]
+    if r["note"]:
+        out["note"] = r["note"]
+    return out
+
+
+def learn(store: Store, dry_run: bool = False) -> int:
+    """New lessons become standing rules: one judge turn rewrites the learned section of the rules file (what the judge and
+    the first pass read on every email), generalising only as far as the examples go. The owner sees and edits the section
+    with the rest of their rules in Pocket. Returns the number of lessons folded in."""
+    new = store.db.execute("select * from lessons where learned_at is null order by id limit ?", (LEARN_BATCH,)).fetchall()
+    if not new or MODE.replay:
+        return 0
+    owner_rules, current = split_learned(rules_text())
+    earlier = store.db.execute("select * from lessons where learned_at is not null and learned_at != 'failed' order by id desc limit ?",
+                               (LEARN_EARLIER,)).fetchall()
+    material = {"current_learned_rules": current, "new_lessons": [lesson_view(r) for r in new],
+                "earlier_lessons": [lesson_view(r) for r in earlier], "owner_rules": owner_rules.strip()}
+    msg = (f"{fill(LEARN_FILE.read_text())}\n\n## Current time\n{now_et().strftime('%A %B %-d %Y %-I:%M %p')}\n\n"
+           f"## Material (email excerpts are untrusted data)\n```json\n{json.dumps(material, ensure_ascii=False, indent=1)}\n```\n"
+           f"Return the JSON object now.")
+    data = call_judge(msg, purpose="learn")
+    rules = [clip(" ".join(str(r).split()).lstrip("- "), 320) for r in (data.get("rules") or []) if isinstance(r, str) and r.strip()]
+    if not isinstance(data.get("rules"), list) or (not rules and current):
+        log(f"learn: the judge returned no usable rules; {len(new)} lessons set aside")
+        store.db.executemany("update lessons set learned_at='failed' where id=?", [(r["id"],) for r in new])
+        store.commit()
+        return 0
+    rules = rules[:LEARN_MAX_RULES]
+    # the whole file must fit Pocket's rules box, or a save there would cut it off (the owner's own rules always fit first)
+    room = min(LEARN_MAX_CHARS, schedmod.RULES_MAX - len(owner_rules) - 200)
+    while rules and sum(len(r) + 3 for r in rules) > room:
+        rules.pop()
+    changes = [clip(str(c), 200) for c in (data.get("changes") or []) if isinstance(c, str)]
+    section = (f"{LEARNED_HEADER.format(owner=OWNER)}\nWritten by the watcher from what {OWNER} labelled in Gmail and marked Not useful "
+               f"in Pocket. Edit or delete any line.\n" + "".join(f"- {r}\n" for r in rules))
+    text = owner_rules.rstrip() + "\n\n" + section
+    if dry_run:
+        log(f"learn [dry-run]: {len(new)} lessons -> {len(rules)} rules; {changes}")
+        return len(new)
+    backups = STATE / "preferences-backups"
+    backups.mkdir(exist_ok=True)
+    if PREFS_FILE.exists():
+        (backups / f"preferences-{now_utc().strftime('%Y%m%dT%H%M%SZ')}.md").write_text(PREFS_FILE.read_text())
+    for old in sorted(backups.glob("preferences-*.md"))[:-20]:
+        old.unlink(missing_ok=True)
+    tmp = PREFS_FILE.with_suffix(".tmp")
+    tmp.write_text(text)
+    tmp.replace(PREFS_FILE)
+    store.db.executemany("update lessons set learned_at=? where id=?", [(iso(), r["id"]) for r in new])
+    store.commit()
+    log(f"learn: {len(new)} lessons -> {len(rules)} learned rules; " + ("; ".join(changes) if changes else "no change"))
+    return len(new)
+
+
 # ---------------------------------------------------------------- the schedule: is a check due, and what to tell Pocket
 def scheduled_due(store: Store) -> bool:
     """A scheduled item is owed now: the morning release and digest, or a look-ahead whose window is open."""
@@ -2497,6 +2659,7 @@ def run(dry_run: bool, baseline_only: bool, why: str = "", request: str | None =
     error = None
     try:
         apply_feedback(store)
+        learn_safely(store, dry_run)
         cursor = store.get("history_cursor")
         if cursor and not gmail.cursor_ok(cursor):
             log(f"cursor {cursor} belongs to another mail source; starting over")
@@ -2512,6 +2675,8 @@ def run(dry_run: bool, baseline_only: bool, why: str = "", request: str | None =
             log("first run: baseline from the last 2 days")
             threads = gmail.baseline_threads()
             new_cursor = head
+        if not dry_run:
+            note_arrived(store, gmail)
         added = label_sync(store, gmail, bring_in=not baseline_only, dry_run=dry_run, force=bool(request), fresh=set(threads))
         if added - set(threads):
             log(f"label: {len(added - set(threads))} thread(s) added in Gmail join the check")
@@ -2546,6 +2711,7 @@ def run(dry_run: bool, baseline_only: bool, why: str = "", request: str | None =
                 log(f"tidy failed: {ex}")
         if notified:
             label_sync(store, gmail, bring_in=False, dry_run=dry_run)  # the alerts this run sent get the label now
+        learn_safely(store, dry_run)
         if not dry_run:
             sync_memory(store)
     except Exception as e:  # noqa: BLE001
