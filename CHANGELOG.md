@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.91.1] — Unreleased · build 184
+## [1.91.1] — 2026-10-31 · build 184
 
 Requested by Brad: move Pocket's remaining GPT-6 Sol default, the Inbox Watch Codex judge, to GPT-6.1 Sol.
 
