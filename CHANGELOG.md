@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.91.0] — Unreleased · build 184
+## [1.91.0] — 2026-10-31 · build 184
 
 Requested by Brad: the Codex model menu showed GPT-6 Sol as the default (`POCKET_CODEX_MODEL=gpt-6-sol`) and listed it beside GPT-6.1 Sol, GPT-5.6 Sol, Terra and Luna; he wants the newest version of each model only, kept current without a Pocket update, and the same for Claude, where Sonnet 5 and Haiku 4.5 sat beside Sonnet 5.5 and Haiku 5.5.
 
