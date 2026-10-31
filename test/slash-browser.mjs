@@ -55,6 +55,9 @@ export async function runSlashRegressions({browser,base,rows,received,out}) {
   for(let i=0;i<80&&received.length===sent;i++)await new Promise(r=>setTimeout(r,50));
   await page.waitForFunction(()=>[...document.querySelectorAll('#msgs .m-user')].some(e=>e.textContent.includes('/context')));
   assert.equal(received.at(-1).text,'/context','a command that needs nothing more is sent at once');
+  // The bubble shows before the server answers. Leaving before it does keeps /context as an unconfirmed send, which the
+  // next page puts back in the box (by design), so a later / lands after it and the picker never opens (CI, 1.90.0).
+  await page.waitForFunction(i=>!localStorage.getItem('pc-outbox-'+i)&&!localStorage.getItem('pc-draft-'+i),{},id);
   // a fresh page: the send above re-renders the composer (it starts a reply), which can swallow the next typing
   await page.goto(base+'/?slash=usage#/chat/'+id);await page.waitForSelector('#msgs .m-asst');await page.waitForSelector('#box:not([disabled])');
   await typeUntil('/usa','usage');await page.keyboard.press('Enter');
