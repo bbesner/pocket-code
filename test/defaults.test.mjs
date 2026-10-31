@@ -37,7 +37,7 @@ test('Pocket-only model, effort and workspace defaults',async t=>{
  await sleep(700);
  const b=await s.call(`/session/${a.body.id}/message`,{text:'Explicit turn',model:'claude-sonnet-5',effort:'low',clientMessageId:randomUUID()});assert.equal(b.status,202);
  await sleep(700);
- assert.deepEqual(s.calls().map(c=>[c.text,c.model,c.effort]),[['Default turn','claude-opus-5-5[1m]','high'],['Explicit turn','claude-sonnet-5','low']]);
+ assert.deepEqual(s.calls().map(c=>[c.text,c.model,c.effort]),[['Default turn','claude-opus-5-5[1m]','high'],['Explicit turn','claude-sonnet-5-5','low']],'1.91: a pick of Sonnet 5 runs Sonnet 5.5');
 });
 
 test('1.55 A locked workspace: one folder on the New screen, and every session starts there',async t=>{

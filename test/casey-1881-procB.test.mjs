@@ -57,7 +57,7 @@ test('F-8: a replaced process has exited before its successor gets the prompt, a
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  const old=f.calls()[0].pid;
  const sentAt=Date.now();
- assert.equal((await f.call(`/session/${id}/message`,{...msg('second'),model:'claude-haiku-4-5'})).status,202);
+ assert.equal((await f.call(`/session/${id}/message`,{...msg('second'),model:'claude-haiku-5-5'})).status,202);
  assert.ok(await f.until(()=>f.calls().length===2,70_000),'the replacement got the prompt');
  const overlap=alive(old); // both CLIs alive on one conversation
  await f.until(()=>!alive(old),Math.max(0,45_000-(Date.now()-sentAt)));
@@ -102,7 +102,7 @@ test('F-10: after a restart with two live processes for one session, the newer i
  const markers=()=>fs.readdirSync(f.turnlogs).filter(n=>n.startsWith(id)&&n.endsWith('.runner.json'));
  const first=path.join(f.turnlogs,markers()[0]),aside=path.join(f.dir,'aside.runner');
  await f.stop();fs.renameSync(first,aside);await f.start();
- assert.equal((await f.call(`/session/${id}/message`,{...msg('second'),model:'claude-haiku-4-5'})).status,202);
+ assert.equal((await f.call(`/session/${id}/message`,{...msg('second'),model:'claude-haiku-5-5'})).status,202);
  assert.ok(await f.until(async()=>f.calls().length===2&&await f.state(id)==='finished'));
  const [older,newer]=f.calls().map(c=>c.pid);
  assert.ok(alive(older)&&alive(newer),'the earlier process still runs beside the later one');
@@ -111,7 +111,7 @@ test('F-10: after a restart with two live processes for one session, the newer i
  await f.start();
  const adopted=[...f.logs().matchAll(new RegExp(`adopted session process session=${id} pid=(\\d+)`,'g'))].map(m=>Number(m[1]));
  await f.until(()=>!alive(older),10_000);
- assert.equal((await f.call(`/session/${id}/message`,{...msg('third'),model:'claude-haiku-4-5'})).status,202);
+ assert.equal((await f.call(`/session/${id}/message`,{...msg('third'),model:'claude-haiku-5-5'})).status,202);
  await f.until(async()=>f.calls().length===3&&await f.state(id)==='finished',8000);
  assert.deepEqual({adopted,olderAlive:alive(older),thirdWentTo:f.calls()[2]?.pid===newer?'newer':f.calls()[2]?.pid===older?'older':String(f.calls()[2]?.pid)},
   {adopted:[newer],olderAlive:false,thirdWentTo:'newer'});
@@ -127,7 +127,7 @@ test('F-11: a process whose marker could not be written is not left running unma
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  const now=Date.now(),squat=[];
  for(let k=now;k<now+8000;k++){const p=path.join(f.turnlogs,`${id}.${k.toString(36)}.runner.json`);fs.mkdirSync(p);squat.push(p);}
- const sent=await f.call(`/session/${id}/message`,{...msg('second'),model:'claude-haiku-4-5'});
+ const sent=await f.call(`/session/${id}/message`,{...msg('second'),model:'claude-haiku-5-5'});
  if(sent.status===202)await f.until(async()=>f.calls().length===2&&await f.state(id)==='finished');
  const started=f.calls()[1]?.pid;
  const markers=fs.readdirSync(f.turnlogs).filter(n=>n.startsWith(id)&&n.endsWith('.runner.json')&&fs.statSync(path.join(f.turnlogs,n)).isFile());
@@ -159,18 +159,18 @@ test('F-8: a restart while a reply waits for the closing process runs that reply
  const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  const old=f.calls()[0].pid;
- assert.equal((await f.call(`/session/${id}/message`,{...msg('second, after the restart'),model:'claude-haiku-4-5'})).status,202);
+ assert.equal((await f.call(`/session/${id}/message`,{...msg('second, after the restart'),model:'claude-haiku-5-5'})).status,202);
  assert.equal((await f.call(`/session/${id}/queue`)).body.items.length,0,'the waiting reply is not shown as a queued message');
  await sleep(300);
  await f.stop();
  const queued=JSON.parse(fs.readFileSync(path.join(f.dir,'data','followup-queue.json'),'utf8')).filter(r=>r.sessionId===id);
- assert.deepEqual(queued.map(r=>({text:r.text,held:r.held,model:r.model})),[{text:'second, after the restart',held:true,model:'claude-haiku-4-5'}]);
+ assert.deepEqual(queued.map(r=>({text:r.text,held:r.held,model:r.model})),[{text:'second, after the restart',held:true,model:'claude-haiku-5-5'}]);
  assert.equal(f.calls().length,1,'the replacement had not started before the restart');
  await f.start();
  let oldAliveAtStart=null;
  assert.ok(await f.until(()=>{if(f.calls().length<2)return false;oldAliveAtStart??=alive(old);return true;},20_000),'the held reply ran after the restart: '+f.logs());
  assert.match(f.calls()[1].text,/second, after the restart/);
- assert.equal(f.calls()[1].model,'claude-haiku-4-5');
+ assert.equal(f.calls()[1].model,'claude-haiku-5-5');
  assert.ok(await f.until(async()=>await f.state(id)==='finished',8000));
  assert.deepEqual({oldAliveAtStart,queue:JSON.parse(fs.readFileSync(path.join(f.dir,'data','followup-queue.json'),'utf8')).filter(r=>r.sessionId===id).length},{oldAliveAtStart:false,queue:0});
 });

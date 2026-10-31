@@ -81,18 +81,18 @@ test('selection, offer and helper fallback',()=>{
   assert.deepEqual(parseSelection(['haiku']).ids,['claude-haiku-5-5','claude-haiku-4-5'],'a family alias picks the family');
   const p=policy({availableModels:['sonnet','haiku'],deniedModels:['claude-sonnet-5-0']});
   const all=resolveOffer({saved:null,envList:null,policy:p});
-  assert.equal(all.source,'all');assert.deepEqual(all.offered,['claude-sonnet-5-5','claude-haiku-5-5','claude-haiku-4-5']);
-  assert.deepEqual(all.models.filter(m=>m.blocked).map(m=>[m.id,m.reason]),[['claude-fable-5-1[1m]',POLICY_REASON],['claude-opus-5-5[1m]',POLICY_REASON],['claude-sonnet-5',POLICY_REASON]]);
+  assert.equal(all.source,'all');assert.deepEqual(all.offered,['claude-sonnet-5-5','claude-haiku-5-5'],'1.91: Haiku 4.5 is replaced by Haiku 5.5');
+  assert.deepEqual(all.models.filter(m=>m.blocked).map(m=>[m.id,m.reason]),[['claude-fable-5-1[1m]',POLICY_REASON],['claude-opus-5-5[1m]',POLICY_REASON]],'a replaced model is not listed at all, blocked or not');
   const env=resolveOffer({saved:null,envList:['claude-opus-5-5[1m]','claude-sonnet-5-5'],policy:p});
   assert.equal(env.source,'env');assert.deepEqual(env.offered,['claude-sonnet-5-5']);
   const saved=resolveOffer({saved:['claude-haiku-4-5'],envList:['claude-sonnet-5-5'],policy:null});
-  assert.equal(saved.source,'settings','a saved choice outranks the environment');assert.deepEqual(saved.offered,['claude-haiku-4-5']);
+  assert.equal(saved.source,'settings','a saved choice outranks the environment');assert.deepEqual(saved.offered,['claude-haiku-5-5'],'a saved older version selects its family\'s newest');
   // Helper: the configured model while allowed; else the cheapest offered model the policy allows.
   assert.equal(helperModel('haiku',{policy:p,offered:all.offered}),'haiku');
   const sonnetOnly=policy({availableModels:['sonnet']});
-  assert.equal(helperModel('haiku',{policy:sonnetOnly,offered:['claude-sonnet-5-5','claude-sonnet-5']}),'claude-sonnet-5');
+  assert.equal(helperModel('haiku',{policy:sonnetOnly,offered:['claude-sonnet-5-5','claude-sonnet-5']}),'claude-sonnet-5-5','never a replaced model, even a cheaper one');
   assert.equal(helperModel('haiku',{policy:sonnetOnly,offered:['claude-sonnet-5-5']}),'claude-sonnet-5-5');
-  assert.equal(helperModel('haiku',{policy:sonnetOnly,offered:[]}),'claude-sonnet-5','nothing offered: cheapest allowed');
+  assert.equal(helperModel('haiku',{policy:sonnetOnly,offered:[]}),'claude-sonnet-5-5','nothing offered: cheapest current model allowed');
   assert.equal(helperModel('haiku',{policy:policy({availableModels:[]}),offered:[]}),'haiku','nothing allowed: leave it to the CLI');
 });
 
@@ -120,25 +120,26 @@ async function server(t,port,env){
 }
 
 test('HTTP: the managed policy and POCKET_CLAUDE_MODELS shape the picker, Settings and every turn',async t=>{
-  const s=await server(t,18746,{POCKET_CLAUDE_MODELS:'claude-sonnet-5-5,claude-opus-5-5[1m],claude-haiku-4-5,claude-mystery-9',POCKET_CLAUDE_MODEL:'claude-opus-5-5[1m]',
+  const s=await server(t,18746,{POCKET_CLAUDE_MODELS:'claude-sonnet-5,claude-opus-5-5[1m],claude-mystery-9',POCKET_CLAUDE_MODEL:'claude-opus-5-5[1m]',
     policy:{availableModels:['sonnet','haiku'],deniedModels:['claude-sonnet-5-0'],model:'claude-sonnet-5-5'}});
   assert.match(s.logs(),/POCKET_CLAUDE_MODELS: claude-mystery-9 is not in the model catalog; ignored/);
   assert.match(s.logs(),/POCKET_CLAUDE_MODEL=claude-opus-5-5\[1m\] is not offered/);
   // Picker: offered = env ∩ policy; Default names the managed model, since the Pocket default is blocked.
   const m=(await s.call('/claude/models')).body;
-  assert.deepEqual(m.models.map(x=>x.id),['claude-sonnet-5-5','claude-haiku-4-5']);
+  assert.deepEqual(m.models.map(x=>x.id),['claude-sonnet-5-5'],'1.91: naming Sonnet 5 offers the newest Sonnet');
+  assert.equal(m.replaced['claude-sonnet-5'],'claude-sonnet-5-5');assert.equal(m.replaced['claude-haiku-4-5'],'claude-haiku-5-5');
   assert.equal(m.defaultLabel,'Sonnet 5.5');assert.equal(m.pocketDefault,false);assert.equal(m.limited,true);
-  // Settings: every catalog model, blocked ones marked with the reason.
+  // Settings: every current catalog model (replaced versions are left out), blocked ones marked with the reason.
   const cm=(await s.call('/settings')).body.claudeModels;
   assert.equal(cm.source,'env');assert.equal(cm.saved,false);assert.equal(cm.policy.limits,true);
   assert.deepEqual(cm.models.map(x=>[x.id,x.selected,x.blocked,x.offered]),[
     ['claude-fable-5-1[1m]',false,true,false],['claude-opus-5-5[1m]',true,true,false],['claude-sonnet-5-5',true,false,true],
-    ['claude-sonnet-5',false,true,false],['claude-haiku-5-5',false,false,false],['claude-haiku-4-5',true,false,true]]);
+    ['claude-haiku-5-5',false,false,false]]);
   assert.equal(cm.models[1].reason,"Blocked by this computer's Claude Code policy");
   assert.deepEqual(cm.pocketDefault,{configured:'claude-opus-5-5[1m]',used:null,label:'Sonnet 5.5'});
 
-  // Turns: an offered pick runs; a blocked pick and an unoffered pick never reach the CLI, and the response says so.
-  const a=await s.call('/new',{cwd:repo,text:'Offered pick',model:'claude-haiku-4-5',clientMessageId:randomUUID()});
+  // Turns: an offered pick runs (a replaced version as its successor); a blocked pick and an unoffered pick never reach the CLI, and the response says so.
+  const a=await s.call('/new',{cwd:repo,text:'Offered pick',model:'claude-sonnet-5',clientMessageId:randomUUID()});
   assert.equal(a.status,202);assert.equal(a.body.modelFallback,undefined);
   await s.waitCalls(1);for(let i=0;i<100&&(await s.call('/health')).body.active;i++)await sleep(50); // the first turn has ended
   const b=await s.call(`/session/${a.body.id}/message`,{text:'Blocked pick',model:'claude-opus-5-5[1m]',clientMessageId:randomUUID()});
@@ -154,7 +155,7 @@ test('HTTP: the managed policy and POCKET_CLAUDE_MODELS shape the picker, Settin
   const e=await s.call('/new',{cwd:repo,text:'Default pick',clientMessageId:randomUUID()});assert.equal(e.body.modelFallback,undefined);
   assert.equal((await s.call('/new',{cwd:repo,text:'Wrong provider',model:'gpt-6-sol',clientMessageId:randomUUID()})).status,400,'a Codex model is still refused');
   const got=await s.waitCalls(5);
-  assert.deepEqual(Object.fromEntries(got.map(x=>[x.text,x.model])),{'Offered pick':'claude-haiku-4-5','Blocked pick':null,'Unoffered pick':null,'Unknown pick':null,'Default pick':null});
+  assert.deepEqual(Object.fromEntries(got.map(x=>[x.text,x.model])),{'Offered pick':'claude-sonnet-5-5','Blocked pick':null,'Unoffered pick':null,'Unknown pick':null,'Default pick':null});
   assert.match(s.logs(),/model fallback session=\S+ requested=claude-opus-5-5\[1m\] reason=policy using=default/);
 
   // Settings choice: saved outside git, outranks the environment, still filtered by the policy.
@@ -180,17 +181,17 @@ test('HTTP: the managed policy and POCKET_CLAUDE_MODELS shape the picker, Settin
 test('HTTP: unset means every model; helper calls never name a model the policy blocks',async t=>{
   const s=await server(t,18747,{POCKET_AUTO_TITLES:'1',policy:{availableModels:['claude-sonnet-5'],availableModelsMatch:'prefix'}});
   const cm=(await s.call('/settings')).body;
-  assert.equal(cm.claudeModels.source,'all');assert.deepEqual(cm.claudeModels.offered,['claude-sonnet-5-5','claude-sonnet-5']);
-  assert.equal(cm.titles.configuredModels.claude,'haiku');assert.equal(cm.titles.models.claude,'claude-sonnet-5','haiku is blocked: the cheapest offered model it allows');
-  assert.equal(cm.titles.claudeModelLabel,'Sonnet 5');
+  assert.equal(cm.claudeModels.source,'all');assert.deepEqual(cm.claudeModels.offered,['claude-sonnet-5-5']);
+  assert.equal(cm.titles.configuredModels.claude,'haiku');assert.equal(cm.titles.models.claude,'claude-sonnet-5-5','haiku is blocked: the cheapest offered model it allows');
+  assert.equal(cm.titles.claudeModelLabel,'Sonnet 5.5');
   const id=s.seed('Review the warehouse stock levels before ordering');
   for(let i=0;i<60&&!s.read('calls.helper-models').length;i++){await s.call('/sessions');await sleep(100);}
   const used=s.read('calls.helper-models');
-  assert.ok(used.length>=1,'a title was requested');assert.ok(used.every(m=>m==='claude-sonnet-5'),'every helper call named an allowed model: '+used.join(','));
+  assert.ok(used.length>=1,'a title was requested');assert.ok(used.every(m=>m==='claude-sonnet-5-5'),'every helper call named an allowed model: '+used.join(','));
   // No policy file: everything offered, the helper keeps its configured alias.
   s.writePolicy({});await sleep(3200);
   const open=(await s.call('/settings')).body;
-  assert.equal(open.claudeModels.offered.length,CLAUDE_MODELS.length);assert.equal(open.claudeModels.policy.limits,false);
+  assert.equal(open.claudeModels.offered.length,4,'Fable, Opus, Sonnet and Haiku, newest of each');assert.equal(open.claudeModels.policy.limits,false);
   assert.equal(open.titles.models.claude,'haiku');
   assert.ok(id);
 });

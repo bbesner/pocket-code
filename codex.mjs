@@ -1401,6 +1401,28 @@ export async function setCodexThreadName(threadId, name) {
 let modelCache = { at: 0, list: [] };
 // model/list answers [{reasoningEffort, description}]; the picker needs only the names.
 const effortNames = list => Array.isArray(list) ? list.map(e => typeof e === 'string' ? e : e?.reasoningEffort ?? e?.effort).filter(e => typeof e === 'string') : undefined;
+// 1.91: only the newest version of each Codex family is shown (GPT-6.1 Sol replaces GPT-6 Sol). An id reads
+// <maker>-<version>[-<family>] (gpt-6.1-sol, gpt-6-astra, gpt-5.1-codex-max, gpt-5); anything else (o3,
+// codex-mini-latest) has no version and is kept as is. Returns the kept list in Codex's order and
+// { replaced id: successor }.
+const CODEX_VER_RE = /^([a-z]+)-(\d+(?:\.\d+)*)(?:-([a-z][a-z0-9-]*))?$/i;
+export function codexVersionOf(id) {
+  const m = String(id || '').match(CODEX_VER_RE);
+  return m ? { family: `${m[1].toLowerCase()}|${(m[3] || '').toLowerCase()}`, v: m[2].split('.').map(Number) } : null;
+}
+const cmpVer = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] || 0) - (b[i] || 0); if (d) return d; } return 0; };
+export function latestCodexModels(list) {
+  const best = new Map();
+  for (const m of list) { const p = codexVersionOf(m.id); if (p && (!best.has(p.family) || cmpVer(p.v, best.get(p.family).v) > 0)) best.set(p.family, { id: m.id, v: p.v }); }
+  const replaced = {};
+  const models = list.filter(m => { const p = codexVersionOf(m.id), top = p && best.get(p.family); if (top && top.id !== m.id) { replaced[m.id] = top.id; return false; } return true; });
+  return { models, replaced };
+}
+// The newest version of `id` the last model list had (itself when nothing newer is known). Synchronous:
+// it reads the cached list, which codexModels() fills at startup and on every picker load.
+let knownModels = []; // the last non-empty list, kept across a reader restart (modelCache is cleared then)
+export const codexSuccessor = id => (id && latestCodexModels(knownModels).replaced[id]) || id;
+
 export async function codexModels() {
   if (Date.now() - modelCache.at < 10 * 60_000 && modelCache.list.length && modelCache.stamp === binStamp(CODEX_BIN)) return modelCache.list;
   try {
@@ -1410,7 +1432,7 @@ export async function codexModels() {
       label: m.displayName || m.name || m.id,
       efforts: effortNames(m.supportedReasoningEfforts || m.reasoningEfforts), // 1.81: the picker offers Ultra only where the model lists it
     })).filter(m => m.id);
-    if (list.length) modelCache = { at: Date.now(), list, stamp: binStamp(CODEX_BIN) };
+    if (list.length) { modelCache = { at: Date.now(), list, stamp: binStamp(CODEX_BIN) }; knownModels = list; }
     return list;
   } catch { return modelCache.list; }
 }
