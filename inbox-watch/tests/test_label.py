@@ -313,6 +313,109 @@ def test_archive_can_be_turned_off():
     assert g.labels[A] == {"INBOX"}, "archive = false: the label alone comes off, as before 1.77.9"
 
 
+class GmailWithIds(FakeGmail):
+    """Real Gmail user-label ids look like Label_51; only those are remembered as a filter's."""
+    def label_id(self, name, create=True):
+        return "Label_9"
+
+    def labelled_threads(self, label_id, cap):
+        return {t for t, ls in self.labels.items() if "Label_9" in ls}
+
+
+def test_filter_label_is_not_the_owners():
+    store, _, p = setup()
+    g = GmailWithIds()
+    E.label_sync(store, g, bring_in=True, dry_run=False)  # first sync
+    # A arrives already carrying the label (a Gmail filter); B is labelled by hand after it arrived
+    g.arrived_labels = {A: {"INBOX", "UNREAD", "Label_9", "Label_48"}, B: {"INBOX", "UNREAD"}}
+    E.note_arrived(store, g)
+    g.labels[A], g.labels[B] = {"Label_9", "INBOX"}, {"Label_9"}
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == {A, B}
+    assert states(store) == {A: "incoming-filter", B: "incoming"}, states(store)
+    msg = lambda t: {"thread_id": t, "subject": f"Subject {t[-1]}", "messages": [{"message_id": "m" + t[-1], "from": "Sam <sam@example.com>",
+                                                                                "body": "Please add the new project.", "from_owner": False}]}
+    ba, bb = msg(A), msg(B)
+    E.mark_added(store, [ba, bb])
+    assert ba["added_by"] == "filter" and bb["added_by"] == "owner" and ba["added_in_gmail"] and bb["added_in_gmail"]
+    da = E.validate_story_fields({"thread_id": A, "action": "ignore", "issue_key": "a", "confidence": 0.1}, set())
+    E.added_decision(da, ba)
+    assert da["user_message"].startswith("Your Gmail filter put this on your list") and "filter" in da["new_fact"], da
+    db = E.validate_story_fields({"thread_id": B, "action": "ignore", "issue_key": "b", "confidence": 0.1}, set())
+    E.added_decision(db, bb)
+    assert db["user_message"].startswith("You added this"), db
+    # only the hand label is a lesson, recorded once however often the check retries
+    E.mark_added(store, [ba, bb])
+    rows = store.db.execute("select kind, thread_id, before from lessons").fetchall()
+    assert [(r["kind"], r["thread_id"], r["before"]) for r in rows] == [("added", B, "not looked at yet")], [tuple(r) for r in rows]
+    assert store.db.execute("select count(*) from label_filed").fetchone()[0] == 0, "taken up when brought in"
+
+
+def test_hand_label_after_a_judgement_says_what_the_watcher_missed():
+    store, g, p = setup()
+    store.record_decision(1, A, {"issue_key": "a", "action": "digest", "confidence": 0.7, "new_fact": "Vendor asked for a quote."})
+    assert E.watcher_before(store, A) == "digest: Vendor asked for a quote."
+    store.db.execute("insert into firstpass_log(run_id,at,thread_id,skipped) values(1,?,?,1)", (E.iso(), B))
+    assert E.watcher_before(store, B) == "skipped as routine by the first pass"
+
+
+def test_learn_rewrites_the_learned_section():
+    store, g, p = setup()
+    E.PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    E.PREFS_FILE.write_text("# Alex's rules\n\n## Always\n- Money problems.\n\n## From Inbox in Pocket\n- Not useful (Wed): \"Boat inquiry\". "
+                            "Do not alert.\n- Not useful (Wed): \"Boat inquiry\". Do not alert.\n")
+    E.add_lesson(store, "added:x:1", "added", A, None, "Website photos", "Sam <sam@paving.example>", "Website photos", "Add the job.",
+                 "skipped as routine by the first pass")
+    E.add_lesson(store, "added:x:1", "added", A, None, "Website photos", "", "", "", "")  # the same lesson again: ignored
+    seen = {}
+
+    def fake_judge(message, **kw):
+        seen["message"], seen["purpose"] = message, kw.get("purpose")
+        return {"rules": ["Alert on website-content requests from Sam at the paving company (you added 1, Oct 31).",
+                          "A digest line at most for boat inquiries (Not useful, Oct 28)."], "changes": ["added: Sam's website requests"]}
+
+    real = E.call_judge
+    E.call_judge = fake_judge
+    try:
+        assert E.learn(store) == 1
+        assert E.learn(store) == 0, "nothing new: no judge call"
+    finally:
+        E.call_judge = real
+    assert seen["purpose"] == "learn" and '"new_lessons"' in seen["message"] and "Boat inquiry" in seen["message"]
+    text = E.PREFS_FILE.read_text()
+    assert text.count("## ") == 2 and "## Always" in text and "From Inbox in Pocket" not in text, text
+    assert "## Learned from Alex's choices" in text and "- Alert on website-content requests from Sam" in text, text
+    assert text.index("## Always") < text.index("## Learned"), "the owner's own rules stay first"
+    assert list((E.STATE / "preferences-backups").glob("preferences-*.md")), "the old file is kept"
+    # a bad answer never wipes the learned rules: the lessons are set aside instead
+    E.add_lesson(store, "not_useful:e9", "not_useful", None, None, "Newsletter", "", "Newsletter", "", "alerted")
+    E.call_judge = lambda message, **kw: {"rules": []}
+    try:
+        assert E.learn(store) == 0
+    finally:
+        E.call_judge = real
+    assert "Alert on website-content requests" in E.PREFS_FILE.read_text()
+    assert store.db.execute("select learned_at from lessons where ref='not_useful:e9'").fetchone()[0] == "failed"
+
+
+def test_not_useful_becomes_a_lesson():
+    store, g, p = setup()
+    E.PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    E.PREFS_FILE.write_text("# rules\n")
+    store.db.execute("insert into issues(issue_key,status,priority) values('boat','open','normal')")
+    store.queue_alert("k1", issue_key="boat", thread_id=A, kind="alert", priority="normal", text="A boat buyer asked about file 165.",
+                      subject="Vessel inquiry", sender="Jo <jo@example.com>", status="sent")
+    p.feedback = lambda: [{"id": "e7", "action": "not useful", "story": "boat", "title": "Vessel inquiry", "note": "brokers handle these",
+                           "at": E.iso()}]
+    acked = []
+    p.ack = acked.extend
+    E.apply_feedback(store)
+    r = store.db.execute("select * from lessons").fetchone()
+    assert (r["kind"], r["thread_id"], r["note"], r["sender"]) == ("not_useful", A, "brokers handle these", "Jo <jo@example.com>"), dict(r)
+    assert r["before"].startswith("alerted: A boat buyer") and acked == ["e7"]
+    assert E.PREFS_FILE.read_text() == "# rules\n", "the rule is written by learn(), not appended here"
+    assert store.story("boat")["priority"] == "low"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

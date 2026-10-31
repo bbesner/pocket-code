@@ -32,7 +32,8 @@ THRESHOLDS = [0.95, 0.9, 0.8, 0.7]
 INSTRUCTIONS = ("Should the assistant read this email carefully, or is it routine mail it can safely skip? Skip only mail that clearly "
                 "carries nothing {owner} would need to know or act on. If {owner}'s rules ask to hear about this kind of mail, it is review, "
                 "never skip. When in doubt, review.")
-RULES_CHARS = 6000  # the owner's rules ride along with every email (about 1.5k tokens at most)
+RULES_CHARS = 8000  # the owner's rules ride along with every email (about 2k tokens at most; as long as Pocket's rules field,
+# so the learned rules at the end are never cut off)
 CRITERIA = {
     "skip": "Routine automated or bulk mail with nothing to know or do: receipts and successful payment confirmations, order, shipping and "
             "delivery notices, newsletters, marketing and promotions, social or app notifications, verification codes, routine daily or "

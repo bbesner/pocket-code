@@ -70,6 +70,7 @@ class Gmail:
         self.svc = build("gmail", "v1", credentials=credentials(mail, owner_email), cache_discovery=False)
         self.u = self.svc.users()
         self.mail, self.owner_email, self._writer = mail, owner_email, None
+        self.arrived_labels: dict[str, set[str]] = {}  # thread -> labels its new mail arrived with (a filter's, never the owner's hand)
         self.baseline_query = baseline_query
         self.archive_query = archive_query
 
@@ -83,6 +84,7 @@ class Gmail:
     def changed_threads(self, cursor: str) -> tuple[set[str], str, bool]:
         """Thread ids with messages added since cursor, the new cursor, and whether a rebaseline is needed."""
         threads: set[str] = set()
+        self.arrived_labels = {}
         page = None
         try:
             while True:
@@ -94,6 +96,9 @@ class Gmail:
                             continue
                         if m.get("threadId"):
                             threads.add(m["threadId"])
+                            # a label a message carries as it is added was put on by a Gmail filter; one the owner adds by
+                            # hand is a later labelsAdded record, never part of messagesAdded
+                            self.arrived_labels.setdefault(m["threadId"], set()).update(m.get("labelIds", []))
                 page = resp.get("nextPageToken")
                 new_cursor = str(resp.get("historyId", cursor))
                 if not page:
