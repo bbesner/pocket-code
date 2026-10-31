@@ -160,7 +160,10 @@ try {
   // your message shows at once, stays through a reload while the reply runs, and there is no Steer toggle (OpenRouter cannot steer)
   await send('parity slow __SLOW__');
   const mine = () => page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-user')].some(e => /parity slow/.test(e.textContent)), { timeout: 8000 });
-  await mine(); await page.reload(); await mine();
+  // The bubble shows before the server answers. Reloading before it does keeps the message as an unconfirmed send (by
+  // design), which holds back the next one, so __CHOICES__ never went out on a slow CI runner (2026-10-29, 10-31).
+  await mine(); await page.waitForFunction(() => !Object.keys(localStorage).some(k => k.startsWith('pc-outbox-')));
+  await page.reload(); await mine();
   assert.equal(await page.$('.send-mode'), null, 'no Steer / After this reply toggle while it runs');
   await page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-asst')].some(e => /echo of parity slow/.test(e.textContent)), { timeout: 15000 });
   // a ```choices block becomes reply buttons
