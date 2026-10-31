@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.89.2
-sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, session-state.mjs, acp.mjs, openrouter.mjs
+checked: 1.91.0
+sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
 
@@ -194,10 +194,27 @@ for usage reset** and *Rate limited — auto-resume at …*; a push says when it
 
 ### Models in the picker
 
-**Settings → Agents & instance → Claude models in the picker** lists every Claude model Pocket knows:
-Fable 5.1, Opus 5.5, Sonnet 5.5, Sonnet 5, Haiku 5.5 and Haiku 4.5. Tap a row to offer or stop
-offering it on every device; one must stay on (**Keep at least one model on**). **Use the server's
-list** forgets the choice.
+**Only the newest version of each model is shown.** For Claude that is the newest Fable, Opus, Sonnet
+and Haiku (today Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5); for Codex, the newest of each family
+Codex lists (GPT-6.1 Sol, not GPT-6 Sol beside it). An older version is left out of the menus and of
+Settings, and anything that still names it runs the newest version instead, without a notice: a
+conversation started on GPT-6 Sol, a saved prompt on Sonnet 5, and the Pocket default in
+`POCKET_CLAUDE_MODEL` or `POCKET_CODEX_MODEL` (**Default** names the version it really runs). The only
+exception is a newer Claude version this computer's Claude Code policy blocks: then the older one stays.
+
+**New models appear without a Pocket update.** Codex's menu is the list the installed Codex CLI
+reports, read again whenever the menu opens. For Claude, Pocket reads Anthropic's model list a couple
+of minutes after it starts and then once a day, with the sign-in Claude Code already has on this
+computer (`~/.claude/.credentials.json`, or `ANTHROPIC_API_KEY`). A model newer than every model of
+its family, such as an Opus 6, joins the menu and replaces the older one; the Pocket log says
+*claude catalog: Opus 6 (claude-opus-6[1m]) is new*. What it found is kept in `claude-models.json` in
+the data directory. Without a file-based sign-in (Claude Code on macOS keeps it in the keychain) the
+check finds nothing and the catalog stays as released. `POCKET_CLAUDE_DISCOVERY=0` turns the check off.
+
+**Settings → Agents & instance → Claude models in the picker** lists those models. Tap a row to offer
+or stop offering it on every device; one must stay on (**Keep at least one model on**). **Use the
+server's list** forgets the choice. A list that names an older version (saved before 1.91, or in
+`POCKET_CLAUDE_MODELS`) offers the newest version of that family.
 
 Which list applies, highest first:
 
@@ -218,7 +235,7 @@ The server enforces the list too. A reply sent with a model the picker does not 
 saved prompt, a queued message) runs on Default, and the conversation and a toast say so, for example
 *Opus 5.5 is not offered in Settings, so this reply uses the default model (Sonnet 5.5).*
 
-Codex's model menu is whatever the installed Codex CLI reports; Pocket does not filter it.
+Codex's model menu is what the installed Codex CLI reports, newest version of each family only.
 
 ### OpenRouter models
 
@@ -431,8 +448,8 @@ minutes) is stopped. See [operations](../operations.md) for restarts and recover
 |---|---|
 | `POCKET_DEFAULT_CWD` | Workspace New conversation preselects. |
 | `POCKET_LOCK_CWD` | `1` starts every conversation in `POCKET_DEFAULT_CWD`. |
-| `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | Pocket's Default for Claude replies (the model counts only while it is offered). Unset: the CLI's own settings. |
-| `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | Pocket's Default for Codex replies. `POCKET_CODEX_EFFORT` takes `low`, `medium`, `high`, `xhigh`, `max` or `ultra`; `ultra` works only with a model that offers it. |
+| `POCKET_CLAUDE_MODEL`, `POCKET_CLAUDE_EFFORT` | Pocket's Default for Claude replies (the model counts only while it is offered, and follows its family forward to the newest version). Unset: the CLI's own settings. |
+| `POCKET_CODEX_MODEL`, `POCKET_CODEX_EFFORT` | Pocket's Default for Codex replies; the model follows its family forward (`gpt-6-sol` runs GPT-6.1 Sol once Codex lists it). `POCKET_CODEX_EFFORT` takes `low`, `medium`, `high`, `xhigh`, `max` or `ultra`; `ultra` works only with a model that offers it. |
 | `POCKET_CLAUDE_MODELS` | Claude models offered until a list is saved in Settings. |
 | `POCKET_CLAUDE_MANAGED_DIR` | Where to read Claude Code's managed settings, if not the system folder. |
 | `POCKET_CODEX` | `0` hides Codex even when installed. |

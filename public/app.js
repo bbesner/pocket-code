@@ -73,16 +73,15 @@ const CLAUDE_CATALOG = [
   ['claude-fable-5-1[1m]', 'Fable 5.1', 'Top tier · 1M context'],
   ['claude-opus-5-5[1m]', 'Opus 5.5', 'Strong + cheaper than Fable · 1M'],
   ['claude-sonnet-5-5', 'Sonnet 5.5', 'Fast, strong all-rounder · 1M'],
-  ['claude-sonnet-5', 'Sonnet 5', 'Fast, near-Opus on coding'],
   ['claude-haiku-5-5', 'Haiku 5.5', 'Fastest current model · 1M'],
-  ['claude-haiku-4-5', 'Haiku 4.5', 'Fastest, light tasks'],
 ];
 let MODELS = [['default', 'Default', 'Your global setting'], ...CLAUDE_CATALOG];
 let claudeModelsLoaded = false;
 async function loadClaudeModels() {
   if (claudeModelsLoaded) return MODELS;
   try {
-    const { models, defaultLabel, defaultEffort, pocketDefault, maxEffort } = await api('/claude/models');
+    const { models, defaultLabel, defaultEffort, pocketDefault, maxEffort, replaced } = await api('/claude/models');
+    Object.assign(LEGACY_MODELS, replaced || {}); // 1.91: older versions move forward to the newest of their family
     if (Array.isArray(models)) { // 1.52: only the offered models; none offered leaves Default alone
       // 4th field = chip text, so Default shows the model it actually runs
       MODELS = [['default', 'Default', `${defaultLabel || 'Global'} · ${pocketDefault ? 'Pocket default' : 'your global setting'}`, defaultLabel || 'Default'],
@@ -94,6 +93,7 @@ async function loadClaudeModels() {
   return MODELS;
 }
 // per-session picks saved under retired ids carry forward to their successor
+// (1.91: the server adds every replaced Claude and Codex version here as the lists load)
 const LEGACY_MODELS = { 'claude-opus-5': 'claude-opus-5-5[1m]', 'claude-fable-5': 'claude-fable-5-1[1m]' };
 // Codex advertises its own models; fetched once and cached so the picker in a Codex
 // session offers real options instead of Claude's list.
@@ -105,7 +105,8 @@ const offersUltra = () => tb?.provider === 'codex' && codexEfforts.get(tb.prefs.
 async function loadCodexModels() {
   if (CODEX_MODELS.length > 1) return CODEX_MODELS;
   try {
-    const { models, defaultModel, defaultEffort, pocketDefault } = await api('/codex/models');
+    const { models, defaultModel, defaultEffort, pocketDefault, replaced } = await api('/codex/models');
+    Object.assign(LEGACY_MODELS, replaced || {}); // 1.91
     if (models?.length) {
       const label = defaultModel && (models.find(m => m.id === defaultModel)?.label || defaultModel);
       CODEX_MODELS = [['default', 'Default', label ? `${label} · Pocket default` : 'Your Codex config', label || 'Default'],
@@ -284,6 +285,8 @@ function modelFellBack(id, f) {
 let tb = null; // {key, prefs, attachments:[{path,name}], allowAttach}
 function normalizeModelPick() {
   if (!tb) return;
+  // 1.91: a saved pick of a version that has since been replaced moves to its successor (GPT-6 Sol → GPT-6.1 Sol).
+  if (LEGACY_MODELS[tb.prefs.model]) { tb.prefs.model = LEGACY_MODELS[tb.prefs.model]; setPrefs(tb.key, tb.prefs); }
   const model = tb.prefs.model;
   // ACP models are provider-prefixed OpenRouter slugs; a pick not in the loaded acp list goes back
   // to Default (same rule as the Claude list), and any Claude/Codex-looking id is incompatible.

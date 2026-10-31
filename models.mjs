@@ -150,23 +150,68 @@ export function parseSelection(list) {
   return { ids, unknown };
 }
 
+// 1.91: only the newest version of each family is shown. A model is replaced when the catalog has a newer
+// version of its family (Sonnet 5.5 replaces Sonnet 5) that this computer's policy allows; a replaced model
+// is never offered, and a saved pick, Default or POCKET_CLAUDE_MODEL that names it runs its successor.
+// When the policy blocks the newer version, the older one stays.
+const versionOf = id => { const p = parse(id); return p ? { family: p.family, v: [p.major, p.minor ?? 0] } : null; };
+const newer = (a, b) => a[0] - b[0] || a[1] - b[1];
+export function successorOf(id, policy) {
+  const me = versionOf(id); if (!me) return null;
+  let best = null, bv = me.v;
+  for (const m of CLAUDE_MODELS) {
+    const o = versionOf(m.id);
+    if (o?.family === me.family && newer(o.v, bv) > 0 && policyAllows(m.id, policy)) { best = m.id; bv = o.v; }
+  }
+  return best;
+}
+// { replaced id: the id that runs instead } for every catalog model with a newer allowed version, plus
+// the same ids without [1m] (a saved pick or a policy may spell them either way).
+export function replacedModels(policy) {
+  const out = {};
+  for (const m of CLAUDE_MODELS) { const s = successorOf(m.id, policy); if (s) { out[m.id] = s; out[m.id.replace(/\[1m\]$/, '')] = s; } }
+  return out;
+}
+export const currentModels = policy => CLAUDE_MODELS.filter(m => !successorOf(m.id, policy));
+
+// 1.91: models Pocket found in Anthropic's model list that are newer than any of their family in the
+// catalog (claude-catalog.mjs). They join the catalog for this run; the server saves them in its data dir.
+export function addDiscovered(entries) {
+  const added = [];
+  for (const e of Array.isArray(entries) ? entries : []) {
+    if (!e || typeof e.id !== 'string' || !parse(e.id) || CATALOG_IDS.has(e.id) || typeof e.label !== 'string') continue;
+    const fam = parse(e.id).family;
+    const peers = CLAUDE_MODELS.filter(m => m.alias === fam);
+    const entry = { id: e.id, label: e.label.slice(0, 40), sub: String(e.sub || '').slice(0, 80), alias: fam,
+      cost: Number.isFinite(e.cost) ? e.cost : Math.max(0, ...peers.map(m => m.cost)), discovered: e.discovered || null };
+    // Newest first within its family, so the catalog keeps reading top tier to cheapest.
+    const at = CLAUDE_MODELS.findIndex(m => m.alias === fam);
+    CLAUDE_MODELS.splice(at < 0 ? CLAUDE_MODELS.length : at, 0, entry);
+    CATALOG_IDS.add(e.id); added.push(entry);
+  }
+  return added;
+}
+
 // The whole picture for one request: which ids are selected and where that came from, which the
-// policy blocks, and the offered list in catalog order.
+// policy blocks, and the offered list in catalog order. Replaced models are left out (1.91); a
+// selection that names an older version of a family selects the newest one in its place.
 export function resolveOffer({ saved, envList, policy }) {
   const source = Array.isArray(saved) ? 'settings' : envList?.length ? 'env' : 'all';
   const selected = new Set(source === 'settings' ? saved.filter(id => CATALOG_IDS.has(id)) : source === 'env' ? envList : [...CATALOG_IDS]);
-  const models = CLAUDE_MODELS.map(m => {
+  const families = new Set([...selected].map(id => versionOf(id)?.family).filter(Boolean));
+  const models = currentModels(policy).map(m => {
     const blocked = !policyAllows(m.id, policy);
-    return { id: m.id, label: m.label, sub: m.sub, selected: selected.has(m.id), blocked, reason: blocked ? POLICY_REASON : null, offered: selected.has(m.id) && !blocked };
+    const on = selected.has(m.id) || families.has(versionOf(m.id)?.family);
+    return { id: m.id, label: m.label, sub: m.sub, selected: on, blocked, reason: blocked ? POLICY_REASON : null, offered: on && !blocked };
   });
   return { source, models, offered: models.filter(m => m.offered).map(m => m.id) };
 }
 
 // The model a helper call (titles, summaries) should name: the configured one when the policy
-// allows it, else the cheapest offered model it allows, else the cheapest catalog model it
+// allows it, else the cheapest offered model it allows, else the cheapest current model it
 // allows, else the configured one (nothing is allowed, and the CLI picks its default).
 export function helperModel(configured, { policy, offered }) {
   if (policyAllows(configured, policy)) return configured;
-  const byCost = [...CLAUDE_MODELS].sort((a, b) => a.cost - b.cost).filter(m => policyAllows(m.id, policy));
+  const byCost = currentModels(policy).sort((a, b) => a.cost - b.cost).filter(m => policyAllows(m.id, policy));
   return (byCost.find(m => offered.includes(m.id)) || byCost[0])?.id || configured;
 }
