@@ -151,7 +151,7 @@ test('InboxStore: Inbox Watch settings, the watcher\'s profile, revisions and pa
   assert.deepEqual(checkWatch({firstPass:{enabled:true,provider:'both',threshold:0.876}}).firstPass,{enabled:true,provider:'both',threshold:0.88});
   assert.deepEqual(checkWatch({tidy:{enabled:true,every:4}}).tidy,{enabled:true,every:4});
   assert.deepEqual(checkWatch({gmailLabel:{enabled:false}}).gmailLabel,{enabled:false},'1.75: the Pocket Inbox label in Gmail');
-  assert.deepEqual(checkWatch({scope:{mode:'inbox_labels',labels:[' Clients ','Clients','Ultra/Ask first','']}}).scope,{mode:'inbox_labels',labels:['Clients','Ultra/Ask first']},'1.95: what the watcher reads; labels trimmed and deduplicated');
+  assert.deepEqual(checkWatch({scope:{mode:'inbox_labels',labels:[' Clients ','Clients','Ultra/Ask first','']}}).scope,{mode:'inbox_labels',labels:['Clients','Ultra/Ask first']},'1.100: what the watcher reads; labels trimmed and deduplicated');
   assert.deepEqual(checkWatch({scope:{mode:'inbox'}}).scope,{mode:'inbox',labels:[]});assert.deepEqual(checkWatch({scope:{}}).scope,{mode:'all',labels:[]});
   assert.equal(checkWatch({rules:'- Never tell me about cameras.\r\n- Tell me about every sale.'}).rules,'- Never tell me about cameras.\n- Tell me about every sale.');assert.equal(ok.lookahead.evening,null);
   for(const [bad,re] of [[{every:-1},/every is whole minutes/],[{every:500},/to 240/],[{periods:[{days:[],from:'01:00',to:'02:00',every:5}]},/Period 1 needs at least one day/],

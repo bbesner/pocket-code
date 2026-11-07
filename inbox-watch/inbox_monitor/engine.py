@@ -216,7 +216,7 @@ def load_settings(fetch: bool = True) -> None:
 
 def gmail_client():
     """The mail source: Gmail's API (`provider = "gmail"`) or the agent's own Gmail connector (`provider = "connector"`)."""
-    mail = {**CFG.mail, "scope": (SETTINGS or DEFAULTS).get("scope") or {}}  # 1.95: what the watcher reads (Pocket's setting wins over the TOML)
+    mail = {**CFG.mail, "scope": (SETTINGS or DEFAULTS).get("scope") or {}}  # 1.100: what the watcher reads (Pocket's setting wins over the TOML)
     if CFG.mail.get("provider", "gmail") == "connector":
         def on_call(purpose: str, fetcher, n: int) -> None:
             if USAGE_DB is not None:
@@ -1790,7 +1790,7 @@ LABELS_REFRESH_S = 24 * 3600
 
 
 def label_names(store: Store, gmail=None) -> list[str]:
-    """The owner's own Gmail labels for the scope setting's picker (1.95): asked of Gmail once a day, remembered between, and
+    """The owner's own Gmail labels for the scope setting's picker (1.100): asked of Gmail once a day, remembered between, and
     never a reason for a check to fail."""
     try:
         cached = json.loads(store.get("label_names") or "{}")

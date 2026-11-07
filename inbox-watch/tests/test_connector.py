@@ -59,7 +59,7 @@ for i, c in enumerate(calls):
             threads = [t for t in threads if newest(t) < day(m.group(1))]
         if (m := re.search(r"newer_than:(\d+)d", q)):
             threads = [t for t in threads if newest(t) >= _t.time() - int(m.group(1)) * 86400]
-        if "in:sent" in q:
+        if q.strip() == "in:sent":
             threads = [t for t in box["threads"] if any("SENT" in x["labelIds"] for x in t["messages"])]
         start, size = int(c["input"].get("pageToken") or 0), int(c["input"].get("pageSize") or 50)
         page = threads[start:start + size]
@@ -226,14 +226,14 @@ def test_time_bounds_reach_the_connector_as_dates():
 
 
 def test_the_scope_reaches_every_fetch():
-    """1.95: inbox only, or inbox plus labels, bounds the window search, the baseline and the blind probe alike; the archive search is not bounded."""
+    """1.100: inbox only, or inbox plus labels, bounds the window search, the baseline and the blind probe alike; the archive search is not bounded."""
     b = Box()
     now = int(time.time())
     b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now - 60)]}]
     b.save()
     m = b.mail(scope={"mode": "inbox"})
     m.changed_threads(f"t:{now - 300}")
-    assert searches(b)[-1]["query"].endswith(" -in:spam -in:trash -in:draft in:inbox"), searches(b)[-1]["query"]
+    assert searches(b)[-1]["query"].endswith(" -in:spam -in:trash -in:draft {in:inbox in:sent}"), searches(b)[-1]["query"]
     m.baseline_threads()
     assert searches(b)[-1]["query"] == "newer_than:2d in:inbox", searches(b)[-1]["query"]
     m.search_ids("from:pat@vendor.example", 10)
@@ -250,8 +250,63 @@ def test_the_scope_reaches_every_fetch():
     assert b.mail().scope == "" and "in:inbox" not in (b.mail().baseline_threads() or searches(b)[-1]["query"])
 
 
+def test_a_scoped_read_keeps_the_owners_replies_not_a_new_email():
+    """A reply carries neither INBOX nor a filter's label, and it is how the watcher learns a story was answered. An email the owner starts stays out."""
+    from inbox_monitor.mail_connector import new_outbound
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "reply", "messages": [msg("r1", "reply", now - 900), msg("r2", "reply", now - 60, labels=("SENT",))]},
+                         {"id": "new", "messages": [msg("n1", "new", now - 60, labels=("SENT",))]},
+                         {"id": "got", "messages": [msg("g1", "got", now - 60)]}]
+    b.save()
+    changed, _, _ = b.mail(scope={"mode": "inbox"}).changed_threads(f"t:{now - 300}")
+    assert changed == {"reply", "got"}, changed
+    sent = {"labelIds": ["SENT"]}
+    assert new_outbound({"messageCount": 1, "messages": [sent]})
+    assert not new_outbound({"messageCount": 2, "messages": [sent]}), "a reply"
+    assert not new_outbound({"messageCount": 1, "messages": [{"labelIds": ["SENT", "INBOX"]}]}), "an email to yourself"
+    assert not new_outbound({"messageCount": 1, "messages": [{"labelIds": ["SENT", "Label_2"]}]}), "under a label"
+    assert not new_outbound({"messages": [sent]}), "Codex's search does not say how long a thread is, so the email is read"
+
+
+def test_gmail_history_keeps_the_owners_replies_inside_a_scope():
+    """The same rule on the Gmail API path, which reads history rather than searching."""
+    from inbox_monitor.mail_gmail import Gmail, HttpError
+
+    class Req:
+        def __init__(self, v):
+            self.v = v
+
+        def execute(self):
+            if isinstance(self.v, Exception):
+                raise self.v
+            return self.v
+
+    class Api:
+        def history(self):
+            return self
+
+        def threads(self):
+            return self
+
+        def list(self, **_kw):
+            added = [("reply", ["SENT"]), ("new", ["SENT"]), ("gone", ["SENT"]), ("got", ["INBOX"]), ("filed", ["Label_9"])]
+            return Req({"history": [{"messagesAdded": [{"message": {"threadId": t, "labelIds": ls}} for t, ls in added]}], "historyId": "9"})
+
+        def get(self, id, **_kw):
+            if id == "gone":
+                return Req(HttpError(type("R", (), {"status": 404, "reason": "gone"})(), b"{}"))
+            return Req({"messages": [{"id": "1"}, {"id": "2"}] if id == "reply" else [{"id": "1"}]})
+
+    g = Gmail.__new__(Gmail)
+    g.u, g.scope, g._scope_ids, g.arrived_labels = Api(), {"mode": "inbox"}, None, {}
+    assert g.changed_threads("1") == ({"reply", "got"}, "9", False), "a 404 on one thread is not an expired cursor"
+    g.scope, g._scope_ids = {"mode": "all"}, None
+    assert g.changed_threads("1")[0] == {"reply", "new", "gone", "got", "filed"}, "Everything asks nothing extra"
+
+
 def test_list_labels_names_the_owners_labels():
-    """1.95: the scope picker's label list, from the Claude transport; Gmail's own labels (INBOX) are left out, names sorted."""
+    """1.100: the scope picker's label list, from the Claude transport; Gmail's own labels (INBOX) are left out, names sorted."""
     b = Box()
     b.data["labels"] = {"Ultra/Ask first": "Label_174", "Clients": "Label_2"}
     b.save()

@@ -75,7 +75,7 @@ class Gmail:
         self.arrived_labels: dict[str, set[str]] = {}  # thread -> labels its new mail arrived with (a filter's, never the owner's hand)
         self.baseline_query = baseline_query
         self.archive_query = archive_query
-        self.scope = mail.get("scope") or {}  # 1.95: {mode, labels}; history reads are filtered by label, searches by scope_query
+        self.scope = mail.get("scope") or {}  # 1.100: {mode, labels}; history reads are filtered by label, searches by scope_query
         self._scope_ids: set[str] | None = None
 
     def scope_label_ids(self) -> set[str] | None:
@@ -90,6 +90,18 @@ class Gmail:
                 ids |= {lab["id"] for lab in self.u.labels().list(userId="me").execute().get("labels", []) if str(lab.get("name", "")).lower() in want}
             self._scope_ids = ids
         return self._scope_ids
+
+    def is_reply(self, thread_id: str | None) -> bool:
+        """Whether a sent message answers a thread rather than starting one. A 404 stays here: in changed_threads it means an expired cursor."""
+        if not thread_id:
+            return False
+        try:
+            thread = self.u.threads().get(userId="me", id=thread_id, format="minimal", fields="messages/id").execute()
+        except HttpError as e:
+            if e.resp.status == 404:
+                return False
+            raise
+        return len(thread.get("messages", [])) > 1
 
     def list_labels(self) -> list[str]:
         """The owner's own Gmail labels, for the scope setting's picker."""
@@ -116,9 +128,9 @@ class Gmail:
                         m = item.get("message", {})
                         if SKIP_LABELS & set(m.get("labelIds", [])):
                             continue
-                        want = self.scope_label_ids()
-                        if want is not None and not (want & set(m.get("labelIds", []))):
-                            continue  # outside the scope (1.95): not in the inbox nor under a chosen label
+                        want, labels = self.scope_label_ids(), set(m.get("labelIds", []))
+                        if want is not None and not (want & labels) and not ("SENT" in labels and self.is_reply(m.get("threadId"))):
+                            continue  # outside the scope (1.100): not in the inbox nor under a chosen label, and not the owner's reply
                         if m.get("threadId"):
                             threads.add(m["threadId"])
                             # a label a message carries as it is added was put on by a Gmail filter; one the owner adds by

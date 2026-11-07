@@ -248,7 +248,7 @@ class ClaudeConnector:
         return found
 
     def list_labels(self) -> list[str]:
-        """The owner's own labels (not Gmail's system ones), for the scope setting's picker (1.95)."""
+        """The owner's own labels (not Gmail's system ones), for the scope setting's picker (1.100)."""
         res = self.call([(PREFIX + "list_labels", {})], labels=True, allow={"names": [], "threads": [], "labels": []})["labels"]
         if isinstance(res, MailError):
             raise res
@@ -585,6 +585,13 @@ class FallbackConnector:
         return next((t for t in (self.primary, self.backup) if hasattr(t, "apply_labels") or hasattr(t, "change_threads")), None)
 
 
+def new_outbound(thread: dict) -> bool:
+    """A search result that is one email the owner started, in no inbox and under no label: outside a scope. Only the Claude
+    connector says how long a thread is; Codex's search lists single emails, so there a sent email is read rather than guessed at."""
+    labels = set((thread.get("messages") or [{}])[-1].get("labelIds") or [])
+    return thread.get("messageCount") == 1 and "SENT" in labels and "INBOX" not in labels and not any(x.startswith("Label_") for x in labels)
+
+
 class ConnectorMail:
     """The engine's mail source (same methods as mail_gmail.Gmail), read through the agent's Gmail connector."""
 
@@ -603,7 +610,8 @@ class ConnectorMail:
             self.fetch = FallbackConnector(self.fetch, self.transport(other, dict(mail.get("fallback") or {}), state_dir), log)
         self.baseline_query = baseline_query
         self.archive_query = archive_query
-        self.scope = scope_query(mail.get("scope"))  # 1.95: "", "in:inbox" or "{in:inbox label:…}"; every fetch for new mail stays inside it
+        self.scope = scope_query(mail.get("scope"))  # 1.100: "", "in:inbox" or "{in:inbox label:…}"; every fetch for new mail stays inside it
+        self.scope_new = scope_query(mail.get("scope"), sent=True)  # the window search: the owner's replies join it
         self.on_call = on_call
         self.search_cap = int(mail.get("search_cap", 400))
         self._cache: dict[str, list[dict]] = {}  # thread id -> messages read this run
@@ -664,7 +672,7 @@ class ConnectorMail:
         mailbox: BLIND_RUNS of those in a row fail the check (1.83.1), so Pocket shows it instead of reporting healthy."""
         now = int(time.time())
         since = max(int(str(cursor)[2:]) - OVERLAP_S, now - MAX_LOOKBACK_S)
-        query = self.scoped(f"after:{since} -in:spam -in:trash -in:draft")
+        query = f"after:{since} -in:spam -in:trash -in:draft {self.scope_new}".strip()
         changed: set[str] = set()
         found, token = 0, None
         for _ in range(SEARCH_PAGES):
@@ -675,7 +683,7 @@ class ConnectorMail:
                 msgs = [m for m in t.get("messages") or [] if m.get("id")]
                 fresh = [m for m in msgs if not self.db.execute("select 1 from connector_seen where message_id=?", (m["id"],)).fetchone()]
                 unseen = unseen or bool(fresh)
-                if fresh and not all(SKIP_LABELS & set(m.get("labelIds") or []) for m in fresh):
+                if fresh and not all(SKIP_LABELS & set(m.get("labelIds") or []) for m in fresh) and not (self.scope and new_outbound(t)):
                     changed.add(t["id"])
                 self.db.executemany("insert or ignore into connector_seen(message_id,thread_id,seen_at) values(?,?,?)", [(m["id"], t["id"], now) for m in msgs])
             if not token or not unseen:

@@ -25,10 +25,11 @@ The shape (JSON in Pocket, the same keys in the TOML as snake_case where noted):
                 off what has been resolved or handled (TOML [tidy] enabled, every_hours)
   gmailLabel    {enabled}: the owner's open Inbox entries carry a "Pocket Inbox" label in Gmail; labelling a thread there puts it on
                 the list, taking the label off takes it off (TOML [gmail_label] enabled, name; on by default; needs gmail.modify)
-  scope         {mode: all | inbox | inbox_labels, labels: [Gmail label names]}: which mail the watcher reads at all (1.95, Damon and
-                Brad). "all" is every thread but spam, trash and drafts (the behaviour before 1.95); "inbox" only threads in the
+  scope         {mode: all | inbox | inbox_labels, labels: [Gmail label names]}: which mail the watcher reads at all (1.100, Damon and
+                Brad). "all" is every thread but spam, trash and drafts (the behaviour before 1.100); "inbox" only threads in the
                 Gmail inbox; "inbox_labels" the inbox plus threads under the named labels. Mail outside the scope is never fetched
-                or judged; a thread the owner labels Pocket Inbox still joins the check. (TOML [mail] scope, scope_labels)
+                or judged; a thread the owner labels Pocket Inbox still joins the check, and so does a thread the owner
+                replies on. A new email the owner starts does not. (TOML [mail] scope, scope_labels)
 """
 from __future__ import annotations
 
@@ -67,16 +68,18 @@ def label_term(name: str) -> str:
     return "-".join(part for part in name.replace("/", " ").split() if part)
 
 
-def scope_query(scope: dict | None) -> str:
-    """The search fragment that keeps a fetch inside the scope: "" for everything, "in:inbox", or "{in:inbox label:a label:b}"."""
+def scope_query(scope: dict | None, sent: bool = False) -> str:
+    """The search fragment that keeps a fetch inside the scope: "" for everything, "in:inbox", or "{in:inbox label:a label:b}".
+    With `sent`, the read of new mail: the owner's sent mail joins, because a reply carries neither INBOX nor the thread's filter
+    label, and it is how the watcher learns a story was answered. The mail layer then drops a new email the owner started."""
     scope = scope or {}
     mode = scope.get("mode", "all")
-    if mode == "inbox":
-        return "in:inbox"
+    if mode not in ("inbox", "inbox_labels"):
+        return ""
+    terms = ["in:inbox"] + (["in:sent"] if sent else [])
     if mode == "inbox_labels":
-        terms = ["in:inbox"] + [f"label:{label_term(n)}" for n in scope.get("labels", []) if label_term(n)]
-        return terms[0] if len(terms) == 1 else "{" + " ".join(terms) + "}"
-    return ""
+        terms += [f"label:{label_term(n)}" for n in scope.get("labels", []) if label_term(n)]
+    return terms[0] if len(terms) == 1 else "{" + " ".join(terms) + "}"
 RULES_MAX = 8000
 TIME_RX = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
@@ -232,7 +235,7 @@ def from_config(sched: dict, judge: dict, quiet_hours, digest_hour: int, lookahe
         base["tidy"] = {"enabled": bool(tidy.get("enabled", False)), "every": every if every in TIDY_EVERY else 2}
     if gmail_label is not None:
         base["gmailLabel"] = {"enabled": bool(gmail_label.get("enabled", True))}
-    if mail is not None:  # 1.95: [mail] scope = "all" | "inbox" | "inbox_labels", scope_labels = [...]
+    if mail is not None:  # 1.100: [mail] scope = "all" | "inbox" | "inbox_labels", scope_labels = [...]
         base["scope"] = _scope({"mode": mail.get("scope", "all"), "labels": mail.get("scope_labels", [])}, {"mode": "all", "labels": []})
     return normalize({"periods": sched.get("period", sched.get("periods", []))}, base)
 

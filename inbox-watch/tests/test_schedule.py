@@ -109,7 +109,7 @@ def test_first_pass_settings():
 
 
 def test_scope_settings():
-    # 1.95 (Damon and Brad): what the watcher reads. The TOML gives the default; Pocket's {mode, labels} wins; bad parts keep the default.
+    # 1.100 (Damon and Brad): what the watcher reads. The TOML gives the default; Pocket's {mode, labels} wins; bad parts keep the default.
     assert "scope" not in BASE, "no [mail] table, no setting"
     b = S.from_config({}, {"model": "sonnet"}, (22, 8), 8, {}, mail={"provider": "connector"})
     assert b["scope"] == {"mode": "all", "labels": []}
@@ -124,6 +124,8 @@ def test_scope_settings():
     assert S.describe(b) == "every 5 min; inbox + 2 label(s)"
     assert S.scope_query(None) == "" and S.scope_query({"mode": "all"}) == "" and S.scope_query({"mode": "inbox"}) == "in:inbox"
     assert S.scope_query({"mode": "inbox_labels", "labels": []}) == "in:inbox"
+    assert S.scope_query({"mode": "all"}, sent=True) == "" and S.scope_query({"mode": "inbox"}, sent=True) == "{in:inbox in:sent}"
+    assert S.scope_query({"mode": "inbox_labels", "labels": ["Clients"]}, sent=True) == "{in:inbox in:sent label:Clients}"
     assert S.scope_query({"mode": "inbox_labels", "labels": ["Clients", "Ultra/Ask first", "Meeting Notes"]}) == "{in:inbox label:Clients label:Ultra-Ask-first label:Meeting-Notes}"
     assert S.options("claude", [])["scopeModes"] == ["all", "inbox", "inbox_labels"]
 

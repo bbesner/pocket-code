@@ -125,7 +125,7 @@ export function checkWatch(raw, profile = null) {
     if ('enabled' in t) { if (typeof t.enabled !== 'boolean') throw bad('tidy.enabled is true or false.'); out.tidy.enabled = t.enabled; }
     if ('every' in t) { if (!WATCH.tidyEvery.includes(t.every)) throw bad(`Tidy runs every ${WATCH.tidyEvery.join(', ')} hours.`); out.tidy.every = t.every; }
   }
-  if ('scope' in raw) { // 1.95: which mail the watcher reads at all: everything, the inbox, or the inbox plus chosen Gmail labels
+  if ('scope' in raw) { // 1.100: which mail the watcher reads at all: everything, the inbox, or the inbox plus chosen Gmail labels
     const sc = raw.scope; if (!sc || typeof sc !== 'object') throw bad('scope is {mode, labels}.');
     const mode = str(sc.mode, 20) || 'all';
     if (!WATCH.scope.includes(mode)) throw bad(`scope.mode is one of ${WATCH.scope.join(', ')}.`);
