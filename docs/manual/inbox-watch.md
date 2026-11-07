@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.91.1
+checked: 1.95.0
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -91,7 +91,7 @@ watcher and does not stop Pocket. `POCKET_INBOX_RUNNER=0` in Pocket's environmen
 | Kind | When | What it holds |
 |---|---|---|
 | **Alert** | at a check, when a thread passes the judge's bar | A title, a short text citing the emails it rests on, the story it belongs to, a priority, **Start a conversation** and **Open in Gmail** |
-| **Digest** | once a day at the digest hour, outside quiet hours, when there is something to say | Alerts held overnight, ones that resolved overnight, *Worth knowing* lines, entries the tidy pass took off, and how many threads were ignored |
+| **Digest** | once a day at the digest hour, outside quiet hours, when there is something to say | Alerts held overnight, ones that resolved overnight, *Worth knowing* lines, entries the tidy pass took off, and how many threads were ignored. Each line is an item of its own in Pocket, with its own choices (see [A digest's items](#a-digests-items)) |
 | **Look-ahead** | once in each look-ahead window (from the hour you set, for 4 hours), outside quiet hours | What is due or at risk in the next few days, from open stories and dated mail. Sent only when something needs you |
 
 Priorities are critical, high, normal and low. **Critical** is kept for live outages you are the escalation for,
@@ -128,6 +128,27 @@ The entry's sheet shows the whole text, with each citation a link to that email 
 
 The **X** on a row dismisses it directly.
 
+### A digest's items
+
+A digest's sheet shows its lines as cards, under the headings the digest has (*Held overnight*, *Came up overnight and
+already resolved*, *Worth knowing*, *Taken off your Inbox*), each with its title, its text (citations are Gmail links),
+its story and these choices:
+
+- **Start a conversation**: a new conversation already briefed with that one story and its evidence, as an alert's is.
+  Nothing is sent and the watcher learns nothing from it; it is for dealing with this one line now.
+- **Alert me**: this line should have been an alert. The watcher sends that story as an alert of its own at its next
+  check (within a minute or two, whatever quiet hours say, since you are up and asking) and learns from it the way it
+  learns from a Gmail label: a rule under *Learned from your choices* saying to alert on that kind of mail.
+- **Resolved** and **Not useful**: the same as on an alert, but for that story alone rather than the whole digest.
+- **Undo**: takes any of the three back.
+- **Gmail**: the thread.
+
+A line whose story already has an open alert on your list is not a new card: it sits under **Already on your list** as one
+line that opens that entry, and your decision belongs on the entry. A line that resolved overnight or that the tidy pass took
+off is history and has only the Gmail link. The card says
+*Alert requested*, *Resolved* or *Not useful* once you have decided, and the digest itself stays open until you dismiss
+it. A digest from before 1.95 has no items and shows its text alone.
+
 ### Tell the watcher what you decided
 
 | Choice | In Pocket | What the watcher does at its next check |
@@ -136,6 +157,8 @@ The **X** on a row dismisses it directly.
 | **Not useful** | moves to Done | Learns from it (see [Learning from your choices](#learning-from-your-choices)): a rule under *Learned from your choices* saying what kind of mail is a digest line at most, with your note taken into account, and lowers the story to low priority |
 | **Dismiss** | moves to Done | Nothing; the story is unchanged |
 | **Restore** | back to Open | Reopens a story that Resolved had closed |
+| **Alert me** (a digest item) | the card says *Alert requested* | Sends that story as an alert now, lifts a low story to normal and learns a rule to alert on that kind of mail |
+| **Resolved** / **Not useful** (a digest item) | the card says so | As above, for that story alone |
 
 With the Gmail label on, finishing an entry in any of the three ways also takes the label off its thread and archives
 it (see [Your list in Gmail](#your-list-in-gmail)).
@@ -159,6 +182,11 @@ the watcher picks it up within a minute, and the line says *Your last change rea
 until it has. **Use the config file's settings** hands control back to `config.toml`.
 
 - **Pause Inbox Watch**: no checks, digests or look-aheads until you turn it off.
+- **What it reads** (1.95): which mail the watcher looks at. **Everything** is every thread but spam, trash and drafts, so mail
+  your Gmail filters archive or file away is judged too (the behaviour before 1.95). **Inbox only** reads what is in your Gmail
+  inbox. **Inbox and these labels** adds the Gmail labels you pick from the chips (your labels appear once the watcher has read
+  them; **Add** takes a name it has not listed). Mail outside the scope is never fetched or judged, for alerts or the digest; an
+  email you label Pocket Inbox always joins the check, and the research the judge does on a story is not bounded.
 - **Your rules**: your own words about what you always or never want to hear about ("Tell me when a customer asks for
   a quote", "Never alert me about newsletters"). The watcher follows them in every decision, the first pass, the
   look-ahead and the tidy pass, and they win over its own judgment, even for something it would call critical. The
@@ -234,11 +262,12 @@ filters that file whole kinds of mail past the inbox). `name` changes the label'
 
 ### Learning from your choices
 
-Two things you do teach the watcher what you want:
+Three things you do teach the watcher what you want:
 
 - **You label an email Pocket Inbox in Gmail** that is not on your list. The watcher records what it had done with it:
   ignored it, kept it for the digest, filed it as a quiet update, skipped it as routine, or not looked at it yet.
-- **You mark an alert Not useful**, with or without a note.
+- **You press Alert me on a line of the morning digest**: the watcher had kept it for the digest when you wanted an alert.
+- **You mark an alert, or a digest line, Not useful**, with or without a note.
 
 At the same check, one judge turn turns the new examples into rules, as narrow as they allow: one email teaches it
 about that sender and topic ("Alert on website-content requests from Acme Paving"), several of a kind from different
@@ -362,6 +391,7 @@ pocket-inbox list --state all              # everything but dismissed (also: dis
 pocket-inbox list --since 2026-10-19T00:00:00Z [--json]
 pocket-inbox show <id> [--json]            # one entry in full: text, story, links, note
 pocket-inbox act <id> resolve|not_useful|dismiss|restore [--note "…"]
+pocket-inbox act <id> alert|resolve|not_useful|restore --item <ref>   # one item of a digest (show lists each item's ref)
 pocket-inbox act <id> open|unread          # read state only; the watcher is not told
 pocket-inbox watch [--json]                # schedule in force, next check, models, rules, 7 days of cost
 pocket-inbox watch set --every 10          # or --pause, --resume, --file <path|-> (the whole settings object as JSON)

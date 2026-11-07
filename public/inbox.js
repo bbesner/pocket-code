@@ -51,9 +51,41 @@ const inboxKindWord=e=>e.kind==='digest'?'digest':e.kind==='lookahead'?'look-ahe
 const inboxStateWord=e=>({resolved:'Resolved',not_useful:'Not useful',dismissed:'Dismissed'})[e.state]||'';
 // The watcher writes citations as [label](msg:<gmail id>); they become Gmail links. Plain text otherwise.
 // 1.70.1: a digest's "## Worth knowing" heading and "- " lines read as a heading and bullets, not as raw marks.
+// 1.95: headings, bullets and paragraphs are blocks with room between them. Until now a digest's items ran together with
+// single line breaks and read as one paragraph (Damon).
+const inboxCite=s=>esc(s||'').replace(/\[([^\]\n]{1,80})\]\(msg:([0-9a-f]{6,24})\)/g,(m,label,id)=>`<a href="${INBOX_GMAIL_MSG}${id}" target="_blank" rel="noopener">${label}</a>`);
 function inboxText(text){
- return esc(text||'').replace(/\[([^\]\n]{1,80})\]\(msg:([0-9a-f]{6,24})\)/g,(m,label,id)=>`<a href="${INBOX_GMAIL_MSG}${id}" target="_blank" rel="noopener">${label}</a>`)
-  .replace(/^#{1,3}[ \t]+(.+)$/gm,'<strong>$1</strong>').replace(/^[ \t]*[-*][ \t]+/gm,'• ').replace(/\n/g,'<br>');
+ const out=[];let list=null;
+ for(const raw of String(text||'').split('\n')){
+  const l=raw.trim();if(!l)continue;
+  const h=/^#{1,3}[ \t]+(.+)$/.exec(l),b=/^[-*][ \t]+(.+)$/.exec(l);
+  if(b){if(!list){list=[];out.push(list);}list.push(`<li>${inboxCite(b[1])}</li>`);continue;}
+  list=null;out.push(h?`<p class="inbox-h">${inboxCite(h[1])}</p>`:`<p>${inboxCite(l)}</p>`);
+ }
+ return out.map(x=>Array.isArray(x)?`<ul>${x.join('')}</ul>`:x).join('');
+}
+/* 1.95: a digest's items (inbox.mjs items), each a card with its own choices. Alert me asks the watcher to send that story as
+   an alert of its own and to learn from it; Resolved and Not useful land on that story, not on the whole digest; Undo takes
+   any of them back. A line that resolved overnight or was taken off by the tidy pass is history and only links to Gmail. */
+const INBOX_SECTION={held:'Held overnight',resolved:'Came up overnight and already resolved',worth:'Worth knowing',tidied:'Taken off your Inbox',listed:'Already on your list'};
+const INBOX_ITEM_STATE={alerted:'Alert requested',resolved:'Resolved',not_useful:'Not useful'};
+const inboxActable=it=>it.section==='worth'||it.section==='held';
+function inboxItemHTML(it){
+ if(it.section==='listed'){ // 1.95 (Brad): an open entry already has this story; one line that opens it, never a new card
+  const t=inboxTarget({url:it.url||''}),first=inboxFirst(it.text);
+  return `<p class="inbox-item-listed">${t?`<a href="${esc(t.startsWith('#')?t:'#'+t)}">${esc(it.title)}</a>`:`<strong>${esc(it.title)}</strong>`}${first?` <span>${esc(first)}</span>`:''}</p>`;
+ }
+ const facts=[it.story?esc(it.story.replace(/-/g,' ')):'',it.priority&&it.priority!=='normal'?esc(it.priority):''].filter(Boolean).join(' · ');
+ const acts=!inboxActable(it)?'':it.state!=='open'?`<span class="inbox-item-state">${esc(INBOX_ITEM_STATE[it.state]||it.state)}</span><button class="chip" data-item-act="restore" data-item="${esc(it.ref)}" title="Take that back">Undo</button>`
+  :`<button class="chip inbox-item-alert" data-item-act="alert" data-item="${esc(it.ref)}" title="Make this an alert of its own; the watcher alerts on this kind of thing from now on">${IC.bell}Alert me</button><button class="chip" data-item-act="resolve" data-item="${esc(it.ref)}" title="This situation is over; the watcher stops following it">${IC.tick}Resolved</button><button class="chip" data-item-act="not_useful" data-item="${esc(it.ref)}" title="Don’t tell me about this kind of thing">${IC.bellOff}Not useful</button>`;
+ const talk=inboxActable(it)&&inboxTarget({url:it.url||''})?`<button class="chip" data-item-go="${esc(it.ref)}" title="A new conversation already briefed with this story and its evidence; the watcher learns nothing from it">${IC.plus}Start a conversation</button>`:''; // 1.95.1: about this one line, now, no rule
+ return `<article class="inbox-item-card state-${esc(it.state)}" data-item-card="${esc(it.ref)}"><h4>${esc(it.title)}</h4>${it.text?`<div class="inbox-body">${inboxText(it.text)}</div>`:''}${facts?`<p class="inbox-item-facts">${facts}</p>`:''}<div class="inbox-item-actions">${talk}${acts}${it.gmail?`<a class="chip" href="${esc(it.gmail)}" target="_blank" rel="noopener">${IC.globe}Gmail</a>`:''}</div></article>`;
+}
+function inboxItemsHTML(e){
+ const groups=[];let sec=null;
+ for(const it of e.items){if(it.section!==sec){sec=it.section;groups.push({sec,items:[]});}groups[groups.length-1].items.push(it);}
+ const rest=String(e.text||'').split('\n').filter(l=>l.trim()&&!/^#{1,3}[ \t]/.test(l)&&!/^[ \t]*[-*][ \t]/.test(l)); // what the text says besides its items (how many threads were ignored)
+ return groups.map(g=>`<section class="inbox-items"><h3>${esc(INBOX_SECTION[g.sec]||g.sec)} <span>${g.items.length}</span></h3>${g.items.map(inboxItemHTML).join('')}</section>`).join('')+(rest.length?`<div class="inbox-body inbox-rest">${inboxText(rest.join('\n'))}</div>`:'');
 }
 const inboxFirst=text=>{const t=String(text||'').replace(/\[([^\]\n]{1,80})\]\(msg:[0-9a-f]{6,24}\)/g,'$1').replace(/^#{1,3}[ \t]+.*$/gm,'').replace(/^[ \t]*[-*][ \t]+/gm,'').replace(/\s+/g,' ').trim();const m=/^(.{20,220}?[.!?])(\s|$)/.exec(t);return m?m[1]:t.slice(0,220);};
 const inboxWhen=iso=>{const d=new Date(iso);return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}).replace(' ',' ').toLowerCase();};
@@ -197,7 +229,7 @@ function inboxSheet(id){
  const facts=[`<span>${esc(inboxDay(e.at))} ${esc(inboxWhen(e.at))}</span>`,e.story?`<span>${esc(e.story.replace(/-/g,' '))}</span>`:'',`<span>${inboxKindWord(e)}</span>`,e.priority&&e.priority!=='normal'?`<span>${esc(e.priority)}</span>`:'',inboxStateWord(e)?`<span>${inboxStateWord(e)}</span>`:''].filter(Boolean).join(''); // the sheet's facts stack one per line, as a task's do
  const target=inboxTarget(e),gone=['dismissed','resolved','not_useful'].includes(e.state),sess=inboxSession(e),n=e.sessions?.length||0;
  sh.innerHTML=`<h2>${e.kind==='alert'?'Alert':e.kind==='digest'?'Digest':'Look-ahead'}</h2><p class="task-text">${esc(e.title)}</p><div class="task-facts">${facts}</div>
-  <div class="task-summary inbox-body">${inboxText(e.text)}</div>
+  ${e.items?.length?`<div class="inbox-items-wrap" data-items>${inboxItemsHTML(e)}</div>`:`<div class="task-summary inbox-body">${inboxText(e.text)}</div>`}
   ${sess?`<a class="opt" href="#/chat/${esc(sess.id)}" data-chat>${IC.chat}<span>Open the conversation<span class="sub">${n>1?`The latest of ${n}, started`:'Started'} ${esc(inboxDay(sess.at))} ${esc(inboxWhen(sess.at))}</span></span></a>`:''}
   ${target?`<button class="opt" data-go>${e.doc&&!e.url?IC.doc:IC.plus}<span>${e.doc&&!e.url?'Open in Files':sess?'Start another conversation':'Start a conversation'}<span class="sub">${e.doc&&!e.url?'The full text, kept in Files':'New conversation, already briefed with the story and the evidence; nothing starts until you press Start'}</span></span></button>`:''}
   ${e.gmail?`<a class="opt" href="${esc(e.gmail)}" target="_blank" rel="noopener">${IC.globe}<span>Open in Gmail</span></a>`:''}
@@ -210,6 +242,18 @@ function inboxSheet(id){
  sh.querySelector('[data-useless]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'not_useful',id},'Noted: not useful');});
  sh.querySelector('[data-dismiss]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'dismiss',id},'Dismissed');});
  sh.querySelector('[data-restore]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'restore',id},'Restored');});
+ const ITEM_DONE={alert:'Alert requested. The watcher sends it as an alert at its next check and learns from it',resolve:'Marked resolved',not_useful:'Noted: not useful',restore:'Undone'};
+ const bindItems=()=>{sh.querySelectorAll('[data-item-act]').forEach(b=>b.onclick=async()=>{ // 1.95: the sheet stays open; the card repaints with its new state
+  const act=b.dataset.itemAct,ref=b.dataset.item;b.disabled=true;
+  const ent=await inboxAct({action:act,id,item:ref},ITEM_DONE[act]);
+  const wrap=sh.querySelector('[data-items]');
+  if(ent&&wrap){wrap.innerHTML=inboxItemsHTML(ent);bindItems();}else b.disabled=false;
+ });bindItemGo();};
+ const bindItemGo=()=>sh.querySelectorAll('[data-item-go]').forEach(b=>b.onclick=()=>{ // 1.95.1: the item's own start link opens like an entry's
+  const it=(inboxById(id)?.items||[]).find(x=>x.ref===b.dataset.itemGo),t=it?inboxTarget({url:it.url||''}):'';
+  if(!t)return;closeCurrentSheet?.();if(/^https?:\/\//.test(t))window.open(t,'_blank','noopener');else location.hash=t;
+ });
+ bindItems();
  if(e.state==='new')inboxMarkRead(e);
  mountSheet(scrim,sh);
 }
@@ -299,6 +343,7 @@ async function inboxWatchSheet(){
  let s=structuredClone(w.settings||p?.defaults||null);
  if(!s){holder.querySelector('[role=status]').textContent=watchStatus(w);return;}
  s.periods ||= [];
+ for(const k of ['scope','tidy','firstPass','gmailLabel'])if(p?.defaults?.[k]&&!s[k])s[k]=structuredClone(p.defaults[k]); // 1.95: a group the watcher offers that your saved settings predate (the scope setting for everyone who saved before it existed)
  // 1.73: the rules box shows the watcher's file (it may have learned lines since), unless a save of yours has not reached it yet
  const rulesText=typeof w.settings?.rules==='string'&&p?.applied?.revision!==w.revision?w.settings.rules:(p?.rules?.text||'');
  const hours=[...Array(24).keys()],tz=p?.timezone&&p.timezone!==Intl.DateTimeFormat().resolvedOptions().timeZone?` Times are ${p.timezone.split('/').pop().replace(/_/g,' ')} time.`:'';
@@ -314,6 +359,12 @@ async function inboxWatchSheet(){
   ${s.gmailLabel?(()=>{const gl=opts.gmailLabel||{},name=esc(gl.name||'Pocket Inbox'),off=gl.available===false;return `<div class="title-settings model-offer" role="group" aria-labelledby="w-label-h"><p class="vault-set-head" id="w-label-h">Your list in Gmail</p>
    <button class="opt" id="w-label" aria-pressed="${Boolean(s.gmailLabel.enabled)}"${off?' aria-describedby="w-label-off"':''}><span class="dot${s.gmailLabel.enabled?' on':''}"></span><span>Keep a ${name} label in Gmail<span class="sub">Everything on this list carries the label in Gmail and stays in your inbox. Give an email the label and it comes here with a summary; take it off and it leaves this list. Finish one here and its email is archived in Gmail.</span></span></button>
    ${off?`<p class="title-note" id="w-label-off">Inbox Watch can only read this mailbox, so it can’t add the label yet: ${esc(gl.reason||'it has no Gmail write access')}.</p>`:''}</div>`;})():''}
+  ${s.scope?(()=>{const sc=s.scope,known=Array.isArray(opts.labels)?opts.labels:[],all=[...new Set([...known,...(sc.labels||[])])];return `<div class="title-settings model-offer" role="group" aria-labelledby="w-scope-h"><p class="vault-set-head" id="w-scope-h">What it reads</p>
+   <p class="title-note">Which mail Inbox Watch looks at. Everything is every thread but spam, trash and drafts, so mail your Gmail filters archive or file away is judged too. Inbox only reads what is in your Gmail inbox. Inbox and labels adds the labels you pick. An email you label ${esc((opts.gmailLabel||{}).name||'Pocket Inbox')} always joins the check.</p>
+   ${watchSelect('w-scope','Read',['all','inbox','inbox_labels'],sc.mode||'all',v=>({all:'Everything',inbox:'Inbox only',inbox_labels:'Inbox and these labels'})[v])}
+   <div class="watch-labels" id="w-scope-labels"${(sc.mode||'all')==='inbox_labels'?'':' hidden'}><p class="title-note" id="w-scope-labels-lead">${known.length?'Your Gmail labels. Pick the ones to read.':'Type a Gmail label name and press Add; Inbox Watch lists your labels here once it has read them.'}</p>
+    <div class="watch-label-chips" role="group" aria-labelledby="w-scope-labels-lead">${all.map(n=>`<button type="button" class="chip" data-scope-label="${esc(n)}" aria-pressed="${(sc.labels||[]).includes(n)}">${esc(n)}</button>`).join('')}</div>
+    <div class="inbox-tools-row watch-label-add"><input type="text" class="watch-name" id="w-scope-add" placeholder="Another label name" aria-label="Add a Gmail label by name" maxlength="60"><button type="button" class="chip" id="w-scope-add-btn">${IC.plus}Add</button></div></div></div>`;})():''}
   <div class="title-settings model-offer" role="group" aria-labelledby="w-sched-h"><p class="vault-set-head" id="w-sched-h">Schedule</p>
    <p class="title-note">How often it checks your mail. Inside a period, that period’s interval applies; the rest of the time, this one. When periods overlap, the first listed wins. <strong>Check now</strong> in the Inbox checks at any time, so Don’t check means on demand only.${esc(tz)}</p>
    ${watchSelect('w-every','The rest of the time',everyChoices,s.every,watchEvery)}
@@ -356,6 +407,13 @@ async function inboxWatchSheet(){
  $w('#w-tidy')?.addEventListener('click',e=>{s.tidy.enabled=!s.tidy.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.tidy.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.tidy.enabled);});
  $w('#w-label')?.addEventListener('click',e=>{s.gmailLabel.enabled=!s.gmailLabel.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.gmailLabel.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.gmailLabel.enabled);});
  $w('#w-fp')?.addEventListener('click',e=>{s.firstPass.enabled=!s.firstPass.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.firstPass.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.firstPass.enabled);});
+ if(s.scope){ // 1.95: the scope's mode shows or hides the label chips; a chip toggles a label; Add puts a typed name in as a pressed chip
+  $w('#w-scope')?.addEventListener('change',e=>{s.scope.mode=e.target.value;const box=$w('#w-scope-labels');if(box)box.hidden=s.scope.mode!=='inbox_labels';});
+  const chips=$w('#w-scope-labels');
+  chips?.addEventListener('click',e=>{const b=e.target.closest('[data-scope-label]');if(!b)return;const on=b.getAttribute('aria-pressed')!=='true';b.setAttribute('aria-pressed',String(on));});
+  const addLabel=()=>{const inp=$w('#w-scope-add'),name=inp.value.replace(/\s+/g,' ').trim().slice(0,60);if(!name)return;const row=$w('.watch-label-chips');if(![...row.children].some(c=>c.dataset.scopeLabel===name))row.insertAdjacentHTML('beforeend',`<button type="button" class="chip" data-scope-label="${esc(name)}" aria-pressed="true">${esc(name)}</button>`);else row.querySelector(`[data-scope-label="${CSS.escape(name)}"]`).setAttribute('aria-pressed','true');inp.value='';};
+  $w('#w-scope-add-btn')?.addEventListener('click',addLabel);$w('#w-scope-add')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addLabel();}});
+ }
  $w('#w-pause').onclick=e=>{s.paused=!s.paused;e.currentTarget.setAttribute('aria-pressed',String(s.paused));e.currentTarget.querySelector('.dot').classList.toggle('on',s.paused);};
  const hourVal=id=>{const v=$w(id).value;return v==='off'?null:Number(v);};
  const collect=()=>{
@@ -364,6 +422,7 @@ async function inboxWatchSheet(){
    lookahead:{morning:hourVal('#w-la-morning'),evening:hourVal('#w-la-evening')},models:structuredClone(s.models||{})};
   if(rulesBox)out.rules=rulesBox.value;
   if(s.gmailLabel)out.gmailLabel={enabled:Boolean(s.gmailLabel.enabled)};
+  if(s.scope)out.scope={mode:$w('#w-scope')?.value||s.scope.mode||'all',labels:[...sh.querySelectorAll('[data-scope-label][aria-pressed="true"]')].map(b=>b.dataset.scopeLabel)};
   if(s.tidy)out.tidy={enabled:Boolean(s.tidy.enabled),every:Number($w('#w-tidy-every')?.value||s.tidy.every)};
   if(s.firstPass)out.firstPass={enabled:Boolean(s.firstPass.enabled),provider:$w('#w-fp-provider')?.value||s.firstPass.provider,threshold:Number($w('#w-fp-threshold')?.value||s.firstPass.threshold)};
   sh.querySelectorAll('#w-models [data-job]').forEach(row=>{out.models[row.dataset.job]={model:row.querySelector('[data-model]').value,reasoning:row.querySelector('[data-reasoning]').value};});

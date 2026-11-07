@@ -69,7 +69,7 @@ connector reads. `python3 -m inbox_monitor.mail_connector whoami` prints it as J
 
 | `delivery.kind` | Alerts | Digest and look-ahead |
 |---|---|---|
-| `pocket` | a push whose tap opens the briefed session (Pocket Code 1.58.1+) | kept in Files, the push links there |
+| `pocket` | a push whose tap opens the briefed session (Pocket Code 1.58.1+) | kept in Files, the push links there; with Pocket 1.95+ the digest's lines are Inbox items too, each with Alert me / Resolved / Not useful, whose decisions come back through `feedback()` as kind `digest-item` |
 | `telegram` | a bot DM with Open in Pocket Code / Open in Gmail buttons | one message |
 | `email` | HTML mail with the same links | HTML mail |
 
@@ -164,6 +164,14 @@ skipped at 0.8–0.9 with the rules; at 5-minute checks, ~18% (0.9) to ~22% (0.8
 with its settings (`checkRequestedAt`); `tick` runs a check for it at once, whatever the schedule says, paused included,
 and the heartbeat reports it done (`status.checkRequestDone`). With `every = 0` and no periods, the watcher checks only
 on demand (and with the digest and look-aheads).
+
+**What it reads (`[mail] scope`, also a Pocket setting; 1.95).** By default the watcher fetches every thread but spam, trash
+and drafts, so mail the owner's Gmail filters archive or file away is judged too. `scope = "inbox"` reads only threads in the
+Gmail inbox; `scope = "inbox_labels"` with `scope_labels = ["Clients", "Ultra/Ask first"]` adds threads under those labels (as
+`{in:inbox label:clients label:ultra-ask-first}` on a search; by label id on the Gmail API's history reads). The bound applies
+to the per-check fetch, the first-run baseline, the rebaseline and the blind-mailbox probe; research and archive searches, and
+a thread the owner labels Pocket Inbox, are not bounded. The heartbeat carries the owner's label names (`options.labels`,
+refreshed daily) for Pocket's picker.
 
 **The Pocket Inbox label (`[gmail_label]`, on by default; also a Pocket setting).** The owner's open Inbox entries and
 one Gmail label (`name`, default "Pocket Inbox", created when missing) are kept in step at every check, both ways. An entry
