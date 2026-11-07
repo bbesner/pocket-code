@@ -1,5 +1,6 @@
-"""1.95: the morning digest carries its lines as items (one per story, ref a<alert id>), and a decision on one item in Pocket
-(feedback kind 'digest-item') promotes that story to an alert now, closes it, or is a lesson. No Pocket, network or mailbox.
+"""1.95: the morning digest carries its lines as items (one per story, ref a<alert id>), a look-ahead its bullets (ref
+c<alert id>.<bullet>), and a decision on one item in Pocket (feedback kind 'digest-item') promotes that story to an alert now,
+closes it, or is a lesson. No Pocket, network or mailbox.
 
     python3 tests/test_digest_items.py
 """
@@ -82,7 +83,7 @@ def test_the_digest_carries_its_items():
     assert dict(store.db.execute("select id, status from alerts").fetchall())[aid] == "digested"
 
 
-def test_alert_me_on_a_digest_item_sends_it_now_and_is_a_lesson():
+def test_add_to_inbox_on_a_digest_item_sends_it_now_and_is_a_lesson():
     store, _ = setup()
     pocket = Pocket()
     E.DELIVERIES = [pocket]
@@ -97,7 +98,7 @@ def test_alert_me_on_a_digest_item_sends_it_now_and_is_a_lesson():
     assert store.story("roslynn-website-feedback")["priority"] == "normal", "a low story is lifted to normal"
     lesson = store.db.execute("select kind, thread_id, issue_key, before from lessons").fetchone()
     assert tuple(lesson) == ("escalated", T, "roslynn-website-feedback", f"digest line: Roslynn texted that business is up 25% since the new site. [Text](msg:{T})"), tuple(lesson)
-    assert any("asked for an alert" in r["fact"] for r in store.events("roslynn-website-feedback"))
+    assert any("added this to the Inbox from the morning digest" in r["fact"] for r in store.events("roslynn-website-feedback"))
     assert pocket.acked == [f"dddddddddddd/a{aid}"], pocket.acked
     # The same decision reported again (a retry before the ack landed) is not sent twice: its dedupe key is taken.
     E.apply_feedback(store)
@@ -124,13 +125,90 @@ def test_resolve_and_not_useful_on_a_digest_item():
                      "title": "Roslynn website feedback and review", "story": "roslynn-website-feedback", "source": "inbox-monitor", "kind": "digest-item"}]
     E.apply_feedback(store)
     assert store.story("roslynn-website-feedback")["status"] == "open", "restore reopens"
-    # A tidy line has no alert behind it: Alert me on it sends nothing and is still acked.
+    # A tidy line has no alert behind it: Add to Inbox on it sends nothing and is still acked.
     pocket.items = [{"id": "e/t1", "entry": "e", "item": "t1", "action": "alert", "at": "2026-11-07T13:05:00Z", "note": "", "title": "Polo launch",
                      "story": "polo-launch", "source": "inbox-monitor", "kind": "digest-item"}]
     E.apply_feedback(store)
     assert pocket.sent == [] and pocket.acked[-1] == "e/t1"
 
 
+
+
+class Archive:
+    def get(self, ids, until):
+        return [{"thread_id": T}] if ids and ids[0] == "aaaaaa01" else []
+
+
+LOOK = """Three things worth catching:
+- The payment settles by Tuesday. [Notice](msg:bbbbbb02)
+- Davenport's auto policy looks renewed. [Renewal](msg:aaaaaa01)
+- Veterans Day closes the banks, and nobody has said so."""
+
+
+def test_look_ahead_cards_lose_no_bullet():
+    store, _ = setup()
+    stories = [{"issue_key": "card-payment", "title": "Card payment", "priority": "high", "bullet": 1, "evidence": [], "thread": T},
+               {"issue_key": "davenport-auto", "title": "Davenport auto", "priority": "normal", "bullet": None, "evidence": [{"message_id": "aaaaaa01"}]},
+               {"issue_key": "unmentioned", "title": "Not in the message", "bullet": None, "evidence": [{"message_id": "cccccc03"}]}]
+    cards = E.lookahead_cards(store, Archive(), 12, LOOK, stories, 0, False)
+    assert [c["ref"] for c in cards] == ["c12.1", "c12.2", "c12.3"] and {c["section"] for c in cards} == {"ahead"}, cards
+    named, cited, alone = cards
+    assert (named["story"], named["title"], named["priority"]) == ("card-payment", "Card payment", "high"), named
+    assert named["gmail"] == f"https://mail.google.com/mail/u/0/#all/{T}" and named["text"].endswith("[Notice](msg:bbbbbb02)"), named
+    assert (cited["story"], cited["title"]) == ("davenport-auto", "Davenport auto"), "no bullet named: the story it cites"
+    assert cited["gmail"] == f"https://mail.google.com/mail/u/0/#all/{T}", "the thread comes from the citation"
+    assert (alone["story"], alone["gmail"], alone["priority"]) == ("", "", "normal"), alone
+    assert alone["title"] == "Veterans Day closes the banks, and nobody has said so.", "a bullet on no story still has a card"
+    # A model that writes the number as a string, or one past the end, costs nothing.
+    assert E.lookahead_cards(store, Archive(), 12, LOOK, [{"issue_key": "x", "bullet": "3"}, {"issue_key": "y", "bullet": 9}], 0, False)[2]["story"] == "x"
+    assert E.lookahead_cards(store, Archive(), 12, "No bullets here.", stories, 0, False) == []
+
+
+def look_item(action, ref="c12.2", **kw):
+    return {"id": f"e/{ref}", "entry": "e", "item": ref, "action": action, "at": "2026-11-07T14:00:00Z", "note": "", "title": "Davenport auto", "story": "davenport-auto",
+            "text": "Davenport's auto policy looks renewed. [Renewal](msg:aaaaaa01)", "gmail": f"https://mail.google.com/mail/u/0/#all/{T}", "priority": "normal",
+            "source": "inbox-monitor", "kind": "digest-item", **kw}
+
+
+def test_add_to_inbox_on_a_look_ahead_item_sends_it_and_teaches_nothing():
+    store, _ = setup()
+    pocket = Pocket()
+    E.DELIVERIES = [pocket]
+    store.upsert_story({"issue_key": "davenport-auto", "status": "open", "priority": "low", "new_fact": "Renewal."}, T)
+    store.commit()
+    pocket.items = [look_item("alert")]
+    E.apply_feedback(store)
+    assert pocket.sent == ["Davenport auto"] and pocket.acked == ["e/c12.2"], (pocket.sent, pocket.acked)
+    row = store.db.execute("select kind, status, thread_id, issue_key, text, dedupe_key from alerts").fetchone()
+    assert tuple(row) == ("notify", "sent", T, "davenport-auto", look_item("alert")["text"], "escalate:c12.2:2026-11-07T14:00:00Z"), tuple(row)
+    assert store.story("davenport-auto")["priority"] == "normal"
+    assert store.db.execute("select count(*) from lessons").fetchone()[0] == 0, "a finding is not a kind of mail"
+    assert any("from a look-ahead" in r["fact"] for r in store.events("davenport-auto"))
+    E.apply_feedback(store)  # reported again before the ack landed: not sent twice
+    assert pocket.sent == ["Davenport auto"]
+    # On no story and no thread it is still an alert.
+    pocket.items = [look_item("alert", ref="c12.3", story="", gmail="", title="Veterans Day closes the banks.")]
+    E.apply_feedback(store)
+    assert pocket.sent[-1] == "Veterans Day closes the banks.", pocket.sent
+
+
+def test_the_other_choices_on_a_look_ahead_item():
+    store, _ = setup()
+    pocket = Pocket()
+    E.DELIVERIES = [pocket]
+    store.upsert_story({"issue_key": "davenport-auto", "status": "open", "priority": "normal", "new_fact": "Renewal."}, T)
+    store.commit()
+    pocket.items = [look_item("resolved")]
+    E.apply_feedback(store)
+    assert store.story("davenport-auto")["status"] == "resolved"
+    pocket.items = [look_item("restore")]
+    E.apply_feedback(store)
+    assert store.story("davenport-auto")["status"] == "open"
+    pocket.items = [look_item("not_useful", note="I know")]
+    E.apply_feedback(store)
+    lesson = store.db.execute("select kind, note, before from lessons").fetchone()
+    assert lesson["kind"] == "not_useful" and lesson["before"].startswith("look-ahead item:"), tuple(lesson)
+    assert pocket.sent == []
 
 
 def test_a_story_already_on_the_list_is_not_a_new_card():

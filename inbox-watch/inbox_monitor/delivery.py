@@ -109,7 +109,8 @@ class Delivery:
         offer a choice per line (Pocket). Telegram and email render the text and ignore them."""
         raise NotImplementedError
 
-    def send_lookahead(self, alert: dict, *, pocket_url: str | None) -> str | None:
+    def send_lookahead(self, alert: dict, *, pocket_url: str | None, items: list[dict] | None = None) -> str | None:
+        """`items` (1.95): the look-ahead's cards, as for a digest."""
         return self.send_alert(alert, pocket_url=pocket_url)
 
 
@@ -341,13 +342,20 @@ class PocketPush(Delivery):
         first = next((l for l in text.split("\n") if l.strip() and not l.startswith("## ")), "")
         return self._push(title, cite_plain(first)[:300] or "Open to read.", "/#/documents/" + doc if doc else None, f"digest|{dt.datetime.now().date()}")
 
-    def send_lookahead(self, alert: dict, *, pocket_url: str | None) -> str | None:
+    def send_lookahead(self, alert: dict, *, pocket_url: str | None, items: list[dict] | None = None) -> str | None:
         title = alert.get("subject") or "Look-ahead"
         text = alert.get("text") or ""
         md = f"# {title}\n\n" + cite_markdown(text)
         doc = self._keep(title, md, f"lookahead-{dt.datetime.now().strftime('%Y-%m-%d-%H%M')}.md")
         if self.inbox:
-            ref = self._add("lookahead", title, text, priority=alert.get("priority") or "normal", url=pocket_url, doc=doc, dedupe=alert.get("dedupe_key"))
+            add = dict(priority=alert.get("priority") or "normal", url=pocket_url, doc=doc, dedupe=alert.get("dedupe_key"))
+            try:
+                ref = self._add("lookahead", title, text, items=items, **add)
+            except RuntimeError as ex:  # as for a digest: a refused card must not cost the owner the look-ahead
+                if not items or not re.search(r"\bItem \d+:|\bitems:", str(ex)):
+                    raise
+                self.log(f"Pocket refused the look-ahead's cards ({ex}); sending it without them")
+                ref = self._add("lookahead", title, text, **add)
             if ref:
                 return ref
         return self._push(title, cite_plain(text)[:1800], ("/#/documents/" + doc) if doc else pocket_url, alert.get("dedupe_key") or title)

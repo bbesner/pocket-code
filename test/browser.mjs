@@ -238,6 +238,15 @@ const server=http.createServer(async(req,res)=>{
    ]},{actor:'cli'});
    return json({ok:true,digest:d.id,alert:al.id});
   }
+  if(url.pathname==='/api/inbox/lookahead-cards'){ // 1.95: a look-ahead with a story on the list, a story of its own and an item on no story
+   const al=inboxStore.add({kind:'alert',title:'Gate controller offline',text:'The north gate stopped answering at 6:12.',story:'north-gate',source:'inbox-monitor'},{actor:'cli'});
+   const l=inboxStore.add({kind:'lookahead',title:'Look-ahead · Sat 8 AM',text:'Three things worth catching before Monday:\n- The card payment has to settle by Tuesday.\n- North gate is still down.\n- Veterans Day closes the banks.',source:'inbox-monitor',items:[
+    {ref:'c9.1',section:'ahead',title:'Card payment',text:'The card payment has to settle by Tuesday.',story:'card-payment',priority:'high',url:'/#/start/0123456789b1'},
+    {ref:'c9.2',section:'ahead',title:'North gate',text:'North gate is still down.',story:'north-gate'},
+    {ref:'c9.3',section:'ahead',title:'Veterans Day closes the banks.',text:'Veterans Day closes the banks.',url:'/#/start/0123456789b2'},
+   ]},{actor:'cli'});
+   return json({ok:true,lookahead:l.id,alert:al.id});
+  }
   if(url.pathname==='/api/inbox/check')return json({ok:true,...inboxStore.requestCheck('')}); // 1.75: Check now
   if(url.pathname==='/api/inbox/check-done'){const k=inboxStore.watchSource(),p=inboxStore.profiles[k].profile;p.status={...p.status,checkRequestDone:inboxStore.checks[k]?.at};inboxStore.add({kind:'alert',title:'Added in Gmail: quote request',text:'Pat asks for a quote by Friday.',source:k},{actor:'cli'});return json({ok:true});} // the watcher reports it done, with what it found
   if(url.pathname==='/api/inbox/watch'){ // 1.70

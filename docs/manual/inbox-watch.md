@@ -137,9 +137,10 @@ Each card has its title, its text (citations are Gmail links), its story and the
 - **Start a conversation**: a new conversation already briefed with that one story and its evidence, as an alert's is.
   Nothing is sent and the watcher learns nothing from it; it is for dealing with this one line now. Once a conversation
   has started, **Open the conversation** goes back to it and **Start another** begins a new one.
-- **Alert me**: this line should have been an alert. The watcher sends that story as an alert of its own at its next
-  check (within a minute or two, whatever quiet hours say, since you are up and asking) and learns from it the way it
-  learns from a Gmail label: a rule under *Learned from your choices* saying to alert on that kind of mail.
+- **Add to Inbox**: this line should have been an alert. The watcher sends that story as an alert of its own at its next
+  check (within a minute or two, whatever quiet hours say, since you are up and asking), so it sits on your Inbox to work
+  later, and learns from it the way it learns from a Gmail label: a rule under *Learned from your choices* saying to alert
+  on that kind of mail.
 - **Resolved** and **Not useful**: the same as on an alert, but for that story alone rather than the whole digest.
 - **Dismiss**: takes the line off your hands. The story is unchanged and the watcher learns nothing from it.
 - **Undo**: takes any of these back. An alert the watcher has already sent cannot be unsent, so that card has no Undo.
@@ -152,9 +153,26 @@ any conversation started from the card moves to the alert. A story on two digest
 card shows on the other. A line that resolved overnight or that the tidy pass took off is history and has only the Gmail
 link.
 
-The card says *Alert requested*, *Resolved*, *Not useful* or *Dismissed* once you have decided, and the digest itself stays
+The card says *Adding to Inbox* until the watcher has sent the alert, then *Added to Inbox*, or *Resolved*, *Not useful* or
+*Dismissed* once you have decided, and the digest itself stays
 open until you dismiss it. Pocket keeps up to 200 cards on a digest; past that the digest says how many lines did not fit,
 and the full digest in Files has every line. A digest from before 1.95 has no items and shows its text alone.
+
+### A look-ahead's items
+
+A look-ahead opens with its lead line, then a card for each item under **Coming up**, most pressing first. Each card has the
+item's full text and the same choices as a digest card, with three differences:
+
+- **Add to Inbox** sends the item as an alert but teaches the watcher nothing: a look-ahead item is something it found, not
+  a kind of mail it underrated. **Not useful** does teach it.
+- A card on a story already on your list keeps its text, since what the look-ahead found is news, and **Open in Inbox** goes
+  to that entry. Your decision belongs there, and the card shows it.
+- An item that is about no story the watcher follows is still a card. **Resolved** has nothing to close on it, and **Gmail**
+  appears when the item cites an email.
+
+An item that covers two stories is one card on the first of them, so **Resolved** closes only that one. A story on a digest
+and a look-ahead is decided once: what you press on one card shows on the other. A look-ahead from before 1.95 shows its
+text alone.
 
 ### Tell the watcher what you decided
 
@@ -164,9 +182,10 @@ and the full digest in Files has every line. A digest from before 1.95 has no it
 | **Not useful** | moves to Done | Learns from it (see [Learning from your choices](#learning-from-your-choices)): a rule under *Learned from your choices* saying what kind of mail is a digest line at most, with your note taken into account, and lowers the story to low priority |
 | **Dismiss** | moves to Done | Nothing; the story is unchanged |
 | **Restore** | back to Open | Reopens a story that Resolved had closed |
-| **Alert me** (a digest item) | the card says *Alert requested* | Sends that story as an alert now, lifts a low story to normal and learns a rule to alert on that kind of mail |
-| **Resolved** / **Not useful** (a digest item) | the card says so | As above, for that story alone |
-| **Dismiss** (a digest item) | the card says *Dismissed* | Nothing; the story is unchanged |
+| **Add to Inbox** (a digest item) | the card says *Adding to Inbox*, then *Added to Inbox* | Sends that story as an alert now, lifts a low story to normal and learns a rule to alert on that kind of mail |
+| **Add to Inbox** (a look-ahead item) | the same | Sends it as an alert now and lifts a low story to normal; no rule |
+| **Resolved** / **Not useful** (a digest or look-ahead item) | the card says so | As above, for that story alone |
+| **Dismiss** (a digest or look-ahead item) | the card says *Dismissed* | Nothing; the story is unchanged |
 
 With the Gmail label on, finishing an entry in any of the three ways also takes the label off its thread and archives
 it (see [Your list in Gmail](#your-list-in-gmail)).
@@ -270,8 +289,8 @@ Three things you do teach the watcher what you want:
 
 - **You label an email Pocket Inbox in Gmail** that is not on your list. The watcher records what it had done with it:
   ignored it, kept it for the digest, filed it as a quiet update, skipped it as routine, or not looked at it yet.
-- **You press Alert me on a line of the morning digest**: the watcher had kept it for the digest when you wanted an alert.
-- **You mark an alert, or a digest line, Not useful**, with or without a note.
+- **You press Add to Inbox on a line of the morning digest**: the watcher had kept it for the digest when you wanted an alert.
+- **You mark an alert, a digest line or a look-ahead item Not useful**, with or without a note.
 
 At the same check, one judge turn turns the new examples into rules, as narrow as they allow: one email teaches it
 about that sender and topic ("Alert on website-content requests from Acme Paving"), several of a kind from different

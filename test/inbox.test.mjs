@@ -181,6 +181,29 @@ test('InboxStore: Inbox Watch settings, the watcher\'s profile, revisions and pa
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+test('InboxStore: a look-ahead has cards too, in its own order, one status with the digest and the alert (Brad)',()=>{
+  const {s}=freshInbox();const GM='https://mail.google.com/mail/u/0/#all/18f0aa01b2c3d4e5';
+  const card=(ref,story,extra={})=>({ref,section:'ahead',title:'Item '+ref,text:'Bullet '+ref,story,...extra});
+  const item=(id,ref)=>s.get(id).items.find(i=>i.ref===ref);
+  // Its text is not cut at an alert's 2,000.
+  assert.equal(s.add({kind:'lookahead',title:'Long',text:'x'.repeat(3000)}).text.length,3000);
+  // A story on the list links to its entry, and the card keeps its place: a look-ahead is most pressing first.
+  const alert=s.add({kind:'alert',title:'Pool pump',story:'pool-pump'});
+  const la=s.add({kind:'lookahead',title:'Look-ahead',text:'Three things:\n- a\n- b\n- c',items:[card('c1.1','pool-pump'),card('c1.2','roof-leak',{gmail:GM,priority:'high'}),card('c1.3','')]});
+  assert.deepEqual(s.get(la.id).items.map(i=>[i.ref,i.section]),[['c1.1','listed'],['c1.2','ahead'],['c1.3','ahead']]);assert.equal(item(la.id,'c1.1').url,'/#/inbox/'+alert.id);
+  assert.throws(()=>s.act({action:'resolve',id:la.id,item:'c1.1'}),e=>e.code==='item_history','decided on its own entry');
+  // A decision is feedback with what the watcher needs to alert: it has no alert row behind it.
+  s.act({action:'alert',id:la.id,item:'c1.2'});
+  assert.deepEqual(s.feedback().map(f=>[f.id,f.kind,f.action,f.text,f.gmail,f.priority]),[[la.id+'/c1.2','digest-item','alert','Bullet c1.2',GM,'high']]);s.ack([la.id+'/c1.2']);
+  // An item on no story is decided alone.
+  s.act({action:'dismiss',id:la.id,item:'c1.3'});assert.equal(item(la.id,'c1.3').state,'dismissed');assert.equal(item(la.id,'c1.2').state,'alerted');
+  // One story, one status across a digest and a look-ahead, and an alert that arrives later keeps the look-ahead's order.
+  const d=s.add({kind:'digest',title:'Digest',text:'x',items:[{ref:'a1',section:'worth',title:'Fence',text:'t',story:'fence'}]});
+  const la2=s.add({kind:'lookahead',title:'Look-ahead 2',text:'- a\n- b',items:[card('c2.1','fence'),card('c2.2','gate')]});
+  s.act({action:'resolve',id:la2.id,item:'c2.1'});assert.equal(item(d.id,'a1').state,'resolved','what is pressed on one shows on the other');
+  s.add({kind:'alert',title:'Gate',story:'gate'});assert.deepEqual(s.get(la2.id).items.map(i=>i.ref),['c2.1','c2.2']);assert.equal(item(la2.id,'c2.2').section,'listed');
+});
+
 test('InboxStore: one status per item, between a digest card and its alert (Brad)',()=>{
   const {s}=freshInbox();const GM='https://mail.google.com/mail/u/0/#all/18f0aa01b2c3d4e5',START='/#/start/0123456789ab';
   const digest=(day,items)=>s.add({kind:'digest',title:'Digest '+day,text:'x',dedupe:'digest|'+day,items});
@@ -205,7 +228,7 @@ test('InboxStore: one status per item, between a digest card and its alert (Brad
   assert.throws(()=>s.act({action:'restore',id:d.id,item:'a1'}),e=>e.code==='item_history');
   // A card decided before the alert stays decided: the alert is news since then.
   s.act({action:'not_useful',id:d.id,item:'a3'});s.ack([d.id+'/a3']);s.add({kind:'alert',title:'Fence',gmail:GM});assert.deepEqual([item(d.id,'a3').section,item(d.id,'a3').state],['worth','not_useful']);
-  // Alert me: the card waits as Alert requested, and the alert it asked for takes it over.
+  // Add to Inbox: the card waits, and the alert it asked for takes it over.
   s.act({action:'alert',id:d.id,item:'a4'});assert.equal(item(d.id,'a4').state,'alerted');
   const asked=s.add({kind:'alert',title:'Gate',story:'gate'});assert.deepEqual([item(d.id,'a4').section,item(d.id,'a4').url],['listed','/#/inbox/'+asked.id]);
   assert.deepEqual(s.feedback().map(f=>[f.id,f.action]),[[d.id+'/a4','alert']],'the request is still the watcher to ack');
@@ -421,7 +444,7 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
   assert.throws(()=>s.act({action:'open',id:d.id,item:'a317'}),e=>e.code==='bad_action');assert.throws(()=>s.act({action:'alert',id:d.id,item:'a999'}),e=>e.status===404&&e.code==='item_missing');
   let fb=s.feedback();
   assert.deepEqual(fb.map(f=>f.id),[`${d.id}/a296`,`${d.id}/a317`],'newest first, the entry itself undecided');
-  assert.deepEqual(fb[1],{id:`${d.id}/a317`,entry:d.id,item:'a317',action:'alert',at:'2026-11-07T13:00:01Z',note:'',title:'Roslynn website feedback and review',story:'roslynn-website-feedback',source:'inbox-monitor',kind:'digest-item'});
+  assert.deepEqual(fb[1],{id:`${d.id}/a317`,entry:d.id,item:'a317',action:'alert',at:'2026-11-07T13:00:01Z',note:'',title:'Roslynn website feedback and review',story:'roslynn-website-feedback',text:s.get(d.id).items[0].text,gmail:s.get(d.id).items[0].gmail,priority:'low',source:'inbox-monitor',kind:'digest-item'});
   assert.equal(fb[0].action,'not_useful');
   assert.equal(s.ack([`${d.id}/a317`,d.id,'nope']),1,'the item is acked, the undecided entry is not');assert.deepEqual(s.feedback().map(f=>f.id),[`${d.id}/a296`]);
   // Restore undoes the item's decision and is feedback again; the entry's own decisions still work beside the items'.

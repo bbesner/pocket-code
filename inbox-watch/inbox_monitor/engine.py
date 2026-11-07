@@ -1374,8 +1374,9 @@ def briefing_for(store: Store, alert: sqlite3.Row, thread: dict | None) -> str:
     return "\n".join(lines)
 
 
-def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, held_note: bool = False) -> bool:
-    """One alert to every configured delivery; the Pocket start link (when configured) is made once and shared."""
+def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, held_note: bool = False, items: list[dict] | None = None) -> bool:
+    """One alert to every configured delivery; the Pocket start link (when configured) is made once and shared.
+    `items` (1.95): a look-ahead's cards, for a channel that can offer a choice per item."""
     alert = store.db.execute("select * from alerts where id=?", (alert_id,)).fetchone()
     a = dict(alert)
     title = f"Email: {a['subject']}" if a["kind"] != "checkin" else (a["subject"] or "Look-ahead")
@@ -1392,7 +1393,7 @@ def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, hel
     refs = []
     for d in DELIVERIES:
         try:
-            ref = d.send_lookahead(a, pocket_url=pocket) if a["kind"] == "checkin" else d.send_alert(a, pocket_url=pocket, held_note=held_note)
+            ref = d.send_lookahead(a, pocket_url=pocket, items=items) if a["kind"] == "checkin" else d.send_alert(a, pocket_url=pocket, held_note=held_note)
             refs.append(f"{d.kind}:{ref}")
         except Exception as e:  # noqa: BLE001
             log(f"deliver {d.kind} failed for alert {alert_id}: {e}")
@@ -1543,6 +1544,44 @@ def skip_digest(store: Store) -> None:
     store.set("last_digest_at", iso())
 
 
+def lookahead_cards(store: Store, archive: Archive, alert_id: int, text: str, stories: list[dict], until: int, links: bool) -> list[dict]:
+    """1.95 (Brad): a look-ahead as cards, one per bullet of its message, so nothing it says is lost. Each bullet is matched to the
+    story that names it (`bullet`), else to the story whose evidence it cites most, else it stays a card with no story. A bullet
+    covering two stories is one card on the first. ref "c<alert id>.<bullet>": apply_item_feedback knows it by that shape."""
+    bullets = [m.group(1).strip() for m in (re.match(r"[ \t]*[-*][ \t]+(.+)", l) for l in (text or "").split("\n")) if m]
+    named: dict[int, dict] = {}
+    for s in stories:
+        n = str(s.get("bullet") or "")
+        if n.isdigit() and 1 <= int(n) <= len(bullets):
+            named.setdefault(int(n), s)
+    used = {id(s) for s in named.values()}
+    cards = []
+    for n, b in enumerate(bullets, 1):
+        cited = re.findall(r"\(msg:([0-9a-f]{6,24})\)", b)
+        s = named.get(n)
+        if s is None:
+            def overlap(x: dict) -> int:
+                return len({e["message_id"] for e in x.get("evidence") or []} & set(cited))
+            s = max((x for x in stories if id(x) not in used and overlap(x)), key=overlap, default=None)
+            if s is not None:
+                used.add(id(s))
+        thread = (s or {}).get("thread")
+        if not thread and cited:
+            r = archive.get(cited[:1], until)
+            thread = r[0]["thread_id"] if r else None
+        plain = re.sub(r"\s+", " ", CITE_RX.sub(r"\1", b)).strip()
+        title = (s or {}).get("title") or clip(re.split(r"(?<=[.!?:])\s", plain, maxsplit=1)[0], 120) or "Look-ahead item"
+        key = (s or {}).get("issue_key") or ""
+        url = None
+        if links:
+            url = start_link(CFG.pocket, briefing_for(store, {"subject": title, "sender": f"{ASSISTANT} (look-ahead)", "thread_id": thread, "text": b, "next_step": None, "issue_key": key}, None),
+                             f"Look-ahead: {title}", log)
+            links = bool(url)  # Pocket did not answer: the other cards go without
+        cards.append({"ref": f"c{alert_id}.{n}", "section": "ahead", "title": title, "text": b, "story": key, "gmail": GMAIL_THREAD_URL.format(thread_id=thread) if thread else "",
+                      "priority": (s or {}).get("priority") or "normal", "url": url or ""})
+    return cards
+
+
 def checkin(store: Store, archive: Archive, gmail: Gmail, slot: str, dry_run: bool) -> None:
     """Look-ahead: the judge reviews open stories and upcoming dates for what the owner should catch before it bites."""
     until = now_ts()
@@ -1582,6 +1621,7 @@ def checkin(store: Store, archive: Archive, gmail: Gmail, slot: str, dry_run: bo
         if it["evidence"]:
             r = archive.get([it["evidence"][0]["message_id"]], until)
             thread = r[0]["thread_id"] if r else None
+        it["thread"] = thread
         store.upsert_story(it, thread)
         store.add_event(it["issue_key"], "checkin", it["new_fact"], [e["message_id"] for e in it["evidence"]])
     text = sanitize_citations(data.get("message"), valid)
@@ -1591,7 +1631,13 @@ def checkin(store: Store, archive: Archive, gmail: Gmail, slot: str, dry_run: bo
         aid = store.queue_alert(f"checkin|{now_et().date()}|{slot}", issue_key=None, thread_id="", kind="checkin", priority="high", text=text,
                                 next_step=None, subject=f"Look-ahead · {now_et().strftime('%a %-I %p')}", sender=f"{ASSISTANT} ({keys})", status="queued")
         if aid:
-            deliver(store, aid, None, dry_run)
+            try:  # the cards are extra: without them the look-ahead still goes out as its text
+                cards = lookahead_cards(store, archive, aid, text, items, until,
+                                        not dry_run and not MODE.replay and bool(CFG.pocket.get("root")))
+            except Exception as ex:  # noqa: BLE001
+                log(f"look-ahead cards failed: {ex}")
+                cards = None
+            deliver(store, aid, None, dry_run, items=cards)
 
 
 def scheduled(store: Store, archive: Archive, gmail: Gmail, dry_run: bool) -> None:
@@ -2134,14 +2180,27 @@ def digest_item_alert(store: Store, ref: str) -> sqlite3.Row | None:
     return store.db.execute("select * from alerts where id=?", (int(m.group(1)),)).fetchone() if m else None
 
 
+def lookahead_item_alert(ref: str, it: dict) -> dict | None:
+    """What a look-ahead card ("c<alert id>.<bullet>", lookahead_cards) would alert with. It has no alert row of its own, so this
+    is built from what Pocket reports back. None for any other ref."""
+    if not re.fullmatch(r"c\d+\.\d+", ref or ""):
+        return None
+    m = re.search(r"#all/([0-9A-Za-z]+)$", it.get("gmail") or "")
+    return {"id": ref, "issue_key": it.get("story") or None, "thread_id": m.group(1) if m else "", "text": it.get("text") or it.get("title") or "", "next_step": None,
+            "subject": it.get("title") or "Look-ahead item", "sender": f"{ASSISTANT} (look-ahead)", "priority": it.get("priority") or "normal"}
+
+
 def apply_item_feedback(store: Store, it: dict, dry_run: bool) -> bool:
-    """1.95: a decision on one line of the morning digest in Pocket (feedback kind 'digest-item'). Alert me sends that story as an
-    alert of its own now (the owner is up and asking, so quiet hours do not hold it), lifts a low story to normal and is a lesson
-    the next learn turn turns into a rule; Resolved closes the story; Not useful is the lesson an alert's Not useful is; Restore
-    reopens a story Resolved had closed. False: Alert me could not reach the owner, so nothing is recorded and Pocket keeps the
-    request for the next run."""
+    """1.95: a decision on one card of the morning digest or a look-ahead in Pocket (feedback kind 'digest-item'). Add to Inbox sends
+    that story as an alert of its own now (the owner is up and asking, so quiet hours do not hold it) and lifts a low story to
+    normal; from the digest it is also a lesson the next learn turn turns into a rule, since the watcher underrated that mail. A
+    look-ahead item is a finding, not a kind of mail, so it teaches nothing. Resolved closes the story; Not useful is the lesson an
+    alert's Not useful is; Restore reopens a story Resolved had closed. False: Add to Inbox could not reach the owner, so nothing is
+    recorded and Pocket keeps the request for the next run."""
     ref, action = str(it.get("item") or ""), FEEDBACK_ACTIONS.get(it.get("action"), it.get("action"))
-    a = digest_item_alert(store, ref)
+    ahead = lookahead_item_alert(ref, it)
+    a = ahead or digest_item_alert(store, ref)
+    where, line = ("a look-ahead", "look-ahead item") if ahead else ("the morning digest", "digest line")
     key = (a["issue_key"] if a and a["issue_key"] else "") or (it.get("story") or "")
     title = ((it.get("title") or "") or (a["subject"] if a else "") or "")[:120]
     when = iso_to_et(it.get("at")) or now_et().strftime("%a %b %-d")
@@ -2162,22 +2221,23 @@ def apply_item_feedback(store: Store, it: dict, dry_run: bool) -> bool:
         if story:
             if story["priority"] == "low":
                 store.db.execute("update issues set priority='normal', updated_at=? where issue_key=?", (iso(), key))
-            store.add_event(key, "feedback", f"{OWNER} asked for an alert on this from the morning digest in Pocket ({when}).", [])
-        add_lesson(store, f"escalated:{it['id']}", "escalated", a["thread_id"], key or None, title, a["sender"] or "", a["subject"] or title,
-                   "", f"digest line: {clip(a['text'], 400)}", note)
+            store.add_event(key, "feedback", f"{OWNER} added this to the Inbox from {where} in Pocket ({when}).", [])
+        if not ahead:
+            add_lesson(store, f"escalated:{it['id']}", "escalated", a["thread_id"], key or None, title, a["sender"] or "", a["subject"] or title,
+                       "", f"digest line: {clip(a['text'], 400)}", note)
     elif action == "resolve" and story:
         store.db.execute("update issues set status='resolved', updated_at=? where issue_key=?", (iso(), key))
-        store.add_event(key, "feedback", f"{OWNER} marked this resolved from the morning digest in Pocket ({when}).", [])
+        store.add_event(key, "feedback", f"{OWNER} marked this resolved from {where} in Pocket ({when}).", [])
     elif action == "not_useful":
         add_lesson(store, f"not_useful:{it['id']}", "not_useful", a["thread_id"] if a else None, key or None, title, a["sender"] if a else "",
-                   a["subject"] if a else title, "", f"digest line: {clip(a['text'], 400)}" if a else "digest line", note)
+                   a["subject"] if a else title, "", f"{line}: {clip(a['text'], 400)}" if a else line, note)
         if story:
             store.db.execute("update issues set priority='low', updated_at=? where issue_key=?", (iso(), key))
-            store.add_event(key, "feedback", f"{OWNER} marked a digest line on this story not useful in Pocket ({when}).", [])
+            store.add_event(key, "feedback", f"{OWNER} marked a {line} on this story not useful in Pocket ({when}).", [])
     elif action == "restore" and story and story["status"] == "resolved":
         store.db.execute("update issues set status='open', updated_at=? where issue_key=?", (iso(), key))
         store.add_event(key, "feedback", f"{OWNER} restored this in Pocket ({when}).", [])
-    log(f"feedback {action} on digest item {ref!r}: {title!r} story={key or '-'}")
+    log(f"feedback {action} on {line} {ref!r}: {title!r} story={key or '-'}")
     return True
 
 

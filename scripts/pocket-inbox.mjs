@@ -6,7 +6,7 @@
 //   pocket-inbox add --title "…" (--text "…" | --file <path|->) [--kind alert|digest|lookahead] [--priority critical|high|normal|low]
 //                    [--story "…"] [--source "…"] [--url </#/start/<id> or a web address>] [--gmail <https://mail.google.com/…>]
 //                    [--doc <Files id>] [--dedupe <key>] [--items <path|->] [--email] [--no-push] [--json]      prints "<id> push=<devices|off> mail=<yes|no|off|failed>"
-//                    --items (1.95): a digest's items as JSON, [{ref, section, title, text, story, gmail, priority}]
+//                    --items (1.95): a digest's or look-ahead's items as JSON, [{ref, section, title, text, story, gmail, priority}]
 //   pocket-inbox list [--state new|all|dismissed] [--since <ISO>] [--json]                   new ones by default, newest first
 //   pocket-inbox show <id> [--json]
 //   pocket-inbox act <id> <open|unread|dismiss|resolve|not_useful|restore> [--note "…"] [--json]
@@ -70,7 +70,7 @@ function card(e) {
   lines.push(`  From: ${e.source}`);
   if (Array.isArray(e.items) && e.items.length) { // 1.95: a digest's items, with the ref `act --item` takes
     const SECTION = { held: 'Held overnight', resolved: 'Came up overnight and already resolved', worth: 'Worth knowing', tidied: 'Taken off your Inbox', listed: 'Already on your list' };
-    const ITEM = { alerted: 'alert requested', resolved: 'resolved', not_useful: 'not useful' };
+    const ITEM = { alerted: 'added to Inbox', resolved: 'resolved', not_useful: 'not useful' };
     let sec = '';
     for (const it of e.items) {
       if (it.section !== sec) { sec = it.section; lines.push(`  ${SECTION[sec] || sec}:`); }

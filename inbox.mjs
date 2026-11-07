@@ -16,7 +16,8 @@ import { randomBytes } from 'node:crypto';
 import { shellArg } from './skills.mjs';
 
 // 1.95: a digest carries its items (one per story: title, text, story, Gmail thread, a `ref` the watcher knows), each with
-// its own decision: Alert me on this, Resolved, Not useful, and Restore to undo. Item decisions are feedback too
+// its own decision: Add to Inbox (action 'alert'), Resolved, Not useful, and Restore to undo. A look-ahead's items work the same way
+// (section 'ahead', in the order the look-ahead gave them). Item decisions are feedback too
 // (kind 'digest-item', id '<entry>/<ref>'), so the watcher can promote a line to an alert, close a story or learn a rule
 // from one line of the digest instead of from the whole digest. A digest's text may run to digestText characters.
 export const LIMITS = { entries: 500, text: 2000, digestText: 12000, title: 160, story: 120, source: 60, items: 200, itemText: 1200, ref: 40, keepDays: 60, dismissedDays: 30 };
@@ -24,7 +25,7 @@ export const KINDS = ['alert', 'digest', 'lookahead'];
 export const PRIORITIES = ['critical', 'high', 'normal', 'low'];
 export const STATES = ['new', 'opened', 'dismissed', 'resolved', 'not_useful'];
 export const ACTIONS = ['open', 'unread', 'dismiss', 'resolve', 'not_useful', 'restore'];
-export const SECTIONS = ['held', 'resolved', 'worth', 'tidied', 'listed']; // where a digest item sat: held overnight, resolved overnight, worth knowing, taken off by the tidy pass, already on the list (an open alert on that story: the item links to it, no card)
+export const SECTIONS = ['held', 'resolved', 'worth', 'tidied', 'listed', 'ahead']; // where a digest item sat: held overnight, resolved overnight, worth knowing, taken off by the tidy pass, already on the list (an open alert on that story: the item links to it, no card)
 const HISTORY = ['resolved', 'tidied', 'listed']; // items that take no decision: the story is closed, gone, or decided on its own entry
 export const ITEM_STATES = ['open', 'alerted', 'resolved', 'not_useful', 'dismissed'];
 export const ITEM_ACTIONS = ['alert', 'resolve', 'not_useful', 'dismiss', 'restore'];
@@ -50,7 +51,7 @@ const checkDoc = v => { const d = str(v, 40); if (!d) return ''; if (DOC_RE.test
 const pick = (v, list, fallback, what) => { const s = str(v, 40); if (!s) return fallback; if (list.includes(s)) return s; throw fail(`Unknown ${what}. Use ${list.join(', ')}.`, 400, { code: 'bad_' + what }); };
 const checkSince = v => { if (v == null || v === '') return null; const t = Date.parse(String(v)); if (Number.isNaN(t)) throw fail('since must be a date and time (ISO).', 400, { code: 'bad_since' }); return t; };
 const source = v => line(v, LIMITS.source) || 'inbox-monitor';
-const textMax = kind => kind === 'digest' ? LIMITS.digestText : LIMITS.text;
+const textMax = kind => kind === 'alert' ? LIMITS.text : LIMITS.digestText;
 // 1.95: a digest's items. `ref` is the watcher's handle (an alert id, say) and must be unique within the entry; a bad item is refused
 // on add (the watcher's call) and dropped on load (a file edited by hand). `url` is the item's own briefed start link, when the
 // watcher made one, so the owner can start a conversation about that one line.
@@ -157,7 +158,7 @@ export function inboxInstructions(cli, sessionId) {
   return `This Pocket Code keeps Inbox Watch: the alerts, digests and look-aheads the user's inbox watcher sent. \`node ${cli} list\` shows the new ones (\`--state all\` for the rest, \`show <id>\` for one in full), and \`node ${cli} act <id> resolve|not_useful|dismiss\` records what the user decided; act only when the user asks. The pocket-inbox skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-inbox', 'SKILL.md')}\`) has the procedure.`;
 }
 
-const listedLast = items => [...items.filter(i => i.section !== 'listed'), ...items.filter(i => i.section === 'listed')]; // the watcher's order otherwise
+const listedLast = e => e.kind === 'digest' ? [...e.items.filter(i => i.section !== 'listed'), ...e.items.filter(i => i.section === 'listed')] : e.items; // the watcher's order otherwise; a look-ahead stays in its order, most pressing first
 
 export class InboxStore {
   constructor(file, { write, now } = {}) {
@@ -240,12 +241,12 @@ export class InboxStore {
       const hit = open.find(x => (it.story && x.story === it.story) || (it.gmail && x.gmail === it.gmail));
       if (hit) { it.section = 'listed'; it.url = '/#/inbox/' + hit.id; }
     }
-    e.items = listedLast(e.items);
+    e.items = listedLast(e);
   }
-  // Every digest card on the same story or Gmail thread as `x`, in any digest from this source. A history line is never one.
+  // Every card on the same story or Gmail thread as `x`, in any digest or look-ahead from this source. A history line is never one.
   cards(x, src, skip) {
     const out = [];
-    for (const e of this.entries) if (e.kind === 'digest' && e.source === src) for (const it of e.items) if (it !== skip && it.section !== 'resolved' && it.section !== 'tidied' && sameStory(x, it)) out.push({ e, it });
+    for (const e of this.entries) if (e.source === src) for (const it of e.items) if (it !== skip && it.section !== 'resolved' && it.section !== 'tidied' && sameStory(x, it)) out.push({ e, it });
     return out;
   }
   // One status per item (Brad): an alert that reaches the list after the digest, or comes back to it by Restore, takes over the
@@ -258,7 +259,7 @@ export class InboxStore {
       if (it.section === 'listed' || !(it.state === 'open' || it.state === 'alerted')) continue;
       it.section = 'listed'; it.url = '/#/inbox/' + a.id;
       for (const s of it.sessions) remember(a, s.id, s.at);
-      e.items = listedLast(e.items); e.revision += 1; changed = true;
+      e.items = listedLast(e); e.revision += 1; changed = true;
     }
     return changed;
   }
@@ -312,7 +313,7 @@ export class InboxStore {
     if (!ITEM_ACTIONS.includes(action)) throw fail('Unknown item action. Use alert, resolve, not_useful, dismiss or restore.', 400, { code: 'bad_action' });
     const e = this.get(str(id, 40)), ref = str(item, LIMITS.ref);
     const it = e.items.find(x => x.ref === ref);
-    if (!it) throw fail('That digest has no such item.', 404, { code: 'item_missing' });
+    if (!it) throw fail('That entry has no such item.', 404, { code: 'item_missing' });
     if (HISTORY.includes(it.section)) throw fail(it.section === 'listed' ? 'That line is already on your list; decide on its own entry.' : 'That line is history; there is nothing to decide.', 400, { code: 'item_history' });
     const at = iso(this.now()), n = typeof note === 'string' ? str(note, NOTE_MAX) : null, target = ITEM_TARGET[action];
     const was = it.state;
@@ -362,7 +363,7 @@ export class InboxStore {
       .map(e => ({ id: e.id, action: e.lastAction === 'restore' ? 'restore' : e.state, at: e.actedAt, note: e.note, title: e.title, story: e.story, source: e.source, kind: e.kind }));
     for (const e of this.entries) for (const it of e.items) {
       if (!it.actedAt || it.ackedAt != null || !(ITEM_ACTED.includes(it.state) || it.lastAction === 'restore') || (from != null && ms(it.actedAt) < from)) continue;
-      out.push({ id: `${e.id}/${it.ref}`, entry: e.id, item: it.ref, action: it.lastAction === 'restore' ? 'restore' : it.state === 'alerted' ? 'alert' : it.state, at: it.actedAt, note: it.note, title: it.title, story: it.story, source: e.source, kind: 'digest-item' });
+      out.push({ id: `${e.id}/${it.ref}`, entry: e.id, item: it.ref, action: it.lastAction === 'restore' ? 'restore' : it.state === 'alerted' ? 'alert' : it.state, at: it.actedAt, note: it.note, title: it.title, story: it.story, text: it.text, gmail: it.gmail, priority: it.priority, source: e.source, kind: 'digest-item' });
     }
     return out.sort((a, b) => ms(b.at) - ms(a.at));
   }
