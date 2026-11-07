@@ -131,11 +131,6 @@ def test_resolve_and_not_useful_on_a_digest_item():
     assert pocket.sent == [] and pocket.acked[-1] == "e/t1"
 
 
-if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_"):
-            fn()
-            print("ok", name)
 
 
 def test_a_story_already_on_the_list_is_not_a_new_card():
@@ -159,3 +154,119 @@ def test_a_story_already_on_the_list_is_not_a_new_card():
     assert by[f"a{other}"]["section"] == "worth" and by[f"a{other}"]["url"] == "/#/start/0123456789ab", "an open digest entry on the story does not count; a worth line keeps its start link"
     assert "## Already on your list (1)" in text and text.index("## Worth knowing") < text.index("## Already on your list"), text
     assert dict(store.db.execute("select id, status from alerts").fetchall()) == {aid: "digested", other: "digested"}
+
+
+def line(store, key, thread, text, subject="Same story", kind="digest", status="queued", priority="low"):
+    return store.queue_alert(f"fact:{key}", issue_key=thread and f"story-{thread}", thread_id=thread, kind=kind, priority=priority, text=text, next_step=None,
+                             subject=subject, sender="a@example.com", status=status)
+
+
+def digest_pocket(store):
+    pocket = Pocket()
+    E.DELIVERIES = [pocket]
+    return pocket
+
+
+def test_one_card_per_story_and_the_text_keeps_every_line():
+    store, _ = setup()
+    pocket = digest_pocket(store)
+    old = line(store, "old", "t1", "First fact. [Text](msg:t1)")
+    new = line(store, "new", "t1", "Second fact. [Text](msg:t1)")
+    solo = line(store, "solo", "t2", "Other fact. [Text](msg:t2)", subject="")
+    E.send_digest(store, [], False)
+    _, text, items = pocket.digests[0]
+    assert [i["ref"] for i in items] == [f"a{new}", f"a{solo}"], items
+    assert items[0]["text"].index("Second fact") < items[0]["text"].index("First fact"), "newest first, and both are on the card"
+    assert "First fact" in text and "Second fact" in text, "the digest's text is not merged"
+    assert items[1]["title"].startswith("Other fact"), "a line with no subject still gets a title"
+    assert dict(store.db.execute("select id, status from alerts").fetchall()) == {old: "digested", new: "digested", solo: "digested"}
+
+
+def test_a_failed_start_link_does_not_hold_up_the_rest():
+    store, _ = setup()
+    pocket = digest_pocket(store)
+    for n in range(3):
+        line(store, f"k{n}", f"t{n}", f"Fact {n}.")
+    calls = []
+    saved, root = E.start_link, E.CFG.pocket.get("root")
+    E.start_link = lambda *a: calls.append(a) and None
+    E.CFG.pocket["root"] = "/nowhere"
+    try:
+        E.send_digest(store, [], False)
+    finally:
+        E.start_link = saved
+        E.CFG.pocket["root"] = root
+    assert len(calls) == 1, calls
+    assert len(pocket.digests[0][2]) == 3 and all(not i["url"] for i in pocket.digests[0][2]), "the cards still go, without a link"
+
+
+def test_more_lines_than_cards_says_so_at_the_top():
+    store, _ = setup()
+    pocket = digest_pocket(store)
+    saved = E.DIGEST_CARDS
+    E.DIGEST_CARDS = 2
+    try:
+        for n in range(3):
+            line(store, f"k{n}", f"t{n}", f"Fact {n}.")
+        E.send_digest(store, [], False)
+    finally:
+        E.DIGEST_CARDS = saved
+    _, text, items = pocket.digests[0]
+    assert len(items) == 2 and text.startswith("1 more line did not fit as cards."), text[:80]
+    assert all(f"Fact {n}." in text for n in range(3))
+
+
+def test_a_failed_alert_me_is_kept_and_sent_once():
+    store, _ = setup()
+    pocket = digest_pocket(store)
+    aid = seed(store)
+    E.send_digest(store, [], False)
+    saved = pocket.send_alert
+
+    def down(*a, **k):
+        raise RuntimeError("no route")
+    pocket.send_alert = down
+    pocket.items = [{"id": f"d/a{aid}", "entry": "d", "item": f"a{aid}", "action": "alert", "at": "2026-11-07T13:01:00Z", "note": "",
+                     "title": "Roslynn website feedback and review", "story": "roslynn-website-feedback", "source": "inbox-monitor", "kind": "digest-item"}]
+    E.apply_feedback(store)
+    assert pocket.acked == [], "not acked: Pocket keeps the request"
+    assert not store.db.execute("select 1 from lessons").fetchone(), "no lesson until the alert reached the owner"
+    pocket.send_alert = saved
+    E.apply_feedback(store)
+    assert pocket.sent == ["Roslynn website feedback and review"] and pocket.acked == [f"d/a{aid}"], (pocket.sent, pocket.acked)
+    assert store.db.execute("select count(*) c from alerts where id!=?", (aid,)).fetchone()["c"] == 1, "the retry reuses the alert the failed run left"
+    assert store.db.execute("select count(*) c from lessons").fetchone()["c"] == 1
+    E.apply_feedback(store)
+    assert pocket.sent == ["Roslynn website feedback and review"], "and is not sent again"
+
+
+def test_digest_off_sends_held_alerts_and_no_digest():
+    store, _ = setup()
+    pocket = digest_pocket(store)
+    held = line(store, "held", "t1", "Held fact.", subject="Held", kind="notify", status="held", priority="normal")
+    worth = line(store, "worth", "t2", "Worth fact.")
+    saved = {k: getattr(E, k) for k in ("DIGEST_HOUR", "in_quiet_hours", "CHECKIN_SLOTS")}
+    E.DIGEST_HOUR, E.in_quiet_hours, E.CHECKIN_SLOTS = None, lambda *a: False, {}
+    assert E.scheduled_due(store), "the morning release is still owed"
+
+    class Archive:
+        pruned = 0
+
+        def prune(self):
+            Archive.pruned += 1
+    try:
+        E.scheduled(store, Archive(), None, False)
+        assert not E.scheduled_due(store), "once a day"
+    finally:
+        for k, v in saved.items():
+            setattr(E, k, v)
+    assert pocket.digests == [] and pocket.sent == ["Held"], (pocket.digests, pocket.sent)
+    assert dict(store.db.execute("select id, status from alerts").fetchall()) == {held: "sent", worth: "skipped"}
+    assert Archive.pruned == 1, "the archive still gets its morning prune"
+
+
+if __name__ == "__main__":
+    for name, fn in list(globals().items()):
+        if name.startswith("test_"):
+            fn()
+            print("ok", name)

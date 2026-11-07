@@ -130,24 +130,31 @@ The **X** on a row dismisses it directly.
 
 ### A digest's items
 
-A digest's sheet shows its lines as cards, under the headings the digest has (*Held overnight*, *Came up overnight and
-already resolved*, *Worth knowing*, *Taken off your Inbox*), each with its title, its text (citations are Gmail links),
-its story and these choices:
+A digest's sheet shows one card per story, under the headings the digest has (*Held overnight*, *Came up overnight and
+already resolved*, *Worth knowing*, *Taken off your Inbox*). Lines on the same story or thread share a card, newest first.
+Each card has its title, its text (citations are Gmail links), its story and these choices:
 
 - **Start a conversation**: a new conversation already briefed with that one story and its evidence, as an alert's is.
-  Nothing is sent and the watcher learns nothing from it; it is for dealing with this one line now.
+  Nothing is sent and the watcher learns nothing from it; it is for dealing with this one line now. Once a conversation
+  has started, **Open the conversation** goes back to it and **Start another** begins a new one.
 - **Alert me**: this line should have been an alert. The watcher sends that story as an alert of its own at its next
   check (within a minute or two, whatever quiet hours say, since you are up and asking) and learns from it the way it
   learns from a Gmail label: a rule under *Learned from your choices* saying to alert on that kind of mail.
 - **Resolved** and **Not useful**: the same as on an alert, but for that story alone rather than the whole digest.
-- **Undo**: takes any of the three back.
+- **Dismiss**: takes the line off your hands. The story is unchanged and the watcher learns nothing from it.
+- **Undo**: takes any of these back. An alert the watcher has already sent cannot be unsent, so that card has no Undo.
 - **Gmail**: the thread.
 
-A line whose story already has an open alert on your list is not a new card: it sits under **Already on your list** as one
-line that opens that entry, and your decision belongs on the entry. A line that resolved overnight or that the tidy pass took
-off is history and has only the Gmail link. The card says
-*Alert requested*, *Resolved* or *Not useful* once you have decided, and the digest itself stays open until you dismiss
-it. A digest from before 1.95 has no items and shows its text alone.
+**Each story has one status, so nothing is worked twice.** A line whose story already has an open alert on your list is not
+a new card: it sits under **Already on your list** as one line that opens that entry, and your decision belongs on the
+entry. The line shows what you decide there. An alert that arrives after the digest does the same to a card still open, and
+any conversation started from the card moves to the alert. A story on two digests is decided once: what you press on one
+card shows on the other. A line that resolved overnight or that the tidy pass took off is history and has only the Gmail
+link.
+
+The card says *Alert requested*, *Resolved*, *Not useful* or *Dismissed* once you have decided, and the digest itself stays
+open until you dismiss it. Pocket keeps up to 200 cards on a digest; past that the digest says how many lines did not fit,
+and the full digest in Files has every line. A digest from before 1.95 has no items and shows its text alone.
 
 ### Tell the watcher what you decided
 
@@ -159,6 +166,7 @@ it. A digest from before 1.95 has no items and shows its text alone.
 | **Restore** | back to Open | Reopens a story that Resolved had closed |
 | **Alert me** (a digest item) | the card says *Alert requested* | Sends that story as an alert now, lifts a low story to normal and learns a rule to alert on that kind of mail |
 | **Resolved** / **Not useful** (a digest item) | the card says so | As above, for that story alone |
+| **Dismiss** (a digest item) | the card says *Dismissed* | Nothing; the story is unchanged |
 
 With the Gmail label on, finishing an entry in any of the three ways also takes the label off its thread and archives
 it (see [Your list in Gmail](#your-list-in-gmail)).
@@ -192,9 +200,10 @@ until it has. **Use the config file's settings** hands control back to `config.t
   and up to 12 periods, each with a name, days, *From*, *Until* and its own interval. An *Until* earlier than *From*
   runs past midnight. When periods overlap, the first listed wins. With *Don't check* and no periods, the watcher
   checks only on demand and with the digest and look-aheads.
-- **Quiet hours and summaries**: *Quiet from* and *Until*, the **Morning digest** hour, and the **Morning
-  look-ahead** and **Evening look-ahead** hours (or *Off*). Times are the watcher's time zone; the sheet names it when
-  your device is in another.
+- **Quiet hours and summaries**: *Quiet from* and *Until*, and the **Morning digest**, **Morning look-ahead** and
+  **Evening look-ahead** hours (or *Off*). With the morning digest off, alerts held overnight arrive one by one when quiet
+  hours end, and lines that would only have been in the digest are not sent. Times are the watcher's time zone; the sheet
+  names it when your device is in another.
 - **Keep the Inbox tidy**: *Take finished items off my list* and **How often** (every 1, 2, 4, 8, 12 or 24 hours).
 - **Models** (Developer mode): model and reasoning for **Decisions** and for the **Look-ahead**. A Claude Code judge
   offers Haiku, Sonnet, Opus and Fable; a Codex judge offers the model its config names. *Model default* leaves the

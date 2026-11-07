@@ -15,9 +15,10 @@ const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
 const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-inbox-'));
 const DAY=86400000,GMAIL='https://mail.google.com/mail/u/0/#all/19a2b3c4d5e6f708';
+const freshInbox=()=>{let clock=Date.parse('2026-11-07T13:00:00Z');return {s:new InboxStore(path.join(tmp(),'inbox.json'),{now:()=>clock+=1000})};};
 
 test('InboxStore: the contract, normalizing input, limits and the instructions line',()=>{
-  assert.deepEqual(LIMITS,{entries:500,text:2000,digestText:12000,title:160,story:120,source:60,items:40,itemText:1200,ref:40,keepDays:60,dismissedDays:30});
+  assert.deepEqual(LIMITS,{entries:500,text:2000,digestText:12000,title:160,story:120,source:60,items:200,itemText:1200,ref:40,keepDays:60,dismissedDays:30});
   assert.deepEqual(KINDS,['alert','digest','lookahead']);assert.deepEqual(PRIORITIES,['critical','high','normal','low']);
   assert.deepEqual(STATES,['new','opened','dismissed','resolved','not_useful']);assert.deepEqual(ACTIONS,['open','unread','dismiss','resolve','not_useful','restore']);
   const dir=tmp(),file=path.join(dir,'inbox.json');const clock=Date.parse('2026-10-19T12:00:00Z');
@@ -180,6 +181,59 @@ test('InboxStore: Inbox Watch settings, the watcher\'s profile, revisions and pa
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+test('InboxStore: one status per item, between a digest card and its alert (Brad)',()=>{
+  const {s}=freshInbox();const GM='https://mail.google.com/mail/u/0/#all/18f0aa01b2c3d4e5',START='/#/start/0123456789ab';
+  const digest=(day,items)=>s.add({kind:'digest',title:'Digest '+day,text:'x',dedupe:'digest|'+day,items});
+  const line=(ref,story,extra={})=>({ref,section:'worth',title:'Line '+ref,text:'t',story,...extra});
+  const item=(id,ref)=>s.get(id).items.find(i=>i.ref===ref);
+  // An alert that arrives after the digest takes over the open card, and the card keeps the conversation it started.
+  const d=digest('mon',[line('a1','pool-pump',{url:START}),line('a2','roof-leak'),line('a3','fence',{gmail:GM}),line('a4','gate')]);
+  assert.equal(s.linkStart('0123456789ab','sess-abc-123').length,1,'a start from a card is remembered');
+  assert.deepEqual(item(d.id,'a1').sessions.map(x=>x.id),['sess-abc-123']);assert.equal(s.get(d.id).state,'opened','starting from a card reads the digest');
+  const before=s.get(d.id).revision,alert=s.add({kind:'alert',title:'Pool pump',story:'pool-pump'});
+  assert.deepEqual([item(d.id,'a1').section,item(d.id,'a1').url],['listed','/#/inbox/'+alert.id]);assert.equal(s.get(d.id).items.at(-1).ref,'a1','listed lines go last');
+  assert.ok(s.get(d.id).revision>before);assert.deepEqual(s.get(alert.id).sessions.map(x=>x.id),['sess-abc-123'],'the conversation moves to the alert');
+  assert.equal(digest('mon',[line('a9','roof-leak')]).duplicate,true);
+  const dup=s.add({kind:'alert',title:'again',story:'roof-leak',dedupe:'k1'}),dup2=s.add({kind:'alert',title:'again',story:'gate',dedupe:'k1'});
+  assert.equal(dup2.id,dup.id);assert.equal(item(d.id,'a4').section,'worth','a duplicate alert changes nothing');assert.equal(item(d.id,'a2').section,'listed');
+  // A decision on the alert shows on its line at once; the watcher hears it once, from the alert. Restore brings both back.
+  s.act({action:'resolve',id:alert.id});
+  assert.equal(item(d.id,'a1').state,'resolved');assert.deepEqual(s.feedback().map(f=>f.id),[alert.id],'never a second feedback from the line');
+  s.ack([alert.id]);s.act({action:'restore',id:alert.id});assert.deepEqual([item(d.id,'a1').state,item(d.id,'a1').section],['open','listed']);assert.deepEqual(s.feedback().map(f=>f.id),[alert.id]);s.ack([alert.id]);
+  s.act({action:'dismiss',id:alert.id});assert.equal(item(d.id,'a1').state,'dismissed');s.ack([alert.id]);
+  // A line that links to an alert takes no decision of its own, Undo included.
+  assert.throws(()=>s.act({action:'restore',id:d.id,item:'a1'}),e=>e.code==='item_history');
+  // A card decided before the alert stays decided: the alert is news since then.
+  s.act({action:'not_useful',id:d.id,item:'a3'});s.ack([d.id+'/a3']);s.add({kind:'alert',title:'Fence',gmail:GM});assert.deepEqual([item(d.id,'a3').section,item(d.id,'a3').state],['worth','not_useful']);
+  // Alert me: the card waits as Alert requested, and the alert it asked for takes it over.
+  s.act({action:'alert',id:d.id,item:'a4'});assert.equal(item(d.id,'a4').state,'alerted');
+  const asked=s.add({kind:'alert',title:'Gate',story:'gate'});assert.deepEqual([item(d.id,'a4').section,item(d.id,'a4').url],['listed','/#/inbox/'+asked.id]);
+  assert.deepEqual(s.feedback().map(f=>[f.id,f.action]),[[d.id+'/a4','alert']],'the request is still the watcher to ack');
+  // An alert closed before the digest, then restored: the card that came meanwhile folds into it.
+  const old=s.add({kind:'alert',title:'Old',story:'old'});s.act({action:'resolve',id:old.id});s.ack([old.id]);
+  const d2=digest('tue',[line('b1','old')]);assert.equal(item(d2.id,'b1').section,'worth');
+  s.act({action:'restore',id:old.id});assert.deepEqual([item(d2.id,'b1').section,item(d2.id,'b1').url],['listed','/#/inbox/'+old.id]);
+});
+test('InboxStore: the same story on two digests is one decision, and Dismiss on a card',()=>{
+  const {s}=freshInbox();
+  const mk=(day,ref)=>s.add({kind:'digest',title:day,text:'x',dedupe:day,items:[{ref,section:'worth',title:'Lift',story:'lift'},{ref:ref+'x',section:'tidied',title:'Lift gone',story:'lift'}]});
+  const m=mk('mon','a1'),t=mk('tue','a2');const st=(id,ref)=>s.get(id).items.find(i=>i.ref===ref).state;
+  s.act({action:'resolve',id:t.id,item:'a2'});
+  assert.equal(st(m.id,'a1'),'resolved','the other morning follows');assert.equal(st(m.id,'a1x'),'open','a history line is left alone');
+  assert.deepEqual(s.feedback().map(f=>f.id),[t.id+'/a2'],'the watcher hears it once');s.ack([t.id+'/a2']);
+  s.act({action:'restore',id:t.id,item:'a2'});assert.equal(st(m.id,'a1'),'open');s.ack([t.id+'/a2']);
+  s.act({action:'dismiss',id:m.id,item:'a1'});assert.deepEqual([st(m.id,'a1'),st(t.id,'a2')],['dismissed','dismissed']);
+  assert.deepEqual(s.feedback().map(f=>[f.id,f.action]),[[m.id+'/a1','dismissed']]);
+  // A card's conversation shows on the same story's other card too; the store keeps it across a reload.
+  const d=s.add({kind:'digest',title:'wed',text:'x',dedupe:'wed',items:[{ref:'c1',section:'worth',title:'Lift',story:'lift',url:'/#/start/aaaaaaaaaaaa'}]});
+  s.linkStart('aaaaaaaaaaaa','sess-xyz-789');assert.deepEqual(s.get(m.id).items[0].sessions.map(x=>x.id),['sess-xyz-789']);
+  assert.equal(s.linkStart('aaaaaaaaaaaa','sess-xyz-789').length,0,'recorded once');
+  const s2=new InboxStore(s.file,{now:s.now});assert.deepEqual(s2.get(d.id).items[0].sessions.map(x=>x.id),['sess-xyz-789']);
+});
+test('checkWatch: the morning digest can be off',()=>{
+  assert.deepEqual(checkWatch({digestHour:null}),{digestHour:null});assert.deepEqual(checkWatch({digestHour:6}),{digestHour:6});
+  assert.throws(()=>checkWatch({digestHour:24}),/digestHour/);assert.throws(()=>checkWatch({digestHour:'off'}),/digestHour/);
+});
 test('InboxStore: pruning after 60 days (dismissed after 30) and the 500-entry cap drop the oldest seen entries first',()=>{
   const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-08-01T12:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
@@ -346,7 +400,7 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
     {ref:'a296',section:'held',title:'Wireless Experts Google Ads keywords',text:'Steve asked for a keyword review.',story:'wireless-experts-google-ads-keywords'},
     {ref:'t12',section:'tidied',title:'Polo launch',text:'Resolved'}];
   const d=s.add({kind:'digest',title:'Morning email digest — Sat Nov 7',text:'## Worth knowing\n- Roslynn website feedback and review: business is up.\nIgnored since the last digest: 9 threads.',items,dedupe:'digest|2026-11-07'});
-  assert.equal(d.items.length,3);assert.deepEqual(d.items[0],{ref:'a317',section:'worth',title:'Roslynn website feedback and review',text:items[0].text,story:'roslynn-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low',state:'open',actedAt:null,ackedAt:null,note:'',lastAction:null});
+  assert.equal(d.items.length,3);assert.deepEqual(d.items[0],{ref:'a317',section:'worth',title:'Roslynn website feedback and review',text:items[0].text,story:'roslynn-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low',state:'open',actedAt:null,ackedAt:null,note:'',lastAction:null,sessions:[]});
   assert.deepEqual([d.items[1].priority,d.items[1].gmail,d.items[1].url,d.items[2].section],['normal','','','tidied'],'defaults');
   assert.throws(()=>s.add({title:'x',items:[{ref:'a1',title:'t',url:'javascript:alert(1)'}]}),e=>e.code==='bad_item','an item\'s start link is checked like an entry\'s');
   assert.equal(s.add({kind:'alert',title:'plain'}).items.length,0,'an alert has no items');
@@ -356,7 +410,7 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
   assert.throws(()=>s.add({title:'x',items:[{ref:'a1'}]}),e=>e.code==='bad_item'&&/title/.test(e.message));
   assert.throws(()=>s.add({title:'x',items:[{ref:'a1',title:'t',section:'misc'}]}),e=>e.code==='bad_section');
   assert.throws(()=>s.add({title:'x',items:[{ref:'a1',title:'t',gmail:'https://evil.example/'}]}),e=>e.code==='bad_item');
-  assert.throws(()=>s.add({title:'x',items:Array.from({length:41},(_,i)=>({ref:'a'+i,title:'t'}))}),e=>e.code==='bad_items');
+  assert.throws(()=>s.add({title:'x',items:Array.from({length:201},(_,i)=>({ref:'a'+i,title:'t'}))}),e=>e.code==='bad_items');
   // A digest's text may run long; an alert's is still cut at 2000.
   assert.equal(s.add({kind:'digest',title:'long',text:'x'.repeat(13000)}).text.length,LIMITS.digestText);assert.equal(s.add({title:'long alert',text:'x'.repeat(13000)}).text.length,LIMITS.text);
   // Deciding on an item reads the entry, records the decision on the item and is feedback of kind digest-item with id <entry>/<ref>.
@@ -364,7 +418,7 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
   assert.deepEqual([r.state,r.seenAt,r.revision,r.items[0].state,r.items[0].actedAt,r.items[0].lastAction],['opened','2026-11-07T13:00:01Z',2,'alerted','2026-11-07T13:00:01Z','alert']);
   assert.equal(s.act({action:'alert',id:d.id,item:'a317'}).revision,2,'the same decision twice is one decision');
   clock+=1000;r=s.act({action:'not_useful',id:d.id,item:'a296',note:'Steve texts me anyway'});assert.deepEqual([r.items[1].state,r.items[1].note],['not_useful','Steve texts me anyway']);
-  assert.throws(()=>s.act({action:'dismiss',id:d.id,item:'a317'}),e=>e.code==='bad_action');assert.throws(()=>s.act({action:'alert',id:d.id,item:'a999'}),e=>e.status===404&&e.code==='item_missing');
+  assert.throws(()=>s.act({action:'open',id:d.id,item:'a317'}),e=>e.code==='bad_action');assert.throws(()=>s.act({action:'alert',id:d.id,item:'a999'}),e=>e.status===404&&e.code==='item_missing');
   let fb=s.feedback();
   assert.deepEqual(fb.map(f=>f.id),[`${d.id}/a296`,`${d.id}/a317`],'newest first, the entry itself undecided');
   assert.deepEqual(fb[1],{id:`${d.id}/a317`,entry:d.id,item:'a317',action:'alert',at:'2026-11-07T13:00:01Z',note:'',title:'Roslynn website feedback and review',story:'roslynn-website-feedback',source:'inbox-monitor',kind:'digest-item'});
@@ -389,5 +443,5 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
   // Reload: items come back; a hand-edited bad item is dropped, not fatal.
   const raw=JSON.parse(fs.readFileSync(file,'utf8'));raw.entries[0].items.push({ref:'bad ref',title:'x'},{ref:'a317',title:'dup'});fs.writeFileSync(file,JSON.stringify(raw));
   const s2=new InboxStore(file,{now:()=>clock});const e2=s2.get(d.id);
-  assert.deepEqual(e2.items.map(i=>[i.ref,i.state]),[['a317','open'],['a296','not_useful'],['t12','open']]);
+  assert.deepEqual(e2.items.map(i=>[i.ref,i.state]),[['a296','not_useful'],['t12','open'],['a317','open']],'a317 shares its Gmail thread with the alert added above, so it folded into that alert and went last');
 });

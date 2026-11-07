@@ -221,7 +221,7 @@ class PocketPush(Delivery):
         items_file = None
         if items:  # 1.95: a digest's items go in a file beside the text (stdin carries the text); an older Pocket ignores the option
             items_file = tempfile.NamedTemporaryFile("w", suffix=".json", prefix="pocket-inbox-items-", delete=False)
-            json.dump(items[:40], items_file)
+            json.dump(items, items_file)
             items_file.close()
             args += ["--items", items_file.name]
         try:
@@ -329,7 +329,13 @@ class PocketPush(Delivery):
         md = f"# {title}\n\n" + cite_markdown(text).replace("\n## ", "\n\n## ")
         doc = self._keep(title, md, f"digest-{dt.datetime.now().strftime('%Y-%m-%d-%H%M')}.md")
         if self.inbox:
-            ref = self._add("digest", title, text, doc=doc, dedupe=f"digest|{dt.datetime.now().date()}", items=items)
+            try:
+                ref = self._add("digest", title, text, doc=doc, dedupe=f"digest|{dt.datetime.now().date()}", items=items)
+            except RuntimeError as ex:  # Pocket refused a card: one bad line must not cost the owner the digest, or mint every link again next run
+                if not items or not re.search(r"\bItem \d+:|\bitems:", str(ex)):
+                    raise
+                self.log(f"Pocket refused the digest's cards ({ex}); sending the digest without them")
+                ref = self._add("digest", title, text, doc=doc, dedupe=f"digest|{dt.datetime.now().date()}")
             if ref:
                 return ref
         first = next((l for l in text.split("\n") if l.strip() and not l.startswith("## ")), "")

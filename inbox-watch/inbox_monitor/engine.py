@@ -57,7 +57,8 @@ ROOT = STATE = DB_PATH = ARCHIVE_PATH = LOCK_PATH = LOG_PATH = STOP_FILE = PROMP
 MAILBOX = OWNER = ASSISTANT = ""
 TZ = ZoneInfo("UTC")
 QUIET_START_H, QUIET_END_H = 22, 8
-DIGEST_HOUR = 8
+DIGEST_HOUR = 8  # None: the digest is off
+DIGEST_CARDS = 200  # Pocket's LIMITS.items
 CHECKIN_SLOTS: dict[str, tuple[int, int]] = {}
 JUDGE = None
 LOOKAHEAD_JUDGE = None  # optional second judge for the twice-daily look-ahead ([judge.lookahead] in the config)
@@ -1437,14 +1438,18 @@ def send_digest(store: Store, overflow: list[sqlite3.Row], dry_run: bool) -> Non
     still = [a for a in overflow if not is_resolved(a)]
     first = lambda t: (t or "").strip().splitlines()[0] if (t or "").strip() else ""  # noqa: E731
 
+    links = True
+
     def item(a, section: str, text: str) -> dict:
         """1.95: the line as data for Pocket, where each gets its own choices; `ref` a<alert id> is what its feedback names. A line
         still open (held, worth knowing) also gets a briefed start link, like an alert's, so the owner can talk about that one
         thing now without teaching the watcher anything."""
+        nonlocal links
         url = None
-        if section in ("held", "worth") and not dry_run and not MODE.replay and CFG.pocket.get("root"):
+        if links and section in ("held", "worth") and not dry_run and not MODE.replay and CFG.pocket.get("root"):
             url = start_link(CFG.pocket, briefing_for(store, a, None), f"Email: {a['subject']}", log)
-        return {"ref": f"a{a['id']}", "section": section, "title": a["subject"] or "", "text": text, "story": a["issue_key"] or "",
+            links = bool(url)  # Pocket did not answer: the other cards go without rather than each waiting out its own timeout
+        return {"ref": f"a{a['id']}", "section": section, "title": a["subject"] or first(text)[:120] or "(no subject)", "text": text, "story": a["issue_key"] or "",
                 "gmail": GMAIL_THREAD_URL.format(thread_id=a["thread_id"]) if a["thread_id"] else "", "priority": a["priority"] or "normal", "url": url or ""}
     # 1.95 (Brad): a story that already has an open entry on the owner's list never comes back as a new card. Such lines go
     # under "Already on your list", each linking to its entry; Pocket applies the same rule itself when it stores the digest.
@@ -1464,27 +1469,41 @@ def send_digest(store: Store, overflow: list[sqlite3.Row], dry_run: bool) -> Non
     still, on_list = [a for a in still if a["id"] not in listed], [a for a in still + digest_items if a["id"] in listed]
     digest_items = [a for a in digest_items if a["id"] not in listed]
     lines: list[str] = []
-    items: list[dict] = []
+    rows: list[tuple] = []  # (alert, section, text): the digest's lines, before they become cards
     if still:
         lines += [f"## Also held overnight ({len(still)})"] + [f"- {a['subject'] or ''}: {first(a['text'])}" for a in still]
-        items += [item(a, "held", first(a["text"])) for a in still]
+        rows += [(a, "held", first(a["text"])) for a in still]
     if resolved:
         lines += [f"## Came up overnight and already resolved ({len(resolved)})"] + [f"- {a['subject'] or ''}: {first(a['text'])}" for a in resolved]
-        items += [item(a, "resolved", first(a["text"])) for a in resolved]
+        rows += [(a, "resolved", first(a["text"])) for a in resolved]
     if digest_items:
         lines += ["## Worth knowing"] + [f"- {a['subject'] or ''}: {a['text'] or ''}" for a in digest_items]
-        items += [item(a, "worth", a["text"] or "") for a in digest_items]
+        rows += [(a, "worth", a["text"] or "") for a in digest_items]
     if on_list:
         lines += [f"## Already on your list ({len(on_list)})"] + [f"- {a['subject'] or ''}: {first(a['text'])}" for a in on_list]
-        items += [dict(item(a, "listed", first(a["text"])), url=listed[a["id"]]) for a in on_list]
+        rows += [(a, "listed", first(a["text"])) for a in on_list]
+    # One card per story: lines on the same story or thread are one thing to decide. The card is the newest line, with the other
+    # lines' text under it, and sits where the story first appears. The digest's text keeps every line.
+    stories: dict[str, list[tuple]] = {}
+    for r in rows:
+        stories.setdefault(r[0]["issue_key"] or r[0]["thread_id"] or f"a{r[0]['id']}", []).append(r)
+    items: list[dict] = []
+    for group in stories.values():
+        a = max((r[0] for r in group), key=lambda x: x["id"])
+        card = item(a, group[0][1], "\n\n".join(dict.fromkeys(r[2] for r in reversed(group) if r[2])))
+        items.append(dict(card, url=listed[a["id"]]) if card["section"] == "listed" else card)
     tidied = store.db.execute("select id, title, verdict, issue_key from tidy_log where acted=1 and at>=? order by id", (since,)).fetchall()
     if tidied:
         res = [t["title"] for t in tidied if t["verdict"] == "resolved"]
         han = [t["title"] for t in tidied if t["verdict"] == "handled"]
         lines += [f"## Taken off your Inbox ({len(tidied)})"] + ([f"- Resolved: {', '.join(res)}"] if res else []) + ([f"- Handled, still followed: {', '.join(han)}"] if han else [])
-        items += [{"ref": f"t{t['id']}", "section": "tidied", "title": t["title"] or "", "text": "Resolved" if t["verdict"] == "resolved" else "Handled, still followed",
+        items += [{"ref": f"t{t['id']}", "section": "tidied", "title": t["title"] or "(no title)", "text": "Resolved" if t["verdict"] == "resolved" else "Handled, still followed",
                    "story": t["issue_key"] or "", "gmail": "", "priority": "normal", "url": ""} for t in tidied]
     lines += [f"Ignored since the last digest: {ignored} threads. Reply if something should have reached you."]
+    if len(items) > DIGEST_CARDS:  # first, so Pocket's cut of a long text never takes it
+        extra = len(items) - DIGEST_CARDS
+        lines.insert(0, f"{extra} more {'line' if extra == 1 else 'lines'} did not fit as cards. The full digest in Files has every line.")
+        items = items[:DIGEST_CARDS]
     text = "\n".join(lines)
     if overflow or digest_items or ignored:
         ref = None
@@ -1507,6 +1526,19 @@ def send_digest(store: Store, overflow: list[sqlite3.Row], dry_run: bool) -> Non
             store.set("digest_memory_pending", json.dumps({"title": title, "text": text, "date": today}))
         for a in still + digest_items + on_list:
             store.mark_sent(a["id"], ref, None, "dry-run" if dry_run else "digested")
+    store.set("last_digest_date", today)
+    store.set("last_digest_at", iso())
+
+
+def skip_digest(store: Store) -> None:
+    """The morning digest is off. The held alerts have already gone out on their own (release_held). Worth-knowing lines reach no
+    one, so they close here instead of piling up for the day the digest comes back on."""
+    today = now_et().date().isoformat()
+    rows = store.pending(("digest",), ("queued",))
+    for a in rows:
+        store.mark_sent(a["id"], None, None, "skipped")
+    if rows:
+        log(f"morning digest is off: {len(rows)} worth-knowing lines not sent")
     store.set("last_digest_date", today)
     store.set("last_digest_at", iso())
 
@@ -1567,8 +1599,8 @@ def scheduled(store: Store, archive: Archive, gmail: Gmail, dry_run: bool) -> No
     today = t.date().isoformat()
     if in_quiet_hours():
         return
-    morning_due = store.get("last_digest_date") != today and t.hour >= DIGEST_HOUR
-    overflow = release_held(store, dry_run) if morning_due else []
+    morning_due = store.get("last_digest_date") != today and t.hour >= (DIGEST_HOUR or 0)  # digest off (None): the release still runs, at the end of quiet hours
+    overflow = release_held(store, dry_run, everything=DIGEST_HOUR is None) if morning_due else []
     for slot, (h0, h1) in CHECKIN_SLOTS.items():
         key = f"checkin_{today}_{slot}"
         tries = int(store.get(key + "_tries", "0"))
@@ -1582,7 +1614,10 @@ def scheduled(store: Store, archive: Archive, gmail: Gmail, dry_run: bool) -> No
                 log(f"checkin {slot} failed: {e}")
             store.commit()
     if morning_due:
-        send_digest(store, overflow, dry_run)
+        if DIGEST_HOUR is None:
+            skip_digest(store)
+        else:
+            send_digest(store, overflow, dry_run)
         if not MODE.replay:
             archive.prune()
 
@@ -2099,11 +2134,12 @@ def digest_item_alert(store: Store, ref: str) -> sqlite3.Row | None:
     return store.db.execute("select * from alerts where id=?", (int(m.group(1)),)).fetchone() if m else None
 
 
-def apply_item_feedback(store: Store, it: dict, dry_run: bool) -> None:
+def apply_item_feedback(store: Store, it: dict, dry_run: bool) -> bool:
     """1.95: a decision on one line of the morning digest in Pocket (feedback kind 'digest-item'). Alert me sends that story as an
     alert of its own now (the owner is up and asking, so quiet hours do not hold it), lifts a low story to normal and is a lesson
     the next learn turn turns into a rule; Resolved closes the story; Not useful is the lesson an alert's Not useful is; Restore
-    reopens a story Resolved had closed."""
+    reopens a story Resolved had closed. False: Alert me could not reach the owner, so nothing is recorded and Pocket keeps the
+    request for the next run."""
     ref, action = str(it.get("item") or ""), FEEDBACK_ACTIONS.get(it.get("action"), it.get("action"))
     a = digest_item_alert(store, ref)
     key = (a["issue_key"] if a and a["issue_key"] else "") or (it.get("story") or "")
@@ -2114,12 +2150,15 @@ def apply_item_feedback(store: Store, it: dict, dry_run: bool) -> None:
     if action == "alert":
         if not a:
             log(f"feedback alert on digest item {ref!r}: no alert behind it; nothing to send")
-            return
-        new_id = store.queue_alert(f"escalate:{a['id']}:{it.get('at') or iso()}", issue_key=a["issue_key"], thread_id=a["thread_id"], kind="notify",
+            return True
+        dedupe = f"escalate:{a['id']}:{it.get('at') or iso()}"
+        store.queue_alert(dedupe, issue_key=a["issue_key"], thread_id=a["thread_id"], kind="notify",
                                    priority=a["priority"] if a["priority"] in ("high", "critical") else "normal", text=a["text"], next_step=a["next_step"],
                                    subject=a["subject"], sender=a["sender"], status="queued")
-        if new_id:
-            deliver(store, new_id, None, dry_run)
+        row = store.db.execute("select id, status from alerts where dedupe_key=?", (dedupe,)).fetchone()  # this run's, or the one a failed run left
+        if row and row["status"] not in ("sent", "dry-run") and not deliver(store, row["id"], None, dry_run):
+            log(f"feedback alert on digest item {ref!r}: delivery failed; trying again next run")
+            return False
         if story:
             if story["priority"] == "low":
                 store.db.execute("update issues set priority='normal', updated_at=? where issue_key=?", (iso(), key))
@@ -2139,6 +2178,7 @@ def apply_item_feedback(store: Store, it: dict, dry_run: bool) -> None:
         store.db.execute("update issues set status='open', updated_at=? where issue_key=?", (iso(), key))
         store.add_event(key, "feedback", f"{OWNER} restored this in Pocket ({when}).", [])
     log(f"feedback {action} on digest item {ref!r}: {title!r} story={key or '-'}")
+    return True
 
 
 def apply_feedback(store: Store, dry_run: bool = False) -> None:
@@ -2161,10 +2201,10 @@ def apply_feedback(store: Store, dry_run: bool = False) -> None:
                 continue
             if it.get("kind") == "digest-item":
                 try:
-                    apply_item_feedback(store, it, dry_run)
+                    if apply_item_feedback(store, it, dry_run):
+                        done.append(it["id"])
                 except Exception as ex:  # noqa: BLE001
-                    log(f"feedback on digest item {it.get('id')!r} failed: {ex}")
-                done.append(it["id"])
+                    log(f"feedback on digest item {it.get('id')!r} failed: {ex}")  # not acked: the decision stays for the next run
                 continue
             key, title = it.get("story") or "", (it.get("title") or "")[:120]
             # Pocket reports the entry's state ("resolved", "not_useful", "dismissed") or "restore", not the verb the owner
@@ -2583,7 +2623,7 @@ def scheduled_due(store: Store) -> bool:
     if in_quiet_hours():
         return False
     today = t.date().isoformat()
-    if store.get("last_digest_date") != today and t.hour >= DIGEST_HOUR:
+    if store.get("last_digest_date") != today and t.hour >= (DIGEST_HOUR or 0):
         return True
     return any(h0 <= t.hour < h1 and not store.get(f"checkin_{today}_{slot}") and int(store.get(f"checkin_{today}_{slot}_tries", "0")) < 3
                for slot, (h0, h1) in CHECKIN_SLOTS.items())
@@ -2980,7 +3020,7 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"from {SETTINGS_FROM}{' revision ' + str(SETTINGS_REVISION) if SETTINGS_REVISION is not None else ''}: {schedmod.describe(SETTINGS)}")
         print(f"now: {'paused' if SETTINGS['paused'] else ('no checks' if every == 0 else f'every {every} min')}{' (' + period + ')' if period else ''}; "
               f"last check {last.strftime('%a %-I:%M %p') if last else 'never'}; next {nxt.strftime('%a %-I:%M %p') if nxt else 'none scheduled'}")
-        print(f"quiet hours {SETTINGS['quietHours'][0]}:00–{SETTINGS['quietHours'][1]}:00; digest {DIGEST_HOUR}:00; look-ahead "
+        print(f"quiet hours {SETTINGS['quietHours'][0]}:00–{SETTINGS['quietHours'][1]}:00; digest {'off' if DIGEST_HOUR is None else str(DIGEST_HOUR) + ':00'}; look-ahead "
               + (", ".join(f"{k} {a}:00–{b}:00" for k, (a, b) in CHECKIN_SLOTS.items()) or "off"))
         print(f"decisions: {JUDGE.describe()}\nlook-ahead: {LOOKAHEAD_JUDGE.describe()}")
         td = SETTINGS.get("tidy") or {}

@@ -1919,10 +1919,11 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .inbox-item-actions .chip .i { width: 16px; height: 16px; }
 .inbox-item-alert { color: var(--clay); border-color: var(--clay); }
 .inbox-item-state { font-size: 13.5px; font-weight: 600; color: var(--clay); margin-right: 4px; }
-.inbox-item-card.state-resolved, .inbox-item-card.state-not_useful { opacity: .72; }
+.inbox-item-card.state-resolved, .inbox-item-card.state-not_useful, .inbox-item-card.state-dismissed { opacity: .72; }
 .inbox-rest { margin-top: 10px; color: var(--dim); font-size: 13.5px; }
 .inbox-item-listed { margin: 0 0 6px; font-size: 14px; line-height: 1.45; color: var(--dim); overflow-wrap: anywhere; } /* 1.95: a line already on the list links to its entry */
 .inbox-item-listed a { color: var(--clay); font-weight: 600; text-decoration: none; }
+.inbox-item-listed .inbox-item-state { margin: 0 0 0 4px; font-size: 13px; }
 .inbox-card .home-card-what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 1.70: Inbox Watch settings. The 1.67 settings blocks (set head, lead, router-level rows), with periods as rows of
    day chips and times, and a plain table of what each day cost. No new colour; the pressed day uses the filter-chip clay. */

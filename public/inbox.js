@@ -64,22 +64,25 @@ function inboxText(text){
  }
  return out.map(x=>Array.isArray(x)?`<ul>${x.join('')}</ul>`:x).join('');
 }
-/* 1.95: a digest's items (inbox.mjs items), each a card with its own choices. Alert me asks the watcher to send that story as
-   an alert of its own and to learn from it; Resolved and Not useful land on that story, not on the whole digest; Undo takes
-   any of them back. A line that resolved overnight or was taken off by the tidy pass is history and only links to Gmail. */
+/* 1.95: a digest's items (inbox.mjs items), each a card with the choices an Inbox entry has. Alert me asks the watcher to send
+   that story as an alert of its own and to learn from it; Resolved, Not useful and Dismiss land on that story, not on the whole
+   digest; Undo takes any of them back, except an alert the watcher has already sent. A line on a story that is on the list opens
+   that entry and shows its state, so the story is decided in one place. A line that resolved overnight or was taken off by the
+   tidy pass is history and only links to Gmail. */
 const INBOX_SECTION={held:'Held overnight',resolved:'Came up overnight and already resolved',worth:'Worth knowing',tidied:'Taken off your Inbox',listed:'Already on your list'};
-const INBOX_ITEM_STATE={alerted:'Alert requested',resolved:'Resolved',not_useful:'Not useful'};
+const INBOX_ITEM_STATE={alerted:'Alert requested',resolved:'Resolved',not_useful:'Not useful',dismissed:'Dismissed'};
 const inboxActable=it=>it.section==='worth'||it.section==='held';
 function inboxItemHTML(it){
  if(it.section==='listed'){ // 1.95 (Brad): an open entry already has this story; one line that opens it, never a new card
   const t=inboxTarget({url:it.url||''}),first=inboxFirst(it.text);
-  return `<p class="inbox-item-listed">${t?`<a href="${esc(t.startsWith('#')?t:'#'+t)}">${esc(it.title)}</a>`:`<strong>${esc(it.title)}</strong>`}${first?` <span>${esc(first)}</span>`:''}</p>`;
+  return `<p class="inbox-item-listed">${t?`<a href="${esc(t.startsWith('#')?t:'#'+t)}">${esc(it.title)}</a>`:`<strong>${esc(it.title)}</strong>`}${it.state!=='open'&&INBOX_ITEM_STATE[it.state]?` <strong class="inbox-item-state">${esc(INBOX_ITEM_STATE[it.state])}</strong>`:''}${first?` <span>${esc(first)}</span>`:''}</p>`;
  }
  const facts=[it.story?esc(it.story.replace(/-/g,' ')):'',it.priority&&it.priority!=='normal'?esc(it.priority):''].filter(Boolean).join(' · ');
- const acts=!inboxActable(it)?'':it.state!=='open'?`<span class="inbox-item-state">${esc(INBOX_ITEM_STATE[it.state]||it.state)}</span><button class="chip" data-item-act="restore" data-item="${esc(it.ref)}" title="Take that back">Undo</button>`
-  :`<button class="chip inbox-item-alert" data-item-act="alert" data-item="${esc(it.ref)}" title="Make this an alert of its own; the watcher alerts on this kind of thing from now on">${IC.bell}Alert me</button><button class="chip" data-item-act="resolve" data-item="${esc(it.ref)}" title="This situation is over; the watcher stops following it">${IC.tick}Resolved</button><button class="chip" data-item-act="not_useful" data-item="${esc(it.ref)}" title="Don’t tell me about this kind of thing">${IC.bellOff}Not useful</button>`;
- const talk=inboxActable(it)&&inboxTarget({url:it.url||''})?`<button class="chip" data-item-go="${esc(it.ref)}" title="A new conversation already briefed with this story and its evidence; the watcher learns nothing from it">${IC.plus}Start a conversation</button>`:''; // 1.95.1: about this one line, now, no rule
- return `<article class="inbox-item-card state-${esc(it.state)}" data-item-card="${esc(it.ref)}"><h4>${esc(it.title)}</h4>${it.text?`<div class="inbox-body">${inboxText(it.text)}</div>`:''}${facts?`<p class="inbox-item-facts">${facts}</p>`:''}<div class="inbox-item-actions">${talk}${acts}${it.gmail?`<a class="chip" href="${esc(it.gmail)}" target="_blank" rel="noopener">${IC.globe}Gmail</a>`:''}</div></article>`;
+ const acts=!inboxActable(it)?'':it.state!=='open'?`<span class="inbox-item-state">${esc(INBOX_ITEM_STATE[it.state]||it.state)}</span>${it.state==='alerted'&&it.ackedAt?'':`<button class="chip" data-item-act="restore" data-item="${esc(it.ref)}" title="Take that back">Undo</button>`}`
+  :`<button class="chip inbox-item-alert" data-item-act="alert" data-item="${esc(it.ref)}" title="Make this an alert of its own; the watcher alerts on this kind of thing from now on">${IC.bell}Alert me</button><button class="chip" data-item-act="resolve" data-item="${esc(it.ref)}" title="This situation is over; the watcher stops following it">${IC.tick}Resolved</button><button class="chip" data-item-act="not_useful" data-item="${esc(it.ref)}" title="Don’t tell me about this kind of thing">${IC.bellOff}Not useful</button><button class="chip" data-item-act="dismiss" data-item="${esc(it.ref)}" title="Take this off the digest; the watcher learns nothing from it">${IC.x}Dismiss</button>`;
+ const sess=inboxActable(it)?inboxSession(it):null,chat=sess?`<a class="chip" href="#/chat/${esc(sess.id)}" data-item-chat>${IC.chat}Open the conversation</a>`:'';
+ const talk=inboxActable(it)&&inboxTarget({url:it.url||''})?`<button class="chip" data-item-go="${esc(it.ref)}" title="A new conversation already briefed with this story and its evidence; the watcher learns nothing from it">${IC.plus}${sess?'Start another':'Start a conversation'}</button>`:''; // 1.95.1: about this one line, now, no rule
+ return `<article class="inbox-item-card state-${esc(it.state)}" data-item-card="${esc(it.ref)}"><h4>${esc(it.title)}</h4>${it.text?`<div class="inbox-body">${inboxText(it.text)}</div>`:''}${facts?`<p class="inbox-item-facts">${facts}</p>`:''}<div class="inbox-item-actions">${chat}${talk}${acts}${it.gmail?`<a class="chip" href="${esc(it.gmail)}" target="_blank" rel="noopener">${IC.globe}Gmail</a>`:''}</div></article>`;
 }
 function inboxItemsHTML(e){
  const groups=[];let sec=null;
@@ -242,17 +245,17 @@ function inboxSheet(id){
  sh.querySelector('[data-useless]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'not_useful',id},'Noted: not useful');});
  sh.querySelector('[data-dismiss]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'dismiss',id},'Dismissed');});
  sh.querySelector('[data-restore]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxAct({action:'restore',id},'Restored');});
- const ITEM_DONE={alert:'Alert requested. The watcher sends it as an alert at its next check and learns from it',resolve:'Marked resolved',not_useful:'Noted: not useful',restore:'Undone'};
+ const ITEM_DONE={alert:'Alert requested. The watcher sends it as an alert at its next check and learns from it',resolve:'Marked resolved',not_useful:'Noted: not useful',dismiss:'Dismissed',restore:'Undone'};
  const bindItems=()=>{sh.querySelectorAll('[data-item-act]').forEach(b=>b.onclick=async()=>{ // 1.95: the sheet stays open; the card repaints with its new state
   const act=b.dataset.itemAct,ref=b.dataset.item;b.disabled=true;
   const ent=await inboxAct({action:act,id,item:ref},ITEM_DONE[act]);
   const wrap=sh.querySelector('[data-items]');
   if(ent&&wrap){wrap.innerHTML=inboxItemsHTML(ent);bindItems();}else b.disabled=false;
  });bindItemGo();};
- const bindItemGo=()=>sh.querySelectorAll('[data-item-go]').forEach(b=>b.onclick=()=>{ // 1.95.1: the item's own start link opens like an entry's
+ const bindItemGo=()=>{sh.querySelectorAll('[data-item-go]').forEach(b=>b.onclick=()=>{ // 1.95.1: the item's own start link opens like an entry's
   const it=(inboxById(id)?.items||[]).find(x=>x.ref===b.dataset.itemGo),t=it?inboxTarget({url:it.url||''}):'';
   if(!t)return;closeCurrentSheet?.();if(/^https?:\/\//.test(t))window.open(t,'_blank','noopener');else location.hash=t;
- });
+ });sh.querySelectorAll('[data-item-chat]').forEach(a=>a.onclick=()=>closeCurrentSheet?.());};
  bindItems();
  if(e.state==='new')inboxMarkRead(e);
  mountSheet(scrim,sh);
@@ -307,6 +310,7 @@ function watchStatus(w){
  const now=st?st.every===0?'Not checking now':`Checking ${watchEvery(st.every).toLowerCase()} now`:'';
  return `${now}${st?.period?` (${st.period})`:''}.${st?.lastCheckAt?` Last check ${watchTime(st.lastCheckAt)}`:''}${st?.nextCheckAt?`, next about ${watchTime(st.nextCheckAt)}.`:st?.lastCheckAt?'.':''}${pending}`;
 }
+const watchQuietNote=digest=>digest==null?'In quiet hours only critical alerts reach you. With the digest off, the rest arrive one by one when quiet hours end, and what would only have been a digest line is not sent.':'In quiet hours only critical alerts reach you; the rest wait for the morning digest.';
 function watchSelect(id,label,values,current,word,extra=''){
  return `<label class="voice-field">${label}<select id="${id}" ${extra}>${values.map(v=>`<option value="${v===null?'off':v}"${v===current||(v===null&&current==null)?' selected':''}>${word(v)}</option>`).join('')}</select></label>`;
 }
@@ -365,8 +369,8 @@ async function inboxWatchSheet(){
    <span class="vault-set-actions"><button type="button" class="chip" id="w-add">${IC.plus}Add a period</button></span></div>
   <div class="title-settings model-offer" role="group" aria-labelledby="w-times-h"><p class="vault-set-head" id="w-times-h">Quiet hours and summaries</p>
    <div class="watch-pair">${watchSelect('w-quiet-from','Quiet from',hours,s.quietHours[0],watchHour)}${watchSelect('w-quiet-to','Until',hours,s.quietHours[1],watchHour)}</div>
-   <p class="title-note">In quiet hours only critical alerts reach you; the rest wait for the morning digest.</p>
-   <div class="watch-pair">${watchSelect('w-digest','Morning digest',hours,s.digestHour,watchHour)}</div>
+   <p class="title-note" id="w-quiet-note">${watchQuietNote(s.digestHour)}</p>
+   <div class="watch-pair">${watchSelect('w-digest','Morning digest',[null,...hours],s.digestHour,v=>v===null?'Off':watchHour(v))}</div>
    <div class="watch-pair">${watchSelect('w-la-morning','Morning look-ahead',[null,...hours],s.lookahead?.morning,v=>v===null?'Off':watchHour(v))}${watchSelect('w-la-evening','Evening look-ahead',[null,...hours],s.lookahead?.evening,v=>v===null?'Off':watchHour(v))}</div>
    <p class="title-note">The look-ahead checks what is coming due in the next few days and says so only when something needs you.</p></div>
   ${s.tidy?`<div class="title-settings model-offer" role="group" aria-labelledby="w-tidy-h"><p class="vault-set-head" id="w-tidy-h">Keep the Inbox tidy</p>
@@ -402,6 +406,7 @@ async function inboxWatchSheet(){
  $w('#w-fp')?.addEventListener('click',e=>{s.firstPass.enabled=!s.firstPass.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.firstPass.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.firstPass.enabled);});
  $w('#w-pause').onclick=e=>{s.paused=!s.paused;e.currentTarget.setAttribute('aria-pressed',String(s.paused));e.currentTarget.querySelector('.dot').classList.toggle('on',s.paused);};
  const hourVal=id=>{const v=$w(id).value;return v==='off'?null:Number(v);};
+ $w('#w-digest').addEventListener('change',()=>{$w('#w-quiet-note').textContent=watchQuietNote(hourVal('#w-digest'));});
  const collect=()=>{
   readPeriods();
   const out={paused:Boolean(s.paused),every:Number($w('#w-every').value),periods:s.periods,quietHours:[hourVal('#w-quiet-from'),hourVal('#w-quiet-to')],digestHour:hourVal('#w-digest'),

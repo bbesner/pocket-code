@@ -19,19 +19,21 @@ import { shellArg } from './skills.mjs';
 // its own decision: Alert me on this, Resolved, Not useful, and Restore to undo. Item decisions are feedback too
 // (kind 'digest-item', id '<entry>/<ref>'), so the watcher can promote a line to an alert, close a story or learn a rule
 // from one line of the digest instead of from the whole digest. A digest's text may run to digestText characters.
-export const LIMITS = { entries: 500, text: 2000, digestText: 12000, title: 160, story: 120, source: 60, items: 40, itemText: 1200, ref: 40, keepDays: 60, dismissedDays: 30 };
+export const LIMITS = { entries: 500, text: 2000, digestText: 12000, title: 160, story: 120, source: 60, items: 200, itemText: 1200, ref: 40, keepDays: 60, dismissedDays: 30 };
 export const KINDS = ['alert', 'digest', 'lookahead'];
 export const PRIORITIES = ['critical', 'high', 'normal', 'low'];
 export const STATES = ['new', 'opened', 'dismissed', 'resolved', 'not_useful'];
 export const ACTIONS = ['open', 'unread', 'dismiss', 'resolve', 'not_useful', 'restore'];
 export const SECTIONS = ['held', 'resolved', 'worth', 'tidied', 'listed']; // where a digest item sat: held overnight, resolved overnight, worth knowing, taken off by the tidy pass, already on the list (an open alert on that story: the item links to it, no card)
 const HISTORY = ['resolved', 'tidied', 'listed']; // items that take no decision: the story is closed, gone, or decided on its own entry
-export const ITEM_STATES = ['open', 'alerted', 'resolved', 'not_useful'];
-export const ITEM_ACTIONS = ['alert', 'resolve', 'not_useful', 'restore'];
+export const ITEM_STATES = ['open', 'alerted', 'resolved', 'not_useful', 'dismissed'];
+export const ITEM_ACTIONS = ['alert', 'resolve', 'not_useful', 'dismiss', 'restore'];
 const ACTED = ['dismissed', 'resolved', 'not_useful'];
 const TARGET = { dismiss: 'dismissed', resolve: 'resolved', not_useful: 'not_useful' };
-const ITEM_TARGET = { alert: 'alerted', resolve: 'resolved', not_useful: 'not_useful', restore: 'open' };
-const ITEM_ACTED = ['alerted', 'resolved', 'not_useful'];
+const ITEM_TARGET = { alert: 'alerted', resolve: 'resolved', not_useful: 'not_useful', dismiss: 'dismissed', restore: 'open' };
+const ITEM_ACTED = ['alerted', 'resolved', 'not_useful', 'dismissed'];
+const sameStory = (a, b) => Boolean((a.story && a.story === b.story) || (a.gmail && a.gmail === b.gmail));
+const remember = (x, id, at) => { if (x.sessions.some(s => s.id === id)) return false; x.sessions = [...x.sessions, { id, at }].slice(-SESSIONS_MAX); return true; };
 const NOTE_MAX = 300, URL_MAX = 500, DEDUPE_MAX = 200, SESSIONS_MAX = 5, DAY = 86400_000;
 const DOC_RE = /^[0-9a-f]{12}$/, START_RE = /^[0-9a-f]{12}$/, SESSION_RE = /^(cx:)?[0-9A-Za-z][0-9A-Za-z_-]{7,79}$/;
 const checkSessions = v => Array.isArray(v) ? v.filter(s => s && SESSION_RE.test(String(s.id)) && !Number.isNaN(ms(s.at))).slice(-SESSIONS_MAX).map(s => ({ id: s.id, at: s.at })) : [];
@@ -63,7 +65,7 @@ function checkItem(raw, i, { strict }) {
   const ok = (v, list, d) => list.includes(v) ? v : d;
   return { ref, section: strict ? pick(raw.section, SECTIONS, 'worth', 'section') : ok(raw.section, SECTIONS, 'worth'), title, text: str(raw.text, LIMITS.itemText), story: line(raw.story, LIMITS.story),
     gmail: keep(checkGmail, raw.gmail), url: keep(checkUrl, raw.url), priority: strict ? pick(raw.priority, PRIORITIES, 'normal', 'priority') : ok(raw.priority, PRIORITIES, 'normal'),
-    state: ok(raw.state, ITEM_STATES, 'open'), actedAt: raw.actedAt || null, ackedAt: raw.ackedAt || null, note: str(raw.note, NOTE_MAX), lastAction: ITEM_ACTIONS.includes(raw.lastAction) ? raw.lastAction : null };
+    state: ok(raw.state, ITEM_STATES, 'open'), actedAt: raw.actedAt || null, ackedAt: raw.ackedAt || null, note: str(raw.note, NOTE_MAX), lastAction: ITEM_ACTIONS.includes(raw.lastAction) ? raw.lastAction : null, sessions: checkSessions(raw.sessions) };
 }
 function checkItems(raw, { strict }) {
   if (raw == null) return [];
@@ -98,7 +100,7 @@ export function checkWatch(raw, profile = null) {
     });
   }
   if ('quietHours' in raw) { const q = raw.quietHours; if (!Array.isArray(q) || q.length !== 2 || !q.every(h => isInt(h, 0, 23))) throw bad('quietHours is [start hour, end hour].'); out.quietHours = q; }
-  if ('digestHour' in raw) { if (!isInt(raw.digestHour, 0, 23)) throw bad('digestHour is an hour, 0 to 23.'); out.digestHour = raw.digestHour; }
+  if ('digestHour' in raw) { if (raw.digestHour !== null && !isInt(raw.digestHour, 0, 23)) throw bad('digestHour is an hour, 0 to 23, or null for off.'); out.digestHour = raw.digestHour; } // 1.95: null, no digest; held alerts go out on their own
   if ('lookahead' in raw) {
     const l = raw.lookahead; if (!l || typeof l !== 'object') throw bad('lookahead is {morning, evening}.');
     out.lookahead = {};
@@ -154,6 +156,8 @@ export function inboxInstructions(cli, sessionId) {
   void sessionId; // entries are not tied to a session; the argument keeps the shape of the other instruction lines
   return `This Pocket Code keeps Inbox Watch: the alerts, digests and look-aheads the user's inbox watcher sent. \`node ${cli} list\` shows the new ones (\`--state all\` for the rest, \`show <id>\` for one in full), and \`node ${cli} act <id> resolve|not_useful|dismiss\` records what the user decided; act only when the user asks. The pocket-inbox skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-inbox', 'SKILL.md')}\`) has the procedure.`;
 }
+
+const listedLast = items => [...items.filter(i => i.section !== 'listed'), ...items.filter(i => i.section === 'listed')]; // the watcher's order otherwise
 
 export class InboxStore {
   constructor(file, { write, now } = {}) {
@@ -222,7 +226,7 @@ export class InboxStore {
       const seen = this.entries.find(x => x.dedupe === e.dedupe && ms(x.at) >= now - DAY);
       if (seen) return { ...this.view(seen), duplicate: true };
     }
-    this.entries.push(e); this.cap(); this.save();
+    this.entries.push(e); this.foldCards(e); this.cap(); this.save();
     return this.view(e);
   }
 
@@ -236,7 +240,36 @@ export class InboxStore {
       const hit = open.find(x => (it.story && x.story === it.story) || (it.gmail && x.gmail === it.gmail));
       if (hit) { it.section = 'listed'; it.url = '/#/inbox/' + hit.id; }
     }
-    e.items = [...e.items.filter(i => i.section !== 'listed'), ...e.items.filter(i => i.section === 'listed')]; // listed lines last; the watcher's order otherwise
+    e.items = listedLast(e.items);
+  }
+  // Every digest card on the same story or Gmail thread as `x`, in any digest from this source. A history line is never one.
+  cards(x, src, skip) {
+    const out = [];
+    for (const e of this.entries) if (e.kind === 'digest' && e.source === src) for (const it of e.items) if (it !== skip && it.section !== 'resolved' && it.section !== 'tidied' && sameStory(x, it)) out.push({ e, it });
+    return out;
+  }
+  // One status per item (Brad): an alert that reaches the list after the digest, or comes back to it by Restore, takes over the
+  // open cards on its story. Each becomes the line that links to it, and a conversation started from the card moves to the alert.
+  // A card already decided Resolved, Not useful or Dismissed stays as it is: this alert is news since that decision.
+  foldCards(a) {
+    if (a.kind !== 'alert' || !(a.state === 'new' || a.state === 'opened')) return false;
+    let changed = false;
+    for (const { e, it } of this.cards(a, a.source)) {
+      if (it.section === 'listed' || !(it.state === 'open' || it.state === 'alerted')) continue;
+      it.section = 'listed'; it.url = '/#/inbox/' + a.id;
+      for (const s of it.sessions) remember(a, s.id, s.at);
+      e.items = listedLast(e.items); e.revision += 1; changed = true;
+    }
+    return changed;
+  }
+  // The other way: a decision on an alert shows on the lines that link to it, at once. It is the alert's decision, so the worker
+  // hears it once, from the alert; these lines are acked as they are written and never reach feedback().
+  mirrorToCards(a, action, at) {
+    const url = '/#/inbox/' + a.id, target = ITEM_TARGET[action];
+    for (const { e, it } of this.cards(a, a.source)) {
+      if (it.section !== 'listed' || it.url !== url || it.state === target) continue;
+      Object.assign(it, { state: target, actedAt: at, ackedAt: at, lastAction: action }); e.revision += 1;
+    }
   }
 
   // state: 'new' (unread), 'all' (everything but dismissed) or 'dismissed'. Newest first; `since` keeps entries at or after it.
@@ -267,25 +300,31 @@ export class InboxStore {
     } else if (a === 'unread') {
       if (e.state === 'opened') { e.state = 'new'; changed = true; } // a finished entry stays finished; restore it first
     } else if (a === 'restore') {
-      if (ACTED.includes(e.state)) { e.state = 'opened'; e.seenAt ||= at; e.actedAt = at; e.ackedAt = null; e.lastAction = 'restore'; if (n != null) e.note = n; changed = true; }
+      if (ACTED.includes(e.state)) { e.state = 'opened'; e.seenAt ||= at; e.actedAt = at; e.ackedAt = null; e.lastAction = 'restore'; if (n != null) e.note = n; changed = true; this.mirrorToCards(e, 'restore', at); this.foldCards(e); }
     } else {
       const target = TARGET[a];
-      if (e.state !== target || (n != null && n !== e.note)) { e.state = target; e.actedAt = at; e.ackedAt = null; e.lastAction = target; if (n != null) e.note = n; changed = true; }
+      if (e.state !== target || (n != null && n !== e.note)) { e.state = target; e.actedAt = at; e.ackedAt = null; e.lastAction = target; if (n != null) e.note = n; changed = true; this.mirrorToCards(e, a, at); }
     }
     if (changed) { e.revision += 1; e.actedBy = actor === 'cli' ? 'cli' : 'ui'; this.save(); }
     return this.view(e);
   }
   actItem({ action, id, item, note } = {}, { actor = 'ui' } = {}) {
-    if (!ITEM_ACTIONS.includes(action)) throw fail('Unknown item action. Use alert, resolve, not_useful or restore.', 400, { code: 'bad_action' });
+    if (!ITEM_ACTIONS.includes(action)) throw fail('Unknown item action. Use alert, resolve, not_useful, dismiss or restore.', 400, { code: 'bad_action' });
     const e = this.get(str(id, 40)), ref = str(item, LIMITS.ref);
     const it = e.items.find(x => x.ref === ref);
     if (!it) throw fail('That digest has no such item.', 404, { code: 'item_missing' });
-    if (HISTORY.includes(it.section) && action !== 'restore') throw fail(it.section === 'listed' ? 'That line is already on your list; decide on its own entry.' : 'That line is history; there is nothing to decide.', 400, { code: 'item_history' });
+    if (HISTORY.includes(it.section)) throw fail(it.section === 'listed' ? 'That line is already on your list; decide on its own entry.' : 'That line is history; there is nothing to decide.', 400, { code: 'item_history' });
     const at = iso(this.now()), n = typeof note === 'string' ? str(note, NOTE_MAX) : null, target = ITEM_TARGET[action];
+    const was = it.state;
     let changed = false;
     if (action === 'restore') {
       if (ITEM_ACTED.includes(it.state)) { it.state = 'open'; it.actedAt = at; it.ackedAt = null; it.lastAction = 'restore'; if (n != null) it.note = n; changed = true; }
     } else if (it.state !== target || (n != null && n !== it.note)) { it.state = target; it.actedAt = at; it.ackedAt = null; it.lastAction = action; if (n != null) it.note = n; changed = true; }
+    // The same story on another morning's digest follows this card. The worker hears the decision once, from this card.
+    if (it.state !== was) for (const { e: o, it: c } of this.cards(it, e.source, it)) {
+      if (c.section === 'listed' || c.state !== was) continue;
+      Object.assign(c, { state: it.state, actedAt: at, ackedAt: at, lastAction: action }); o.revision += 1;
+    }
     if (e.state === 'new') { e.state = 'opened'; changed = true; }
     if (!e.seenAt) { e.seenAt = at; changed = true; }
     if (changed) { e.revision += 1; e.actedBy = actor === 'cli' ? 'cli' : 'ui'; this.save(); }
@@ -300,8 +339,12 @@ export class InboxStore {
     if (!START_RE.test(sid) || !SESSION_RE.test(sess)) return [];
     const tail = '#/start/' + sid, at = iso(this.now()), out = [];
     for (const e of this.entries) {
-      if (!e.url.endsWith(tail) || e.sessions.some(s => s.id === sess)) continue;
-      e.sessions = [...e.sessions, { id: sess, at }].slice(-SESSIONS_MAX);
+      let hit = e.url.endsWith(tail) && remember(e, sess, at);
+      for (const it of e.items) if (it.url.endsWith(tail) && remember(it, sess, at)) { // 1.95: a card's own start link; a card on the same story elsewhere shows it too
+        hit = true;
+        for (const { it: c } of this.cards(it, e.source, it)) remember(c, sess, at);
+      }
+      if (!hit) continue;
       if (e.state === 'new') e.state = 'opened';
       e.seenAt ||= at;
       out.push(this.view(e));

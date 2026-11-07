@@ -10,7 +10,7 @@
 //   pocket-inbox list [--state new|all|dismissed] [--since <ISO>] [--json]                   new ones by default, newest first
 //   pocket-inbox show <id> [--json]
 //   pocket-inbox act <id> <open|unread|dismiss|resolve|not_useful|restore> [--note "…"] [--json]
-//   pocket-inbox act <id> <alert|resolve|not_useful|restore> --item <ref> [--note "…"]       one item of a digest (1.95)
+//   pocket-inbox act <id> <alert|resolve|not_useful|dismiss|restore> --item <ref> [--note "…"]       one item of a digest (1.95)
 //   pocket-inbox feedback [--since <ISO>] [--json]                                           the owner's decisions not yet applied
 //   pocket-inbox ack <id…>                                                                   the worker applied them
 //   pocket-inbox seen [--source <name>] [--profile <path|->]                                 a heartbeat: the worker ran (1.70: with its profile)

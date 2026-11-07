@@ -57,7 +57,9 @@ pocket-inbox act <id> restore
 
 A digest's lines are items with a `ref` each (`show` prints them, as `[a317]`). A decision can land on one item instead of
 the whole digest: **Alert me** (`alert`) has the watcher send that story as an alert of its own now and learn to alert on
-that kind of mail; `resolve` and `not_useful` act on that story alone; `restore` takes any of them back.
+that kind of mail; `resolve` and `not_useful` act on that story alone; `dismiss` takes the line off the user's hands and
+changes nothing else; `restore` takes any of them back. A line under *Already on your list* cannot be decided here: act on the
+alert entry it links to, and the line follows.
 
 ```bash
 pocket-inbox act <id> alert --item a317
