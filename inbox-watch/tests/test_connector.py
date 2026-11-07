@@ -271,6 +271,18 @@ def test_a_scoped_read_keeps_the_owners_replies_not_a_new_email():
 
 def test_gmail_history_keeps_the_owners_replies_inside_a_scope():
     """The same rule on the Gmail API path, which reads history rather than searching."""
+    try:
+        import googleapiclient  # noqa: F401
+    except ImportError:  # CI has no Google client, and this test makes no real call
+        class HttpError(Exception):
+            def __init__(self, resp, content):
+                super().__init__(resp.reason)
+                self.resp = resp
+
+        fake = {"googleapiclient": {}, "googleapiclient.discovery": {"build": None}, "googleapiclient.errors": {"HttpError": HttpError}}
+        for name, attrs in fake.items():
+            sys.modules[name] = type(sys)(name)
+            vars(sys.modules[name]).update(attrs)
     from inbox_monitor.mail_gmail import Gmail, HttpError
 
     class Req:
