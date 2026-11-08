@@ -44,7 +44,7 @@ export function prioritizeSessions(rows, limit) {
 // Either check failing keeps the ordinary behavior, so a doubtful case still waits in Attention.
 const POLITE = /^(?:(?:ok(?:ay)?|yes|yep|sure|great|perfect|thanks|thank you|please|just|no action|leave it)[,.!]?\s+)+/i;
 const ITEM = String.raw`(?:it|this|that|them|these|both|all|the\s+(?:inbox(?:\s+watch)?\s+)?(?:alert|story|item|entry|task|reminder|to-?do))`;
-// The whole message is the closing phrase, perhaps with a short reason after a comma ("Mark it resolved, Valentina has it").
+// The whole message is the closing phrase, perhaps with a short reason after a comma ("Mark it resolved, Sam has it").
 const WHOLE = new RegExp(String.raw`^(?:mark(?:\s+${ITEM})?(?:\s+as)?\s+(?:resolved|done|complete|completed|reviewed|finished|handled)|resolve(?:\s+${ITEM})?|dismiss(?:\s+${ITEM})?|close(?:\s+${ITEM})(?:\s+out)?|not\s+useful|no(?:,)?\s+(?:thanks|thank\s+you|reminder(?:\s+needed)?|task(?:\s+needed)?|need|that'?s\s+(?:all|it|fine))|skip\s+(?:it|the\s+reminder|the\s+task|that)|that'?s\s+(?:all|it|everything)|all\s+(?:set|done|good)|done|nothing\s+else)(?:[,;.!]?\s+(?:thanks|thank\s+you|for\s+now))?(?:[,;]\s+[^,;]{1,50})?$`, 'i');
 // The message starts with the closing step and goes on to say when or what ("Remind me Nov 7 to recheck the numbers").
 const LEAD = /^(?:remind\s+me\s+(?:to|on|at|in|about|tomorrow|tonight|today|next|this|later|mon|tue|wed|thu|fri|sat|sun|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d)|set\s+(?:me\s+)?(?:a|the|up\s+a)\s+reminder\b|(?:add|create|make)\s+(?:a|the|it\s+as\s+a|this\s+as\s+a)\s+(?:task|to-?do|reminder)(?:\s+(?:to|for|on|at|about)\b|$))/i;
