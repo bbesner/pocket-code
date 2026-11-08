@@ -237,15 +237,26 @@ const Handoff = (() => {
   const at = () => Number(window.pocketFeatures?.handoffAt) || 0;
   const showing = id => { const e = document.getElementById(id); return Boolean(e && !e.hidden); };
   function noteLineage(s) { if (!s?.id) return; if ((s.continuedIn || []).length) continued.add(s.id); else continued.delete(s.id); }
+  // Reply choices still open under the latest reply: a handoff carries them, so the new conversation asks you there.
+  // Typing /handoff hides them for a moment, so this reads the latest reply's set unless you dismissed it with ×.
+  const openSet = () => {
+    const msgs = document.getElementById('msgs'); if (!msgs) return null;
+    const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop();
+    const set = last?.matches('.m-asst') ? last.querySelector('[data-choices]') : null;
+    return set && set.dataset.choices !== readLocal('pc-choices-dismissed', {})[chatId] ? set : null;
+  };
+  const optionsOf = set => set ? [...set.querySelectorAll('.choice:not(.choice-handoff)')].map(b => b.dataset.choice + (b.matches('.choice-rec') ? ' (Recommended)' : '')) : [];
+  const askWith = options => options.length ? HANDOFF_ASK + ' I have not picked one of these options yet: ' + options.map(o => '"' + o + '"').join('; ') + '. Put them in the briefing as the first decision, so the new conversation starts by offering them.' : HANDOFF_ASK;
   function send(id = chatId) {
     if (!id || id !== chatId) return;
     const box = document.getElementById('box');
     if (loadOutbox(id) || sendsInFlight.has(id)) return toast('Wait for your last message to send, then hand off.');
     if (box?.value.trim() || tb?.attachments?.length) return toast('Send or clear what you are writing first, then hand off.');
     dismiss(id);
+    const set = openSet(), ask = askWith(optionsOf(set)); if (set) set.hidden = true;
     const mode = sendModes.get(id), working = composerWorking;
     if (working) sendModes.set(id, 'queue'); // after the reply: a briefing written mid-step would miss the end of it
-    const sent = sendMsg(HANDOFF_ASK);         // sendMsg reads the mode before its first await
+    const sent = sendMsg(ask);         // sendMsg reads the mode before its first await
     if (working) { if (mode) sendModes.set(id, mode); else sendModes.delete(id); }
     if (working) toast('Handoff asked for. It runs after the current reply.');
     return sent;
@@ -281,9 +292,20 @@ const Handoff = (() => {
   }
   function paintHint(msgs = document.getElementById('msgs')) {
     if (!msgs) return;
-    const had = msgs.querySelector('.handoff-offer');
-    msgs.querySelectorAll('.handoff-offer').forEach(e => e.remove());
+    const had = msgs.querySelector('.handoff-offer, .choice-handoff');
+    msgs.querySelectorAll('.handoff-offer, .choice-handoff').forEach(e => e.remove());
     const hit = eligible(chatId, msgs); if (!hit) return;
+    // Reply choices showing: one more button among them, so you decide once. Picking a choice answers it too.
+    const set = hit.last.querySelector('[data-choices]:not([hidden]) .choice-opts');
+    if (set) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'choice choice-handoff';
+      b.innerHTML = IC.hand + '<span>Hand off first</span>';
+      b.title = 'This conversation is at ' + fmtTokens(hit.used).replace(/k$/, 'K') + ' tokens. Start a fresh one that offers these choices.';
+      b.setAttribute('aria-label', 'Hand off first: start a fresh conversation that offers these choices. This one is at ' + fmtTokens(hit.used).replace(/k$/, 'K') + ' tokens.');
+      b.onclick = () => send(chatId);
+      set.append(b);
+      return;
+    }
     const el = document.createElement('div'); el.className = 'handoff-offer'; el.setAttribute('role', 'group'); el.setAttribute('aria-label', 'Handoff suggestion');
     el.innerHTML = `<p class="handoff-offer-text">This conversation is at ${esc(fmtTokens(hit.used).replace(/k$/, 'K'))} tokens, and every reply reads all of it.</p>
       <div class="handoff-offer-actions"><button type="button" class="chip" data-handoff-offer>${IC.hand}<span>Hand off</span></button><button type="button" class="handoff-offer-later" data-handoff-later>Not now</button></div>`;
@@ -294,5 +316,5 @@ const Handoff = (() => {
     if (!had) scrollBottom();
   }
   matchMedia('(min-width: 900px)').addEventListener('change', () => paintButton());
-  return { send, paintButton, paintHint, noteLineage, past: id => { const c = ctxCache.get(id), size = at(); return Boolean(size && c?.used >= size); } };
+  return { send, dismiss, paintButton, paintHint, noteLineage, past: id => { const c = ctxCache.get(id), size = at(); return Boolean(size && c?.used >= size); } };
 })();

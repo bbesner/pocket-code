@@ -170,6 +170,9 @@ html:not(.raw-steps) .ledgerwrap > summary { font-family: system-ui, -apple-syst
 .choice-rec .choice-tag { font-size: 12px; font-weight: 600; line-height: 1.3; letter-spacing: .01em; color: var(--on-accent); opacity: .9; }
 .choice-x { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 10px; color: var(--dim); }
 .choice-x:hover { color: var(--text); background: var(--raised); }
+.choice-handoff { display: inline-flex; align-items: center; gap: 6px; background: transparent; border-color: var(--line); color: var(--dim); }
+.choice-handoff svg.i { width: 15px; height: 15px; stroke-width: 1.7; flex: none; }
+.choice-handoff:hover { color: var(--text); background: var(--raised); }
 .choice:focus-visible, .choice-x:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 
 .turn-err { color: var(--err); font-size: 14.5px; border: 1px solid var(--err); border-radius: 10px;

@@ -2332,12 +2332,14 @@ function choicesHTML(options, rec) {
 function paintChoices() {
   const msgs = $('#msgs'); if (!msgs) return;
   paintTryHarder(msgs);
-  if (typeof Handoff !== 'undefined') Handoff.paintHint(msgs); // 1.102
-  const sets = msgs.querySelectorAll('[data-choices]'); if (!sets.length) return;
-  const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop();
-  const box = $('#box'), dismissed = readLocal('pc-choices-dismissed', {})[chatId];
-  const open = !composerWorking && !sendsInFlight.has(chatId) && !loadOutbox(chatId) && !box?.value.trim() && !box?.readOnly;
-  sets.forEach(c => { c.hidden = !(open && c.closest('.m-asst') === last && c.dataset.choices !== dismissed); });
+  const sets = msgs.querySelectorAll('[data-choices]');
+  if (sets.length) {
+    const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop();
+    const box = $('#box'), dismissed = readLocal('pc-choices-dismissed', {})[chatId];
+    const open = !composerWorking && !sendsInFlight.has(chatId) && !loadOutbox(chatId) && !box?.value.trim() && !box?.readOnly;
+    sets.forEach(c => { c.hidden = !(open && c.closest('.m-asst') === last && c.dataset.choices !== dismissed); });
+  }
+  if (typeof Handoff !== 'undefined') Handoff.paintHint(msgs); // 1.102: after the choices, which it joins when they show
 }
 // 1.62: Assistant mode's only model control, phrased as an outcome. Under the latest finished Claude reply, it asks
 // for another, more careful pass on the strongest model this Pocket offers at high effort (capped by the policy);
@@ -2369,8 +2371,12 @@ document.addEventListener('click', e => {
     writeLocal('pc-choices-dismissed', m); set.hidden = true; $('#box')?.focus();
     return;
   }
-  const b = e.target.closest?.('.choice');
-  if (b && chatId) { b.closest('[data-choices]').hidden = true; sendMsg(b.dataset.choice); }
+  const b = e.target.closest?.('.choice:not(.choice-handoff)'); // Hand off first runs its own handler
+  if (b && chatId) {
+    const set = b.closest('[data-choices]');
+    if (set.querySelector('.choice-handoff')) Handoff.dismiss(chatId); // you chose to stay: no offer again at this size
+    set.hidden = true; sendMsg(b.dataset.choice);
+  }
 });
 function ledgerHTML(name, detail) {
   const say = window.PocketPhrase ? PocketPhrase.step(name, detail) : '';

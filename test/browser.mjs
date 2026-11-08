@@ -982,7 +982,7 @@ try{
  const {runSideChatRegressions}=await import('./sidechat-browser.mjs');
  await runSideChatRegressions({browser,base,rows,out,side:sideFixture,conversations});
  const {runHandoffRegressions}=await import('./handoff-browser.mjs'); // 1.102
- await runHandoffRegressions({browser,base,rows,out,settings:fixtureSettings,received,side:sideFixture});
+ await runHandoffRegressions({browser,base,rows,out,settings:fixtureSettings,received,side:sideFixture,conversations});
  const {runSlashRegressions}=await import('./slash-browser.mjs');
  await runSlashRegressions({browser,base,rows,received,out});
  const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');

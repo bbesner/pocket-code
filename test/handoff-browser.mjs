@@ -8,7 +8,7 @@ import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const ASK='Hand this off: write a briefing for a new conversation to pick up from here, and give me the handoff card.';
 const WHAT='Have the agent write a briefing and offer a fresh conversation that picks up from it. This one stays as it is.';
-export async function runHandoffRegressions({browser,base,rows,out,settings,received,side}) {
+export async function runHandoffRegressions({browser,base,rows,out,settings,received,side,conversations}) {
  const context=await browser.createBrowserContext(),page=await context.newPage();page.setDefaultTimeout(8000);
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
@@ -56,9 +56,31 @@ export async function runHandoffRegressions({browser,base,rows,out,settings,rece
   await page.click('#chatmore');await page.waitForSelector('#so-handoff');
   assert.equal(await page.$eval('#so-handoff .sub',e=>e.textContent),WHAT);
   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('#so-handoff'));
+  console.log('Handoff: with reply choices showing, Hand off first joins them instead of the line');
+  // Each send gets its own conversation: a sent message leaves that one waiting for a reply, which rightly hides the offer.
+  const pick=rows.find(r=>r.state.kind==='failed').id,carry=idle,saved=new Map([pick,carry].map(id=>[id,conversations.get(id)]));
+  const withChoices=(id=pick)=>conversations.set(id,[{role:'user',text:'Run the tests.'},{role:'assistant',blocks:[{t:'text',text:'Tests pass. Should I merge and deploy?'},{t:'choices',options:['Merge and deploy','Hold it'],rec:0}]}]);
+  const sentOne=async act=>{const n=received.length;await act();for(let i=0;i<80&&received.length===n;i++)await new Promise(r=>setTimeout(r,50));assert.equal(received.length,n+1,'one request');return received.at(-1).text;};
+  for(const width of [1440,390]){
+   await page.evaluate(()=>localStorage.removeItem('pc-handoff-dismissed'));withChoices();
+   await open(width,pick);await page.waitForSelector('[data-choices]:not([hidden]) .choice-handoff');
+   assert.equal(await offer(),null,'no line while the choices show');
+   assert.deepEqual(await page.$$eval('[data-choices]:not([hidden]) .choice',b=>b.map(x=>x.textContent.trim())),['Merge and deployRecommended','Hold it','Hand off first'],'the last choice');
+   assert.ok(await page.$eval('.choice-handoff',b=>{const r=b.getBoundingClientRect();return r.height>=44&&r.right<=innerWidth;}),'44px, inside the width');
+   await scan('choices-'+width,'#msgs');
+  }
+  console.log('Handoff: picking a choice runs it here and answers the offer for this size');
+  assert.equal(await sentOne(()=>page.click('[data-choices]:not([hidden]) .choice:not(.choice-rec):not(.choice-handoff)')),'Hold it','the choice, not a handoff');
+  assert.equal(await page.evaluate(id=>JSON.parse(localStorage.getItem('pc-handoff-dismissed'))[id],pick),2,'no offer again at this size');
+  console.log('Handoff: Hand off first carries the open choices into the request');
+  await page.evaluate(()=>localStorage.removeItem('pc-handoff-dismissed'));withChoices(carry);
+  await open(1440,carry);await page.waitForSelector('.choice-handoff');
+  assert.equal(await sentOne(()=>page.click('.choice-handoff')),ASK+' I have not picked one of these options yet: "Merge and deploy (Recommended)"; "Hold it". Put them in the briefing as the first decision, so the new conversation starts by offering them.');
+  assert.equal(await page.$('[data-choices]:not([hidden])'),null,'the choices close');
+  saved.forEach((m,id)=>conversations.set(id,m));
   console.log('Handoff: Hand off sends the request once and records the step');
   await page.evaluate(()=>localStorage.removeItem('pc-handoff-dismissed'));
-  await open(1440,shown);await page.waitForSelector('.handoff-offer');
+  await open(1440,shown);await page.waitForSelector('.handoff-offer')
   const before=received.length;
   await page.click('[data-handoff-offer]');
   for(let i=0;i<80&&received.length===before;i++)await new Promise(r=>setTimeout(r,50));

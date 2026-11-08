@@ -365,6 +365,12 @@ only while nothing is running, waiting for you or typed in the message box, and 
 been continued in another. **Not now** hides it until the conversation reaches the next multiple of that size (400K, then 600K
 with the default), on this browser. The context ring turns amber at the same point. Pocket never hands off by itself.
 
+When the reply ends with [suggested replies](#pick-a-suggested-reply), the line is not shown. Instead the replies get one more
+button, **Hand off first**, so you decide once. Pick a reply to carry on here (that also counts as Not now). Choose
+**Hand off first** to start the handoff with your choice still open: the briefing lists the suggested replies as the
+first decision, so the new conversation offers them to you. The Handoff button does the same while suggested replies
+are showing.
+
 - A handoff starts once. If it has started, the card reads **Started** and links the conversation; Start on another device
   opens that conversation instead of making a second one.
 - A handoff never has more permission than the conversation that wrote it. It gets Full access only when that conversation

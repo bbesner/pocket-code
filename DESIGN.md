@@ -19,6 +19,9 @@ Working row while a reply runs, and a choice under Branch in Conversation option
 **Hand off** and a quiet text button **Not now**; both are 44px targets and wrap under the text on a phone. No card,
 no border, no animation: it is a sentence, not a banner. It hides while anything is running, waiting for an answer or
 typed, so it never competes with live work. Past the same threshold the context ring takes the existing amber level.
+When the reply ends with suggested replies, the line gives way to one more button at the end of them, **Hand off first**:
+the `.choice` shape in a quiet outline (`--line` border, `--dim` text, no fill, the hand icon), so it reads as a way
+out rather than another answer, and the recommended reply stays the one filled button.
 
 ## A pin on every conversation row (1.94, Damon)
 
