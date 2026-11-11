@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.103.0] — Unreleased · build 196
+## [1.103.0] — 2026-11-11 · build 196
 
 Requested by Brad (2026-11-11): closing the tab he was on opened the neighbouring tab, which counted as seeing that conversation and took it out of Attention before he had looked at it. And the Inbox's Dismiss read *Hide it here; nothing else changes*, though with the Pocket Inbox label on it already takes the label off in Gmail.
 
