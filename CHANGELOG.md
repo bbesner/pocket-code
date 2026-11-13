@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.103.1] — 2026-11-13 · build 196
+
+Reported by Brad (2026-11-13): an account manager answered the assistant's questions at 1:30 PM and asked it to send the current sheets so he could mark up the numbering. Forty minutes later the tidy pass took the entry off the Inbox as handled ("will send back his numbering after getting the current sheets"), though nobody had sent them. Brad only found it again by labelling the email in Gmail.
+
+- **A request to the assistant keeps an entry open.** `inbox-watch/inbox_monitor/prompts/tidy.md`: the rule *A request to {owner} keeps it open* now covers a request to `{assistant}`, who works for the owner, and says the assistant's earlier reply does not cover a request made after it. *Send me X and I'll do Y* waits on the owner's side until X is sent, so it is `open`, not `handled`. The `open` definition names the assistant too. Requests to other staff are unchanged: a staff member who takes something still makes it `handled`. No code change.
+- Checked against the live install (read-only, scratch copies of the ledger, memory left out): the reported entry, rebuilt as the 2:08 PM pass saw it, came out `handled` 3 of 3 times with the old prompt and `open` 3 of 3 with the new one. The last 20 entries the pass took off as handled, each rebuilt as it stood then: 18 unchanged; one moved to `open` because a partner's request to meet had no answer from the owner (right under the existing rule); one differed between the two old runs alone.
+- Manual: *Inbox Watch* (Keep the Inbox tidy).
+
 ## [1.103.0] — 2026-11-11 · build 196
 
 Requested by Brad (2026-11-11): closing the tab he was on opened the neighbouring tab, which counted as seeing that conversation and took it out of Attention before he had looked at it. And the Inbox's Dismiss read *Hide it here; nothing else changes*, though with the Pocket Inbox label on it already takes the label off in Gmail.

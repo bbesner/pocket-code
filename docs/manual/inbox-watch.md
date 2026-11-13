@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.103.0
+checked: 1.103.1
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -253,7 +253,8 @@ its threads (your own replies marked) and answers:
 - **Open**: still needs you. It is not looked at again until its story or threads change.
 
 Every change must cite the email that proves it; money, security and legal items need explicit proof, and a request
-with several parts stays open until every part is done. The reason becomes the entry's note, shown in Done, and the
+with several parts stays open until every part is done, and so does one whose latest email asks you or your assistant
+for something nobody has done yet. The reason becomes the entry's note, shown in Done, and the
 next morning digest lists what was taken off. **Restore** brings any of them back.
 
 ### Your list in Gmail
