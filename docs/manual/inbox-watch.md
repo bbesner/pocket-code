@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.103.2
+checked: 1.103.3
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -305,7 +305,7 @@ about that sender and topic ("Alert on website-content requests from Acme Paving
 senders teach it the kind. It merges a new example into a rule it sharpens, rewrites or drops a rule a newer example
 contradicts, and notes in the log when an example conflicts with a rule you wrote (it then writes only the narrow
 exception). The rules go at the end of your rules file under *Learned from your choices*, one line each with the
-evidence in brackets (`(you added 2, Oct 31)`), at most 20 lines and about 2,300 characters (less when your own rules
+evidence in brackets (`(you added 2, Oct 31)`), at most 20 lines and about 3,300 characters (less when your own rules
 are long: the whole file has to fit the rules box); the judge and the first pass read them with the rest. A rule that
 would run long is split in two, and when the rules do not fit the judge is asked once more; anything still cut is
 named in the watcher's log. `python3 -m inbox_monitor learn --rebuild` folds every example in again, for an install

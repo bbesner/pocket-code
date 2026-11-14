@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.103.3] — Unreleased · build 196
+
+Asked for by Brad (2026-11-13), the same evening as 1.103.2: the rebuilt learned rules on his install took 2,280 of the new 2,400 characters on the first day, and after he trimmed his own rules (5,460 to 4,092 characters) about 3,700 characters of the 8,000-character rules box were free.
+
+- **`LEARN_MAX_CHARS` 2400 → 3400** (`inbox-watch/inbox_monitor/engine.py`). The room is still `min(3400, 8000 − the owner's rules − 200)`, and the judge is asked for 200 less; an owner whose own rules are long gets less, as before. Up to 20 rules, 300 characters each, unchanged. Roughly 250 more tokens on every email check at the full room.
+- Tested: `tests/test_label.py` checks the prompt asks for 3,200 characters when the owner's rules are short.
+- Manual: *Inbox Watch* (Learning from your choices).
+
 ## [1.103.2] — Unreleased · build 196
 
 Reported by Brad (2026-11-13): the watcher's learn turn said several learned rules reached it cut off mid-sentence. Two losses, both silent: `learn()` clipped every rule at 320 characters, so a merged "Notify: …" rule lost the senders at its end and its evidence; and once the learned section passed 1,800 characters it popped whole rules off the end of the list, which is where new rules go. On Brad's install 24 of 33 senders and topics he had taught it were no longer in his rules. The judge's full answers were never stored, so the cut text itself could not be recovered; the 168 lessons it came from were.
