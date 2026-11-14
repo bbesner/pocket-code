@@ -462,6 +462,7 @@ def test_learn_rebuild_folds_in_every_lesson_again():
     assert len(material["new_lessons"]) == 30 and material["earlier_lessons"] == [], "every lesson, oldest first"
     assert material["new_lessons"][0]["subject"] == "Topic 0"
     assert "{learn_chars}" not in seen[0] and "at most 20 rules" in seen[0], "the limits are filled in"
+    assert "at most 3,200 characters in all" in seen[0], "short owner rules: the full room less the margin"
     text = E.PREFS_FILE.read_text()
     assert "Sender 29" in text and text.startswith("# Alex's rules\n- Money problems."), text
     assert store.db.execute("select count(*) from lessons where learned_at='failed'").fetchone()[0] == 0
