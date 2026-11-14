@@ -3,6 +3,15 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.105.1] — Unreleased · build 197
+
+Reported by Brad (2026-11-14): choices showed as a plain code box instead of buttons. The reply had looked something up on the web, and the web-search tool tells the agent to end with a "Sources:" list, which the agent put after the ```choices block. Only a block at the very end counted, so Pocket left it as text.
+
+- **A sources list may follow the block** (`choices.mjs`). When the block is not last, the last ```choices block still counts if everything after it is a Sources/References heading (plain, bold or `#`) and list items that each carry a link. That list stays in the reply text, after the text that came before the block, so it shows above the buttons. Any other trailing text (prose, a heading with no list, an item without a link, a different heading) still keeps the block as text, so an example of the format shown mid-reply stays text as before. Claude, Codex and OpenRouter conversations all go through `textBlocks`, so all three are covered.
+- **The instruction says where sources go.** `CHOICE_INSTRUCTIONS`: "put any sources list above the question".
+- Tested: `test/choices.test.mjs` (the reply that failed, heading styles, numbered items and bare URLs, and five tails that must stay text).
+- Manual: *Conversation* (Suggested replies, For agents).
+
 ## [1.105.0] — Unreleased · build 197
 
 Asked for by Brad (2026-11-14): the Inbox finds the right things, but every alert pushed, about 100 a day (491 alerts Nov 9–14, every one a push; 19% led to a conversation). A tenant's bug report or a phone call that went badly belongs on the list; an emergency dispatch or a bill that is past due should interrupt. The list and the interruption are now separate, and the owner chooses the interruption in the sheet.

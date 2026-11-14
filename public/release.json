@@ -1,7 +1,8 @@
 {
- "version": "1.105.0",
+ "version": "1.105.1",
  "assetV": 197,
  "notes": [
+  "Suggested-reply buttons survive a sources list. A reply that looked something up on the web ended with a Sources list after its choices, and Pocket then showed the choices as a plain code box with no buttons. A Sources or References list after the choices no longer stops them: the buttons show, and the sources stay in the reply above them. Agents are also asked to put sources above the question. Reported by Brad.",
   "Inbox Watch separates your list from your phone. Every alert still goes on the list, and the new Push notifications section of its schedule sheet decides which also push: every alert (as before), only what can't wait (emergencies, outages you're the escalation for, money at risk, security incidents, someone waiting on you, deadlines today, each a switch, with a daily limit and one push per story until it gets worse), or nothing. An open alert says whether it pushed and why.",
   "Inbox Watch's email checks use about a fifth fewer tokens. Each check used to carry every alert of the last day and up to six earlier threads per email; it now carries the newest few alerts plus any that relate to the emails being checked, and up to three earlier threads per email (plus the same sender's). Tested on 30 past checks: decisions stayed within the judge's own run-to-run variation. Asked for by Brad.",
   "Inbox Watch's learned rules get more room: up to about 3,300 characters (was about 2,300), still within the rules box beside your own rules. On a busy install the rebuilt rules filled the old limit on the first day, so new lessons would have had to squeeze out older ones. Asked for by Brad.",

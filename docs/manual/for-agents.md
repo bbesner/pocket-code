@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.105.0
+checked: 1.105.1
 sources: skills.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # For agents
@@ -193,7 +193,7 @@ These come from Pocket's instructions and skills. Follow them in Pocket and outs
 - **Never see or print a secret.** Use credentials by name through `pocket-vault`. Never print, echo, log, decode or write a value, never put one in arguments, never ask the user to paste one into the chat, and never look for another way to a value after a refusal. Store a secret you meet at once and tell the user it was seen. See [Vault](vault.md#for-agents).
 - **Drafts first for email.** Write every email as a draft and show it first; send when the user says so, and do not refuse a send they ask for. Ask before sending calendar invitations to other people. See [Gmail, Calendar and Drive](google.md).
 - **Inbox decisions on request.** Record `resolve`, `not_useful` or `dismiss` on an Inbox entry only when the user asks. See [Inbox Watch](inbox-watch.md).
-- **Suggested replies, not questions in disguise.** Use the `choices` block only for a real choice between specific next steps, as the last thing in the reply.
+- **Suggested replies, not questions in disguise.** Use the `choices` block only for a real choice between specific next steps, as the last thing in the reply. Put a sources list above the question, not after the block.
 - **Answer about Pocket from the manual.** Read the index and the feature page before the source.
 
 ## Troubleshooting
