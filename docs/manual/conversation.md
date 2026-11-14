@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.102.0
+checked: 1.105.1
 sources: choices.mjs, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -449,7 +449,9 @@ every message, branch and side chat question, so a held message is never recorde
 Pocket adds an instruction to every conversation it runs (Claude through `--append-system-prompt`, Codex through the
 thread's developer instructions) asking the agent to end a closing question with a fenced block whose info string is `choices`,
 with 2 to 4 short options, one per line, the recommended one first and marked `(Recommended)`. Pocket strips the block
-from the reply and shows the options as buttons. Only a block at the very end of a reply counts. Pocket reads at most 5
+from the reply and shows the options as buttons. Only a block at the very end of a reply counts, with one exception: a
+Sources or References list after it (a heading, then list items that each carry a link) stays in the reply above the
+buttons. Anything else after the block keeps it as text. Pocket reads at most 5
 options and cuts each at 120 characters. Conversations run from a terminal or code-server do not get the instruction. A Codex
 `config.toml` that sets its own `developer_instructions` replaces Pocket's lines, so those conversations show no buttons.
 
@@ -486,7 +488,7 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 - **Offer choices the Pocket way.** When you end a reply by asking the user to pick between specific next steps, finish
   with a fenced code block whose info string is `choices`, 2 to 4 options, one per line, each the short reply the user
   would send (under 60 characters). Put a clear recommendation first and end it with `(Recommended)`; mark at most one.
-  The block must be the last thing in the reply. Do not add it for open-ended questions or questions that need a typed
+  The block must be the last thing in the reply; put any sources list above the question. Do not add it for open-ended questions or questions that need a typed
   answer. Example:
 
   ````
