@@ -72,6 +72,12 @@ reasoning = "medium"                   # every judge: default | low | medium | h
 # key_file = "~/.config/openrouter/keys/inbox-monitor.key"   # an OpenRouter key (or key_env = "OPENROUTER_API_KEY")
 # context = "Alex runs a plumbing company. An assistant reads every new email ..."   # what the classifier is told about you
 
+# [push]                              # optional (1.105): which alerts also push; every alert still goes on the list
+# mode = "urgent"                     # "all" (default), "urgent" or "none"
+# kinds = ["emergency", "outage", "money", "security", "waiting", "deadline"]
+# per_day = 5                         # 3, 5, 8, 12, 20 or 0 (no limit); critical alerts are never capped
+# repeat = "worse"                    # "worse": a story pushes again within a day only when its priority rose; "every"
+
 # [tidy]                              # optional: take resolved or handled entries off the owner's Pocket Inbox
 # enabled = true
 # every_hours = 2                      # 1, 2, 4, 8, 12 or 24; never in quiet hours

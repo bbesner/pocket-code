@@ -30,6 +30,12 @@ The shape (JSON in Pocket, the same keys in the TOML as snake_case where noted):
                 Gmail inbox; "inbox_labels" the inbox plus threads under the named labels. Mail outside the scope is never fetched
                 or judged; a thread the owner labels Pocket Inbox still joins the check, and so does a thread the owner
                 replies on. A new email the owner starts does not. (TOML [mail] scope, scope_labels)
+  push          {mode: urgent | all | none, kinds: [PUSH_KINDS], perDay, repeat: worse | every} (1.105): which alerts also push
+                to the owner's devices. Every alert still goes on the list; this only decides the interruption. "all" pushes every
+                alert (the behaviour before 1.105, and the default); "urgent" pushes a critical alert and one the judge put in a
+                chosen kind of urgency (emergency, outage, money, security, waiting, deadline), at most perDay a day (0: no limit;
+                critical alerts are never capped), and with repeat "worse" a story pushes again within a day only when its priority
+                rose; "none" pushes nothing. (TOML [push] mode, kinds, per_day, repeat)
 """
 from __future__ import annotations
 
@@ -46,6 +52,30 @@ SLACK_S = 30  # a tick a few seconds early still counts, so a 5-minute interval 
 TIDY_EVERY = [1, 2, 4, 8, 12, 24]
 SCOPE_MODES = ["all", "inbox", "inbox_labels"]
 SCOPE_LABELS_MAX, SCOPE_LABEL_CHARS = 20, 60
+PUSH_MODES = ["urgent", "all", "none"]
+# The kinds of urgency the judge can name for an alert (prompts/decide.md); the owner picks which of them push.
+PUSH_KINDS = ["emergency", "outage", "money", "security", "waiting", "deadline"]
+PUSH_PER_DAY = [3, 5, 8, 12, 20, 0]  # 0: no limit
+PUSH_REPEAT = ["worse", "every"]
+PUSH_DEFAULT = {"mode": "all", "kinds": list(PUSH_KINDS), "perDay": 0, "repeat": "every"}
+
+
+def _push(raw, cur: dict) -> dict:
+    """A push policy from Pocket or the TOML ([push] mode, kinds, per_day, repeat); a bad part keeps `cur`'s."""
+    out = {"mode": cur.get("mode", "all"), "kinds": list(cur.get("kinds", PUSH_KINDS)), "perDay": cur.get("perDay", 0),
+           "repeat": cur.get("repeat", "every")}
+    if not isinstance(raw, dict):
+        return out
+    if raw.get("mode") in PUSH_MODES:
+        out["mode"] = raw["mode"]
+    if isinstance(raw.get("kinds"), list):
+        out["kinds"] = [k for k in PUSH_KINDS if k in raw["kinds"]]
+    per = raw.get("perDay", raw.get("per_day"))
+    if isinstance(per, int) and not isinstance(per, bool) and per in PUSH_PER_DAY:
+        out["perDay"] = per
+    if raw.get("repeat") in PUSH_REPEAT:
+        out["repeat"] = raw["repeat"]
+    return out
 
 
 def _scope(raw, cur: dict) -> dict:
@@ -201,6 +231,8 @@ def normalize(raw: dict | None, base: dict, models: list[str] | None = None) -> 
                 out["tidy"]["every"] = int(td.get("every", out["tidy"]["every"]))
         except (TypeError, ValueError):
             pass
+    if "push" in out and isinstance(raw.get("push"), dict):
+        out["push"] = _push(raw["push"], out["push"])
     gl = raw.get("gmailLabel")
     if isinstance(gl, dict) and "gmailLabel" in out and "enabled" in gl:
         out["gmailLabel"]["enabled"] = bool(gl["enabled"])
@@ -213,7 +245,7 @@ def normalize(raw: dict | None, base: dict, models: list[str] | None = None) -> 
 
 
 def from_config(sched: dict, judge: dict, quiet_hours, digest_hour: int, lookahead: dict, firstpass: dict | None = None,
-                tidy: dict | None = None, gmail_label: dict | None = None, mail: dict | None = None) -> dict:
+                tidy: dict | None = None, gmail_label: dict | None = None, mail: dict | None = None, push: dict | None = None) -> dict:
     """The defaults: what the config file says, in the settings shape."""
     la_judge = judge.get("lookahead") if isinstance(judge.get("lookahead"), dict) else {}
     base = {
@@ -237,6 +269,8 @@ def from_config(sched: dict, judge: dict, quiet_hours, digest_hour: int, lookahe
         base["gmailLabel"] = {"enabled": bool(gmail_label.get("enabled", True))}
     if mail is not None:  # 1.100: [mail] scope = "all" | "inbox" | "inbox_labels", scope_labels = [...]
         base["scope"] = _scope({"mode": mail.get("scope", "all"), "labels": mail.get("scope_labels", [])}, {"mode": "all", "labels": []})
+    if push is not None:  # 1.105: [push] mode, kinds, per_day, repeat
+        base["push"] = _push(push, PUSH_DEFAULT)
     return normalize({"periods": sched.get("period", sched.get("periods", []))}, base)
 
 
@@ -318,6 +352,11 @@ def describe(settings: dict) -> str:
         parts.append("inbox only")
     elif sc.get("mode") == "inbox_labels":
         parts.append(f"inbox + {len(sc.get('labels', []))} label(s)")
+    pu = settings.get("push") or {}
+    if pu.get("mode") == "none":
+        parts.append("no pushes")
+    elif pu.get("mode") == "urgent":
+        parts.append(f"push urgent ({','.join(pu.get('kinds', [])) or 'critical only'}{', ' + str(pu['perDay']) + '/day' if pu.get('perDay') else ''})")
     return "; ".join(parts)
 
 
@@ -335,4 +374,5 @@ def options(judge_kind: str, cfg_models: list[str], firstpass_available: bool = 
             "maxPeriods": MAX_PERIODS,
             "tidyEvery": TIDY_EVERY,
             "scopeModes": SCOPE_MODES, "scopeLabelsMax": SCOPE_LABELS_MAX,
+            "push": {"modes": PUSH_MODES, "kinds": PUSH_KINDS, "perDay": PUSH_PER_DAY, "repeat": PUSH_REPEAT},
             "firstPass": {"available": firstpass_available, "providers": [{"id": i, "label": l} for i, l in PROVIDERS], "thresholds": THRESHOLDS}}

@@ -2860,10 +2860,18 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
      await page.waitForFunction(()=>[...document.querySelectorAll('.watch-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
      assert.match(await page.$eval('#w-status',e=>e.textContent),/^Checking every 5 minutes now\. Last check .*Using the watcher’s config file\.$/);
-     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Your rules','Your list in Gmail','What it reads','Schedule','Quiet hours and summaries','Keep the Inbox tidy','Models','First pass','Cost, last 7 days']);
+     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Your rules','Push notifications','Your list in Gmail','What it reads','Schedule','Quiet hours and summaries','Keep the Inbox tidy','Models','First pass','Cost, last 7 days']);
      assert.equal(await page.$eval('#w-digest',e=>e.options[0].textContent),'Off','1.95: the morning digest can be off');assert.match(await page.$eval('#w-quiet-note',e=>e.textContent),/wait for the morning digest/);
      await page.select('#w-digest','off');assert.match(await page.$eval('#w-quiet-note',e=>e.textContent),/arrive one by one when quiet hours end/,'the note follows the choice');
      await page.select('#w-digest','8');
+     // 1.105: push notifications. Every alert by default with the kinds hidden; Only what can't wait shows six switches at a tappable height
+     assert.equal(await page.$eval('#w-push-mode',e=>e.value),'all','1.105: every alert pushes until the owner chooses');assert.equal(await page.$eval('#w-push-urgent',e=>e.hidden),true);
+     await page.select('#w-push-mode','urgent');assert.equal(await page.$eval('#w-push-urgent',e=>e.hidden),false,'the urgent choice shows the kinds');
+     assert.deepEqual(await page.$$eval('[data-push-kind]',b=>b.map(x=>[x.dataset.pushKind,x.getAttribute('aria-pressed'),x.getBoundingClientRect().height>=44])),
+      ['emergency','outage','money','security','waiting','deadline'].map(k=>[k,'true',true]),'six kinds, all on, 44px targets at '+w);
+     assert.deepEqual(await page.$$eval('#w-push-cap option',o=>o.map(x=>x.textContent)),['3 a day','5 a day','8 a day','12 a day','20 a day','No limit']);
+     await scan('inbox-watch-push-'+w);await page.$eval('#w-push-h',e=>e.scrollIntoView({block:'start'}));await page.screenshot({path:path.join(out,'inbox-watch-push-'+w+'.png')});
+     await page.select('#w-push-mode','all');assert.equal(await page.$eval('#w-push-urgent',e=>e.hidden),true,'back to every alert hides them');
      // 1.100: what it reads. Everything by default with the chips hidden; the choice shows them, and a long label stays inside the sheet at a tappable height
      assert.equal(await page.$eval('#w-scope',e=>e.value),'all','1.100: Everything is the default');assert.equal(await page.$eval('#w-scope-labels',e=>e.hidden),true,'no chips on Everything');
      await page.select('#w-scope','inbox_labels');assert.equal(await page.$eval('#w-scope-labels',e=>e.hidden),false,'the label choice shows the chips');
@@ -2897,10 +2905,12 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.select('#w-every','15');await page.select('#w-fp-threshold','0.9');await page.select('#w-tidy-every','4');await page.$eval('#w-rules',e=>{e.focus();e.setSelectionRange(e.value.length,e.value.length);});await page.keyboard.type('- Never tell me about cameras that go offline.\n');await page.select('#w-fp-provider','both');await page.select('#w-models [data-job="decisions"] [data-model]','haiku');await page.select('#w-la-evening','off');
     await page.select('#w-scope','inbox_labels');await clickControl(page,'[data-scope-label="Customers"]');await page.type('#w-scope-add','Vendors');await clickControl(page,'#w-scope-add-btn'); // 1.100: a picked and a typed label
     await clickControl(page,'#w-label');
+    await page.select('#w-push-mode','urgent');await clickControl(page,'[data-push-kind="deadline"]');await page.select('#w-push-cap','5');await page.select('#w-push-repeat','worse'); // 1.105
     await clickControl(page,'#w-save');await page.waitForSelector('#w-reset');
     const saved=await page.evaluate(()=>fetch('/api/inbox/watch').then(r=>r.json()));
     assert.equal(saved.revision,1);assert.equal(saved.settings.every,15);assert.equal(saved.settings.lookahead.evening,null);assert.deepEqual(saved.settings.models.decisions,{model:'haiku',reasoning:'medium'});assert.deepEqual(saved.settings.firstPass,{enabled:true,provider:'both',threshold:0.9});assert.deepEqual(saved.settings.tidy,{enabled:true,every:4});assert.match(saved.settings.rules,/Every sale from the web store over \$500[\s\S]*Never tell me about cameras that go offline\./,'the rules are saved with the settings');
     assert.deepEqual(saved.settings.gmailLabel,{enabled:false},'1.75: turned off and saved');
+    assert.deepEqual(saved.settings.push,{mode:'urgent',kinds:['emergency','outage','money','security','waiting'],perDay:5,repeat:'worse'},'1.105: the push choices save');
     assert.deepEqual(saved.settings.scope,{mode:'inbox_labels',labels:['Customers','Vendors']},'1.100: the scope and its labels save');
     assert.deepEqual(saved.settings.periods[1],{name:'Work hours',days:[0,1,2,3,4],from:'07:00',to:'19:00',every:5});
     assert.match(await page.$eval('#w-status',e=>e.textContent),/Your last change reaches the watcher within a minute\./);
@@ -2921,7 +2931,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.keyboard.press('Escape');
     settings.assistantMode=true;await page.setViewport({width:390,height:844});await page.goto(base+'/#/inbox');await page.reload();await page.waitForSelector('#inbox-watch');
     await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
-    assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Your rules','Your list in Gmail','What it reads','Schedule','Quiet hours and summaries','Keep the Inbox tidy']);
+    assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Your rules','Push notifications','Your list in Gmail','What it reads','Schedule','Quiet hours and summaries','Keep the Inbox tidy']);
     assert.doesNotMatch(await page.$eval('.watch-sheet',e=>{const c=e.cloneNode(true);c.querySelector('#w-rules')?.remove();return c.textContent;}),/Sonnet|Haiku|Opus|\$/,'no model names or dollars (the owner\'s own rules may mention money)');
     await scan('inbox-watch-assistant-390');
    }finally{Object.assign(settings,before);await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}

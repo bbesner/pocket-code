@@ -233,10 +233,16 @@ async function inboxCheckNow(){
 }
 
 /* ---------- one entry: the sheet with the whole text and the choices ---------- */
+// 1.105: whether an entry pushed to your devices, and why, from the watcher's push settings; nothing for an entry from before them
+function inboxPushWord(e){
+ if(e.kind==='digest')return '';
+ if(e.pushed===false)return /^Not pushed/.test(e.why||'')?e.why:'On your list without a push';
+ return e.why?(/^Pushed/.test(e.why)?e.why:'Pushed: '+e.why):'';
+}
 function inboxSheet(id){
  const e=inboxById(id);if(!e)return;
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet task-sheet inbox-sheet';
- const facts=[`<span>${esc(inboxDay(e.at))} ${esc(inboxWhen(e.at))}</span>`,e.story?`<span>${esc(e.story.replace(/-/g,' '))}</span>`:'',`<span>${inboxKindWord(e)}</span>`,e.priority&&e.priority!=='normal'?`<span>${esc(e.priority)}</span>`:'',inboxStateWord(e)?`<span>${inboxStateWord(e)}</span>`:''].filter(Boolean).join(''); // the sheet's facts stack one per line, as a task's do
+ const facts=[`<span>${esc(inboxDay(e.at))} ${esc(inboxWhen(e.at))}</span>`,e.story?`<span>${esc(e.story.replace(/-/g,' '))}</span>`:'',`<span>${inboxKindWord(e)}</span>`,e.priority&&e.priority!=='normal'?`<span>${esc(e.priority)}</span>`:'',inboxStateWord(e)?`<span>${inboxStateWord(e)}</span>`:'',inboxPushWord(e)?`<span>${esc(inboxPushWord(e))}</span>`:''].filter(Boolean).join(''); // the sheet's facts stack one per line, as a task's do
  const target=inboxTarget(e),gone=['dismissed','resolved','not_useful'].includes(e.state),sess=inboxSession(e),n=e.sessions?.length||0;
  sh.innerHTML=`<h2>${e.kind==='alert'?'Alert':e.kind==='digest'?'Digest':'Look-ahead'}</h2><p class="task-text">${esc(e.title)}</p><div class="task-facts">${facts}</div>
   ${e.items?.length?`<div class="inbox-items-wrap" data-items>${inboxItemsHTML(e)}</div>`:`<div class="task-summary inbox-body">${inboxText(e.text)}</div>`}
@@ -318,6 +324,23 @@ function watchStatus(w){
  return `${now}${st?.period?` (${st.period})`:''}.${st?.lastCheckAt?` Last check ${watchTime(st.lastCheckAt)}`:''}${st?.nextCheckAt?`, next about ${watchTime(st.nextCheckAt)}.`:st?.lastCheckAt?'.':''}${pending}`;
 }
 const watchQuietNote=digest=>digest==null?'In quiet hours only critical alerts reach you. With the digest off, the rest arrive one by one when quiet hours end, and what would only have been a digest line is not sent.':'In quiet hours only critical alerts reach you; the rest wait for the morning digest.';
+const WATCH_PUSH_KINDS=[ // 1.105: the kinds of urgency the judge names; the owner picks which push
+ ['emergency','Emergencies','A site, customer or person in trouble right now: a dispatch request, an alarm, a safety problem'],
+ ['outage','Outages you’re the escalation for','Something down with nobody on it yet'],
+ ['money','Money at risk','Past due or about to cost a fee or a shutoff, a failed payment, an unexpected charge'],
+ ['security','Security incidents','A breach, a hacked account, a suspicious sign-in'],
+ ['waiting','Someone waiting on you','A customer or your staff blocked until you answer, today'],
+ ['deadline','Deadlines today or tomorrow','Due soon with no sign it’s handled. The look-ahead counts here']];
+function watchPushHTML(pu,opts){
+ const urgent=pu.mode==='urgent',kinds=new Set(pu.kinds||[]);
+ return `<div class="title-settings model-offer" role="group" aria-labelledby="w-push-h"><p class="vault-set-head" id="w-push-h">Push notifications</p>
+   <p class="title-note">Everything Inbox Watch finds goes on your list. This decides which of those also push to your devices; the rest wait quietly for you here.</p>
+   ${watchSelect('w-push-mode','Push',opts.modes||['urgent','all','none'],pu.mode||'all',v=>({urgent:'Only what can’t wait',all:'Every alert',none:'Nothing, list only'})[v]||v)}
+   <div id="w-push-urgent"${urgent?'':' hidden'}><p class="title-note" id="w-push-kinds-lead">Push these when waiting a few hours would make them worse. A critical alert always pushes.</p>
+    <div role="group" aria-labelledby="w-push-kinds-lead">${WATCH_PUSH_KINDS.filter(([k])=>!opts.kinds||opts.kinds.includes(k)).map(([k,name,sub])=>`<button class="opt" data-push-kind="${k}" aria-pressed="${kinds.has(k)}"><span class="dot${kinds.has(k)?' on':''}"></span><span>${name}<span class="sub">${sub}</span></span></button>`).join('')}</div>
+    <div class="watch-pair">${watchSelect('w-push-cap','At most',opts.perDay||[3,5,8,12,20,0],pu.perDay??0,v=>v===0?'No limit':`${v} a day`)}${watchSelect('w-push-repeat','Same story again',opts.repeat||['worse','every'],pu.repeat||'every',v=>({worse:'Only when it gets worse',every:'With each new fact'})[v]||v)}</div>
+    <p class="title-note">Past the limit, alerts still reach your list without a sound; critical ones are never held back.</p></div></div>`;
+}
 function watchSelect(id,label,values,current,word,extra=''){
  return `<label class="voice-field">${label}<select id="${id}" ${extra}>${values.map(v=>`<option value="${v===null?'off':v}"${v===current||(v===null&&current==null)?' selected':''}>${word(v)}</option>`).join('')}</select></label>`;
 }
@@ -354,7 +377,7 @@ async function inboxWatchSheet(){
  let s=structuredClone(w.settings||p?.defaults||null);
  if(!s){holder.querySelector('[role=status]').textContent=watchStatus(w);return;}
  s.periods ||= [];
- for(const k of ['scope','tidy','firstPass','gmailLabel'])if(p?.defaults?.[k]&&!s[k])s[k]=structuredClone(p.defaults[k]); // 1.100: a group the watcher offers that your saved settings predate (the scope setting for everyone who saved before it existed)
+ for(const k of ['scope','tidy','firstPass','gmailLabel','push'])if(p?.defaults?.[k]&&!s[k])s[k]=structuredClone(p.defaults[k]); // 1.100: a group the watcher offers that your saved settings predate (the scope setting for everyone who saved before it existed)
  // 1.73: the rules box shows the watcher's file (it may have learned lines since), unless a save of yours has not reached it yet
  const rulesText=typeof w.settings?.rules==='string'&&p?.applied?.revision!==w.revision?w.settings.rules:(p?.rules?.text||'');
  const hours=[...Array(24).keys()],tz=p?.timezone&&p.timezone!==Intl.DateTimeFormat().resolvedOptions().timeZone?` Times are ${p.timezone.split('/').pop().replace(/_/g,' ')} time.`:'';
@@ -367,6 +390,7 @@ async function inboxWatchSheet(){
    <p class="title-note" id="w-rules-lead">Your instructions to Inbox Watch, in your own words: what matters to you, what doesn’t, and any rules of your own. It follows them on every check, in the first pass, the look-ahead and the tidy pass, and they win over its own judgment, even for something it would call critical. <strong>Not useful</strong> adds a line here.</p>
    <label class="voice-field watch-rules">Rules<textarea id="w-rules" rows="10" maxlength="${p.rules.max||8000}" spellcheck="true" aria-describedby="w-rules-lead w-rules-count" placeholder="${esc('Write your instructions here. For example:\nWho I am: I run a landscaping company; my office manager does scheduling.\nWhat matters: Tell me when a customer asks for a quote.\nWhat doesn’t: Never alert me about newsletters or receipts.\nMy rules: Anything from my accountant is high priority.')}">${esc(rulesText)}</textarea></label>
    <p class="title-note" id="w-rules-count"></p></div>`:''}
+  ${s.push?watchPushHTML(s.push,opts.push||{}):''}
   ${s.gmailLabel?(()=>{const gl=opts.gmailLabel||{},name=esc(gl.name||'Pocket Inbox'),off=gl.available===false;return `<div class="title-settings model-offer" role="group" aria-labelledby="w-label-h"><p class="vault-set-head" id="w-label-h">Your list in Gmail</p>
    <button class="opt" id="w-label" aria-pressed="${Boolean(s.gmailLabel.enabled)}"${off?' aria-describedby="w-label-off"':''}><span class="dot${s.gmailLabel.enabled?' on':''}"></span><span>Keep a ${name} label in Gmail<span class="sub">Everything on this list carries the label in Gmail and stays in your inbox. Give an email the label and it comes here with a summary; take it off and it leaves this list. Finish one here and its email is archived in Gmail.</span></span></button>
    ${off?`<p class="title-note" id="w-label-off">Inbox Watch can only read this mailbox, so it can’t add the label yet: ${esc(gl.reason||'it has no Gmail write access')}.</p>`:''}</div>`;})():''}
@@ -417,6 +441,10 @@ async function inboxWatchSheet(){
  rulesBox?.addEventListener('input',rulesCount);rulesCount();
  $w('#w-tidy')?.addEventListener('click',e=>{s.tidy.enabled=!s.tidy.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.tidy.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.tidy.enabled);});
  $w('#w-label')?.addEventListener('click',e=>{s.gmailLabel.enabled=!s.gmailLabel.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.gmailLabel.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.gmailLabel.enabled);});
+ if(s.push){ // 1.105: the mode shows the kinds only for "Only what can't wait"; each kind is a switch
+  $w('#w-push-mode')?.addEventListener('change',e=>{s.push.mode=e.target.value;const box=$w('#w-push-urgent');if(box)box.hidden=s.push.mode!=='urgent';});
+  sh.querySelectorAll('[data-push-kind]').forEach(b=>b.addEventListener('click',()=>{const on=b.getAttribute('aria-pressed')!=='true';b.setAttribute('aria-pressed',String(on));b.querySelector('.dot').classList.toggle('on',on);}));
+ }
  $w('#w-fp')?.addEventListener('click',e=>{s.firstPass.enabled=!s.firstPass.enabled;e.currentTarget.setAttribute('aria-pressed',String(s.firstPass.enabled));e.currentTarget.querySelector('.dot').classList.toggle('on',s.firstPass.enabled);});
  if(s.scope){ // 1.100: the scope's mode shows or hides the label chips; a chip toggles a label; Add puts a typed name in as a pressed chip
   $w('#w-scope')?.addEventListener('change',e=>{s.scope.mode=e.target.value;const box=$w('#w-scope-labels');if(box)box.hidden=s.scope.mode!=='inbox_labels';});
@@ -436,6 +464,8 @@ async function inboxWatchSheet(){
   if(s.gmailLabel)out.gmailLabel={enabled:Boolean(s.gmailLabel.enabled)};
   if(s.scope)out.scope={mode:$w('#w-scope')?.value||s.scope.mode||'all',labels:[...sh.querySelectorAll('[data-scope-label][aria-pressed="true"]')].map(b=>b.dataset.scopeLabel)};
   if(s.tidy)out.tidy={enabled:Boolean(s.tidy.enabled),every:Number($w('#w-tidy-every')?.value||s.tidy.every)};
+  if(s.push)out.push={mode:$w('#w-push-mode')?.value||s.push.mode||'all',kinds:[...sh.querySelectorAll('[data-push-kind][aria-pressed="true"]')].map(b=>b.dataset.pushKind),
+   perDay:Number($w('#w-push-cap')?.value??s.push.perDay??0),repeat:$w('#w-push-repeat')?.value||s.push.repeat||'every'};
   if(s.firstPass)out.firstPass={enabled:Boolean(s.firstPass.enabled),provider:$w('#w-fp-provider')?.value||s.firstPass.provider,threshold:Number($w('#w-fp-threshold')?.value||s.firstPass.threshold)};
   sh.querySelectorAll('#w-models [data-job]').forEach(row=>{out.models[row.dataset.job]={model:row.querySelector('[data-model]').value,reasoning:row.querySelector('[data-reasoning]').value};});
   const bad=out.periods.findIndex(x=>!x.days.length||!x.from||!x.to);

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.104.0
+checked: 1.105.0
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -99,8 +99,31 @@ security incidents and money leaving an account unexpectedly. During quiet hours
 rest are held. At the digest hour up to five held high or critical alerts go out on their own, marked *Held
 overnight.*, and the rest fold into the digest. A held alert whose story was resolved overnight is not sent.
 
-Each alert also sends a push to devices that have **Settings → Notifications & voice → Inbox alerts** on. The push
-shows the title and the first sentence; tapping it opens the briefed conversation, or the entry when there is none.
+An alert can also push to devices that have **Settings → Notifications & voice → Inbox alerts** on. Which alerts push
+is your choice (see [Push notifications](#push-notifications)); by default every one does. The push shows the title and
+the first sentence; tapping it opens the briefed conversation, or the entry when there is none. An open entry says
+whether it pushed and why (*Pushed: the site has been dark since 7:10 p.m.*, *On your list without a push*).
+
+#### Push notifications
+
+Since 1.105 the list and the interruption are separate. Every alert goes on your list; **Push notifications** in the
+schedule sheet decides which of them also push:
+
+- **Every alert** pushes them all (the behaviour before 1.105, and the default).
+- **Only what can't wait** pushes a critical alert and one the judge put in a kind of urgency you switched on. The
+  judge names the urgency for every alert by asking whether waiting a few hours would make it worse:
+  **Emergencies** (a dispatch request, an alarm, a safety problem), **Outages you're the escalation for** (down, nobody
+  on it), **Money at risk** (past due or about to cost a fee or a shutoff, a failed payment, an unexpected charge),
+  **Security incidents**, **Someone waiting on you** (blocked until you answer, today) and **Deadlines today or
+  tomorrow** (the look-ahead counts here). A bug report, a phone call that went badly, a quote to prepare or an outage
+  someone is already on is worth a place on the list but not an interruption.
+  **At most** caps pushes per day (3 to 20, or no limit); past it, alerts arrive silently. **Same story again**:
+  *Only when it gets worse* pushes a story again within a day only when its priority rose; *With each new fact*
+  pushes every alert on it. A critical alert ignores the cap and the repeat rule.
+- **Nothing, list only** pushes nothing, the digest included.
+
+Your rules can steer it ("Always push: emergency dispatch requests", "Never push: Field Nation"); they win, as
+everywhere. Quiet hours still hold everything but critical alerts.
 Digests and look-aheads are also saved to **Files** when Files is on.
 
 ### Read the Inbox
@@ -230,6 +253,8 @@ until it has. **Use the config file's settings** hands control back to `config.t
   **Evening look-ahead** hours (or *Off*). With the morning digest off, alerts held overnight arrive one by one when quiet
   hours end, and lines that would only have been in the digest are not sent. Times are the watcher's time zone; the sheet
   names it when your device is in another.
+- **Push notifications** (1.105, both modes, under the rules): *Every alert*, *Only what can't wait* with its six
+  kinds, *At most* and *Same story again*, or *Nothing, list only* (see [Push notifications](#push-notifications)).
 - **Keep the Inbox tidy**: *Take finished items off my list* and **How often** (every 1, 2, 4, 8, 12 or 24 hours).
 - **Models** (Developer mode): model and reasoning for **Decisions** and for the **Look-ahead**. A Claude Code judge
   offers Haiku, Sonnet, Opus and Fable; a Codex judge offers the model its config names. *Model default* leaves the
@@ -326,7 +351,8 @@ Labels a Gmail filter put on and alerts you resolved or dismissed teach it nothi
    batch), the same order, invoice or account numbers seen before, your rules and,
    optionally, [memory](#memory-integration-optional). It may ask for up to three Gmail searches. It answers per
    thread: **notify**, **digest** (a line in the morning digest), **update** (the story changed, no message) or
-   **ignore**.
+   **ignore**. For a notify it also names the kind of urgency, if any, and in one sentence what gets worse if it
+   waits; your push settings decide from that whether it pushes.
 5. Alerts go out together once every batch is judged, so a later batch can fold a new fact into an alert that has not
    left yet. The same fact is never alerted twice.
 6. Due items run: the digest, a look-ahead, the tidy pass. Then the watcher reports to Pocket with its settings, status
@@ -447,7 +473,8 @@ pocket-inbox check                         # Check now
 - **Posting** is for jobs on the server, not conversations, unless the user asks for such a job:
   `pocket-inbox add --title "…" --text "…" | --file <path|-> [--kind alert|digest|lookahead]
   [--priority critical|high|normal|low] [--story "…"] [--source "…"] [--url /#/start/<id>] [--gmail <https://mail.google.com/…>]
-  [--doc <Files id>] [--dedupe <key>] [--email] [--no-push]`. It pushes to the user's devices unless `--no-push`;
+  [--doc <Files id>] [--dedupe <key>] [--email] [--no-push] [--why "…"]`. It pushes to the user's devices unless `--no-push`;
+  `--why` is one line shown on the entry about why it pushed or not;
   `--email` also mails the notification address. A `--dedupe` key used in the last 24 hours adds nothing and prints
   `duplicate`. A job posting regularly should send `pocket-inbox seen` when it has nothing to post.
 - Exit code 1 with *Inbox Watch is off for this Pocket Code* means the feature is off: tell the user it is under

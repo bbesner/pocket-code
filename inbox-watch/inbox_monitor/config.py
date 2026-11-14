@@ -39,6 +39,7 @@ class Config:
     schedule: dict = field(default_factory=dict)
     firstpass: dict = field(default_factory=dict)
     gmail_label: dict = field(default_factory=dict)  # [gmail_label]: the Pocket Inbox label kept in step with the Inbox (enabled, default true; name; inbox; archive, default true)
+    push: dict = field(default_factory=dict)  # [push] (1.105): which alerts also push to the owner's devices (schedule.py)
     tidy: dict = field(default_factory=dict)  # [tidy]: take resolved or handled entries off the owner's Inbox  # [firstpass]: skip routine mail before the judge (firstpass.py)  # [schedule] as written: every, paused, [[schedule.period]] (see schedule.py)
 
     def quiet(self, hour: int) -> bool:
@@ -98,4 +99,5 @@ def load(path: str | os.PathLike) -> Config:
         firstpass=dict(raw.get("firstpass", {})),
         tidy=dict(raw.get("tidy", {})),
         gmail_label=dict(raw.get("gmail_label", {})),
+        push=dict(raw.get("push", {})),
     )
