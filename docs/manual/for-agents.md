@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.82.0
+checked: 1.105.0
 sources: skills.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # For agents
@@ -78,7 +78,7 @@ Pocket adds a set of plain-language lines to your instructions when it starts yo
 | Projects | **Projects** is on | Track a project only when the user asks. Check `status --all` first and link this conversation to a matching project rather than duplicating it; otherwise `track --requested`. Ask at most one question. Set a reminder only when the user asks or agrees to a time. Keep a tracked project's card current at stopping points. |
 | Files | **Files** is on | "Files", "my files", "documents", "my documents" and "docs" mean Pocket's Files library. Keep deliverables for the user to read (HTML report, PDF, image, Markdown, CSV or spreadsheet) with `add`, linked to this conversation. Files are private; share only when asked. Mention a file by its title, not its server path. |
 | Tasks | **Tasks** is on | Create a task only when the user asks or accepts your offer. Before finishing each reply, check whether the work needs the user to come back later; if so and nothing covers it, offer a task once (as a suggested reply when those are on). Give `--due` only for a time the user named or agreed. |
-| Inbox Watch | **Inbox Watch** is on | `list`, `show` and `act`; record a decision (`act`) only when the user asks. |
+| Inbox Watch | **Inbox Watch** is on | `list`, `show` and `act`; record a decision (`act`) only when the user asks. Which alerts push is the `push` setting, changed only when asked. |
 | Vault | The Vault is on and its store loaded (a locked Vault counts) | Use secrets by name with `pocket-vault run`; never print, write or ask for a value; on `pending`, say so and offer Allow and Deny; on refusal, stop; store any secret you meet with `put`; `{{vault:name.field}}` in browser fill tools; a `{{vault:name}}` in a message is the user handing you a stored secret. |
 | Google | Always | Use this agent's Gmail, Google Calendar and Google Drive connectors from **Settings → Agents & instance → Connectors**; check once whose account it is; write every email as a draft and show it first; send when the user says so and never refuse a send they ask for; ask before sending calendar invitations to other people. |
 | Manual | Always | Where this manual's index is, and to answer questions about Pocket from it. |

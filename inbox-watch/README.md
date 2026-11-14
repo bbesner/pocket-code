@@ -217,7 +217,18 @@ Reusing a Google sign-in another app already holds (an assistant connected to th
 and point `oauth_token_file` at it. The watcher renews it with those scopes and only ever reads.
 
 `touch STOP` beside the config pauses everything. `--dry-run` evaluates without sending. `notify --subject … --text …`
-sends one alert through the same channel from any other job.
+sends one alert through the same channel from any other job; with `--urgency emergency|outage|money|security|waiting|deadline`
+and `--why-now "…"` it can push under the owner's *Only what can't wait* setting (without them, only `--priority critical` does).
+
+## Push notifications (1.105)
+
+Every alert goes on the owner's list; `[push]` (or the sheet in Pocket) decides which also interrupt. The judge names a
+kind of urgency for each notify (`interrupt`, with a `why_now` sentence), and `engine.push_decision()` applies the policy:
+`mode = "all"` (default) pushes everything, `"none"` nothing, `"urgent"` a critical alert or one whose kind is in
+`kinds`, at most `per_day` a day (0 = no limit) and, with `repeat = "worse"`, not again on a story within 24 hours unless
+its priority rose. Critical ignores the cap and the repeat rule. A look-ahead counts as `deadline`. Pocket gets
+`--no-push` and `--why`; Telegram sends the message without a sound; email is unchanged. The alerts table records
+`push_kind`, `why_now` and `pushed`.
 
 ## Replay before tuning
 

@@ -24,6 +24,7 @@ import datetime as dt
 import fcntl
 import hashlib
 import html as htmlmod
+import inspect
 import json
 import os
 import re
@@ -103,7 +104,7 @@ def configure(cfg: cfgmod.Config) -> None:
     LINK_GENERIC.update(noise)
     cfg.state_dir.mkdir(parents=True, exist_ok=True)
     g["DEFAULTS"] = schedmod.from_config(cfg.schedule, cfg.judge, cfg.quiet_hours, cfg.digest_hour, cfg.lookahead, cfg.firstpass, cfg.tidy,
-                                         cfg.gmail_label, mail=cfg.mail)
+                                         cfg.gmail_label, mail=cfg.mail, push=cfg.push)
     g["FIRSTPASS"] = FirstPass(cfg.firstpass, cfg.owner_name, cfg.firstpass.get("context") or
                                f"{cfg.owner_name} receives business email. An assistant reads every new email in the inbox and decides whether "
                                f"{cfg.owner_name} needs to know anything. Most mail is routine.", log)
@@ -314,7 +315,7 @@ create table if not exists lessons(id integer primary key autoincrement, ref tex
 """
 JUDGE_CALL_COLUMNS = {"turns": "integer", "tool_calls": "integer", "tools": "text", "memory_items": "integer"}
 ISSUE_COLUMNS = {"title": "text", "unknowns": "text", "memory_at": "text"}
-ALERT_COLUMNS = {"memory_at": "text"}
+ALERT_COLUMNS = {"memory_at": "text", "push_kind": "text", "why_now": "text", "pushed": "integer"}  # 1.105: the push split
 
 ARCHIVE_SCHEMA = """
 create table if not exists mail(message_id text primary key, thread_id text, ts integer, date text, sender text, recipients text,
@@ -684,9 +685,10 @@ class Store:
     def queue_alert(self, dedupe_key: str, **f) -> int | None:
         try:
             cur = self.db.execute(
-                """insert into alerts(dedupe_key,issue_key,thread_id,kind,priority,text,next_step,subject,sender,created_at,status)
-                   values(?,?,?,?,?,?,?,?,?,?,?)""",
-                (dedupe_key, f["issue_key"], f["thread_id"], f["kind"], f["priority"], f["text"], f.get("next_step"), f.get("subject"), f.get("sender"), iso(), f["status"]),
+                """insert into alerts(dedupe_key,issue_key,thread_id,kind,priority,text,next_step,subject,sender,created_at,status,push_kind,why_now)
+                   values(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (dedupe_key, f["issue_key"], f["thread_id"], f["kind"], f["priority"], f["text"], f.get("next_step"), f.get("subject"), f.get("sender"), iso(), f["status"],
+                 f.get("push_kind"), f.get("why_now")),
             )
             return cur.lastrowid
         except sqlite3.IntegrityError:
@@ -709,8 +711,9 @@ class Store:
             return False
         rank = {"low": 0, "normal": 1, "high": 2, "critical": 3}
         prio = waiting["priority"] if rank.get(waiting["priority"], 0) >= rank.get(d["priority"], 0) else d["priority"]
-        self.db.execute("update alerts set text=?, next_step=coalesce(?, next_step), priority=?, subject=coalesce(?, subject) where id=?",
-                        (d["user_message"], d.get("next_step"), prio, title, waiting["id"]))
+        self.db.execute("update alerts set text=?, next_step=coalesce(?, next_step), priority=?, subject=coalesce(?, subject), "
+                        "push_kind=coalesce(?, push_kind), why_now=coalesce(?, why_now) where id=?",
+                        (d["user_message"], d.get("next_step"), prio, title, d.get("interrupt"), d.get("why_now"), waiting["id"]))
         return True
 
     def pending(self, kinds: tuple[str, ...], statuses: tuple[str, ...]) -> list[sqlite3.Row]:
@@ -1152,6 +1155,9 @@ def validate_story_fields(d: dict, valid_ids: set[str]) -> dict:
     d["unknowns"] = str(d["unknowns"])[:300] if d.get("unknowns") else None
     if d.get("deadline") is not None and not isinstance(d.get("deadline"), str):
         d["deadline"] = None
+    # 1.105: the kind of urgency that may push this alert to the owner's devices (schedmod.PUSH_KINDS), or None
+    d["interrupt"] = d.get("interrupt") if d.get("interrupt") in schedmod.PUSH_KINDS else None
+    d["why_now"] = str(d["why_now"])[:200] if d.get("why_now") and d["interrupt"] else None
     return d
 
 
@@ -1410,10 +1416,16 @@ def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, hel
         store.mark_sent(alert_id, None, None, "dry-run")
         return True
     pocket = start_link(CFG.pocket, briefing_for(store, alert, thread), title, log) if CFG.pocket.get("root") else None
+    push, why = push_decision(store, a)
+    store.db.execute("update alerts set pushed=? where id=?", (1 if push else 0, alert_id))
+    log(f"push {'yes' if push else 'no'} for {a['subject']!r}: {why or '-'}")
+    shown = ((a.get("why_now") or why) if push else (why if why.startswith("Not pushed") else None)) or None
     refs = []
     for d in DELIVERIES:
         try:
-            ref = d.send_lookahead(a, pocket_url=pocket, items=items) if a["kind"] == "checkin" else d.send_alert(a, pocket_url=pocket, held_note=held_note)
+            fn = d.send_lookahead if a["kind"] == "checkin" else d.send_alert
+            extra = {k: v for k, v in (("push", push), ("why", shown)) if takes(fn, k)}  # a channel written before 1.105 gets neither
+            ref = fn(a, pocket_url=pocket, items=items, **extra) if a["kind"] == "checkin" else fn(a, pocket_url=pocket, held_note=held_note, **extra)
             refs.append(f"{d.kind}:{ref}")
         except Exception as e:  # noqa: BLE001
             log(f"deliver {d.kind} failed for alert {alert_id}: {e}")
@@ -1421,6 +1433,53 @@ def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, hel
         log(f"no delivery configured; alert {alert_id} recorded only")
     store.mark_sent(alert_id, ",".join(refs) or None, pocket, "sent" if refs or not DELIVERIES else "failed")
     return bool(refs) or not DELIVERIES
+
+
+PRIORITY_RANK = {"low": 0, "normal": 1, "high": 2, "critical": 3}
+
+
+def takes(fn, name: str) -> bool:
+    """Whether a delivery method accepts this keyword (a channel written before 1.105 has no push or why)."""
+    try:
+        ps = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in ps or any(x.kind is inspect.Parameter.VAR_KEYWORD for x in ps.values())
+
+
+def push_decision(store: Store, a: dict) -> tuple[bool, str]:
+    """1.105: whether this alert also pushes to the owner's devices, and why (for the log and the entry). Every alert still goes
+    on the list; the owner's push settings decide only the interruption. "all" pushes everything (the behaviour before 1.105);
+    "none" nothing; "urgent" a critical alert, or one the judge put in a kind of urgency the owner chose (a look-ahead counts as
+    "deadline"), unless the story already pushed in the last day at the same or a higher priority (repeat "worse") or the day's
+    pushes reached the owner's limit. A critical alert ignores both."""
+    pol = SETTINGS.get("push") or schedmod.PUSH_DEFAULT
+    mode = pol.get("mode", "all")
+    if mode == "all":
+        return True, ""
+    if mode == "none":
+        return False, "pushes are off"
+    prio = a.get("priority") or "normal"
+    if prio == "critical":
+        return True, "Critical"
+    kind = "deadline" if a.get("kind") == "checkin" else a.get("push_kind")
+    if not kind:
+        return False, "not urgent"
+    if kind not in (pol.get("kinds") or []):
+        return False, f"{kind} is not a kind you push"
+    since = iso(now_utc() - dt.timedelta(hours=24))
+    if pol.get("repeat") == "worse" and a.get("issue_key"):
+        last = store.db.execute("select priority from alerts where issue_key=? and pushed=1 and id!=? and sent_at>=? order by sent_at desc limit 1",
+                                (a["issue_key"], a["id"], since)).fetchone()
+        if last and PRIORITY_RANK.get(prio, 1) <= PRIORITY_RANK.get(last["priority"], 1):
+            return False, "Not pushed: this story already pushed today and has not got worse."
+    cap = int(pol.get("perDay") or 0)
+    if cap:
+        midnight = iso(now_et().replace(hour=0, minute=0, second=0, microsecond=0).astimezone(dt.timezone.utc))
+        n = store.db.execute("select count(*) c from alerts where pushed=1 and sent_at>=? and id!=?", (midnight, a["id"])).fetchone()["c"]
+        if n >= cap:
+            return False, f"Not pushed: you have had {cap} pushes today, your limit."
+    return True, kind
 
 
 # ---------------------------------------------------------------- scheduled: morning release, look-ahead, digest
@@ -1537,7 +1596,7 @@ def send_digest(store: Store, overflow: list[sqlite3.Row], dry_run: bool) -> Non
             refs = []
             for d in DELIVERIES:
                 try:
-                    refs.append(f"{d.kind}:{d.send_digest(title, text, items=items)}")
+                    refs.append(f"{d.kind}:{d.send_digest(title, text, items=items, **({"push": False} if (SETTINGS.get("push") or {}).get("mode") == "none" and takes(d.send_digest, "push") else {}))}")
                 except Exception as ex:  # noqa: BLE001
                     log(f"digest {d.kind} failed: {ex}")
             if DELIVERIES and not refs:
@@ -2200,7 +2259,8 @@ def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, ba
                 continue
             aid = store.queue_alert(key, issue_key=d["issue_key"], thread_id=d["thread_id"], kind="notify",
                                     priority=d["priority"], text=d["user_message"], next_step=d.get("next_step"), subject=title,
-                                    sender=th["messages"][-1]["from"], status="held" if hold else "queued")
+                                    sender=th["messages"][-1]["from"], status="held" if hold else "queued",
+                                    push_kind=d.get("interrupt"), why_now=d.get("why_now"))
             if aid and not hold:
                 pending[aid] = th
             elif aid:
@@ -3088,7 +3148,8 @@ def notify_cli(a: argparse.Namespace) -> int:
     key = a.key or hashlib.sha1(f"{a.subject}|{a.text}".encode()).hexdigest()[:16]
     hold = in_quiet_hours() and a.priority != "critical"
     aid = store.queue_alert(f"ext|{key}", issue_key=f"ext-{key}", thread_id=a.thread_id or "", kind="notify", priority=a.priority, text=a.text,
-                            next_step=a.next_step, subject=a.subject, sender=a.sender, status="held" if hold else "queued")
+                            next_step=a.next_step, subject=a.subject, sender=a.sender, status="held" if hold else "queued",
+                            push_kind=getattr(a, "urgency", None), why_now=getattr(a, "why_now", None) if getattr(a, "urgency", None) else None)
     if a.dry_run:
         # Say what would happen and keep nothing. (2026-10-24: a dry run left its alert row behind, so the real send with
         # the same key that followed it was refused as a duplicate.)
@@ -3126,6 +3187,9 @@ def _main(argv: list[str] | None = None) -> int:
     n.add_argument("--sender", default=None)
     n.add_argument("--thread-id", default=None, help="Gmail thread id, when the alert is about an email")
     n.add_argument("--priority", default="normal", choices=["critical", "high", "normal", "low"])
+    n.add_argument("--urgency", default=None, choices=schedmod.PUSH_KINDS,
+                   help="the kind of urgency, for the owner's push settings (1.105); without it only a critical alert pushes in urgent mode")
+    n.add_argument("--why-now", default=None, help="one sentence: what gets worse if the owner sees this hours later")
     n.add_argument("--key", default=None, help="dedupe key; the same key never alerts twice")
     n.add_argument("--dry-run", action="store_true")
     b = sub.add_parser("backfill", help="fill the local mail archive with the last N days of the mailbox")

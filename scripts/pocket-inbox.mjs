@@ -5,7 +5,8 @@
 //
 //   pocket-inbox add --title "…" (--text "…" | --file <path|->) [--kind alert|digest|lookahead] [--priority critical|high|normal|low]
 //                    [--story "…"] [--source "…"] [--url </#/start/<id> or a web address>] [--gmail <https://mail.google.com/…>]
-//                    [--doc <Files id>] [--dedupe <key>] [--items <path|->] [--email] [--no-push] [--json]      prints "<id> push=<devices|off> mail=<yes|no|off|failed>"
+//                    [--doc <Files id>] [--dedupe <key>] [--items <path|->] [--email] [--no-push] [--why "…"] [--json]      prints "<id> push=<devices|off> mail=<yes|no|off|failed>"
+//                    --why (1.105): one line on why it pushed, or why it did not, shown on the entry
 //                    --items (1.95): a digest's or look-ahead's items as JSON, [{ref, section, title, text, story, gmail, priority}]
 //   pocket-inbox list [--state new|all|dismissed] [--since <ISO>] [--json]                   new ones by default, newest first
 //   pocket-inbox show <id> [--json]
@@ -104,7 +105,7 @@ switch (cmd) {
       if (!Array.isArray(items)) die('--items must be a JSON list of items');
     }
     const r = await call('/api/inbox', { title, text: String(text).trim(), kind: opts.kind || undefined, priority: opts.priority || undefined, story: opts.story || '', source: opts.source || undefined,
-      url: opts.url || '', gmail: opts.gmail || '', doc: opts.doc || '', dedupe: opts.dedupe || '', email: Boolean(opts.email), push: !opts.noPush, ...(items ? { items } : {}) });
+      url: opts.url || '', gmail: opts.gmail || '', doc: opts.doc || '', dedupe: opts.dedupe || '', email: Boolean(opts.email), push: !opts.noPush, ...(opts.why ? { why: String(opts.why) } : {}), ...(items ? { items } : {}) });
     out(r, `${r.entry.id} push=${r.push ?? 'off'} mail=${mailWord(r.mail)}${r.duplicate ? ' duplicate' : ''}`);
     break;
   }

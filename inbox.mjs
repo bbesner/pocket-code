@@ -35,6 +35,7 @@ const ITEM_TARGET = { alert: 'alerted', resolve: 'resolved', not_useful: 'not_us
 const ITEM_ACTED = ['alerted', 'resolved', 'not_useful', 'dismissed'];
 const sameStory = (a, b) => Boolean((a.story && a.story === b.story) || (a.gmail && a.gmail === b.gmail));
 const remember = (x, id, at) => { if (x.sessions.some(s => s.id === id)) return false; x.sessions = [...x.sessions, { id, at }].slice(-SESSIONS_MAX); return true; };
+const WHY_MAX = 200; // 1.105: why an entry pushed, or why it did not
 const NOTE_MAX = 300, URL_MAX = 500, DEDUPE_MAX = 200, SESSIONS_MAX = 5, DAY = 86400_000;
 const DOC_RE = /^[0-9a-f]{12}$/, START_RE = /^[0-9a-f]{12}$/, SESSION_RE = /^(cx:)?[0-9A-Za-z][0-9A-Za-z_-]{7,79}$/;
 const checkSessions = v => Array.isArray(v) ? v.filter(s => s && SESSION_RE.test(String(s.id)) && !Number.isNaN(ms(s.at))).slice(-SESSIONS_MAX).map(s => ({ id: s.id, at: s.at })) : [];
@@ -78,7 +79,8 @@ function checkItems(raw, { strict }) {
 }
 
 // ---- 1.70: Inbox Watch settings. The worker normalizes again; here a bad value is refused with a reason the owner can read.
-export const WATCH = { periods: 12, every: 240, name: 40, model: 80, profileBytes: 24000, reasoning: ['default', 'low', 'medium', 'high', 'xhigh', 'max'], firstPass: ['jev', 'openai', 'both'], tidyEvery: [1, 2, 4, 8, 12, 24], rules: 8000, scope: ['all', 'inbox', 'inbox_labels'], scopeLabels: 20, scopeLabel: 60 };
+export const WATCH = { periods: 12, every: 240, name: 40, model: 80, profileBytes: 24000, reasoning: ['default', 'low', 'medium', 'high', 'xhigh', 'max'], firstPass: ['jev', 'openai', 'both'], tidyEvery: [1, 2, 4, 8, 12, 24], rules: 8000, scope: ['all', 'inbox', 'inbox_labels'], scopeLabels: 20, scopeLabel: 60,
+  push: { modes: ['urgent', 'all', 'none'], kinds: ['emergency', 'outage', 'money', 'security', 'waiting', 'deadline'], perDay: [3, 5, 8, 12, 20, 0], repeat: ['worse', 'every'] } };
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 export function checkWatch(raw, profile = null) {
@@ -136,6 +138,14 @@ export function checkWatch(raw, profile = null) {
       if (labels.length > WATCH.scopeLabels) throw bad(`scope.labels: at most ${WATCH.scopeLabels} labels.`);
     }
     out.scope = { mode, labels };
+  }
+  if ('push' in raw) { // 1.105: which alerts also push to the owner's devices; every alert still goes on the list
+    const p = raw.push, P = WATCH.push; if (!p || typeof p !== 'object') throw bad('push is {mode, kinds, perDay, repeat}.');
+    out.push = {};
+    if ('mode' in p) { if (!P.modes.includes(p.mode)) throw bad(`push.mode is one of ${P.modes.join(', ')}.`); out.push.mode = p.mode; }
+    if ('kinds' in p) { if (!Array.isArray(p.kinds) || p.kinds.some(k => !P.kinds.includes(k))) throw bad(`push.kinds is a list of ${P.kinds.join(', ')}.`); out.push.kinds = P.kinds.filter(k => p.kinds.includes(k)); }
+    if ('perDay' in p) { if (!P.perDay.includes(p.perDay)) throw bad(`push.perDay is one of ${P.perDay.join(', ')} (0: no limit).`); out.push.perDay = p.perDay; }
+    if ('repeat' in p) { if (!P.repeat.includes(p.repeat)) throw bad(`push.repeat is ${P.repeat.join(' or ')}.`); out.push.repeat = p.repeat; }
   }
   if ('gmailLabel' in raw) { // 1.75: the Pocket Inbox label in Gmail, kept in step with this list both ways
     const g = raw.gmailLabel; if (!g || typeof g !== 'object' || typeof g.enabled !== 'boolean') throw bad('gmailLabel is {enabled: true or false}.');
@@ -200,7 +210,7 @@ export class InboxStore {
       story: line(e.story, LIMITS.story), source: source(e.source), url: keep(checkUrl, e.url), gmail: keep(checkGmail, e.gmail), doc: keep(checkDoc, e.doc), dedupe: str(e.dedupe, DEDUPE_MAX),
       state: ok(e.state, STATES, 'new'), at: e.at, seenAt: e.seenAt || null, actedAt: e.actedAt || null, ackedAt: e.ackedAt || null, note: str(e.note, NOTE_MAX),
       by: e.by === 'ui' ? 'ui' : 'cli', actedBy: e.actedBy === 'ui' || e.actedBy === 'cli' ? e.actedBy : null, revision: Number.isInteger(e.revision) && e.revision > 0 ? e.revision : 1, lastAction: typeof e.lastAction === 'string' ? e.lastAction : null,
-      sessions: checkSessions(e.sessions), items: checkItems(e.items, { strict: false }) };
+      sessions: checkSessions(e.sessions), items: checkItems(e.items, { strict: false }), pushed: e.pushed !== false, why: line(e.why, WHY_MAX) };
   }
   save() { this.write(this.file, { version: 1, entries: this.entries, sources: this.sources, profiles: this.profiles, watch: this.watch, checks: this.checks }); }
   get(id) { const e = this.entries.find(x => x.id === id); if (!e) throw fail('That Inbox entry does not exist.', 404, { code: 'inbox_missing' }); return e; }
@@ -233,7 +243,8 @@ export class InboxStore {
     const kind = pick(input.kind, KINDS, 'alert', 'kind');
     const e = { id: shortId(), kind, priority: pick(input.priority, PRIORITIES, 'normal', 'priority'), title, text: str(input.text, textMax(kind)),
       story: line(input.story, LIMITS.story), source: source(input.source), url: checkUrl(input.url), gmail: checkGmail(input.gmail), doc: checkDoc(input.doc), dedupe: str(input.dedupe, DEDUPE_MAX),
-      state: 'new', at: iso(now), seenAt: null, actedAt: null, ackedAt: null, note: '', by: actor === 'ui' ? 'ui' : 'cli', actedBy: null, revision: 1, lastAction: null, sessions: [], items: checkItems(input.items, { strict: true }) };
+      state: 'new', at: iso(now), seenAt: null, actedAt: null, ackedAt: null, note: '', by: actor === 'ui' ? 'ui' : 'cli', actedBy: null, revision: 1, lastAction: null, sessions: [], items: checkItems(input.items, { strict: true }),
+      pushed: input.push !== false, why: line(input.why, WHY_MAX) }; // 1.105: whether the add asked for a push, and the watcher's reason
     this.foldListed(e);
     if (e.dedupe) {
       const seen = this.entries.find(x => x.dedupe === e.dedupe && ms(x.at) >= now - DAY);

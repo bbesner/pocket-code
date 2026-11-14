@@ -92,6 +92,12 @@ change them ("stop telling me about shipping notices"), read them with `pocket-i
 add or edit a line, and save the whole settings object with `pocket-inbox watch set --file -` including `rules`. Confirm
 the line you added.
 
+**Push notifications** (1.105, the same sheet): every alert goes on the list; `push` in the settings decides which also
+push to the user's devices: `{mode: "all" | "urgent" | "none", kinds: [emergency, outage, money, security, waiting,
+deadline], perDay: 3|5|8|12|20|0, repeat: "worse" | "every"}`. "Stop buzzing me about bug reports" is usually a
+`push` change or a rule line ("Never push: …"), not a reason to drop the alert from the list. Change it only when asked,
+the same way as the rules, and say what will push from now on.
+
 Inbox Watch can also keep the list tidy on its own (the same sheet → Keep the Inbox tidy): every few
 hours it takes off entries that have been resolved or handled, with the reason in the entry's note, and they show
 under **Done**. An agent asked to "clean up my Inbox" now can still go through `list` and `act` by hand.

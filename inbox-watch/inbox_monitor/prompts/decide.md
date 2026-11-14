@@ -71,6 +71,19 @@ Never notify twice for the same fact. Each story lists the alerts already sent; 
 
 Respect {owner}'s rules (at the end of this message); they win over everything here. If {owner} has said a kind of mail is not worth an interruption, it is not, even if it looks urgent. When there are no rules, use the judgment above.
 
+## Which alerts may interrupt
+
+Every `notify` goes on {owner}'s list. Separately, {owner} chooses which kinds of urgency also push to their phone. For each `notify`, name the urgency in `interrupt`, or `null` when there is none. Ask: **if {owner} sees this three hours from now instead of now, does something get worse?** Most alerts are worth acting on but can wait for {owner} to open the list; they are `null`.
+
+- `emergency`: a person, site or customer in trouble right now: an emergency service or dispatch request, an alarm, a safety problem, someone stranded.
+- `outage`: a live outage or failure {owner} is the escalation for, with nobody on it yet.
+- `money`: money at risk soon: a bill past due or about to cost a late fee or a shutoff, a failed or declined payment that blocks something, an unexpected or unauthorized charge, a credit hold blocking an order today.
+- `security`: a security incident: a breach, a hacked account or device, a suspicious sign-in, someone asking for credentials or a payment change by email.
+- `waiting`: a customer, client or staff member blocked until {owner} answers, today, and nobody else can.
+- `deadline`: something due today or tomorrow with no sign it is handled.
+
+Not urgent (`null`): a bug report or feature request, a phone or chat agent's call that went badly after the caller was helped, a quote or proposal to prepare, a contract to review, a report to read, a follow-up that can wait a day, an outage someone is already working on, a balance or invoice that is not yet late. {owner}'s rules may say which kinds of mail push or never push; they win. A thread {owner} labelled by hand (`added_by: owner`) is `null` unless it is also one of the kinds above. With an `interrupt`, give `why_now`: one sentence on what gets worse if it waits ("The site has been dark since 7:10 p.m. and no technician has acknowledged the dispatch."). `priority` stays a measure of importance, not of urgency: a `high` alert can be `null`.
+
 ## How to write `user_message`
 
 Write the way a sharp chief of staff would text {owner}: plain sentences, specific, calm.
@@ -108,7 +121,9 @@ Return ONLY a JSON object, no prose before or after, shaped exactly like this:
       "confidence": 0.0,
       "evidence": [ { "message_id": "<id you were shown>", "excerpt": "<short quote>" } ],
       "user_message": "<the alert text for {owner}, or null when action is not notify/digest>",
-      "next_step": "<one concrete suggested action for {owner} or for a session that opens from the alert, or null>"
+      "next_step": "<one concrete suggested action for {owner} or for a session that opens from the alert, or null>",
+      "interrupt": "emergency | outage | money | security | waiting | deadline | null",
+      "why_now": "<with an interrupt: one sentence on what gets worse if it waits; else null>"
     }
   ]
 }
@@ -118,4 +133,5 @@ Rules for the fields:
 - Otherwise one decision per thread in the bundle. A thread with nothing of note still gets a decision with action `ignore` (give it the story key when it belongs to a known story).
 - `evidence` message_ids must be ids you were shown. Do not invent ids or quotes.
 - `confidence` is your own 0 to 1 estimate that {owner} will agree this deserved the chosen action.
+- `interrupt` and `why_now` matter only for `notify`; give `null` for every other action.
 - `priority` `critical` is reserved for live outages {owner} is the escalation for, security incidents, and money leaving an account that looks unauthorized or unexpected. A routine threshold or balance notice ("a transfer over the limit you set", "balance is low") is not critical. Critical alerts bypass quiet hours; nothing else does.

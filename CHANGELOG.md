@@ -3,6 +3,17 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.105.0] — Unreleased · build 197
+
+Asked for by Brad (2026-11-14): the Inbox finds the right things, but every alert pushed, about 100 a day (491 alerts Nov 9–14, every one a push; 19% led to a conversation). A tenant's bug report or a phone call that went badly belongs on the list; an emergency dispatch or a bill that is past due should interrupt. The list and the interruption are now separate, and the owner chooses the interruption in the sheet.
+
+- **The judge names the urgency.** `inbox-watch/inbox_monitor/prompts/decide.md`: every notify carries `interrupt` (emergency, outage, money, security, waiting, deadline or null) and a `why_now` sentence, from one question: would waiting a few hours make it worse? `validate_story_fields` keeps only those six kinds. Stored on the alert (`push_kind`, `why_now`, `pushed`; added to existing ledgers on start), carried through a merge into a waiting alert.
+- **The owner's policy decides.** `engine.push_decision()` at delivery: `push.mode` `all` (default, the old behaviour), `none`, or `urgent`: a critical alert, or one whose kind the owner switched on, at most `perDay` a day and, with `repeat: "worse"`, not again on a story within 24 hours unless its priority rose. Critical ignores the cap and the repeat rule; a look-ahead counts as a deadline. Held alerts released in the morning go through the same decision. `notify` from other jobs takes `--urgency` and `--why-now`.
+- **Delivery.** Pocket gets `--no-push` and a new `--why` (stored on the entry as `pushed` and `why`); Telegram sends without a sound; email is unchanged. A channel written before 1.105 gets neither keyword (`takes()`), so custom deliveries keep working.
+- **The sheet.** *Push notifications*, under *Your rules* in both modes: *Push* (Every alert, Only what can't wait, Nothing, list only), the six kinds as switches, *At most* and *Same story again*. Settings validated in `inbox.mjs` (`checkWatch`), normalized in `schedule.py` (TOML `[push]`). An open entry says whether it pushed and why.
+- Tested: `inbox-watch/tests/test_push.py` (defaults, TOML, each mode, kinds, repeat, cap, critical, look-ahead, old channels, merge); `test/inbox.test.mjs` (settings validation, entry fields); `test/ui-regressions.mjs` (the sheet at 390 and 1440, saving).
+- Manual: *Inbox Watch* (Push notifications, the sheet, a check, posting). Skill: *pocket-inbox*.
+
 ## [1.104.0] — Unreleased · build 196
 
 Asked for by Brad (2026-11-13): what drives the watcher's usage. Rebuilt from 40 recent decision calls, the new emails were 6% of each call; the rest was background sent with every call: matched stories in full 26%, related mail 18%, the decide prompt 15%, every alert of the last day 15% (about 38 of them), other open stories 9%, the owner's rules 6%, memory 5%. Usage follows the number of calls, not of emails.

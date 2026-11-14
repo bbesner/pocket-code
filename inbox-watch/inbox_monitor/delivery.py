@@ -101,17 +101,18 @@ class Delivery:
         self.cfg = cfg
         self.log = log
 
-    def send_alert(self, alert: dict, *, pocket_url: str | None, held_note: bool = False) -> str | None:
+    def send_alert(self, alert: dict, *, pocket_url: str | None, held_note: bool = False, push: bool = True, why: str | None = None) -> str | None:
         raise NotImplementedError
 
-    def send_digest(self, title: str, text: str, items: list[dict] | None = None) -> str | None:
+    def send_digest(self, title: str, text: str, items: list[dict] | None = None, push: bool = True) -> str | None:
         """`items` (1.95): the digest's lines as data, [{ref, section, title, text, story, gmail, priority}], for a channel that can
         offer a choice per line (Pocket). Telegram and email render the text and ignore them."""
         raise NotImplementedError
 
-    def send_lookahead(self, alert: dict, *, pocket_url: str | None, items: list[dict] | None = None) -> str | None:
-        """`items` (1.95): the look-ahead's cards, as for a digest."""
-        return self.send_alert(alert, pocket_url=pocket_url)
+    def send_lookahead(self, alert: dict, *, pocket_url: str | None, items: list[dict] | None = None, push: bool = True, why: str | None = None) -> str | None:
+        """`items` (1.95): the look-ahead's cards, as for a digest. `push` (1.105): whether this one may interrupt the owner
+        (the owner's push settings); a channel that cannot deliver quietly ignores it."""
+        return self.send_alert(alert, pocket_url=pocket_url, push=push, why=why)
 
 
 class Telegram(Delivery):
@@ -133,8 +134,10 @@ class Telegram(Delivery):
             return self.cfg["token"]
         raise RuntimeError("telegram: no token (set token_env, openclaw_config or token)")
 
-    def _send(self, text_html: str, buttons: list[dict] | None) -> str:
+    def _send(self, text_html: str, buttons: list[dict] | None, quiet: bool = False) -> str:
         payload = {"chat_id": self.chat_id, "text": text_html, "parse_mode": "HTML", "disable_web_page_preview": True}
+        if quiet:  # 1.105: an alert the owner's push settings keep from interrupting arrives without a sound
+            payload["disable_notification"] = True
         if buttons:
             payload["reply_markup"] = {"inline_keyboard": [buttons]}
         req = urllib.request.Request(f"https://api.telegram.org/bot{self.token()}/sendMessage",
@@ -145,7 +148,7 @@ class Telegram(Delivery):
             raise RuntimeError(f"telegram: {data}")
         return str(data["result"]["message_id"])
 
-    def send_alert(self, alert: dict, *, pocket_url: str | None, held_note: bool = False) -> str | None:
+    def send_alert(self, alert: dict, *, pocket_url: str | None, held_note: bool = False, push: bool = True, why: str | None = None) -> str | None:
         pocket_url = absolute_link(pocket_url)
         head = "🚨 " if alert.get("priority") == "critical" else ""
         parts = [f"{head}<b>{htmlmod.escape(alert.get('subject') or '(no subject)')}</b>", "", cite_html(alert.get("text") or "")]
@@ -160,10 +163,10 @@ class Telegram(Delivery):
             buttons.append({"text": "Open in Gmail", "url": GMAIL_THREAD_URL.format(thread_id=alert["thread_id"])})
         mid = None
         for chunk in chunks_under("\n".join(parts).split("\n"), TG_MAX_CHARS):
-            mid = self._send(chunk, buttons) or mid
+            mid = (self._send(chunk, buttons, quiet=True) if not push else self._send(chunk, buttons)) or mid
         return mid
 
-    def send_digest(self, title: str, text: str, items: list[dict] | None = None) -> str | None:
+    def send_digest(self, title: str, text: str, items: list[dict] | None = None, push: bool = True) -> str | None:
         lines = [f"<b>{htmlmod.escape(title)}</b>", ""] + [cite_html(l) if not l.startswith("## ") else f"<b>{htmlmod.escape(l[3:])}</b>"
                                                             for l in text.split("\n")]
         mid = None
@@ -205,7 +208,8 @@ class PocketPush(Delivery):
 
     # ---- Pocket 1.69+: the Inbox library
     def _add(self, kind: str, title: str, text: str, *, priority: str = "normal", story: str = "", url: str | None = None,
-             gmail: str | None = None, doc: str | None = None, dedupe: str | None = None, items: list[dict] | None = None) -> str:
+             gmail: str | None = None, doc: str | None = None, dedupe: str | None = None, items: list[dict] | None = None,
+             push: bool = True, why: str | None = None) -> str:
         args = ["add", "--title", title[:160], "--file", "-", "--kind", kind, "--priority", priority or "normal", "--source", self.source, "--json"]
         if story:
             args += ["--story", story[:120]]
@@ -219,6 +223,10 @@ class PocketPush(Delivery):
             args += ["--dedupe", dedupe[:120]]
         if self.email:
             args.append("--email")
+        if not push:
+            args.append("--no-push")
+        if why:  # 1.105: why it pushed, or why it did not (shown on the entry); an older Pocket ignores it
+            args += ["--why", why[:200]]
         items_file = None
         if items:  # 1.95: a digest's items go in a file beside the text (stdin carries the text); an older Pocket ignores the option
             items_file = tempfile.NamedTemporaryFile("w", suffix=".json", prefix="pocket-inbox-items-", delete=False)
@@ -313,7 +321,7 @@ class PocketPush(Delivery):
                 return m.group(1)
         return None
 
-    def send_alert(self, alert: dict, *, pocket_url: str | None, held_note: bool = False) -> str | None:
+    def send_alert(self, alert: dict, *, pocket_url: str | None, held_note: bool = False, push: bool = True, why: str | None = None) -> str | None:
         title = alert.get("subject") or "Email alert"
         text = alert.get("text") or ""
         if held_note:
@@ -321,34 +329,36 @@ class PocketPush(Delivery):
         gmail = GMAIL_THREAD_URL.format(thread_id=alert["thread_id"]) if alert.get("thread_id") else None
         if self.inbox:
             ref = self._add("alert", title, text, priority=alert.get("priority") or "normal", story=alert.get("issue_key") or "",
-                            url=pocket_url, gmail=gmail, dedupe=alert.get("dedupe_key"))
+                            url=pocket_url, gmail=gmail, dedupe=alert.get("dedupe_key"), push=push, why=why)
             if ref:
                 return ref
+        if not push:
+            return None
         return self._push(title, cite_plain(text)[:1800], pocket_url, alert.get("dedupe_key") or title)
 
-    def send_digest(self, title: str, text: str, items: list[dict] | None = None) -> str | None:
+    def send_digest(self, title: str, text: str, items: list[dict] | None = None, push: bool = True) -> str | None:
         md = f"# {title}\n\n" + cite_markdown(text).replace("\n## ", "\n\n## ")
         doc = self._keep(title, md, f"digest-{dt.datetime.now().strftime('%Y-%m-%d-%H%M')}.md")
         if self.inbox:
             try:
-                ref = self._add("digest", title, text, doc=doc, dedupe=f"digest|{dt.datetime.now().date()}", items=items)
+                ref = self._add("digest", title, text, doc=doc, dedupe=f"digest|{dt.datetime.now().date()}", items=items, push=push)
             except RuntimeError as ex:  # Pocket refused a card: one bad line must not cost the owner the digest, or mint every link again next run
                 if not items or not re.search(r"\bItem \d+:|\bitems:", str(ex)):
                     raise
                 self.log(f"Pocket refused the digest's cards ({ex}); sending the digest without them")
-                ref = self._add("digest", title, text, doc=doc, dedupe=f"digest|{dt.datetime.now().date()}")
+                ref = self._add("digest", title, text, doc=doc, dedupe=f"digest|{dt.datetime.now().date()}", push=push)
             if ref:
                 return ref
         first = next((l for l in text.split("\n") if l.strip() and not l.startswith("## ")), "")
         return self._push(title, cite_plain(first)[:300] or "Open to read.", "/#/documents/" + doc if doc else None, f"digest|{dt.datetime.now().date()}")
 
-    def send_lookahead(self, alert: dict, *, pocket_url: str | None, items: list[dict] | None = None) -> str | None:
+    def send_lookahead(self, alert: dict, *, pocket_url: str | None, items: list[dict] | None = None, push: bool = True, why: str | None = None) -> str | None:
         title = alert.get("subject") or "Look-ahead"
         text = alert.get("text") or ""
         md = f"# {title}\n\n" + cite_markdown(text)
         doc = self._keep(title, md, f"lookahead-{dt.datetime.now().strftime('%Y-%m-%d-%H%M')}.md")
         if self.inbox:
-            add = dict(priority=alert.get("priority") or "normal", url=pocket_url, doc=doc, dedupe=alert.get("dedupe_key"))
+            add = dict(priority=alert.get("priority") or "normal", url=pocket_url, doc=doc, dedupe=alert.get("dedupe_key"), push=push, why=why)
             try:
                 ref = self._add("lookahead", title, text, items=items, **add)
             except RuntimeError as ex:  # as for a digest: a refused card must not cost the owner the look-ahead
@@ -394,7 +404,7 @@ class Email(Delivery):
                 s.send_message(msg)
         return msg["Subject"]
 
-    def send_alert(self, alert: dict, *, pocket_url: str | None, held_note: bool = False) -> str | None:
+    def send_alert(self, alert: dict, *, pocket_url: str | None, held_note: bool = False, push: bool = True, why: str | None = None) -> str | None:
         pocket_url = absolute_link(pocket_url)
         subject = alert.get("subject") or "Email alert"
         text = cite_plain(alert.get("text") or "")
@@ -408,7 +418,7 @@ class Email(Delivery):
             html = "<p><i>Held overnight.</i></p>" + html
         return self._send(("[Alert] " if alert.get("priority") in ("critical", "high") else "") + subject, text + ("\n\n" + pocket_url if pocket_url else ""), html)
 
-    def send_digest(self, title: str, text: str, items: list[dict] | None = None) -> str | None:
+    def send_digest(self, title: str, text: str, items: list[dict] | None = None, push: bool = True) -> str | None:
         html = "".join(f"<h3>{htmlmod.escape(l[3:])}</h3>" if l.startswith("## ") else f"<p>{cite_html(l)}</p>" for l in text.split("\n") if l.strip())
         return self._send(title, cite_plain(text), html)
 

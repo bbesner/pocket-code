@@ -58,6 +58,17 @@ test('InboxStore: the contract, normalizing input, limits and the instructions l
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+test('InboxStore: an entry remembers whether it pushed and why (1.105)',()=>{
+  const {s}=freshInbox();
+  const quiet=s.add({title:'Bug report',text:'A tenant reports a bug.',push:false});
+  const loud=s.add({title:'Dispatch',text:'The gate is open.',why:'  The gate has been open since 7:10 p.m.\n'});
+  const old=s.normalize({id:'x',kind:'alert',title:'Old',text:'t',at:'2026-11-07T13:00:00Z'});
+  assert.equal(quiet.pushed,false);assert.equal(quiet.why,'');
+  assert.equal(loud.pushed,true);assert.equal(loud.why,'The gate has been open since 7:10 p.m.');
+  assert.equal(old.pushed,true,'an entry from before 1.105 counts as pushed, as it was');assert.equal(old.why,'');
+  assert.equal(s.add({title:'Long',text:'t',why:'y'.repeat(400)}).why.length,200);
+});
+
 test('InboxStore: dedupe within 24 hours, the state machine with restore, feedback and ack, filters, the heartbeat',()=>{
   const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-10-19T08:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
@@ -151,6 +162,10 @@ test('InboxStore: Inbox Watch settings, the watcher\'s profile, revisions and pa
   assert.deepEqual(checkWatch({firstPass:{enabled:true,provider:'both',threshold:0.876}}).firstPass,{enabled:true,provider:'both',threshold:0.88});
   assert.deepEqual(checkWatch({tidy:{enabled:true,every:4}}).tidy,{enabled:true,every:4});
   assert.deepEqual(checkWatch({gmailLabel:{enabled:false}}).gmailLabel,{enabled:false},'1.75: the Pocket Inbox label in Gmail');
+  assert.deepEqual(checkWatch({push:{mode:'urgent',kinds:['money','emergency'],perDay:5,repeat:'worse'}}).push,{mode:'urgent',kinds:['emergency','money'],perDay:5,repeat:'worse'},'1.105: which alerts push; kinds kept in the watcher\'s order');
+  assert.deepEqual(checkWatch({push:{mode:'none'}}).push,{mode:'none'});
+  for(const [bad,re] of [[{push:{mode:'loud'}},/push.mode is one of urgent, all, none/],[{push:{kinds:['panic']}},/push.kinds is a list of/],[{push:{perDay:4}},/push.perDay is one of/],[{push:{repeat:'never'}},/push.repeat is worse or every/],[{push:true},/push is \{mode/]])
+    assert.throws(()=>checkWatch(bad),e=>e.status===400&&re.test(e.message),JSON.stringify(bad));
   assert.deepEqual(checkWatch({scope:{mode:'inbox_labels',labels:[' Clients ','Clients','Ultra/Ask first','']}}).scope,{mode:'inbox_labels',labels:['Clients','Ultra/Ask first']},'1.100: what the watcher reads; labels trimmed and deduplicated');
   assert.deepEqual(checkWatch({scope:{mode:'inbox'}}).scope,{mode:'inbox',labels:[]});assert.deepEqual(checkWatch({scope:{}}).scope,{mode:'all',labels:[]});
   assert.equal(checkWatch({rules:'- Never tell me about cameras.\r\n- Tell me about every sale.'}).rules,'- Never tell me about cameras.\n- Tell me about every sale.');assert.equal(ok.lookahead.evening,null);
