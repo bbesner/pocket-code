@@ -2011,6 +2011,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .inbox-tools-row .chip { flex: none; }
 .watch-sheet { --sheet-w: 640px; }
 .watch-body > .title-note, .watch-body > .vault-field-error { margin-left: 14px; margin-right: 14px; }
+#w-push-urgent > .title-note { margin: 0 14px; } /* 1.105: the notes inside the urgent box line up with the group's own */
 .watch-sheet .watch-status { margin-bottom: 6px; }
 .watch-sheet #w-pause { margin: 0 0 4px; }
 .watch-periods[hidden] { display: none; }
