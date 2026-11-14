@@ -3,6 +3,16 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.104.0] — Unreleased · build 196
+
+Asked for by Brad (2026-11-13): what drives the watcher's usage. Rebuilt from 40 recent decision calls, the new emails were 6% of each call; the rest was background sent with every call: matched stories in full 26%, related mail 18%, the decide prompt 15%, every alert of the last day 15% (about 38 of them), other open stories 9%, the owner's rules 6%, memory 5%. Usage follows the number of calls, not of emails.
+
+- **Only the related alerts.** `inbox-watch/inbox_monitor/engine.py`: `relevant_alerts()` keeps the newest `RECENT_ALERTS_ALWAYS` (5) alerts of the last day and any other whose story key or title shares a distinctive word with the batch's subjects and senders, so mail about something the owner already heard of under another key is still caught. `story_context()` now also returns the batch's words and the too-common ones it computed.
+- **Fewer related threads.** `RELATED_THREADS` 6 → 3 (the same-sender threads, up to 3 more, unchanged).
+- **Story matching unchanged.** Matching at 2 shared words and at most 4 stories was tested and left out: it dropped the story for an invoice named only in the email body and missed an alert the owner's learned rules asked for. The thresholds are now named constants (`STORY_MATCH_MIN` 1, `STORY_MATCH_MAX` 8).
+- **Tested** on 30 past decision calls (103 threads, 22 alerted live), each rebuilt against a copy of the ledger rewound to that moment, run through the live judge settings (Sonnet, medium) in a clean environment: input tokens per call 50,938 → 41,279 (−19%). Same action as the old context 89–92% of threads; two runs of the old context agree 92%. Notify-or-not differed on 4 threads (2 between the two old runs): one more alert that matched what the live watcher sent, one borderline follow-up kept as an update, and an AvidPay card notice raised from digest to notify (fewer earlier threads showed the earlier cards being processed). `tests/test_process.py` covers the alert filter.
+- Manual: *Inbox Watch* (How a check works, cost).
+
 ## [1.103.3] — Unreleased · build 196
 
 Asked for by Brad (2026-11-13), the same evening as 1.103.2: the rebuilt learned rules on his install took 2,280 of the new 2,400 characters on the first day, and after he trimmed his own rules (5,460 to 4,092 characters) about 3,700 characters of the 8,000-character rules box were free.

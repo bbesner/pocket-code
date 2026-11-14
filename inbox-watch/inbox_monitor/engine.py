@@ -234,7 +234,7 @@ ARCHIVE_BODY_CHARS = 4000
 ARCHIVE_DAYS = 90
 ARCHIVE_KEEP_DAYS = 120
 RELATED_DAYS = 60  # statements and billing cycles are monthly; 30 days misses last month's statement
-RELATED_THREADS = 6
+RELATED_THREADS = 3  # 6 before 1.104: about 7 related threads per email, 18% of every decision turn
 RELATED_PER_SENDER = 2
 LOOKUPS_PER_CALL = 3
 CHECKIN_LOOKUPS = 4
@@ -248,6 +248,12 @@ HELD_SEND_CAP = 5  # at 8 AM, send up to this many high/critical held alerts ind
 # story made a one-email call ~73k characters (2026-10-20); the judge needs to know what was said and which stories exist,
 # and the stories linked to the batch still come in full with their alerts.
 RECENT_ALERT_CHARS = 280
+RECENT_ALERTS_ALWAYS = 5  # the newest alerts always go along; older ones from the last day only when they share a word with the batch
+# (before 1.104 every alert of the last day went with every call: ~38 of them, 15% of a decision turn)
+STORY_MATCH_MIN = 1   # distinctive words a story must share with the batch's subjects and senders to come in full
+STORY_MATCH_MAX = 8   # at most this many matched stories in full, besides those linked to the batch's threads
+# (tested 2026-11-13 at 2 and 4: a third fewer tokens with RELATED_THREADS 3, but it dropped the story for an invoice named
+# only in the email body and missed an alert the owner's rules asked for; left as it was)
 OTHER_STORY_CHARS = 200
 FIRSTPASS_STORY_OVERLAP = 3  # distinctive words shared with a story touched in the last week: never skipped (backtest 2026-10-20)
 FIRSTPASS_STORY_DAYS = 7
@@ -1234,8 +1240,9 @@ def close_memory_search() -> None:
         MEMORY_SEARCH.broken = False
 
 
-def story_context(store: Store, bundles: list[dict]) -> tuple[list[dict], list[dict]]:
-    """(full stories with timelines, compact list of other open stories) relevant to this batch."""
+def story_context(store: Store, bundles: list[dict]) -> tuple[list[dict], list[dict], set[str], set[str]]:
+    """(full stories with timelines, compact list of other open stories, the batch's words, words too common to count)
+    relevant to this batch."""
     linked = store.keys_for_threads([b["thread_id"] for b in bundles])
     horizon = iso(now_utc() - dt.timedelta(days=14))
     rows = store.db.execute("select * from issues where updated_at>=? and (status!='resolved' or updated_at>=?) order by updated_at desc",
@@ -1257,16 +1264,27 @@ def story_context(store: Store, bundles: list[dict]) -> tuple[list[dict], list[d
         batch_toks |= set(tokens(clean_subject(b["subject"])))
         batch_toks |= set(sender_name_tokens(b["messages"][-1]["from"]))
     scored = sorted(((len((story_toks[k] & batch_toks) - common), k) for k in by_key if k not in linked), reverse=True)
-    matched = [k for s, k in scored if s >= 1][:8]
+    matched = [k for s, k in scored if s >= STORY_MATCH_MIN][:STORY_MATCH_MAX]
     full_keys = list(linked) + matched
     full = [store.story_dict(by_key[k], True) for k in full_keys if k in by_key]
     rest = [store.story_dict(r, False, brief=True) for k, r in by_key.items() if k not in full_keys and r["status"] != "resolved"][:30]
-    return full, rest
+    return full, rest, batch_toks, common
+
+
+def relevant_alerts(alerts: list[dict], batch_toks: set[str], common: set[str]) -> list[dict]:
+    """The last day's alerts a decision turn needs: the newest few, and any other that shares a distinctive word with the batch
+    (its story key or title), so a new email about something the owner already heard about under another key is still caught."""
+    out = []
+    for i, a in enumerate(alerts):
+        words = set(tokens(f"{(a.get('issue_key') or '').replace('-', ' ')} {a.get('title') or ''}")) - common
+        if i < RECENT_ALERTS_ALWAYS or words & batch_toks:
+            out.append(a)
+    return out
 
 
 def decide(store: Store, archive: Archive, gmail: Gmail, bundles: list[dict], until: int, related: dict | None = None) -> list[dict]:
     """One judge decision over a batch, with related mail and stories, and one optional research round."""
-    full, rest = story_context(store, bundles)
+    full, rest, batch_toks, common = story_context(store, bundles)
     if related is None:
         related = {b["thread_id"]: archive.related(b["subject"], b["messages"][-1]["from"], b["thread_id"], until, body=b["messages"][-1]["body"])
                    for b in bundles}
@@ -1289,7 +1307,8 @@ def decide(store: Store, archive: Archive, gmail: Gmail, bundles: list[dict], un
     valid |= {mid for s in full for e in s.get("timeline", []) for mid in e.get("message_ids", [])}
     ctx = {"threads": bundles, "stories": full, "other_open_stories": rest, "related_mail": related, "seen_before": recurring,
            # the stories in full already carry their own alerts; the list is for every other story the owner heard about
-           "recent_alerts_to_owner": [a for a in store.recent_alerts(24, RECENT_ALERT_CHARS) if a["issue_key"] not in {x["issue_key"] for x in full}]}
+           "recent_alerts_to_owner": relevant_alerts([a for a in store.recent_alerts(24, RECENT_ALERT_CHARS)
+                                                      if a["issue_key"] not in {x["issue_key"] for x in full}], batch_toks, common)}
     if memory:
         ctx["memory"] = memory
     n_mem = sum(len(v) for v in memory.values())

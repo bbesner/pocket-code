@@ -262,6 +262,17 @@ class FakeTidyArchive:
             return []
 
 
+def test_a_decision_turn_carries_the_newest_alerts_and_the_related_ones():
+    alerts = [{"issue_key": f"story-{i}", "title": f"Topic {i}"} for i in range(12)]
+    alerts.append({"issue_key": "harbor-hoa-gate-outage", "title": "Harbor HOA gate cameras down"})
+    alerts.append({"issue_key": None, "title": "Daily report"})
+    batch = set(E.tokens("Re: Harbor gate still offline")) | {"jordan"}
+    kept = E.relevant_alerts(alerts, batch, common=set())
+    assert [a["issue_key"] for a in kept] == [f"story-{i}" for i in range(E.RECENT_ALERTS_ALWAYS)] + ["harbor-hoa-gate-outage"], kept
+    # a word every story shares does not make an alert related
+    assert E.relevant_alerts(alerts, batch, common={"harbor", "gate"})[-1]["issue_key"] == f"story-{E.RECENT_ALERTS_ALWAYS - 1}"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
