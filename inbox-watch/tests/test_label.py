@@ -3,6 +3,7 @@ Pocket. No Gmail, model or network.
 
     python3 tests/test_label.py
 """
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -395,6 +396,82 @@ def test_learn_rewrites_the_learned_section():
         E.call_judge = real
     assert "Alert on website-content requests" in E.PREFS_FILE.read_text()
     assert store.db.execute("select learned_at from lessons where ref='not_useful:e9'").fetchone()[0] == "failed"
+
+
+def test_a_long_learned_rule_goes_back_once_instead_of_being_cut():
+    store, g, p = setup()
+    E.PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    E.PREFS_FILE.write_text("# rules\n")
+    E.add_lesson(store, "added:x:2", "added", A, None, "Site maps", "Bo <bo@example.com>", "Site maps", "Build the map.", "digest")
+    senders = ", ".join(f"Sender {i} about topic {i}" for i in range(20))
+    long_rule = f"Notify: {senders} (you added 9, Nov 13)."
+    calls = []
+
+    def judge(message, **kw):
+        calls.append(message)
+        if len(calls) == 1:
+            return {"rules": [long_rule], "changes": ["merged"]}
+        return {"rules": [f"Notify: {', '.join(f'Sender {i} about topic {i}' for i in range(10))} (you added 5, Nov 13).",
+                          f"Notify: {', '.join(f'Sender {i} about topic {i}' for i in range(10, 20))} (you added 4, Nov 13)."],
+                "changes": ["split"]}
+
+    real = E.call_judge
+    E.call_judge = judge
+    try:
+        assert E.learn(store) == 1
+    finally:
+        E.call_judge = real
+    assert len(calls) == 2 and "It does not fit: rule 1 has" in calls[1], calls[-1][-400:]
+    text = E.PREFS_FILE.read_text()
+    assert "Sender 19 about topic 19 (you added 4, Nov 13)." in text and "…" not in text, text
+    # still too long after the second turn: cut at the backstop, and the cut is logged
+    E.add_lesson(store, "added:x:3", "added", A, None, "More maps", "", "", "", "")
+    logged = []
+    real_log = E.log
+    E.call_judge, E.log = (lambda message, **kw: {"rules": [long_rule]}), logged.append
+    try:
+        assert E.learn(store) == 1
+    finally:
+        E.call_judge, E.log = real, real_log
+    line = [x for x in E.PREFS_FILE.read_text().splitlines() if x.startswith("- ")][0]
+    assert len(line) - 2 <= E.LEARN_RULE_MAX and line.endswith("…"), line
+    assert any("1 rule(s) cut" in m for m in logged), logged
+
+
+def test_learn_rebuild_folds_in_every_lesson_again():
+    store, g, p = setup()
+    E.PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    E.PREFS_FILE.write_text("# Alex's rules\n- Money problems.\n\n## Learned from Alex's choices\n- Alert on Sam's website requests (you added 1, Oct 31).\n")
+    for i in range(30):
+        E.add_lesson(store, f"added:r:{i}", "added", A, None, f"Topic {i}", f"Sender {i}", f"Topic {i}", "", "digest")
+    store.db.execute("update lessons set learned_at=?", (E.iso(),))
+    store.db.execute("update lessons set learned_at='failed' where ref='added:r:3'")
+    store.commit()
+    seen = []
+    real = E.call_judge
+    E.call_judge = lambda message, **kw: (seen.append(message), {"rules": ["Alert on Sam's website requests (you added 1, Oct 31).",
+                                                                           "Alert on mail from Sender 29 about Topic 29 (you added 1, Nov 14)."],
+                                                                 "changes": ["brought back Sender 29"]})[1]
+    try:
+        assert E.learn(store) == 0, "nothing new: an ordinary learn makes no call"
+        assert E.learn(store, rebuild=True) == 30
+    finally:
+        E.call_judge = real
+    assert len(seen) == 1 and "## One-time rebuild" in seen[0] and "Alex taught it" in seen[0], seen[0][:400]
+    material = json.loads(seen[0].split("```json\n")[-1].split("\n```")[0])
+    assert len(material["new_lessons"]) == 30 and material["earlier_lessons"] == [], "every lesson, oldest first"
+    assert material["new_lessons"][0]["subject"] == "Topic 0"
+    assert "{learn_chars}" not in seen[0] and "at most 20 rules" in seen[0], "the limits are filled in"
+    text = E.PREFS_FILE.read_text()
+    assert "Sender 29" in text and text.startswith("# Alex's rules\n- Money problems."), text
+    assert store.db.execute("select count(*) from lessons where learned_at='failed'").fetchone()[0] == 0
+    # a bad rebuild answer leaves everything as it was
+    E.call_judge = lambda message, **kw: {"rules": []}
+    try:
+        assert E.learn(store, rebuild=True) == 0
+    finally:
+        E.call_judge = real
+    assert E.PREFS_FILE.read_text() == text
 
 
 def test_not_useful_becomes_a_lesson():

@@ -3,6 +3,16 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.103.2] — Unreleased · build 196
+
+Reported by Brad (2026-11-13): the watcher's learn turn said several learned rules reached it cut off mid-sentence. Two losses, both silent: `learn()` clipped every rule at 320 characters, so a merged "Notify: …" rule lost the senders at its end and its evidence; and once the learned section passed 1,800 characters it popped whole rules off the end of the list, which is where new rules go. On Brad's install 24 of 33 senders and topics he had taught it were no longer in his rules. The judge's full answers were never stored, so the cut text itself could not be recovered; the 168 lessons it came from were.
+
+- **A rule that does not fit goes back to the judge once.** `inbox-watch/inbox_monitor/engine.py`: the answer is measured before anything is cut (`learn_overruns`: a rule over 360 characters, more than 20 rules, more than the room). Any overrun sends the whole answer back with what does not fit and asks for it again, splitting a long rule rather than dropping what it covers. Only if the second answer still does not fit is it cut, and the log now names every rule cut or dropped (`learn: still too long after a second turn; …`).
+- **More room, asked for honestly.** The learned section may take up to 2,400 characters (was 1,800) and 20 rules (was 15), still within what is left of Pocket's 8,000-character rules box after the owner's own rules. `prompts/learn.md` now states the limits the code enforces (300 characters a rule, the rule count, the room less a 200-character margin) instead of a fixed 1,600, says to split a rule rather than let a list of senders grow, and to write out whole again any current rule that ends in "…".
+- **`learn --rebuild`.** A new `learn` command folds new lessons in now; `--rebuild` folds in every lesson so far (oldest first, with a note saying why) to recover rules an earlier version dropped, and `--dry-run` prints the section it would write. It takes the run lock, keeps the old rules file under `state/preferences-backups/`, and a bad answer leaves the rules untouched rather than setting the lessons aside.
+- Tested: `tests/test_label.py` covers the retry, the logged backstop and the rebuild. On a scratch copy of Brad's install the rebuild turned 168 lessons into 13 whole rules (2,096 characters, longest 213) and brought back 15 of the 24 lost names; the rest are covered by kind of mail (customers awaiting Brad, content checks, fleet reports) or did not fit.
+- Manual: *Inbox Watch* (Learning from your choices).
+
 ## [1.103.1] — 2026-11-13 · build 196
 
 Reported by Brad (2026-11-13): an account manager answered the assistant's questions at 1:30 PM and asked it to send the current sheets so he could mark up the numbering. Forty minutes later the tidy pass took the entry off the Inbox as handled ("will send back his numbering after getting the current sheets"), though nobody had sent them. Brad only found it again by labelling the email in Gmail.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # inbox-monitor: run the engine with this checkout on the path.
-# Usage: inbox-monitor --config <toml> [tick|notify|backfill|replay|remember|check|settings|tidy|usage|gmail-auth]
+# Usage: inbox-monitor --config <toml> [tick|notify|backfill|replay|remember|check|settings|tidy|usage|learn|gmail-auth]
 #   With no subcommand it checks mail now, whatever the schedule. Needs Python 3.11 or newer: the first python3 on PATH that
 #   is (then python3.13, 3.12, 3.11), or the one named in INBOX_MONITOR_PYTHON.
 HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
