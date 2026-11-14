@@ -1,7 +1,8 @@
 {
- "version": "1.103.3",
+ "version": "1.104.0",
  "assetV": 196,
  "notes": [
+  "Inbox Watch's email checks use about a fifth fewer tokens. Each check used to carry every alert of the last day and up to six earlier threads per email; it now carries the newest few alerts plus any that relate to the emails being checked, and up to three earlier threads per email (plus the same sender's). Tested on 30 past checks: decisions stayed within the judge's own run-to-run variation. Asked for by Brad.",
   "Inbox Watch's learned rules get more room: up to about 3,300 characters (was about 2,300), still within the rules box beside your own rules. On a busy install the rebuilt rules filled the old limit on the first day, so new lessons would have had to squeeze out older ones. Asked for by Brad.",
   "Inbox Watch no longer loses what you teach it. A learned rule that ran long was cut off mid-sentence, and once the learned rules filled their space the newest ones were dropped without a word, so recent hand labels stopped counting. The watcher now splits a long rule in two, sends an answer that does not fit back once, and logs anything it still has to cut. The learned rules get more room (up to 20 lines, about 2,300 characters), and a new learn --rebuild command folds every lesson in again to bring back rules an earlier version dropped. Reported by Brad.",
   "Inbox Watch's tidy pass no longer takes an entry off your list while someone is waiting on your assistant. It already kept an entry when the latest email asked you for something; a request to your assistant (send me the current sheets, say) now counts the same, and so does a reply like send me X and I'll do Y, which waits on your side until X is sent. Reported by Brad.",

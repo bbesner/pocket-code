@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.103.3
+checked: 1.104.0
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -322,7 +322,8 @@ Labels a Gmail filter put on and alerts you resolved or dismissed teach it nothi
    the day before the last check and skipping the messages it has already seen) and syncs the Gmail label.
 3. The [first pass](#first-pass), when on, sets aside clearly routine mail.
 4. The judge reads the rest in batches. With each thread it gets related mail from the archive, the open stories with
-   their timelines, the alerts already sent, the same order, invoice or account numbers seen before, your rules and,
+   their timelines, the alerts already sent (the newest few, and others from the last day that share a word with the
+   batch), the same order, invoice or account numbers seen before, your rules and,
    optionally, [memory](#memory-integration-optional). It may ask for up to three Gmail searches. It answers per
    thread: **notify**, **digest** (a line in the morning digest), **update** (the story changed, no message) or
    **ignore**.
@@ -362,7 +363,8 @@ dollars shown are what the same tokens would cost at API list prices. The sheet 
 set in the server's environment, a Claude Code judge is shown as billed per token.
 
 What moves the cost: the model, and the interval. A longer interval batches more threads into each call. Most of a
-decision call is the same background each time (instructions, open stories, recent alerts), not the new email. A Codex
+decision call is the same background each time (instructions, open stories, recent alerts), not the new email; since
+1.104 it carries only the related alerts and fewer related threads, about a fifth fewer tokens a call. A Codex
 read call carries about 30,000 tokens of Codex's own instructions, so reading through Codex uses more of a ChatGPT
 plan than reading through Claude Code uses of a Claude plan.
 
