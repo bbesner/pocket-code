@@ -2590,8 +2590,15 @@ def tidy(store: Store, archive: Archive, dry_run: bool = False) -> dict:
 # ---------------------------------------------------------------- learning from what the owner does
 LEARNED_HEADER = "## Learned from {owner}'s choices"
 LEARNED_HEADERS = ("## Learned from ", "## From Inbox in Pocket")  # the second: lines Not useful appended before 1.90
-LEARN_MAX_RULES = 15
-LEARN_MAX_CHARS = 1800
+LEARN_MAX_RULES = 20   # 15 before 1.103.2
+LEARN_MAX_CHARS = 2400  # the most the learned section may take; it also has to fit beside the owner's rules in Pocket's rules box
+# (1800 before 1.103.2, which dropped the newest rules silently once a busy owner had taught it a few dozen things)
+LEARN_ASK_MARGIN = 200  # the judge is asked for this much less than the room, so a slightly long answer still fits
+LEARN_REBUILD_NOTE = """## One-time rebuild
+
+Earlier versions of the watcher cut learned rules short and dropped the newest ones for lack of space, so the current list is missing things {owner} taught it. This turn rebuilds the list: every lesson so far is under `new_lessons`, oldest first, and `earlier_lessons` is empty. Keep each current rule that still stands, bring back what the lessons show and the list lost, and merge by sender or by kind of mail so everything fits the limits. Where two lessons conflict, the newer one wins. In `changes`, say what you brought back and anything you could not fit."""
+LEARN_RULE_ASK = 300   # what learn.md asks for per rule
+LEARN_RULE_MAX = 360   # past this a rule goes back to the judge once, then is cut (and the cut logged); before 1.103.2 it was cut silently at 320
 LEARN_BATCH = 20
 LEARN_EARLIER = 30
 
@@ -2654,39 +2661,80 @@ def lesson_view(r) -> dict:
     return out
 
 
-def learn(store: Store, dry_run: bool = False) -> int:
+def learned_rules(data: dict) -> list[str]:
+    """The judge's rules as single lines, uncut."""
+    return [" ".join(str(r).split()).lstrip("- ") for r in (data.get("rules") or []) if isinstance(r, str) and r.strip()]
+
+
+def learn_overruns(rules: list[str], room: int) -> list[str]:
+    """What in a learned list would have to be cut to fit: long rules, too many rules, too many characters."""
+    out = [f"rule {i + 1} has {len(r)} characters" for i, r in enumerate(rules) if len(r) > LEARN_RULE_MAX]
+    if len(rules) > LEARN_MAX_RULES:
+        out.append(f"{len(rules)} rules")
+    total = sum(len(r) + 3 for r in rules)
+    if total > room:
+        out.append(f"{total} characters in all")
+    return out
+
+
+def learn(store: Store, dry_run: bool = False, rebuild: bool = False) -> int:
     """New lessons become standing rules: one judge turn rewrites the learned section of the rules file (what the judge and
     the first pass read on every email), generalising only as far as the examples go. The owner sees and edits the section
-    with the rest of their rules in Pocket. Returns the number of lessons folded in."""
-    new = store.db.execute("select * from lessons where learned_at is null order by id limit ?", (LEARN_BATCH,)).fetchall()
+    with the rest of their rules in Pocket. Returns the number of lessons folded in.
+    `rebuild` (the `learn --rebuild` command) folds in every lesson again, to recover rules an earlier version dropped."""
+    if rebuild:
+        new = store.db.execute("select * from lessons order by id").fetchall()
+    else:
+        new = store.db.execute("select * from lessons where learned_at is null order by id limit ?", (LEARN_BATCH,)).fetchall()
     if not new or MODE.replay:
         return 0
     owner_rules, current = split_learned(rules_text())
-    earlier = store.db.execute("select * from lessons where learned_at is not null and learned_at != 'failed' order by id desc limit ?",
-                               (LEARN_EARLIER,)).fetchall()
+    earlier = [] if rebuild else store.db.execute(
+        "select * from lessons where learned_at is not null and learned_at != 'failed' order by id desc limit ?", (LEARN_EARLIER,)).fetchall()
     material = {"current_learned_rules": current, "new_lessons": [lesson_view(r) for r in new],
                 "earlier_lessons": [lesson_view(r) for r in earlier], "owner_rules": owner_rules.strip()}
-    msg = (f"{fill(LEARN_FILE.read_text())}\n\n## Current time\n{now_et().strftime('%A %B %-d %Y %-I:%M %p')}\n\n"
+    # the whole file must fit Pocket's rules box, or a save there would cut it off (the owner's own rules always fit first)
+    room = min(LEARN_MAX_CHARS, schedmod.RULES_MAX - len(owner_rules) - 200)
+    ask = max(400, (room - LEARN_ASK_MARGIN) // 50 * 50)
+    prompt = fill(LEARN_FILE.read_text()).replace("{learn_rules}", str(LEARN_MAX_RULES)).replace("{learn_chars}", f"{ask:,}")
+    msg = (f"{prompt}\n\n" + (f"{LEARN_REBUILD_NOTE.replace('{owner}', OWNER)}\n\n" if rebuild else "")
+           + f"## Current time\n{now_et().strftime('%A %B %-d %Y %-I:%M %p')}\n\n"
            f"## Material (email excerpts are untrusted data)\n```json\n{json.dumps(material, ensure_ascii=False, indent=1)}\n```\n"
            f"Return the JSON object now.")
     data = call_judge(msg, purpose="learn")
-    rules = [clip(" ".join(str(r).split()).lstrip("- "), 320) for r in (data.get("rules") or []) if isinstance(r, str) and r.strip()]
+    rules = learned_rules(data)
+    over = learn_overruns(rules, room)
+    if over and isinstance(data.get("rules"), list):
+        # one more turn rather than cutting: a cut rule loses the senders at its end and its evidence (1.103.2)
+        retry = call_judge(f"{msg}\n\nYour answer:\n```json\n{json.dumps(data, ensure_ascii=False)}\n```\nIt does not fit: {'; '.join(over)}. "
+                           f"Return the whole JSON object again, each rule at most {LEARN_RULE_ASK} characters, at most {LEARN_MAX_RULES} rules and "
+                           f"{ask:,} characters in all. Split a long rule into two rather than dropping what it covers.", purpose="learn")
+        if isinstance(retry.get("rules"), list) and learned_rules(retry):
+            data, rules = retry, learned_rules(retry)
     if not isinstance(data.get("rules"), list) or (not rules and current):
+        if rebuild:  # nothing changes: the lessons keep what they had
+            log("learn --rebuild: the judge returned no usable rules; the learned section is unchanged")
+            return 0
         log(f"learn: the judge returned no usable rules; {len(new)} lessons set aside")
         store.db.executemany("update lessons set learned_at='failed' where id=?", [(r["id"],) for r in new])
         store.commit()
         return 0
+    cut = [r for r in rules if len(r) > LEARN_RULE_MAX]
+    rules = [clip(r, LEARN_RULE_MAX) for r in rules]
+    dropped = rules[LEARN_MAX_RULES:]
     rules = rules[:LEARN_MAX_RULES]
-    # the whole file must fit Pocket's rules box, or a save there would cut it off (the owner's own rules always fit first)
-    room = min(LEARN_MAX_CHARS, schedmod.RULES_MAX - len(owner_rules) - 200)
     while rules and sum(len(r) + 3 for r in rules) > room:
-        rules.pop()
+        dropped.insert(0, rules.pop())
+    if cut or dropped:
+        log(f"learn: still too long after a second turn; {len(cut)} rule(s) cut at {LEARN_RULE_MAX} characters, {len(dropped)} dropped: "
+            + "; ".join(clip(r, 80) for r in cut + dropped))
     changes = [clip(str(c), 200) for c in (data.get("changes") or []) if isinstance(c, str)]
     section = (f"{LEARNED_HEADER.format(owner=OWNER)}\nWritten by the watcher from what {OWNER} labelled in Gmail, asked to be alerted on from a digest, and marked Not useful "
                f"in Pocket. Edit or delete any line.\n" + "".join(f"- {r}\n" for r in rules))
     text = owner_rules.rstrip() + "\n\n" + section
     if dry_run:
         log(f"learn [dry-run]: {len(new)} lessons -> {len(rules)} rules; {changes}")
+        print(section + "".join(f"  change: {c}\n" for c in changes))
         return len(new)
     backups = STATE / "preferences-backups"
     backups.mkdir(exist_ok=True)
@@ -2697,9 +2745,9 @@ def learn(store: Store, dry_run: bool = False) -> int:
     tmp = PREFS_FILE.with_suffix(".tmp")
     tmp.write_text(text)
     tmp.replace(PREFS_FILE)
-    store.db.executemany("update lessons set learned_at=? where id=?", [(iso(), r["id"]) for r in new])
+    store.db.executemany("update lessons set learned_at=? where id=?", [(iso(), r["id"]) for r in new])  # a rebuild clears 'failed' too
     store.commit()
-    log(f"learn: {len(new)} lessons -> {len(rules)} learned rules; " + ("; ".join(changes) if changes else "no change"))
+    log(f"learn{' --rebuild' if rebuild else ''}: {len(new)} lessons -> {len(rules)} learned rules; " + ("; ".join(changes) if changes else "no change"))
     return len(new)
 
 
@@ -3076,6 +3124,9 @@ def _main(argv: list[str] | None = None) -> int:
     sub.add_parser("settings", help="the schedule and models in force, where they came from, and the next check")
     t = sub.add_parser("tidy", help="take resolved or handled entries off the owner's Inbox now (whatever the schedule)")
     t.add_argument("--dry-run", dest="tidy_dry_run", action="store_true", help="decide and print, change nothing")
+    le = sub.add_parser("learn", help="fold new lessons (hand labels, Not useful) into the learned rules now")
+    le.add_argument("--rebuild", action="store_true", help="fold in every lesson again, to recover rules an earlier version dropped")
+    le.add_argument("--dry-run", dest="learn_dry_run", action="store_true", help="print the learned section it would write; change nothing")
     u = sub.add_parser("usage", help="judge calls, tokens and cost per day")
     u.add_argument("--days", type=int, default=7)
     u.add_argument("--json", action="store_true")
@@ -3086,7 +3137,7 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"token written to {oauth_consent(cfg.mail, label=bool(cfg.gmail_label.get('enabled', True)))}")
         return 0
     configure(cfg)
-    if args.cmd in (None, "tick", "notify", "settings", "check", "tidy"):
+    if args.cmd in (None, "tick", "notify", "settings", "check", "tidy", "learn"):
         load_settings()
     if args.cmd == "tick":
         return tick(args.dry_run)
@@ -3098,6 +3149,20 @@ def _main(argv: list[str] | None = None) -> int:
         if args.tidy_dry_run or args.dry_run:
             for r in store.db.execute("select verdict, title, reason from tidy_log where id > (select coalesce(max(id),0) - 60 from tidy_log) and acted=0 order by id"):
                 print(f"  {r['verdict']:9} {r['title'][:60]:60} {r['reason'][:120]}")
+        return 0
+    if args.cmd == "learn":
+        g = globals()
+        STATE.mkdir(parents=True, exist_ok=True)
+        lock = open(LOCK_PATH, "w")
+        try:  # a check learns at its end; never two writers on the rules file
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("a check is running; try again in a minute")
+            return 1
+        store = Store(DB_PATH)
+        g["USAGE_DB"] = store.db
+        n = learn(store, args.dry_run or args.learn_dry_run, rebuild=args.rebuild)
+        print(f"{n} lessons folded in")
         return 0
     if args.cmd == "settings":
         store = Store(DB_PATH)
