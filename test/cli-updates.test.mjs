@@ -4,11 +4,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {CliUpdates,localSlot,newer,version,cleanEnv,probe,runChild} from '../cli-updates.mjs';
+// github.com/<repo>/releases/latest answers with a redirect to the latest release's tag page.
+const moved=(location,status=302)=>({ok:false,status,headers:{get:k=>k==='location'?location:null}});
 function fixture(t,extra={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'cli-updates-test-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
  const calls=[],activated=[],base=path.join(dir,'original');fs.writeFileSync(base,'original');
  const u=new CliUpdates({dir,bins:{claude:base,codex:base},zone:()=> 'America/New_York',now:()=>Date.parse('2026-10-28T08:00:00Z'),
-  fetcher:async url=>({ok:true,text:async()=>JSON.stringify({name:decodeURIComponent(url.split('/').at(-2)),version:'2.0.0'})}),
+  fetcher:async url=>url.startsWith('https://github.com/')?moved('https://github.com/bbesner/pocket-code/releases/tag/v1.0.0'):({ok:true,text:async()=>JSON.stringify({name:decodeURIComponent(url.split('/').at(-2)),version:'2.0.0'})}),
   run:async(bin,args)=>{calls.push([bin,args]);if(args[0]==='--version')return '1.0.0';const dest=args[args.indexOf('--prefix')+1];fs.mkdirSync(path.join(dest,'node_modules','.bin'),{recursive:true});for(const key of ['claude','codex'])fs.writeFileSync(path.join(dest,'node_modules','.bin',key),'candidate');return '';},
   test:async()=> '2.0.0',onActivate:(...args)=>activated.push(args),...extra});
  return {u,dir,calls,activated,base};
@@ -80,4 +82,35 @@ test('only provider and version are persisted from an upgrade request; interrupt
  assert.doesNotMatch(fs.readFileSync(u.file,'utf8'),/must-not-persist/);
  u.save({...u.state,day:'2026-10-27',pendingDay:'2026-10-28'});
  const again=new CliUpdates({dir,bins:{claude:base,codex:base},zone:u.zone,now:u.now,fetcher:u.fetcher,run:async()=> '2.0.0'});await again.tick();assert.equal(again.state.day,'2026-10-28');assert.equal(again.state.pendingDay,null);
+});
+
+test('Pocket Code release: announced when newer, never installed, survives CLI checks being off',async t=>{
+ const seen=[];let answer=moved('https://github.com/bbesner/pocket-code/releases/tag/v1.108.0');
+ const fetcher=async(url,opts)=>{seen.push({url,opts});return answer;};
+ const {u,calls}=fixture(t,{enabled:false,fetcher,pocketVersion:'1.107.1'});
+ assert.equal(u.snapshot().pocket.available,false);assert.equal(u.snapshot().pocket.latest,null);
+ await u.tick();assert.equal(seen.length,1,'the 4 a.m. tick runs the Pocket check with CLI checks off');
+ assert.equal(seen[0].url,'https://github.com/bbesner/pocket-code/releases/latest');assert.equal(seen[0].opts.redirect,'manual');assert.equal(seen[0].opts.method,'HEAD');assert.match(seen[0].opts.headers['user-agent'],/pocket/);
+ let p=u.snapshot().pocket;assert.deepEqual([p.installed,p.latest,p.available,p.error],['1.107.1','1.108.0',true,null]);
+ assert.equal(p.notes,'https://github.com/bbesner/pocket-code/releases/tag/v1.108.0');assert.match(p.guide,/operations\.md#upgrade-an-existing-installation$/);
+ assert.deepEqual(calls,[],'no CLI commands and no installs');assert.equal(u.snapshot().providers.every(x=>!x.available),true);
+ // Bad answers keep the last good release and say so: prerelease tags, odd tags, other sites, no redirect, offline.
+ for(const bad of [moved('https://github.com/bbesner/pocket-code/releases/tag/v1.109.0-beta.1'),moved('https://github.com/bbesner/pocket-code/releases/tag/v1.109.0%3Brm'),
+  moved('https://evil.example/bbesner/pocket-code/releases/tag/v1.109.0'),moved('https://github.com/other/repo/releases/tag/v1.109.0'),{ok:true,status:200,headers:{get:()=>null}},null]){
+  answer=bad;await u.check();p=u.snapshot().pocket;assert.equal(p.latest,'1.108.0');assert.match(p.error,/Could not check/);assert.match(u.snapshot().checkError,/failed/);}
+ answer=moved('https://github.com/bbesner/pocket-code/releases/tag/v1.109.0',301);await u.check();p=u.snapshot().pocket;assert.deepEqual([p.latest,p.error],['1.109.0',null]);
+ // Same or older than the running daemon is not an update.
+ const same=fixture(t,{fetcher:async()=>moved('https://github.com/bbesner/pocket-code/releases/tag/v1.107.1'),pocketVersion:'1.107.1'}).u;await same.check();assert.equal(same.snapshot().pocket.available,false);
+ const ahead=fixture(t,{fetcher:async()=>moved('https://github.com/bbesner/pocket-code/releases/tag/v1.107.1'),pocketVersion:'1.108.0'}).u;await ahead.check();assert.equal(ahead.snapshot().pocket.available,false);
+});
+test('Pocket Code release check can be switched off and then makes no request',async t=>{
+ const seen=[];const {u}=fixture(t,{pocketEnabled:false,pocketVersion:'1.0.0',fetcher:async url=>{seen.push(url);return {ok:true,text:async()=>JSON.stringify({name:decodeURIComponent(url.split('/').at(-2)),version:'2.0.0'})};}});
+ await u.check();assert.equal(seen.some(x=>x.includes('github')),false);assert.equal(u.snapshot().pocket.enabled,false);assert.equal(u.snapshot().pocket.available,false);assert.equal(u.snapshot().checkError,null);
+ const off=fixture(t,{enabled:false,pocketEnabled:false}).u;await assert.rejects(off.check(),/disabled/);
+});
+test('the first Pocket Code check waits two minutes after startup; CLI catch-up does not',async t=>{
+ let at=Date.parse('2026-10-28T12:00:00Z');const seen=[];
+ const {u}=fixture(t,{enabled:false,now:()=>at,pocketVersion:'1.0.0',fetcher:async url=>{seen.push(url);return moved('https://github.com/bbesner/pocket-code/releases/tag/v1.1.0');}});
+ u.started=u.now();await u.tick();assert.equal(seen.length,0,'a server that just started stays offline');
+ at+=119000;await u.tick();assert.equal(seen.length,0);at+=1000;await u.tick();assert.equal(seen.length,1);assert.equal(u.snapshot().pocket.available,true);
 });

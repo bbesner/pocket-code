@@ -4,7 +4,7 @@ import path from 'node:path';
 export async function runCliUpdateRegressions({browser,base,out}){
  const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  let state,posts=[],offline=false;
- const reset=()=>{state={enabled:true,timeZone:'America/New_York',hour:4,checkedAt:Date.now(),checking:false,job:null,providers:[{key:'claude',name:'Claude Code',installed:'2.0.0',latest:'2.1.0',available:true,canUpgrade:true,notes:'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md'},{key:'codex',name:'Codex',installed:'0.150.0',latest:'0.151.0',available:true,canUpgrade:true,notes:'https://github.com/openai/codex/releases'}]};posts=[];};reset();
+ const reset=()=>{state={enabled:true,timeZone:'America/New_York',hour:4,checkedAt:Date.now(),checking:false,job:null,pocket:{key:'pocket',name:'Pocket Code',enabled:true,installed:'1.107.1',latest:'1.108.0',available:true,notes:'https://github.com/bbesner/pocket-code/releases/tag/v1.108.0',guide:'https://github.com/bbesner/pocket-code/blob/main/docs/operations.md#upgrade-an-existing-installation'},providers:[{key:'claude',name:'Claude Code',installed:'2.0.0',latest:'2.1.0',available:true,canUpgrade:true,notes:'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md'},{key:'codex',name:'Codex',installed:'0.150.0',latest:'0.151.0',available:true,canUpgrade:true,notes:'https://github.com/openai/codex/releases'}]};posts=[];};reset();
  await page.setRequestInterception(true);
  page.on('request',req=>{const url=new URL(req.url());if(!url.pathname.startsWith('/api/cli-updates'))return req.continue();
   if(offline)return req.respond({status:503,contentType:'application/json',body:'{"error":"Update status unavailable"}'});
@@ -15,7 +15,11 @@ export async function runCliUpdateRegressions({browser,base,out}){
   for(const width of [390,1440]){
    reset();await page.setViewport({width,height:900,isMobile:width<700,hasTouch:width<700});await page.goto(base);await page.waitForSelector('[data-id]');
    await page.evaluate(()=>pollCliUpdates());await page.waitForSelector('.cli-update-notice:not([hidden])');assert.equal(posts.length,0,'discovery must never upgrade');
+   assert.equal(await page.$eval('.cli-update-notice',e=>e.textContent),'Pocket Code, Claude Code and Codex updates available. Review');
    await page.click('.cli-update-notice');await page.waitForSelector('#cli-upgrade:not([disabled])');await new Promise(r=>setTimeout(r,350));
+   assert.match(await page.$eval('#pocket-update-row',e=>e.textContent),/Installed: 1\.107\.1 · Available: 1\.108\.0/);
+   assert.equal(await page.$eval('#pocket-update-row a[href*="operations.md"]',e=>e.textContent),'How to update');
+   assert.equal(await page.$('#pocket-update-row input,#pocket-update-row button'),null,'Pocket Code is announced, not installed from the sheet');
    assert.match(await page.$eval('#cli-schedule',e=>e.textContent),/4:00 a.m. \(America\/New_York\)/);
    assert.equal(await page.$$eval('[data-cli-select]:checked',es=>es.length),2);
    await page.screenshot({path:path.join(out,`cli-updates-${width}.png`)});
@@ -24,7 +28,7 @@ export async function runCliUpdateRegressions({browser,base,out}){
    await page.screenshot({path:path.join(out,`cli-updates-${width}.png`)});
    if(process.env.POCKET_DESIGN_SCANNER){await page.evaluate(()=>{window.__IMPECCABLE_CONFIG__={autoScan:false};});await page.addScriptTag({path:process.env.POCKET_DESIGN_SCANNER});fs.writeFileSync(path.join(out,`cli-updates-design-${width}.json`),JSON.stringify(await page.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false})),null,2));}
    assert.ok(await page.$eval('.cli-updates-sheet',e=>e.getBoundingClientRect().width)<=width,'sheet fits');
-   await page.click('[data-cli-select="codex"]');await page.click('#cli-upgrade');await page.waitForFunction(()=>document.querySelector('#cli-job').textContent.includes('Testing'));
+   await page.$eval('[data-cli-select="codex"]',e=>e.scrollIntoView({block:'center'}));await page.click('[data-cli-select="codex"]');await page.click('#cli-upgrade');await page.waitForFunction(()=>document.querySelector('#cli-job').textContent.includes('Testing'));
    assert.deepEqual(posts,[{selections:[{key:'claude',version:'2.1.0'}]}]);assert.equal(await page.$eval('#cli-upgrade',e=>e.disabled),true);
    await page.click('#cli-later');await page.reload();await page.waitForSelector('[data-id]');await page.evaluate(()=>pollCliUpdates());await page.click('.cli-update-notice');await page.waitForFunction(()=>document.querySelector('#cli-job').textContent.includes('Testing'));
    state.job={id:'job-one',running:false,phase:'failed',results:[],error:'Compatibility check failed. Previous version retained.'};
@@ -39,6 +43,9 @@ export async function runCliUpdateRegressions({browser,base,out}){
   await page.keyboard.press('Escape');state.providers.forEach(p=>{p.installed=p.latest;p.available=false;});state.job={id:'success-job',running:false,phase:'complete',results:[{key:'claude',version:'2.1.0'}]};
   await page.evaluate(()=>pollCliUpdates());assert.match(await page.$eval('.cli-update-notice',e=>e.textContent),/complete/);await page.click('.cli-update-notice');await page.waitForFunction(()=>document.querySelector('#cli-job').textContent.includes('Upgrade complete'));
   await page.keyboard.press('Escape');state.job=null;
+  // Pocket Code alone: the notice still appears, and goes once the server runs the release.
+  await page.evaluate(()=>pollCliUpdates());assert.equal(await page.$eval('.cli-update-notice',e=>e.textContent),'Pocket Code update available. Review');
+  state.pocket={...state.pocket,installed:'1.108.0',available:false};await page.evaluate(()=>pollCliUpdates());assert.equal(await page.$eval('.cli-update-notice',e=>e.hidden),true);
   state.providers[0].olderSessions=1;state.providers[0].older=[{key:'claude',id:'12345678-1234-1234-1234-123456789abc',title:'Review invoices',busy:false,version:'2.0.0'}];
   state.providers[1].olderSessions=1;state.providers[1].older=[{key:'codex',id:'cx:12345678-1234-1234-1234-123456789abd',title:'Build report',busy:true,version:'0.150.0'}];
   await page.evaluate(()=>pollCliUpdates());await page.waitForFunction(()=>document.querySelector('.cli-update-notice')?.textContent.includes('2 conversations'));
@@ -55,7 +62,7 @@ export async function runCliUpdateRegressions({browser,base,out}){
   assert.deepEqual(olderAxe.violations.map(x=>({id:x.id,nodes:x.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})),[]);
   await page.screenshot({path:path.join(out,'cli-updates-older-390.png')});
   if(process.env.POCKET_DESIGN_SCANNER){await page.addScriptTag({path:process.env.POCKET_DESIGN_SCANNER});fs.writeFileSync(path.join(out,'cli-updates-older-design-390.json'),JSON.stringify(await page.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false})),null,2));}
-  await page.click('[data-cli-interrupt="false"]');
+  await page.$eval('[data-cli-interrupt="false"]',e=>e.scrollIntoView({block:'center'}));await page.click('[data-cli-interrupt="false"]');
   assert.deepEqual(posts.at(-1),{key:'claude',id:state.providers[0].older[0].id,interrupt:false});
   assert.deepEqual(errors,[]);console.log('CLI update browser checks passed: review, explicit selection, reconnect, failure, retry, success, accessibility at 390/1440.');
  }finally{await page.close();}

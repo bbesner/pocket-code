@@ -114,7 +114,16 @@ catches up if that date has not been attempted. A failed check is visible in the
 can be retried with **Check now**. Discovery follows each official npm package's `latest`
 regular release, excluding prereleases; it does not install automatically.
 
-`POCKET_CLI_UPDATES=0` disables scheduled discovery and upgrades. `CLAUDE_BIN` and `CODEX_BIN`
+The same daily check asks `https://github.com/bbesner/pocket-code/releases/latest` (one `HEAD`
+request; GitHub redirects it to the latest published release, never a draft or prerelease, and it
+is not subject to the API's 60-an-hour per-IP limit) and compares that tag with the running
+daemon's `package.json` version. The first check waits two minutes after the daemon starts. A newer one puts a notice in the
+browser with links to the release notes and to [Upgrade an existing installation](#upgrade-an-existing-installation);
+nothing is downloaded or installed. `POCKET_UPDATE_CHECK=0` turns that check off, and
+`POCKET_RELEASES_REPO=owner/repo` points it at a fork's releases. It runs even when
+`POCKET_CLI_UPDATES=0`.
+
+`POCKET_CLI_UPDATES=0` disables scheduled CLI discovery and upgrades. `CLAUDE_BIN` and `CODEX_BIN`
 overrides stay externally managed and cannot be upgraded from Pocket. Installs without a
 provider do not gain it through this feature. Managed upgrades support Linux and macOS on
 x64/arm64 and need npm on the daemon's PATH.

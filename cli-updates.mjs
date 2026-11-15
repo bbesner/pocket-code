@@ -11,6 +11,8 @@ export const PROVIDERS = {
   claude: { name: 'Claude Code', pkg: '@anthropic-ai/claude-code', notes: 'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md' },
   codex: { name: 'Codex', pkg: '@openai/codex', notes: 'https://github.com/openai/codex/releases' },
 };
+// Pocket Code itself is announced, never installed from here: the person who runs the server upgrades it.
+export const POCKET_REPO = 'bbesner/pocket-code';
 const plain = o => o && typeof o === 'object' && !Array.isArray(o);
 export const version = v => typeof v === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(v) ? v : null;
 export function newer(a, b) { if (!version(a) || !version(b)) return false; const x=a.split('.').map(Number), y=b.split('.').map(Number); for(let i=0;i<3;i++) if(x[i]!==y[i]) return x[i]>y[i]; return false; }
@@ -80,8 +82,8 @@ export async function probe(provider,bin,{cwd,env,onChild}={}) {
   return found;
 }
 export class CliUpdates {
-  constructor({dir,bins,zone=()=>Intl.DateTimeFormat().resolvedOptions().timeZone,enabled=true,overrides={},onActivate=()=>{},fetcher=fetch,run=runChild,test=probe,now=()=>Date.now(),persist=write}) {
-    Object.assign(this,{bins,zone,enabled,overrides,onActivate,fetcher,run,test,now,persist});
+  constructor({dir,bins,zone=()=>Intl.DateTimeFormat().resolvedOptions().timeZone,enabled=true,overrides={},onActivate=()=>{},fetcher=fetch,run=runChild,test=probe,now=()=>Date.now(),persist=write,pocketVersion=null,pocketRepo=POCKET_REPO,pocketEnabled=true,pocketDelay=120000}) {
+    Object.assign(this,{bins,zone,enabled,overrides,onActivate,fetcher,run,test,now,persist,pocketDelay,pocketVersion:version(pocketVersion),pocketRepo,pocketEnabled:pocketEnabled&&/^[\w.-]+\/[\w.-]+$/.test(pocketRepo)});
     this.root=path.join(dir,'cli-runtimes');this.file=path.join(this.root,'state.json');this.busy=false;this.checking=false;this.children=new Set();
     fs.mkdirSync(this.root,{recursive:true,mode:0o700});
     try{this.state=JSON.parse(fs.readFileSync(this.file,'utf8'));if(!plain(this.state)||!plain(this.state.providers))throw Error();}
@@ -95,21 +97,38 @@ export class CliUpdates {
   binary(key){return (this.overrides[key]?null:this.state.providers[key]?.active?.bin)||this.bins[key];}
   timezone(){try{const zone=this.zone()||Intl.DateTimeFormat().resolvedOptions().timeZone;localSlot(this.now(),zone);return zone;}catch{return 'UTC';}}
   async installed(key){try{const out=await this.run(this.binary(key),['--version'],{timeout:10000});return version(out.match(/(?:^|\s)(\d+\.\d+\.\d+)(?:\s|$)/)?.[1]);}catch{return null;}}
-  snapshot(){return {enabled:this.enabled,timeZone:this.timezone(),hour:4,checking:this.checking,checkedAt:this.state.checkedAt||null,checkError:this.state.checkError||null,job:this.state.job?{...this.state.job,child:undefined}:null,
+  // Like model discovery, the first Pocket check waits after startup, so short-lived (test) servers stay offline.
+  pocketDue(){return this.pocketEnabled&&(this.started==null||this.now()-this.started>=this.pocketDelay);}
+  cliActive(){return this.enabled&&Object.keys(PROVIDERS).some(k=>this.bins[k]&&!this.overrides[k]);}
+  pocketSnapshot(){const r=plain(this.state.pocket)?this.state.pocket:{},installed=this.pocketVersion;
+    return {key:'pocket',name:'Pocket Code',enabled:this.pocketEnabled,installed,latest:r.latest||null,available:this.pocketEnabled&&newer(r.latest,installed),
+      notes:r.notes||`https://github.com/${this.pocketRepo}/releases`,guide:`https://github.com/${this.pocketRepo}/blob/main/docs/operations.md#upgrade-an-existing-installation`,error:r.error||null,checkedAt:r.checkedAt||null};}
+  // github.com/<repo>/releases/latest redirects to the latest published release's tag page (drafts and
+  // prereleases never qualify). Unlike api.github.com it has no 60-an-hour per-IP limit. Throws on anything unexpected.
+  async pocketRelease(){
+    const base=`https://github.com/${this.pocketRepo}/releases/`;
+    const r=await this.fetcher(base+'latest',{method:'HEAD',redirect:'manual',signal:AbortSignal.timeout(15000),headers:{'user-agent':'pocket-code-update-check'}});
+    const location=r.status>=300&&r.status<400?r.headers?.get?.('location')||'':'';
+    const tag=location.startsWith(base+'tag/')?decodeURIComponent(location.slice(base.length+4).split(/[?#]/)[0]):'';
+    const latest=version(tag.replace(/^v/,''));if(!latest)throw Error();
+    return {latest,notes:base+'tag/'+encodeURIComponent(tag)};
+  }
+  snapshot(){return {enabled:this.enabled,pocket:this.pocketSnapshot(),timeZone:this.timezone(),hour:4,checking:this.checking,checkedAt:this.state.checkedAt||null,checkError:this.state.checkError||null,job:this.state.job?{...this.state.job,child:undefined}:null,
     providers:Object.entries(PROVIDERS).map(([key,p])=>{const r=this.state.providers[key]||{},installed=r.active?.version||r.installed||null;return {key,name:p.name,installed,latest:r.latest||null,available:newer(r.latest,installed),managed:!!r.active,canUpgrade:this.enabled&&!!this.bins[key]&&!this.overrides[key]&&['linux','darwin'].includes(process.platform)&&['x64','arm64'].includes(process.arch),error:r.error||null,checkedAt:r.checkedAt||null,notes:key==='codex'&&version(r.latest)?`https://github.com/openai/codex/releases/tag/rust-v${r.latest}`:p.notes,previous:r.previous?.version||null};})};}
-  async tick(){if(!this.enabled||this.busy||this.checking||!Object.keys(PROVIDERS).some(k=>this.bins[k]&&!this.overrides[k]))return;const {day,due}=localSlot(this.now(),this.timezone());if(!due||this.state.day===day)return;
+  async tick(){if(this.busy||this.checking||!(this.cliActive()||this.pocketDue()))return;const {day,due}=localSlot(this.now(),this.timezone());if(!due||this.state.day===day)return;
     this.save({...this.state,pendingDay:day});await this.check();this.save({...this.state,day,pendingDay:null});}
-  start(){if(!this.enabled)return;this.timer=setInterval(()=>this.tick().catch(()=>{}),60000);this.timer.unref();this.tick().catch(()=>{});}
+  start(){if(!this.enabled&&!this.pocketEnabled)return;this.started=this.now();this.timer=setInterval(()=>this.tick().catch(()=>{}),60000);this.timer.unref();this.tick().catch(()=>{});}
   dispose(){clearInterval(this.timer);for(const child of this.children)signalGroup(child.pid,'SIGKILL');}
-  async check(){if(!this.enabled)throw fail('CLI updates are disabled on this server.');if(this.checking||this.busy)throw fail('An update check or upgrade is already running.');this.checking=true;
-    try{const providers=structuredClone(this.state.providers);let failed=false;
+  async check(){if(!this.enabled&&!this.pocketEnabled)throw fail('CLI updates are disabled on this server.');if(this.checking||this.busy)throw fail('An update check or upgrade is already running.');this.checking=true;
+    try{const providers=structuredClone(this.state.providers);let failed=false,pocket=plain(this.state.pocket)?{...this.state.pocket}:{};
+      if(this.pocketEnabled){try{Object.assign(pocket,await this.pocketRelease(),{checkedAt:this.now(),error:null});}catch{failed=true;pocket.error='Could not check for a new Pocket Code release. Try Check now.';}}
       for(const key of Object.keys(PROVIDERS)){
-        const row=providers[key]||{};providers[key]=row;if(!this.bins[key])continue;
+        const row=providers[key]||{};providers[key]=row;if(!this.enabled||!this.bins[key])continue;
         row.installed=await this.installed(key);
         try{const r=await this.fetcher('https://registry.npmjs.org/'+encodeURIComponent(PROVIDERS[key].pkg)+'/latest',{signal:AbortSignal.timeout(15000),redirect:'error'});if(!r.ok)throw Error();const text=await r.text();if(text.length>1024*1024)throw Error();const data=JSON.parse(text);if(data.name!==PROVIDERS[key].pkg||!version(data.version))throw Error();row.latest=data.version;row.checkedAt=this.now();row.error=null;}
         catch{failed=true;row.error='Could not check the publisher. Try Check now.';}
       }
-      this.save({...this.state,providers,checkedAt:this.now(),checkError:failed?'Some release checks failed. Previously found updates are still shown.':null});return this.snapshot();
+      this.save({...this.state,providers,pocket,checkedAt:this.now(),checkError:failed?'Some release checks failed. Previously found updates are still shown.':null});return this.snapshot();
     }finally{this.checking=false;}
   }
   begin(selections,{rollback=false}={}){

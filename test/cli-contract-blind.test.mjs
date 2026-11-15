@@ -119,6 +119,7 @@ function fixture({ baseline = { claude: '2.0.0', codex: '0.50.0' }, latest = { c
     dir, bins, zone: () => 'America/New_York', fetcher, run, test: testFn, persist,
     onActivate: (key, bin) => calls.activate.push({ key, bin }),
     now: now || (() => Date.parse('2026-10-28T16:00:00Z')),
+    pocketEnabled: false, // this file is the CLI contract; the Pocket Code release check is tested in cli-updates.test.mjs
   };
   if (enabled !== undefined) opts.enabled = enabled;
   if (overrides) opts.overrides = overrides;
