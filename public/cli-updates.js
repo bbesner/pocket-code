@@ -1,4 +1,5 @@
-/* CLI updates: a quiet persistent notice, then an explicit review and upgrade. Operate; existing Pocket tokens. */
+/* Updates: a quiet persistent notice, then an explicit review. CLIs upgrade from here; Pocket Code is announced only,
+   because the person who runs the server installs it. Operate; existing Pocket tokens. */
 let cliUpdateState=null, cliUpdatePolling=false;
 const cliUpdateNotice=document.createElement('button');
 cliUpdateNotice.type='button';cliUpdateNotice.className='cli-update-notice';cliUpdateNotice.hidden=true;
@@ -9,7 +10,9 @@ function paintCliUpdateNotice(){
   const failed=s?.job&&['failed','interrupted'].includes(s.job.phase);
   let acknowledged='';try{acknowledged=localStorage.getItem('pc-cli-update-seen')||'';}catch{}
   const completed=s?.job?.phase==='complete'&&s.job.id!==acknowledged;
-  const text=completed?'CLI upgrade complete. View results':s?.job?.running?'CLI upgrade in progress. View progress':failed?'CLI upgrade needs attention. View details':older?`${older} conversation${older===1?'':'s'} still using an older CLI. Review`:available.length?available.map(p=>p.name).join(' and ')+' update available. Review':'';
+  const names=[...(s?.pocket?.available?['Pocket Code']:[]),...available.map(p=>p.name)];
+  const listed=names.length>1?names.slice(0,-1).join(', ')+' and '+names.at(-1):names[0];
+  const text=completed?'CLI upgrade complete. View results':s?.job?.running?'CLI upgrade in progress. View progress':failed?'CLI upgrade needs attention. View details':older?`${older} conversation${older===1?'':'s'} still using an older CLI. Review`:names.length?`${listed} update${names.length>1?'s':''} available. Review`:'';
   cliUpdateNotice.textContent=text;cliUpdateNotice.hidden=!text;
   if(text&&!cliUpdateNotice.isConnected&&app?.isConnected)app.prepend(cliUpdateNotice);
 }
@@ -24,15 +27,22 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 async function openCliUpdates(){
   const scrim=document.createElement('div');scrim.className='scrim';
   const sh=document.createElement('div');sh.className='sheet cli-updates-sheet';
-  sh.innerHTML='<h2>CLI updates</h2><p class="sheet-help" id="cli-schedule">Loading update status…</p><div id="cli-update-rows"></div><p id="cli-job" role="status" aria-live="polite"></p><p class="title-note">Upgrades run on the server. You can close Pocket while they finish. Current conversations keep their version until they can safely reopen.</p><p class="title-note">Pocket checks that the CLI starts and connects correctly before switching. These checks do not cover every feature.</p><div class="cli-update-actions"><button class="primary" id="cli-upgrade" disabled>Upgrade selected</button><button class="chip" id="cli-check">Check now</button><button class="chip" id="cli-later">Later</button></div><p class="title-note" id="cli-update-error" role="alert"></p>';
+  sh.innerHTML='<h2>Updates</h2><p class="sheet-help" id="cli-schedule">Loading update status…</p><div id="pocket-update-row"></div><div id="cli-update-rows"></div><p id="cli-job" role="status" aria-live="polite"></p><p class="title-note">Upgrades run on the server. You can close Pocket while they finish. Current conversations keep their version until they can safely reopen.</p><p class="title-note">Pocket checks that the CLI starts and connects correctly before switching. These checks do not cover every feature.</p><div class="cli-update-actions"><button class="primary" id="cli-upgrade" disabled>Upgrade selected</button><button class="chip" id="cli-check">Check now</button><button class="chip" id="cli-later">Later</button></div><p class="title-note" id="cli-update-error" role="alert"></p>';
   mountSheet(scrim,sh);
   let state=null,selection=new Set(),signature='',busy=false,fetching=false;
   const selected=()=>state?.providers.filter(p=>selection.has(p.key)&&p.available&&p.canUpgrade)||[];
-  const buttons=()=>{sh.querySelector('#cli-upgrade').disabled=busy||state?.job?.running||state?.checking||!selected().length;sh.querySelector('#cli-check').disabled=busy||state?.job?.running||state?.checking||state?.enabled===false;};
+  const buttons=()=>{sh.querySelector('#cli-upgrade').disabled=busy||state?.job?.running||state?.checking||!selected().length;sh.querySelector('#cli-check').disabled=busy||state?.job?.running||state?.checking||(state?.enabled===false&&!state?.pocket?.enabled);};
   const render=s=>{
     state=s;cliUpdateState=s;if(s.job?.phase==='complete'){try{localStorage.setItem('pc-cli-update-seen',s.job.id);}catch{}}paintCliUpdateNotice();
     const stamp=s.checkedAt?new Date(s.checkedAt).toLocaleString(): 'Not checked yet';
-    sh.querySelector('#cli-schedule').textContent=(s.enabled?`Checks daily at 4:00 a.m. (${s.timeZone}). Installs only when you choose Upgrade.`:'CLI update checks are disabled on this server.')+' Last check: '+stamp+'.';
+    sh.querySelector('#cli-schedule').textContent=(s.enabled||s.pocket?.enabled?`Checks daily at 4:00 a.m. (${s.timeZone}).`:'Update checks are disabled on this server.')+(s.enabled?' CLIs install only when you choose Upgrade.':' CLI update checks are disabled on this server.')+' Last check: '+stamp+'.';
+    const pk=s.pocket;
+    sh.querySelector('#pocket-update-row').innerHTML=pk?.enabled?`<section class="cli-update-row" aria-labelledby="cli-name-pocket">
+        <h3 id="cli-name-pocket">Pocket Code</h3>
+        <p class="title-note">Runs Pocket itself. Whoever manages this server installs its updates; Pocket only lets you know.</p>
+        <p>Installed: <b>${esc(pk.installed||'Unavailable')}</b> · Available: <b>${esc(pk.latest||'Not checked')}</b></p>
+        ${pk.error?`<p class="title-note">${esc(pk.error)}</p>`:''}
+        <div class="cli-update-actions"><a class="chip" href="${esc(pk.notes)}" target="_blank" rel="noopener noreferrer">Pocket Code release notes</a>${pk.available?`<a class="chip" href="${esc(pk.guide)}" target="_blank" rel="noopener noreferrer">How to update</a>`:'<span class="title-note">No newer release found.</span>'}</div></section>`:'';
     const sig=JSON.stringify(s.providers);
     if(sig!==signature){
       const first=!signature;signature=sig;

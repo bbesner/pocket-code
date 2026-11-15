@@ -3,6 +3,15 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.108.0] — Unreleased · build 202
+
+Asked for by Brad (2026-11-15): installs are told when Claude Code or Codex has an update; do the same when an install is behind the latest Pocket Code.
+
+- **Pocket Code update notice** (`cli-updates.mjs`, `public/cli-updates.js`, `server.mjs`). The daily 4 a.m. check (and **Check now**) also asks `github.com/bbesner/pocket-code/releases/latest` which release is latest (one `HEAD` request answered by a redirect to the tag; drafts and prereleases never count, only a plain `vX.Y.Z` tag is accepted, and unlike `api.github.com` it has no 60-an-hour per-IP limit, which brads-server was already over) and compares it with the running daemon's `package.json` version. When the server is behind, the top notice names Pocket Code alongside any CLI update (*Pocket Code, Claude Code and Codex updates available. Review*), and the review, now called **Updates**, has a Pocket Code row: installed and available versions, release notes, and **How to update** (the operations guide). Nothing is downloaded or installed; the notice goes once the server runs the release. A failed check keeps the last good result and says so. The check runs even with `POCKET_CLI_UPDATES=0`; `POCKET_UPDATE_CHECK=0` turns it off and `POCKET_RELEASES_REPO=owner/repo` follows a fork.
+- **About & updates** button renamed from CLI updates to **Updates**.
+- Tested: `test/cli-updates.test.mjs` (announced when newer, the request's URL, method and user agent, no CLI commands or installs, runs with CLI checks off, prerelease and odd tags, other sites and missing redirects keep the last good release, same or older version is not an update, switched off makes no request, the first check waits two minutes after startup), `test/cli-contract-blind.test.mjs` unchanged with the Pocket check off, `test/acp-browser.mjs` (its long-running server has the check off), `test/cli-updates-browser.mjs` (notice wording, the Pocket row with no install control, a Pocket-only notice that clears once the server runs the release; axe at 390 and 1440).
+- Manual: *Settings*. Operations guide and `.env.example`: the two new settings.
+
 ## [1.107.1] — 2026-11-15 · build 201
 
 Reported by Brad (2026-11-15): Start a conversation in a Conductor project's ⋯ options opened a plain New conversation on Opus 5.5, with nothing saying which project it was in.

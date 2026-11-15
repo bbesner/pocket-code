@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.107.1
+checked: 1.108.0
 sources: context-policy.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
@@ -219,10 +219,20 @@ voice is available on the server. Details: [Voice](voice.md).
 
 After an update, the first load shows a toast pointing to **What's new**.
 
-**CLI updates** inside **About & updates** manages Claude Code and Codex separately from Pocket.
+**Updates** inside **About & updates** shows Pocket Code itself and manages Claude Code and Codex.
 Pocket checks once a day at 4 a.m. in the owner's time zone, including daylight saving changes.
-A notice appears when a release is available. Open it to see installed and available versions and
-links to the publisher's release notes. Choose either CLI or both, then **Upgrade selected**.
+A notice appears at the top when any of them has a newer release, for example *Pocket Code update
+available. Review*.
+
+The **Pocket Code** row shows the version this server is running and the latest published release
+(GitHub's latest release, never a prerelease or draft), with links to its release notes and to the
+upgrade steps in the operations guide. Pocket Code is not installed from here: whoever manages the
+server upgrades it, and the notice goes away once the server runs that release. Before then, a
+server restart is what moves a checked-out new version into use, so the row reports the running
+version, not the files on disk.
+
+For Claude Code and Codex, the review shows installed and available versions and links to the
+publisher's release notes. Choose either CLI or both, then **Upgrade selected**.
 **Later** closes the review; the notice remains. **Check now** checks immediately.
 
 Upgrades continue on the server when you close the browser. Pocket downloads the exact selected
@@ -243,8 +253,9 @@ the previous installation; it does not undo conversation history. A server resta
 stops the job and offers a retry instead of automatically continuing. If activation had already been
 saved, the selected version stays selected and the interrupted result says to check it before retrying.
 
-An explicit server binary override remains managed outside Pocket. The server can turn off this
-feature with `POCKET_CLI_UPDATES=0`. No overnight push notification is sent.
+An explicit server binary override remains managed outside Pocket. The server can turn off the CLI
+part with `POCKET_CLI_UPDATES=0` and the Pocket Code release check with `POCKET_UPDATE_CHECK=0`.
+No overnight push notification is sent.
 
 
 ## Where preferences live
