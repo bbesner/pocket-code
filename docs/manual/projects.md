@@ -60,7 +60,7 @@ Once a conversation is linked, its chip shows the project's name and opens the c
 | Note | A field to add a note: a decision or reference worth keeping. |
 | History | Every change, newest first, marked as made by you, an agent or an import. |
 
-The buttons at the bottom are **Start conversation**, **Edit**, **Remind me** and **Finish project**, or **Resume project** on a finished one. The **⋯** button in the card's header opens **Project options**, which also has **Mark waiting** or **Mark active**, **Open beside** and **Open in a new window**.
+The buttons at the bottom are **Start conversation**, **Edit**, **Remind me** and **Finish project**, or **Resume project** on a finished one. The **⋯** button in the card's header opens **Project options**, which also has **Mark waiting** or **Mark active**, **Open beside**, **Open in a new window** and, in Developer mode, **Turn on Conductor mode** or **Turn off Conductor mode**.
 
 ### Keep the steps current
 
@@ -119,7 +119,7 @@ Edit the briefing if you like, then send it. The conversation is linked to the p
 
 ### Conductor mode
 
-Conductor mode is for a big piece of work you want an agent to carry a long way on its own. Turn on the **Conductor mode** switch on the card. A conversation in Conductor mode runs the newest top model on this server (Fable on Claude Code, GPT Astra on Codex) as the **lead**, at high effort. The lead plans the work, hands each piece to a cheaper model, checks what comes back against the steps' checks, and stops only for a decision from you.
+Conductor mode is for a big piece of work you want an agent to carry a long way on its own. Turn on the **Conductor mode** switch on the card (or **Turn on Conductor mode** in the card's **⋯** options). A conversation in Conductor mode runs the newest top model on this server (Fable on Claude Code, GPT Astra on Codex) as the **lead**, at high effort. The lead plans the work, hands each piece to a cheaper model, checks what comes back against the steps' checks, and stops only for a decision from you.
 
 Which conversations the switch affects:
 
@@ -138,12 +138,12 @@ Before a long run, use **Edit** to fill in:
 
 and give each step a **Passes when** check. The lead also writes them on the card itself when they are missing.
 
-**Start conversation** on a Conductor project adds a **Start** choice to the setup above the message (shown in the setup summary as **Start Conductor · *lead* leads**; open **Edit setup** to change it):
+**Start conversation** on a Conductor project starts as Conductor, from the card or from **Start a conversation** in its **⋯** options (which then reads **Conductor: *lead* leads**). New conversation shows it before you send: a **Conductor** chip beside the project chip, and the model and effort chips name what will run, for example **Fable 5.1** and **High**. Tap the **Conductor** chip to pick the other start; the same choice is under **Edit setup** as **Start**, and the setup summary reads **Start Conductor · *lead* leads**:
 
 - **Conductor** (the default): the lead named for the chosen agent, at high effort, handing out the work.
 - **Solo**: one cheaper model does the work itself, with no lead. Use it for a fix or a single contained change; a lead costs more on small work because it re-reads everything it checks.
 
-While the choice shows, the model and effort chips start on **Default**, so a model you left picked on an earlier start does not replace the lead; a model or effort you choose on this screen is still used. An agent without a top model on this server, and OpenRouter, starts as usual; the setup says so instead of offering the choice. Removing the project link (the project chip, **Remove the link**) removes the choice too.
+With Solo picked, the chip reads **Solo** and the model chip names Solo's model (Opus on Claude Code, GPT Sol on Codex). While the choice shows, the model and effort chips start on **Default** (the lead or Solo model, at **High**), so a model you left picked on an earlier start does not replace the lead; a model or effort you choose on this screen is still used. An agent without a top model on this server, and OpenRouter, starts as usual; the setup says so instead of offering the choice. Removing the project link (the project chip, **Remove the link**) removes the choice too.
 
 In the conversation, a **Conductor** or **Solo** chip sits beside the project chip; tap it to see which model leads. Changing the model mid-conversation restarts the lead without its reasoning, so the model picker suggests a [handoff](conversation.md#hand-off-to-a-fresh-conversation) instead. A Conductor conversation offers a handoff sooner (at 150K tokens, or the server's own size when that is lower), and a handoff keeps the project and the start. See [Working in a conversation](conversation.md#project-mode-chip).
 
@@ -295,7 +295,7 @@ pocket-board update -p acme-hoa-camera-upgrade --summary "Installed and tested."
 | The **Conductor mode** switch is greyed out | This server offers neither top model (Fable for Claude Code, GPT Astra for Codex). | Make Fable available to Claude Code on this server (**Settings → Agents & instance → Claude models in the picker**, and the computer's Claude Code policy), or update Codex to a version that offers GPT Astra. |
 | No **Conductor mode** switch on the card | Pocket is in Assistant mode, where Conductor mode does not run. | Switch to Developer mode in **Settings → Appearance → Mode**, if the install allows it. |
 | **Started, but not linked to *project*:** after Start conversation | The conversation started, but the server could not link it, for example because the project already has 50 conversations. It runs without the project and its mode. | Unlink an old conversation from the card, then link this one with its **Add project** chip. |
-| No **Start** choice on New conversation | The project's Conductor mode is off, the chosen agent has no top model here, or it is OpenRouter. | Turn the mode on, or pick Claude Code or Codex. |
+| No **Conductor** chip on New conversation, and the model chip shows your usual model | The project's Conductor mode is off, the chosen agent has no top model here, or it is OpenRouter. | Turn the mode on (the card's switch, or **Turn on Conductor mode** in its **⋯** options), or pick Claude Code or Codex. |
 | A reminder arrives hours off | The time was given without an offset before the user's browser reported a zone, and `POCKET_TZ` (or the system zone) is not the user's. | Open Pocket in the user's browser once, set `POCKET_TZ` to the user's zone, or pass an offset. |
 | No reminder on any channel | Projects is off; reminders are announced only while it is on. | Turn on **Settings → Projects, files, tasks & vault → Projects**. |
 | No push for a due reminder | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications & voice** on the device. The card still shows the reminder as due. |

@@ -115,6 +115,7 @@ test('Claude: a conductor project starts its first process in the mode; Solo, ex
   await s.call('/codex/models');
   const snap=(await s.call('/board')).body;
   assert.deepEqual(snap.conductor,{claude:'Fable 5.1',codex:'GPT-6 Astra'});
+  assert.equal(snap.conductorStart.effort.claude,'high');assert.equal(snap.conductorStart.effort.codex,'high');assert.equal(snap.conductorStart.solo.claude,'Opus 5.5','1.106.1: New names what Solo runs');assert.ok(snap.conductorStart.solo.codex,'Codex names its Solo model');
   assert.equal(snap.projects.find(x=>x.id===p.id).mode,'conductor');
 
   // 3: the first process already has the lead, high effort, Opus workers (the server policy is the default) and the playbook
@@ -215,7 +216,7 @@ test('Claude: a conductor project starts its first process in the mode; Solo, ex
   await sw('waiting',()=>s.act({action:'update',project:p.id,status:'waiting'}),true);
   await sw('Projects off',()=>s.call('/settings',{projects:false}),false);
   await sw('Assistant mode',()=>s.call('/settings',{projects:true,assistantMode:true}),false);
-  assert.equal((await s.call('/board')).body.conductor,null,'Assistant mode: the board names no lead, so no switch or Start choice is offered');
+  {const b=(await s.call('/board')).body;assert.equal(b.conductor,null,'Assistant mode: the board names no lead, so no switch or Start choice is offered');assert.equal(b.conductorStart,null);}
   await sw('back on',()=>s.call('/settings',{assistantMode:false}),true);
   assert.ok((await s.call('/board')).body.conductor?.claude,'Developer mode: the lead is named again');
 

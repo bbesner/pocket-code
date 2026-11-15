@@ -397,7 +397,8 @@ background job finishes first). The chip follows a link or unlink made from the 
 - **Solo**: one cheaper model does the work itself, with no lead.
 
 In these conversations the model chip's **Default** is the model this start chose, and its line says so (**Fable 5.1 · this
-project's lead**, or **Opus 5.5 · this project's Solo model**). In a Conductor conversation the model choices carry one more
+project's lead**, or **Opus 5.5 · this project's Solo model**); the effort chip's **Default** is **High**. New conversation shows the
+same before the first message, with the start as a chip beside the project chip. In a Conductor conversation the model choices carry one more
 line: **Changing the model restarts the lead without its reasoning. A handoff carries the work over cleanly.** You can still
 pick another model; a [handoff](#hand-off-to-a-fresh-conversation) is the cleaner way, because it keeps the project and the
 start.
