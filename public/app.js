@@ -2771,6 +2771,10 @@ const clearDraft = id => { try { localStorage.removeItem(draftKey(id)); } catch 
 // The plus button opens a clean conversation unless you changed the briefing, so one you walked away from does not return.
 const briefingKey = () => 'pc-new-briefing-' + NEW_KEY;
 const saveBriefing = text => { saveDraft(NEW_KEY, text); writeLocal(briefingKey(), text); };
+// 1.107.1: New with what a Start just left for it (a project's or task's briefing and pc-new-start). Already on New, setting the
+// hash it has fires no hashchange, so the screen kept its old state: a project started from the sidebar while New was open
+// showed no project, no Conductor chip and no briefing (Brad).
+function showNew() { if (location.hash === '#/new') return route(); location.hash = '#/new'; }
 function openFreshNew(hash = '#/new') {
   const here = location.hash === hash || (hash === '#/' && !location.hash);
   // The plus pressed on the New conversation screen itself starts over: setting the hash it already has did nothing,

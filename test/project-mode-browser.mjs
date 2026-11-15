@@ -195,6 +195,18 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   await page.waitForSelector('#new-mode:not([hidden])');assert.match(await page.$eval('#c-model',e=>e.textContent),/Fable 5\.1/,'Start from the sheet is a Conductor start');
   await page.evaluate(()=>{localStorage.removeItem('pc-new-start');});
 
+  // 1.107.1 (Brad): the sidebar's Projects list is there on New too. Start from its ⋯ while New was open set the hash New
+  // already had, nothing re-rendered, and the screen stayed a plain New with no project, no Conductor and no briefing.
+  console.log('Project mode: Start from the sidebar while New is open');
+  await page.evaluate(()=>{['pc-new-start','pc-draft-new','pc-new-briefing-new'].forEach(k=>localStorage.removeItem(k));localStorage.setItem('pc-rail-view',JSON.stringify('projects'));localStorage.setItem('pc-rail','"open"');});
+  await page.goto(base+'/?pm=railnew#/new');await page.waitForSelector(`#rail [data-project-more="${WAREHOUSE}"]`);
+  assert.equal(await page.$eval('#new-project',e=>e.hidden),true);assert.equal(await page.$eval('#first',e=>e.value),'');
+  await clickControl(page,`#rail [data-project-more="${WAREHOUSE}"]`);await page.waitForSelector('.sheet [data-start]');await clickControl(page,'.sheet [data-start]');
+  await page.waitForSelector('#new-project:not([hidden])');await page.waitForSelector('#new-mode:not([hidden])');
+  assert.match(await page.$eval('#first',e=>e.value),/Remaining steps|Earlier conversations|pocket-board/,'the briefing is in the box');
+  assert.match(await page.$eval('#c-model',e=>e.textContent),/Fable 5\.1/,'and the lead is the model');
+  await page.evaluate(()=>{['pc-new-start','pc-draft-new','pc-new-briefing-new'].forEach(k=>localStorage.removeItem(k));localStorage.setItem('pc-rail-view',JSON.stringify('sessions'));});
+
   console.log('Project mode: a start the server could not link says so');
   modes.projectLinkError='This project already has 50 conversations. Unlink one first.';
   try{

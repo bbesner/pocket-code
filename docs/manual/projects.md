@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.107.0
+checked: 1.107.1
 sources: projects.mjs, project-mode.mjs, public/projects.js, scripts/pocket-board.mjs, scripts/owner-zone.mjs, skills/pocket-projects/SKILL.md
 -->
 # Projects

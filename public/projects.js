@@ -276,7 +276,7 @@ function startProject(p){
  writeLocal('pc-new-start',{project:p.id,projectName:p.name,cwd:p.directory||'',...(p.mode==='conductor'?conductorStartFields({mode:'conductor'}):{})});
  const last=p.sessions[p.sessions.length-1];
  try{if(p.directory)localStorage.setItem('pc-lastproj',p.directory);if(last)localStorage.setItem('pc-provider',last.startsWith('cx:')?'codex':last.startsWith('acp:')?'acp':'claude');}catch{}
- location.hash='#/new';
+ showNew();
 }
 function reminderOptions(project,id){
  const p=projectById(project),r=p?.reminders.find(x=>x.id===id);if(!r)return;
