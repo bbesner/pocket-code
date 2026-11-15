@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.107.1] — 2026-11-15 · build 201
+
+Reported by Brad (2026-11-15): Start a conversation in a Conductor project's ⋯ options opened a plain New conversation on Opus 5.5, with nothing saying which project it was in.
+
+- **Fixed: a Start from the sidebar while New was open did nothing visible** (`public/app.js`, `public/projects.js`, `public/tasks.js`). The sidebar's Projects list (and its ⋯ options) is there on New conversation too. Start a conversation saved the project's start and briefing and then set the address to `#/new`, which New already had, so no `hashchange` fired, nothing re-rendered, and the screen stayed a plain New: no project chip, no Conductor chip, an empty box and the saved model. Sending from it would have started an unlinked conversation. The new `showNew()` re-renders New when it is already open; project and task starts use it.
+- Tested: `test/project-mode-browser.mjs` opens New with the sidebar on Projects, starts from the ⋯ options there, and checks the project and Conductor chips, the briefing and the lead model. It fails on 1.107.0.
+
 ## [1.107.0] — 2026-11-15 · build 200
 
 Asked for by Brad (2026-11-15): offer Conductor mode where a piece of work starts, let a handoff choose it, and explain it wherever it can be chosen.

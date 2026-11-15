@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.86.0
+checked: 1.107.1
 sources: tasks.mjs, public/tasks.js, scripts/pocket-tasks.mjs, scripts/owner-zone.mjs, skills/pocket-tasks/SKILL.md
 -->
 # Tasks
