@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.106.0
+checked: 1.107.0
 sources: public/split.js, public/workspace.js, public/tips.js, public/sidechat.js, docs/session-focus.md
 -->
 # Desktop and phone
@@ -212,6 +212,10 @@ shows the main shortcuts in the app.
 With a mouse, resting on an icon button for a moment shows what it does; with the keyboard, tabbing to
 it does the same. Touch screens never show them. Buttons with a visible label have none. Escape,
 scrolling or a click hides the tooltip.
+
+An **ⓘ** button holds a longer explanation, such as the one beside each
+[Conductor mode](projects.md#conductor-mode) choice. Its tooltip is wider and keeps its paragraphs, and a
+click or a tap opens the same text on the page, so it also works on a touch screen.
 
 ## Text size
 

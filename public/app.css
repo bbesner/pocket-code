@@ -2135,3 +2135,25 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 #new-start-mode[hidden], .start-modes[hidden] { display: none; }
 #pe-done-help, #pe-works-help, #step-check-help, #new-start-none { text-wrap: pretty; } /* DESIGN.md: notes wrap pretty */
 .sheet .sheet-note, .mode-sheet .sheet-help { padding-inline: 14px; } /* on the rows' inset, under the heading */
+/* 1.107: the Conductor info button sits at the end of the row it explains (.mode-row), a 44px target in --dim. Hover or
+   keyboard focus shows its text as a tooltip; a tap or click opens the same text under the row on --raised. The handoff
+   card names its project on one line with the start as a chip; New's Start a project is an ordinary chip. */
+.mode-row { display: flex; align-items: center; gap: 4px; }
+.mode-row > .opt { flex: 1; min-width: 0; width: auto; }
+.mode-row > .h { flex: none; }
+.info-tip { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 10px; color: var(--dim); }
+.info-tip .i { width: 20px; height: 20px; }
+.info-tip[aria-expanded="true"] { color: var(--clay); }
+.conductor-about { margin: 4px 0 10px; padding: 12px 14px; border-radius: 12px; background: var(--raised); font-size: 14px; line-height: 1.5; color: var(--dim); max-width: 65ch; text-wrap: pretty; }
+.conductor-about[hidden] { display: none; }
+.conductor-about p { margin: 0; }
+.conductor-about p + p { margin-top: 8px; }
+.conductor-about strong { color: var(--text); font-weight: 600; }
+.sheet-about > .mode-row { padding-right: 52px; }
+.sheet-about > .mode-row > h2 { padding-right: 0; padding-block: 0; min-height: 0; }
+.sheet [data-conductor-host] > .conductor-about { margin-inline: 14px; }
+.sheet .project-mode > .conductor-about { margin-inline: 0; } /* the form's own inset */
+#new-track[hidden] { display: none; }
+.handoff-project { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13.5px; color: var(--dim); overflow-wrap: anywhere; }
+.handoff-project .chip { min-height: 44px; }
+.tip.wide { max-width: 360px; white-space: pre-line; }

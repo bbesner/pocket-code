@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.106.1
+checked: 1.107.0
 sources: context-policy.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings

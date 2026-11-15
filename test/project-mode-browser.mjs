@@ -279,11 +279,144 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   await page.evaluate(()=>{localStorage.removeItem('pc-new-start');});
   settings.assistantMode=false;await reset();
 
-  console.log('Project mode: a handoff card continues in the project');
-  const hid='f00d000000a6';modes.handoffs={...(modes.handoffs||{}),[hid]:{projectName:'Warehouse stock report',projectStart:'conductor'}};
+  console.log('Project mode: the info button explains Conductor wherever it is chosen (1.107)');
+  const ABOUT=/^The top model \(Fable or GPT Astra\) leads\..*Use it for big, multi-step work.*Skip it for a quick fix or a question\..*re-reads everything it checks\.$/s;
+  // The info button in `host`: a sibling of the control (never inside it), closed at first; a click opens the text in place.
+  // Returns a function that closes it again.
+  const about=async host=>{
+   const state=()=>page.$eval(host,h=>{const b=h.querySelector('[data-conductor-info]'),x=h.querySelector('.conductor-about');return {inOpt:Boolean(b.closest('.opt')),expanded:b.getAttribute('aria-expanded'),hidden:x.hidden,text:x.textContent.replace(/\s+/g,' ').trim(),tip:b.dataset.tip,label:b.getAttribute('aria-label')};});
+   const s0=await state();assert.deepEqual([s0.inOpt,s0.expanded,s0.hidden,s0.label],[false,'false',true,'About Conductor mode'],host);
+   assert.match(s0.tip,ABOUT,host+' tooltip');assert.match(s0.text,ABOUT,host+' text');
+   await clickControl(page,host+' [data-conductor-info]');const s1=await state();assert.deepEqual([s1.expanded,s1.hidden],['true',false],host+' opens');
+   return async()=>{await clickControl(page,host+' [data-conductor-info]');const s2=await state();assert.deepEqual([s2.expanded,s2.hidden],['false',true],host+' closes');};
+  };
+  const setMode=mode=>page.evaluate(([p,mode])=>fetch('/api/board/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'update',project:p,mode})}),[WAREHOUSE,mode]);
+  await reset();await view(1440);await card(WAREHOUSE);
+  let acts=boardActs.length,shut=await about('.project-card .project-mode');
+  assert.equal(boardActs.length,acts,'the info button does not flip the switch');
+  await axe('.project-card');await shot('info-card-1440',true);await shut();
+  await page.mouse.move(5,5);await page.hover('.project-card [data-conductor-info]');
+  await page.waitForFunction(()=>{const tip=document.getElementById('tip');return tip&&!tip.hidden&&tip.classList.contains('wide');});
+  assert.match(await page.$eval('#tip',e=>e.textContent),ABOUT,'hover shows the same text');await shot('info-tip-1440');
+  await page.mouse.move(5,5);await page.waitForFunction(()=>document.getElementById('tip').hidden);
+  await options();acts=boardActs.length;shut=await about('.sheet [data-conductor-host]');
+  assert.equal(boardActs.length,acts,'in the options sheet it neither switches the mode');assert.ok(await page.$('.scrim'),'nor closes the sheet');
+  await axe('.sheet');await shot('info-options-1440');await shut();await closeSheet();
+  await setMode('conductor');await card(WAREHOUSE);await clickControl(page,'.project-actions [data-start]');await page.waitForSelector('#new-mode:not([hidden])');
+  await clickControl(page,'#new-mode');await page.waitForSelector('.sheet [data-v="solo"]');
+  shut=await about('.sheet .sheet-about');await axe('.sheet');await shot('info-start-sheet-1440');
+  await clickControl(page,'.sheet [data-v="solo"]');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+  assert.equal(await page.$eval('#new-mode',e=>e.textContent),'Solo','the choice still picks with the text open');
+  await clickControl(page,'#choose-workspace');await page.waitForSelector('#spick .row',{visible:true});
+  shut=await about('#new-start-mode');await axe('#new-setup');await shut();
+  await page.evaluate(()=>{localStorage.removeItem('pc-new-start');});
+  await view(390);await card(WAREHOUSE);shut=await about('.project-card .project-mode');await noOverflow('info card 390');await shot('info-card-390',true);await shut();
+
+  console.log('Project mode: Start a project on New makes the card and links the conversation (1.107)');
+  const MESSAGE='Rebuild the stock report export\nKeep the aisle totals.';
+  const write=text=>page.$eval('#first',(e,text)=>{e.value=text;e.dispatchEvent(new Event('input',{bubbles:true}));},text);
+  const openNew=async()=>{await page.evaluate(()=>{localStorage.removeItem('pc-new-start');localStorage.removeItem('pc-prefs-new');});
+   await page.goto(base+'/?pm='+Math.random().toString(36).slice(2)+'#/new');await page.waitForSelector('#first');};
+  const pending=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('pc-new-start')||'null'));
+  await reset();await view(1440);started=null;await page.setRequestInterception(true);page.on('request',onRequest);
+  await openNew();await page.waitForSelector('#new-track:not([hidden])');
+  assert.equal(await page.$eval('#new-track',e=>e.textContent.trim()),'Start a project');assert.notEqual(await page.$eval('#new-track',e=>e.offsetParent),null);
+  assert.deepEqual(await page.evaluate(()=>[document.getElementById('new-project').hidden,document.getElementById('new-mode').hidden,document.getElementById('new-actions').hidden]),[true,true,false]);
+  await write(MESSAGE);await shot('new-track-1440');
+  await clickControl(page,'#new-track');await page.waitForSelector('.project-editor input[name="name"]');
+  assert.equal(await page.$eval('.project-editor h2',e=>e.textContent),'Start a project');
+  assert.equal(await page.$eval('.project-editor input[name="name"]',e=>e.value),'Rebuild the stock report export','the name starts as the first line of the message');
+  assert.deepEqual(await page.$eval('.project-editor [data-mode]',b=>[b.getAttribute('aria-pressed'),b.getAttribute('aria-disabled'),b.querySelector('.sub').textContent]),['false',null,LINE],'Conductor is off until switched on');
+  assert.equal(await page.$eval('#sp-done',e=>e.value),'');assert.equal(await page.$eval('#sp-done-help',e=>e.textContent),'Optional. What finished looks like, as something that can be checked.');
+  assert.equal(await page.$('.project-editor textarea[name="summary"]'),null,'no second prompt box');
+  shut=await about('.project-editor .project-mode');await axe('.sheet');await shot('start-project-1440');await shut();
+  await clickControl(page,'.project-editor [data-mode]');assert.equal(await page.$eval('.project-editor [data-mode]',b=>b.getAttribute('aria-pressed')),'true');
+  await page.type('#sp-done','The export matches the aisle totals.');
+  acts=boardActs.length;await clickControl(page,'.project-editor button.primary');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+  assert.equal(boardActs.length,acts+1);
+  {const {directory,...act}=lastAct();assert.deepEqual(act,{action:'track',name:'Rebuild the stock report export',doneWhen:'The export matches the aisle totals.',requested:true,mode:'conductor'});
+   assert.match(directory,/^\/workspaces\//,'the workspace is the card\'s directory');}
+  await page.waitForSelector('#new-mode:not([hidden])');
+  assert.deepEqual(await page.evaluate(()=>[document.getElementById('new-project').textContent.trim(),document.getElementById('new-mode').textContent,document.getElementById('new-track').offsetParent===null,document.getElementById('first').value]),
+   ['Rebuild the stock report export','Conductor',true,MESSAGE],'back on New with both chips and the message still in the box');
+  assert.match(await page.$eval('#c-model',e=>e.textContent),/Fable 5\.1/,'the model chip names the lead');
+  let made=await pending();assert.deepEqual([made.projectName,made.mode,made.note],['Rebuild the stock report export','conductor',true]);
+  assert.equal(await page.evaluate(id=>projectById(id)?.mode,made.project),'conductor','the card is on the board in Conductor mode');
+  await noOverflow('new with a made project 1440');await shot('new-made-1440');
+  await clickControl(page,'#start');await page.waitForFunction(()=>location.hash.startsWith('#/chat/'));
+  assert.deepEqual([started.project,started.projectStart],[made.project,'conductor']);
+  assert.ok(started.text.startsWith(MESSAGE+'\n\n(Pocket project '+made.project+'; this conversation is linked to it.'),'the first message tells the agent which card it is: '+started.text.slice(0,120));
+
+  console.log('Project mode: Start a project without Conductor, and removing the link');
+  await openNew();await page.waitForSelector('#new-track:not([hidden])');await clickControl(page,'#new-track');await page.waitForSelector('.project-editor input[name="name"]');
+  assert.equal(await page.$eval('.project-editor input[name="name"]',e=>e.value),'','no message yet, no name offered');
+  acts=boardActs.length;await clickControl(page,'.project-editor button.primary');assert.equal(boardActs.length,acts,'a name is required');assert.ok(await page.$('.project-editor'));
+  await page.type('.project-editor input[name="name"]','Supplier follow-up');await clickControl(page,'.project-editor button.primary');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+  assert.equal('mode' in lastAct(),false,'the switch left off sends no mode');assert.equal(lastAct().doneWhen,'');
+  await page.waitForSelector('#new-project:not([hidden])');assert.equal(await page.$eval('#new-mode',e=>e.hidden),true,'no Conductor chip');
+  made=await pending();await write('Ask the supplier for the March count.');started=null;
+  await clickControl(page,'#start');await page.waitForFunction(()=>location.hash.startsWith('#/chat/'));
+  assert.deepEqual([started.project,started.projectStart],[made.project,undefined]);assert.match(started.text,/^Ask the supplier for the March count\.\n\n\(Pocket project /);
+  await openNew();await page.waitForSelector('#new-track:not([hidden])');await write('Check the returns shelf.');
+  await clickControl(page,'#new-track');await page.waitForSelector('.project-editor input[name="name"]');await clickControl(page,'.project-editor button.primary');await page.waitForSelector('#new-project:not([hidden])');
+  await clickControl(page,'#new-project');await page.waitForSelector('.sheet [data-yes]');
+  assert.match(await page.$eval('.sheet',e=>e.textContent),/will not be linked to Check the returns shelf\. The project stays in Projects\./);
+  await clickControl(page,'.sheet [data-yes]');await page.waitForSelector('#new-track:not([hidden])');assert.equal(await page.$eval('#new-project',e=>e.hidden),true);
+  started=null;await clickControl(page,'#start');await page.waitForFunction(()=>location.hash.startsWith('#/chat/'));
+  assert.deepEqual([started.project,started.text],[undefined,'Check the returns shelf.'],'unlinked: no project and no note');
+
+  console.log('Project mode: Start a project with no top model, in Assistant mode, with Projects off, and at 390');
+  modes.conductor={claude:null,codex:null};
+  await openNew();await page.waitForSelector('#new-track:not([hidden])');await clickControl(page,'#new-track');await page.waitForSelector('.project-editor [data-mode]');
+  assert.deepEqual(await page.$eval('.project-editor [data-mode]',b=>[b.getAttribute('aria-disabled'),b.querySelector('.sub').textContent]),['true',NONE]);
+  await clickControl(page,'.project-editor [data-mode]');assert.equal(await page.$eval('.project-editor [data-mode]',b=>b.getAttribute('aria-pressed')),'false','it cannot be switched on');
+  await axe('.sheet');await closeSheet();modes.conductor={claude:'Fable 5.1',codex:'GPT-6 Astra'};
+  settings.assistantMode=true;
+  await openNew();await page.waitForSelector('#new-track:not([hidden])');await clickControl(page,'#new-track');await page.waitForSelector('.project-editor input[name="name"]');
+  assert.deepEqual([await page.$('.project-editor [data-mode]'),await page.$('.project-editor [data-conductor-info]')],[null,null],'Assistant mode: the window has no Conductor switch');
+  await page.type('.project-editor input[name="name"]','Garden plan');await clickControl(page,'.project-editor button.primary');await page.waitForSelector('#new-project:not([hidden])');
+  assert.equal('mode' in lastAct(),false);assert.equal(await page.$eval('#new-mode',e=>e.hidden),true);
+  settings.assistantMode=false;settings.projects=false;
+  await openNew();assert.deepEqual(await page.evaluate(()=>[document.getElementById('new-track').offsetParent,document.getElementById('new-actions').offsetParent]),[null,null],'Projects off: no Start a project');
+  settings.projects=true;
+  await view(390);await openNew();await page.waitForSelector('#new-track:not([hidden])');await write(MESSAGE);await noOverflow('new 390 with Start a project');await shot('new-track-390');
+  await clickControl(page,'#new-track');await page.waitForSelector('.project-editor input[name="name"]');shut=await about('.project-editor .project-mode');
+  await noOverflow('start a project 390');await axe('.sheet');await shot('start-project-390');await shut();await closeSheet();
+
+  console.log('Project mode: the handoff card names the project and offers Conductor or Solo (1.107)');
+  await reset();await view(1440);await page.goto(base+'/?pm=handoff0#/all');await page.waitForSelector('[data-id]');await setMode('conductor');
+  const hid='f00d000000a6';modes.handoffs={...(modes.handoffs||{}),[hid]:{project:WAREHOUSE,projectName:'Warehouse stock report',projectStart:'conductor'}};
   const convo=conversations.get(idle);convo.push({role:'assistant',blocks:[{t:'text',text:'Ready for a fresh start.\n\n'+base+'/#/start/'+hid}]});
-  await page.goto(base+'/?pm=handoff#/chat/'+idle);await page.waitForSelector(`[data-handoff="${hid}"] .handoff-meta`);
-  assert.equal(await page.$eval(`[data-handoff="${hid}"] .handoff-meta`,e=>e.textContent),'warehouse · Claude · Review actions · Continues in Warehouse stock report · Conductor');
+  const HAND=`[data-handoff="${hid}"]`;
+  const handoff=async()=>{await page.goto(base+'/?pm='+Math.random().toString(36).slice(2)+'#/chat/'+idle);await page.waitForSelector(HAND+' [data-handoff-mode]');};
+  await handoff();
+  assert.equal(await page.$eval(HAND+' .handoff-meta',e=>e.textContent),'warehouse · Claude · Review actions');
+  assert.deepEqual(await page.$eval(HAND+' .handoff-project',e=>[e.querySelector('span').textContent,e.querySelector('button').textContent,e.querySelector('button').getAttribute('aria-label')]),
+   ['Continues in Warehouse stock report','Conductor','Conductor: how the new conversation starts. Change']);
+  await page.$eval(HAND,e=>e.scrollIntoView({block:'center'}));await axe(HAND);await shot('handoff-1440');
+  const pickSolo=async()=>{await clickControl(page,HAND+' [data-handoff-mode]');await page.waitForSelector('.sheet [data-v="solo"]');
+   assert.deepEqual(await page.$$eval('.sheet [data-v]',e=>e.map(o=>[o.dataset.v,o.classList.contains('sel'),o.querySelector('.sub').textContent])),
+    [['conductor',true,'Fable 5.1 leads at high effort and hands out the work'],['solo',false,'Opus 5.5 does the work itself. For a small task.']]);};
+  await pickSolo();shut=await about('.sheet .sheet-about');await axe('.sheet');await shot('handoff-sheet-1440');await shut();
+  await clickControl(page,'.sheet [data-v="solo"]');await page.waitForFunction(h=>document.querySelector(h+' [data-handoff-mode]')?.textContent==='Solo',{},HAND);
+  await page.waitForFunction(()=>document.activeElement?.matches('[data-handoff-mode]'));
+  // Review first carries the project and the start chosen on the card to New; the link is the handoff's, so it is not removable there
+  await clickControl(page,HAND+' a[href="#/start/'+hid+'"]');await page.waitForSelector('#new-mode:not([hidden])');
+  assert.deepEqual(await page.evaluate(()=>[document.getElementById('new-project').textContent.trim(),document.getElementById('new-mode').textContent,document.getElementById('new-track').offsetParent===null]),['Warehouse stock report','Solo',true]);
+  await clickControl(page,'#new-project');await page.waitForFunction(()=>/^This handoff continues in Warehouse stock report\./.test(document.querySelector('#toast')?.textContent||''));
+  assert.equal(await page.$('.scrim'),null,'no Remove the link for a handoff');
+  await clickControl(page,'#new-mode');await page.waitForSelector('.sheet [data-v="conductor"]');await clickControl(page,'.sheet [data-v="conductor"]');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+  started=null;await clickControl(page,'#start');await page.waitForFunction(()=>location.hash.startsWith('#/chat/'));
+  assert.deepEqual([started.start,started.project,started.projectStart],[hid,WAREHOUSE,'conductor']);assert.doesNotMatch(started.text,/Pocket project/,'a handoff carries its own briefing');
+  // Start on the card sends the start chosen there
+  await handoff();await pickSolo();await clickControl(page,'.sheet [data-v="solo"]');await page.waitForFunction(h=>document.querySelector(h+' [data-handoff-mode]')?.textContent==='Solo',{},HAND);
+  started=null;await clickControl(page,HAND+' [data-handoff-start]');await page.waitForFunction(()=>location.hash.startsWith('#/chat/'));
+  assert.deepEqual([started.start,started.projectStart],[hid,'solo']);
+  await handoff();started=null;await clickControl(page,HAND+' [data-handoff-start]');await page.waitForFunction(()=>location.hash.startsWith('#/chat/'));
+  assert.deepEqual([started.start,started.projectStart],[hid,'conductor'],'untouched, the handoff starts as it was written');
+  await view(390);await handoff();await page.$eval(HAND,e=>e.scrollIntoView({block:'center'}));await noOverflow('handoff 390');await shot('handoff-390');
+  page.off('request',onRequest);await page.setRequestInterception(false);
+  await page.evaluate(()=>{localStorage.removeItem('pc-new-start');});
   convo.pop();delete modes.handoffs[hid];
   assert.deepEqual(errors,[]);
  }finally{

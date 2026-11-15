@@ -3,6 +3,17 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.107.0] — 2026-11-15 · build 200
+
+Asked for by Brad (2026-11-15): offer Conductor mode where a piece of work starts, let a handoff choose it, and explain it wherever it can be chosen.
+
+- **Start a project on New conversation** (`public/app.js`, `public/projects.js`). With Projects on, a **Start a project** chip sits above the setup card. Its window asks for a name (offered from the first line of the message), Conductor mode (Developer mode only, off until switched on, greyed out with the reason when the server has no top model) and, optionally, Done when. **Create project** tracks the card with the chosen workspace as its directory and returns to New: the message is still in the box, the project chip (and the Conductor chip) show, and Send starts the conversation linked to the card. The first message gets the card's closing line (`projectNote`, shared with a card's briefing) so the agent knows which project it is in. Removing the link there leaves the card in Projects.
+- **A handoff chooses its start** (`public/app.js`, `server.mjs`). A handoff card from a Conductor or Solo conversation reads **Continues in *project*** with the start as a **Conductor** / **Solo** chip; tapping it offers the other. Start sends the choice as `projectStart`, and `newProjectStart` now lets a `projectStart` that names one replace the handoff's own (the handoff's project still wins over the body). **Review first** carries the project and the chosen start to New, where the project chip says the handoff continues there instead of offering to remove the link.
+- **Conductor mode explained in place** (`public/projects.js`, `public/tips.js`, `public/app.css`). An info button sits beside every control that chooses Conductor: the card's switch, **Turn on Conductor mode** in the ⋯ options, Start a project, the Conductor chip's sheet and **Start** in New's setup, and the handoff card's choice. Mouse hover or keyboard focus shows the text as a tooltip (a long tip is wider and keeps its paragraphs); a tap or click opens the same text under the control, so it works on a phone. One text everywhere: what the lead does, what to use it for, what to skip it for.
+- **Fixed: Review first opened the link viewer** (`public/links.js`). A click on a start link inside a conversation (a handoff card's Review first, live since 1.96) was treated as a web page and shown in the link view. It now opens New conversation with the briefing.
+- Tested: `test/project-mode.test.mjs` (a handoff's `projectStart` override on Claude and Codex, both directions; anything else leaves the handoff's own start), `test/project-mode-browser.mjs` (the info button in each place, closed, open, as a tooltip, and never flipping the control beside it; Start a project with and without Conductor, with no top model, in Assistant mode, with Projects off and at 390px; the first message's project line; the handoff chip, its sheet, Start and Review first).
+- Manual: *Projects*, *Working in a conversation*, *Conversations*.
+
 ## [1.106.1] — 2026-11-15 · build 199
 
 Asked for by Brad (2026-11-15): a start from a Conductor project looked like an ordinary one, and Conductor mode belongs to Developer mode.

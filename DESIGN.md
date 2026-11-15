@@ -1126,3 +1126,16 @@ columns, with the empty action column kept so times line up. `Terminal session` 
 link. `.session-held` is one `--dim` underlined line above the list, only while something is held; a quiet day looks exactly
 as it did. No badge, counter or motion: rows change when the 10-second check changes the words. Focus stays on a Release
 button across a repaint. Assistant mode shows none of it.
+
+## Conductor info, Start a project and the handoff start (1.107)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density as the rows and sheets it joins; existing
+tokens, no new colour. Read: someone about to choose Conductor mode wants to know what it is and whether this work warrants it,
+without leaving the control. `.info-tip` is a 44px `--dim` icon button (Lucide info) at the end of the row it explains
+(`.mode-row`), always a sibling of the control and never inside it, so it cannot flip a switch or pick an option. Hover or
+keyboard focus shows the text as a tooltip; a long tip takes `.tip.wide` (360px, paragraphs kept). A tap or click opens the
+same text in `.conductor-about` under the row: `--raised`, 12px radius, 14px `--dim` with the two lead-ins in `--text`
+semibold; the button turns `--clay` while it is open and carries `aria-expanded`. No motion. **Start a project** on New is an
+ordinary chip with the plus, hidden once a project is linked; its window is the project form with the switch row from the
+card. The handoff card names its project on a `--dim` line with the start as an ordinary chip (44px); Start stays the only
+`--clay` control on the card.

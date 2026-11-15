@@ -233,19 +233,22 @@ test('Claude: a conductor project starts its first process in the mode; Solo, ex
   assert.match(s.logs(),/project link skipped project=full-build \(new conversation\): A project links up to 50 sessions\./);
   assert.equal((await s.call('/new',{cwd:s.work,text:'linked fine',project:p.id,clientMessageId:randomUUID()})).body.projectLinkError,undefined);
 
-  // 9: handoffs from a conductor and from a solo conversation carry the project and start; starting one applies them
-  for(const [from,start,text] of [[a,'conductor','handoff c'],[b,'solo','handoff s']]){
+  // 9: handoffs from a conductor and from a solo conversation carry the project and start; starting one applies them.
+  // 1.107: the handoff's project always wins; its start is the default, and a projectStart that names one replaces it
+  // (Conductor or Solo chosen on the handoff card). Anything else in projectStart leaves the handoff's own start.
+  for(const [from,start,text,chosen] of [[a,'conductor','handoff c',undefined],[b,'solo','handoff s','sideways'],[a,'conductor','handoff c to solo','solo'],[b,'solo','handoff s to conductor','conductor']]){
+    const runs=['conductor','solo'].includes(chosen)?chosen:start;
     const token=s.lines('calls').filter(x=>x.id===from).at(-1).runnerToken;
     const made=await s.call('/start',{text,directory:s.work,kind:'handoff',title:'Next'},{...s.bearer(),'x-pocket-runner':token});
     assert.equal(made.status,200,JSON.stringify(made.body));
     const entry=(await s.call('/start/'+made.body.id)).body;
     assert.deepEqual([entry.project,entry.projectStart,entry.projectName],[p.id,start,'Big build']);
-    // the entry wins over whatever the body says
-    const n=(await s.call('/new',{cwd:s.work,text,start:made.body.id,project:'nope',projectStart:start==='solo'?'conductor':'solo',clientMessageId:randomUUID()})).body.id;
+    // the entry's project wins over whatever the body says
+    const n=(await s.call('/new',{cwd:s.work,text,start:made.body.id,project:'nope',...(chosen?{projectStart:chosen}:{}),clientMessageId:randomUUID()})).body.id;
     const r=await s.ran(text);
-    assert.deepEqual([r.model,r.conductor],start==='solo'?[OPUS,false]:[FABLE,true]);
+    assert.deepEqual([r.model,r.conductor],runs==='solo'?[OPUS,false]:[FABLE,true],text);
     assert.ok((await s.call('/board')).body.projects.find(x=>x.id===p.id).sessions.includes(n),'linked to the project');
-    assert.equal((await s.call(`/session/${n}`)).body.projectMode.start,start);
+    assert.equal((await s.call(`/session/${n}`)).body.projectMode.start,runs,text);
   }
   // a handoff from a conversation with no mode carries none
   const token=s.lines('calls').filter(x=>x.id===c).at(-1).runnerToken;
@@ -314,10 +317,19 @@ test('Codex: the first thread gets Astra, high effort, the playbook and Sol work
   assert.equal(made.status,200,JSON.stringify(made.body));
   const entry=(await s.call('/start/'+made.body.id)).body;assert.deepEqual([entry.project,entry.projectStart,entry.projectName],[p.id,'conductor','Codex build']);
   const n=s.lines('calls.threads').length;
-  const ho=await s.call('/new',{cwd:s.work,provider:'codex',text:'cx handoff',start:made.body.id,projectStart:'solo',clientMessageId:randomUUID()});
+  const ho=await s.call('/new',{cwd:s.work,provider:'codex',text:'cx handoff',start:made.body.id,clientMessageId:randomUUID()});
   assert.equal(ho.status,202,JSON.stringify(ho.body));
   assert.deepEqual([(await cxRan('cx handoff')).model,s.lines('calls.threads')[n].conductor],['gpt-6-astra',true]);
   assert.ok((await s.call('/board')).body.projects.find(x=>x.id===p.id).sessions.includes(ho.body.id));
+  // 1.107: Solo chosen on that handoff's card starts it Solo, still in the project
+  const made2=await s.call('/start',{text:'cx handoff solo',directory:s.work,kind:'handoff',title:'Next'},{...s.bearer(),'x-pocket-runner':token});
+  assert.equal(made2.status,200,JSON.stringify(made2.body));
+  const n2=s.lines('calls.threads').length;
+  const hs=await s.call('/new',{cwd:s.work,provider:'codex',text:'cx handoff solo',start:made2.body.id,projectStart:'solo',clientMessageId:randomUUID()});
+  assert.equal(hs.status,202,JSON.stringify(hs.body));
+  assert.deepEqual([(await cxRan('cx handoff solo')).model,s.lines('calls.threads')[n2].conductor],['gpt-6.1-sol',false]);
+  assert.equal((await s.call(`/session/${hs.body.id}`)).body.projectMode.start,'solo');
+  assert.ok((await s.call('/board')).body.projects.find(x=>x.id===p.id).sessions.includes(hs.body.id));
   // a link that cannot succeed: no link, no mode, and the 202 says why
   const fullP=await s.full('Full codex','conductor');
   const nf=s.lines('calls.threads').length;

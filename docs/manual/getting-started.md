@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.106.1
+checked: 1.107.0
 sources: docs/install.md, scripts/pocket-init.mjs, access.mjs, public/manifest.webmanifest, public/sw.js, public/workspace.js
 -->
 # Getting started
@@ -109,7 +109,7 @@ are under **Settings → Features**, with **Automatic model choice**. While the 
 
 | Feature | What it does | Page |
 |---|---|---|
-| **Projects** | A card per piece of work: where you left off, the next step, a checklist, reminders and the conversations that worked on it. In Developer mode a card can switch on Conductor mode, where the top model leads the project's conversations | [Projects](projects.md) |
+| **Projects** | A card per piece of work: where you left off, the next step, a checklist, reminders and the conversations that worked on it. In Developer mode a card can switch on Conductor mode, where the top model leads the project's conversations. **Start a project** on New conversation makes a card and its first conversation together | [Projects](projects.md) |
 | **Files** | A library for the reports, PDFs, spreadsheets and pages agents produce, private until you share one | [Files](files.md) |
 | **Tasks** | To-dos with an optional date, linked to the conversation they came from | [Tasks](tasks.md) |
 | **Inbox Watch** | Reads your Gmail on a schedule and lists only what needs you, through the Gmail connector of Claude Code or Codex | [Inbox Watch](inbox-watch.md) |

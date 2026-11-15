@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.106.1
+checked: 1.107.0
 sources: choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -352,9 +352,14 @@ conversation needs everything said so far: Branch keeps all of it, and each of i
    words. The agent writes the briefing. If the agent is still working, the request waits in the queue and runs after
    the current reply.
 2. The reply shows a card, **Continue in a new conversation**, with the title, folder, agent, permissions and the start of
-   the briefing. Assistant mode shows the title and briefing only. A handoff written in a conversation linked to a project
-   adds **Continues in *project* · Conductor** (or **· Solo**).
-3. Choose **Start** to begin at once, or **Review first** to read and change the briefing on New conversation.
+   the briefing. Assistant mode shows the title and briefing only. A handoff written in a Conductor or Solo conversation
+   adds **Continues in *project*** and a **Conductor** (or **Solo**) chip. Tap the chip to choose the other start
+   for the new conversation; the **ⓘ** beside the choice says when each one fits.
+3. Choose **Start** to begin at once, or **Review first** to read and change the briefing on New conversation. Review
+   first keeps the project and the start you chose: both show as chips above the message, and the **Conductor** or
+   **Solo** chip can still be changed there. A handoff from a conversation with no project has neither chip; Review
+   first then offers **Start a project** on New conversation, if you want the new conversation to have one
+   (see [Projects](projects.md#track-a-project)).
 
 The new conversation opens with the briefing as its first message. It shows **Continued from …** under its header, and the
 original shows **Continued in …**.
@@ -380,8 +385,9 @@ are showing.
 - A handoff from OpenRouter, or from a terminal outside Pocket, has no conversation to link back to and gets Review actions.
 - If the folder has gone, Start is off and the card says so. Review first lets you choose another folder.
 - Handoff links last 7 days unless the agent sets another length. After that the card says the link has expired.
-- A handoff from a conversation linked to a project links the new conversation to the same project and starts it the same
-  way, Conductor or Solo.
+- A handoff from a Conductor or Solo conversation links the new conversation to the same project. It starts the same
+  way unless you pick the other start on the card or on New conversation. The project itself comes with the handoff
+  and cannot be removed there.
 
 ### Project mode chip
 

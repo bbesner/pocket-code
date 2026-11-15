@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.106.1
+checked: 1.107.0
 sources: projects.mjs, project-mode.mjs, public/projects.js, scripts/pocket-board.mjs, scripts/owner-zone.mjs, skills/pocket-projects/SKILL.md
 -->
 # Projects
@@ -35,6 +35,14 @@ From the Projects list, click **Track a project**. From a conversation, click th
 
 - **Track a new project**: a card around this conversation. Its workspace becomes the project's directory, and the conversation is linked to the card.
 - Any open project the conversation is not linked to yet: links the conversation to it.
+
+From **New conversation**, click **Start a project** above the setup card (1.107) to make the card and start its first conversation in one go. The window asks for:
+
+- **Name** (required). It starts as the first line of the message you have typed.
+- **Conductor mode**, off unless you switch it on. Developer mode only. See [Conductor mode](#conductor-mode).
+- **Done when** (optional): what finished looks like, as something that can be checked.
+
+**Create project** makes the card, with the chosen workspace as its directory, and returns you to New conversation. Your message is still in the box, the project's chip sits above it (with a **Conductor** chip when you switched the mode on), and sending starts the conversation linked to the card. Pocket adds one line to the end of that first message naming the card, so the agent knows which project it is working in and how to keep it current. To start without the project after all, click its chip and choose **Remove the link**; the card stays in Projects.
 
 The **Track a project** form has **Name** (required), **Where we left off**, **Next step**, **Directory** and **Link**. The directory must be a full path; agents working in that directory, or any folder inside it, find this card automatically. The link must be a full `http` or `https` address, for a plan or document kept elsewhere.
 
@@ -127,6 +135,12 @@ Which conversations the switch affects:
 - **Linking a running conversation** to a Conductor project (its **Add project** chip, or `pocket-board link-session`) puts it in Conductor mode at its next reply.
 - **Switching it off, finishing the project or unlinking a conversation** ends the mode for that conversation at its next reply. Its model goes back to the usual default, which restarts the agent's process. If the conversation has a background job running, the change waits until the job ends.
 
+Wherever Conductor mode can be chosen (the card's switch, **Turn on Conductor mode** in the **⋯** options, **Start a project**, the **Conductor** chip and **Start** on New conversation, and a handoff card's start), an **ⓘ** button beside it says what the mode is and when to use it. On a computer, point at it or move to it with the keyboard; on a phone, tap it and the text opens underneath. It reads the same everywhere:
+
+> The top model (Fable or GPT Astra) leads. It plans the work, hands each piece to cheaper models and checks the results against the project's Done when and step checks. It stops only for a decision from you.
+> **Use it for** big, multi-step work you want carried a long way on its own: a feature, a migration, a release.
+> **Skip it for** a quick fix or a question. A lead costs more on small work, because it re-reads everything it checks.
+
 If this server offers neither top model, the switch cannot be turned on and says **Needs a top model (Fable or GPT Astra) offered on this server.**
 
 Conductor mode is part of Developer mode. In Assistant mode the card shows no **Conductor mode** switch and no **Works in**, **Start conversation** offers no Conductor or Solo choice, and Pocket never runs a conversation as Conductor, even for a project whose mode was switched on in Developer mode. **Done when** and each step's **Passes when** check still show. Switching back to Developer mode brings the switch back as it was.
@@ -145,7 +159,7 @@ and give each step a **Passes when** check. The lead also writes them on the car
 
 With Solo picked, the chip reads **Solo** and the model chip names Solo's model (Opus on Claude Code, GPT Sol on Codex). While the choice shows, the model and effort chips start on **Default** (the lead or Solo model, at **High**), so a model you left picked on an earlier start does not replace the lead; a model or effort you choose on this screen is still used. An agent without a top model on this server, and OpenRouter, starts as usual; the setup says so instead of offering the choice. Removing the project link (the project chip, **Remove the link**) removes the choice too.
 
-In the conversation, a **Conductor** or **Solo** chip sits beside the project chip; tap it to see which model leads. Changing the model mid-conversation restarts the lead without its reasoning, so the model picker suggests a [handoff](conversation.md#hand-off-to-a-fresh-conversation) instead. A Conductor conversation offers a handoff sooner (at 150K tokens, or the server's own size when that is lower), and a handoff keeps the project and the start. See [Working in a conversation](conversation.md#project-mode-chip).
+In the conversation, a **Conductor** or **Solo** chip sits beside the project chip; tap it to see which model leads. Changing the model mid-conversation restarts the lead without its reasoning, so the model picker suggests a [handoff](conversation.md#hand-off-to-a-fresh-conversation) instead. A Conductor conversation offers a handoff sooner (at 150K tokens, or the server's own size when that is lower), and a handoff keeps the project. Its card names the project and shows the start as a **Conductor** or **Solo** chip; tap the chip to start the new conversation the other way. See [Working in a conversation](conversation.md#project-mode-chip).
 
 ### Linked conversations
 
