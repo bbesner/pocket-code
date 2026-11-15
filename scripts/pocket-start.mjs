@@ -58,5 +58,5 @@ if (cmd === 'add') {
   const id = rest[0] || die('Which id?');
   const d = await call('/api/start/' + encodeURIComponent(id), null, { missing: true });
   if (!d) die('That start link has expired or never existed.', 2);
-  if (opts.json) console.log(JSON.stringify(d, null, 1)); else console.log(`${d.title || '(untitled)'} · ${d.provider || 'default agent'} · ${d.directory || 'default workspace'} · expires ${d.expiresAt}\n\n${d.text}`);
+  if (opts.json) console.log(JSON.stringify(d, null, 1)); else console.log(`${d.title || '(untitled)'} · ${d.provider || 'default agent'} · ${d.directory || 'default workspace'}${d.project ? ` · project ${d.projectName || d.project} (${d.projectStart === 'solo' ? 'Solo' : 'Conductor'})` : ''} · expires ${d.expiresAt}\n\n${d.text}`);
 } else die(`Unknown command: ${cmd}`);

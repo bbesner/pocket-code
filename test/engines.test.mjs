@@ -26,6 +26,7 @@ test('registry shape', () => {
   const keys = Object.keys(ENGINES.claude.features).sort();
   for (const e of ENGINE_IDS) assert.deepEqual(Object.keys(ENGINES[e].features).sort(), keys, e + ' declares every feature');
   assert.equal(ENGINES.acp.features.planMode, true); assert.equal(ENGINES.acp.features.sideChat, false);
+  assert.deepEqual(ENGINE_IDS.map(e => ENGINES[e].features.projectMode), [true, true, false], 'Conductor mode: Claude and Codex, not OpenRouter');
 });
 
 test('engineForSessionId maps by prefix; unprefixed = claude', () => {

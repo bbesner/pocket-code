@@ -686,7 +686,7 @@ function agentSummary(){
 }
 function updateNewSummary() {
  const el=document.querySelector('#task-context');if(!el||!tb)return;
- el.innerHTML=`<span><strong>Workspace</strong> ${esc(el.dataset.workspace||'Choose a workspace')}</span><span><strong>Agent</strong> ${esc(agentSummary())}</span><span><strong>Permissions</strong> ${esc(permissionLabel(nextApprovalMode()))}</span>`;
+ el.innerHTML=`<span><strong>Workspace</strong> ${esc(el.dataset.workspace||'Choose a workspace')}</span><span><strong>Agent</strong> ${esc(agentSummary())}</span><span><strong>Permissions</strong> ${esc(permissionLabel(nextApprovalMode()))}</span>${typeof newStartLine==='function'&&newStartLine()?`<span><strong>Start</strong> ${esc(newStartLine())}</span>`:''}`;
 }
 function organizeSettings(sh, {category='',scrollTop=0}={}) {
  // 1.60: Assistant mode shows the settings a person needs day to day; everything else stays as it is, hidden.

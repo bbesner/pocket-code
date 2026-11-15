@@ -143,7 +143,15 @@ async function loadAcpModels() {
   } catch { acpEnabled = false; }
   return ACP_MODELS;
 }
-const modelList = () => (tb?.provider === 'codex' ? CODEX_MODELS : tb?.provider === 'acp' ? ACP_MODELS : MODELS);
+// 1.106: in a conversation started from a Conductor project, Default is the model that start chose (the lead, or Solo's model).
+let chatProjectMode = null; // GET /api/session/:id's projectMode, with the conversation's id
+const projectModeNow = () => chatProjectMode && tb?.key === chatProjectMode.session ? chatProjectMode : null;
+const CONDUCTOR_MODEL_NOTE = 'Changing the model restarts the lead without its reasoning. A handoff carries the work over cleanly.';
+const modelList = () => {
+  const list = tb?.provider === 'codex' ? CODEX_MODELS : tb?.provider === 'acp' ? ACP_MODELS : MODELS, pm = projectModeNow();
+  if (!pm?.modelLabel || !engineHas(tb.provider, 'projectMode')) return list;
+  return [['default', 'Default', `${pm.modelLabel} · ${pm.start === 'solo' ? "this project's Solo model" : "this project's lead"}`, pm.modelLabel], ...list.slice(1)];
+};
 // Default effort row names the level Pocket will send; without one it's the CLI's own setting.
 // OpenRouter: only the levels the reply's model takes, strongest first; none at all hides the chip.
 const acpModelNow = () => tb?.prefs.model === 'default' ? providerDefaults.acp.model : tb?.prefs.model;
@@ -159,7 +167,7 @@ const effortList = () => {
 const providerDefaults = { claude: {}, codex: {}, acp: {} };
 // 1.86: what each engine can do (engines.mjs, served at /api/engines). A feature an engine lists false is hidden on its
 // conversations rather than offered and failing. Until the server answers, OpenRouter's known gaps are assumed.
-const ENGINE_FEATURES = { claude: {}, codex: {}, acp: { steer: false, sideChat: false, branch: false, autoModel: false, awaySummary: false, subagents: false, connectors: false } };
+const ENGINE_FEATURES = { claude: {}, codex: {}, acp: { steer: false, sideChat: false, branch: false, autoModel: false, awaySummary: false, subagents: false, connectors: false, projectMode: false } };
 const providerOf = id => String(id || '').startsWith('cx:') ? 'codex' : String(id || '').startsWith('acp:') ? 'acp' : 'claude';
 const engineHas = (provider, feature) => ENGINE_FEATURES[provider]?.[feature] !== false;
 const ENGINE_LABELS = { claude: 'Claude', codex: 'Codex', acp: 'OpenRouter' };
@@ -183,7 +191,10 @@ function getPrefs(key) {
   }
   catch { return { model: 'default', effort: 'default' }; }
 }
-function setPrefs(key, p) { localStorage.setItem('pc-prefs-' + key, JSON.stringify(p)); }
+// 1.106: New holds model and effort on Default for a Conductor project's start (tb.leadHeld keeps the saved picks), so a
+// model or effort left from another start does not override the project's lead. Saving keeps those picks underneath;
+// a pick made on that screen drops its field from leadHeld, so it is saved and sent.
+function setPrefs(key, p) { localStorage.setItem('pc-prefs-' + key, JSON.stringify(tb?.leadHeld && key === tb.key ? { ...p, ...tb.leadHeld } : p)); }
 
 let closeCurrentSheet = null, sheetReturnFocus = null;
 function mountSheet(scrim, sh, trigger = document.activeElement) {
@@ -233,10 +244,10 @@ function mountSheet(scrim, sh, trigger = document.activeElement) {
 // 1.88: `search` (a noun, e.g. 'models') adds a find box above a long list, such as OpenRouter's hundreds of models.
 // Every word typed must appear in the row's name, line or id, so "kimi 3.1" finds Kimi K3.1 Pro; rows keep their order,
 // so Default and Tested stay first. Enter picks the first match, Down moves into the list.
-function sheet(title, options, current, onPick, { search = '' } = {}) {
+function sheet(title, options, current, onPick, { search = '', note = '' } = {}) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet';
-  sh.innerHTML = `<h2>${esc(title)}</h2>` + (search ? `
+  sh.innerHTML = `<h2>${esc(title)}</h2>` + (note ? `<p class="sheet-help sheet-note">${esc(note)}</p>` : '') + (search ? `
     <div class="sheet-find"><div class="session-search">${IC.search}<input type="search" aria-label="Search ${esc(search)}" placeholder="Search ${esc(search)}" autocomplete="off" spellcheck="false" enterkeyhint="go"></div>
     <p class="sheet-search-status" role="status"></p></div>` : '') + options.map(([val, label, sub]) => `
     <button class="opt ${val === current ? 'sel' : ''}" data-v="${esc(val)}">
@@ -284,6 +295,7 @@ function modelFellBack(id, f) {
 }
 /* Toolbar state shared by chat + new views */
 let tb = null; // {key, prefs, attachments:[{path,name}], allowAttach}
+let newStartLine = null; // 1.106: New's Conductor/Solo choice for the collapsed setup summary (set by renderNew)
 function normalizeModelPick() {
   if (!tb) return;
   // 1.91: a saved pick of a version that has since been replaced moves to its successor (GPT-6 Sol → GPT-6.1 Sol).
@@ -326,7 +338,7 @@ function renderToolbar() {
     ${tb.provider === 'acp' && !acpEffortLevels().length ? '' : `<button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>`}
     <button class="chip" id="c-approval" title="Permissions for the next reply" aria-label="Permissions for the next reply: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
     ${engineHas(tb.provider,'planMode')?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
-    ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this conversation">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-side" id="side-open" hidden>Side chat</button><button class="chip conversation-branch" id="branch-open" hidden>Branch</button><button class="chip conversation-handoff" id="handoff-open" hidden>Handoff</button><button class="chip conversation-project" id="project-open" hidden>Project</button><button class="chip conversation-task" id="task-open" hidden>Add task</button>' : ''}`;
+    ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this conversation">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-side" id="side-open" hidden>Side chat</button><button class="chip conversation-branch" id="branch-open" hidden>Branch</button><button class="chip conversation-handoff" id="handoff-open" hidden>Handoff</button><button class="chip conversation-project" id="project-open" hidden>Project</button><button class="chip conversation-mode" id="mode-open" hidden></button><button class="chip conversation-task" id="task-open" hidden>Add task</button>' : ''}`;
   const ar = $('#attrow');
   if (ar) {
     ar.innerHTML = tb.attachments.map((a, i) => `
@@ -341,12 +353,12 @@ function renderToolbar() {
   if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard'],
     ...(vaultOn() ? [['vault','Store in the Vault','Save a key or password here instead of pasting it into the message']] : [])],null,v=>{if(v==='file')$('#fpick')?.click();else if(v==='vault')addVaultItemFromComposer();else pasteClipboardImage();}); // 1.39: the Vault option
   $('#c-model').onclick = () => sheet('Model for this reply', modelList(), tb.prefs.model,
-    v => { tb.prefs.model = v; setPrefs(tb.key, tb.prefs); renderToolbar(); }, { search: modelList().length > 12 ? 'models' : '' });
+    v => { tb.prefs.model = v; if (tb.leadHeld) delete tb.leadHeld.model; setPrefs(tb.key, tb.prefs); renderToolbar(); }, { search: modelList().length > 12 ? 'models' : '', note: projectModeNow()?.start === 'conductor' ? CONDUCTOR_MODEL_NOTE : '' });
   const eff = $('#c-eff'); // absent for an OpenRouter model that takes no reasoning-effort setting
   if (eff) eff.onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
-    v => { tb.prefs.effort = v; setPrefs(tb.key, tb.prefs); renderToolbar(); });
+    v => { tb.prefs.effort = v; if (tb.leadHeld) delete tb.leadHeld.effort; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   if (loadOutbox(tb.key)) {
-    bar.querySelectorAll('button:not(#c-mute):not([data-voice-mute]):not(#project-open):not(#task-open):not(#side-open):not(#branch-open):not(#handoff-open)').forEach(b => { b.disabled = true; });
+    bar.querySelectorAll('button:not(#c-mute):not([data-voice-mute]):not(#project-open):not(#mode-open):not(#task-open):not(#side-open):not(#branch-open):not(#handoff-open)').forEach(b => { b.disabled = true; });
     if(att)att.disabled=true;
     ar?.querySelectorAll('button').forEach(b => { b.disabled = true; });
   }
@@ -358,11 +370,45 @@ function renderToolbar() {
   if (mu) mu.onclick = () => toggleMute();
   Voice.paint();                                              // the voice-mute chip reads its state from Voice
   if (typeof paintChatProject === 'function') paintChatProject(); // 1.35: Add project sits with the session's chips, not in a header row
+  paintChatMode(); // 1.106: Conductor or Solo, beside it
   if (typeof paintChatTask === 'function') paintChatTask(); // 1.36: Add task beside it
   SideChat.paintButton(); // 1.78.2: Side chat beside them on a desktop
   bindToolbarScroll(bar);
   updateNewSummary();
   if(focusedControl)document.getElementById(focusedControl)?.focus({preventScroll:true});
+}
+// 1.106: the conversation's project start, Conductor or Solo, as a chip beside the project chip. It opens a short sheet
+// saying what the start means and which model leads; it does not change anything.
+function paintChatMode() {
+  const b = $('#mode-open'); if (!b) return;
+  const pm = projectModeNow(); b.hidden = !pm; if (!pm) return;
+  const word = pm.start === 'solo' ? 'Solo' : 'Conductor';
+  b.textContent = word; b.setAttribute('aria-label', word + ': how this project conversation runs');
+  b.onclick = () => projectModeSheet(pm);
+}
+// After a board change that can change the open conversation's mode (linked or unlinked here, or its project's switch or
+// status changed), read the session's projectMode again and repaint the chip, the model sheet's Default and the handoff size.
+function boardChangedChatMode(body, project) {
+  const id = chatId; if (!id || tb?.key !== id) return;
+  if (body?.session !== id && !project?.sessions?.includes(id) && chatProjectMode?.project?.id !== body?.project) return;
+  api('/session/' + encodeURIComponent(id)).then(s => {
+    if (chatId !== id || tb?.key !== id) return;
+    chatProjectMode = s.projectMode && typeof s.projectMode === 'object' ? { ...s.projectMode, session: id } : null;
+    if (composerWorking) paintChatMode(); else renderToolbar();
+    if (typeof Handoff !== 'undefined') Handoff.paintHint();
+  }).catch(() => { });
+}
+function projectModeSheet(pm) {
+  if (document.querySelector('.scrim')) return;
+  const scrim = document.createElement('div'); scrim.className = 'scrim';
+  const sh = document.createElement('div'); sh.className = 'sheet mode-sheet';
+  const solo = pm.start === 'solo', model = pm.modelLabel || 'The top model', name = pm.project?.name || '';
+  const text = solo ? `${model} does the work itself, with no lead. Solo suits a small, contained task.`
+    : `${model} leads this conversation at high effort. It plans the work, hands each piece to a cheaper model and checks what comes back.`;
+  sh.innerHTML = `<h2>${solo ? 'Solo' : 'Conductor'}</h2>${name ? `<p class="sheet-name">${esc(name)}</p>` : ''}<p class="sheet-help">${esc(text)}</p>`
+    + (pm.project?.id && typeof projectsOn === 'function' && projectsOn() ? `<button class="opt" data-open>${IC.folder}<span>Open project<span class="sub">Its card switches Conductor mode on or off</span></span></button>` : '');
+  sh.querySelector('[data-open]')?.addEventListener('click', () => { closeCurrentSheet?.(); location.hash = '#/projects/' + pm.project.id; });
+  mountSheet(scrim, sh);
 }
 /* ---------- session options: pin + rename (overlay metadata, server-side) ---------- */
 // 1.19: Session options are grouped (conversation, session, process, display) with hairlines between groups.
@@ -2146,7 +2192,9 @@ function handoffCardHTML(id, s) {
   const label = 'Continue in a new conversation';
   if (s.startedSession) return `<div class="handoff-card" data-handoff="${id}"><div class="handoff-head">${IC.hand}<span>Started: <a href="#/chat/${esc(s.startedSession)}">${esc(s.startedTitle || 'New conversation')}</a></span></div></div>`;
   const agent = { claude: 'Claude', codex: 'Codex', acp: 'OpenRouter' }[s.provider] || '';
-  const meta = assistantMode() ? [] : [s.directory ? projName(s.directory) : '', agent, permissionLabel(s.approvalMode)].filter(Boolean);
+  // 1.106: a handoff from a project conversation continues in that project, started the same way.
+  const cont = s.projectName ? 'Continues in ' + s.projectName + (s.projectStart === 'solo' ? ' · Solo' : s.projectStart === 'conductor' ? ' · Conductor' : '') : '';
+  const meta = assistantMode() ? [] : [s.directory ? projName(s.directory) : '', agent, permissionLabel(s.approvalMode), cont].filter(Boolean);
   const canStart = !s.folderMissing && Boolean(s.directory);
   return `<div class="handoff-card" data-handoff="${id}" role="group" aria-label="${label}">
     <div class="handoff-head">${IC.hand}<span>${label}</span></div>
@@ -2872,6 +2920,7 @@ async function renderChat(id, { away = false } = {}) {
   try { s = await api('/session/' + id); }
   catch (e) { if (renderVersion !== chatRenderVersion) return; toast(e.status === 404 ? 'Conversation not found' : 'Could not open conversation: ' + (e.message || 'error')); location.hash = '#/'; return; }
   if (renderVersion !== chatRenderVersion || chatId !== id) return;
+  chatProjectMode = s.projectMode && typeof s.projectMode === 'object' ? { ...s.projectMode, session: id } : null; // 1.106
   markRead(id, s.state);
   $('#ctitle').textContent = s.title;
   $('#ctitle').title = s.title;
@@ -3807,6 +3856,10 @@ async function renderNew({ home = false } = {}) {
         <button class="row" role="radio" aria-checked="false" data-a="codex"><span class="dot"></span>${IC.term}<span class="p">Codex</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="acp" hidden><span class="dot"></span>${IC.term}<span class="p">OpenRouter</span></button>
       </div></div>
+      <div id="new-start-mode" hidden><span class="h" id="starth">Start</span><div class="projlist start-modes" id="spick" role="radiogroup" aria-labelledby="starth">
+        <button class="row" role="radio" aria-checked="true" data-s="conductor"><span class="dot"></span><span class="p">Conductor<span class="workspace-path" id="spick-lead"></span></span></button>
+        <button class="row" role="radio" aria-checked="false" data-s="solo"><span class="dot"></span><span class="p">Solo<span class="workspace-path">One model does the work itself. For a small task.</span></span></button>
+      </div><p class="title-note" id="new-start-none" hidden></p></div>
       <div><span class="h" id="projh">Project</span><div class="projlist" id="plist" role="radiogroup" aria-labelledby="projh"><div class="empty">Loading…</div></div></div>
       <div><label class="h" for="cpath">Or a custom path</label><input type="text" id="cpath" placeholder="/full/path/to/project" autocapitalize="off" autocorrect="off"></div>
       </div></details>
@@ -3834,9 +3887,55 @@ async function renderNew({ home = false } = {}) {
     const name = startFrom.projectName || startFrom.project;
     b.innerHTML = IC.folder + '<span>' + esc(name) + '</span>'; b.title = 'This conversation will be linked to the project ' + name;
     b.setAttribute('aria-label', 'Linked to the project ' + name + '. Options');
-    b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.'); confirmSheet('Start without the project?', 'The new conversation will not be linked to ' + name + '. The briefing stays in the message; edit it if you no longer want it.', 'Remove the link', () => { startFrom = null; try { localStorage.removeItem('pc-new-start'); } catch { } paintNewProject(); }); };
+    b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.'); confirmSheet('Start without the project?', 'The new conversation will not be linked to ' + name + '. The briefing stays in the message; edit it if you no longer want it.', 'Remove the link', () => { startFrom = null; try { localStorage.removeItem('pc-new-start'); } catch { } paintNewProject(); paintStartMode(); }); };
   };
+  // 1.106: a Conductor project's start. Conductor (the default) or Solo, sent as projectStart; an agent without a top model on
+  // this server, or one that does not run project mode at all, starts as usual and says so. Removing the project link removes it.
+  const startLead = () => startFrom?.project && startFrom.mode === 'conductor' && engineHas(provider, 'projectMode') ? startFrom.conductor?.[provider] || null : null;
+  const startChoice = () => startLead() ? (startFrom.projectStart === 'solo' ? 'solo' : 'conductor') : null;
+  newStartLine = () => { const c = startChoice(); return c === 'conductor' ? 'Conductor · ' + startLead() + ' leads' : c === 'solo' ? 'Solo' : ''; };
+  // While the Start control applies, model and effort begin on Default (the server then runs the lead or the Solo model);
+  // when it stops applying (another agent, the link removed), the saved picks come back unless one was made here.
+  const holdForLead = () => {
+    if (!tb || tb.key !== NEW_KEY || pendingNew) return;
+    const applies = Boolean(startLead());
+    if (applies && !tb.leadHeld) {
+      const saved = getPrefs(NEW_KEY); tb.leadHeld = { model: saved.model, effort: saved.effort };
+      tb.prefs = { ...tb.prefs, model: 'default', effort: 'default' }; renderToolbar();
+    } else if (!applies && tb.leadHeld) {
+      tb.prefs = { ...tb.prefs, ...tb.leadHeld }; tb.leadHeld = null; renderToolbar();
+    }
+  };
+  const paintStartMode = () => {
+    const box = $('#new-start-mode'); if (!box) return;
+    holdForLead();
+    const conductor = startFrom?.project && startFrom.mode === 'conductor';
+    box.hidden = !conductor;
+    if (conductor) {
+      const lead = startLead(), agent = ENGINE_LABELS[provider] || 'This agent';
+      $('#spick').hidden = !lead;
+      const none = $('#new-start-none'); none.hidden = Boolean(lead);
+      none.textContent = lead ? '' : engineHas(provider, 'projectMode') ? `${agent} has no top model on this server, so this conversation starts as usual.` : `${agent} conversations start as usual. Conductor mode runs on Claude Code and Codex.`;
+      if (lead) {
+        $('#spick-lead').textContent = lead + ' leads at high effort and hands out the work';
+        const pick = startChoice();
+        $('#spick').querySelectorAll('.row').forEach(x => { const on = x.dataset.s === pick; x.classList.toggle('sel', on); x.setAttribute('aria-checked', String(on)); x.tabIndex = on ? 0 : -1; });
+      }
+    }
+    updateNewSummary();
+  };
+  $('#spick').querySelectorAll('.row').forEach(r => r.onclick = () => { if (!startFrom) return; startFrom.projectStart = r.dataset.s; writeLocal('pc-new-start', startFrom); paintStartMode(); });
+  bindRadioGroup($('#spick'));
   paintNewProject();
+  // 1.106: the card's mode and the leads are read again from the board (one /board read, often cached), so a switch
+  // flipped since Start conversation was tapped, here or on another device, decides the start.
+  if (startFrom?.project && !pendingNew && typeof loadBoard === 'function' && typeof projectsOn === 'function' && projectsOn()) loadBoard(true).then(s => {
+    const p = s?.projects?.find(x => x.id === startFrom?.project);
+    if (viewVersion !== chatRenderVersion || !p || !startFrom) return;
+    const { mode, conductor, ...rest } = startFrom;
+    startFrom = { ...rest, projectName: p.name, ...(p.mode === 'conductor' && p.status !== 'done' ? { mode: 'conductor', conductor: { ...(s.conductor || {}) } } : {}) };
+    writeLocal('pc-new-start', startFrom); paintNewProject(); paintStartMode();
+  }).catch(() => { });
   const context = () => {const cwd=$('#cpath')?.value.trim()||sel;const el=$('#task-context');if(el)el.dataset.workspace=cwd?projName(cwd):'Choose a workspace';updateNewSummary();};
   $('#new-setup').ontoggle=()=>{ $('#new-setup .setup-edit').textContent=$('#new-setup').open?'Close setup':'Edit setup'; };
   $('#cpath').oninput=context;
@@ -3854,6 +3953,7 @@ async function renderNew({ home = false } = {}) {
     if (fm) fm.placeholder = a === 'codex' ? 'What should Codex work on?' : a === 'acp' ? 'What should OpenRouter work on?' : 'What should Claude work on?';
     renderToolbar();
     (a === 'codex' ? loadCodexModels() : a === 'acp' ? loadAcpModels() : loadClaudeModels()).then(renderToolbar);context();
+    paintStartMode(); // 1.106: the lead depends on the agent
   };
   ap.querySelectorAll('.row').forEach(r => r.onclick = () => pickAgent(r.dataset.a));
   pickAgent(provider);
@@ -3937,6 +4037,7 @@ async function renderNew({ home = false } = {}) {
     pickAgent(p.provider === 'codex' ? 'codex' : 'claude');
     selectWorkspace(p.cwd);
     const prefs = { ...tb.prefs, model: p.model || tb.prefs.model, effort: p.effort || tb.prefs.effort };
+    if (tb.leadHeld) { if (p.model) delete tb.leadHeld.model; if (p.effort) delete tb.leadHeld.effort; } // a saved prompt's own pick is a pick
     if (p.approvalMode) { prefs.approvalMode = p.approvalMode; prefs.approvalModeSource = 'user'; }
     if (p.executionMode) prefs.executionMode = p.executionMode;
     tb.prefs = prefs; setPrefs(NEW_KEY, prefs); renderToolbar();
@@ -4045,12 +4146,12 @@ async function renderNew({ home = false } = {}) {
     $('#start-hint').hidden = true;
     $('#start').disabled = true; $('#start').setAttribute('aria-label', 'Starting…');
     try {
-      const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts(), ...(startFrom?.project ? { project: startFrom.project, projectName: startFrom.projectName || '' } : {}), ...(startFrom?.start ? { start: startFrom.start } : {}) };
+      const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts(), ...(startFrom?.project ? { project: startFrom.project, projectName: startFrom.projectName || '' } : {}), ...(startFrom?.start ? { start: startFrom.start } : {}), ...(startChoice() ? { projectStart: startChoice() } : {}) };
       const saved = loadOutbox(NEW_KEY);
       if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) { toast('Retry the saved new conversation request before changing it.'); return false; }
       newPending = saved || { payload, clientMessageId: crypto.randomUUID(), ...(allowSecrets ? { allowSecrets: true } : {}) };
       saveOutbox(NEW_KEY, newPending);
-      const { id, modelFallback } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
+      const { id, modelFallback, projectLinkError } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
       setPrefs(id,{model:modelFallback?'default':payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work',approvalMode:payload.approvalMode||approvalPolicy.defaultMode});
       saveOutbox(NEW_KEY, null);
       clearDraft(NEW_KEY); localStorage.removeItem('pc-attachments-'+NEW_KEY); localStorage.removeItem('pc-new-start'); localStorage.removeItem(briefingKey()); if (tb?.key === NEW_KEY) tb.attachments = [];
@@ -4059,6 +4160,9 @@ async function renderNew({ home = false } = {}) {
       Voice.carryTo(NEW_KEY, id); // a spoken start keeps its reply and hands-free conversation in the new session
       location.hash = '#/chat/' + id;
       if (modelFallback) modelFellBack(null, modelFallback);
+      // 1.106: the conversation started, but the server could not link it (the project's conversation limit, say), so
+      // it runs without the project and its mode.
+      if (projectLinkError && payload.project) toast(`Started, but not linked to ${payload.projectName || 'the project'}: ${projectLinkError}`);
       return true;
     } catch (e) {
       if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NEW_KEY, null);

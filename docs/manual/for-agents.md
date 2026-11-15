@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.105.1
-sources: skills.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
+checked: 1.106.0
+sources: skills.mjs, project-mode.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # For agents
 
@@ -76,6 +76,7 @@ Pocket adds a set of plain-language lines to your instructions when it starts yo
 |---|---|---|
 | Suggested replies | Unless `POCKET_CHOICES=0` | When you end a reply by asking the user to choose between specific next steps, finish with a fenced block whose info string is `choices`, 2 to 4 options, one per line, each the short reply the user would send (under 60 characters). Put the block last. Mark at most one option with "(Recommended)", listed first. No block for open-ended questions or when nothing needs deciding. |
 | Projects | **Projects** is on | Track a project only when the user asks. Check `status --all` first and link this conversation to a matching project rather than duplicating it; otherwise `track --requested`. Ask at most one question. Set a reminder only when the user asks or agrees to a time. Keep a tracked project's card current at stopping points. |
+| Conductor mode | The conversation is in a project's [Conductor mode](projects.md#conductor-mode) (started, handed off or linked there after the switch went on, and not started Solo); Claude Code and Codex. Ends at the next reply when the mode is switched off, the project is finished or the conversation is unlinked | You are the lead: plan, hand the work to subagents and judge what comes back. Before handing out work, record what done means and a pass/fail check per step on the card (`update --done-when`, `task add --check`), and ask every decision you need in one message. Pick each subagent's model and effort by the step; start one only for parallel work or work that would fill your context. Check every result yourself, have a fresh reviewer on your own model check the whole change, work freely only in the card's directory and **Works in** places, keep the card current, and end with a report for someone who did not watch. |
 | Files | **Files** is on | "Files", "my files", "documents", "my documents" and "docs" mean Pocket's Files library. Keep deliverables for the user to read (HTML report, PDF, image, Markdown, CSV or spreadsheet) with `add`, linked to this conversation. Files are private; share only when asked. Mention a file by its title, not its server path. |
 | Tasks | **Tasks** is on | Create a task only when the user asks or accepts your offer. Before finishing each reply, check whether the work needs the user to come back later; if so and nothing covers it, offer a task once (as a suggested reply when those are on). Give `--due` only for a time the user named or agreed. |
 | Inbox Watch | **Inbox Watch** is on | `list`, `show` and `act`; record a decision (`act`) only when the user asks. Which alerts push is the `push` setting, changed only when asked. |

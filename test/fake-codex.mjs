@@ -63,7 +63,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   if(m.id!=null&&!m.method&&asked.has(m.id)){const r=asked.get(m.id);asked.delete(m.id);return r(m.result);}
   if(m.id==null)return; // notifications and responses
   const p=m.params||{};
-  if(m.method==='thread/start'||m.method==='thread/resume')fs.appendFileSync(calls+'.threads',JSON.stringify({method:m.method,choices:/`choices`/.test(p.developerInstructions||''),projects:/pocket-board/.test(p.developerInstructions||''),documents:/pocket-docs/.test(p.developerInstructions||''),google:/pocket-google\/SKILL\.codex\.md/.test(p.developerInstructions||''),config:p.config??null,model:p.model??null})+'\n');
+  if(m.method==='thread/start'||m.method==='thread/resume')fs.appendFileSync(calls+'.threads',JSON.stringify({method:m.method,choices:/`choices`/.test(p.developerInstructions||''),projects:/pocket-board/.test(p.developerInstructions||''),documents:/pocket-docs/.test(p.developerInstructions||''),google:/pocket-google\/SKILL\.codex\.md/.test(p.developerInstructions||''),conductor:/in Conductor mode for the Pocket project/.test(p.developerInstructions||''),config:p.config??null,model:p.model??null})+'\n');
   switch(m.method){
     case 'initialize':if(takeMarker(process.env.FAKE_CODEX_INIT_FAIL))return fail(m.id,'initialize refused');
       // Close before advertising readiness. Otherwise a fast parent can write the next request
@@ -77,7 +77,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       return reply(m.id,{model:'gpt-test',reasoningEffort:null,cwd:p.cwd||process.cwd()});
     case 'turn/start':{
       const text=p.input?.[0]?.text||'',turnId=randomUUID();
-      fs.appendFileSync(calls+'.codex',JSON.stringify({threadId:p.threadId,pid:process.pid,text,model:p.model,collaborationModel:p.collaborationMode?.settings?.model,runnerToken:process.env.POCKET_RUNNER_TOKEN})+'\n');
+      fs.appendFileSync(calls+'.codex',JSON.stringify({threadId:p.threadId,pid:process.pid,text,model:p.model,effort:p.effort??null,collaborationModel:p.collaborationMode?.settings?.model,runnerToken:process.env.POCKET_RUNNER_TOKEN})+'\n');
       reply(m.id,{turn:{id:turnId}});
       notify('turn/started',{turnId});
       // __NULLFRAME__: lines that parse as JSON but are not objects (a real app-server once wrote a bare `null`).

@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.96.0
-sources: prompts.mjs, starts.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
+checked: 1.106.0
+sources: prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
 
@@ -27,6 +27,14 @@ box a conversation uses.
 2. To change the agent or workspace, tap **Edit setup** (it becomes **Close setup**):
    - **Agent**: **Claude Code**, **Codex** or, when the server has it on, **OpenRouter**. The choice is
      remembered on this browser.
+   - **Start**: only when you came from **Start conversation** on a project in
+     [Conductor mode](projects.md#conductor-mode). **Conductor** (the default) has the agent's top model lead at high
+     effort and hand out the work; **Solo** has one model do the work itself, for a small task. The setup card shows
+     the choice as **Start**. An agent without a top model here, or OpenRouter, starts as usual and the setup says so.
+     While the choice shows, the model and effort chips start on **Default**, so the start picks its own model; a model
+     or effort you choose on this screen is still used. If the server starts the conversation but cannot link it (the
+     project already has its 50 conversations, say), a notice says **Started, but not linked to *project*:** and why;
+     the conversation runs without the project and its mode.
    - **Project**: the ten most recently used workspaces, with the configured default first.
    - **Or a custom path**: any folder on the server, as a full path (`/home/alex/projects/website`). It
      must already exist on the server; a path on your phone or laptop does not work.
@@ -70,7 +78,7 @@ The chips above the message box apply to the next reply, on New conversation and
 
 | Chip | Choices |
 |---|---|
-| Model (**Model for this reply**) | **Default**, then the models the picker offers (see [Models in the picker](#models-in-the-picker)). Default's line names what it runs: the Pocket default, or your CLI's own setting. |
+| Model (**Model for this reply**) | **Default**, then the models the picker offers (see [Models in the picker](#models-in-the-picker)). Default's line names what it runs: the Pocket default, or your CLI's own setting. In a conversation started from a [Conductor project](projects.md#conductor-mode), Default is that start's model: **this project's lead** or **this project's Solo model**. |
 | Effort (**Reasoning effort**) | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. For Codex, **Ultra** (maximum reasoning with automatic task delegation) is listed above **Max** only when the chosen model offers it; for **Default** that is the model in `POCKET_CODEX_MODEL`, if set. Changing to a model without it sets the effort back to **Default**. For OpenRouter, only the levels the chosen model has (DeepSeek V4.1 Flash: **Max**, **High**, **Low**, **None**; some models also have **Minimal**), and no chip for a model with no effort setting; changing to a model without the picked level sets it back to **Default**. |
 | Permissions | **Review actions** (actions wait for your approval) or **Full access**. See [Questions and approvals](approvals.md#choose-review-actions-or-full-access). |
 | Mode (Codex only, **Codex mode for the next reply**) | **Work normally** carries out the request; **Plan first** explores an approach and asks questions before implementing. Plan first is guidance for the agent, not a sandbox. |

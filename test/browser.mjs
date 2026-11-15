@@ -17,6 +17,7 @@ import {TaskStore} from '../tasks.mjs';
 import {InboxStore} from '../inbox.mjs'; // 1.69
 import {VaultStore,newKey,parseKey} from '../vault.mjs';
 import {resolveOffer} from '../models.mjs';
+import {ENGINES,ENGINE_IDS} from '../engines.mjs';
 import {validateRules} from '../trusted.mjs';
 import '../public/secret-detect.js'; // 1.42: globalThis.PocketSecrets, the detector the server uses
 const repo=path.resolve(import.meta.dirname,'..');
@@ -106,7 +107,28 @@ const seedVault=()=>{fs.rmSync(vaultDir,{recursive:true,force:true});fs.mkdirSyn
  ask(['node','export-ledger.mjs','--month','2026-09']);};
 seedVault();
 const board=new ProjectStore(path.join(out,'projects.json'));
-const seedBoard=()=>{board.projects.length=0;
+// 1.106: project mode (conductor). The store gains mode, doneWhen, worksIn and a step's check in the same release; until the
+// store here knows them, the fixture keeps them beside each card with the contract's checks, so the browser checks run either way.
+const modeSide=new Map(),boardActs=[];
+const storeKnowsMode=()=>board.projects.some(p=>'mode' in p);
+const withMode=p=>{if(!p||storeKnowsMode())return p;const m=modeSide.get(p.id)||{};return {...p,mode:m.mode||'off',doneWhen:m.doneWhen||'',worksIn:m.worksIn||[],tasks:p.tasks.map(t=>({...t,check:m.checks?.[t.id]||''}))};};
+const actOnBoard=input=>{
+ boardActs.push(input);
+ if(storeKnowsMode())return board.act(input,{actor:'ui'});
+ const extra={},rest={...input};for(const k of ['mode','doneWhen','worksIn','check'])if(k in rest){extra[k]=rest[k];delete rest[k];}
+ const bad=m=>Object.assign(new Error(m),{status:400});
+ if('mode' in extra&&!['off','conductor'].includes(extra.mode))throw bad('Mode must be off or conductor.');
+ if('worksIn' in extra&&(!Array.isArray(extra.worksIn)||extra.worksIn.some(x=>!/^(\/|https?:\/\/)/.test(String(x)))))throw bad('Each place must be a full path or a web address.');
+ const live=rest.project?board.get(rest.project):null;
+ if(Object.keys(extra).length&&rest.action==='update'&&!['name','summary','next','waitingFor','link','directory','status'].some(k=>k in rest))rest.summary=live.summary; // the store refuses an empty update; the same summary moves the revision on
+ if(rest.action==='task-update'&&'check' in extra&&!('text' in rest)&&!('done' in rest))rest.text=live.tasks.find(t=>t.id===rest.task)?.text;
+ const p=board.act(rest,{actor:'ui'}),m=modeSide.get(p.id)||{checks:{}};
+ if(rest.action==='update')for(const k of ['mode','doneWhen','worksIn'])if(k in extra)m[k]=extra[k];
+ if(rest.action==='task-add'&&extra.check)m.checks[p.tasks.at(-1).id]=extra.check;
+ if(rest.action==='task-update'&&'check' in extra)m.checks[rest.task]=extra.check;
+ modeSide.set(p.id,m);return withMode(p);
+};
+const seedBoard=()=>{board.projects.length=0;modeSide.clear();
  const a=board.act({action:'track',name:'Warehouse stock report',summary:'Counts for aisles 1-3 are reconciled against MOM. Aisle 4 still shows 14 units unaccounted for.',next:'Recount aisle 4 with the Friday delivery excluded, then post the adjustment.',directory:'/workspaces/warehouse',link:'https://example.test/stock',session:rows[0].id});
  board.act({action:'task-add',project:a.id,text:'Reconcile aisles 1-3 against MOM'});const t=board.act({action:'task-add',project:a.id,text:'Recount aisle 4 excluding Friday delivery'}).tasks[1];
  board.act({action:'task-update',project:a.id,task:board.get(a.id).tasks[0].id,done:true});
@@ -209,6 +231,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/coordination/owner-release'){let raw='';for await(const c of req)raw+=c;const {name}=JSON.parse(raw),hold=coordFixture.holds.find(h=>h.name===name);coordFixture.holds=coordFixture.holds.filter(h=>h!==hold);
   if(coordFixture.failNext){coordFixture.failNext=false;return json({error:`${name} is already free.`,code:'not_held'},404);}
   coordFixture.released.push(name);coordFixture.recent=[{...hold,event:'owner',endedAt:Date.now(),note:''},...coordFixture.recent];return json({ok:true,name,woke:hold.waiters[0]?.title||null});}
+ if(url.pathname==='/api/engines')return json({engines:Object.fromEntries(ENGINE_IDS.map(e=>[e,{label:ENGINES[e].label,features:{...ENGINES[e].features,projectMode:e!=='acp'}}]))}); // 1.106: projectMode per engine
  if(url.pathname==='/api/approval-policy')return json({defaultMode:'review',allowFullAccess:true});
  if(url.pathname.endsWith('/approvals'))return json({requests:approvalRequests,interrupted:Boolean(uiModes.approvalsInterrupted),activeMode:'review',defaultMode:'review',allowFullAccess:true});
  if(/\/approvals\/[^/]+\/decision$/.test(url.pathname)){
@@ -309,8 +332,8 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname.startsWith('/api/board')){
   if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'projects_off'},404);
-  if(url.pathname==='/api/board')return json({...board.snapshot({dir:url.searchParams.get('dir')||''}),push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail)});
-  if(url.pathname==='/api/board/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,project:board.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.project?{project:e.project}:{})},e.status||400);}}
+  if(url.pathname==='/api/board'){const snap=board.snapshot({dir:url.searchParams.get('dir')||''});return json({...snap,projects:snap.projects.map(withMode),conductor:uiModes.conductor||{claude:'Fable 5.1',codex:'GPT-6 Astra'},push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail)});} // 1.106: conductor names each agent's lead
+  if(url.pathname==='/api/board/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,project:actOnBoard(JSON.parse(raw))});}catch(e){return json({error:e.message,...(e.project?{project:withMode(e.project)}:{})},e.status||400);}}
   if(url.pathname==='/api/board/reset'){seedBoard();return json({ok:true});}
  }
  if(url.pathname.startsWith('/api/documents')||url.pathname.startsWith('/files/')||url.pathname.startsWith('/share/')){
@@ -376,6 +399,8 @@ const server=http.createServer(async(req,res)=>{
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   const held=secretRefusal(body);if(held)return json(held,422);
   if(body.start?.startsWith('f00d')){const h=uiModes.handoffs[body.start];if(h.startedSession)return json({error:'This handoff has already started.',code:'start_used',id:h.startedSession},409);dispatches++;h.startedSession=rows[1].id;h.startedTitle=rows[1].title;return json({id:rows[1].id},202);} // 1.96: a handoff starts once
+  // 1.106: projectLinkError: the conversation starts but is not linked (the project's conversation limit), as the server says.
+  if(body.project&&uiModes.projectLinkError){dispatches++;return json({id:rows.find(r=>r.state.kind==='finished').id,projectLinkError:uiModes.projectLinkError},202);}
   if(!receipts.has(body.clientMessageId)){
    dispatches++;const id='66666666-6666-4666-8666-666666666666';
    rows.push({...idle,id,title:body.text});conversations.set(id,[{role:'user',text:body.text}]);receipts.set(body.clientMessageId,{id});if(body.start)inboxStore.linkStart(body.start,id); // 1.77: as the server does
@@ -418,7 +443,7 @@ const server=http.createServer(async(req,res)=>{
  }
  const match=url.pathname.match(/^\/api\/session\/([^/]+)(\/message)?$/);
  if(match){const id=decodeURIComponent(match[1]),r=rows.find(x=>x.id===id);
-  if(!match[2]){if(uiModes.sessionDelay)await new Promise(r=>setTimeout(r,uiModes.sessionDelay));/* sessionDelay: a slow transcript read, so a check can see the view while it waits */const messages=messagesOf(id);return json({...r,...(sideFixture.lineage[id]||{}),active:r.state.kind==='running',ext:false,messages,total:messages.length});}
+  if(!match[2]){if(uiModes.sessionDelay)await new Promise(r=>setTimeout(r,uiModes.sessionDelay));/* sessionDelay: a slow transcript read, so a check can see the view while it waits */const messages=messagesOf(id);return json({...r,...(sideFixture.lineage[id]||{}),projectMode:uiModes.projectMode?.[id]||null,active:r.state.kind==='running',ext:false,messages,total:messages.length});} // 1.106: projectMode
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   const held=secretRefusal(body);if(held)return json(held,422);
   if(body.text.includes('__STALE__')){dispatches++;return json({ok:true,queued:true,afterJobs:true,jobs:[{id:'bg1',description:'test-suite results'}],itemId:'held-1'},202);} // 1.89.2: held for the jobs (accepted, so a dispatch)
@@ -445,6 +470,7 @@ try{
  if(process.env.POCKET_SLASH_ONLY){ /* POCKET_SLASH_ONLY=n: the / picker checks only, n times over, to shake out a flake */const {runSlashRegressions}=await import('./slash-browser.mjs');for(let k=0;k<Number(process.env.POCKET_SLASH_ONLY);k++){console.log('iteration',k);await runSlashRegressions({browser,base,rows,received,out});}throw Object.assign(Error('slash only'),{docsOnly:true});}
  if(process.env.POCKET_CLI_UPDATES_ONLY){const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');await runCliUpdateRegressions({browser,base,out});throw Object.assign(Error('CLI updates only'),{docsOnly:true});}
  if(process.env.POCKET_COORD_ONLY){await runCoordinationRegressions({p,base,out,repo,rows,settings:fixtureSettings,coord:coordFixture,scan});if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,coordinationOnly:true,screenshots:out}));throw Object.assign(Error('coordination only'),{docsOnly:true});}
+ if(process.env.POCKET_PROJECT_MODE_ONLY){const {runProjectModeRegressions}=await import('./project-mode-browser.mjs');await runProjectModeRegressions({browser,base,rows,out,repo,settings:fixtureSettings,modes:uiModes,boardActs,conversations,scan:null});console.log(JSON.stringify({ok:true,projectModeOnly:true,screenshots:out}));throw Object.assign(Error('project mode only'),{docsOnly:true});}
  if(process.env.POCKET_THEME_ONLY){
   const {runThemeRegressions}=await import('./theme-browser.mjs');
   await runThemeRegressions({browser,base,rows,out,settings:fixtureSettings,modes:uiModes,setRequests:r=>{questionRequests=r.questions||[];approvalRequests=r.approvals||[];}});
@@ -991,6 +1017,8 @@ try{
  await runCleanupRegressions({browser,base,rows,out});
  const {runThemeRegressions}=await import('./theme-browser.mjs');
  await runThemeRegressions({browser,base,rows,out,settings:fixtureSettings,modes:uiModes,setRequests:r=>{questionRequests=r.questions||[];approvalRequests=r.approvals||[];}});
+ const {runProjectModeRegressions}=await import('./project-mode-browser.mjs'); // 1.106
+ await runProjectModeRegressions({browser,base,rows,out,repo,settings:fixtureSettings,modes:uiModes,boardActs,conversations});
  assert.deepEqual(errors,[]);
  await runCoordinationRegressions({p,base,out,repo,rows,settings:fixtureSettings,coord:coordFixture,scan});
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));

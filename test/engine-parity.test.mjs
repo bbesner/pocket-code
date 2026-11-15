@@ -32,6 +32,7 @@ async function boot(t, port) {
     CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs'), CODEX_BIN: path.join(repo, 'test/fake-codex.mjs'),
     POCKET_ACP_ENABLE: '1', POCKET_ACP_CMD: process.execPath, POCKET_ACP_ARGS: path.join(repo, 'test/fake-acp.mjs'), POCKET_ACP_STORE: path.join(dir, 'acp-store'), POCKET_ASK_POLL_MS: '100',
     POCKET_RETRY_BUFFER_MS: '0', POCKET_TRUSTED_ACTIONS: 'Bash(echo PARITY_OK), Bash(echo CX_OK), Bash(echo ACP_OK)',
+    FAKE_CODEX_MODELS: JSON.stringify([{ id: 'gpt-6-astra', displayName: 'GPT-6 Astra' }, { id: 'gpt-6-sol', displayName: 'GPT-6 Sol' }]), // Project mode needs a top model offered
   } });
   let logs = ''; child.stdout.on('data', d => logs += d); child.stderr.on('data', d => logs += d);
   t.after(() => { try { child.kill('SIGKILL'); } catch { } if (process.env.PARITY_LOG) fs.writeFileSync(process.env.PARITY_LOG, logs); fs.rmSync(dir, { recursive: true, force: true }); });
@@ -75,6 +76,18 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
       if (engine === 'claude') assert.ok(s.prompts('claude').some(c => c.text.startsWith('parity one claude') && c.choices), 'Claude got the suggested-reply instructions');
       else if (engine === 'codex') assert.ok(fs.readFileSync(path.join(s.dir, 'calls.threads'), 'utf8').trim().split('\n').map(l => JSON.parse(l)).some(c => c.choices), 'Codex got them');
       else { const p = s.prompts('acp').find(x => x.text.startsWith('parity one acp')); assert.match(p?.seen?.instructions || '', /choices/, 'OpenRouter got them in its instruction file'); }
+    });
+
+    await t.test(`${engine}: Project mode follows the engine's feature flag`, async () => {
+      // Project mode applies only while the engine offers a top model (Claude: the fable family; Codex: GPT Astra, listed above)
+      await s.call('/settings', { projects: true });
+      let p = (await s.call('/board')).body.projects.find(x => x.name === 'Parity build');
+      if (!p) p = (await s.call('/board/act', { action: 'track', name: 'Parity build', directory: s.cwd, mode: 'conductor' })).body.project;
+      const id = await s.start(engine, `parity project ${engine}`, { project: p.id, projectStart: 'solo' });
+      const b = await s.idle(id);
+      if (features[engine].features.projectMode) assert.equal(b.projectMode?.start, 'solo', `${engine}: ${JSON.stringify(b.projectMode)}`);
+      else assert.equal(b.projectMode ?? null, null, `${engine} lists projectMode false and has no mode`);
+      await s.call('/settings', { projects: false });
     });
 
     await t.test(`${engine}: the Git panel reads only folders this conversation worked in`, async () => {
