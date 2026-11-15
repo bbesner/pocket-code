@@ -143,13 +143,16 @@ function projectCardHTML(p){
 }
 /* 1.106: Conductor mode. A switch on the card: while on, a conversation started in, handed off within or linked to the project runs the newest top model as
    the lead. The board snapshot's `conductor` names the lead per agent (null where this server offers none), so with neither
-   the switch says why it cannot turn on. Done when and Works in show when set, or as "Not set." while the mode is on. */
+   the switch says why it cannot turn on. Done when and Works in show when set, or as "Not set." while the mode is on.
+   1.106.1: Assistant mode never runs Conductor mode (the server ignores it there), so the switch and Works in are not shown;
+   Done when and a step's check stay, because they help any project. */
 const conductorLeads=()=>boardSnap?.conductor||{claude:null,codex:null};
 const conductorOffered=()=>{const c=conductorLeads();return Boolean(c.claude||c.codex);};
 const CONDUCTOR_LINE='Conversations in this project start with the top model as lead. It plans, hands the work to cheaper models and checks the results.';
 const CONDUCTOR_NONE='Needs a top model (Fable or GPT Astra) offered on this server.';
 function projectModeHTML(p,field){
  const on=p.mode==='conductor',works=Array.isArray(p.worksIn)?p.worksIn:[];
+ if(assistantMode())return p.doneWhen?field('Done when',p.doneWhen,'Not set.'):'';
  const locked=p.status==='done'||(!on&&!conductorOffered());
  const place=x=>/^https?:\/\//i.test(x)?`<a class="ledger" href="${esc(x)}" target="_blank" rel="noopener noreferrer"><span class="det">${esc(x.replace(/^https?:\/\//i,''))}</span></a>`:`<span class="ledger"><span class="det">${esc(projShort(x))}</span></span>`;
  return `<section class="project-field project-mode"><button type="button" class="opt" data-mode aria-pressed="${on}"${locked?' aria-disabled="true"':''}><span class="dot${on?' on':''}"></span><span>Conductor mode<span class="sub">${conductorOffered()?CONDUCTOR_LINE:CONDUCTOR_NONE}</span></span></button></section>
@@ -234,7 +237,7 @@ function projectBriefing(p){
  if(p.next)lines.push('Next step: '+p.next);
  if(p.waitingFor)lines.push('Waiting for: '+p.waitingFor);
  if(p.doneWhen)lines.push('Done when: '+p.doneWhen); // 1.106
- if(p.worksIn?.length)lines.push('Works in: '+p.worksIn.join(', '));
+ if(p.worksIn?.length&&!assistantMode())lines.push('Works in: '+p.worksIn.join(', '));
  if(open.length)lines.push('',`Remaining steps (${p.tasks.length-open.length} of ${p.tasks.length} done):`,...shown.map(t=>`- ${t.text} (step ${t.id}${t.check?'; passes when: '+t.check:''})`),...(open.length>shown.length?[`- and ${open.length-shown.length} more on the card`]:[]));
  if(notes.length)lines.push('','Recent notes:',...notes.map(h=>`- ${fmtDue(h.at)}: ${h.detail}`));
  if(p.reminders.length)lines.push('','Reminders:',...p.reminders.map(r=>`- ${r.label} (${r.due?'due ':''}${fmtDue(r.dueAt)})`));
@@ -315,14 +318,14 @@ function projectEditor(p,{directory='',session=null,onDone}={}){
    <label class="voice-field">Next step<textarea name="next" maxlength="600" rows="2">${v('next')}</textarea></label>
    ${p?`<label class="voice-field">Waiting for<input name="waitingFor" maxlength="600" value="${v('waitingFor')}" placeholder="Who or what, if the project is waiting"></label>
    <div class="voice-field"><label for="pe-done">Done when</label><textarea id="pe-done" name="doneWhen" maxlength="600" rows="3" aria-describedby="pe-done-help">${v('doneWhen')}</textarea><p class="title-note" id="pe-done-help">What finished looks like, as something that can be checked.</p></div>
-   <div class="voice-field"><label for="pe-works">Works in</label><textarea id="pe-works" name="worksIn" maxlength="4000" rows="3" spellcheck="false" autocapitalize="off" placeholder="One per line" aria-describedby="pe-works-help">${esc((p.worksIn||[]).join('\n'))}</textarea><p class="title-note" id="pe-works-help">Folders and web addresses the lead may change without asking. The project's directory is always included.</p></div>`:''}
+   ${assistantMode()?'':`<div class="voice-field"><label for="pe-works">Works in</label><textarea id="pe-works" name="worksIn" maxlength="4000" rows="3" spellcheck="false" autocapitalize="off" placeholder="One per line" aria-describedby="pe-works-help">${esc((p.worksIn||[]).join('\n'))}</textarea><p class="title-note" id="pe-works-help">Folders and web addresses the lead may change without asking. The project's directory is always included.</p></div>`}`:''}
    <label class="voice-field">Directory<input name="directory" maxlength="1024" value="${p?v('directory'):esc(directory)}" placeholder="/full/path, so agents working there find this card"></label>
    <label class="voice-field">Link<input name="link" maxlength="1024" type="url" value="${v('link')}" placeholder="https://"></label>
    <button class="primary" type="submit">${p?'Save changes':'Track project'}</button>
   </form>`;
  sh.querySelector('form').onsubmit=async e=>{
   e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const btn=e.target.querySelector('button');btn.disabled=true;
-  if(p)f.worksIn=String(f.worksIn||'').split('\n').map(x=>x.trim()).filter(Boolean); // 1.106: one place per line
+  if(p&&'worksIn' in f)f.worksIn=String(f.worksIn||'').split('\n').map(x=>x.trim()).filter(Boolean); // 1.106: one place per line
   const body=p?{action:'update',project:p.id,expected_revision:p.revision,...f}:{action:'track',...f,requested:true,...(session?{session}:{})};
   const out=await boardAct(body,p?'Project updated':'Project tracked');
   btn.disabled=false;if(!out)return;closeCurrentSheet?.();

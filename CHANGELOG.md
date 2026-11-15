@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.106.1] — Unreleased · build 199
+
+Asked for by Brad (2026-11-15): Conductor mode belongs to Developer mode. The server never ran it in Assistant mode (`projectModeOn()`), but the card and New still offered it there.
+
+- **Assistant mode hides Conductor mode** (`public/projects.js`, `public/app.js`, `server.mjs`). The card shows no Conductor mode switch and no Works in (display, Edit and the Start conversation briefing); saving Edit no longer sends `worksIn` when the field is hidden, so a list saved in Developer mode is kept. New offers no Conductor or Solo choice. `GET /api/board` returns `conductor: null` in Assistant mode. Done when and a step's Passes when check still show.
+- Tested: `test/project-mode.test.mjs` (the board names no lead in Assistant mode and names it again after), `test/project-mode-browser.mjs` (no switch, no Works in, Edit keeps the hidden list, no Start choice).
+- Manual: *Projects*.
+
 ## [1.106.0] — Unreleased · build 198
 
 Asked for by Brad (2026-11-15): a project should be able to run with the top model as a lead that plans, hands the work to cheaper models and checks what comes back, and the setting should follow the project through every new conversation and handoff. Plan: `docs/plans/project-mode.md`. The lead's instructions follow Anthropic's published guidance for Fable 5.2 (start on Opus for most work, lead at high effort, say what a subagent costs, finish the whole task, report for a reader who did not watch).

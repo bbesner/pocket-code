@@ -215,7 +215,9 @@ test('Claude: a conductor project starts its first process in the mode; Solo, ex
   await sw('waiting',()=>s.act({action:'update',project:p.id,status:'waiting'}),true);
   await sw('Projects off',()=>s.call('/settings',{projects:false}),false);
   await sw('Assistant mode',()=>s.call('/settings',{projects:true,assistantMode:true}),false);
+  assert.equal((await s.call('/board')).body.conductor,null,'Assistant mode: the board names no lead, so no switch or Start choice is offered');
   await sw('back on',()=>s.call('/settings',{assistantMode:false}),true);
+  assert.ok((await s.call('/board')).body.conductor?.claude,'Developer mode: the lead is named again');
 
   // 3: a link that cannot succeed never blocks a start: no link, no mode, and the 202 says why
   const m=await s.call('/new',{cwd:s.work,text:'missing project',project:'nope',clientMessageId:randomUUID()});

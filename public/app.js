@@ -3891,7 +3891,8 @@ async function renderNew({ home = false } = {}) {
   };
   // 1.106: a Conductor project's start. Conductor (the default) or Solo, sent as projectStart; an agent without a top model on
   // this server, or one that does not run project mode at all, starts as usual and says so. Removing the project link removes it.
-  const startLead = () => startFrom?.project && startFrom.mode === 'conductor' && engineHas(provider, 'projectMode') ? startFrom.conductor?.[provider] || null : null;
+  const conductorHere = () => Boolean(startFrom?.project && startFrom.mode === 'conductor' && !window.pocketFeatures?.assistantMode); // 1.106.1: never in Assistant mode
+  const startLead = () => conductorHere() && engineHas(provider, 'projectMode') ? startFrom.conductor?.[provider] || null : null;
   const startChoice = () => startLead() ? (startFrom.projectStart === 'solo' ? 'solo' : 'conductor') : null;
   newStartLine = () => { const c = startChoice(); return c === 'conductor' ? 'Conductor · ' + startLead() + ' leads' : c === 'solo' ? 'Solo' : ''; };
   // While the Start control applies, model and effort begin on Default (the server then runs the lead or the Solo model);
@@ -3909,7 +3910,7 @@ async function renderNew({ home = false } = {}) {
   const paintStartMode = () => {
     const box = $('#new-start-mode'); if (!box) return;
     holdForLead();
-    const conductor = startFrom?.project && startFrom.mode === 'conductor';
+    const conductor = conductorHere();
     box.hidden = !conductor;
     if (conductor) {
       const lead = startLead(), agent = ENGINE_LABELS[provider] || 'This agent';

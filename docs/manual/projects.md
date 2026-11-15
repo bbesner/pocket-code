@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.106.0
+checked: 1.106.1
 sources: projects.mjs, project-mode.mjs, public/projects.js, scripts/pocket-board.mjs, scripts/owner-zone.mjs, skills/pocket-projects/SKILL.md
 -->
 # Projects
@@ -128,6 +128,8 @@ Which conversations the switch affects:
 - **Switching it off, finishing the project or unlinking a conversation** ends the mode for that conversation at its next reply. Its model goes back to the usual default, which restarts the agent's process. If the conversation has a background job running, the change waits until the job ends.
 
 If this server offers neither top model, the switch cannot be turned on and says **Needs a top model (Fable or GPT Astra) offered on this server.**
+
+Conductor mode is part of Developer mode. In Assistant mode the card shows no **Conductor mode** switch and no **Works in**, **Start conversation** offers no Conductor or Solo choice, and Pocket never runs a conversation as Conductor, even for a project whose mode was switched on in Developer mode. **Done when** and each step's **Passes when** check still show. Switching back to Developer mode brings the switch back as it was.
 
 Before a long run, use **Edit** to fill in:
 
@@ -291,6 +293,7 @@ pocket-board update -p acme-hoa-camera-upgrade --summary "Installed and tested."
 | `This project is finished. Resume it first.` | Steps and reminders cannot change on a Done project. | `update --status active`, or **Resume project** on the card. |
 | `Each place must be a full path or a web address.` | A **Works in** line is a relative path or an address that is not `http`/`https`. | Write each place as a full path (`/srv/site`) or a full address (`https://staging.example.com`). |
 | The **Conductor mode** switch is greyed out | This server offers neither top model (Fable for Claude Code, GPT Astra for Codex). | Make Fable available to Claude Code on this server (**Settings → Agents & instance → Claude models in the picker**, and the computer's Claude Code policy), or update Codex to a version that offers GPT Astra. |
+| No **Conductor mode** switch on the card | Pocket is in Assistant mode, where Conductor mode does not run. | Switch to Developer mode in **Settings → Appearance → Mode**, if the install allows it. |
 | **Started, but not linked to *project*:** after Start conversation | The conversation started, but the server could not link it, for example because the project already has 50 conversations. It runs without the project and its mode. | Unlink an old conversation from the card, then link this one with its **Add project** chip. |
 | No **Start** choice on New conversation | The project's Conductor mode is off, the chosen agent has no top model here, or it is OpenRouter. | Turn the mode on, or pick Claude Code or Codex. |
 | A reminder arrives hours off | The time was given without an offset before the user's browser reported a zone, and `POCKET_TZ` (or the system zone) is not the user's. | Open Pocket in the user's browser once, set `POCKET_TZ` to the user's zone, or pass an offset. |

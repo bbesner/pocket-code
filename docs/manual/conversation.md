@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.106.0
+checked: 1.106.1
 sources: choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -386,8 +386,8 @@ are showing.
 ### Project mode chip
 
 A conversation in a project's [Conductor mode](projects.md#conductor-mode) shows a **Conductor** or **Solo** chip beside the
-project chip above the message box. Tap it for a short note on what that start means and which model leads; it changes
-nothing. A conversation started in, handed off within or linked to the project after the switch went on gets the mode;
+project chip above the message box (Developer mode only; Assistant mode never runs Conductor mode). Tap it for a short note on
+what that start means and which model leads; it changes nothing. A conversation started in, handed off within or linked to the project after the switch went on gets the mode;
 one linked before stays as it was. Switching the mode off, finishing the project or unlinking the conversation ends the
 mode at its next reply (the model goes back to the usual default, which restarts the agent's process; a running
 background job finishes first). The chip follows a link or unlink made from the conversation straight away.

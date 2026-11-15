@@ -1,7 +1,8 @@
 {
- "version": "1.106.0",
- "assetV": 198,
+ "version": "1.106.1",
+ "assetV": 199,
  "notes": [
+  "Conductor mode stays out of Assistant mode. Pocket never ran Conductor mode in Assistant mode, but the project card still showed its switch and Works in, and Start conversation still offered Conductor or Solo. In Assistant mode they are now hidden; Done when and a step's Passes when check still show, because they help any project. Asked for by Brad.",
   "Conductor mode for projects. A project card has a new Conductor mode switch. While it is on, a conversation started in that project runs with the newest top model as the lead at high effort: it plans the work, hands each piece to a cheaper model, checks what comes back and stops only for a decision from you. Start conversation also offers Solo, one model doing the work itself, for a small task. The card gains Done when and Works in, and a step can carry a Passes when check. Handoffs keep the project and the mode, and a chip in the conversation shows which one is on. Off until you switch it on for a project. Asked for by Brad.",
   "Suggested-reply buttons survive a sources list. A reply that looked something up on the web ended with a Sources list after its choices, and Pocket then showed the choices as a plain code box with no buttons. A Sources or References list after the choices no longer stops them: the buttons show, and the sources stay in the reply above them. Agents are also asked to put sources above the question. Reported by Brad.",
   "Inbox Watch separates your list from your phone. Every alert still goes on the list, and the new Push notifications section of its schedule sheet decides which also push: every alert (as before), only what can't wait (emergencies, outages you're the escalation for, money at risk, security incidents, someone waiting on you, deadlines today, each a switch, with a daily limit and one push per story until it gets worse), or nothing. An open alert says whether it pushed and why.",

@@ -33,7 +33,7 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
  const closeSheet=async()=>{await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));};
  const card=async id=>{await page.goto(base+'/?pm='+Math.random().toString(36).slice(2)+'#/projects/'+id);await page.waitForSelector('.project-card [data-mode]');};
  const sections=()=>page.$$eval('.project-card .project-field h2',e=>e.map(h=>h.textContent.trim()));
- const prev={projects:settings.projects,handoffAt:settings.handoffAt,conductor:modes.conductor,projectMode:modes.projectMode,handoffs:modes.handoffs};
+ const prev={projects:settings.projects,handoffAt:settings.handoffAt,assistantMode:settings.assistantMode,conductor:modes.conductor,projectMode:modes.projectMode,handoffs:modes.handoffs};
  settings.projects=true;modes.conductor={claude:'Fable 5.1',codex:'GPT-6 Astra'};
  const fourth=rows.find(r=>r.state.kind==='finished').id,idle=rows.find(r=>r.state.kind==='idle').id;
  let savedFourth=null;
@@ -214,6 +214,22 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   await page.evaluate(([p,s])=>boardAct({action:'unlink-session',project:p,expected_revision:projectById(p).revision,session:s}),[WAREHOUSE,fourth]);
   await page.waitForFunction(()=>document.getElementById('mode-open').hidden&&!document.querySelector('.handoff-offer'));
 
+  console.log('Project mode: Assistant mode shows no switch, no Works in and no Start choice (1.106.1)');
+  settings.assistantMode=true;
+  await page.evaluate(p=>fetch('/api/board/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'update',project:p,mode:'conductor',doneWhen:'Aisle 4 reconciles.',worksIn:['/workspaces/warehouse']})}),WAREHOUSE);
+  await page.goto(base+'/?pm=asst#/projects/'+WAREHOUSE);await page.waitForSelector('.project-card .project-field h2');
+  assert.equal(await page.$('.project-card [data-mode]'),null,'Assistant mode: no Conductor switch');
+  assert.deepEqual((await sections()).filter(h=>/Done when|Works in/.test(h)),['Done when'],'Assistant mode: Done when stays, Works in goes');
+  await clickControl(page,'.project-actions [data-edit]');await page.waitForSelector('.project-editor #pe-done');
+  assert.equal(await page.$('#pe-works'),null,'Assistant mode: no Works in field in Edit');
+  await clickControl(page,'.project-editor button.primary');await page.waitForFunction(()=>!document.querySelector('.project-editor'));
+  assert.equal('worksIn' in lastAct(),false,'saving Edit leaves the hidden Works in list alone');
+  await page.goto(base+'/?pm=asst2#/projects/'+WAREHOUSE);await page.waitForSelector('.project-actions [data-start]');
+  await clickControl(page,'.project-actions [data-start]');await page.waitForSelector('#new-project:not([hidden])');
+  assert.equal(await page.$eval('#new-start-mode',e=>e.hidden),true,'Assistant mode: no Conductor or Solo choice on New');
+  await page.evaluate(()=>{localStorage.removeItem('pc-new-start');});
+  settings.assistantMode=false;await reset();
+
   console.log('Project mode: a handoff card continues in the project');
   const hid='f00d000000a6';modes.handoffs={...(modes.handoffs||{}),[hid]:{projectName:'Warehouse stock report',projectStart:'conductor'}};
   const convo=conversations.get(idle);convo.push({role:'assistant',blocks:[{t:'text',text:'Ready for a fresh start.\n\n'+base+'/#/start/'+hid}]});
@@ -223,7 +239,7 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   assert.deepEqual(errors,[]);
  }finally{
   if(savedFourth)conversations.set(fourth,savedFourth);
-  Object.assign(settings,{projects:prev.projects,handoffAt:prev.handoffAt});Object.assign(modes,{conductor:prev.conductor,projectMode:prev.projectMode,handoffs:prev.handoffs});
+  Object.assign(settings,{projects:prev.projects,handoffAt:prev.handoffAt,assistantMode:prev.assistantMode});Object.assign(modes,{conductor:prev.conductor,projectMode:prev.projectMode,handoffs:prev.handoffs});
   await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'})).catch(()=>{});await context.close();
  }
 }
