@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.108.0] — Unreleased · build 202
+## [1.108.0] — 2026-11-15 · build 202
 
 Asked for by Brad (2026-11-15): installs are told when Claude Code or Codex has an update; do the same when an install is behind the latest Pocket Code.
 
