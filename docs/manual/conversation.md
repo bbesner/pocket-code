@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.105.1
-sources: choices.mjs, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
+checked: 1.106.0
+sources: choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
 
@@ -352,14 +352,15 @@ conversation needs everything said so far: Branch keeps all of it, and each of i
    words. The agent writes the briefing. If the agent is still working, the request waits in the queue and runs after
    the current reply.
 2. The reply shows a card, **Continue in a new conversation**, with the title, folder, agent, permissions and the start of
-   the briefing. Assistant mode shows the title and briefing only.
+   the briefing. Assistant mode shows the title and briefing only. A handoff written in a conversation linked to a project
+   adds **Continues in *project* · Conductor** (or **· Solo**).
 3. Choose **Start** to begin at once, or **Review first** to read and change the briefing on New conversation.
 
 The new conversation opens with the briefing as its first message. It shows **Continued from …** under its header, and the
 original shows **Continued in …**.
 
 When a conversation grows past the size set in [Settings → Context and subagents](settings.md) (200K tokens unless you
-change it), a line appears under the latest finished reply: **This conversation is at 435K tokens, and every reply reads
+change it; 150K in a [Conductor conversation](#project-mode-chip), or your size when that is lower), a line appears under the latest finished reply: **This conversation is at 435K tokens, and every reply reads
 all of it.** with **Hand off** and **Not now**. Hand off asks for the briefing, the same as the button. The line shows
 only while nothing is running, waiting for you or typed in the message box, and not in a conversation that has already
 been continued in another. **Not now** hides it until the conversation reaches the next multiple of that size (400K, then 600K
@@ -379,6 +380,27 @@ are showing.
 - A handoff from OpenRouter, or from a terminal outside Pocket, has no conversation to link back to and gets Review actions.
 - If the folder has gone, Start is off and the card says so. Review first lets you choose another folder.
 - Handoff links last 7 days unless the agent sets another length. After that the card says the link has expired.
+- A handoff from a conversation linked to a project links the new conversation to the same project and starts it the same
+  way, Conductor or Solo.
+
+### Project mode chip
+
+A conversation in a project's [Conductor mode](projects.md#conductor-mode) shows a **Conductor** or **Solo** chip beside the
+project chip above the message box. Tap it for a short note on what that start means and which model leads; it changes
+nothing. A conversation started in, handed off within or linked to the project after the switch went on gets the mode;
+one linked before stays as it was. Switching the mode off, finishing the project or unlinking the conversation ends the
+mode at its next reply (the model goes back to the usual default, which restarts the agent's process; a running
+background job finishes first). The chip follows a link or unlink made from the conversation straight away.
+
+- **Conductor**: the top model (Fable on Claude Code, GPT Astra on Codex) leads at high effort, hands the work to cheaper
+  models and checks what comes back.
+- **Solo**: one cheaper model does the work itself, with no lead.
+
+In these conversations the model chip's **Default** is the model this start chose, and its line says so (**Fable 5.1 · this
+project's lead**, or **Opus 5.5 · this project's Solo model**). In a Conductor conversation the model choices carry one more
+line: **Changing the model restarts the lead without its reasoning. A handoff carries the work over cleanly.** You can still
+pick another model; a [handoff](#hand-off-to-a-fresh-conversation) is the cleaner way, because it keeps the project and the
+start.
 
 ### Watch subagents
 

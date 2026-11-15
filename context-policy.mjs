@@ -82,24 +82,29 @@ export function codexWorkerFor(leader, newestSol) {
   return /(^|-)astra$/i.test(String(leader || '')) && newestSol ? newestSol : null;
 }
 
+// Project mode (project-mode.mjs) passes `conversation` for a Conductor conversation: { tierDown: true } forces one tier
+// down whatever the server-wide worker model says, and `tag` (the mode and project) joins the key, so a process started
+// with another mode, or none, is replaced at the next reply. Without it everything is as before.
+const withTag = (obj, tag) => tag ? { ...obj, projectMode: tag } : obj;
+
 // What a Claude process is started with: `env` goes into --settings (it outranks ~/.claude/settings.json env).
-export function claudeLaunch(saved, leader) {
+export function claudeLaunch(saved, leader, conversation = null) {
   const p = readPolicy(saved), env = {};
   if (p.compaction.mode === 'limit') env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(p.compaction.limit);
-  const worker = p.workers.model === 'tier-down' ? claudeWorkerFor(leader) : null;
+  const worker = p.workers.model === 'tier-down' || conversation?.tierDown ? claudeWorkerFor(leader) : null;
   if (worker) env.CLAUDE_CODE_SUBAGENT_MODEL = worker;
   if (p.workers.effort) env.CLAUDE_CODE_SUBAGENT_EFFORT = p.workers.effort;
-  return { env, key: launchKey(env) };
+  return { env, key: launchKey(withTag(env, conversation?.tag)) };
 }
 
 // What a Codex thread is opened with: `config` overrides on thread/start, thread/resume and thread/fork.
-export function codexLaunch(saved, leader, newestSol) {
+export function codexLaunch(saved, leader, newestSol, conversation = null) {
   const p = readPolicy(saved), config = {};
   if (p.compaction.mode === 'limit') config.model_auto_compact_token_limit = Math.round(p.compaction.limit * CODEX_LIMIT_SHARE);
-  const worker = p.workers.model === 'tier-down' ? codexWorkerFor(leader, newestSol) : null;
+  const worker = p.workers.model === 'tier-down' || conversation?.tierDown ? codexWorkerFor(leader, newestSol) : null;
   if (worker) config['agents.default_subagent_model'] = worker;
   if (p.workers.effort) config['agents.default_subagent_reasoning_effort'] = p.workers.effort;
-  return { config, key: launchKey(config) };
+  return { config, key: launchKey(withTag(config, conversation?.tag)) };
 }
 
 // A stable string for what a process was started with, so a reused process can tell the policy has changed.

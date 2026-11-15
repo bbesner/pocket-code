@@ -3,10 +3,11 @@
 // Talks to the running Pocket Code server over loopback with the token it writes to <data dir>/cli-token;
 // it never opens projects.json itself. Track a project only when the user asked for it (--requested).
 //
-//   pocket-board track --requested --name "Name" [--summary …] [--next …] [--dir …] [--link …] [--session <id>]
+//   pocket-board track --requested --name "Name" [--summary …] [--next …] [--dir …] [--link …] [--session <id>] [mode flags]
 //   pocket-board status [--all] [--json]          the current directory's project, or every project with --all
-//   pocket-board update [--name|--summary|--next|--waiting-for|--link|--dir|--status active|waiting|done]
-//   pocket-board task add "text" | done <id> | reopen <id> | edit <id> --text "…"
+//   pocket-board update [--name|--summary|--next|--waiting-for|--link|--dir|--status active|waiting|done] [mode flags]
+//                       mode flags: --mode conductor|off  --done-when "…"  --works-in "/path,https://…" (where the lead may work)
+//   pocket-board task add "text" [--check "…"] | done <id> | reopen <id> | edit <id> [--text "…"] [--check "…"]
 //   pocket-board remind --at "YYYY-MM-DDTHH:MM" [--task <id>] [--text "…"]     (no offset = the owner's zone, as printed)
 //   pocket-board dismiss <reminder-id>
 //   pocket-board note "text"
@@ -42,7 +43,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 const [cmd, ...rest] = opts._;
 const die = (msg, code = 1) => { console.error(msg); process.exit(code); };
-if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 19).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 20).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 
 const quiet = cmd === 'context'; // a session-start hook must never fail the session
 let token = '';
@@ -68,8 +69,11 @@ function card(p) {
   if (p.waitingFor) lines.push(`  Waiting for: ${p.waitingFor}`);
   if (p.directory) lines.push(`  Directory: ${p.directory}`);
   if (p.link) lines.push(`  Link: ${p.link}`);
+  if (p.mode === 'conductor') lines.push('  Mode: Conductor');
+  if (p.doneWhen) lines.push(`  Done when: ${p.doneWhen}`);
+  if (p.worksIn?.length) lines.push(`  Works in: ${p.worksIn.join(', ')}`);
   if (p.sessions?.length) lines.push(`  Sessions: ${p.sessions.join(', ')}`);
-  for (const t of p.tasks || []) lines.push(`  [${t.done ? 'x' : ' '}] ${t.text}  (${t.id})`);
+  for (const t of p.tasks || []) lines.push(`  [${t.done ? 'x' : ' '}] ${t.text}  (${t.id})${t.check ? `\n      Check: ${t.check}` : ''}`);
   for (const r of p.reminders || []) lines.push(`  ${r.due ? 'DUE' : 'Reminder'} ${when(r.dueAt)}: ${r.label}  (${r.id})`);
   lines.push(`  Updated ${when(p.updated)}, verified ${when(p.verified)}`);
   return lines.join('\n');
@@ -81,6 +85,14 @@ async function pick() {
   const snap = await call('/api/board?dir=' + encodeURIComponent(cwd));
   if (!snap.match) die(`No tracked project contains ${cwd}. Name one with -p <id>, or track it with: pocket-board track --requested --name "…"`, 5);
   return snap.match;
+}
+// Project mode: --mode conductor|off, --done-when "…", --works-in "a,b" (relative paths are resolved from here; addresses kept).
+function modeFlags() {
+  const out = {};
+  if (opts.mode !== undefined) out.mode = opts.mode;
+  if (opts.doneWhen !== undefined) out.doneWhen = opts.doneWhen;
+  if (opts.worksIn !== undefined) out.worksIn = opts.worksIn.split(/[\n,]/).map(x => x.trim()).filter(Boolean).map(x => /^[a-z][a-z0-9+.-]*:\/\//i.test(x) ? x : path.resolve(x));
+  return out;
 }
 async function act(body) {
   const data = await call('/api/board/act', body);
@@ -104,8 +116,9 @@ switch (cmd) {
   case 'context': {
     const snap = await call('/api/board?dir=' + encodeURIComponent(cwd)), p = snap.match && snap.projects.find(x => x.id === snap.match);
     if (!p || p.status === 'done') break;
-    const open = p.tasks.filter(t => !t.done).map(t => '- ' + t.text), due = p.reminders.filter(r => r.due).map(r => r.label);
-    const text = [`Tracked project for this directory: ${p.name} (id ${p.id}, ${p.status}).`, p.summary ? `Where we left off: ${p.summary}` : '', p.next ? `Next: ${p.next}` : '', p.waitingFor ? `Waiting for: ${p.waitingFor}` : '',
+    const open = p.tasks.filter(t => !t.done).map(t => '- ' + t.text + (t.check ? ` (check: ${t.check})` : '')), due = p.reminders.filter(r => r.due).map(r => r.label);
+    const text = [`Tracked project for this directory: ${p.name} (id ${p.id}, ${p.status}).`, p.mode === 'conductor' ? 'Mode: Conductor' : '', p.doneWhen ? `Done when: ${p.doneWhen}` : '', p.worksIn?.length ? `Works in: ${p.worksIn.join(', ')}` : '',
+      p.summary ? `Where we left off: ${p.summary}` : '', p.next ? `Next: ${p.next}` : '', p.waitingFor ? `Waiting for: ${p.waitingFor}` : '',
       open.length ? `Remaining steps:\n${open.join('\n')}` : '', due.length ? `Due reminders: ${due.join('; ')}` : '', `Keep the card current with pocket-board (update, task, remind, note) when this work reaches a stopping point.`].filter(Boolean).join('\n');
     console.log(opts.hook ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } }) : text);
     break;
@@ -120,20 +133,20 @@ switch (cmd) {
   case 'track': {
     if (!opts.name) die('track needs --name "…"');
     if (!opts.requested) die('Track a project only when the user asked for it; pass --requested to say so.', 6);
-    await act({ action: 'track', name: opts.name, summary: opts.summary || '', next: opts.next || '', directory: opts.dir ? path.resolve(opts.dir) : cwd, link: opts.link || '', session: opts.session || undefined, requested: true });
+    await act({ action: 'track', name: opts.name, summary: opts.summary || '', next: opts.next || '', directory: opts.dir ? path.resolve(opts.dir) : cwd, link: opts.link || '', session: opts.session || undefined, requested: true, ...modeFlags() });
     break;
   }
   case 'update': {
     const body = { action: 'update', project: await pick() };
     for (const [k, v] of [['name', opts.name], ['summary', opts.summary], ['next', opts.next], ['waitingFor', opts.waitingFor], ['link', opts.link], ['directory', opts.dir && path.resolve(opts.dir)], ['status', opts.status]]) if (v !== undefined) body[k] = v; // 1.81: a relative --dir is resolved here, as pocket-docs add does
-    await act(body); break;
+    await act({ ...body, ...modeFlags() }); break;
   }
   case 'task': {
     const [verb, value] = rest, project = await pick();
-    if (verb === 'add') await act({ action: 'task-add', project, text: value });
+    if (verb === 'add') await act({ action: 'task-add', project, text: value, ...(opts.check !== undefined ? { check: opts.check } : {}) });
     else if (verb === 'done' || verb === 'reopen') await act({ action: 'task-update', project, task: value, done: verb === 'done' });
-    else if (verb === 'edit') await act({ action: 'task-update', project, task: value, text: opts.text });
-    else die('task add "text" | done <id> | reopen <id> | edit <id> --text "…"');
+    else if (verb === 'edit') { if (opts.text === undefined && opts.check === undefined) die('task edit <id> needs --text "…" or --check "…"'); await act({ action: 'task-update', project, task: value, ...(opts.text !== undefined ? { text: opts.text } : {}), ...(opts.check !== undefined ? { check: opts.check } : {}) }); }
+    else die('task add "text" [--check "…"] | done <id> | reopen <id> | edit <id> [--text "…"] [--check "…"]');
     break;
   }
   case 'remind': { if (!opts.at) die('remind needs --at "YYYY-MM-DDTHH:MM"'); await act({ action: 'remind', project: await pick(), at: opts.at, task: opts.task || undefined, text: opts.text || '' }); break; }

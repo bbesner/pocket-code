@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.103.0
+checked: 1.106.0
 sources: connectors.mjs, skills/pocket-google/, skills.mjs, public/workspace.js
 -->
 # Gmail, Calendar and Drive for agents

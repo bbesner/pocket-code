@@ -300,12 +300,13 @@ const clip = (s, n = 140) => (s == null ? '' : String(s).replace(/\s+/g, ' ').tr
 let extraInstructions = () => '';
 let trustedMatch = null; // 1.87: (command, cwd) -> the trusted rule it matches, or null (server.mjs sets it)
 export const setTrustedMatcher = fn => { trustedMatch = fn; };
-export const setExtraInstructions = fn => { extraInstructions = fn; }; // 1.29: the server adds the projects line when that feature is on
+export const setExtraInstructions = fn => { extraInstructions = fn; }; // 1.29: the server adds the projects line when that feature is on; (threadId, context)
 // 1.39: Settings says so when an operator's own developer_instructions keep Pocket's lines (projects, files, tasks, vault) from reaching Codex.
 export function instructionsOverridden() { try { return /^\s*developer_instructions\s*=/m.test(fs.readFileSync(path.join(CODEX_HOME, 'config.toml'), 'utf8')); } catch { return false; } }
-function choiceInstructions(threadId = null) {
+// `context` is what the server passed with the launch (Project mode: the conversation's mode, known before a new thread has an id).
+function choiceInstructions(threadId = null, context = undefined) {
   try { if (/^\s*developer_instructions\s*=/m.test(fs.readFileSync(path.join(CODEX_HOME, 'config.toml'), 'utf8'))) return {}; } catch { }
-  const parts = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', extraInstructions(threadId)].filter(Boolean);
+  const parts = [process.env.POCKET_CHOICES !== '0' ? CHOICE_INSTRUCTIONS : '', extraInstructions(threadId, context)].filter(Boolean);
   return parts.length ? { developerInstructions: parts.join(' ') } : {};
 }
 
@@ -1091,14 +1092,14 @@ async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, 
       // sandbox/approval ride on the resume, not the turn: turn/start's sandboxPolicy is
       // a tagged union, and setting it here keeps one code path for both entry points.
       const resumed = await conn.request('thread/resume', {
-        threadId, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}), ...choiceInstructions(threadId), ...policyConfig,
+        threadId, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}), ...choiceInstructions(threadId, launch?.context), ...policyConfig,
       }, 60_000);
       s.model = resumed.model; s.effort = resumed.reasoningEffort || null; s.cwd = resumed.cwd || cwd;
     } else if (forkFrom) {
       // 1.79 Branch: a new, saved thread that starts with everything in `forkFrom`. This process forks it, so it holds
       // the new thread's writer lock exactly as a resume would; the source thread is only read.
       const r = await conn.request('thread/fork', {
-        threadId: forkFrom, excludeTurns: true, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}), ...choiceInstructions(),
+        threadId: forkFrom, excludeTurns: true, ...codexPermissionSettings(approvalMode), ...(cwd ? { cwd } : {}), ...choiceInstructions(null, launch?.context),
         ...(model ? { model } : {}), ...policyConfig,
       }, 60_000);
       s.model = r.model; s.effort = r.reasoningEffort || null; s.cwd = r.cwd || cwd;
@@ -1109,7 +1110,7 @@ async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, 
       try { onForked?.(s.threadId); } catch (e) { log(`branch record failed thread=${s.threadId}: ${e.message}`); }
     } else {
       const r = await conn.request('thread/start', {
-        cwd, ...codexPermissionSettings(approvalMode), ...choiceInstructions(),
+        cwd, ...codexPermissionSettings(approvalMode), ...choiceInstructions(null, launch?.context),
         ...(model ? { model } : {}), ...policyConfig,
       }, 60_000);
       s.model = r.model; s.effort = r.reasoningEffort || null;
@@ -1426,6 +1427,10 @@ let knownModels = []; // the last non-empty list, kept across a reader restart (
 export const codexSuccessor = id => (id && latestCodexModels(knownModels).replaced[id]) || id;
 // 1.92: the newest GPT Sol the last model list had (the context policy's worker under GPT Astra), or null before a list.
 export const codexNewestSol = () => latestCodexModels(knownModels).models.find(m => codexVersionOf(m.id)?.family === 'gpt|sol')?.id || null;
+// Project mode (project-mode.mjs): the newest GPT Astra the last model list had, the lead of a Conductor conversation; null when none.
+export const codexNewestAstra = () => latestCodexModels(knownModels).models.find(m => codexVersionOf(m.id)?.family === 'gpt|astra')?.id || null;
+// The label the last model list gave an id (the id itself when the list does not name it).
+export const codexModelLabel = id => id ? knownModels.find(m => m.id === id)?.label || id : null;
 // 1.92: Codex's own default model (top-level `model` in config.toml), for a conversation started on Default.
 export function codexDefaultModel() {
   try { const top = fs.readFileSync(path.join(CODEX_HOME, 'config.toml'), 'utf8').split(/^\s*\[/m)[0]; return top.match(/^\s*model\s*=\s*["']([^"']+)["']/m)?.[1] || null; } catch { return null; }

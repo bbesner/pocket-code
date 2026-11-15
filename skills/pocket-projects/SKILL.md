@@ -108,6 +108,27 @@ not approval to deploy, spend money or contact anyone; those still need the user
 
 Name a project with `-p <id>` (from `status --all`) when you are not in its directory.
 
+## Conductor mode
+
+A project can be switched to **Conductor** mode. Do it only when the user asks. A conversation
+started in such a project, or linked to it (`link-session`, or `track --session`) while the mode
+is on, runs with the newest top model as the lead, and Pocket gives the lead a playbook in its
+instructions; a conversation started **Solo** in that project runs one cheaper model without the
+playbook. Switching the mode on does not change conversations already linked to the project;
+link one again after unlinking it if it should join. Unlinking a conversation, finishing the
+project or switching the mode off ends the mode. Pocket applies each change at the
+conversation's next reply.
+
+```bash
+pocket-board update --mode conductor        # or --mode off
+pocket-board update --done-when "What finished looks like, as something that can be checked"
+pocket-board update --works-in "/srv/app,https://staging.example.test"   # where the lead may work without asking
+pocket-board task add "Build the export" --check "The export test passes"
+pocket-board task edit <task-id> --check "…"
+```
+
+`status` and `context` print the mode, Done when, Works in and each step's check.
+
 A session started with **Start conversation** on a project card is already linked to the project,
 and its first message is a briefing that names the project id and its open step ids. Pick up
 from the next step; do not link the session again or track a duplicate.

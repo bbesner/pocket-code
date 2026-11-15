@@ -234,7 +234,8 @@ const Branch = (() => {
    behind a running reply rather than steering it, and it shows in the conversation like anything else you send. */
 const Handoff = (() => {
   const continued = new Set(); // conversations already continued elsewhere (from the lineage)
-  const at = () => Number(window.pocketFeatures?.handoffAt) || 0;
+  // 1.106: a project-mode conversation carries its own offer size (lower for a Conductor lead); the server's otherwise.
+  const at = () => { const own = Number(typeof projectModeNow === 'function' && chatProjectMode?.session === chatId ? chatProjectMode.handoffAt : 0); return own > 0 ? own : Number(window.pocketFeatures?.handoffAt) || 0; };
   const showing = id => { const e = document.getElementById(id); return Boolean(e && !e.hidden); };
   function noteLineage(s) { if (!s?.id) return; if ((s.continuedIn || []).length) continued.add(s.id); else continued.delete(s.id); }
   // Reply choices still open under the latest reply: a handoff carries them, so the new conversation asks you there.

@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.99.0
-sources: projects.mjs, public/projects.js, scripts/pocket-board.mjs, scripts/owner-zone.mjs, skills/pocket-projects/SKILL.md
+checked: 1.106.0
+sources: projects.mjs, project-mode.mjs, public/projects.js, scripts/pocket-board.mjs, scripts/owner-zone.mjs, skills/pocket-projects/SKILL.md
 -->
 # Projects
 
@@ -50,7 +50,10 @@ Once a conversation is linked, its chip shows the project's name and opens the c
 | Next | The single next step, up to 600 characters. |
 | Waiting for | Who or what the project waits on. Shown when set or when the project is Waiting. |
 | Directory, Link | The project's folder on the server and an outside link. |
-| Steps | The checklist of remaining steps, with "n of m done". |
+| Conductor mode | A switch. While it is on, conversations started in, handed off within or linked to the project run with the top model as the lead. See [Conductor mode](#conductor-mode). |
+| Done when | What finished looks like for the project, as something that can be checked. Shown when set, or as **Not set** while Conductor mode is on. |
+| Works in | Folders and web addresses the lead may change without asking. Shown when set, or as **Not set** while Conductor mode is on. |
+| Steps | The checklist of remaining steps, with "n of m done". A step with a check shows it under the step as **Passes when: …**. |
 | Reminders | Open reminders for the project or for one step. |
 | Conversations | The conversations linked to the project, each with its live state. |
 | Files | Files linked to the project, when [Files](files.md) is on (up to eight, then **All n files**). |
@@ -63,7 +66,7 @@ The buttons at the bottom are **Start conversation**, **Edit**, **Remind me** an
 
 - Type in **Add a remaining step** and press **Add**. A step holds up to 300 characters; a project holds up to 200 steps.
 - Tick a step to mark it done; untick it to reopen it. Finishing a step stops its reminder.
-- The **⋯** on a step offers **Remind me about this step** and **Edit the text**. Steps cannot be deleted; they stay in the card and its history.
+- The **⋯** on a step offers **Remind me about this step** and **Edit the text**. **Edit the text** also has **Passes when**: a check that shows the step is done, such as "the test suite passes" (optional, up to 300 characters). Steps cannot be deleted; they stay in the card and its history.
 
 ### Waiting and finished projects
 
@@ -110,9 +113,37 @@ A reminder's **⋯** offers **Open project**, **Remind later** and **Dismiss**.
 
 - in the project's directory, when it has one;
 - with the agent (Claude, Codex or OpenRouter) that last worked on the project;
-- with a briefing already written as the first message: where you left off, the next step, what it is waiting for, up to 20 open steps with their ids, the last three notes, open reminders, the link, the last three linked conversations, and the `pocket-board` commands to keep the card current.
+- with a briefing already written as the first message: where you left off, the next step, what it is waiting for, Done when and Works in, up to 20 open steps with their ids and checks, the last three notes, open reminders, the link, the last three linked conversations, and the `pocket-board` commands to keep the card current.
 
 Edit the briefing if you like, then send it. The conversation is linked to the project as it starts. The project's chip above the message shows which project it will join; click it and choose **Remove the link** to start without the project.
+
+### Conductor mode
+
+Conductor mode is for a big piece of work you want an agent to carry a long way on its own. Turn on the **Conductor mode** switch on the card. A conversation in Conductor mode runs the newest top model on this server (Fable on Claude Code, GPT Astra on Codex) as the **lead**, at high effort. The lead plans the work, hands each piece to a cheaper model, checks what comes back against the steps' checks, and stops only for a decision from you.
+
+Which conversations the switch affects:
+
+- **Switching it on** applies to conversations started in the project, handed off within it, or linked to it from then on. Conversations that were already linked stay as they are.
+- **Linking a running conversation** to a Conductor project (its **Add project** chip, or `pocket-board link-session`) puts it in Conductor mode at its next reply.
+- **Switching it off, finishing the project or unlinking a conversation** ends the mode for that conversation at its next reply. Its model goes back to the usual default, which restarts the agent's process. If the conversation has a background job running, the change waits until the job ends.
+
+If this server offers neither top model, the switch cannot be turned on and says **Needs a top model (Fable or GPT Astra) offered on this server.**
+
+Before a long run, use **Edit** to fill in:
+
+- **Done when**: what finished looks like, written so it can be checked ("every page loads in under a second and the tests pass").
+- **Works in**: one folder or web address per line, for the places the lead may change without asking. The project's directory is always included. In this version the list informs the lead only; what Pocket approves still follows the conversation's permission setting.
+
+and give each step a **Passes when** check. The lead also writes them on the card itself when they are missing.
+
+**Start conversation** on a Conductor project adds a **Start** choice to the setup above the message (shown in the setup summary as **Start Conductor · *lead* leads**; open **Edit setup** to change it):
+
+- **Conductor** (the default): the lead named for the chosen agent, at high effort, handing out the work.
+- **Solo**: one cheaper model does the work itself, with no lead. Use it for a fix or a single contained change; a lead costs more on small work because it re-reads everything it checks.
+
+While the choice shows, the model and effort chips start on **Default**, so a model you left picked on an earlier start does not replace the lead; a model or effort you choose on this screen is still used. An agent without a top model on this server, and OpenRouter, starts as usual; the setup says so instead of offering the choice. Removing the project link (the project chip, **Remove the link**) removes the choice too.
+
+In the conversation, a **Conductor** or **Solo** chip sits beside the project chip; tap it to see which model leads. Changing the model mid-conversation restarts the lead without its reasoning, so the model picker suggests a [handoff](conversation.md#hand-off-to-a-fresh-conversation) instead. A Conductor conversation offers a handoff sooner (at 150K tokens, or the server's own size when that is lower), and a handoff keeps the project and the start. See [Working in a conversation](conversation.md#project-mode-chip).
 
 ### Linked conversations
 
@@ -133,8 +164,10 @@ The **⋯** on a linked conversation offers **Open conversation**, **Open beside
 |---|---|
 | Projects | 200 |
 | Name | 120 characters |
-| Summary, next step, waiting for, note, reminder text | 600 characters |
+| Summary, next step, waiting for, done when, note, reminder text | 600 characters |
 | Step | 300 characters; 200 steps per project |
+| Passes when (a step's check) | 300 characters |
+| Works in | 10 places, each a full path or an `http`/`https` address of up to 1,024 characters |
 | Linked conversations | 50 per project |
 | Reminders kept | Every open one; past 50 in total, only the last 10 settled ones are kept |
 | History | The last 200 entries |
@@ -187,9 +220,12 @@ Times are printed in the user's time zone (the one their browser reports to Pock
 | `status --all` | One line per project: status, id, name, due reminders, open steps. |
 | `status -p <id>` | That project's card. |
 | `update [--name "…"] [--summary "…"] [--next "…"] [--waiting-for "…"] [--link <url>] [--dir <path>] [--status active\|waiting\|done]` | Changes the named fields. At least one is required. `--status done` finishes the project and cancels its reminders. |
-| `task add "text"` | Adds a step. |
+| `update --mode conductor\|off` | Turns [Conductor mode](#conductor-mode) on or off. Only when the user asks. |
+| `update --done-when "…"` | Sets what finished looks like, as something that can be checked. |
+| `update --works-in "/path,https://…"` | Sets the places the lead may change without asking, separated by commas. A relative path is taken from the current directory. An empty value clears the list. |
+| `task add "text" [--check "…"]` | Adds a step, with its pass/fail check when given. |
 | `task done <step-id>` / `task reopen <step-id>` | Ticks or unticks a step. Done stops the step's reminder. |
-| `task edit <step-id> --text "…"` | Rewrites a step. |
+| `task edit <step-id> [--text "…"] [--check "…"]` | Rewrites a step, its check, or both. |
 | `remind --at "YYYY-MM-DDTHH:MM" [--task <step-id>] [--text "…"]` | Sets the project's reminder, or a step's with `--task`, replacing the open one. Seconds and an offset (`Z`, `+02:00`) are accepted. A time in the past is accepted and comes due at the next check. |
 | `dismiss <reminder-id>` | Cancels an open reminder. |
 | `note "text"` | Adds a note to the history. |
@@ -224,7 +260,8 @@ pocket-board status --all
 pocket-board track --requested --name "Acme HOA camera upgrade" \
   --summary "Quote approved; parts ordered." --next "Schedule the install with the board" \
   --session 3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b
-pocket-board task add "Confirm the pole mounts fit"
+pocket-board task add "Confirm the pole mounts fit" --check "Every mount in the photo log is marked as fitting"
+pocket-board update --done-when "All 24 cameras record and the board has the handover notes"
 pocket-board update --status waiting --waiting-for "Parts delivery"
 pocket-board remind --at "2026-11-06T09:00" --text "Check the parts delivery"
 pocket-board update -p acme-hoa-camera-upgrade --summary "Installed and tested." --next "Send the handover notes"
@@ -252,6 +289,10 @@ pocket-board update -p acme-hoa-camera-upgrade --summary "Installed and tested."
 | `No tracked project contains …` | The current directory is outside every active project's directory. | Pass `-p <id>` (ids are in `status --all`), or set the project's directory with `update --dir`. |
 | `The directory must be a full path.` | A relative directory reached the server from the form or the API (the command resolves `--dir` against the current directory). | Pass an absolute path. |
 | `This project is finished. Resume it first.` | Steps and reminders cannot change on a Done project. | `update --status active`, or **Resume project** on the card. |
+| `Each place must be a full path or a web address.` | A **Works in** line is a relative path or an address that is not `http`/`https`. | Write each place as a full path (`/srv/site`) or a full address (`https://staging.example.com`). |
+| The **Conductor mode** switch is greyed out | This server offers neither top model (Fable for Claude Code, GPT Astra for Codex). | Make Fable available to Claude Code on this server (**Settings → Agents & instance → Claude models in the picker**, and the computer's Claude Code policy), or update Codex to a version that offers GPT Astra. |
+| **Started, but not linked to *project*:** after Start conversation | The conversation started, but the server could not link it, for example because the project already has 50 conversations. It runs without the project and its mode. | Unlink an old conversation from the card, then link this one with its **Add project** chip. |
+| No **Start** choice on New conversation | The project's Conductor mode is off, the chosen agent has no top model here, or it is OpenRouter. | Turn the mode on, or pick Claude Code or Codex. |
 | A reminder arrives hours off | The time was given without an offset before the user's browser reported a zone, and `POCKET_TZ` (or the system zone) is not the user's. | Open Pocket in the user's browser once, set `POCKET_TZ` to the user's zone, or pass an offset. |
 | No reminder on any channel | Projects is off; reminders are announced only while it is on. | Turn on **Settings → Projects, files, tasks & vault → Projects**. |
 | No push for a due reminder | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications & voice** on the device. The card still shows the reminder as due. |

@@ -351,14 +351,14 @@ header.bar button.bell.on { color: var(--clay); }
 }
 .sheet h2 { font-size: 13.5px; font-weight: 600; color: var(--dim); text-transform: uppercase;
   letter-spacing: .06em; padding: 4px 14px 10px; }
-.sheet .opt {
+.sheet .opt, .project-mode .opt {
   display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
   padding: 14px; border-radius: 12px; font-size: 16.5px;
 }
-.sheet .opt .sub { font-size: 13.5px; color: var(--faint); display: block; margin-top: 2px; }
+.sheet .opt .sub, .project-mode .opt .sub { font-size: 13.5px; color: var(--faint); display: block; margin-top: 2px; }
 .sheet .sheet-name { font-size: 16px; font-weight: 500; color: var(--text); padding: 0 14px 12px; overflow-wrap: anywhere; }
 .sheet .opt.sel { background: var(--raised); }
-.sheet .opt .dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--faint); flex: none; }
+.sheet .opt .dot, .project-mode .opt .dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--faint); flex: none; }
 .sheet .opt.sel .dot { border-color: var(--clay); background: radial-gradient(circle, var(--clay) 45%, transparent 50%); }
 .sheet a.opt, .sheet a.opt:visited { color: inherit; text-decoration: none; } /* a link row looks like every other row */
 .sheet .opt .sub { overflow-wrap: anywhere; }
@@ -409,7 +409,7 @@ a.chip, a.chip:visited { text-decoration: none; }
   font-size: 13px; text-align: right; overflow-wrap: anywhere; }
 .arow.ok b { color: var(--ok); }
 .about .primary { margin-top: 4px; padding: 12px; font-size: 15px; }
-.sheet .opt .dot.on { border-color: var(--clay); background: radial-gradient(circle, var(--clay) 45%, transparent 50%); }
+.sheet .opt .dot.on, .project-mode .opt .dot.on { border-color: var(--clay); background: radial-gradient(circle, var(--clay) 45%, transparent 50%); }
 
 /* ---------- V8: upload thumbnails + per-session mute + steering ---------- */
 .athumb { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; flex: none;
@@ -1793,6 +1793,7 @@ html.assistant #save-prompt,
 html.assistant #muteb,
 html.assistant .voice-mute,
 html.assistant #project-open,
+html.assistant #mode-open,
 html.assistant #task-open,
 html.assistant .send-mode,
 html.assistant .turnmeta,
@@ -2117,3 +2118,20 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .cli-updates-sheet > .cli-update-actions { position: sticky; bottom: -10px; display: grid; grid-template-columns: 1fr 1fr; background: var(--surface); padding: 12px 0; }
 .cli-updates-sheet > .cli-update-actions .primary { grid-column: 1 / -1; }
 .cli-updates-sheet > .cli-update-actions .chip { justify-content: center; }
+
+/* 1.106: Project mode (conductor). The card's switch is the Settings switch row (.opt and its clay dot) on the card's own
+   inset; with no top model on the server it reads like a blocked model row (dashed ring, --dim). A step's check is a
+   --dim line under its text. The conversation's Conductor/Solo chip is an ordinary chip; New's Start choice reuses the
+   Agent radio rows, with room for the sub-line to wrap. */
+.project-mode { padding: 4px 0; }
+.project-mode .opt { padding-inline: 0; }
+.project-mode .opt[aria-disabled="true"] { cursor: default; color: var(--dim); }
+.project-mode .opt[aria-disabled="true"] .dot { border-style: dashed; }
+.project-mode .opt[aria-disabled="true"] .sub { color: var(--dim); }
+.task-label .task-pass { display: block; margin-top: 2px; font-size: 13.5px; line-height: 1.4; color: var(--dim); }
+.task-row.completed .task-label .task-pass { color: var(--faint); }
+.conversation-mode[hidden] { display: none; }
+.start-modes .row .p { white-space: normal; }
+#new-start-mode[hidden], .start-modes[hidden] { display: none; }
+#pe-done-help, #pe-works-help, #step-check-help, #new-start-none { text-wrap: pretty; } /* DESIGN.md: notes wrap pretty */
+.sheet .sheet-note, .mode-sheet .sheet-help { padding-inline: 14px; } /* on the rows' inset, under the heading */

@@ -24,7 +24,9 @@ function mergeProject(p){
  boardSnap.dueCount=boardSnap.scheduled.filter(r=>r.due).length;
 }
 async function boardAct(body,done){
- try{const r=await api('/board/act',{method:'POST',body:JSON.stringify(body)});mergeProject(r.project);if(done)toast(done);paintProjectsView();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();return r.project;}
+ try{const r=await api('/board/act',{method:'POST',body:JSON.stringify(body)});mergeProject(r.project);if(done)toast(done);paintProjectsView();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();
+  if(typeof boardChangedChatMode==='function')boardChangedChatMode(body,r.project); // 1.106: the open conversation's chip follows a link, unlink or switch
+  return r.project;}
  catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();}toast(e.message||'Could not update the project');return null;}
 }
 const boardDueCount=()=>boardSnap?.dueCount||0;
@@ -125,8 +127,9 @@ function projectCardHTML(p){
   ${field('Next',p.next,'No next step recorded.')}
   ${p.waitingFor||p.status==='waiting'?field('Waiting for',p.waitingFor,'Nothing recorded.'):''}
   ${p.directory||p.link?`<section class="project-field project-links">${p.directory?`<span class="ledger"><span class="name">Directory</span><span class="det">${esc(projShort(p.directory))}</span></span>`:''}${p.link?`<a class="ledger" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer"><span class="name">Link</span><span class="det">${esc(p.link.replace(/^https?:\/\//,''))}</span></a>`:''}</section>`:''}
+  ${projectModeHTML(p,field)}
   <section class="project-tasks"><h2>Steps <span>${p.tasks.length?`${tasksDone} of ${p.tasks.length} done`:''}</span></h2>
-   ${p.tasks.length?`<ul class="task-list">${p.tasks.map(t=>{const rem=p.reminders.find(r=>r.task===t.id);return `<li class="task-row ${t.done?'completed':''}"><label class="task-label"><input type="checkbox" data-task="${esc(t.id)}" ${t.done?'checked':''} ${done?'disabled':''}><span>${esc(t.text)}</span></label>${rem?`<small class="task-meta ${rem.due?'due-label':''}">${rem.due?'Due':'Reminder'} ${esc(fmtDue(rem.dueAt))}</small>`:''}${done?'':`<button class="icon task-more" data-task-more="${esc(t.id)}" aria-label="Options for step ${esc(t.text)}">${IC.more}</button>`}</li>`;}).join('')}</ul>`:''}
+   ${p.tasks.length?`<ul class="task-list">${p.tasks.map(t=>{const rem=p.reminders.find(r=>r.task===t.id);return `<li class="task-row ${t.done?'completed':''}"><label class="task-label"><input type="checkbox" data-task="${esc(t.id)}" ${t.done?'checked':''} ${done?'disabled':''}><span>${esc(t.text)}${t.check?`<small class="task-pass">Passes when: ${esc(t.check)}</small>`:''}</span></label>${rem?`<small class="task-meta ${rem.due?'due-label':''}">${rem.due?'Due':'Reminder'} ${esc(fmtDue(rem.dueAt))}</small>`:''}${done?'':`<button class="icon task-more" data-task-more="${esc(t.id)}" aria-label="Options for step ${esc(t.text)}">${IC.more}</button>`}</li>`;}).join('')}</ul>`:''}
    ${done?'':`<form class="task-add" data-task-add><input name="text" maxlength="300" required placeholder="Add a remaining step" aria-label="New step" autocomplete="off"><button class="chip" type="submit">Add</button></form>`}</section>
   ${p.reminders.length?`<section class="project-reminders"><h2>Reminders</h2>${p.reminders.map(r=>`<div class="reminder ${r.due?'due':''}" data-reminder="${esc(r.id)}"><p class="reminder-title">${esc(r.label)}</p><p class="${r.due?'due-label':'project-meta'}">${r.due?'Due · ':''}${esc(fmtDue(r.dueAt))}${r.task?' · on a step':''}</p><div class="reminder-actions"><button class="chip" data-remind-later="${esc(r.id)}">Remind later</button><button class="chip" data-dismiss="${esc(r.id)}">Dismiss</button>${r.due&&p.status==='waiting'?'<button class="chip set" data-resume>Resume project</button>':''}</div></div>`).join('')}</section>`:''}
   <section class="project-sessions"><h2>Conversations <span>${p.sessions.length||''}</span></h2>
@@ -137,6 +140,21 @@ function projectCardHTML(p){
   <details class="settings-details project-history"><summary>History<span class="summary-meta">${p.history.length}</span></summary><ul>${p.history.slice().reverse().map(h=>`<li><span class="ledger"><span class="name">${esc(fmtDue(h.at))}</span><span class="det">${esc(historyLine(h))}</span></span></li>`).join('')}</ul></details>
   <div class="project-actions">${done?'<button class="chip set" data-resume>Resume project</button>':`<button class="chip set" data-start>Start conversation</button><button class="chip" data-edit>Edit</button><button class="chip" data-remind>Remind me</button><button class="chip" data-finish>Finish project</button>`}</div>
  </article>`;
+}
+/* 1.106: Conductor mode. A switch on the card: while on, a conversation started in, handed off within or linked to the project runs the newest top model as
+   the lead. The board snapshot's `conductor` names the lead per agent (null where this server offers none), so with neither
+   the switch says why it cannot turn on. Done when and Works in show when set, or as "Not set." while the mode is on. */
+const conductorLeads=()=>boardSnap?.conductor||{claude:null,codex:null};
+const conductorOffered=()=>{const c=conductorLeads();return Boolean(c.claude||c.codex);};
+const CONDUCTOR_LINE='Conversations in this project start with the top model as lead. It plans, hands the work to cheaper models and checks the results.';
+const CONDUCTOR_NONE='Needs a top model (Fable or GPT Astra) offered on this server.';
+function projectModeHTML(p,field){
+ const on=p.mode==='conductor',works=Array.isArray(p.worksIn)?p.worksIn:[];
+ const locked=p.status==='done'||(!on&&!conductorOffered());
+ const place=x=>/^https?:\/\//i.test(x)?`<a class="ledger" href="${esc(x)}" target="_blank" rel="noopener noreferrer"><span class="det">${esc(x.replace(/^https?:\/\//i,''))}</span></a>`:`<span class="ledger"><span class="det">${esc(projShort(x))}</span></span>`;
+ return `<section class="project-field project-mode"><button type="button" class="opt" data-mode aria-pressed="${on}"${locked?' aria-disabled="true"':''}><span class="dot${on?' on':''}"></span><span>Conductor mode<span class="sub">${conductorOffered()?CONDUCTOR_LINE:CONDUCTOR_NONE}</span></span></button></section>
+  ${p.doneWhen||on?field('Done when',p.doneWhen,'Not set.'):''}
+  ${works.length||on?`<section class="project-field project-works"><h2>Works in</h2>${works.length?`<div class="project-links">${works.map(place).join('')}</div>`:'<p class="project-empty">Not set.</p>'}</section>`:''}`;
 }
 function historyLine(h){
  const who=h.actor==='cli'?'agent':h.actor==='import'?'import':'you';
@@ -158,6 +176,12 @@ function bindProjectsView(main){
  main.querySelectorAll('[data-remind-later]').forEach(b=>b.onclick=()=>reminderSheet(id,p.reminders.find(r=>r.id===b.dataset.remindLater)?.task||null));
  main.querySelectorAll('[data-dismiss]').forEach(b=>b.onclick=()=>confirmSheet('Dismiss this reminder?','Dismissing stops it. The project and its steps stay as they are.','Dismiss reminder',()=>act({action:'reminder-dismiss',reminder:b.dataset.dismiss},'Reminder dismissed')));
  main.querySelectorAll('[data-resume]').forEach(b=>b.onclick=()=>act({action:'update',status:'active'},'Project resumed'));
+ main.querySelector('[data-mode]')?.addEventListener('click',async e=>{
+  const b=e.currentTarget;if(b.disabled)return;
+  if(b.getAttribute('aria-disabled')==='true')return toast(p.status==='done'?'This project is finished. Resume it first.':'Conductor mode '+CONDUCTOR_NONE.replace(/^N/,'n'));
+  const on=p.mode!=='conductor';b.disabled=true;
+  await act({action:'update',mode:on?'conductor':'off'},on?'Conductor mode on':'Conductor mode off');b.disabled=false;
+ });
  main.querySelector('[data-start]')?.addEventListener('click',()=>startProject(p));
  main.querySelector('[data-edit]')?.addEventListener('click',()=>projectEditor(p));
  main.querySelector('[data-remind]')?.addEventListener('click',()=>reminderSheet(id,null));
@@ -182,7 +206,7 @@ function projectOptions(id){
    !here&&(PANE?typeof paneSay==='function':!SOLO&&isWide()&&typeof openBeside==='function')?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">${PANE?'In a new pane to the left of this one':'In a pane next to the current view'}</span></span></button>`:'',
    `<button class="opt" data-window>${IC.external}<span>Open in a new window<span class="sub">A browser tab or app window of its own</span></span></button>`])}
   ${p.status==='done'?'':optGroup('Work on it',[`<button class="opt" data-start>${IC.plus}<span>Start a conversation<span class="sub">A new conversation briefed on where the project stands, linked to it</span></span></button>`])}
-  ${optGroup('Project',[p.status==='done'?`<button class="opt" data-resume>${IC.up}<span>Resume project<span class="sub">Back to Active, without its old reminders</span></span></button>`:`<button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, summary, next step, waiting for, directory, link</span></span></button>
+  ${optGroup('Project',[p.status==='done'?`<button class="opt" data-resume>${IC.up}<span>Resume project<span class="sub">Back to Active, without its old reminders</span></span></button>`:`<button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, summary, next step, waiting for, done when, works in, directory, link</span></span></button>
   <button class="opt" data-remind>${IC.hourglass}<span>Remind me<span class="sub">A reminder for the project, sent once when due</span></span></button>
   ${p.status==='waiting'?`<button class="opt" data-active>${IC.tick}<span>Mark active<span class="sub">No longer waiting on anyone</span></span></button>`:`<button class="opt" data-waiting>${IC.hourglass}<span>Mark waiting<span class="sub">Waiting on someone or something; say who in Edit</span></span></button>`}
   <button class="opt" data-finish>${IC.tick}<span>Finish project<span class="sub">Moves it to Done and stops its reminders</span></span></button>`])}`;
@@ -209,17 +233,20 @@ function projectBriefing(p){
  if(p.summary)lines.push('Where we left off: '+p.summary);
  if(p.next)lines.push('Next step: '+p.next);
  if(p.waitingFor)lines.push('Waiting for: '+p.waitingFor);
- if(open.length)lines.push('',`Remaining steps (${p.tasks.length-open.length} of ${p.tasks.length} done):`,...shown.map(t=>`- ${t.text} (step ${t.id})`),...(open.length>shown.length?[`- and ${open.length-shown.length} more on the card`]:[]));
+ if(p.doneWhen)lines.push('Done when: '+p.doneWhen); // 1.106
+ if(p.worksIn?.length)lines.push('Works in: '+p.worksIn.join(', '));
+ if(open.length)lines.push('',`Remaining steps (${p.tasks.length-open.length} of ${p.tasks.length} done):`,...shown.map(t=>`- ${t.text} (step ${t.id}${t.check?'; passes when: '+t.check:''})`),...(open.length>shown.length?[`- and ${open.length-shown.length} more on the card`]:[]));
  if(notes.length)lines.push('','Recent notes:',...notes.map(h=>`- ${fmtDue(h.at)}: ${h.detail}`));
  if(p.reminders.length)lines.push('','Reminders:',...p.reminders.map(r=>`- ${r.label} (${r.due?'due ':''}${fmtDue(r.dueAt)})`));
  if(p.link)lines.push('','Link: '+p.link);
  if(sessions.length)lines.push('','Earlier conversations on this project, newest last:',...sessions.map(id=>`- ${sessionName(id)} (${id.startsWith('cx:')?'Codex':id.startsWith('acp:')?'OpenRouter':'Claude'} conversation ${id})`));
- lines.push('',`(Pocket project ${p.id}; this conversation is linked to it. When the work reaches a stopping point, keep the card current: pocket-board update -p ${p.id} --summary "…" --next "…", pocket-board task done <step> -p ${p.id}, pocket-board note "…" -p ${p.id}.)`);
+ lines.push('',`(Pocket project ${p.id}; this conversation is linked to it. When the work reaches a stopping point, keep the card current: pocket-board update -p ${p.id} --summary "…" --next "…", pocket-board task done <step> -p ${p.id}, pocket-board note "…" -p ${p.id}. Record what finished means with pocket-board update -p ${p.id} --done-when "…", and a step with its check with pocket-board task add "…" --check "…" -p ${p.id}.)`);
  return lines.join('\n');
 }
 function startProject(p){
  saveBriefing(projectBriefing(p));
- writeLocal('pc-new-start',{project:p.id,projectName:p.name,cwd:p.directory||''});
+ // 1.106: a Conductor project's start carries the mode and the lead per agent, so New offers Conductor or Solo without a fetch.
+ writeLocal('pc-new-start',{project:p.id,projectName:p.name,cwd:p.directory||'',...(p.mode==='conductor'?{mode:'conductor',conductor:{...conductorLeads()}}:{})});
  const last=p.sessions[p.sessions.length-1];
  try{if(p.directory)localStorage.setItem('pc-lastproj',p.directory);if(last)localStorage.setItem('pc-provider',last.startsWith('cx:')?'codex':last.startsWith('acp:')?'acp':'claude');}catch{}
  location.hash='#/new';
@@ -242,10 +269,10 @@ function taskOptions(project,taskId){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
  sh.innerHTML=`<h2>Step</h2><p class="sheet-name">${esc(t.text)}</p>
   <button class="opt" data-remind>${IC.hourglass}<span>Remind me about this step</span></button>
-  <button class="opt" data-edit>${IC.pen}<span>Edit the text</span></button>`;
+  <button class="opt" data-edit>${IC.pen}<span>Edit the text<span class="sub">The step and what it passes when</span></span></button>`;
  const close=()=>closeCurrentSheet?.();
  sh.querySelector('[data-remind]').onclick=()=>{close();reminderSheet(project,taskId);};
- sh.querySelector('[data-edit]').onclick=()=>{close();textSheet('Edit step',t.text,300,text=>boardAct({action:'task-update',project,expected_revision:p.revision,task:taskId,text},'Step updated'));};
+ sh.querySelector('[data-edit]').onclick=()=>{close();stepSheet(t,({text,check})=>boardAct({action:'task-update',project,expected_revision:p.revision,task:taskId,text,...(check!==(t.check||'')?{check}:{})},'Step updated'));};
  mountSheet(scrim,sh);
 }
 function linkedSessionOptions(project,sessionId){
@@ -267,6 +294,15 @@ function textSheet(title,value,max,onSave){
  sh.querySelector('form').onsubmit=e=>{e.preventDefault();const text=e.target.elements.text.value.trim();if(!text)return;closeCurrentSheet?.();onSave(text);};
  mountSheet(scrim,sh);
 }
+// 1.106: a step's text and its pass/fail check ("Passes when"), which may be left empty.
+function stepSheet(t,onSave){
+ const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
+ sh.innerHTML=`<h2>Edit step</h2><form class="project-form"><label class="voice-field">Text<input name="text" maxlength="300" required value="${esc(t.text)}" autocomplete="off"></label>
+  <div class="voice-field"><label for="step-check">Passes when</label><input id="step-check" name="check" maxlength="300" value="${esc(t.check||'')}" autocomplete="off" aria-describedby="step-check-help"><p class="title-note" id="step-check-help">A check that shows this step is done. Optional.</p></div>
+  <button class="primary" type="submit">Save</button></form>`;
+ sh.querySelector('form').onsubmit=e=>{e.preventDefault();const text=e.target.elements.text.value.trim();if(!text)return;closeCurrentSheet?.();onSave({text,check:e.target.elements.check.value.trim()});};
+ mountSheet(scrim,sh);
+}
 // Track (p = null) or edit a project. The directory defaults to the session's workspace when tracking from a session.
 function projectEditor(p,{directory='',session=null,onDone}={}){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet project-editor';
@@ -277,13 +313,16 @@ function projectEditor(p,{directory='',session=null,onDone}={}){
    <label class="voice-field">Name<input name="name" maxlength="120" required value="${v('name')}" autocomplete="off"></label>
    <label class="voice-field">Where we left off<textarea name="summary" maxlength="600" rows="3">${v('summary')}</textarea></label>
    <label class="voice-field">Next step<textarea name="next" maxlength="600" rows="2">${v('next')}</textarea></label>
-   ${p?`<label class="voice-field">Waiting for<input name="waitingFor" maxlength="600" value="${v('waitingFor')}" placeholder="Who or what, if the project is waiting"></label>`:''}
+   ${p?`<label class="voice-field">Waiting for<input name="waitingFor" maxlength="600" value="${v('waitingFor')}" placeholder="Who or what, if the project is waiting"></label>
+   <div class="voice-field"><label for="pe-done">Done when</label><textarea id="pe-done" name="doneWhen" maxlength="600" rows="3" aria-describedby="pe-done-help">${v('doneWhen')}</textarea><p class="title-note" id="pe-done-help">What finished looks like, as something that can be checked.</p></div>
+   <div class="voice-field"><label for="pe-works">Works in</label><textarea id="pe-works" name="worksIn" maxlength="4000" rows="3" spellcheck="false" autocapitalize="off" placeholder="One per line" aria-describedby="pe-works-help">${esc((p.worksIn||[]).join('\n'))}</textarea><p class="title-note" id="pe-works-help">Folders and web addresses the lead may change without asking. The project's directory is always included.</p></div>`:''}
    <label class="voice-field">Directory<input name="directory" maxlength="1024" value="${p?v('directory'):esc(directory)}" placeholder="/full/path, so agents working there find this card"></label>
    <label class="voice-field">Link<input name="link" maxlength="1024" type="url" value="${v('link')}" placeholder="https://"></label>
    <button class="primary" type="submit">${p?'Save changes':'Track project'}</button>
   </form>`;
  sh.querySelector('form').onsubmit=async e=>{
   e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const btn=e.target.querySelector('button');btn.disabled=true;
+  if(p)f.worksIn=String(f.worksIn||'').split('\n').map(x=>x.trim()).filter(Boolean); // 1.106: one place per line
   const body=p?{action:'update',project:p.id,expected_revision:p.revision,...f}:{action:'track',...f,requested:true,...(session?{session}:{})};
   const out=await boardAct(body,p?'Project updated':'Project tracked');
   btn.disabled=false;if(!out)return;closeCurrentSheet?.();

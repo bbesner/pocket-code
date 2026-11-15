@@ -34,7 +34,7 @@ export class StartStore {
   }
   purge() { const next = this.pruned(), n = this.entries.length - next.length; this.entries = next; return n; }
   // body: { text, directory?, provider?, title?, ttlDays? } → the stored entry. The caller decides who may add.
-  // `handoff` (1.96) comes from the server, never from the body: { from, fromTitle, approvalMode }, the conversation the
+  // `handoff` (1.96) comes from the server, never from the body: { from, fromTitle, approvalMode, project?, projectStart? }, the conversation the
   // runner token proved and the approval mode the new conversation may not exceed. `providers` adds agents this box offers.
   add(body, { actor = 'ui', handoff = null, providers = PROVIDERS } = {}) {
     const text = str(body.text, LIMITS.text);
@@ -55,6 +55,8 @@ export class StartStore {
     const t = this.now();
     const entry = { id, text, directory, provider, title, by: actor, createdAt: iso(t), expiresAt: iso(t + ttl * 86400_000) };
     if (handoff) Object.assign(entry, { kind: 'handoff', from: str(handoff.from, 200), fromTitle: str(handoff.fromTitle, LIMITS.title), approvalMode: MODES.includes(handoff.approvalMode) ? handoff.approvalMode : 'review' });
+    // Project mode: written by a conversation in a project's Conductor mode, the next one joins that project and starts the same way.
+    if (handoff?.project) Object.assign(entry, { project: str(handoff.project, 80), projectStart: handoff.projectStart === 'solo' ? 'solo' : 'conductor' });
     next.push(entry);
     if (next.length > LIMITS.entries) next.splice(0, next.length - LIMITS.entries);
     this.save(next); this.entries = next;

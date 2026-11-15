@@ -8,12 +8,15 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { shellArg } from './skills.mjs';
 
-export const LIMITS = { name: 120, text: 600, task: 300, projects: 200, tasks: 200, reminders: 50, sessions: 50, history: 200, link: 1024, directory: 1024 };
+export const LIMITS = { name: 120, text: 600, task: 300, projects: 200, tasks: 200, reminders: 50, sessions: 50, history: 200, link: 1024, directory: 1024, doneWhen: 600, check: 300, places: 10, place: 1024 };
+export const MODES = ['off', 'conductor']; // Project mode (project-mode.mjs): off, or Conductor
 export const STATUSES = ['active', 'waiting', 'done'];
 export const ACTIONS = ['track', 'update', 'task-add', 'task-update', 'remind', 'reminder-dismiss', 'note', 'link-session', 'unlink-session'];
 const SESSION_RE = /^(cx:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const fail = (message, status = 400, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
+// Project mode: card text that reaches the lead's instructions is one line, so a card cannot add headings or paragraphs there.
+const oneLine = (v, max) => typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '';
 const shortId = () => randomBytes(6).toString('hex');
 const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
@@ -28,6 +31,30 @@ function checkDirectory(dir) {
   if (!path.isAbsolute(dir)) throw fail('The directory must be a full path.');
   return path.normalize(dir).replace(/\/+$/, '') || '/';
 }
+// Project mode: where the lead may work without asking. An array, or one string split on newlines and commas; each a full
+// path or an http(s) address. Duplicates are dropped.
+const PLACE_ERROR = 'Each place must be a full path or a web address.';
+function checkPlaces(v) {
+  const list = (Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[\n,]/) : v == null ? [] : null);
+  if (!list) throw fail(PLACE_ERROR);
+  const out = [];
+  for (const raw of list) {
+    if (typeof raw !== 'string') throw fail(PLACE_ERROR);
+    const x = raw.replace(/\s+/g, ' ').trim(); if (!x) continue;
+    if (x.length > LIMITS.place) throw fail(PLACE_ERROR);
+    let place;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(x) && !path.isAbsolute(x)) {
+      let u; try { u = new URL(x); } catch { throw fail(PLACE_ERROR); }
+      if (!['http:', 'https:'].includes(u.protocol)) throw fail(PLACE_ERROR);
+      place = x;
+    } else if (path.isAbsolute(x)) place = path.normalize(x).replace(/\/+$/, '') || '/';
+    else throw fail(PLACE_ERROR);
+    if (!out.includes(place)) out.push(place);
+  }
+  if (out.length > LIMITS.places) throw fail(`A project lists up to ${LIMITS.places} places.`);
+  return out;
+}
+function checkMode(v) { if (!MODES.includes(v)) throw fail('Mode must be off or conductor.'); return v; }
 function checkSession(id) {
   const s = str(id, 64);
   if (!SESSION_RE.test(s)) throw fail('That is not a session id.');
@@ -79,10 +106,12 @@ export class ProjectStore {
   normalize(p) {
     const arr = (v, max) => Array.isArray(v) ? v.slice(-max) : [];
     return { ...p, summary: p.summary || '', next: p.next || '', waitingFor: p.waitingFor || '', directory: p.directory || '', link: p.link || '',
+      mode: p.mode === 'conductor' ? 'conductor' : 'off', doneWhen: oneLine(p.doneWhen, LIMITS.doneWhen),
+      worksIn: Array.isArray(p.worksIn) ? p.worksIn.map(x => oneLine(x, LIMITS.place)).filter(Boolean).slice(0, LIMITS.places) : [],
       status: STATUSES.includes(p.status) ? p.status : 'active', revision: Number.isInteger(p.revision) && p.revision > 0 ? p.revision : 1,
       enrollment: p.enrollment === 'suggested' ? 'suggested' : 'requested',
       sessions: arr(p.sessions, LIMITS.sessions).filter(s => SESSION_RE.test(s)),
-      tasks: arr(p.tasks, LIMITS.tasks).filter(t => t && t.id && typeof t.text === 'string'),
+      tasks: arr(p.tasks, LIMITS.tasks).filter(t => t && t.id && typeof t.text === 'string').map(t => ({ ...t, check: oneLine(t.check, LIMITS.check) })),
       reminders: trimReminders((Array.isArray(p.reminders) ? p.reminders : []).filter(r => r && r.id && r.dueAt).map(r => ({ ...r, aheadNotifiedAt: r.aheadNotifiedAt || null }))), // 1.73.6: open reminders are never cut on reload
       history: arr(p.history, LIMITS.history) };
   }
@@ -91,6 +120,15 @@ export class ProjectStore {
   save(projects = this.projects) { this.write(this.file, { version: 1, projects }); }
   commit(projects) { this.save(projects); this.projects = projects; }
   get(id) { const p = this.projects.find(x => x.id === id); if (!p) throw fail('That project does not exist.', 404); return p; }
+  // Why `link-session` would refuse to link a new session to this project (the store's message), or null when it would link.
+  linkProblem(id, session = null) {
+    try {
+      const p = this.get(String(id).slice(0, 80));
+      if (session && p.sessions.includes(session)) return null;
+      if (p.sessions.length >= LIMITS.sessions) return `A project links up to ${LIMITS.sessions} sessions.`;
+      return null;
+    } catch (e) { return e.message; }
+  }
 
   // The card as the UI and CLI see it: open reminders carry `due`, the project carries `dueCount`.
   view(p, now = this.now()) {
@@ -145,6 +183,9 @@ export class ProjectStore {
         if ('link' in input) changes.link = checkLink(str(input.link, LIMITS.link));
         if ('directory' in input) changes.directory = checkDirectory(str(input.directory, LIMITS.directory));
         if ('status' in input) { if (!STATUSES.includes(input.status)) throw fail('Status must be active, waiting or done.'); changes.status = input.status; }
+        if ('mode' in input) changes.mode = checkMode(input.mode);
+        if ('doneWhen' in input) changes.doneWhen = oneLine(input.doneWhen, LIMITS.doneWhen);
+        if ('worksIn' in input) changes.worksIn = checkPlaces(input.worksIn);
         if (!Object.keys(changes).length) throw fail('Nothing to change.');
         Object.assign(p, changes);
         if (changes.status === 'done') for (const r of p.reminders) if (r.state === 'open') { r.state = 'cancelled'; r.updated = at; }
@@ -155,12 +196,13 @@ export class ProjectStore {
       case 'task-add': {
         const text = str(input.text, LIMITS.task); if (!text) throw fail('The step needs some text.');
         if (p.tasks.length >= LIMITS.tasks) throw fail(`A project keeps up to ${LIMITS.tasks} steps.`, 409);
-        p.tasks.push({ id: shortId(), text, done: false, created: at, updated: at });
+        p.tasks.push({ id: shortId(), text, check: oneLine(input.check, LIMITS.check), done: false, created: at, updated: at });
         this.history(p, actor, 'task-added', text, at); this.touch(p, at); break;
       }
       case 'task-update': {
         const t = p.tasks.find(x => x.id === str(input.task, 40)); if (!t) throw fail('That step does not exist.', 404);
         if ('text' in input) { const text = str(input.text, LIMITS.task); if (!text) throw fail('The step needs some text.'); t.text = text; }
+        if ('check' in input) t.check = oneLine(input.check, LIMITS.check);
         if ('done' in input) {
           t.done = Boolean(input.done);
           if (t.done) for (const r of p.reminders) if (r.state === 'open' && r.task === t.id) { r.state = 'done'; r.updated = at; } // finishing a step stops its reminder
@@ -208,6 +250,7 @@ export class ProjectStore {
     if (this.projects.length >= LIMITS.projects) throw fail(`You can track up to ${LIMITS.projects} projects. Finish or remove one first.`, 409);
     const p = { id: this.uniqueId(name), name, summary: str(input.summary, LIMITS.text), next: str(input.next, LIMITS.text), waitingFor: '', status: 'active',
       directory: checkDirectory(str(input.directory, LIMITS.directory)), link: checkLink(str(input.link, LIMITS.link)), sessions: [],
+      mode: input.mode === undefined ? 'off' : checkMode(input.mode), doneWhen: oneLine(input.doneWhen, LIMITS.doneWhen), worksIn: checkPlaces(input.worksIn),
       created: at, updated: at, verified: at, revision: 1, enrollment: input.requested === false ? 'suggested' : 'requested', tasks: [], reminders: [], history: [] };
     if (input.session) p.sessions.push(checkSession(input.session));
     this.history(p, actor, 'tracked', { name, enrollment: p.enrollment }, at);
