@@ -332,7 +332,7 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname.startsWith('/api/board')){
   if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'projects_off'},404);
-  if(url.pathname==='/api/board'){const snap=board.snapshot({dir:url.searchParams.get('dir')||''});return json({...snap,projects:snap.projects.map(withMode),conductor:uiModes.conductor||{claude:'Fable 5.1',codex:'GPT-6 Astra'},push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail)});} // 1.106: conductor names each agent's lead
+  if(url.pathname==='/api/board'){const snap=board.snapshot({dir:url.searchParams.get('dir')||''});return json({...snap,projects:snap.projects.map(withMode),conductor:uiModes.conductor||{claude:'Fable 5.2',codex:'GPT-6 Astra'},push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail)});} // 1.106: conductor names each agent's lead
   if(url.pathname==='/api/board/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,project:actOnBoard(JSON.parse(raw))});}catch(e){return json({error:e.message,...(e.project?{project:withMode(e.project)}:{})},e.status||400);}}
   if(url.pathname==='/api/board/reset'){seedBoard();return json({ok:true});}
  }

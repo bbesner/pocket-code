@@ -20,7 +20,7 @@ say conversation.
 | [Questions and approvals](approvals.md) | Questions from the agent, Review actions and Full access, action approvals, trusted rules |
 | [Desktop and phone](desktop-and-phone.md) | The desktop workspace, split view and dock, the phone layout, compact views, keyboard shortcuts |
 | [Settings](settings.md) | Every section of Settings, notifications, appearance and where each preference is stored |
-| [Projects](projects.md) | Project cards, checklists, reminders and the `pocket-board` command |
+| [Projects](projects.md) | Project cards, checklists, reminders, Conductor mode (the top model leads a project's work) and the `pocket-board` command |
 | [Files](files.md) | The Files library, sharing and publishing, and the `pocket-docs` command |
 | [Tasks](tasks.md) | To-dos with due times, reminders and a Start button, and the `pocket-tasks` command |
 | [Coordination](coordination.md) | Which conversation holds staging or a deploy, who is waiting, and the `pocket-coord` command |
@@ -41,6 +41,8 @@ Code, and [Operations](../operations.md) covers upgrades, restarts, backups and 
 | How do I turn on Projects, Files, Tasks, Inbox Watch or the Vault? | [Getting started](getting-started.md#turn-on-the-optional-features), then the feature's page |
 | What do Review actions and Full access do? | [Questions and approvals](approvals.md#choose-review-actions-or-full-access) |
 | How do I share a file by link? | [Files](files.md#share-a-file) |
+| How do I have the top model plan a big job and hand the work to cheaper models? | [Projects](projects.md#conductor-mode) |
+| When should I start Conductor and when Solo? | [Projects](projects.md#conductor-mode) |
 | Why didn't a reminder or due task reach me? | [Tasks](tasks.md#troubleshooting) and [Projects](projects.md#troubleshooting) |
 | How do I set up Inbox Watch? | [Inbox Watch](inbox-watch.md#set-it-up) |
 | How do I connect Gmail, Calendar or Drive? | [Gmail, Calendar and Drive](google.md#connect-gmail-calendar-and-drive) |
