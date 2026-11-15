@@ -109,7 +109,7 @@ are under **Settings → Features**, with **Automatic model choice**. While the 
 
 | Feature | What it does | Page |
 |---|---|---|
-| **Projects** | A card per piece of work: where you left off, the next step, a checklist, reminders and the conversations that worked on it | [Projects](projects.md) |
+| **Projects** | A card per piece of work: where you left off, the next step, a checklist, reminders and the conversations that worked on it. A card can switch on Conductor mode, where the top model leads the project's conversations | [Projects](projects.md) |
 | **Files** | A library for the reports, PDFs, spreadsheets and pages agents produce, private until you share one | [Files](files.md) |
 | **Tasks** | To-dos with an optional date, linked to the conversation they came from | [Tasks](tasks.md) |
 | **Inbox Watch** | Reads your Gmail on a schedule and lists only what needs you, through the Gmail connector of Claude Code or Codex | [Inbox Watch](inbox-watch.md) |

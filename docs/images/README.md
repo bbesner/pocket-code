@@ -1,10 +1,10 @@
 # Documentation image provenance
 
-The workspace screenshots below were recaptured from the **1.73.0 / build 142** frontend on
-2026-10-20 (the Assistant mode and Inbox Watch images are new in 1.70.1; the whole set was retaken with 1.71's Open · Unread · Done chips and Keep the Inbox tidy) with the docs-only browser mode, after 1.59 changed the wording ("conversations", plain steps). They
+The workspace screenshots below were recaptured from the **1.106.0 / build 198** frontend on
+2026-11-15 with the docs-only browser mode, so the project card shows Conductor mode (the fixture switches it on for that one capture and off again). The set was last retaken before that at 1.73.0 / build 142 on 2026-10-20. They
 show synthetic sessions, projects, files, tasks and Vault items supplied by the browser
 test fixture, with no production data or model calls. Desktop captures are emulated Chromium
-viewports (1600×1000 for the split view; 1440×900 for Projects, Files and the Vault, cropped to the
+viewports (1600×1000 for the split view; 1440×900 for Files and the Vault, 1440×1260 for Projects, cropped to the
 content area because the hero already shows the session rail); phone captures are
 390×844 viewports, not physical devices.
 
@@ -12,7 +12,7 @@ content area because the hero already shows the session rail); phone captures ar
 |---|---|
 | `desktop-split.png` | The conversation rail (Chats, Projects, Files, Tasks, Vault) beside two conversations in split view |
 | `mobile-workspace.png` | A conversation on a phone with the composer and message settings |
-| `projects-desktop.png` | A project card: where we left off, next step, checklist, a due reminder, its session |
+| `projects-desktop.png` | A project card with Conductor mode on (1.106): where we left off, next step, Done when, Works in, a checklist with a Passes when check, a due reminder, its conversation (1440×1260) |
 | `files-desktop.png` | The Files library as a list, with kinds, sharing state and the project a file came from |
 | `tasks-mobile.png` | Tasks on a phone: tasks and project reminders in one list (1.50), due first, one task carrying context from its session |
 | `task-offer-mobile.png` | A reply ending with suggested-reply buttons, the first an agent's task offer (1.37) |

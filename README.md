@@ -44,7 +44,10 @@ are there, with the draft you left.
 
 Four optional libraries keep what comes out of a session from getting lost. **Projects**
 hold where you left off, the next step, a checklist and reminders; **Start conversation** opens a new
-conversation briefed on where the project stands and linked to it. **Files** keeps the
+conversation briefed on where the project stands and linked to it. Switch a project to
+**Conductor mode** and its conversations run with the newest top model as the lead: it plans the
+work, hands each piece to a cheaper model, checks what comes back and stops only for a decision from
+you. **Files** keeps the
 reports, dashboards and spreadsheets agents produce, rendered in place and shared only when
 you ask. **Tasks** are to-dos with an optional date, linked to the session they came from;
 **Start** opens a new session with the task already written in, and a **start link** lets an agent or a job on the server hand Pocket a briefing that opens the same way. The **Vault** keeps API keys,
@@ -55,11 +58,11 @@ mid-turn shows up without a reload.
 
 <table>
 <tr>
-<td width="50%" valign="top"><img src="docs/images/projects-desktop.png" alt="A project card: where we left off, the next step, a two-step checklist with one done, a due reminder and the session working on it"></td>
+<td width="50%" valign="top"><img src="docs/images/projects-desktop.png" alt="A project card with Conductor mode on: where we left off, the next step, what done means, where the lead may work, a two-step checklist whose open step has a pass/fail check, a due reminder and the conversation working on it"></td>
 <td width="50%" valign="top"><img src="docs/images/files-desktop.png" alt="The Files library: a CSV count sheet, an HTML ops dashboard and a Markdown weekly summary from a session, each marked Private, with search, project and kind filters"></td>
 </tr>
 <tr>
-<td align="center"><b>Projects</b>: the next step, a checklist and reminders</td>
+<td align="center"><b>Projects</b>: the next step, a checklist, reminders and Conductor mode</td>
 <td align="center"><b>Files</b>: what the work produced, private until shared</td>
 </tr>
 <tr>
@@ -247,6 +250,13 @@ device, and when you open them, so an item an agent adds shows up without a relo
   **Start conversation** opens a new conversation in the project's directory, briefed on the card and
   linked to it. With Tasks on, open reminders are listed with the tasks, due first; without it,
   a Scheduled view lists them. See [Projects](docs/manual/projects.md).
+  **Conductor mode** (1.106, Claude Code and Codex) is a switch on the card for a big piece of work: a
+  conversation started in the project, handed off within it or linked to it runs the newest top model
+  offered (Fable on Claude Code, GPT Astra on Codex) at high effort as the lead, with its subagents one
+  tier down. The lead plans, hands out the work and checks each piece against the card's **Done when**
+  and each step's **Passes when** check. **Start conversation** also offers **Solo**, one cheaper model
+  doing a small job itself. It is off until you switch it on, because a lead costs more than doing the
+  work directly. See [Conductor mode](docs/manual/projects.md#conductor-mode).
 - **Files** keeps the reports, dashboards and spreadsheets that came out of the work, in a
   grid or a list. HTML renders sandboxed; PDFs, images, Markdown and CSV render in place.
   Files are private until you share one by link or publicly; removed files wait 30 days
@@ -458,7 +468,7 @@ another program (1.43.1). Each works only while its feature is on. Run them as
 
 | Command | Common use |
 |---|---|
-| `pocket-board` | `track --requested --name "…" --summary "…" --next "…"`, `update`, `task add\|done`, `remind --at "YYYY-MM-DDTHH:MM"`, `dismiss`, `note`, `status [--all]`, `scheduled`, `context`, `import`, `link-session <id>`, `unlink-session <id>`, `task edit\|reopen` |
+| `pocket-board` | `track --requested --name "…" --summary "…" --next "…"`, `update` (with `--mode conductor\|off`, `--done-when "…"`, `--works-in "a,b"` for Conductor mode, 1.106), `task add\|done` (`--check "…"` gives a step its pass/fail check), `remind --at "YYYY-MM-DDTHH:MM"`, `dismiss`, `note`, `status [--all]`, `scheduled`, `context`, `import`, `link-session <id>`, `unlink-session <id>`, `task edit\|reopen` |
 | `pocket-docs` | `add <path> [--title] [--project] [--session] [--visibility]`, `list [--q]`, `show <id>`, `share <id> [--expires 7d\|30d\|none]`, `set <id> --visibility private\|link\|public`, `trash <id>`, `restore <id>` |
 | `pocket-coord` | `hold <name> --reason "…" [--ttl] [--new]`, `wait <name> [--block --timeout]`, `release <name> [--note]`, `list [--json]` |
 | `pocket-tasks` | `add "…" [--due] [--session <id>] [--summary "…"] [--dir]`, `list [--all]`, `show <id>`, `done <id>`, `reopen <id>`, `edit <id> [--clear-due]`, `remove <id>` |

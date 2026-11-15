@@ -37,7 +37,17 @@ export async function captureDocs({browser,base,rows,dir,conversations,settings,
    await page.evaluate(()=>{document.querySelector('#box').blur();document.querySelector('main.scroll').scrollTop=0;});
   }});
   // Projects: the board with a project open.
-  await shot('projects-desktop.png',{withoutRail:true,width:1440,height:900,url:'/#/projects/warehouse-stock-report',prep:async page=>{await page.waitForSelector('.project-card');}});
+  // 1.106: the card with Conductor mode on, Done when, Works in and a step's Passes when check; switched off again after.
+  const boardAct=(page,body)=>page.evaluate(b=>fetch('/api/board/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json()),body);
+  await shot('projects-desktop.png',{withoutRail:true,width:1440,height:1260,url:'/#/projects/warehouse-stock-report',prep:async page=>{
+   await page.waitForSelector('.project-card');
+   const {project}=await boardAct(page,{action:'update',project:'warehouse-stock-report',mode:'conductor',doneWhen:'Aisle 4 has no unaccounted units and the stock adjustment is posted.',worksIn:['/workspaces/warehouse']});
+   const step=project?.tasks?.find(x=>!x.done);
+   if(step)await boardAct(page,{action:'task-update',project:'warehouse-stock-report',task:step.id,check:'The aisle 4 recount sheet is saved in Files.'});
+   await page.reload();await page.waitForSelector('.project-card');
+  }});
+  await shot('projects-reset.png',{width:800,height:400,url:'/#/projects',prep:async page=>{await boardAct(page,{action:'update',project:'warehouse-stock-report',mode:'off'});}});
+  fs.rmSync(path.join(dir,'projects-reset.png'),{force:true});
   // Files: the library as a list: kind, sharing state and the project or session each file came from.
   await shot('files-desktop.png',{withoutRail:true,width:1440,height:900,url:'/#/documents',prep:async page=>{
    await page.evaluate(()=>localStorage.setItem('pc-documents-layout','"list"'));await page.reload();await page.waitForSelector('.document-item');
