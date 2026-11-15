@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.106.0
+checked: 1.107.0
 sources: prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -24,6 +24,9 @@ box a conversation uses.
 
 1. Check the setup card above the box. It names the **Workspace**, the **Agent** with its model and
    reasoning (for example *Claude Code · Opus 5.5 · High reasoning*) and the **Permissions**.
+   With [Projects](projects.md) on, a **Start a project** chip sits above the card: it makes a project card for this
+   work (a name, Conductor mode on or off in Developer mode, and optionally what done means) and links the conversation
+   you are about to start to it. See [Track a project](projects.md#track-a-project).
 2. To change the agent or workspace, tap **Edit setup** (it becomes **Close setup**):
    - **Agent**: **Claude Code**, **Codex** or, when the server has it on, **OpenRouter**. The choice is
      remembered on this browser.

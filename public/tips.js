@@ -51,7 +51,7 @@ function showTip(el){
  const text=tipText(el);if(!text||!el.isConnected)return;
  // the native title tooltip would stack on ours; park it while ours is up
  if(el.hasAttribute('title')){el.dataset.tipTitle=el.title;el.removeAttribute('title');}
- tipFor=el;tipEl.textContent=text;tipEl.hidden=false;
+ tipFor=el;tipEl.textContent=text;tipEl.classList.toggle('wide',text.length>160);tipEl.hidden=false;
  el.setAttribute('aria-describedby','tip');
  const r=el.getBoundingClientRect(),t=tipEl.getBoundingClientRect(),gap=6;
  const below=r.bottom+gap+t.height<=innerHeight-8;

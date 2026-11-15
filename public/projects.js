@@ -149,6 +149,21 @@ function projectCardHTML(p){
 const conductorLeads=()=>boardSnap?.conductor||{claude:null,codex:null};
 const conductorOffered=()=>{const c=conductorLeads();return Boolean(c.claude||c.codex);};
 const CONDUCTOR_LINE='Conversations in this project start with the top model as lead. It plans, hands the work to cheaper models and checks the results.';
+/* 1.107: what Conductor mode is and when to use it, beside every control that chooses it. An info button: mouse hover or
+   keyboard focus shows the text as a tooltip (tips.js, data-tip); a tap or click opens the same text in place, so it works
+   on a phone. The button and its text share a [data-conductor-host] wrapper. */
+const CONDUCTOR_ABOUT=[['',"The top model (Fable or GPT Astra) leads. It plans the work, hands each piece to cheaper models and checks the results against the project's Done when and step checks. It stops only for a decision from you."],
+ ['Use it for','big, multi-step work you want carried a long way on its own: a feature, a migration, a release.'],
+ ['Skip it for','a quick fix or a question. A lead costs more on small work, because it re-reads everything it checks.']];
+const conductorInfoHTML=()=>`<button type="button" class="icon info-tip" data-conductor-info aria-label="About Conductor mode" aria-expanded="false" data-tip="${esc(CONDUCTOR_ABOUT.map(([b,x])=>(b?b+' ':'')+x).join('\n\n'))}">${IC.info}</button>`;
+const conductorAboutHTML=()=>`<div class="conductor-about" hidden>${CONDUCTOR_ABOUT.map(([b,x])=>`<p>${b?`<strong>${b}</strong> `:''}${esc(x)}</p>`).join('')}</div>`;
+document.addEventListener('click',e=>{
+ const b=e.target.closest?.('[data-conductor-info]');if(!b)return;
+ e.preventDefault();const about=b.closest('[data-conductor-host]')?.querySelector('.conductor-about');if(!about)return;
+ about.hidden=!about.hidden;b.setAttribute('aria-expanded',String(!about.hidden));
+});
+// What a start from a Conductor project carries to New: the mode, each agent's lead, Solo's model and the effort.
+const conductorStartFields=p=>p.mode==='conductor'&&!assistantMode()?{mode:'conductor',conductor:{...conductorLeads()},solo:{...(boardSnap?.conductorStart?.solo||{})},effort:{...(boardSnap?.conductorStart?.effort||{})}}:{};
 // The lead a start from this card gets on the agent New will pick (the last conversation's, else the one last used); null where none.
 function startLeadFor(p){const last=p.sessions[p.sessions.length-1];let eng='claude';try{eng=last?(last.startsWith('cx:')?'codex':last.startsWith('acp:')?'acp':'claude'):localStorage.getItem('pc-provider')||'claude';}catch{}return conductorLeads()[eng]||null;}
 const CONDUCTOR_NONE='Needs a top model (Fable or GPT Astra) offered on this server.';
@@ -157,7 +172,7 @@ function projectModeHTML(p,field){
  if(assistantMode())return p.doneWhen?field('Done when',p.doneWhen,'Not set.'):'';
  const locked=p.status==='done'||(!on&&!conductorOffered());
  const place=x=>/^https?:\/\//i.test(x)?`<a class="ledger" href="${esc(x)}" target="_blank" rel="noopener noreferrer"><span class="det">${esc(x.replace(/^https?:\/\//i,''))}</span></a>`:`<span class="ledger"><span class="det">${esc(projShort(x))}</span></span>`;
- return `<section class="project-field project-mode"><button type="button" class="opt" data-mode aria-pressed="${on}"${locked?' aria-disabled="true"':''}><span class="dot${on?' on':''}"></span><span>Conductor mode<span class="sub">${conductorOffered()?CONDUCTOR_LINE:CONDUCTOR_NONE}</span></span></button></section>
+ return `<section class="project-field project-mode" data-conductor-host><div class="mode-row"><button type="button" class="opt" data-mode aria-pressed="${on}"${locked?' aria-disabled="true"':''}><span class="dot${on?' on':''}"></span><span>Conductor mode<span class="sub">${conductorOffered()?CONDUCTOR_LINE:CONDUCTOR_NONE}</span></span></button>${conductorInfoHTML()}</div>${conductorAboutHTML()}</section>
   ${p.doneWhen||on?field('Done when',p.doneWhen,'Not set.'):''}
   ${works.length||on?`<section class="project-field project-works"><h2>Works in</h2>${works.length?`<div class="project-links">${works.map(place).join('')}</div>`:'<p class="project-empty">Not set.</p>'}</section>`:''}`;
 }
@@ -213,7 +228,7 @@ function projectOptions(id){
    !here&&(PANE?typeof paneSay==='function':!SOLO&&isWide()&&typeof openBeside==='function')?`<button class="opt" data-beside>${IC.columns}<span>Open beside<span class="sub">${PANE?'In a new pane to the left of this one':'In a pane next to the current view'}</span></span></button>`:'',
    `<button class="opt" data-window>${IC.external}<span>Open in a new window<span class="sub">A browser tab or app window of its own</span></span></button>`])}
   ${p.status==='done'?'':optGroup('Work on it',[`<button class="opt" data-start>${IC.plus}<span>Start a conversation<span class="sub">${lead?esc('Conductor: '+lead+' leads. Briefed on where the project stands, linked to it'):'A new conversation briefed on where the project stands, linked to it'}</span></span></button>`,
-   modeOpt?`<button class="opt" data-mode>${IC.model}<span>${conducting?'Turn off Conductor mode':'Turn on Conductor mode'}<span class="sub">${conducting?'Conversations here go back to your usual model at their next reply':esc('New conversations here start with '+(startLeadFor(p)||'the top model')+' as lead, handing the work to cheaper models')}</span></span></button>`:''])}
+   modeOpt?`<div data-conductor-host><div class="mode-row"><button class="opt" data-mode>${IC.model}<span>${conducting?'Turn off Conductor mode':'Turn on Conductor mode'}<span class="sub">${conducting?'Conversations here go back to your usual model at their next reply':esc('New conversations here start with '+(startLeadFor(p)||'the top model')+' as lead, handing the work to cheaper models')}</span></span></button>${conductorInfoHTML()}</div>${conductorAboutHTML()}</div>`:''])}
   ${optGroup('Project',[p.status==='done'?`<button class="opt" data-resume>${IC.up}<span>Resume project<span class="sub">Back to Active, without its old reminders</span></span></button>`:`<button class="opt" data-edit>${IC.pen}<span>Edit<span class="sub">Name, summary, next step, waiting for, done when, ${assistantMode()?'':'works in, '}directory, link</span></span></button>
   <button class="opt" data-remind>${IC.hourglass}<span>Remind me<span class="sub">A reminder for the project, sent once when due</span></span></button>
   ${p.status==='waiting'?`<button class="opt" data-active>${IC.tick}<span>Mark active<span class="sub">No longer waiting on anyone</span></span></button>`:`<button class="opt" data-waiting>${IC.hourglass}<span>Mark waiting<span class="sub">Waiting on someone or something; say who in Edit</span></span></button>`}
@@ -236,6 +251,9 @@ function projectOptions(id){
 // Start session (1.49): a New session in the project's directory whose first message briefs the agent on the card (where
 // it left off, the next step, open steps, recent notes, reminders, earlier sessions), ready to send. The new session is
 // linked to the project when it starts (pc-new-start carries the id to /api/new), so the card lists it.
+// The line that tells the agent which card the conversation is linked to and how to keep it current. It closes a card's
+// briefing, and New adds it to the first message of a project made with Start a project (1.107).
+const projectNote=id=>`(Pocket project ${id}; this conversation is linked to it. When the work reaches a stopping point, keep the card current: pocket-board update -p ${id} --summary "…" --next "…", pocket-board task done <step> -p ${id}, pocket-board note "…" -p ${id}. Record what finished means with pocket-board update -p ${id} --done-when "…", and a step with its check with pocket-board task add "…" --check "…" -p ${id}.)`;
 function projectBriefing(p){
  const open=p.tasks.filter(t=>!t.done),shown=open.slice(0,20),notes=p.history.filter(h=>h.action==='note').slice(-3),sessions=p.sessions.slice(-3);
  const lines=[`Pick up the project "${p.name}" where it left off.`,''];
@@ -249,13 +267,13 @@ function projectBriefing(p){
  if(p.reminders.length)lines.push('','Reminders:',...p.reminders.map(r=>`- ${r.label} (${r.due?'due ':''}${fmtDue(r.dueAt)})`));
  if(p.link)lines.push('','Link: '+p.link);
  if(sessions.length)lines.push('','Earlier conversations on this project, newest last:',...sessions.map(id=>`- ${sessionName(id)} (${id.startsWith('cx:')?'Codex':id.startsWith('acp:')?'OpenRouter':'Claude'} conversation ${id})`));
- lines.push('',`(Pocket project ${p.id}; this conversation is linked to it. When the work reaches a stopping point, keep the card current: pocket-board update -p ${p.id} --summary "…" --next "…", pocket-board task done <step> -p ${p.id}, pocket-board note "…" -p ${p.id}. Record what finished means with pocket-board update -p ${p.id} --done-when "…", and a step with its check with pocket-board task add "…" --check "…" -p ${p.id}.)`);
+ lines.push('',projectNote(p.id));
  return lines.join('\n');
 }
 function startProject(p){
  saveBriefing(projectBriefing(p));
  // 1.106: a Conductor project's start carries the mode and the lead per agent, so New offers Conductor or Solo without a fetch.
- writeLocal('pc-new-start',{project:p.id,projectName:p.name,cwd:p.directory||'',...(p.mode==='conductor'?{mode:'conductor',conductor:{...conductorLeads()},solo:{...(boardSnap?.conductorStart?.solo||{})},effort:{...(boardSnap?.conductorStart?.effort||{})}}:{})});
+ writeLocal('pc-new-start',{project:p.id,projectName:p.name,cwd:p.directory||'',...(p.mode==='conductor'?conductorStartFields({mode:'conductor'}):{})});
  const last=p.sessions[p.sessions.length-1];
  try{if(p.directory)localStorage.setItem('pc-lastproj',p.directory);if(last)localStorage.setItem('pc-provider',last.startsWith('cx:')?'codex':last.startsWith('acp:')?'acp':'claude');}catch{}
  location.hash='#/new';
@@ -336,6 +354,33 @@ function projectEditor(p,{directory='',session=null,onDone}={}){
   const out=await boardAct(body,p?'Project updated':'Project tracked');
   btn.disabled=false;if(!out)return;closeCurrentSheet?.();
   if(onDone)onDone(out);else if(!p)location.hash=viewHref('projects/'+out.id);
+ };
+ mountSheet(scrim,sh);
+}
+// 1.107: Start a project, from New conversation. A name (New offers the message's first line), Conductor mode (Developer
+// mode only, off unless switched on) and, if wanted, Done when. The card is made at once with the workspace as its
+// directory; New then links the conversation it starts to it.
+function startProjectSheet({name='',directory='',onDone}={}){
+ if(!boardSnap)return loadBoard(true).then(()=>startProjectSheet({name,directory,onDone})).catch(e=>toast(e.status===404?'Projects is off. '+turnOnHint():e.message));
+ const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet project-editor';
+ const offered=conductorOffered();
+ sh.innerHTML=`<h2>Start a project</h2>
+  <p class="sheet-help sheet-note">A card that keeps where this work stands: the next step, remaining steps and reminders. The conversation you start here is linked to it, and its first message tells the agent so.</p>
+  <form class="project-form">
+   <label class="voice-field">Name<input name="name" maxlength="120" required value="${esc(name)}" autocomplete="off"></label>
+   ${assistantMode()?'':`<div class="project-mode" data-conductor-host><div class="mode-row"><button type="button" class="opt" data-mode aria-pressed="false"${offered?'':' aria-disabled="true"'}><span class="dot"></span><span>Conductor mode<span class="sub">${offered?CONDUCTOR_LINE:CONDUCTOR_NONE}</span></span></button>${conductorInfoHTML()}</div>${conductorAboutHTML()}</div>`}
+   <div class="voice-field"><label for="sp-done">Done when</label><textarea id="sp-done" name="doneWhen" maxlength="600" rows="2" aria-describedby="sp-done-help"></textarea><p class="title-note" id="sp-done-help">Optional. What finished looks like, as something that can be checked.</p></div>
+   <button class="primary" type="submit">Create project</button>
+  </form>`;
+ const sw=sh.querySelector('[data-mode]');
+ if(sw)sw.onclick=()=>{
+  if(sw.getAttribute('aria-disabled')==='true')return toast('Conductor mode '+CONDUCTOR_NONE.replace(/^N/,'n'));
+  const on=sw.getAttribute('aria-pressed')!=='true';sw.setAttribute('aria-pressed',String(on));sw.querySelector('.dot').classList.toggle('on',on);
+ };
+ sh.querySelector('form').onsubmit=async e=>{
+  e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const btn=e.target.querySelector('button.primary');btn.disabled=true;
+  const out=await boardAct({action:'track',name:f.name,doneWhen:f.doneWhen||'',directory,requested:true,...(sw?.getAttribute('aria-pressed')==='true'?{mode:'conductor'}:{})},'Project created');
+  btn.disabled=false;if(!out)return;closeCurrentSheet?.();onDone?.(out);
  };
  mountSheet(scrim,sh);
 }

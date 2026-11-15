@@ -251,10 +251,11 @@ function mountSheet(scrim, sh, trigger = document.activeElement) {
 // 1.88: `search` (a noun, e.g. 'models') adds a find box above a long list, such as OpenRouter's hundreds of models.
 // Every word typed must appear in the row's name, line or id, so "kimi 3.1" finds Kimi K3.1 Pro; rows keep their order,
 // so Default and Tested stay first. Enter picks the first match, Down moves into the list.
-function sheet(title, options, current, onPick, { search = '', note = '' } = {}) {
+// 1.107: `conductorInfo` puts the Conductor info button beside the title, with its text opening under it.
+function sheet(title, options, current, onPick, { search = '', note = '', conductorInfo = false } = {}) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet';
-  sh.innerHTML = `<h2>${esc(title)}</h2>` + (note ? `<p class="sheet-help sheet-note">${esc(note)}</p>` : '') + (search ? `
+  sh.innerHTML = (conductorInfo ? `<div class="sheet-about" data-conductor-host><div class="mode-row"><h2>${esc(title)}</h2>${conductorInfoHTML()}</div>${conductorAboutHTML()}</div>` : `<h2>${esc(title)}</h2>`) + (note ? `<p class="sheet-help sheet-note">${esc(note)}</p>` : '') + (search ? `
     <div class="sheet-find"><div class="session-search">${IC.search}<input type="search" aria-label="Search ${esc(search)}" placeholder="Search ${esc(search)}" autocomplete="off" spellcheck="false" enterkeyhint="go"></div>
     <p class="sheet-search-status" role="status"></p></div>` : '') + options.map(([val, label, sub]) => `
     <button class="opt ${val === current ? 'sel' : ''}" data-v="${esc(val)}">
@@ -2194,19 +2195,24 @@ function handoffLineId(p) {
   if (p.children.length !== (a ? 1 : 0) || (a && a.textContent.trim() !== p.textContent.trim())) return null;
   return (a ? a.getAttribute('href') : p.textContent).trim().match(HANDOFF_LINK)?.[1] || null;
 }
+// 1.107: Conductor or Solo, chosen on the card before Start. Kept per handoff for this page; the server takes it as
+// projectStart and still decides the project from the handoff itself.
+const handoffStartPick = new Map();
+const handoffStartOf = (id, s) => !s?.projectName || !['conductor', 'solo'].includes(s.projectStart) ? '' : handoffStartPick.get(id) || s.projectStart;
 function handoffCardHTML(id, s) {
   if (!s) return `<div class="handoff-card" data-handoff="${id}"><div class="handoff-head">${IC.hand}<span>This handoff link has expired. Ask the agent for a new one.</span></div></div>`;
   const label = 'Continue in a new conversation';
   if (s.startedSession) return `<div class="handoff-card" data-handoff="${id}"><div class="handoff-head">${IC.hand}<span>Started: <a href="#/chat/${esc(s.startedSession)}">${esc(s.startedTitle || 'New conversation')}</a></span></div></div>`;
   const agent = { claude: 'Claude', codex: 'Codex', acp: 'OpenRouter' }[s.provider] || '';
   // 1.106: a handoff from a project conversation continues in that project, started the same way.
-  const cont = s.projectName ? 'Continues in ' + s.projectName + (s.projectStart === 'solo' ? ' · Solo' : s.projectStart === 'conductor' ? ' · Conductor' : '') : '';
-  const meta = assistantMode() ? [] : [s.directory ? projName(s.directory) : '', agent, permissionLabel(s.approvalMode), cont].filter(Boolean);
+  const start = assistantMode() ? '' : handoffStartOf(id, s), word = start === 'solo' ? 'Solo' : 'Conductor';
+  const meta = assistantMode() ? [] : [s.directory ? projName(s.directory) : '', agent, permissionLabel(s.approvalMode), s.projectName && !start ? 'Continues in ' + s.projectName : ''].filter(Boolean);
   const canStart = !s.folderMissing && Boolean(s.directory);
   return `<div class="handoff-card" data-handoff="${id}" role="group" aria-label="${label}">
     <div class="handoff-head">${IC.hand}<span>${label}</span></div>
     ${s.title ? `<div class="handoff-title">${esc(s.title)}</div>` : ''}
     ${meta.length ? `<div class="handoff-meta">${esc(meta.join(' · '))}</div>` : ''}
+    ${start ? `<div class="handoff-project"><span>Continues in ${esc(s.projectName)}</span><button type="button" class="chip conversation-mode" data-handoff-mode aria-label="${word}: how the new conversation starts. Change">${word}</button></div>` : ''}
     <p class="handoff-text">${esc(String(s.text || '').slice(0, 400))}</p>
     ${s.folderMissing ? `<p class="handoff-note">That folder no longer exists. Review first to choose another.</p>` : ''}
     <div class="handoff-actions"><button type="button" class="primary" data-handoff-start${canStart ? '' : ' disabled'}>Start</button><a class="chip" href="#/start/${id}">Review first</a></div></div>`;
@@ -2237,9 +2243,10 @@ async function startHandoff(id, btn) {
   const s = handoffCache.get(id)?.data; if (!s) return;
   btn.disabled = true;
   try {
-    const d = await api('/new', { method: 'POST', body: JSON.stringify({ text: s.text, cwd: s.directory, provider: s.provider || undefined, start: id, approvalMode: s.approvalMode }) });
+    const pick = handoffStartOf(id, s);
+    const d = await api('/new', { method: 'POST', body: JSON.stringify({ text: s.text, cwd: s.directory, provider: s.provider || undefined, start: id, approvalMode: s.approvalMode, ...(pick ? { projectStart: pick } : {}) }) });
     setPrefs(d.id, { model: 'default', effort: 'default', executionMode: 'work', approvalMode: s.approvalMode });
-    handoffCache.delete(id);
+    handoffCache.delete(id); handoffStartPick.delete(id);
     location.hash = '#/chat/' + d.id;
   } catch (e) {
     if (e.message === 'login') return;
@@ -2249,9 +2256,25 @@ async function startHandoff(id, btn) {
     btn.disabled = false; toast('Could not start the conversation. Try again.');
   }
 }
+// The sheet both the handoff card and New open to choose the start. The lead and Solo's model are named when known.
+function startChoiceSheet(current, lead, solo, onPick) {
+  sheet('How this conversation starts', [['conductor', 'Conductor', (lead || 'The top model') + ' leads at high effort and hands out the work'], ['solo', 'Solo', (solo ? solo + ' does' : 'One model does') + ' the work itself. For a small task.']], current, onPick, { conductorInfo: true });
+}
+async function pickHandoffStart(id) {
+  const s = handoffCache.get(id)?.data, current = handoffStartOf(id, s); if (!current) return;
+  if (typeof boardSnap !== 'undefined' && !boardSnap) await loadBoard(true).catch(() => { });
+  const agent = ['codex', 'acp'].includes(s.provider) ? s.provider : 'claude';
+  startChoiceSheet(current, boardSnap?.conductor?.[agent], boardSnap?.conductorStart?.solo?.[agent], async v => {
+    handoffStartPick.set(id, v);
+    await paintHandoffCards($('#msgs')).catch(() => { });
+    document.querySelector(`[data-handoff="${id}"] [data-handoff-mode]`)?.focus();
+  });
+}
 document.addEventListener('click', e => {
   const b = e.target.closest?.('[data-handoff-start]');
-  if (b) startHandoff(b.closest('[data-handoff]').dataset.handoff, b);
+  if (b) return startHandoff(b.closest('[data-handoff]').dataset.handoff, b);
+  const m = e.target.closest?.('[data-handoff-mode]');
+  if (m) pickHandoffStart(m.closest('[data-handoff]').dataset.handoff);
 });
 async function paintFileCards(container, fresh = false) {
   const id = chatId; if (!id || !container) return;
@@ -3837,7 +3860,9 @@ async function openStartLink(id) {
     saveBriefing(s.text || '');
     // 1.81: the link's folder rides in pc-new-start like a project's, so New selects it, or fills it in when it is not
     // listed, over the default workspace (pc-lastproj alone lost to POCKET_DEFAULT_CWD and to the most recent workspace).
-    try { writeLocal('pc-new-start', { start: id, cwd: s.directory || '' }); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
+    // 1.107: a handoff that continues in a project shows that project and its start on New (the server links from the handoff).
+    const carried = s.kind === 'handoff' && s.project && s.projectName && !assistantMode() ? { project: s.project, projectName: s.projectName, handoffProject: true, ...(handoffStartOf(id, s) ? { projectStart: handoffStartOf(id, s) } : {}) } : {};
+    try { writeLocal('pc-new-start', { start: id, cwd: s.directory || '', ...carried }); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
   } catch (e) { if (e.message === 'login') return; toast(e.status === 404 ? 'That start link has expired.' : 'Could not load the start link.'); }
   location.replace('#/new');
 }
@@ -3856,14 +3881,14 @@ async function renderNew({ home = false } = {}) {
     <main class="scroll"><div class="pane task-pane${home ? ' assistant-home' : ''}">
       ${home ? assistantIntroHTML() + '<section class="home-waiting" id="home-waiting" aria-labelledby="home-waiting-h" hidden></section>' : ''}
       <div><label class="task-heading" for="first">What would you like done?</label><div class="starters" id="starters" hidden></div></div>
-      <div class="task-actions" id="new-actions" hidden><button class="chip conversation-project linked" id="new-project" hidden></button><button class="chip conversation-mode" id="new-mode" hidden></button></div>
+      <div class="task-actions" id="new-actions" hidden><button class="chip conversation-project linked" id="new-project" hidden></button><button class="chip conversation-mode" id="new-mode" hidden></button><button class="chip" id="new-track" hidden>${IC.plus}<span>Start a project</span></button></div>
       <details id="new-setup"><summary id="choose-workspace"><span class="task-context" id="task-context"></span><span class="setup-edit">Edit setup</span></summary><div class="setup-fields">
       <div><span class="h" id="agenth">Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth">
         <button class="row" role="radio" aria-checked="false" data-a="claude"><span class="dot"></span>${IC.term}<span class="p">Claude Code</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="codex"><span class="dot"></span>${IC.term}<span class="p">Codex</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="acp" hidden><span class="dot"></span>${IC.term}<span class="p">OpenRouter</span></button>
       </div></div>
-      <div id="new-start-mode" hidden><span class="h" id="starth">Start</span><div class="projlist start-modes" id="spick" role="radiogroup" aria-labelledby="starth">
+      <div id="new-start-mode" hidden data-conductor-host><div class="mode-row"><span class="h" id="starth">Start</span>${conductorInfoHTML()}</div>${conductorAboutHTML()}<div class="projlist start-modes" id="spick" role="radiogroup" aria-labelledby="starth">
         <button class="row" role="radio" aria-checked="true" data-s="conductor"><span class="dot"></span><span class="p">Conductor<span class="workspace-path" id="spick-lead"></span></span></button>
         <button class="row" role="radio" aria-checked="false" data-s="solo"><span class="dot"></span><span class="p">Solo<span class="workspace-path">One model does the work itself. For a small task.</span></span></button>
       </div><p class="title-note" id="new-start-none" hidden></p></div>
@@ -3889,12 +3914,17 @@ async function renderNew({ home = false } = {}) {
   let startFrom = pendingNew?.payload.project ? { project: pendingNew.payload.project, projectName: pendingNew.payload.projectName || '' } : readLocal('pc-new-start', null);
   const paintNewProject = () => {
     const b = $('#new-project'); if (!b) return;
-    b.hidden = !startFrom?.project; $('#new-actions').hidden = b.hidden;
+    b.hidden = !startFrom?.project;
+    // 1.107: with no project yet, Start a project makes one for this conversation (where Projects is on).
+    const track = $('#new-track'); track.hidden = Boolean(startFrom?.project) || Boolean(pendingNew) || !projectsOn();
+    $('#new-actions').hidden = b.hidden && track.hidden;
     if (!startFrom?.project) return;
     const name = startFrom.projectName || startFrom.project;
     b.innerHTML = IC.folder + '<span>' + esc(name) + '</span>'; b.title = 'This conversation will be linked to the project ' + name;
     b.setAttribute('aria-label', 'Linked to the project ' + name + '. Options');
-    b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.'); confirmSheet('Start without the project?', 'The new conversation will not be linked to ' + name + '. The briefing stays in the message; edit it if you no longer want it.', 'Remove the link', () => { startFrom = null; try { localStorage.removeItem('pc-new-start'); } catch { } paintNewProject(); paintStartMode(); }); };
+    b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.');
+      if (startFrom.handoffProject) return toast('This handoff continues in ' + name + '.');
+      confirmSheet('Start without the project?', 'The new conversation will not be linked to ' + name + '. ' + (startFrom.note ? 'The project stays in Projects.' : 'The briefing stays in the message; edit it if you no longer want it.'), 'Remove the link', () => { startFrom = null; try { localStorage.removeItem('pc-new-start'); } catch { } paintNewProject(); paintStartMode(); }); };
   };
   // 1.106: a Conductor project's start. Conductor (the default) or Solo, sent as projectStart; an agent without a top model on
   // this server, or one that does not run project mode at all, starts as usual and says so. Removing the project link removes it.
@@ -3913,7 +3943,7 @@ async function renderNew({ home = false } = {}) {
     const word = c === 'solo' ? 'Solo' : 'Conductor', solo = startSolo();
     b.textContent = word; b.setAttribute('aria-label', word + ': how this project conversation starts. Change');
     b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.');
-      sheet('How this conversation starts', [['conductor', 'Conductor', startLead() + ' leads at high effort and hands out the work'], ['solo', 'Solo', (solo ? solo + ' does' : 'One model does') + ' the work itself. For a small task.']], c, pickStart); };
+      startChoiceSheet(c, startLead(), solo, pickStart); };
   };
   // While the Start control applies, model and effort begin on Default (the server then runs the lead or the Solo model);
   // when it stops applying (another agent, the link removed), the saved picks come back unless one was made here.
@@ -3945,6 +3975,18 @@ async function renderNew({ home = false } = {}) {
     }
     paintStartChip();
     if (tb?.key === NEW_KEY) renderToolbar(); else updateNewSummary(); // the chips' Default follows the start (renderToolbar updates the summary)
+  };
+  // 1.107: Start a project. The name starts as the message's first line; the message stays in the box, and the card it makes
+  // is linked when the conversation starts. `note` has Send tell the agent which card that is.
+  $('#new-track').onclick = () => {
+    if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.');
+    const line = ($('#first').value.trim().split('\n')[0] || '').replace(/^[#>*\-\s]+/, '').trim();
+    const name = (line.length > 80 ? line.slice(0, 80).replace(/\s+\S*$/, '') : line).replace(/[.,;:!?]+$/, ''); // a name, not a sentence
+    const directory = $('#cpath').value.trim() || sel || '';
+    startProjectSheet({ name, directory, onDone: p => {
+      startFrom = { ...(startFrom?.start ? { start: startFrom.start } : {}), project: p.id, projectName: p.name, cwd: directory, note: true, ...conductorStartFields(p) };
+      writeLocal('pc-new-start', startFrom); paintNewProject(); paintStartMode(); $('#first')?.focus();
+    } });
   };
   $('#spick').querySelectorAll('.row').forEach(r => r.onclick = () => pickStart(r.dataset.s));
   bindRadioGroup($('#spick'));
@@ -4168,7 +4210,8 @@ async function renderNew({ home = false } = {}) {
     $('#start-hint').hidden = true;
     $('#start').disabled = true; $('#start').setAttribute('aria-label', 'Starting…');
     try {
-      const payload = savedStart?.payload || { cwd, text, provider, ...turnOpts(), ...(startFrom?.project ? { project: startFrom.project, projectName: startFrom.projectName || '' } : {}), ...(startFrom?.start ? { start: startFrom.start } : {}), ...(startChoice() ? { projectStart: startChoice() } : {}) };
+      const noted = startFrom?.note && startFrom.project && !text.includes('Pocket project ' + startFrom.project) ? text + '\n\n' + projectNote(startFrom.project) : text;
+      const payload = savedStart?.payload || { cwd, text: noted, provider, ...turnOpts(), ...(startFrom?.project ? { project: startFrom.project, projectName: startFrom.projectName || '' } : {}), ...(startFrom?.start ? { start: startFrom.start } : {}), ...(startChoice() ? { projectStart: startChoice() } : {}) };
       const saved = loadOutbox(NEW_KEY);
       if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) { toast('Retry the saved new conversation request before changing it.'); return false; }
       newPending = saved || { payload, clientMessageId: crypto.randomUUID(), ...(allowSecrets ? { allowSecrets: true } : {}) };
