@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.106.1] — Unreleased · build 199
+## [1.106.1] — 2026-11-15 · build 199
 
 Asked for by Brad (2026-11-15): a start from a Conductor project looked like an ordinary one, and Conductor mode belongs to Developer mode.
 
@@ -12,7 +12,7 @@ Asked for by Brad (2026-11-15): a start from a Conductor project looked like an 
 - Tested: `test/project-mode.test.mjs` (the board names no lead in Assistant mode and names it again after; `conductorStart`), `test/project-mode-browser.mjs` (the New chip and its sheet; Default model and effort for Conductor, Solo and Codex; the options sheet both ways and its Start; in Assistant mode no switch, no Works in, Edit keeps the hidden list, no Start choice, chip or sheet option).
 - Manual: *Projects*, *Working in a conversation*.
 
-## [1.106.0] — Unreleased · build 198
+## [1.106.0] — 2026-11-15 · build 198
 
 Asked for by Brad (2026-11-15): a project should be able to run with the top model as a lead that plans, hands the work to cheaper models and checks what comes back, and the setting should follow the project through every new conversation and handoff. Plan: `docs/plans/project-mode.md`. The lead's instructions follow Anthropic's published guidance for Fable 5.2 (start on Opus for most work, lead at high effort, say what a subagent costs, finish the whole task, report for a reader who did not watch).
 
