@@ -33,7 +33,7 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
  const closeSheet=async()=>{await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.scrim'));};
  const card=async id=>{await page.goto(base+'/?pm='+Math.random().toString(36).slice(2)+'#/projects/'+id);await page.waitForSelector('.project-card [data-mode]');};
  const sections=()=>page.$$eval('.project-card .project-field h2',e=>e.map(h=>h.textContent.trim()));
- const prev={projects:settings.projects,handoffAt:settings.handoffAt,conductor:modes.conductor,projectMode:modes.projectMode,handoffs:modes.handoffs};
+ const prev={projects:settings.projects,handoffAt:settings.handoffAt,assistantMode:settings.assistantMode,conductor:modes.conductor,conductorStart:modes.conductorStart,projectMode:modes.projectMode,handoffs:modes.handoffs};
  settings.projects=true;modes.conductor={claude:'Fable 5.1',codex:'GPT-6 Astra'};
  const fourth=rows.find(r=>r.state.kind==='finished').id,idle=rows.find(r=>r.state.kind==='idle').id;
  let savedFourth=null;
@@ -104,18 +104,43 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   await page.waitForFunction(()=>tb?.prefs.model==='default'&&tb.prefs.effort==='default');
   assert.deepEqual(await page.evaluate(()=>(({model,effort})=>({model,effort}))(JSON.parse(localStorage.getItem('pc-prefs-new')))),sticky,'Default here is not saved over the picks');
   assert.match(await page.$eval('#task-context',e=>e.textContent),/Start Conductor · Fable 5\.1 leads/);
+  // 1.106.1: the start shows as a chip beside the project chip, and Model and Effort name what it runs (Brad saw his
+  // server default, Opus 5.5, here and took the start for an ordinary one).
+  assert.equal(await page.$eval('#new-mode',e=>e.hidden?'hidden':e.textContent),'Conductor');
+  assert.equal(await page.evaluate(()=>document.getElementById('new-project').nextElementSibling.id),'new-mode','beside the project chip');
+  assert.match(await page.$eval('#c-model',e=>e.textContent),/Fable 5\.1/,'New: Default names the lead');
+  assert.match(await page.$eval('#c-eff',e=>e.textContent),/High/,'New: Default effort is High');
+  await shot('start-chips-1440');
+  await clickControl(page,'#c-model');await page.waitForSelector('.sheet [data-v="default"]');
+  assert.equal(await page.$eval('.sheet [data-v="default"] .sub',e=>e.textContent),"Fable 5.1 · this project's lead");
+  assert.equal(await page.$eval('.sheet .sheet-note',e=>e.textContent),'Default is the lead. Another model here runs in its place, still as Conductor.');await closeSheet();
+  await clickControl(page,'#c-eff');await page.waitForSelector('.sheet [data-v="default"]');
+  assert.equal(await page.$eval('.sheet [data-v="default"] .sub',e=>e.textContent),"High · this project's Conductor start");await closeSheet();
+  await clickControl(page,'#new-mode');await page.waitForSelector('.sheet [data-v="solo"]');
+  assert.deepEqual(await page.$$eval('.sheet [data-v]',e=>e.map(o=>[o.dataset.v,o.classList.contains('sel'),o.querySelector('.sub').textContent])),
+   [['conductor',true,'Fable 5.1 leads at high effort and hands out the work'],['solo',false,'Opus 5.5 does the work itself. For a small task.']]);
+  await axe('.sheet');await shot('start-chip-sheet-1440');
+  await clickControl(page,'.sheet [data-v="solo"]');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+  assert.equal(await page.$eval('#new-mode',e=>e.textContent),'Solo');
+  assert.match(await page.$eval('#c-model',e=>e.textContent),/Opus 5\.5/,'Solo: Default names its model');assert.match(await page.$eval('#c-eff',e=>e.textContent),/High/);
+  assert.match(await page.$eval('#task-context',e=>e.textContent),/Start Solo/,'the setup summary follows the chip');
+  await clickControl(page,'#new-mode');await page.waitForSelector('.sheet [data-v="conductor"]');await clickControl(page,'.sheet [data-v="conductor"]');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+  assert.match(await page.$eval('#c-model',e=>e.textContent),/Fable 5\.1/);
   await clickControl(page,'#choose-workspace');await page.waitForSelector('#spick .row',{visible:true});
   assert.deepEqual(await page.$$eval('#spick .row',e=>e.map(r=>[r.dataset.s,r.getAttribute('aria-checked'),r.textContent.replace(/\s+/g,' ').trim()])),
    [['conductor','true','ConductorFable 5.1 leads at high effort and hands out the work'],['solo','false','SoloOne model does the work itself. For a small task.']]);
   await axe('#new-setup');await noOverflow('new 1440');await page.$eval('#new-setup',e=>e.scrollIntoView({block:'start'}));await shot('start-1440');
   console.log('Project mode: Codex names its own lead; an agent without one starts as usual');
   await clickControl(page,'[data-a="codex"]');assert.match(await page.$eval('#spick-lead',e=>e.textContent),/^GPT-6 Astra leads/);
+  assert.match(await page.$eval('#c-model',e=>e.textContent),/GPT-6 Astra/,'Codex: Default names its lead');
   // New reads the card's mode and the leads again from the board, so the server's answer (no Codex lead) wins over the tap.
   modes.conductor={claude:'Fable 5.1',codex:null};
   await page.evaluate(()=>route());await page.waitForSelector('#new-start-mode:not([hidden])');await page.waitForFunction(()=>document.getElementById('spick').hidden);
   modes.conductor={claude:'Fable 5.1',codex:'GPT-6 Astra'};
   assert.equal(await page.$eval('#spick',e=>e.hidden),true);
   assert.equal(await page.$eval('#new-start-none',e=>e.textContent),'Codex has no top model on this server, so this conversation starts as usual.');
+  assert.equal(await page.$eval('#new-mode',e=>e.hidden),true,'no start chip where the start does not apply');
+  assert.doesNotMatch(await page.$eval('#c-model',e=>e.textContent),/Astra/,'and Default is the usual one');
   assert.doesNotMatch(await page.$eval('#task-context',e=>e.textContent),/Start/);
   await clickControl(page,'#choose-workspace');
   if(await page.$eval('[data-a="acp"]',e=>!e.hidden)){await clickControl(page,'[data-a="acp"]');
@@ -149,8 +174,26 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   console.log('Project mode: a project with the mode off gets no Start control');
   await view(1440);await card(SUPPLIER);await clickControl(page,'.project-actions [data-start]');await page.waitForSelector('#new-project:not([hidden])');
   assert.equal(await page.$eval('#new-start-mode',e=>e.hidden),true);
+  assert.equal(await page.$eval('#new-mode',e=>e.hidden),true);
   await page.evaluate(()=>{localStorage.removeItem('pc-new-start');});
   page.off('request',onRequest);await page.setRequestInterception(false);
+
+  console.log('Project mode: the project options sheet says how Start begins and switches the mode (1.106.1)');
+  const options=async()=>{await page.goto(base+'/?pm='+Math.random().toString(36).slice(2)+'#/projects');await page.waitForSelector(`[data-project-more="${WAREHOUSE}"]`);
+   await clickControl(page,`[data-project-more="${WAREHOUSE}"]`);await page.waitForSelector('.sheet [data-start]');
+   return page.$$eval('.sheet [data-start],.sheet [data-mode]',e=>e.map(b=>[b.firstElementChild.nextElementSibling.firstChild.textContent,b.querySelector('.sub').textContent]));};
+  assert.deepEqual(await options(),[['Start a conversation','Conductor: Fable 5.1 leads. Briefed on where the project stands, linked to it'],
+   ['Turn off Conductor mode','Conversations here go back to your usual model at their next reply']]);
+  await axe('.sheet');await shot('options-1440');
+  await clickControl(page,'.sheet [data-mode]');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+  await page.waitForFunction(p=>projectById(p)?.mode!=='conductor',{},WAREHOUSE);assert.deepEqual([lastAct().action,lastAct().mode],['update','off']);
+  assert.deepEqual(await options(),[['Start a conversation','A new conversation briefed on where the project stands, linked to it'],
+   ['Turn on Conductor mode','New conversations here start with Fable 5.1 as lead, handing the work to cheaper models']]);
+  await clickControl(page,'.sheet [data-mode]');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+  await page.waitForFunction(p=>projectById(p)?.mode==='conductor',{},WAREHOUSE);assert.deepEqual([lastAct().action,lastAct().mode],['update','conductor']);
+  await clickControl(page,`[data-project-more="${WAREHOUSE}"]`);await page.waitForSelector('.sheet [data-start]');await clickControl(page,'.sheet [data-start]');
+  await page.waitForSelector('#new-mode:not([hidden])');assert.match(await page.$eval('#c-model',e=>e.textContent),/Fable 5\.1/,'Start from the sheet is a Conductor start');
+  await page.evaluate(()=>{localStorage.removeItem('pc-new-start');});
 
   console.log('Project mode: a start the server could not link says so');
   modes.projectLinkError='This project already has 50 conversations. Unlink one first.';
@@ -214,6 +257,28 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   await page.evaluate(([p,s])=>boardAct({action:'unlink-session',project:p,expected_revision:projectById(p).revision,session:s}),[WAREHOUSE,fourth]);
   await page.waitForFunction(()=>document.getElementById('mode-open').hidden&&!document.querySelector('.handoff-offer'));
 
+  console.log('Project mode: Assistant mode shows no switch, no Works in and no Start choice (1.106.1)');
+  settings.assistantMode=true;
+  await page.evaluate(p=>fetch('/api/board/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'update',project:p,mode:'conductor',doneWhen:'Aisle 4 reconciles.',worksIn:['/workspaces/warehouse']})}),WAREHOUSE);
+  await page.goto(base+'/?pm=asst#/projects/'+WAREHOUSE);await page.waitForSelector('.project-card .project-field h2');
+  assert.equal(await page.$('.project-card [data-mode]'),null,'Assistant mode: no Conductor switch');
+  assert.deepEqual((await sections()).filter(h=>/Done when|Works in/.test(h)),['Done when'],'Assistant mode: Done when stays, Works in goes');
+  await clickControl(page,'.project-actions [data-edit]');await page.waitForSelector('.project-editor #pe-done');
+  assert.equal(await page.$('#pe-works'),null,'Assistant mode: no Works in field in Edit');
+  await clickControl(page,'.project-editor button.primary');await page.waitForFunction(()=>!document.querySelector('.project-editor'));
+  assert.equal('worksIn' in lastAct(),false,'saving Edit leaves the hidden Works in list alone');
+  await page.goto(base+'/?pm=asst2#/projects/'+WAREHOUSE);await page.waitForSelector('.project-actions [data-start]');
+  await clickControl(page,'.project-actions [data-start]');await page.waitForSelector('#new-project:not([hidden])');
+  assert.equal(await page.$eval('#new-start-mode',e=>e.hidden),true,'Assistant mode: no Conductor or Solo choice on New');
+  assert.equal(await page.$eval('#new-mode',e=>e.hidden),true,'Assistant mode: no start chip');
+  await page.goto(base+'/?pm=asst3#/projects');await page.waitForSelector(`[data-project-more="${WAREHOUSE}"]`);
+  await clickControl(page,`[data-project-more="${WAREHOUSE}"]`);await page.waitForSelector('.sheet [data-start]');
+  assert.equal(await page.$('.sheet [data-mode]'),null,'Assistant mode: no Conductor option in the sheet');
+  assert.equal(await page.$eval('.sheet [data-start] .sub',e=>e.textContent),'A new conversation briefed on where the project stands, linked to it');
+  assert.doesNotMatch(await page.$eval('.sheet [data-edit] .sub',e=>e.textContent),/works in/);await closeSheet();
+  await page.evaluate(()=>{localStorage.removeItem('pc-new-start');});
+  settings.assistantMode=false;await reset();
+
   console.log('Project mode: a handoff card continues in the project');
   const hid='f00d000000a6';modes.handoffs={...(modes.handoffs||{}),[hid]:{projectName:'Warehouse stock report',projectStart:'conductor'}};
   const convo=conversations.get(idle);convo.push({role:'assistant',blocks:[{t:'text',text:'Ready for a fresh start.\n\n'+base+'/#/start/'+hid}]});
@@ -223,7 +288,7 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   assert.deepEqual(errors,[]);
  }finally{
   if(savedFourth)conversations.set(fourth,savedFourth);
-  Object.assign(settings,{projects:prev.projects,handoffAt:prev.handoffAt});Object.assign(modes,{conductor:prev.conductor,projectMode:prev.projectMode,handoffs:prev.handoffs});
+  Object.assign(settings,{projects:prev.projects,handoffAt:prev.handoffAt,assistantMode:prev.assistantMode});Object.assign(modes,{conductor:prev.conductor,conductorStart:prev.conductorStart,projectMode:prev.projectMode,handoffs:prev.handoffs});
   await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'})).catch(()=>{});await context.close();
  }
 }

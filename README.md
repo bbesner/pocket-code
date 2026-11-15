@@ -21,7 +21,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.106.0 / build 198**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.106.1 / build 199**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -250,7 +250,7 @@ device, and when you open them, so an item an agent adds shows up without a relo
   **Start conversation** opens a new conversation in the project's directory, briefed on the card and
   linked to it. With Tasks on, open reminders are listed with the tasks, due first; without it,
   a Scheduled view lists them. See [Projects](docs/manual/projects.md).
-  **Conductor mode** (1.106, Claude Code and Codex) is a switch on the card for a big piece of work: a
+  **Conductor mode** (1.106, Claude Code and Codex, Developer mode only) is a switch on the card for a big piece of work: a
   conversation started in the project, handed off within it or linked to it runs the newest top model
   offered (Fable on Claude Code, GPT Astra on Codex) at high effort as the lead, with its subagents one
   tier down. The lead plans, hands out the work and checks each piece against the card's **Done when**

@@ -145,8 +145,11 @@ async function loadAcpModels() {
 }
 // 1.106: in a conversation started from a Conductor project, Default is the model that start chose (the lead, or Solo's model).
 let chatProjectMode = null; // GET /api/session/:id's projectMode, with the conversation's id
-const projectModeNow = () => chatProjectMode && tb?.key === chatProjectMode.session ? chatProjectMode : null;
+// 1.106.1: on New, the start a Conductor project will send (set by renderNew), so Default names the model that will run.
+let newProjectMode = null;
+const projectModeNow = () => tb?.key === NEW_KEY ? newProjectMode?.() || null : chatProjectMode && tb?.key === chatProjectMode.session ? chatProjectMode : null;
 const CONDUCTOR_MODEL_NOTE = 'Changing the model restarts the lead without its reasoning. A handoff carries the work over cleanly.';
+const CONDUCTOR_NEW_NOTE = 'Default is the lead. Another model here runs in its place, still as Conductor.';
 const modelList = () => {
   const list = tb?.provider === 'codex' ? CODEX_MODELS : tb?.provider === 'acp' ? ACP_MODELS : MODELS, pm = projectModeNow();
   if (!pm?.modelLabel || !engineHas(tb.provider, 'projectMode')) return list;
@@ -162,7 +165,11 @@ const effortList = () => {
   // 1.67: nothing above the managed policy's ceiling (maxEffortLevel) is offered for Claude.
   const cap = tb?.provider === 'codex' ? null : d.maxEffort, order = EFFORTS.map(e => e[0]).reverse();
   const allowed = cap ? EFFORTS.filter(([v]) => order.indexOf(v) <= order.indexOf(cap)) : EFFORTS;
-  return [['default', 'Default', name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'], ...(offersUltra() ? [['ultra', 'Ultra', 'Maximum, with automatic task delegation']] : []), ...allowed];
+  // 1.106.1: in a Conductor project's conversation (or its start on New), Default is the mode's effort, High.
+  const pm = projectModeNow(), own = pm?.effort && engineHas(tb.provider, 'projectMode') ? EFFORT_NAMES[pm.effort] : null;
+  const def = own ? [`${own} · ${pm.start === 'solo' ? "this project's Solo start" : "this project's Conductor start"}`, own]
+    : [name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'];
+  return [['default', 'Default', ...def], ...(offersUltra() ? [['ultra', 'Ultra', 'Maximum, with automatic task delegation']] : []), ...allowed];
 };
 const providerDefaults = { claude: {}, codex: {}, acp: {} };
 // 1.86: what each engine can do (engines.mjs, served at /api/engines). A feature an engine lists false is hidden on its
@@ -353,7 +360,7 @@ function renderToolbar() {
   if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard'],
     ...(vaultOn() ? [['vault','Store in the Vault','Save a key or password here instead of pasting it into the message']] : [])],null,v=>{if(v==='file')$('#fpick')?.click();else if(v==='vault')addVaultItemFromComposer();else pasteClipboardImage();}); // 1.39: the Vault option
   $('#c-model').onclick = () => sheet('Model for this reply', modelList(), tb.prefs.model,
-    v => { tb.prefs.model = v; if (tb.leadHeld) delete tb.leadHeld.model; setPrefs(tb.key, tb.prefs); renderToolbar(); }, { search: modelList().length > 12 ? 'models' : '', note: projectModeNow()?.start === 'conductor' ? CONDUCTOR_MODEL_NOTE : '' });
+    v => { tb.prefs.model = v; if (tb.leadHeld) delete tb.leadHeld.model; setPrefs(tb.key, tb.prefs); renderToolbar(); }, { search: modelList().length > 12 ? 'models' : '', note: projectModeNow()?.start === 'conductor' ? (projectModeNow().pending ? CONDUCTOR_NEW_NOTE : CONDUCTOR_MODEL_NOTE) : '' });
   const eff = $('#c-eff'); // absent for an OpenRouter model that takes no reasoning-effort setting
   if (eff) eff.onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
     v => { tb.prefs.effort = v; if (tb.leadHeld) delete tb.leadHeld.effort; setPrefs(tb.key, tb.prefs); renderToolbar(); });
@@ -3849,7 +3856,7 @@ async function renderNew({ home = false } = {}) {
     <main class="scroll"><div class="pane task-pane${home ? ' assistant-home' : ''}">
       ${home ? assistantIntroHTML() + '<section class="home-waiting" id="home-waiting" aria-labelledby="home-waiting-h" hidden></section>' : ''}
       <div><label class="task-heading" for="first">What would you like done?</label><div class="starters" id="starters" hidden></div></div>
-      <div class="task-actions" id="new-actions" hidden><button class="chip conversation-project linked" id="new-project" hidden></button></div>
+      <div class="task-actions" id="new-actions" hidden><button class="chip conversation-project linked" id="new-project" hidden></button><button class="chip conversation-mode" id="new-mode" hidden></button></div>
       <details id="new-setup"><summary id="choose-workspace"><span class="task-context" id="task-context"></span><span class="setup-edit">Edit setup</span></summary><div class="setup-fields">
       <div><span class="h" id="agenth">Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth">
         <button class="row" role="radio" aria-checked="false" data-a="claude"><span class="dot"></span>${IC.term}<span class="p">Claude Code</span></button>
@@ -3891,9 +3898,23 @@ async function renderNew({ home = false } = {}) {
   };
   // 1.106: a Conductor project's start. Conductor (the default) or Solo, sent as projectStart; an agent without a top model on
   // this server, or one that does not run project mode at all, starts as usual and says so. Removing the project link removes it.
-  const startLead = () => startFrom?.project && startFrom.mode === 'conductor' && engineHas(provider, 'projectMode') ? startFrom.conductor?.[provider] || null : null;
+  const conductorHere = () => Boolean(startFrom?.project && startFrom.mode === 'conductor' && !window.pocketFeatures?.assistantMode); // 1.106.1: never in Assistant mode
+  const startLead = () => conductorHere() && engineHas(provider, 'projectMode') ? startFrom.conductor?.[provider] || null : null;
   const startChoice = () => startLead() ? (startFrom.projectStart === 'solo' ? 'solo' : 'conductor') : null;
   newStartLine = () => { const c = startChoice(); return c === 'conductor' ? 'Conductor · ' + startLead() + ' leads' : c === 'solo' ? 'Solo' : ''; };
+  // 1.106.1: what that start runs, for the Model and Effort chips' Default (projectModeNow on New)
+  const startSolo = () => startFrom?.solo?.[provider] || null;
+  newProjectMode = () => { const c = startChoice(); return c ? { start: c, modelLabel: c === 'conductor' ? startLead() : startSolo(), effort: startFrom.effort?.[provider] || 'high', pending: true } : null; };
+  const pickStart = v => { if (!startFrom) return; startFrom.projectStart = v; writeLocal('pc-new-start', startFrom); paintStartMode(); };
+  // 1.106.1: the start as a chip beside the project chip, so it shows without opening the setup; tapping it offers the other.
+  const paintStartChip = () => {
+    const b = $('#new-mode'); if (!b) return;
+    const c = startChoice(); b.hidden = !c; if (!c) return;
+    const word = c === 'solo' ? 'Solo' : 'Conductor', solo = startSolo();
+    b.textContent = word; b.setAttribute('aria-label', word + ': how this project conversation starts. Change');
+    b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.');
+      sheet('How this conversation starts', [['conductor', 'Conductor', startLead() + ' leads at high effort and hands out the work'], ['solo', 'Solo', (solo ? solo + ' does' : 'One model does') + ' the work itself. For a small task.']], c, pickStart); };
+  };
   // While the Start control applies, model and effort begin on Default (the server then runs the lead or the Solo model);
   // when it stops applying (another agent, the link removed), the saved picks come back unless one was made here.
   const holdForLead = () => {
@@ -3909,7 +3930,7 @@ async function renderNew({ home = false } = {}) {
   const paintStartMode = () => {
     const box = $('#new-start-mode'); if (!box) return;
     holdForLead();
-    const conductor = startFrom?.project && startFrom.mode === 'conductor';
+    const conductor = conductorHere();
     box.hidden = !conductor;
     if (conductor) {
       const lead = startLead(), agent = ENGINE_LABELS[provider] || 'This agent';
@@ -3922,9 +3943,10 @@ async function renderNew({ home = false } = {}) {
         $('#spick').querySelectorAll('.row').forEach(x => { const on = x.dataset.s === pick; x.classList.toggle('sel', on); x.setAttribute('aria-checked', String(on)); x.tabIndex = on ? 0 : -1; });
       }
     }
-    updateNewSummary();
+    paintStartChip();
+    if (tb?.key === NEW_KEY) renderToolbar(); else updateNewSummary(); // the chips' Default follows the start (renderToolbar updates the summary)
   };
-  $('#spick').querySelectorAll('.row').forEach(r => r.onclick = () => { if (!startFrom) return; startFrom.projectStart = r.dataset.s; writeLocal('pc-new-start', startFrom); paintStartMode(); });
+  $('#spick').querySelectorAll('.row').forEach(r => r.onclick = () => pickStart(r.dataset.s));
   bindRadioGroup($('#spick'));
   paintNewProject();
   // 1.106: the card's mode and the leads are read again from the board (one /board read, often cached), so a switch
@@ -3932,8 +3954,8 @@ async function renderNew({ home = false } = {}) {
   if (startFrom?.project && !pendingNew && typeof loadBoard === 'function' && typeof projectsOn === 'function' && projectsOn()) loadBoard(true).then(s => {
     const p = s?.projects?.find(x => x.id === startFrom?.project);
     if (viewVersion !== chatRenderVersion || !p || !startFrom) return;
-    const { mode, conductor, ...rest } = startFrom;
-    startFrom = { ...rest, projectName: p.name, ...(p.mode === 'conductor' && p.status !== 'done' ? { mode: 'conductor', conductor: { ...(s.conductor || {}) } } : {}) };
+    const { mode, conductor, solo, effort, ...rest } = startFrom;
+    startFrom = { ...rest, projectName: p.name, ...(p.mode === 'conductor' && p.status !== 'done' ? { mode: 'conductor', conductor: { ...(s.conductor || {}) }, solo: { ...(s.conductorStart?.solo || {}) }, effort: { ...(s.conductorStart?.effort || {}) } } : {}) };
     writeLocal('pc-new-start', startFrom); paintNewProject(); paintStartMode();
   }).catch(() => { });
   const context = () => {const cwd=$('#cpath')?.value.trim()||sel;const el=$('#task-context');if(el)el.dataset.workspace=cwd?projName(cwd):'Choose a workspace';updateNewSummary();};

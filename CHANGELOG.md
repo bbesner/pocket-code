@@ -3,6 +3,15 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.106.1] — Unreleased · build 199
+
+Asked for by Brad (2026-11-15): a start from a Conductor project looked like an ordinary one, and Conductor mode belongs to Developer mode.
+
+- **New shows the Conductor start** (`public/app.js`, `public/projects.js`, `server.mjs`). Brad started a conversation from a Conductor project and saw his usual model (Opus 5.5) on the model chip with the start choice folded inside the setup, so it read as an ordinary start (the server would have run the lead). Now a **Conductor** or **Solo** chip sits beside the project chip and opens the choice; on New the model and effort chips' **Default** name what the start runs (the lead or Solo's model, at High), and the effort chip says High in Conductor and Solo conversations too. `GET /api/board` adds `conductorStart` (Solo's model per engine and the effort) for that. The project's **⋯** options say **Conductor: *lead* leads** on Start a conversation and add **Turn on/off Conductor mode** (Developer mode).
+- **Assistant mode hides Conductor mode** (`public/projects.js`, `public/app.js`, `server.mjs`). The server never ran it in Assistant mode (`projectModeOn()`), but the card and New still offered it there. Now the card shows no Conductor mode switch and no Works in (display, Edit and the Start conversation briefing); saving Edit no longer sends `worksIn` when the field is hidden, so a list saved in Developer mode is kept. New offers no Conductor or Solo choice. `GET /api/board` returns `conductor: null` in Assistant mode. Done when and a step's Passes when check still show.
+- Tested: `test/project-mode.test.mjs` (the board names no lead in Assistant mode and names it again after; `conductorStart`), `test/project-mode-browser.mjs` (the New chip and its sheet; Default model and effort for Conductor, Solo and Codex; the options sheet both ways and its Start; in Assistant mode no switch, no Works in, Edit keeps the hidden list, no Start choice, chip or sheet option).
+- Manual: *Projects*, *Working in a conversation*.
+
 ## [1.106.0] — Unreleased · build 198
 
 Asked for by Brad (2026-11-15): a project should be able to run with the top model as a lead that plans, hands the work to cheaper models and checks what comes back, and the setting should follow the project through every new conversation and handoff. Plan: `docs/plans/project-mode.md`. The lead's instructions follow Anthropic's published guidance for Fable 5.2 (start on Opus for most work, lead at high effort, say what a subagent costs, finish the whole task, report for a reader who did not watch).
