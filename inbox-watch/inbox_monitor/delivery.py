@@ -278,6 +278,19 @@ class PocketPush(Delivery):
         items = d if isinstance(d, list) else d.get("entries", []) if isinstance(d, dict) else []
         return [e for e in items if isinstance(e, dict) and e.get("state") in ("new", "opened") and e.get("source", self.source) == self.source]
 
+    def inbox_worked(self, since: str) -> list[dict]:
+        """1.109: this watcher's alerts since `since` that the owner started a conversation from (an entry's `sessions`), whatever
+        became of the entry afterwards: working on it and then dismissing it is the usual order."""
+        if not self.inbox:
+            return []
+        out = []
+        for state in ("all", "dismissed"):
+            d = self._json(self._node("pocket-inbox.mjs", ["list", "--state", state, "--since", since, "--json"]), "pocket-inbox list")
+            items = d if isinstance(d, list) else d.get("entries", []) if isinstance(d, dict) else []
+            out += [e for e in items if isinstance(e, dict) and e.get("sessions") and e.get("kind") == "alert"
+                    and e.get("source", self.source) == self.source]
+        return out
+
     def act(self, entry_id: str, action: str, note: str) -> None:
         self._json(self._node("pocket-inbox.mjs", ["act", entry_id, action, "--note", note[:290], "--json"]), "pocket-inbox act")
 

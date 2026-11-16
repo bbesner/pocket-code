@@ -1,13 +1,14 @@
 <!-- manual
-checked: 1.105.0
+checked: 1.109.0
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
 
-Inbox Watch reads one Gmail mailbox on a schedule you set and tells you only what deserves your attention. It follows
-each situation as a story across threads and senders, keeps a memory of recent mail, and sends an **alert** when an
-email tells you something the email itself does not (a repeat failure after a repair, a bill that is now due, a reply
-that never came). A **morning digest** covers the rest, and a **look-ahead** twice a day checks what is coming due.
+Inbox Watch reads one Gmail mailbox on a schedule you set and keeps a list of the mail that is work for you. It follows
+each situation as a story across threads and senders, keeps a memory of recent mail, and puts an **alert** on your list
+when an email leaves something to do: a problem to look into, a person waiting on your answer, a bill that is now due, a
+reply that never came. Your push settings decide, separately, which of those also reach your phone. A **morning digest**
+covers the rest, and a **look-ahead** twice a day checks what is coming due.
 Everything it sends lands in Pocket's **Inbox**, where you read it, start a conversation already briefed on the story,
 and tell the watcher what you thought of it.
 
@@ -90,9 +91,31 @@ watcher and does not stop Pocket. `POCKET_INBOX_RUNNER=0` in Pocket's environmen
 
 | Kind | When | What it holds |
 |---|---|---|
-| **Alert** | at a check, when a thread passes the judge's bar | A title, a short text citing the emails it rests on, the story it belongs to, a priority, **Start a conversation** and **Open in Gmail** |
+| **Alert** | at a check, when a thread belongs on your list (see [What goes on the list](#what-goes-on-the-list)) | A title, a short text citing the emails it rests on, the story it belongs to, a priority, **Start a conversation** and **Open in Gmail** |
 | **Digest** | once a day at the digest hour, outside quiet hours, when there is something to say | Alerts held overnight, ones that resolved overnight, *Worth knowing* lines, entries the tidy pass took off, and how many threads were ignored. Each line is an item of its own in Pocket, with its own choices (see [A digest's items](#a-digests-items)) |
 | **Look-ahead** | once in each look-ahead window (from the hour you set, for 4 hours), outside quiet hours | What is due or at risk in the next few days, from open stories and dated mail. Sent only when something needs you |
+
+#### What goes on the list
+
+The list is a work queue, not a set of interruptions: an alert is there for you to go through later, often by starting
+a conversation from it. The judge asks whether the email leaves something for you, or an assistant working for you, to
+do. Since 1.109 that means:
+
+- **Something is failing, or looks like it**: a website, server, scheduled job, backup, device, integration, licence,
+  subscription, payment or account that failed, expired, was declined or went offline, from an automated notice as much
+  as from a person, and also when it is someone else's to fix and nothing shows they have. A problem that cleared itself
+  stays off unless it keeps coming back.
+- **A person is waiting on you**: mail written to you that needs your reply, decision or action. The watcher tells the
+  judge whether your address was in To or only in Cc; a copy counts when the matter has fallen to you or nobody is on it.
+- **Mail like what you worked on before**: you started a conversation from an alert on that story or on the same kind of mail,
+  or labelled such mail by hand (see [Learning from your choices](#learning-from-your-choices)).
+- **Pieces that connect** (a repeat after a repair, a contradiction, a promise now due, a missing reply) and anything
+  critical or time-sensitive, as before.
+
+A story gets one alert. A problem that has only been followed quietly, even for weeks, is listed once when it meets the
+test, with how long it has gone on (a line in a morning digest does not count as having been listed); after that more of the same mail updates the story without a new alert, whether or not
+you have dealt with the entry, until something about it changes what someone must do. Newsletters, receipts, routine
+reports that show nothing wrong and anything someone is visibly handling stay off. Your rules override all of this.
 
 Priorities are critical, high, normal and low. **Critical** is kept for live outages you are the escalation for,
 security incidents and money leaving an account unexpectedly. During quiet hours only critical alerts go out; the
@@ -202,9 +225,9 @@ text alone.
 | Choice | In Pocket | What the watcher does at its next check |
 |---|---|---|
 | **Resolved** | moves to Done | Closes the story: it stops following it and no longer treats it as open |
-| **Not useful** | moves to Done | Learns from it (see [Learning from your choices](#learning-from-your-choices)): a rule under *Learned from your choices* saying what kind of mail is a digest line at most, with your note taken into account, and lowers the story to low priority |
+| **Not useful** | moves to Done | Keeps that story off your list from then on: later mail on it only updates the story, whatever the judge thinks of it, unless it turns critical. It also learns from it (see [Learning from your choices](#learning-from-your-choices)): a rule under *Learned from your choices* for that kind of mail, with your note taken into account, and later mail of the same kind (the same sender with a similar subject) is shown to the judge with your choice |
 | **Dismiss** (the X on a row, or in the entry's sheet) | moves to Done | Takes the Gmail label off (below); the story is unchanged and the watcher learns nothing |
-| **Restore** | back to Open | Reopens a story that Resolved had closed |
+| **Restore** | back to Open | Reopens a story that Resolved had closed, and lets a story marked Not useful be listed again (a learned rule stays until you delete its line) |
 | **Add to Inbox** (a digest item) | the card says *Adding to Inbox*, then *Added to Inbox* | Sends that story as an alert now, lifts a low story to normal and learns a rule to alert on that kind of mail |
 | **Add to Inbox** (a look-ahead item) | the same | Sends it as an alert now and lifts a low story to normal; no rule |
 | **Resolved** / **Not useful** (a digest or look-ahead item) | the card says so | As above, for that story alone |
@@ -243,7 +266,8 @@ until it has. **Use the config file's settings** hands control back to `config.t
   a quote", "Never alert me about newsletters"). The watcher follows them in every decision, the first pass, the
   look-ahead and the tidy pass, and they win over its own judgment, even for something it would call critical. The
   box shows the watcher's rules file, including the rules it learned (*Learned from your choices*, at the end). Saving
-  replaces the file; the watcher keeps the previous version. Up to 8,000 characters.
+  replaces the file; the watcher keeps the previous version. Up to 12,000 characters (8,000 before 1.109), of which
+  the watcher's *Learned from your choices* section may take up to 5,000.
 - **Your list in Gmail**: the *Pocket Inbox* label (below).
 - **Schedule**: an interval for *the rest of the time* (from *Every minute* to *Every 4 hours*, or *Don't check*),
   and up to 12 periods, each with a name, days, *From*, *Until* and its own interval. An *Until* earlier than *From*
@@ -251,7 +275,7 @@ until it has. **Use the config file's settings** hands control back to `config.t
   checks only on demand and with the digest and look-aheads.
 - **Quiet hours and summaries**: *Quiet from* and *Until*, and the **Morning digest**, **Morning look-ahead** and
   **Evening look-ahead** hours (or *Off*). With the morning digest off, alerts held overnight arrive one by one when quiet
-  hours end, and lines that would only have been in the digest are not sent. Times are the watcher's time zone; the sheet
+  hours end, and there are no digest-only lines: mail that is work goes on the list, the rest only updates its story. Times are the watcher's time zone; the sheet
   names it when your device is in another.
 - **Push notifications** (1.105, both modes, under the rules): *Every alert*, *Only what can't wait* with its six
   kinds, *At most* and *Same story again*, or *Nothing, list only* (see [Push notifications](#push-notifications)).
@@ -318,12 +342,17 @@ filters that file whole kinds of mail past the inbox). `name` changes the label'
 
 ### Learning from your choices
 
-Three things you do teach the watcher what you want:
+Four things you do teach the watcher what you want:
 
 - **You label an email Pocket Inbox in Gmail** that is not on your list. The watcher records what it had done with it:
   ignored it, kept it for the digest, filed it as a quiet update, skipped it as routine, or not looked at it yet.
 - **You press Add to Inbox on a line of the morning digest**: the watcher had kept it for the digest when you wanted an alert.
 - **You mark an alert, a digest line or a look-ahead item Not useful**, with or without a note.
+- **You start a conversation from an alert** (1.109). That is the list doing its job, so it writes no rule. The watcher
+  asks Pocket about every half hour which alerts you started from, and from then on the judge is shown, with any new mail
+  on the same story or of the same kind, that you worked on such mail and how often. It is shown your hand labels and
+  Not useful marks the same way, for 180 days. The match is made by code: the same thread, the same story, or the same
+  sender address with a similar subject. The sender alone is not a match, because one address can send every kind of mail.
 
 At the same check, one judge turn turns the new examples into rules, as narrow as they allow: one email teaches it
 about that sender and topic ("Alert on website-content requests from Acme Paving"), several of a kind from different
@@ -336,22 +365,25 @@ would run long is split in two, and when the rules do not fit the judge is asked
 named in the watcher's log. `python3 -m inbox_monitor learn --rebuild` folds every example in again, for an install
 where an earlier version dropped rules (add `--dry-run` to see the result first).
 You see and edit them in the rules box; a line you delete stays deleted unless a new example supports it again.
-Labels a Gmail filter put on and alerts you resolved or dismissed teach it nothing.
+Labels a Gmail filter put on and alerts you resolved or dismissed teach it nothing. Labelling a thread by hand also lifts
+an earlier Not useful on its story: your own hand wins.
 
 ## How it works
 
 ### A check
 
-1. The watcher applies the decisions you made in Pocket (Resolved, Not useful, Restore) and learns from new examples.
+1. The watcher applies the decisions you made in Pocket (Resolved, Not useful, Restore), notes which alerts you started a
+   conversation from, and learns from new examples.
 2. The watcher finds threads with new messages since the last check (through a connector, by searching by date from
    the day before the last check and skipping the messages it has already seen) and syncs the Gmail label.
 3. The [first pass](#first-pass), when on, sets aside clearly routine mail.
 4. The judge reads the rest in batches. With each thread it gets related mail from the archive, the open stories with
    their timelines, the alerts already sent (the newest few, and others from the last day that share a word with the
-   batch), the same order, invoice or account numbers seen before, your rules and,
-   optionally, [memory](#memory-integration-optional). It may ask for up to three Gmail searches. It answers per
-   thread: **notify**, **digest** (a line in the morning digest), **update** (the story changed, no message) or
-   **ignore**. For a notify it also names the kind of urgency, if any, and in one sentence what gets worse if it
+   batch), the same order, invoice or account numbers seen before, what you did with earlier alerts like it, your rules
+   and, optionally, [memory](#memory-integration-optional). It may ask for up to three Gmail searches. It answers per
+   thread: **notify** (on your list), **digest** (a line in the morning digest), **update** (the story changed, no
+   message) or **ignore**. With the morning digest off the judge is told there is none, so nothing is written for a
+   digest that will not be sent: such mail goes on the list if it is work, and otherwise updates its story. For a notify it also names the kind of urgency, if any, and in one sentence what gets worse if it
    waits; your push settings decide from that whether it pushes.
 5. Alerts go out together once every batch is judged, so a later batch can fold a new fact into an alert that has not
    left yet. The same fact is never alerted twice.
