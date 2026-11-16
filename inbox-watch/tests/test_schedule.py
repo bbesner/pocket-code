@@ -142,7 +142,7 @@ def test_tidy_settings():
 def test_rules_setting():
     s = S.normalize({"rules": "Never tell me about cameras that go offline."}, BASE)
     assert s["rules"] == "Never tell me about cameras that go offline."
-    assert len(S.normalize({"rules": "x" * 9000}, BASE)["rules"]) == S.RULES_MAX
+    assert len(S.normalize({"rules": "x" * 13000}, BASE)["rules"]) == S.RULES_MAX
     assert "rules" not in S.normalize({"rules": 5}, BASE), "only text"
 
 

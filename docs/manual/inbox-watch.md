@@ -266,7 +266,8 @@ until it has. **Use the config file's settings** hands control back to `config.t
   a quote", "Never alert me about newsletters"). The watcher follows them in every decision, the first pass, the
   look-ahead and the tidy pass, and they win over its own judgment, even for something it would call critical. The
   box shows the watcher's rules file, including the rules it learned (*Learned from your choices*, at the end). Saving
-  replaces the file; the watcher keeps the previous version. Up to 8,000 characters.
+  replaces the file; the watcher keeps the previous version. Up to 12,000 characters (8,000 before 1.109), of which
+  the watcher's *Learned from your choices* section may take up to 5,000.
 - **Your list in Gmail**: the *Pocket Inbox* label (below).
 - **Schedule**: an interval for *the rest of the time* (from *Every minute* to *Every 4 hours*, or *Don't check*),
   and up to 12 periods, each with a name, days, *From*, *Until* and its own interval. An *Until* earlier than *From*

@@ -79,7 +79,7 @@ function checkItems(raw, { strict }) {
 }
 
 // ---- 1.70: Inbox Watch settings. The worker normalizes again; here a bad value is refused with a reason the owner can read.
-export const WATCH = { periods: 12, every: 240, name: 40, model: 80, profileBytes: 24000, reasoning: ['default', 'low', 'medium', 'high', 'xhigh', 'max'], firstPass: ['jev', 'openai', 'both'], tidyEvery: [1, 2, 4, 8, 12, 24], rules: 8000, scope: ['all', 'inbox', 'inbox_labels'], scopeLabels: 20, scopeLabel: 60,
+export const WATCH = { periods: 12, every: 240, name: 40, model: 80, profileBytes: 24000, reasoning: ['default', 'low', 'medium', 'high', 'xhigh', 'max'], firstPass: ['jev', 'openai', 'both'], tidyEvery: [1, 2, 4, 8, 12, 24], rules: 12000, scope: ['all', 'inbox', 'inbox_labels'], scopeLabels: 20, scopeLabel: 60,
   push: { modes: ['urgent', 'all', 'none'], kinds: ['emergency', 'outage', 'money', 'security', 'waiting', 'deadline'], perDay: [3, 5, 8, 12, 20, 0], repeat: ['worse', 'every'] } };
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;

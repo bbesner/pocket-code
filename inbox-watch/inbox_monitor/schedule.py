@@ -110,7 +110,7 @@ def scope_query(scope: dict | None, sent: bool = False) -> str:
     if mode == "inbox_labels":
         terms += [f"label:{label_term(n)}" for n in scope.get("labels", []) if label_term(n)]
     return terms[0] if len(terms) == 1 else "{" + " ".join(terms) + "}"
-RULES_MAX = 8000
+RULES_MAX = 12000  # 8000 before 1.109, which left a busy owner's learned rules no room to grow
 TIME_RX = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 # Model choices per judge kind. Claude Code takes aliases; the other kinds are offered only what the config names.

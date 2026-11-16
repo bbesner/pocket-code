@@ -2839,10 +2839,11 @@ def tidy(store: Store, archive: Archive, dry_run: bool = False) -> dict:
 # ---------------------------------------------------------------- learning from what the owner does
 LEARNED_HEADER = "## Learned from {owner}'s choices"
 LEARNED_HEADERS = ("## Learned from ", "## From Inbox in Pocket")  # the second: lines Not useful appended before 1.90
-LEARN_MAX_RULES = 20   # 15 before 1.103.2
-LEARN_MAX_CHARS = 3400  # the most the learned section may take; it also has to fit beside the owner's rules in Pocket's rules box
+LEARN_MAX_RULES = 30   # 15 before 1.103.2, 20 before 1.109
+LEARN_MAX_CHARS = 5000  # the most the learned section may take; it also has to fit beside the owner's rules in Pocket's rules box
 # (1800 before 1.103.2, which dropped the newest rules silently once a busy owner had taught it a few dozen things; 2400 in 1.103.2,
-# full on the first day for an owner with 168 lessons)
+# full on the first day for an owner with 168 lessons; 3400 before 1.109, when the rules box grew from 8,000 to 12,000 characters
+# because an owner's own rules of about 5,000 characters left the learned section 80 characters to grow)
 LEARN_ASK_MARGIN = 200  # the judge is asked for this much less than the room, so a slightly long answer still fits
 LEARN_REBUILD_NOTE = """## One-time rebuild
 
