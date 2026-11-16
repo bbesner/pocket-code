@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.109.0] — Unreleased · build 202
+## [1.109.0] — 2026-11-16 · build 202
 
 Asked for by Brad (2026-11-16): pushes are now right, but the list still misses mail. An email belongs on the list when it needs action or investigation an agent could help with: a failure or problem, mail like what he investigated with an agent before (unless he marked it Not useful, which should keep it off for good), and mail addressed to him that needs his reply or action. Watcher only; no change to the web app or its build.
 
