@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.110.0
+checked: 1.110.1
 sources: vault.mjs, intake-page.mjs, public/intake/intake.css, public/vault.js, scripts/pocket-vault.mjs, skills/pocket-vault/SKILL.md, public/secret-detect.js, scripts/pocket-mcp-proxy.mjs
 -->
 # Vault
@@ -38,7 +38,7 @@ Open the Vault from the rail's **Vault** entry, the **Vault** chip on the home s
 
 ### Add a secret
 
-1. Tap **Add secret** (in the Vault view or the rail list).
+1. Tap **Add secret** in the Vault view, or **Add** in the sidebar's Vault panel.
 2. Fill in **Name** (lowercase letters, numbers and hyphens, up to 64 characters, such as `billing-api`). Agents use this name.
 3. Choose a **Kind**. The kind is fixed once saved.
 4. Enter the values. **Show** unmasks what you typed.
@@ -63,7 +63,7 @@ Never paste a secret into a message. Use **Store in the Vault** instead, from th
 
 When a customer or vendor has a login you need, send them a one-time link instead of asking for it by email, chat or phone (1.110).
 
-1. In the Vault, tap **Ask someone**.
+1. In the Vault, tap **Ask someone**. It sits at the top of the Vault page and, on a computer, in the sidebar's Vault panel beside **Add**.
 2. Fill in **Name** (what the secret will be called in the Vault, for example `acme-quickbooks`), **Kind** (Login by default), any **Extra fields** beyond the kind's own (for example `pin`), **Who it's for**, **What it is** (the page's heading) and **Link works for** (1, 3 or 7 days).
 3. Tap **Create link**. Pocket shows the link once. **Copy** it and send it to the person yourself.
 

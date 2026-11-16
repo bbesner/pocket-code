@@ -1498,6 +1498,15 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const list=await page.evaluate(()=>({names:[...document.querySelectorAll('#vault-main .vault-item [data-vault-open] .title')].map(e=>e.textContent),requests:[...document.querySelectorAll('#vault-main .vault-request h3 .vault-name')].map(e=>e.textContent),badge:document.querySelector('[data-vault-badge]')?.textContent,rail:Boolean(document.querySelector('[data-rail-view="vault"]')),due:document.querySelector('.vault-item.due .due-label')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent}));
    assert.deepEqual(list.names,['square-hooks','acme-oauth','bank-recovery','vendor-portal','zoho-books'],'newest first by default');assert.deepEqual(list.requests,['zoho-books']);assert.equal(list.badge,'1');assert.equal(list.rail,true,'the rail switch shows Vault');assert.match(list.due,/^Expires /);assert.equal(list.tab,'Vault');
    await scan('vault-list-desktop');await page.screenshot({path:path.join(out,'vault-list-desktop.png')});
+   // 1.110.1: the rail's Vault panel has Ask someone beside Add secret, and it opens the same sheet as the page's.
+   await clickControl(page,'[data-rail-view="vault"]');await page.waitForSelector('#rail .rail-vault #rail-vault-ask');
+   assert.deepEqual(await page.$$eval('#rail .rail-vault .rail-project-actions > .chip',l=>l.map(e=>e.textContent.trim())),['Ask someone','Add','All'],'rail Vault actions');
+   assert.equal(await page.$eval('#rail .rail-vault .rail-project-actions',e=>{const t=[...e.children].map(c=>c.getBoundingClientRect().top);return Math.max(...t)-Math.min(...t);}),0,'the three chips share one row');
+   assert.equal(await page.$eval('#rail-vault-add',e=>e.getAttribute('aria-label')),'Add secret');
+   await clickControl(page,'#rail-vault-ask');await page.waitForSelector('.vault-ask form');
+   await page.screenshot({path:path.join(out,'vault-rail-ask-desktop.png')});
+   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-ask'));
+   await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
    // 1.93 (Damon): the request is one plain sentence; Allow is the brand orange beside a matching Deny.
    const ask=await page.evaluate(()=>{const c=document.querySelector('#vault-main .vault-request'),a=c.querySelector('.vault-allow'),p=document.createElement('i');p.style.color='var(--clay)';document.body.append(p);const clay=getComputedStyle(p).color;p.remove();
     return {text:c.querySelector('h3').textContent.replace(/\s+/g,' ').trim(),allow:a?.dataset.answer,allowText:a?.textContent,deny:c.querySelector('.vault-deny')?.dataset.answer,bg:getComputedStyle(a).backgroundColor,clay,h:a.getBoundingClientRect().height};});
