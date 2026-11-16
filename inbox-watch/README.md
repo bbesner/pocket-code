@@ -220,6 +220,30 @@ and point `oauth_token_file` at it. The watcher renews it with those scopes and 
 sends one alert through the same channel from any other job; with `--urgency emergency|outage|money|security|waiting|deadline`
 and `--why-now "…"` it can push under the owner's *Only what can't wait* setting (without them, only `--priority critical` does).
 
+## The list (1.109)
+
+`notify` puts mail on the owner's list, which is a work queue: the judge asks whether an email leaves something for the
+owner, or an assistant working for them, to do (a failure to look into, a person waiting on a reply, mail like what they
+worked on before), not whether it is urgent. One alert per story; a story followed quietly for weeks is listed once when it
+meets the test. Four things are decided or supplied by code, not left to the judge:
+
+- **Not useful is final for a story.** `issues.not_useful_at` is set by the owner's Not useful in Pocket; from then on a
+  `notify` or `digest` on that story is recorded as `update` (the decision keeps `blocked`). A `critical` decision passes;
+  Restore in Pocket or a hand label in Gmail lifts it.
+- **`owner_history`.** Each thread goes to the judge with what the owner did with earlier alerts on the same thread or
+  story, or of the same kind (the same sender address with a similar subject; the address alone is not a match, because an
+  assistant or a shared mailbox sends every kind of mail from one address), for 180 days: `worked` (they started a conversation from the alert; `sync_worked()`
+  asks Pocket every 30 minutes and stores each as a `lessons` row of kind `worked` that `learn()` never reads), `added`
+  (a hand label, or Add to Inbox on a digest line) and `not_useful`.
+- **`owner_in`.** Each message says whether the owner's address was in To (`to`), only in Cc (`cc`) or neither (`none`);
+  the archive's `mail.addressed` column holds it, null on mail archived before 1.109.
+- **`on_list`.** A story's `alerts_sent_to_owner` names each item a `list entry` or a `digest line`, and a story that never
+  had an entry carries `on_list: never`. Before 1.109 the two looked alike, so a story with only digest lines read as already
+  alerted and a failure running for weeks was never listed.
+
+With the morning digest off (`digest_hour` unset, or Off in Pocket) the judge is told there is no digest, and a `digest`
+decision that arrives anyway is recorded as `update`.
+
 ## Push notifications (1.105)
 
 Every alert goes on the owner's list; `[push]` (or the sheet in Pocket) decides which also interrupt. The judge names a

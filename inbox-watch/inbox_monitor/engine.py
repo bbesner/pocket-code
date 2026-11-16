@@ -314,12 +314,12 @@ create table if not exists lessons(id integer primary key autoincrement, ref tex
   title text, sender text, subject text, excerpt text, before text, note text, learned_at text);
 """
 JUDGE_CALL_COLUMNS = {"turns": "integer", "tool_calls": "integer", "tools": "text", "memory_items": "integer"}
-ISSUE_COLUMNS = {"title": "text", "unknowns": "text", "memory_at": "text"}
+ISSUE_COLUMNS = {"title": "text", "unknowns": "text", "memory_at": "text", "not_useful_at": "text"}  # 1.109: Not useful keeps a story off the list
 ALERT_COLUMNS = {"memory_at": "text", "push_kind": "text", "why_now": "text", "pushed": "integer"}  # 1.105: the push split
 
 ARCHIVE_SCHEMA = """
 create table if not exists mail(message_id text primary key, thread_id text, ts integer, date text, sender text, recipients text,
-  subject text, labels text, from_owner integer, body text);
+  subject text, labels text, from_owner integer, body text, addressed text);
 create index if not exists mail_thread on mail(thread_id, ts);
 create index if not exists mail_ts on mail(ts);
 create virtual table if not exists mail_fts using fts5(subject, sender, body, content='mail', content_rowid='rowid',
@@ -468,6 +468,12 @@ def strip_links(text: str) -> str:
     return re.sub(r"[ \t]+", " ", text)
 
 
+def addressed(to: str, cc: str) -> str:
+    """Where the owner's own address was on a message: "to" (written to them), "cc" (copied), or "none" (it reached the mailbox
+    another way: a shared address, a list, a forward, a Bcc)."""
+    return "to" if MAILBOX in (to or "").lower() else "cc" if MAILBOX in (cc or "").lower() else "none"
+
+
 def parse_message(m: dict) -> dict:
     labels = m.get("labelIds", []) or []
     frm = header(m, "From")
@@ -479,6 +485,7 @@ def parse_message(m: dict) -> dict:
         "date": header(m, "Date"),
         "sender": frm,
         "recipients": "; ".join(x for x in (header(m, "To"), header(m, "Cc")) if x),
+        "addressed": addressed(header(m, "To"), header(m, "Cc")),
         "subject": header(m, "Subject"),
         "labels": json.dumps(labels),
         "from_owner": int("SENT" in labels or MAILBOX in frm.lower()),
@@ -652,9 +659,15 @@ class Store:
         return list(reversed(rows))
 
     def story_alerts(self, key: str, limit: int = 6) -> list[sqlite3.Row]:
-        rows = self.db.execute("select created_at,sent_at,status,text from alerts where issue_key=? and status in ('sent','held','queued','digested','dry-run') "
+        rows = self.db.execute("select created_at,sent_at,status,kind,text from alerts where issue_key=? and status in ('sent','held','queued','digested','dry-run') "
                                "order by id desc limit ?", (key, limit)).fetchall()
         return list(reversed(rows))
+
+    def ever_listed(self, key: str) -> bool:
+        """Has this story had an entry on the owner's list? A digest line is not one, and nor is an alert that was held overnight
+        and went out as a line of the morning digest (status `digested`)."""
+        return bool(self.db.execute("select 1 from alerts where issue_key=? and kind!='digest' and status in ('sent','held','queued','dry-run','merged') "
+                                    "limit 1", (key,)).fetchone())
 
     def keys_for_threads(self, thread_ids: list[str]) -> set[str]:
         if not thread_ids:
@@ -664,15 +677,21 @@ class Store:
 
     def story_dict(self, r: sqlite3.Row, full: bool, brief: bool = False) -> dict:
         d = {"issue_key": r["issue_key"], "title": r["title"], "status": r["status"], "priority": r["priority"], "owner": r["owner"],
-             "deadline": r["deadline"], "latest": r["summary"], "unknowns": r["unknowns"], "updated": iso_to_et(r["updated_at"])}
+             "deadline": r["deadline"], "latest": r["summary"], "unknowns": r["unknowns"], "updated": iso_to_et(r["updated_at"]),
+             "not_useful": iso_to_et(r["not_useful_at"])}  # the owner marked an alert on it Not useful: it stays off the list
         if brief:  # a one-liner for the list of other open stories: enough to reuse the key, not the whole picture
             d = {"issue_key": d["issue_key"], "title": d["title"], "status": d["status"], "priority": d["priority"], "deadline": d["deadline"],
-                 "latest": clip(d["latest"], OTHER_STORY_CHARS), "updated": d["updated"]}
+                 "latest": clip(d["latest"], OTHER_STORY_CHARS), "updated": d["updated"], "not_useful": d["not_useful"]}
         if full:
             d["timeline"] = [{"at": iso_to_et(e["at"]), "kind": e["kind"], "fact": e["fact"], "message_ids": json.loads(e["message_ids"] or "[]")}
                              for e in self.events(r["issue_key"])]
-            d["alerts_sent_to_owner"] = [{"at": iso_to_et(a["sent_at"] or a["created_at"]), "status": a["status"], "text": a["text"]}
+            # 1.109: a digest line and a list entry were shown alike, so a story that had only ever had digest lines read as
+            # already alerted and a problem running for weeks never reached the list. Each is now named, and so is "never".
+            d["alerts_sent_to_owner"] = [{"at": iso_to_et(a["sent_at"] or a["created_at"]), "status": a["status"],
+                                         "as": "digest line" if a["kind"] == "digest" or a["status"] == "digested" else "list entry", "text": a["text"]}
                                         for a in self.story_alerts(r["issue_key"])]
+            if not self.ever_listed(r["issue_key"]):
+                d["on_list"] = "never"
         return {k: v for k, v in d.items() if v not in (None, "", [])}
 
     # ---- decisions and alerts
@@ -780,12 +799,20 @@ class Archive:
             except sqlite3.OperationalError:  # another process renamed it first
                 if "from_brad" in {r["name"] for r in self.db.execute("pragma table_info(mail)")}:
                     raise
+        if have and "addressed" not in have:  # 1.109: where the owner's address was (to, cc, none); mail archived earlier has null
+            try:
+                self.db.execute("alter table mail add column addressed text")
+                self.db.commit()
+            except sqlite3.OperationalError:  # another process added it first
+                if "addressed" not in {r["name"] for r in self.db.execute("pragma table_info(mail)")}:
+                    raise
 
     def add(self, rows: list[dict]) -> None:
         self.db.executemany(
-            """insert into mail(message_id,thread_id,ts,date,sender,recipients,subject,labels,from_owner,body)
-               values(:message_id,:thread_id,:ts,:date,:sender,:recipients,:subject,:labels,:from_owner,:body)
-               on conflict(message_id) do update set labels=excluded.labels where mail.labels is not excluded.labels""", rows)
+            """insert into mail(message_id,thread_id,ts,date,sender,recipients,subject,labels,from_owner,body,addressed)
+               values(:message_id,:thread_id,:ts,:date,:sender,:recipients,:subject,:labels,:from_owner,:body,:addressed)
+               on conflict(message_id) do update set labels=excluded.labels where mail.labels is not excluded.labels""",
+            [{"addressed": None, **r} for r in rows])
         self.db.commit()
 
     def known(self, ids: list[str]) -> set[str]:
@@ -1001,6 +1028,9 @@ def thread_bundle(rows: list[sqlite3.Row]) -> dict | None:
         labels = [l for l in json.loads(r["labels"] or "[]") if not l.startswith("Label_")]
         out.append({"message_id": r["message_id"], "date": fmt_et(r["ts"]), "from": r["sender"], "to": r["recipients"], "labels": labels,
                     "from_owner": bool(r["from_owner"]), "body": (r["body"] or "")[:BODY_CHARS]})
+        where = r["addressed"] if "addressed" in r.keys() else None  # null: archived before 1.109
+        if where and not r["from_owner"]:
+            out[-1]["owner_in"] = where
     return {"thread_id": rows[-1]["thread_id"], "subject": rows[-1]["subject"] or rows[0]["subject"] or "(no subject)",
             "message_count": len(rows), "messages": out}
 
@@ -1086,7 +1116,13 @@ def fill(text: str) -> str:
     found = " The worker has already searched memory for you; what it found is under `memory`." if MEMORY_SEARCH is not None else ""
     memory = ("You may search memory (memstem_search / memstem_get) when a sender, project or commitment needs context you do not have. Keep tool use brief." + found
               if CFG.memory_search else "You have no memory tools in this turn; everything you know is in this message." + found)
-    out = text.replace("{owner_email}", MAILBOX).replace("{owner}", OWNER).replace("{assistant}", ASSISTANT).replace("{memory_note}", memory)
+    # 1.109: with the morning digest off a `digest` line reaches no one, so the judge is told not to write one
+    digest = (f"**{OWNER} has the morning digest switched off, so there is no `digest` in this turn.** Do not answer `digest`: mail that "
+              f"passes the list test is `notify`, mail that only changes a story is `update`, the rest is `ignore`."
+              if DIGEST_HOUR is None else
+              "Use `digest` for mail that is worth one line in the morning summary and is not work for the list.")
+    out = (text.replace("{digest_note}", digest).replace("{owner_email}", MAILBOX).replace("{owner}", OWNER).replace("{assistant}", ASSISTANT)
+           .replace("{memory_note}", memory))
     if CFG.judge_language:
         out += "\n\n## Standing instruction from the operator\n" + CFG.judge_language
     return out
@@ -1288,6 +1324,73 @@ def relevant_alerts(alerts: list[dict], batch_toks: set[str], common: set[str]) 
     return out
 
 
+HISTORY_DAYS = 180     # how far back the owner's own choices count for a new thread
+HISTORY_PER_THREAD = 4
+HISTORY_EXAMPLES = 3   # titles shown per group, so the judge can see what the earlier mail was
+HISTORY_KINDS = {"worked": "worked", "added": "added", "escalated": "added", "not_useful": "not_useful"}
+HISTORY_MATCH = ("same thread", "same story", "same kind")
+KIND_MIN_WORDS = 2     # same kind of mail: the same sender address and a subject sharing this many words, and at least
+KIND_MIN_SHARE = 0.5   # this share of the shorter subject's words
+KIND_FILLER = set("re fw fwd the and for you your our are was this that with from has have had not but all any can will new".split())
+
+
+def sender_address(sender: str) -> str:
+    m = re.search(r"[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+", sender or "")
+    return m.group(0).lower() if m else ""
+
+
+def kind_words(subject: str) -> set[str]:
+    """The words of a subject that say what kind of mail it is: no reply prefixes, no numbers, dates or ids, no filler. Words the
+    story matcher drops as noise (alert, report, daily, weekly) are kept: here they are what names the kind."""
+    return {t for t in re.findall(r"[a-z0-9]{3,}", clean_subject(subject).lower()) if not any(ch.isdigit() for ch in t)} - KIND_FILLER
+
+
+def same_kind(a: set[str], b: set[str]) -> bool:
+    both = a & b
+    return bool(a) and (a == b or (len(both) >= KIND_MIN_WORDS and len(both) >= KIND_MIN_SHARE * min(len(a), len(b))))
+
+
+def owner_history(store: Store, bundles: list[dict]) -> dict[str, list[dict]]:
+    """1.109: what the owner did with earlier alerts that match each thread: started a session from one (`worked`), put the mail
+    on the list by hand (`added`), or marked one Not useful. Matched by code so the judge is told rather than left to remember:
+    the same thread, the same story, or the same kind of mail (the same sender address with a similar subject). The sender alone
+    is not enough: an assistant, a shared mailbox or a mailing group sends every kind of mail from one address."""
+    rows = store.db.execute("select kind, at, thread_id, issue_key, title, subject, sender from lessons where at>=? order by at desc",
+                            (iso(now_utc() - dt.timedelta(days=HISTORY_DAYS)),)).fetchall()
+    if not rows:
+        return {}
+    stories: dict[str, set] = {}  # a hand label is recorded by thread; the story it was filed under makes it a story match too
+    subjects: dict[str, str] = {}  # the email's own subject: a lesson from an alert carries the alert's title instead
+    for c in chunks(list({r["thread_id"] for r in rows if r["thread_id"]}), 500):
+        q = ",".join("?" * len(c))
+        for x in store.db.execute(f"select thread_id, issue_key from story_threads where thread_id in ({q})", c):
+            stories.setdefault(x["thread_id"], set()).add(x["issue_key"])
+        subjects.update({x["thread_id"]: x["subject"] for x in store.db.execute(f"select thread_id, subject from threads where thread_id in ({q})", c)})
+    known = [(r, sender_address(r["sender"]), kind_words(subjects.get(r["thread_id"]) or r["subject"] or "")) for r in rows]
+    out = {}
+    for b in bundles:
+        keys = store.keys_for_threads([b["thread_id"]])
+        theirs = [m["from"] for m in b["messages"] if not m.get("from_owner")]
+        sender = sender_address(theirs[-1]) if theirs else ""
+        words = kind_words(b["subject"])
+        groups: dict[tuple, dict] = {}
+        for r, addr, their_words in known:
+            did = HISTORY_KINDS.get(r["kind"])
+            match = ("same thread" if r["thread_id"] and r["thread_id"] == b["thread_id"] else
+                     "same story" if (r["issue_key"] and r["issue_key"] in keys) or (keys & stories.get(r["thread_id"], set())) else
+                     "same kind" if sender and addr == sender and same_kind(words, their_words) else None)
+            if not did or not match:
+                continue
+            g = groups.setdefault((did, match), {"did": did, "match": match, "times": 0, "latest": iso_to_et(r["at"]), "examples": []})
+            g["times"] += 1
+            title = clip(r["title"] or r["subject"] or "", 90)
+            if title and title not in g["examples"] and len(g["examples"]) < HISTORY_EXAMPLES:
+                g["examples"].append(title)
+        if groups:
+            out[b["thread_id"]] = sorted(groups.values(), key=lambda g: HISTORY_MATCH.index(g["match"]))[:HISTORY_PER_THREAD]
+    return out
+
+
 def decide(store: Store, archive: Archive, gmail: Gmail, bundles: list[dict], until: int, related: dict | None = None) -> list[dict]:
     """One judge decision over a batch, with related mail and stories, and one optional research round."""
     full, rest, batch_toks, common = story_context(store, bundles)
@@ -1317,6 +1420,9 @@ def decide(store: Store, archive: Archive, gmail: Gmail, bundles: list[dict], un
                                                       if a["issue_key"] not in {x["issue_key"] for x in full}], batch_toks, common)}
     if memory:
         ctx["memory"] = memory
+    history = owner_history(store, bundles)
+    if history:
+        ctx["owner_history"] = history
     n_mem = sum(len(v) for v in memory.values())
     skims = [k for k in pending_skims(store) if k["thread_id"] not in {b["thread_id"] for b in bundles}]
     if skims:  # mail the first pass skipped: headlines only, so a confirmation or a recovery can still close a story
@@ -1364,6 +1470,8 @@ def decide(store: Store, archive: Archive, gmail: Gmail, bundles: list[dict], un
         d["user_message"] = sanitize_citations(d.get("user_message"), valid)
         if d["action"] in ("notify", "digest") and not d.get("evidence"):
             d["action"] = "update"  # no grounded evidence, no interruption
+        if d["action"] == "digest" and DIGEST_HOUR is None:
+            d["action"] = "update"  # 1.109: no digest to put it in; the story keeps the fact (before, the line was queued and thrown away)
         decisions.append(d)
     return decisions
 
@@ -2228,9 +2336,20 @@ def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, ba
         skim = d.pop("_skim", None)
         th = by_thread.get(d["thread_id"]) or {"thread_id": d["thread_id"], "subject": skim["subject"], "messages": [{"from": skim["from"], "message_id": skim["message_id"]}]}
         added = bool(th.get("added_in_gmail"))
+        muted = store.story(d["issue_key"])
+        muted = bool(muted and muted["not_useful_at"])
         if added:
             added_decision(d, th)
             store.db.execute("update label_sync set state='judged', at=? where thread_id=? and state in (?,?)", (iso(), d["thread_id"], *INCOMING))
+            if muted and th.get("added_by") == "owner":  # their own hand outranks their earlier Not useful
+                store.db.execute("update issues set not_useful_at=null where issue_key=?", (d["issue_key"],))
+                store.add_event(d["issue_key"], "feedback", f"{OWNER} added this to their list in Gmail; the earlier Not useful no longer keeps it off.", [])
+        elif muted and d["action"] in ("notify", "digest") and d["priority"] != "critical":
+            # 1.109: Not useful is final for the story, in code: it stays off the list until the owner restores the entry or
+            # labels the mail by hand. Only a critical change passes.
+            log(f"not listed, {OWNER} marked this story Not useful: {d['issue_key']!r} ({d['action']} -> update)")
+            d["blocked"] = f"not_useful: was {d['action']}"
+            d["action"] = "update"
         store.record_decision(run_id, d["thread_id"], d)
         ev_ids = [e["message_id"] for e in d["evidence"]]
         if d["action"] in ("notify", "digest", "update"):
@@ -2338,18 +2457,70 @@ def apply_item_feedback(store: Store, it: dict, dry_run: bool) -> bool:
         add_lesson(store, f"not_useful:{it['id']}", "not_useful", a["thread_id"] if a else None, key or None, title, a["sender"] if a else "",
                    a["subject"] if a else title, "", f"{line}: {clip(a['text'], 400)}" if a else line, note)
         if story:
-            store.db.execute("update issues set priority='low', updated_at=? where issue_key=?", (iso(), key))
+            store.db.execute("update issues set priority='low', not_useful_at=?, updated_at=? where issue_key=?", (iso(), iso(), key))
             store.add_event(key, "feedback", f"{OWNER} marked a {line} on this story not useful in Pocket ({when}).", [])
-    elif action == "restore" and story and story["status"] == "resolved":
-        store.db.execute("update issues set status='open', updated_at=? where issue_key=?", (iso(), key))
-        store.add_event(key, "feedback", f"{OWNER} restored this in Pocket ({when}).", [])
+    elif action == "restore" and story and (story["status"] == "resolved" or story["not_useful_at"]):
+        restore_story(store, story, when)
     log(f"feedback {action} on {line} {ref!r}: {title!r} story={key or '-'}")
     return True
 
 
+def restore_story(store: Store, story: sqlite3.Row, when: str) -> None:
+    """Restore in Pocket undoes Resolved (the story reopens) and Not useful (the story may be listed again; the learned rule
+    stays until the owner deletes the line)."""
+    key = story["issue_key"]
+    if story["status"] == "resolved":
+        store.db.execute("update issues set status='open', updated_at=? where issue_key=?", (iso(), key))
+    if story["not_useful_at"]:
+        store.db.execute("update issues set not_useful_at=null, updated_at=? where issue_key=?", (iso(), key))
+    store.add_event(key, "feedback", f"{OWNER} restored this in Pocket ({when}).", [])
+
+
+WORKED_EVERY_MIN = 30   # how often the watcher asks Pocket which entries the owner started a conversation from
+WORKED_DAYS = 14
+
+
+def sync_worked(store: Store) -> int:
+    """1.109: an entry the owner started a conversation from is mail they used the list for. Each becomes a `worked` signal the
+    judge is shown with later mail on the same story or of the same kind (owner_history). It is not a lesson for learn():
+    the watcher already listed that mail, so there is no rule to write. Returns the number of new signals."""
+    last = store.get("worked_synced_at")
+    if MODE.replay or (last and last > iso(now_utc() - dt.timedelta(minutes=WORKED_EVERY_MIN))):
+        return 0
+    n = 0
+    for d in DELIVERIES:
+        if not hasattr(d, "inbox_worked"):
+            continue
+        try:
+            entries = d.inbox_worked(iso(now_utc() - dt.timedelta(days=WORKED_DAYS)))
+        except Exception as ex:  # noqa: BLE001 - never fails the check; asked again next time
+            log(f"{d.kind} worked entries failed: {str(ex)[:200]}")
+            continue
+        for e in entries:
+            key, sessions = e.get("story") or "", [x for x in (e.get("sessions") or []) if isinstance(x, dict)]
+            if not e.get("id") or not sessions or not (key or e.get("gmail")):
+                continue
+            a = store.db.execute("select thread_id, sender, subject, text from alerts where issue_key=? and kind='notify' order by id desc limit 1",
+                                 (key,)).fetchone() if key else None
+            thread = (a["thread_id"] if a else None) or (str(e.get("gmail") or "").rsplit("/", 1)[-1] or None)
+            cur = store.db.execute(
+                "insert or ignore into lessons(ref,at,kind,thread_id,issue_key,title,sender,subject,excerpt,before,note,learned_at) "
+                "values(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (f"worked:{e['id']}", sessions[0].get("at") or iso(), "worked", thread, key or None, clip(e.get("title") or "", 160),
+                 clip(a["sender"] if a else "", 160), clip(a["subject"] if a else (e.get("title") or ""), 200), "",
+                 f"alerted: {clip(a['text'], 400)}" if a else "alerted", "", "signal"))
+            n += cur.rowcount
+    store.set("worked_synced_at", iso())
+    store.commit()
+    if n:
+        log(f"worked: {n} entries {OWNER} started a conversation from; later mail on those stories and of the same kind is shown with it")
+    return n
+
+
 def apply_feedback(store: Store, dry_run: bool = False) -> None:
     """What the owner did with earlier alerts in Pocket (1.69 Inbox): Resolved closes the story, Not useful becomes a line
-    in the preferences file the judge reads every turn and drops the story to low, Restore reopens; Dismiss changes nothing.
+    in the preferences file the judge reads every turn, drops the story to low and (1.109) keeps it off the list from then on,
+    Restore reopens and lifts that; Dismiss changes nothing.
     1.95: a decision on one digest item (kind 'digest-item') goes to apply_item_feedback."""
     for d in DELIVERIES:
         if not hasattr(d, "feedback"):
@@ -2389,11 +2560,10 @@ def apply_feedback(store: Store, dry_run: bool = False) -> None:
                            a["sender"] if a else "", a["subject"] if a else title, "", f"alerted: {clip(a['text'], 400)}" if a else "alerted",
                            (it.get("note") or "")[:300])
                 if story:
-                    store.db.execute("update issues set priority='low', updated_at=? where issue_key=?", (iso(), key))
+                    store.db.execute("update issues set priority='low', not_useful_at=?, updated_at=? where issue_key=?", (iso(), iso(), key))
                     store.add_event(key, "feedback", f"{OWNER} marked an alert on this story not useful in Pocket ({when}).", [])
-            elif action == "restore" and story and story["status"] == "resolved":
-                store.db.execute("update issues set status='open', updated_at=? where issue_key=?", (iso(), key))
-                store.add_event(key, "feedback", f"{OWNER} restored this in Pocket ({when}).", [])
+            elif action == "restore" and story and (story["status"] == "resolved" or story["not_useful_at"]):
+                restore_story(store, story, when)
             done.append(it["id"])
             log(f"feedback {action}: {title!r} story={key or '-'}")
         if done:
@@ -2763,14 +2933,14 @@ def learn(store: Store, dry_run: bool = False, rebuild: bool = False) -> int:
     with the rest of their rules in Pocket. Returns the number of lessons folded in.
     `rebuild` (the `learn --rebuild` command) folds in every lesson again, to recover rules an earlier version dropped."""
     if rebuild:
-        new = store.db.execute("select * from lessons order by id").fetchall()
+        new = store.db.execute("select * from lessons where kind!='worked' order by id").fetchall()
     else:
         new = store.db.execute("select * from lessons where learned_at is null order by id limit ?", (LEARN_BATCH,)).fetchall()
     if not new or MODE.replay:
         return 0
     owner_rules, current = split_learned(rules_text())
     earlier = [] if rebuild else store.db.execute(
-        "select * from lessons where learned_at is not null and learned_at != 'failed' order by id desc limit ?", (LEARN_EARLIER,)).fetchall()
+        "select * from lessons where learned_at is not null and learned_at != 'failed' and kind!='worked' order by id desc limit ?", (LEARN_EARLIER,)).fetchall()
     material = {"current_learned_rules": current, "new_lessons": [lesson_view(r) for r in new],
                 "earlier_lessons": [lesson_view(r) for r in earlier], "owner_rules": owner_rules.strip()}
     # the whole file must fit Pocket's rules box, or a save there would cut it off (the owner's own rules always fit first)
@@ -3007,6 +3177,8 @@ def run(dry_run: bool, baseline_only: bool, why: str = "", request: str | None =
     error = None
     try:
         apply_feedback(store, dry_run)
+        if not dry_run:
+            sync_worked(store)
         learn_safely(store, dry_run)
         cursor = store.get("history_cursor")
         if cursor and not gmail.cursor_ok(cursor):

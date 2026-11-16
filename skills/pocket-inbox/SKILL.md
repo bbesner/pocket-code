@@ -44,7 +44,8 @@ next time:
 
 - **Resolved** (`resolve`): the situation is over. The watcher stops following that story.
 - **Not useful** (`not_useful`): the user does not want alerts about this kind of thing. The
-  watcher adds it to the user's preferences and lowers that story's priority.
+  watcher keeps that story off the list from then on (unless it turns critical) and adds the
+  kind of mail to the user's preferences.
 - **Dismiss** (`dismiss`): hide it in Pocket. Nothing else changes.
 - **Restore** (`restore`): undo any of those three.
 
