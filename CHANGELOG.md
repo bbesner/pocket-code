@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.110.1] — Unreleased · build 204
+## [1.110.1] — 2026-11-16 · build 204
 
 Asked for by Brad (2026-11-16): he looked for Ask someone in the sidebar's Vault panel and it was only on the full Vault page.
 
