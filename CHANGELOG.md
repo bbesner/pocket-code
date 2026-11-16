@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.110.0] — Unreleased · build 203
+## [1.110.0] — 2026-11-16 · build 203
 
 Asked for by Brad (2026-11-16): customers' IT contacts (a QuickBooks review login from a client's accountant, for one) need a safe way to hand over a login without email, phone or chat. A one-time link they type it into, straight into the Vault.
 
