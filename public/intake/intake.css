@@ -1,0 +1,65 @@
+/* 1.110 intake page: one card on paper, the operator's accent for the action and the focus ring. Light only: the
+   person filling it in is at a desk, often on a customer's machine, and has never seen Pocket. */
+:root{
+  --paper:#f6f4f1; --card:#ffffff; --ink:#1c1a18; --dim:#57514b; --line:#dcd6cf; --field:#fbfaf8;
+  --err:#b42318; --err-wash:#fdf1ef; --ok:#2f6f3e;
+  --accent:#9a4a2c; --on-accent:#ffffff; --accent-text:#9a4a2c;
+  --radius:12px; --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;min-height:100vh;background:var(--paper);color:var(--ink);font:400 16px/1.55 var(--font);
+  border-top:4px solid var(--accent);-webkit-font-smoothing:antialiased}
+::selection{background:color-mix(in srgb,var(--accent) 28%,#fff);color:var(--ink)}
+.intake{width:100%;max-width:34rem;margin:0 auto;padding:40px 20px 56px}
+.brand{display:flex;align-items:center;min-height:40px;margin:0 4px 24px}
+.brand-logo{display:block;height:40px;width:auto;max-width:220px;object-fit:contain}
+.brand-name{font-weight:650;font-size:17px;letter-spacing:-.005em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:32px 28px 28px;
+  box-shadow:0 1px 2px rgba(28,26,24,.05),0 6px 20px rgba(28,26,24,.06)}
+h1{margin:0 0 8px;font-size:24px;line-height:1.25;font-weight:650;letter-spacing:-.012em;text-wrap:balance}
+.lede{margin:0 0 20px;color:var(--dim);font-size:16px}
+.assure{list-style:none;margin:0 0 28px;padding:16px 0 0;border-top:1px solid var(--line);display:grid;gap:10px}
+.assure li{display:flex;gap:10px;align-items:flex-start;font-size:15px;color:var(--dim)}
+.assure svg,.notice-icon svg{flex:none;width:20px;height:20px;margin-top:1px;fill:none;stroke:var(--accent-text);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.form{display:grid;gap:20px}
+.field{display:grid;gap:6px}
+label{font-weight:600;font-size:15px}
+.opt{font-weight:400;color:var(--dim)}
+input[type=text],input[type=password],textarea{width:100%;min-height:48px;padding:11px 14px;font:inherit;font-size:16px;color:var(--ink);
+  background:var(--field);border:1px solid #b9b1a8;border-radius:8px;caret-color:var(--accent-text);
+  transition:border-color .12s ease-out,box-shadow .12s ease-out}
+textarea{min-height:auto;resize:vertical;line-height:1.5}
+input:hover,textarea:hover{border-color:#8f867c}
+input:focus-visible,textarea:focus-visible{outline:none;border-color:var(--accent-text);background:#fff;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 30%,transparent)}
+input[aria-invalid=true],textarea[aria-invalid=true]{border-color:var(--err)}
+.secret{position:relative;display:flex}
+.secret input{padding-right:84px;font-variant-ligatures:none}
+.reveal{position:absolute;right:4px;top:4px;bottom:4px;min-width:70px;padding:0 12px;font:inherit;font-size:14px;font-weight:600;
+  color:var(--accent-text);background:transparent;border:0;border-radius:6px;cursor:pointer}
+.reveal:hover{background:color-mix(in srgb,var(--accent) 10%,#fff)}
+.reveal:focus-visible,.send:focus-visible{outline:3px solid var(--accent-text);outline-offset:2px}
+.hint{margin:0;font-size:14px;color:var(--dim)}
+.error{margin:0;padding:12px 14px;border:1px solid color-mix(in srgb,var(--err) 45%,#fff);background:var(--err-wash);color:var(--err);border-radius:8px;font-size:15px}
+.send{margin-top:4px;min-height:52px;width:100%;padding:0 20px;font:inherit;font-size:17px;font-weight:650;color:var(--on-accent);
+  background:var(--accent);border:0;border-radius:10px;cursor:pointer;transition:filter .12s ease-out}
+.send:hover{filter:brightness(.95)}
+.send:active{filter:brightness(.9)}
+.send[disabled]{cursor:progress;filter:saturate(.6) brightness(.97)}
+.foot{margin:24px 0 0;font-size:14px;color:var(--dim)}
+p,li{text-wrap:pretty}
+.notice{display:grid;gap:4px}
+.notice-icon svg{width:32px;height:32px;margin:0 0 12px}
+.is-received .notice-icon svg{stroke:var(--ok)}
+.notice p{margin:0;color:var(--dim)}
+.notice p+p{margin-top:8px}
+@media (max-width:480px){
+  .intake{padding:24px 12px 40px}
+  .card{padding:24px 18px 20px;border-radius:10px}
+  h1{font-size:22px}
+  .brand{margin-bottom:18px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (forced-colors:active){.send{border:2px solid ButtonText}.card{border-color:CanvasText}}

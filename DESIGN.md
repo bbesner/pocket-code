@@ -1139,3 +1139,21 @@ semibold; the button turns `--clay` while it is open and carries `aria-expanded`
 ordinary chip with the plus, hidden once a project is linked; its window is the project form with the switch row from the
 card. The handoff card names its project on a `--dim` line with the start as an ordinary chip (44px); Start stays the only
 `--clay` control on the card.
+
+## Vault intake page (1.110)
+
+Pinned brief (design-studio → impeccable): a one-time credential page for someone outside, often a customer's IT contact
+at a desk, who has never seen Pocket. Trust first; credibility outranks expression. Variance 2, motion 1, density 3.
+It carries none of Pocket's chrome: `public/intake/intake.css` on its own, light only, system fonts. One centred card
+(34rem, 12px radius, a soft two-layer shadow) on `--paper #f6f4f1`, the operator's logo above it, a 4px accent rule on
+the top edge of the page. The operator's accent (`POCKET_INTAKE_ACCENT`, served as `/intake/theme.css`) fills the one
+action, **Send securely** (52px, full width), and the focus ring; the server picks the button ink for contrast and
+darkens the accent for its use as text (icons, Show) until it passes AA on white. The card reads top to bottom: heading
+(the request's note), who asked whom, two assurance lines with line icons (where it goes, once and when it expires),
+the fields (48px, 16px text so phones do not zoom), an optional note with a hint, the action, and a quiet footer for
+someone not expecting it. Masked fields get a Show/Hide text button only once the script runs. An error is a plain
+`--err` box above the action that names the field and says nothing typed was kept; the field is outlined and focused.
+The notices (received, no longer active, temporarily unavailable, too many attempts) are the same card with one 32px
+line icon, green only for received. No motion beyond a 120ms border and shadow change on focus; `text-wrap: pretty` on
+body copy. In the app, **Ask someone** is an ordinary chip before **Add secret**, and **Links sent** is a row group
+above the secrets in the session-row voice, its waiting state in `--text` semibold.

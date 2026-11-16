@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v202';
-const SHELL = ['/theme.js?v=202', '/', '/release.json?v=202', '/app.css?v=202', '/app.js?v=202', '/cli-updates.js?v=202', '/workspace.js?v=202', '/sidechat.js?v=202', '/projects.js?v=202', '/documents.js?v=202', '/links.js?v=202', '/tasks.js?v=202', '/coordination.js?v=202', '/inbox.js?v=202', '/vault.js?v=202', '/secret-detect.js?v=202', '/phrases.js?v=202', '/approvals.js?v=202', '/split.js?v=202', '/tips.js?v=202', '/format.js?v=202', '/voice-text.js?v=202', '/voice.js?v=202', '/voice-worklet.js?v=202', '/vendor/marked.js?v=202', '/vendor/purify.js?v=202', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v203';
+const SHELL = ['/theme.js?v=203', '/', '/release.json?v=203', '/app.css?v=203', '/app.js?v=203', '/cli-updates.js?v=203', '/workspace.js?v=203', '/sidechat.js?v=203', '/projects.js?v=203', '/documents.js?v=203', '/links.js?v=203', '/tasks.js?v=203', '/coordination.js?v=203', '/inbox.js?v=203', '/vault.js?v=203', '/secret-detect.js?v=203', '/phrases.js?v=203', '/approvals.js?v=203', '/split.js?v=203', '/tips.js?v=203', '/format.js?v=203', '/voice-text.js?v=203', '/voice.js?v=203', '/voice-worklet.js?v=203', '/vendor/marked.js?v=203', '/vendor/purify.js?v=203', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -9,7 +9,7 @@ self.addEventListener('activate', e => {
 });
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/files/') || url.pathname.startsWith('/share/')) return; // network only; documents are never cached
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/files/') || url.pathname.startsWith('/share/') || url.pathname.startsWith('/intake/')) return; // network only; documents and intake pages (1.110) are never cached
   e.respondWith(
     fetch(e.request).then(r => {
       if (r.ok && e.request.method === 'GET') {

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.106.0
+checked: 1.110.0
 sources: cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # Operations, upgrades and recovery
@@ -551,6 +551,8 @@ from agent turns). A signal sent to the relay is passed to the server and follow
 the relay and the browser tool, which run as the same OS user as the agent; the model and the transcript never see
 them. A Claude Code PreToolUse hook could rewrite the call too, but Claude Code records hook output in the transcript
 file, so the relay is the only clean path.
+
+**Intake links (1.110).** `/intake/<token>` is served without a login, like `/share/`, so an identity proxy in front of Pocket must let it through for an outside person to reach it; test it from outside in a private window before you send a link. The links live inside `vault.enc`, so a locked Vault answers every link with *Temporarily unavailable* and the link stays open. Branding comes from `POCKET_INTAKE_ORG`, `POCKET_INTAKE_ACCENT` and `POCKET_INTAKE_LOGO` (read at start). The daemon log names a filled link's item and field names, never a value or a token.
 
 **Secret guard (1.42).** `public/secret-detect.js` is one detector for the composer and the daemon. With
 `secretGuard` (default true in `pocket-settings.json`) the daemon answers `POST /api/session/:id/message`,

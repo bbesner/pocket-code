@@ -184,6 +184,25 @@ printf '%s' "$TWILIO_AUTH" | pocket-vault put twilio-auth --kind token --stdin \
 - Do not leave the secret behind: if you wrote it to a temporary file to store it, remove the
   file. Do not edit a user's own config files to remove a secret unless they ask.
 
+## Asking someone outside for a secret (1.110)
+
+When the work needs a credential someone outside has (a customer's IT contact, a vendor, an
+accountant), **never ask for it by email, chat, text or phone, and never draft a message that
+does.** Make a one-time link and send that instead:
+
+```bash
+pocket-vault request acme-quickbooks --kind login --for "Pat Lee (Acme IT)" --note "QuickBooks review login" --expires 3d
+pocket-vault request ups-api --kind credentials --fields client_id,client_secret --for "Sam at UPS"
+```
+
+- It prints the link once. Give it to the owner, or put it in the email draft the owner will
+  send. Say in the message that the link works once and that they should not email passwords.
+- The name is reserved while the link waits. `requests` lists the links; `relink <name>` makes
+  a new link (the old one stops working) and `cancel <name>` ends it.
+- `await <name> --wait 600` returns 0 once it is filled in, 4 while it still waits and 5 if it
+  was cancelled or expired. `show <name>` says the same. You only ever see the name; use the
+  secret with `run` like any other.
+
 ## Finding what is stored
 
 ```bash
