@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.79.2
-sources: vault.mjs, public/vault.js, scripts/pocket-vault.mjs, skills/pocket-vault/SKILL.md, public/secret-detect.js, scripts/pocket-mcp-proxy.mjs
+checked: 1.110.0
+sources: vault.mjs, intake-page.mjs, public/intake/intake.css, public/vault.js, scripts/pocket-vault.mjs, skills/pocket-vault/SKILL.md, public/secret-detect.js, scripts/pocket-mcp-proxy.mjs
 -->
 # Vault
 
@@ -58,6 +58,30 @@ Any item can carry up to 20 **custom fields** beside its fixed ones: tap **Add f
 ### Store a secret from a conversation
 
 Never paste a secret into a message. Use **Store in the Vault** instead, from the composer's attach button (**Attach a file or screenshot → Store in the Vault**) or from the conversation's options. It opens the same add sheet, and once saved puts `{{vault:name}}` into the message box. A `{{vault:name}}` in your message tells the agent which stored secret to use.
+
+### Ask someone outside for a secret
+
+When a customer or vendor has a login you need, send them a one-time link instead of asking for it by email, chat or phone (1.110).
+
+1. In the Vault, tap **Ask someone**.
+2. Fill in **Name** (what the secret will be called in the Vault, for example `acme-quickbooks`), **Kind** (Login by default), any **Extra fields** beyond the kind's own (for example `pin`), **Who it's for**, **What it is** (the page's heading) and **Link works for** (1, 3 or 7 days).
+3. Tap **Create link**. Pocket shows the link once. **Copy** it and send it to the person yourself.
+
+The person opens a plain page with your organisation's name, logo and colour, who asked and for what, the fields for that kind, an optional note, and **Send securely**. It shows nothing else from the Vault. What they type is stored as a new secret under the name you chose, with the Vault default policy, and the page answers *Received. Thank you.* without showing anything back. You get a notification (*<who> filled in <name>*) that opens the secret.
+
+The link works once. Opening it does not use it up, so a mail scanner that follows it changes nothing; only sending the form does. A used, cancelled or expired link shows *This link is no longer active*. While the Vault is locked or off the page says *Temporarily unavailable*, keeps nothing, and the link stays open for when it is unlocked.
+
+**Links sent**, above your secrets, lists the links that are waiting and the ones that ended in the last week. A waiting link has **New link** (the old address stops working and you copy the new one) and **Cancel**. A filled one has **Open**. The name stays reserved for the link while it waits: nothing else can be added or renamed to it. Up to 50 links can wait at once.
+
+**Branding.** The page shows the organisation and colour from three settings in `.env` (restart Pocket after changing them):
+
+| Variable | What it does |
+|---|---|
+| `POCKET_INTAKE_ORG` | Your organisation's name, for example `Example Security`. Without it the page says "the team that sent you this link". |
+| `POCKET_INTAKE_ACCENT` | The button and focus colour, as `#rrggbb`. Pocket picks dark or white button text for contrast and darkens the colour where it is used as text. |
+| `POCKET_INTAKE_LOGO` | Path to a PNG, JPEG or WebP logo for a light background, up to 512 KB. |
+
+The page lives at `/intake/<token>` on Pocket's own address. If an identity proxy such as Cloudflare Access sits in front of Pocket, it must let `/intake/` through, as it does `/share/`; otherwise the person is asked to sign in.
 
 ### See, copy or edit a value
 
@@ -220,6 +244,10 @@ pocket-vault run --env VAR=<name>[.field] [--env …] [--cwd <dir>] [--timeout <
 pocket-vault wait <request-id> [--wait <s>]           continue a run the owner was asked to allow
 pocket-vault put <name> --kind <api_key|token|login|credentials|note> (--stdin | --from-file <path> [--map field=key,…] | --from-env VAR) [--url u] [--tags a,b]
 pocket-vault history [--name <name>] [--json]         this session's uses of the Vault
+pocket-vault request <name> --kind <login|api_key|token|credentials|note> --for "<who>" [--note "<what it is>"] [--fields a,b] [--expires 72h|3d]
+pocket-vault requests [--json]                        intake links waiting, and the ones that ended this week
+pocket-vault await <name> [--wait <s>]                wait until the link is filled in (0), still waiting (4), cancelled or expired (5)
+pocket-vault relink <name> | cancel <name>            a new link for a waiting request, or cancel it
 ```
 
 | Exit code | Meaning | What to do |
@@ -240,6 +268,8 @@ pocket-vault run --env PORTAL_USER=vendor-portal.username --env PORTAL_PASS=vend
 Keep commands stable: an approved command is an exact match on program, arguments and folder. `--cwd` defaults to your current directory.
 
 **Storing a secret you meet.** When a secret appears in a message, file or tool result, store it at once with `put` (the value from `--stdin`, `--from-file` or `--from-env`, never the command line), use its name from then on, and tell the user in one or two sentences that it was seen in the conversation and may need rotating. Write the name as a Markdown link to `/#/vault/item/<name>` so it opens the secret; the conversation also shows a card for it. `put` is create-only: an existing name (including a removed one) is refused, and agents cannot change, rotate or remove a secret. A new secret follows the Vault default policy.
+
+**Asking someone outside (1.110).** When a customer or vendor has a credential the work needs, never ask them to send it by email, chat or phone. Run `pocket-vault request <name> --kind login --for "<who>" --note "<what it is>"`, which prints a one-time link, and give the link to the owner or put it in the draft for them to send. `await <name>` or `show <name>` tells you when it has been filled in; you only ever see the name.
 
 **Browser fills.** Put `{{vault:name.field}}` as the text in `browser_type` or `browser_fill_form`. If the reply says the Vault is asking the owner, tell them and call the same tool with the same arguments once they allow it. After a fill, use `browser_snapshot` instead of screenshots. If the placeholder appears literally on the page, the relay is not in place: stop and tell the owner.
 

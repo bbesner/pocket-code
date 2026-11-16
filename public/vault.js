@@ -15,6 +15,7 @@ const VIC={
  note:'<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 15.5h5"/></svg>',
  lock:'<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5"/></svg>',
  download:'<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></svg>',
+ link:'<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1.2-1.2"/></svg>',
 };
 const VAULT_KINDS=[['api_key','API key'],['token','Token'],['login','Login'],['credentials','Credentials'],['note','Secure note']];
 const VAULT_KIND_WORD=Object.fromEntries(VAULT_KINDS);
@@ -222,7 +223,7 @@ function paintVaultView(){
  const main=$('#vault-main');if(!main||!vaultSnap||!vaultView)return;
  // The 30-second refresh must not rebuild the list under a finger or a focused button when nothing changed.
  if(vaultIsLocked()){document.querySelectorAll('.vault-field[data-shown]').forEach(vaultHideValue);vaultLoadLockInfo();} // a value shown before the lock goes
- const key=JSON.stringify([vaultSnap.ready,vaultSnap.locked,vaultSnap.access,vaultIsLocked()?vaultAutoLock:0,vaultSnap.items,vaultSnap.trash,vaultRequests(),vaultOrder(),vaultNotice,[...vaultMissed]]);
+ const key=JSON.stringify([vaultSnap.ready,vaultSnap.locked,vaultSnap.access,vaultIsLocked()?vaultAutoLock:0,vaultSnap.items,vaultSnap.trash,vaultRequests(),vaultSnap.intakes||[],vaultOrder(),vaultNotice,[...vaultMissed]]);
  if(key===vaultPainted&&main.querySelector('.vault-list-head'))return paintVaultBadges();
  const focused=document.activeElement&&main.contains(document.activeElement)?[...main.querySelectorAll('button,a,summary,input,select')].indexOf(document.activeElement):-1;
  const caret=document.activeElement?.id==='vault-query'?document.activeElement.selectionStart:null;
@@ -232,6 +233,7 @@ function paintVaultView(){
  main.querySelectorAll('details').forEach((d,i)=>{if(open[i])d.open=true;});
  bindVaultRows(main);
  main.querySelector('#vt-add')?.addEventListener('click',()=>vaultEditor(null));
+ main.querySelector('#vt-ask')?.addEventListener('click',()=>vaultAskSheet());
  main.querySelector('#vt-unlock')?.addEventListener('click',()=>vaultUnlockSheet());
  const q=main.querySelector('#vault-query');if(q)q.oninput=()=>{vaultQuery=q.value;vaultApplyQuery(main);};
  const order=main.querySelector('#vault-order');if(order)order.onchange=()=>{vaultSetOrder(order.value);repaintVault();};
@@ -275,6 +277,93 @@ function vaultRequestHTML(r,where='main'){
   <div class="approval-actions vault-request-actions"><button class="vault-answer vault-deny" data-answer="deny">Deny</button>${r.allowAlways===false?'':'<button class="chip vault-always" data-answer="always">Always allow</button>'}<button class="vault-answer vault-allow" data-answer="once">Allow once</button></div>
  </section>`;
 }
+/* ---------- 1.110: intake links (Ask someone) ---------- */
+// The owner (or an agent, with pocket-vault request) sends someone outside a one-time link; what they type arrives as a new
+// secret under the name chosen here. The list shows each link's state, never its address: the server keeps only a hash, so
+// a lost link is replaced with New link, which stops the old one.
+const VAULT_INTAKE_STATE={pending:'Waiting',filled:'Filled in',cancelled:'Cancelled',expired:'Expired'};
+const vaultIntakes=()=>vaultSnap?.intakes||[];
+function vaultIntakeRowHTML(r){
+ const when=r.state==='pending'?`Expires ${vaultDate(r.expiresAt)}`:r.state==='expired'?vaultDate(r.expiresAt):vaultDate(r.endedAt);
+ const facts=[r.for?`For ${esc(r.for)}`:'',esc(VAULT_KIND_WORD[r.kind]||'Secret'),`<span class="${r.state==='pending'?'vault-intake-wait':''}">${esc(VAULT_INTAKE_STATE[r.state]||r.state)}</span>`,esc(when)].filter(Boolean);
+ const actions=r.state==='pending'?`<button class="chip" data-intake-relink="${esc(r.id)}" aria-label="New link for ${esc(r.name)}">New link</button><button class="chip" data-intake-cancel="${esc(r.id)}" aria-label="Cancel the link for ${esc(r.name)}">Cancel</button>`
+  :r.state==='filled'&&vaultSnap?.items.some(i=>i.name===r.name)?`<button class="chip" data-intake-item="${esc(r.name)}" aria-label="Open ${esc(r.name)}">Open</button>`:'';
+ return `<div class="session-item vault-item vault-intake${r.state==='pending'?'':' finished'}" data-intake="${esc(r.id)}">
+  <span class="vault-kind" aria-hidden="true">${vaultKindIcon(r.kind)}</span>
+  <span class="row"><span class="body"><span class="title vault-name">${esc(r.name)}</span>${r.note?`<span class="vault-intake-note">${esc(r.note)}</span>`:''}<span class="session-status">${facts.map((f,i)=>`<span class="vault-fact">${f}${i<facts.length-1?'<span aria-hidden="true">·</span>':''}</span>`).join('')}</span></span></span>
+  ${actions?`<span class="vault-intake-actions">${actions}</span>`:''}</div>`;
+}
+function vaultIntakesHTML(){
+ const list=vaultIntakes();if(!list.length)return '';
+ const waiting=list.filter(r=>r.state==='pending').length;
+ return `<section class="session-group project-group vault-intakes" id="vault-intakes"><h2>Links sent <span>${waiting?waiting+' waiting':list.length}</span></h2>
+  <p class="sheet-help vault-requests-help">Someone outside types a secret into a one-time page, and it arrives here under the name you chose.</p>${list.map(vaultIntakeRowHTML).join('')}</section>`;
+}
+async function vaultIntakePost(body){
+ try{const r=await api('/vault/intake',{method:'POST',body:JSON.stringify(body),cache:'no-store'});loadVault(true).then(repaintVault).catch(()=>{});return r;}
+ catch(e){if(vaultLockedError(e)){toast('The Vault is locked. Unlock it first.');return null;}if(e.message!=='login')toast(e.message||'Could not update the link');return null;}
+}
+const vaultIntakeUrl=r=>r.url||(location.origin+r.path);
+function vaultAskSheet(){
+ if(!vaultOn())return toast('The Vault is off. '+turnOnHint());
+ if(vaultIsLocked())return vaultUnlockSheet(()=>vaultAskSheet());
+ const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet vault-editor vault-ask';
+ sh.innerHTML=`<h2>Ask someone for a secret</h2><p class="sheet-help vault-editor-help">Pocket makes a one-time link. Send it to them yourself. What they type goes straight into the Vault under the name below, and agents ask you before using it, as with any secret.</p>
+  <form class="project-form vault-form" autocomplete="off" novalidate>
+   <label class="voice-field">Name<input type="text" name="name" required maxlength="64" placeholder="client-accounting-login" autocomplete="off" spellcheck="false" autocapitalize="none" autocorrect="off" aria-describedby="vault-ask-name-hint" class="vault-name-input"></label>
+   <p class="vault-hint" id="vault-ask-name-hint">Lowercase letters, numbers and hyphens. It is kept for this link until it is filled in or ends.</p>
+   <label class="voice-field">Kind<select name="kind">${VAULT_KINDS.map(([v,l])=>`<option value="${v}" ${v==='login'?'selected':''}>${l}</option>`).join('')}</select></label>
+   <label class="voice-field">Extra fields (optional)<input type="text" name="fields" placeholder="windows_password, pin" autocomplete="off" spellcheck="false" autocapitalize="none" aria-describedby="vault-ask-fields-hint"></label>
+   <p class="vault-hint" id="vault-ask-fields-hint" data-fields-hint>Separate with commas: lowercase letters, digits and underscores.</p>
+   <label class="voice-field">Who it's for<input type="text" name="for" maxlength="120" placeholder="Pat Lee (Example IT)" autocomplete="off"></label>
+   <label class="voice-field">What it is<input type="text" name="note" maxlength="300" placeholder="Accounting software review login" autocomplete="off" aria-describedby="vault-ask-note-hint"></label>
+   <p class="vault-hint" id="vault-ask-note-hint">The page's heading. They see this, who it's for and your organisation, nothing else from the Vault.</p>
+   <label class="voice-field">Link works for<select name="hours"><option value="24">1 day</option><option value="72" selected>3 days</option><option value="168">7 days</option></select></label>
+   <p class="vault-form-error" role="alert"></p>
+   <button class="primary" type="submit">Create link</button>
+  </form>`;
+ const form=sh.querySelector('form'),err=sh.querySelector('.vault-form-error'),hint=sh.querySelector('[data-fields-hint]');
+ const sync=()=>{const cred=form.kind.value==='credentials';hint.textContent=cred?'Name each field to ask for, separated with commas, for example client_id, client_secret.':'Separate with commas: lowercase letters, digits and underscores.';};
+ form.kind.onchange=sync;sync();
+ form.onsubmit=async e=>{
+  e.preventDefault();err.textContent='';
+  const name=form.name.value.trim().toLowerCase(),fields=form.fields.value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
+  if(!VAULT_NAME_RE.test(name)){err.textContent='The name must be lowercase letters, numbers and hyphens.';form.name.focus();return;}
+  const badField=fields.find(f=>!VAULT_FIELD_RE.test(f));if(badField){err.textContent=`${badField} is not a field name: lowercase letters, digits and underscores, starting with a letter.`;form.fields.focus();return;}
+  if(form.kind.value==='credentials'&&!fields.length){err.textContent='Name at least one field to ask for.';form.fields.focus();return;}
+  const btn=form.querySelector('button[type=submit]');btn.disabled=true;
+  try{
+   const r=await api('/vault/intake',{method:'POST',body:JSON.stringify({action:'create',name,kind:form.kind.value,fields,for:form.for.value.trim(),note:form.note.value.trim(),hours:Number(form.hours.value)}),cache:'no-store'});
+   loadVault(true).then(repaintVault).catch(()=>{});
+   closeCurrentSheet?.();vaultIntakeLinkSheet(r);
+  }catch(e2){btn.disabled=false;if(e2.message==='login')return;if(vaultLockedError(e2)){err.textContent='The Vault is locked. Unlock it, then try again.';return;}err.textContent=e2.message||'Could not create the link.';}
+ };
+ mountSheet(scrim,sh);
+ setTimeout(()=>form.name.focus(),50);
+}
+// The link, once: the server keeps only its hash, so this sheet is the one place it can be copied.
+function vaultIntakeLinkSheet(r,{replaced=false}={}){
+ const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet vault-key-sheet vault-link-sheet';
+ const fid='vl-'+(++vaultFieldSeq),i=r.intake;
+ sh.innerHTML=`<h2>Send this link</h2>${replaced?'<p class="vault-key-note">The previous link no longer works.</p>':''}
+  <p class="sheet-help">Send it to ${esc(i.for||'them')} yourself, by email or text. It works once and expires ${esc(vaultDate(i.expiresAt))}. What they type arrives in the Vault as <span class="vault-name">${esc(i.name)}</span>. Pocket shows this link only now; if it is lost, use New link.</p>
+  <label class="vault-key-label" for="${fid}">One-time link</label>
+  <textarea class="vault-key" id="${fid}" readonly rows="2" spellcheck="false" autocapitalize="none" autocorrect="off" autocomplete="off"></textarea>
+  <div class="vault-key-actions"><button class="chip" data-copy-link>${IC.copy}Copy</button><button class="primary" data-done>Done</button></div>`;
+ const field=sh.querySelector('.vault-key');field.value=vaultIntakeUrl(r);
+ field.addEventListener('focus',()=>field.select());
+ sh.querySelector('[data-copy-link]').onclick=e=>vaultCopy(field.value,e.currentTarget,'Link');
+ sh.querySelector('[data-done]').onclick=()=>closeCurrentSheet?.();
+ mountSheet(scrim,sh);
+}
+function vaultIntakeRelink(id){
+ const i=vaultIntakes().find(x=>x.id===id);if(!i)return;
+ confirmSheet(`New link for ${i.name}?`,'The link you sent before stops working. Send the new one instead.','Make a new link',async()=>{const r=await vaultIntakePost({action:'relink',id});if(r)vaultIntakeLinkSheet(r,{replaced:true});});
+}
+function vaultIntakeCancel(id){
+ const i=vaultIntakes().find(x=>x.id===id);if(!i)return;
+ confirmSheet(`Cancel the link for ${i.name}?`,'The link stops working, and the name is free again.','Cancel the link',async()=>{const r=await vaultIntakePost({action:'cancel',id});if(r)toast('Cancelled the link for '+i.name);});
+}
 function vaultLockedHTML(where='main'){
  return `<section class="vault-locked${where==='rail'?' rail-locked':''}" aria-labelledby="vault-locked-${where}">
   <h3 id="vault-locked-${where}"><span class="vault-lock-glyph" aria-hidden="true">${VIC.lock}</span>The Vault is locked</h3>
@@ -285,9 +374,10 @@ function vaultListHTML(){
  if(vaultIsLocked())return `<div class="session-home-head vault-list-head"><h2>Vault</h2></div>${vaultLockedHTML()}`;
  if(vaultSnap.ready===false)return `<div class="session-home-head vault-list-head"><h2>Vault</h2></div><p class="sheet-help project-empty">The Vault cannot be opened. Check that POCKET_VAULT_KEY in .env is the key it was saved with, then restart Pocket Code.</p>`;
  const reqs=vaultRequests(),items=vaultSnap.items,trash=vaultSnap.trash;
- return `<div class="session-home-head vault-list-head"><h2>Vault</h2><span class="project-head-actions"><button class="chip" id="vt-add">${IC.plus}Add secret</button></span></div>
+ return `<div class="session-home-head vault-list-head"><h2>Vault</h2><span class="project-head-actions"><button class="chip" id="vt-ask" title="Send someone a one-time link to type a secret into">${VIC.link}Ask someone</button><button class="chip" id="vt-add">${IC.plus}Add secret</button></span></div>
   ${reqs.length?`<section class="session-group project-group vault-requests" id="vault-requests"><h2 tabindex="-1">Requests <span>${reqs.length} waiting</span></h2><p class="sheet-help vault-requests-help">An agent wants to run a command with a secret.${reqs.some(r=>r.allowAlways!==false)?' Always allow remembers this exact command and folder for that secret.':''}</p>${reqs.map(r=>vaultRequestHTML(r)).join('')}</section>`:''}
   ${vaultNotice?`<p class="vault-notice" role="status" tabindex="-1">${esc(vaultNotice)}</p>`:''}
+  ${vaultIntakesHTML()}
   ${items.length?`<div class="documents-tools vault-tools"><div class="session-search">${IC.search}<input type="search" id="vault-query" placeholder="Search secrets" aria-label="Search secrets by name, kind, tag or website" value="${esc(vaultQuery)}" autocomplete="off" spellcheck="false" enterkeyhint="search"></div>
    <label class="voice-field vault-order">Order<select id="vault-order"><option value="new"${vaultOrder()==='new'?' selected':''}>Newest first</option><option value="name"${vaultOrder()==='name'?' selected':''}>A–Z</option></select></label></div>
    <section class="session-group project-group vault-secrets"><h2>Secrets <span data-vault-count>${items.length}</span></h2>${vaultSorted(items).map(vaultRowHTML).join('')}<p class="sheet-help project-empty" data-vault-none role="status" hidden></p></section>`
@@ -297,6 +387,9 @@ function vaultListHTML(){
 function bindVaultRows(root){
  root.querySelectorAll('[data-vault-open]').forEach(b=>b.onclick=()=>vaultSheet(b.dataset.vaultOpen));
  root.querySelectorAll('[data-vault-more]').forEach(b=>b.onclick=()=>vaultSheet(b.dataset.vaultMore));
+ root.querySelectorAll('[data-intake-relink]').forEach(b=>b.onclick=()=>vaultIntakeRelink(b.dataset.intakeRelink));
+ root.querySelectorAll('[data-intake-cancel]').forEach(b=>b.onclick=()=>vaultIntakeCancel(b.dataset.intakeCancel));
+ root.querySelectorAll('[data-intake-item]').forEach(b=>b.onclick=()=>{const i=vaultSnap?.items.find(x=>x.name===b.dataset.intakeItem);if(i)vaultSheet(i.id);else toast('That secret is no longer in the Vault.');});
  root.querySelectorAll('[data-vault-restore]').forEach(b=>b.onclick=()=>{const i=vaultItemById(b.dataset.vaultRestore);if(i)vaultAct({action:'restore',item:i.id},'Restored '+i.name);});
  root.querySelectorAll('[data-request]').forEach(card=>card.querySelectorAll('[data-answer]').forEach(b=>b.onclick=async()=>{
   const r=vaultSnap?.requests.find(x=>x.id===card.dataset.request);if(!r)return;

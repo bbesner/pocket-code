@@ -1565,6 +1565,16 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-item.finished .row { cursor: default; }
 .vault-item.finished .row .title { color: var(--faint); }
 .vault-item .vault-restore { flex: none; align-self: center; margin-right: 12px; }
+/* 1.110: intake links. A row is the name, what was asked for, then who, kind, state and date; a waiting one keeps New link and Cancel at its end. */
+.vault-intake .row { cursor: default; }
+.vault-intake .vault-intake-note { display: block; margin-top: 2px; font-size: 14px; line-height: 1.4; color: var(--dim); overflow-wrap: anywhere; }
+.vault-intake.finished .vault-intake-note { color: var(--faint); }
+.vault-intake-wait { color: var(--text); font-weight: 600; }
+/* Each fact carries its own trailing dot, so a wrapped line never starts with a separator. */
+.vault-intake .vault-fact { display: inline-flex; gap: 7px; }
+.vault-intake-actions { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; align-self: center; gap: 8px; margin-right: 12px; max-width: 46%; }
+@media (max-width: 480px) { .vault-intake { flex-wrap: wrap; } .vault-intake-actions { max-width: none; width: 100%; justify-content: flex-start; margin: -6px 12px 12px 48px; } }
+.vault-link-sheet .vault-key { word-break: break-all; }
 .rail .vault-item .row { padding-left: 2px; }
 .vault-requests-help { margin: 0 18px 8px; font-size: 13.5px; max-width: 60ch; }
 .vault-requests h2[tabindex="-1"]:focus { outline: none; } /* focused only to bring a push's reader to the requests */

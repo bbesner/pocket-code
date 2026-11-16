@@ -8,7 +8,7 @@
 // Design: docs/plans/1.39.0-vault.md.
 import fs from 'node:fs';
 import path from 'node:path';
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { signalGroup } from './proctree.mjs';
 import { shellArg } from './skills.mjs';
@@ -39,6 +39,16 @@ const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
 const notesIn = v => { const n = typeof v === 'string' ? v.trim() : ''; if (n.length > LIMITS.notes) throw fail(`Notes can be up to ${LIMITS.notes.toLocaleString('en-US')} characters.`); return n; };
 const shortId = () => randomBytes(6).toString('hex');
 const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+// 1.110: intake links. The owner or an agent reserves a name and gets a one-time link; someone outside (a customer's IT
+// contact) opens it, types the values into a plain page, and they land here as a new item under that name with the default
+// policy. Only a hash of the link's token is kept, inside the encrypted store with the items, so a locked store cannot tell
+// one link from another. A link works once, expires (72 hours by default, 7 days at most) and can be cancelled or replaced.
+export const INTAKE_KINDS = ['login', 'api_key', 'token', 'credentials', 'note'];
+export const INTAKE = { hoursDefault: 72, hoursMax: 168, hoursMin: 1, pending: 50, fields: 10, for: 120, from: 80, note: 300, keepDays: 30 };
+export const INTAKE_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+const tokenHash = t => createHash('sha256').update(String(t)).digest('hex');
+// What a field is called on the intake page and in its errors: the kind's own word for its one value, otherwise the field name in words.
+export const INTAKE_LABEL = (f, kind) => f === 'value' ? (kind === 'token' ? 'token' : 'API key') : f === 'text' ? 'note' : f.replace(/_/g, ' ');
 const POLICY_WORDS = { auto: 'Free rein', ask: 'Asks once per command', every: 'Asks every time', owner: 'Only you' };
 
 // ---------- the key and the file format ----------
@@ -99,7 +109,7 @@ export function vaultInstructions(cli, sessionId) {
     `Run commands that need one with \`node ${cli} run --env VAR=<name>[.field] -- <command…>\`: Pocket runs the command with the value in that variable and returns the output with the value scrubbed. Values never appear in arguments, output, files, messages or your context; never print, echo, write down or ask for one.`,
     'If the command answers `pending <id>`, the owner is being asked to allow it (a push with Allow and Deny went to their devices): say so in one line and end your reply offering "Allow <name> for this command" and "Deny <name>" as the choices; the owner answering either way, by the notification, the Vault view or that reply, settles the request, and you then continue with `wait <id>`. If it is refused, say so and stop; do not look for another way to the value.',
     'To type a stored value into a web page with the Playwright browser tools (a login form, say), put `{{vault:<name>.<field>}}` as the text to type or fill; Pocket fills in the real value on the way to the browser and removes it from what comes back. Never read a filled value back out of the page. Values go into typing and form-filling tools only, and once one has been typed, screenshots and other pictures from that browser are unavailable for the rest of the session (a value cannot be scrubbed out of a picture): use text snapshots.',
-    `When you meet a secret in a file, a result or a message, store it at once with \`node ${cli} put <name> --kind <api_key|token|login|credentials|note> --stdin\` (or --from-file), tell the owner it was seen, and use the name from then on. \`list\` shows what exists. A \`{{vault:name}}\` in a message is the owner handing you a stored secret by name.`,
+    `When you meet a secret in a file, a result or a message, store it at once with \`node ${cli} put <name> --kind <api_key|token|login|credentials|note> --stdin\` (or --from-file), tell the owner it was seen, and use the name from then on. \`list\` shows what exists. When someone outside (a customer, a vendor) has a credential the work needs, never ask for it by email, chat or phone: make a one-time link with \`node ${cli} request <name> --kind login --for "<who>" --note "<what it is>"\` and send that. A \`{{vault:name}}\` in a message is the owner handing you a stored secret by name.`,
     `The pocket-vault skill (\`${skill}\`) has the procedure.${sessionId ? '' : ' Pass --cwd when the command depends on the working directory.'}`,
   ].join(' ');
 }
@@ -121,9 +131,9 @@ export class VaultStore {
       let dir = null; try { dir = fs.openSync(path.dirname(f), 'r'); fs.fsyncSync(dir); } catch { } finally { if (dir !== null) fs.closeSync(dir); }
     });
     this.requests = new Map(); // id -> request (pending ones live in memory only; they expire in minutes)
-    this.running = 0; this.items = null; this.lastActivityAt = this.now();
+    this.running = 0; this.items = null; this.intakes = null; this.lastActivityAt = this.now();
     this.access = () => 'once'; // the server points this at the Agent access setting
-    if (!fs.existsSync(file)) { if (!key) throw new Error('POCKET_VAULT_KEY is not set.'); this.items = []; return; }
+    if (!fs.existsSync(file)) { if (!key) throw new Error('POCKET_VAULT_KEY is not set.'); this.items = []; this.intakes = []; return; }
     const buf = fs.readFileSync(file), h = storeHeader(buf);
     if (h.version === 2) { this.salt = Buffer.from(h.salt); return; } // locked until the owner unlocks it
     if (!key) throw new Error('POCKET_VAULT_KEY is not set.');
@@ -133,7 +143,7 @@ export class VaultStore {
     if (!data) decryptStore(this.keys, buf); // throws: the daemon reports "cannot be opened" and serves nothing
     this.load(data);
   }
-  load(data) { const legacy = !(data.version >= STORE_SCHEMA); this.items = (Array.isArray(data.items) ? data.items : []).filter(i => i && typeof i.id === 'string' && NAME_RE.test(i.name || '')).map(i => this.normalize(legacy && i.policy === 'ask' ? { ...i, policy: 'default' } : i)); this.lastActivityAt = this.now(); }
+  load(data) { const legacy = !(data.version >= STORE_SCHEMA); this.intakes = (Array.isArray(data.intakes) ? data.intakes : []).filter(r => r && typeof r.id === 'string' && NAME_RE.test(r.name || '') && /^[0-9a-f]{64}$/.test(r.tokenHash || '')); this.items = (Array.isArray(data.items) ? data.items : []).filter(i => i && typeof i.id === 'string' && NAME_RE.test(i.name || '')).map(i => this.normalize(legacy && i.policy === 'ask' ? { ...i, policy: 'default' } : i)); this.lastActivityAt = this.now(); }
   get mode() { return this.salt ? 'passphrase' : 'key'; }
   get locked() { return this.items === null; }
   open() { if (this.locked) throw fail('The Vault is locked. Ask the owner to unlock it in Pocket Code.', 423, { code: 'vault_locked' }); this.lastActivityAt = this.now(); return this; }
@@ -155,7 +165,7 @@ export class VaultStore {
   lock() {
     if (this.mode !== 'passphrase') throw fail('The Vault is opened by the server key; set a passphrase to be able to lock it.');
     if (this.locked) return;
-    this.items = null; this.keys = [];
+    this.items = null; this.intakes = null; this.keys = [];
     // 1.73.3: a request still waiting is answered "locked" before its waiters wake, so no continuation meets an unanswered row.
     const at = iso(this.now());
     for (const r of this.requests.values()) { if (!r.answer) r.answer = { decision: 'locked', at }; for (const w of r.waiters.splice(0)) w(r); }
@@ -181,7 +191,7 @@ export class VaultStore {
   idleLockDue(minutes, now = this.now()) { return this.mode === 'passphrase' && !this.locked && minutes > 0 && now - this.lastActivityAt >= minutes * 60_000; }
   // 1.73.6: writes a state and changes nothing in memory: every change computes its next items (and key or salt) on a copy,
   // writes them, and installs them only once the file holds them, so a failed write leaves memory and disk agreeing.
-  save({ items = this.items, key = this.keys[0], salt = this.salt } = {}) { this.open(); this.write(this.file, encryptStore(key, { version: STORE_SCHEMA, savedAt: iso(this.now()), items }, { salt })); }
+  save({ items = this.items, intakes = this.intakes, key = this.keys[0], salt = this.salt } = {}) { this.open(); this.write(this.file, encryptStore(key, { version: STORE_SCHEMA, savedAt: iso(this.now()), items, intakes: intakes || [] }, { salt })); }
   // The live list with one item replaced by its edited copy (or removed when `next` is null).
   withItem(i, next) { return next ? this.items.map(x => x === i ? next : x) : this.items.filter(x => x !== i); }
   // Rotation (key mode): the store is rewritten under the new key; the old one stays accepted until the daemon restarts with the new .env.
@@ -206,7 +216,7 @@ export class VaultStore {
       if (!raw || typeof raw !== 'object') continue;
       const i = this.normalize({ ...raw, ...(legacy && raw.policy === 'ask' ? { policy: 'default' } : {}), id: shortId(), addedIn: undefined, lastUsedAt: null, lastUsedBy: null, trashedAt: null }); // 1.93: the conversation that added it belongs to the other install
       if (!NAME_RE.test(i.name || '')) continue;
-      if (next.some(x => x.name === i.name)) { skipped.push(i.name); continue; }
+      if (next.some(x => x.name === i.name) || this.pendingIntake(i.name)) { skipped.push(i.name); continue; }
       if (next.length >= LIMITS.items) throw fail(`You can keep up to ${LIMITS.items} items.`, 409);
       try { this.checkValues({ kind: i.kind, custom: [] }, i.values, { all: false }); } catch (e) { throw fail(`${i.name}: ${e.message}`); } // 1.73.6: an export is held to the same value rules
       i.created = i.created || iso(this.now()); i.updated = iso(this.now()); i.revision = 1;
@@ -272,7 +282,7 @@ export class VaultStore {
     // 1.93: requests answered or expired in the last 15 minutes, as id, answer and time only, so a link to one (a notification
     // tapped late, an Allow that did not go through) can say what happened to it instead of finding nothing.
     const answered = owner ? [...this.requests.values()].filter(r => r.answer).map(r => ({ id: r.id, itemNames: r.itemNames, decision: r.answer.decision, at: r.answer.at })) : [];
-    return { version: 1, now, ready: true, access: ACCESS.includes(this.access()) ? this.access() : 'once', items: live, trash, requests, answered, openRequests: requests.length };
+    return { version: 1, now, ready: true, access: ACCESS.includes(this.access()) ? this.access() : 'once', items: live, trash, requests, answered, openRequests: requests.length, intakes: this.intakeViews(now) };
   }
   touch(i) { i.updated = iso(this.now()); i.revision += 1; }
 
@@ -287,6 +297,7 @@ export class VaultStore {
       const name = str(input.name, LIMITS.name + 1).toLowerCase();
       if (!NAME_RE.test(name)) throw fail('The name must be 1 to 64 characters: lower-case letters, digits and hyphens.');
       if (this.items.some(i => i.name === name)) throw fail(owner ? 'An item with that name already exists.' : `An item named ${name} already exists; agents cannot replace it. Use another name or ask the owner.`, 409);
+      if (this.pendingIntake(name)) throw fail(`${name} is reserved by an intake link that is waiting to be filled in. Use another name, or cancel the link first.`, 409, { code: 'intake_reserved' });
       const kind = str(input.kind, 20); if (!KINDS[kind]) throw fail('The kind must be api_key, token, login, credentials or note.');
       if (this.items.length >= LIMITS.items) throw fail(`You can keep up to ${LIMITS.items} items.`, 409);
       const { values, custom } = this.checkValues({ kind, custom: [] }, input.values, { all: true });
@@ -311,6 +322,7 @@ export class VaultStore {
     if (action === 'restore') {
       if (!i.trashedAt) throw fail('This item is not removed.');
       if (this.items.some(x => x !== live && x.name === i.name && !x.trashedAt)) throw fail('Another item now has that name. Rename it first.', 409);
+      if (this.pendingIntake(i.name)) throw fail('An intake link waiting to be filled in has that name. Cancel it first.', 409, { code: 'intake_reserved' });
       i.trashedAt = null; this.touch(i); this.audit({ action: 'restore', item: i.id, name: i.name, by }); commit(); return this.view(i, { owner });
     }
     if (action === 'recipe-remove') {
@@ -319,7 +331,7 @@ export class VaultStore {
     }
     let changed = false;
     const touched = []; // field names an edit changed, added or removed: recorded in the audit, never a value
-    if ('name' in input) { const name = str(input.name, LIMITS.name + 1).toLowerCase(); if (!NAME_RE.test(name)) throw fail('The name must be 1 to 64 characters: lower-case letters, digits and hyphens.'); if (this.items.some(x => x !== live && x.name === name)) throw fail('An item with that name already exists.', 409); i.name = name; changed = true; }
+    if ('name' in input) { const name = str(input.name, LIMITS.name + 1).toLowerCase(); if (!NAME_RE.test(name)) throw fail('The name must be 1 to 64 characters: lower-case letters, digits and hyphens.'); if (this.items.some(x => x !== live && x.name === name)) throw fail('An item with that name already exists.', 409); if (name !== live.name && this.pendingIntake(name)) throw fail(`${name} is reserved by an intake link that is waiting to be filled in.`, 409, { code: 'intake_reserved' }); i.name = name; changed = true; }
     if (Array.isArray(input.removeFields)) { // custom fields only; a fixed field cannot be dropped
       for (const f of input.removeFields.map(x => str(x, 40))) { if (!i.custom.includes(f)) throw fail(`${f} is not a custom field of this item.`); i.custom = i.custom.filter(x => x !== f); delete i.values[f]; touched.push(f); changed = true; }
     }
@@ -365,6 +377,100 @@ export class VaultStore {
     if (!fieldNames(i).includes(field)) throw fail('That field does not exist.', 404);
     this.audit({ action: 'owner-view', item: i.id, name: i.name, by: 'owner', decision: field });
     return i.values[field];
+  }
+
+  // ---------- 1.110: intake links ----------
+  // A link is pending until it is filled in, cancelled or replaced, or its time runs out; only a pending link holds its name.
+  intakeState(r, now = this.now()) { return r.state === 'pending' && Date.parse(r.expiresAt) <= now ? 'expired' : r.state; }
+  pendingIntake(name, now = this.now()) { return (this.intakes || []).find(r => r.name === name && this.intakeState(r, now) === 'pending') || null; }
+  intakeView(r, now = this.now()) {
+    const { tokenHash: _t, nonce: _n, ...rest } = r;
+    return { ...rest, state: this.intakeState(r, now), fields: [...KINDS[r.kind], ...(r.fields || [])] };
+  }
+  // Pending links, and the ones that ended in the last week (so the owner and the agent can see what happened).
+  intakeViews(now = this.now()) {
+    return (this.intakes || []).filter(r => { const st = this.intakeState(r, now), end = st === 'expired' ? r.expiresAt : r.endedAt; return st === 'pending' || (end && Date.parse(end) + 7 * 86400_000 > now); })
+      .sort((a, b) => Date.parse(b.created) - Date.parse(a.created)).map(r => this.intakeView(r, now));
+  }
+  intakeById(id) { this.open(); const r = this.intakes.find(x => x.id === id); if (!r) throw fail('That intake link does not exist.', 404); return r; }
+  // A new link: the name is reserved until the link ends. Returns the view and the token, which is never kept.
+  createIntake(input, { actor = 'owner', session = null, sessionTitle = '' } = {}) {
+    this.open();
+    const now = this.now(), by = actor === 'owner' ? 'owner' : actor === 'agent' ? 'agent' : 'terminal';
+    const name = str(input?.name, LIMITS.name + 1).toLowerCase();
+    if (!NAME_RE.test(name)) throw fail('The name must be 1 to 64 characters: lower-case letters, digits and hyphens.');
+    if (this.items.some(i => i.name === name)) throw fail(`An item named ${name} already exists${this.items.some(i => i.name === name && i.trashedAt) ? ' (it is in Removed)' : ''}. Choose another name.`, 409);
+    if (this.pendingIntake(name, now)) throw fail(`An intake link for ${name} is already waiting. Cancel it or send a new link instead.`, 409, { code: 'intake_reserved' });
+    const kind = str(input?.kind, 20) || 'login'; if (!INTAKE_KINDS.includes(kind)) throw fail('The kind must be login, api_key, token, credentials or note.');
+    const raw = Array.isArray(input?.fields) ? input.fields : typeof input?.fields === 'string' ? input.fields.split(',') : [];
+    const fields = [...new Set(raw.map(f => str(f, 40).toLowerCase()).filter(Boolean))];
+    for (const f of fields) { if (!FIELD_RE.test(f)) throw fail(`${f} is not a field name: lowercase letters, digits and underscores, up to 32 characters, starting with a letter.`); if (KINDS[kind].includes(f)) throw fail(`${f} is already a field of a ${kind}.`); }
+    if (fields.length > INTAKE.fields) throw fail(`A link can ask for up to ${INTAKE.fields} extra fields.`);
+    if (kind === 'credentials' && !fields.length) throw fail('Name the fields to ask for, for example client_id,client_secret.');
+    const hours = input?.hours == null || input.hours === '' ? INTAKE.hoursDefault : Number(input.hours);
+    if (!Number.isFinite(hours) || hours < INTAKE.hoursMin || hours > INTAKE.hoursMax) throw fail(`A link can last from ${INTAKE.hoursMin} hour to ${INTAKE.hoursMax / 24} days.`);
+    const who = str(input?.for, INTAKE.for + 1); if (who.length > INTAKE.for) throw fail(`Who it is for can be up to ${INTAKE.for} characters.`);
+    const from = str(input?.from, INTAKE.from + 1); if (from.length > INTAKE.from) throw fail(`Who is asking can be up to ${INTAKE.from} characters.`);
+    const note = str(input?.note, INTAKE.note + 1); if (note.length > INTAKE.note) throw fail(`What it is for can be up to ${INTAKE.note} characters.`);
+    for (const [label, v] of [['who it is for', who], ['who is asking', from], ['what it is for', note]]) if (PLACEHOLDER_RE.test(v) || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(v)) throw fail(`The text for ${label} has characters it cannot hold.`);
+    if (this.intakes.filter(r => this.intakeState(r, now) === 'pending').length >= INTAKE.pending) throw fail(`Up to ${INTAKE.pending} intake links can wait at once. Cancel one first.`, 409);
+    const token = randomBytes(32).toString('base64url');
+    const r = { id: shortId(), name, kind, fields, for: who, from, note, tokenHash: tokenHash(token), nonce: randomBytes(16).toString('hex'), created: iso(now), expiresAt: iso(now + Math.round(hours * 3600_000)), by, ...(session ? { session: str(session, 80), sessionTitle: str(sessionTitle, 200) } : {}), state: 'pending', endedAt: null, item: null, links: 1 };
+    this.audit({ action: 'intake-create', request: r.id, name, by, session, sessionTitle, decision: who || undefined });
+    const next = [...this.intakes, r]; this.save({ intakes: next }); this.intakes = next;
+    return { intake: this.intakeView(r, now), token };
+  }
+  // A new link for a pending request (the old one stops working), or a cancel. Agents may do both: neither reveals a value.
+  relinkIntake(id, { actor = 'owner' } = {}) {
+    const live = this.intakeById(id), now = this.now();
+    if (this.intakeState(live, now) !== 'pending') throw fail('This intake link has ended. Create a new one.', 409);
+    const token = randomBytes(32).toString('base64url'), r = { ...live, tokenHash: tokenHash(token), nonce: randomBytes(16).toString('hex'), links: (live.links || 1) + 1 };
+    this.audit({ action: 'intake-relink', request: r.id, name: r.name, by: actor === 'owner' ? 'owner' : actor === 'agent' ? 'agent' : 'terminal' });
+    const next = this.intakes.map(x => x === live ? r : x); this.save({ intakes: next }); this.intakes = next;
+    return { intake: this.intakeView(r, now), token };
+  }
+  cancelIntake(id, { actor = 'owner' } = {}) {
+    const live = this.intakeById(id), now = this.now();
+    if (this.intakeState(live, now) !== 'pending') throw fail('This intake link has already ended.', 409);
+    const r = { ...live, state: 'cancelled', endedAt: iso(now) };
+    this.audit({ action: 'intake-cancel', request: r.id, name: r.name, by: actor === 'owner' ? 'owner' : actor === 'agent' ? 'agent' : 'terminal' });
+    const next = this.intakes.map(x => x === live ? r : x); this.save({ intakes: next }); this.intakes = next;
+    return this.intakeView(r, now);
+  }
+  // The link a token opens, whatever its state, or null. Every stored hash is compared, in constant time, with no early
+  // return, so how long the lookup takes says nothing about which links exist.
+  resolveIntake(token) {
+    this.open();
+    if (typeof token !== 'string' || !INTAKE_TOKEN_RE.test(token)) return null;
+    const h = Buffer.from(tokenHash(token), 'hex'); let found = null;
+    for (const r of this.intakes) if (timingSafeEqual(Buffer.from(r.tokenHash, 'hex'), h) && !found) found = r;
+    return found ? { intake: found, state: this.intakeState(found) } : null;
+  }
+  static intakeNonceOk(r, nonce) { const a = Buffer.from(String(r?.nonce || '')), b = Buffer.from(String(nonce || '')); return a.length === 32 && a.length === b.length && timingSafeEqual(a, b); }
+  // The submitter's values become a new item under the reserved name, with the default policy, and the link ends: both are
+  // written in one save, so a failed write leaves the link open and nothing stored. Only the fields the link asked for are
+  // taken; the kind's fixed fields are required (a credentials link needs at least one of its fields).
+  submitIntake(token, { nonce, values, notes = '' } = {}) {
+    this.open();
+    const hit = this.resolveIntake(token); if (!hit || hit.state !== 'pending') throw fail('This link is no longer active.', 404, { code: 'intake_inactive' });
+    const r = hit.intake, now = this.now(), at = iso(now);
+    if (!VaultStore.intakeNonceOk(r, nonce)) throw fail('This form is out of date. Open the link again.', 403, { code: 'intake_nonce' });
+    if (this.items.some(i => i.name === r.name)) throw fail('This link is no longer active.', 409, { code: 'intake_inactive' }); // the owner took the name another way
+    const asked = [...KINDS[r.kind], ...(r.fields || [])], given = {};
+    for (const f of asked) { const v = typeof values?.[f] === 'string' ? values[f].replace(/\r\n/g, '\n') : ''; if (v.trim()) given[f] = r.kind === 'note' && f === 'text' ? v : v.replace(/^\s+|\s+$/g, ''); }
+    for (const f of KINDS[r.kind]) if (!given[f]) throw fail(`The ${INTAKE_LABEL(f, r.kind)} is required.`, 400, { field: f });
+    if (!Object.keys(given).length) throw fail('Fill in at least one field.', 400, { field: asked[0] });
+    const { values: kept, custom } = this.checkValues({ kind: r.kind, custom: [] }, given, { all: false });
+    const note = typeof notes === 'string' ? notes.trim() : '';
+    if (note.length > LIMITS.notes) throw fail(`Notes can be up to ${LIMITS.notes.toLocaleString('en-US')} characters.`, 400, { field: 'notes' });
+    if (this.items.length >= LIMITS.items) throw fail('The vault is full.', 409);
+    const item = { id: shortId(), name: r.name, kind: r.kind, custom, values: kept, url: '', notes: note, tags: [], policy: 'default', recipes: [], expiresAt: null,
+      created: at, updated: at, by: 'intake', intake: { request: r.id, for: r.for, note: r.note }, ...(r.session ? { addedIn: { session: r.session, sessionTitle: r.sessionTitle || '' } } : {}), lastUsedAt: null, lastUsedBy: null, trashedAt: null, revision: 1 };
+    const done = { ...r, state: 'filled', endedAt: at, item: item.id };
+    this.audit({ action: 'put', item: item.id, name: r.name, by: 'intake', request: r.id, decision: r.for || undefined, fields: Object.keys(kept) });
+    const items = [...this.items, item], intakes = this.intakes.map(x => x === r ? done : x);
+    this.save({ items, intakes }); this.items = items; this.intakes = intakes;
+    return { item: this.view(item, { owner: true }), intake: this.intakeView(done, now) };
   }
 
   // ---------- runs ----------
@@ -513,7 +619,9 @@ export class VaultStore {
   purge(now = this.now()) {
     if (this.locked) { this.expireRequests(now); return []; }
     const gone = this.items.filter(i => i.trashedAt && Date.parse(i.trashedAt) + LIMITS.trashDays * 86400_000 <= now);
-    if (gone.length) { const next = this.items.filter(i => !gone.includes(i)); this.save({ items: next }); this.items = next; }
+    // 1.110: an intake link that ended (filled, cancelled or expired) more than 30 days ago goes with them.
+    const old = this.intakes.filter(r => { const end = r.endedAt || (r.state === 'pending' ? r.expiresAt : null); return end && Date.parse(end) + INTAKE.keepDays * 86400_000 <= now; });
+    if (gone.length || old.length) { const next = this.items.filter(i => !gone.includes(i)), nextIn = this.intakes.filter(r => !old.includes(r)); this.save({ items: next, intakes: nextIn }); this.items = next; this.intakes = nextIn; }
     this.expireRequests(now);
     return gone.map(i => i.name);
   }

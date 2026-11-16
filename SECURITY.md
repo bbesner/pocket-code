@@ -70,7 +70,7 @@ content. Share only what you would be comfortable sending as an email attachment
 a file private again when you are done.
 
 **Identity proxy in front.** If you put Cloudflare Access or a similar layer in front of
-Pocket, check how it treats `/share/` and `/files/`. Pocket serves those paths without a
+Pocket, check how it treats `/share/`, `/files/` and `/intake/`. Pocket serves those paths without a
 login, so an outside viewer can open a link or public file only if the proxy lets those
 paths through to Pocket; otherwise the proxy will ask them to sign in first. Private files
 and the rest of the app stay behind Pocket's own login whatever the proxy allows, since
@@ -220,6 +220,21 @@ action does not happen.
 cache, changes are refused unless the `Origin` header is Pocket's own, and a value is fetched
 one field at a time when the owner taps it (on the item, or into the editor to correct it) and is never stored in the browser. Notes and
 command text are shown as text, never as HTML.
+
+**Intake links (1.110).** `/intake/<token>` is the one Vault page served without a login: someone outside types a
+credential into it and it is stored as a new item. The token is 32 random bytes; only its SHA-256 is kept, inside
+`vault.enc` with the rest of the store, and a lookup compares it against every link in constant time. A link works once,
+expires after 1 to 168 hours (72 by default), and can be cancelled or replaced by the owner; up to 50 wait at once, and
+the name each one will fill is reserved until it ends. The page shows the link's heading, who it is for, the asker and
+the fields, never another item, name or value. It is sent `no-store`, `noindex`, with `Referrer-Policy: same-origin`,
+`X-Frame-Options: DENY` and a CSP of `default-src 'none'` with same-origin script, style and form action only; the page
+has no inline code. A post needs the link's own form nonce, and a post another site makes is refused by `Origin` or
+`Sec-Fetch-Site`. Each address (by the rules above for `cf-connecting-ip`) gets 60 page loads and 15 posts per ten
+minutes and 20 unknown tokens an hour, and the install 300 unknown tokens an hour. Opening a link does not use it, so a
+mail scanner that follows it changes nothing. A post is parsed in memory and stored in the same write that marks the
+link used; nothing typed is written back into a page, a log line, the audit record, a push or an agent's output (they
+carry the item's name, the link's id and the field names). While the Vault is off or locked the page answers 503
+*Temporarily unavailable* and keeps nothing; the link stays open. Paths with a token are redacted in error logs.
 
 **Limits.** These are real, and the same as for the password above:
 - Agents run as the same OS user as the daemon. An agent that goes looking can read `.env`,

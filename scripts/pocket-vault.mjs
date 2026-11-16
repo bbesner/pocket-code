@@ -12,7 +12,13 @@
 //     One-field kinds take the value as plain text; a JSON object on stdin or in the file gives several fields at once,
 //     fixed ones (username, password) and custom ones (client_id, signature_key …) alike.
 //   pocket-vault history [--name <name>] [--json]       this session's uses of the vault
-// Exit codes: 3 the Vault is off · 4 a request is pending (run `wait <id>`) · 5 denied or refused · the child's code after a run.
+//   pocket-vault request <name> --kind <login|api_key|token|credentials|note> --for "<who>" [--note "<what it is>"] [--from "<asker>"]
+//     [--fields a,b] [--expires 72h|3d]   a one-time link for someone outside to type the secret into (1.110); prints the link
+//   pocket-vault requests [--json]                      intake links waiting, and the ones that ended this week
+//   pocket-vault await <name> [--wait <s>]              wait until the link for <name> is filled in, cancelled or expired
+//   pocket-vault relink <name> | cancel <name>          a new link for a waiting request (the old one stops working), or cancel it
+// Exit codes: 3 the Vault is off · 4 a request is pending (run `wait <id>`) or a link is not filled in yet · 5 denied, refused,
+// or a link cancelled or expired · the child's code after a run.
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -43,7 +49,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 const [cmd, ...rest] = opts._;
 const die = (msg, code = 1) => { console.error(msg); process.exit(code); };
-if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 14).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 21).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 
 let token = '';
 try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { die(`No CLI token at ${path.join(dataDir, 'cli-token')}. Is Pocket Code running from this checkout? (POCKET_DATA_DIR=${dataDir})`); }
@@ -71,6 +77,12 @@ function card(i) {
   if (i.lastUsedAt) lines.push(`  Last used ${when(i.lastUsedAt)}${i.lastUsedBy?.sessionTitle ? ' in ' + i.lastUsedBy.sessionTitle : ''}`);
   if (i.recipes?.length) { lines.push('  Approved commands:'); for (const r of i.recipes) lines.push(`    ${r.argv.join(' ')}  (in ${r.cwd})`); }
   return lines.join('\n');
+}
+// 1.110: one intake link in a line, never its token: who it is for, its state and when.
+const INTAKE_STATE = { pending: 'waiting to be filled in', filled: 'filled in', cancelled: 'cancelled', expired: 'expired' };
+function intakeLine(r) {
+  const at = r.state === 'pending' ? `expires ${when(r.expiresAt)}` : r.state === 'expired' ? when(r.expiresAt) : when(r.endedAt);
+  return `${r.name}  (${r.kind}${r.fields?.length ? ': ' + r.fields.join(', ') : ''})  intake link ${INTAKE_STATE[r.state] || r.state}${r.for ? ', for ' + r.for : ''}  ${at}${r.note ? '  ' + r.note : ''}`;
 }
 const out = (data, text) => console.log(opts.json ? JSON.stringify(data, null, 1) : text);
 
@@ -117,7 +129,7 @@ switch (cmd) {
     if (!rest[0]) die('show needs an item name');
     const snap = await call('/api/vault'); if (snap.locked) die('The Vault is locked. Ask the owner to unlock it in Pocket Code (the Vault view).', 3);
     const i = snap.items.find(x => x.name === rest[0]);
-    if (!i) die(`No item named ${rest[0]}.`, 5);
+    if (!i) { const r = (snap.intakes || []).find(x => x.name === rest[0]); if (r && r.state === 'pending') { console.log(opts.json ? JSON.stringify(r, null, 1) : intakeLine(r)); process.exit(4); } die(`No item named ${rest[0]}.${r ? ' ' + intakeLine(r) : ''}`, 5); }
     out(i, card(i)); break;
   }
   case 'run': {
@@ -169,6 +181,38 @@ switch (cmd) {
     if (!r.rows.length) { console.log('No vault use in this session yet.'); break; }
     for (const x of r.rows) console.log(`${when(x.at)}  ${x.action}  ${x.name || ''}${x.argv ? '  ' + x.argv.join(' ') : ''}${x.decision ? '  (' + x.decision + ')' : ''}`);
     break;
+  }
+  case 'request': {
+    const name = rest[0]; if (!name) die('request needs a name: pocket-vault request acme-quickbooks --kind login --for "Pat Lee (Example Co)" --note "Accounting review login"');
+    let hours;
+    if (opts.expires) { const m = /^(\d+(?:\.\d+)?)\s*([hd])$/i.exec(String(opts.expires).trim()); if (!m) die('--expires takes hours or days, like 72h or 3d (at most 7d)'); hours = Number(m[1]) * (m[2].toLowerCase() === 'd' ? 24 : 1); }
+    const r = await call('/api/vault/intake', { action: 'create', name, kind: opts.kind || 'login', for: opts.for || '', note: opts.note || '', from: opts.from || '', fields: opts.fields ? String(opts.fields).split(',') : [], hours });
+    if (opts.json) { console.log(JSON.stringify(r, null, 1)); break; }
+    console.log(`${r.url || r.path}\n${intakeLine(r.intake)}${r.url ? '' : '\n(The server does not know its public address yet: put the address you open Pocket at in front of the path, or set POCKET_PUBLIC_URL.)'}\nSend this link to ${r.intake.for || 'the person'} yourself; it works once. Never ask for the secret by email, chat or phone.\nWhen it is filled in, ${r.intake.name} is in the Vault: pocket-vault await ${r.intake.name}`);
+    break;
+  }
+  case 'requests': {
+    const snap = await call('/api/vault'); if (snap.locked) die('The Vault is locked. Ask the owner to unlock it in Pocket Code (the Vault view).', 3);
+    const rows = snap.intakes || [];
+    if (opts.json) { console.log(JSON.stringify(rows, null, 1)); break; }
+    if (!rows.length) { console.log('No intake links this week.'); break; }
+    for (const r of rows) console.log(intakeLine(r));
+    break;
+  }
+  case 'relink': case 'cancel': {
+    const name = rest[0]; if (!name) die(`${cmd} needs the name the link was made for`);
+    const r = await call('/api/vault/intake', { action: cmd, name });
+    if (cmd === 'cancel') { console.log(`Cancelled the link for ${r.intake.name}. ${r.intake.name} is free again.`); break; }
+    console.log(`${r.url || r.path}\nThe previous link for ${r.intake.name} no longer works.\n${intakeLine(r.intake)}`);
+    break;
+  }
+  case 'await': {
+    const name = rest[0]; if (!name) die('await needs the name the link was made for');
+    const r = await call(`/api/vault/intake/wait?name=${encodeURIComponent(name)}&wait=${Number(opts.wait) || 120}`);
+    if (opts.json) console.log(JSON.stringify(r, null, 1));
+    else if (r.intake.state === 'filled') console.log(`${r.intake.name} was filled in${r.intake.for ? ' by ' + r.intake.for : ''} ${when(r.intake.endedAt)}.\n${r.item ? card(r.item) : ''}`);
+    else console.error(intakeLine(r.intake) + (r.intake.state === 'pending' ? `\nStill waiting. Check again later with: pocket-vault await ${r.intake.name}` : ''));
+    process.exit(r.intake.state === 'filled' ? 0 : r.intake.state === 'pending' ? 4 : 5);
   }
   default: die(`Unknown command ${cmd}. Run pocket-vault help.`);
 }
