@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.110.1] — Unreleased · build 204
+
+Asked for by Brad (2026-11-16): he looked for Ask someone in the sidebar's Vault panel and it was only on the full Vault page.
+
+- **Ask someone in the sidebar** (`public/vault.js` `railVaultHTML`, `paintRailVault`). The rail's Vault panel shows **Ask someone**, **+ Add** (was *Add secret*; still its name for screen readers and its tooltip, shortened so the three chips fit one row in the sidebar) and **All**. Ask someone is the same chip and icon as the page header and and opens the same sheet (`vaultAskSheet`, which unlocks first when the Vault is locked).
+- Tested: `test/ui-regressions.mjs` (the rail's Vault actions read Ask someone, Add, All on one row; Add is named Add secret; Ask someone opens its sheet).
+- Manual: *Vault* (Ask someone outside for a secret: where to find it).
+
 ## [1.110.0] — 2026-11-16 · build 203
 
 Asked for by Brad (2026-11-16): customers' IT contacts (a QuickBooks review login from a client's accountant, for one) need a safe way to hand over a login without email, phone or chat. A one-time link they type it into, straight into the Vault.

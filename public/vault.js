@@ -926,7 +926,7 @@ function railVaultHTML(){
  if(!vaultSnap)return '<p class="sheet-help">Loading the Vault…</p>';
  if(vaultIsLocked())return `<div class="rail-projects rail-vault">${vaultLockedHTML('rail')}</div>`;
  const reqs=vaultRequests();
- return `<div class="rail-projects rail-vault"><div class="rail-project-actions"><button class="chip" id="rail-vault-add">${IC.plus}Add secret</button><a class="chip" href="${viewHref('vault')}" data-view-link>All</a></div>
+ return `<div class="rail-projects rail-vault"><div class="rail-project-actions"><button class="chip" id="rail-vault-ask" title="Send someone a one-time link to type a secret into">${VIC.link}Ask someone</button><button class="chip" id="rail-vault-add" aria-label="Add secret" title="Add secret">${IC.plus}Add</button><a class="chip" href="${viewHref('vault')}" data-view-link>All</a></div>
   ${reqs.length?`<section class="vault-requests" aria-label="Requests waiting">${reqs.map(r=>vaultRequestHTML(r,'rail')).join('')}</section>`:''}
   ${vaultSnap.items.length?vaultSorted(vaultSnap.items).slice(0,60).map(vaultRowHTML).join(''):'<p class="sheet-help">No secrets yet. Add one, or use Store in the Vault in a conversation.</p>'}
   ${vaultSnap.trash.length?`<a class="rail-done-link" href="${viewHref('vault')}" data-view-link>${vaultSnap.trash.length} removed</a>`:''}</div>`;
@@ -934,6 +934,7 @@ function railVaultHTML(){
 function paintRailVault(){
  const el=document.getElementById('rail');if(!el||railView()!=='vault')return;
  el.innerHTML=railVaultHTML();
+ el.querySelector('#rail-vault-ask')?.addEventListener('click',()=>vaultAskSheet());
  el.querySelector('#rail-vault-add')?.addEventListener('click',()=>vaultEditor(null));
  el.querySelector('#rail-vault-unlock')?.addEventListener('click',()=>vaultUnlockSheet());
  bindVaultRows(el);
