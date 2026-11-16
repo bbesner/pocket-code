@@ -62,7 +62,10 @@ export async function runCliUpdateRegressions({browser,base,out}){
   assert.deepEqual(olderAxe.violations.map(x=>({id:x.id,nodes:x.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})),[]);
   await page.screenshot({path:path.join(out,'cli-updates-older-390.png')});
   if(process.env.POCKET_DESIGN_SCANNER){await page.addScriptTag({path:process.env.POCKET_DESIGN_SCANNER});fs.writeFileSync(path.join(out,'cli-updates-older-design-390.json'),JSON.stringify(await page.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false})),null,2));}
-  await page.$eval('[data-cli-interrupt="false"]',e=>e.scrollIntoView({block:'center'}));await page.click('[data-cli-interrupt="false"]');
+  await page.$eval('[data-cli-interrupt="false"]',e=>e.scrollIntoView({block:'center'}));
+  // The click handler posts asynchronously; wait for the request so a slow runner cannot read the earlier check's {}.
+  const switched=page.waitForRequest(r=>r.method()==='POST'&&new URL(r.url()).pathname.endsWith('/api/cli-updates/switch'),{timeout:10000});
+  await page.click('[data-cli-interrupt="false"]');await switched;
   assert.deepEqual(posts.at(-1),{key:'claude',id:state.providers[0].older[0].id,interrupt:false});
   assert.deepEqual(errors,[]);console.log('CLI update browser checks passed: review, explicit selection, reconnect, failure, retry, success, accessibility at 390/1440.');
  }finally{await page.close();}
