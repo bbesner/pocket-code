@@ -3,6 +3,15 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.110.2] — 2026-11-18 · build 204
+
+Asked for by Brad (2026-11-18): a Coastline Micro email he starred disappeared from his starred mail. He dismissed its alert in Pocket, and the label sync archived the thread with the star still on it. His Gmail Multiple Inboxes section for starred mail searches `in:inbox is:starred`, so the email dropped out of it. 41 starred threads from the last 60 days were outside the inbox. Watcher only; no change to the web app or its build.
+
+- **A starred thread is not archived** (`inbox-watch/inbox_monitor/engine.py` `thread_starred`, `label_sync`). When an entry is finished (Resolved, Not useful, Dismiss, or the tidy pass), the label still comes off. The thread is archived only when no message in it carries `STARRED`. The star is read only for threads that would otherwise be archived, after the new-mail check. When a mail source cannot read labels, or the read fails, the thread stays in the inbox. The sync log reports how many starred threads were kept.
+- **Reading a thread's labels** (`mail_gmail.py` `thread_label_ids`: `threads.get` with `format=minimal` under the read-only scope; `mail_connector.py` `thread_label_ids`: from the connector's thread read, cached for the run).
+- Tested: `inbox-watch/tests/test_label.py` `test_finished_starred_thread_stays_in_the_inbox`: starred is kept, unstarred is archived, and a source with no label read or a failing read keeps the thread. The test fails with the check disabled. A read-only probe on the live mailbox found the star on the Coastline thread and none on an unstarred one.
+- Manual: *Inbox Watch* (Your list in Gmail; finishing an entry).
+
 ## [1.110.1] — 2026-11-16 · build 204
 
 Asked for by Brad (2026-11-16): he looked for Ask someone in the sidebar's Vault panel and it was only on the full Vault page.
