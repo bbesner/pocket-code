@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.107.1
+checked: 1.111.0
 sources: choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -115,6 +115,27 @@ When a reply ends by asking you to choose between specific next steps, Pocket sh
   them; the X dismisses them for that reply on this browser.
 - Questions an agent asks while it is still working use the question form instead (see
   [Questions and approvals](approvals.md#answer-a-question)).
+
+### Close a finished conversation (the Complete card)
+
+When an agent has finished everything you asked for in the conversation and has nothing more to recommend, its reply
+ends with a **Complete** card instead of reply buttons. The card states the outcome in one line, so you do not have to
+read the reply to know where things stand.
+
+- Tapping the card closes the conversation. It leaves **Attention** on all your devices, its tab or pane closes, and its
+  server process is released. On a computer **New conversation** opens (or the conversation beside it becomes the main
+  one); on a phone you return to the list.
+- Nothing is sent to the agent and nothing is deleted. The conversation stays under **Recent**, and sending a message
+  reopens it.
+- **Undo** shows for ten seconds and reopens the conversation.
+- You do not have to tap it. Reading the reply and leaving the conversation open works as before.
+- The card shows only under the latest reply, once it has finished, while the message box is empty. It is not shown
+  while background jobs are still running or a question is waiting, and never together with reply buttons.
+- In the conversation list the row reads **Complete** with the same line, and the tick on that row closes it without
+  opening it (see [Conversations](sessions.md#find-a-conversation)).
+
+The card is the agent's own statement that the work is done. Pocket drops it when the reply also offers choices or ends
+with a question, but it cannot check the work itself.
 
 ### Read a reply
 
@@ -473,6 +494,23 @@ every message, branch and side chat question, so a held message is never recorde
 
 `POCKET_DATA_DIR` defaults to the Pocket Code directory.
 
+### The Complete card
+
+The same instruction asks the agent to end a reply with a fenced block whose info string is `done`, holding one line
+(the outcome), when the work asked for is finished and checked, nothing failed or was skipped, nothing is running or
+waiting, and it has no next step to recommend or question to ask. Pocket strips the block and shows the card. The rules
+Pocket applies itself:
+
+- Only a block at the very end of the reply counts (a Sources or References list may follow it, as with suggested
+  replies). The first line is the outcome, cut at 140 characters; an empty block gives *Nothing left to do*.
+- A reply with a `choices` block gets the buttons and no card, whichever block came last.
+- A reply whose closing paragraph contains a question gets no card.
+- The list, the tab and the notification read **Complete** only when the block was the last thing the agent did in
+  the reply and no background job was running when it ended. Otherwise the reply is an ordinary **Response ready**.
+
+Closing calls `POST /api/session/:id/release` (the same as **Close conversation process**), marks the reply reviewed
+and removes the tab. `POCKET_CHOICES=0` turns the card off together with suggested replies.
+
 ### Suggested replies
 
 Pocket adds an instruction to every conversation it runs (Claude through `--append-system-prompt`, Codex through the
@@ -529,6 +567,20 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
   ```
   ````
 
+- **Say when you are finished.** When a reply completes the work the user asked for and nothing is left (everything is
+  done and checked, nothing failed or was skipped, nothing is running or waiting, no next step to recommend, no question
+  to ask), finish with a fenced code block whose info string is `done`, holding one line under 100 characters that
+  states the outcome. Never combine it with a `choices` block, and leave it out of plain answers and of anything you are
+  unsure about. Example:
+
+  ````
+  The release is out and the smoke test passes.
+
+  ```done
+  Released 2.4.1 to production; all tests pass
+  ```
+  ````
+
 - **Hand over files so they show.** Name a deliverable by its absolute path on its own line, in a code span or as a Markdown
   link. Files under the home directory with a supported extension then appear in Results and as a file card the user can
   open or download. Avoid hidden folders in the path.
@@ -553,6 +605,8 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | "Queue is full (10 messages)." | The conversation already has 10 queued messages. | Run or remove some in **Queue**. |
 | Queue shows **Needs review** | Pocket could not confirm the item started (a crash or failed start). | Check the conversation; remove the row once you know whether it ran, then send again if needed. |
 | Queued messages do not run | The last reply was stopped or failed, or Pocket restarted. | **Queue → Run next instruction**. |
+| No Complete card on a finished reply | The agent did not end with a `done` block, the reply also offers choices or ends with a question, background jobs are still running, the box has text, or the conversation was run outside Pocket. | Nothing is wrong; read the reply. Close the tab yourself when you are done. |
+| "This conversation is working again, so it stays open." | A queued message or a background job started after the reply. | Wait for it to finish. |
 | No suggested-reply buttons | The reply is still running, the box has text, they were dismissed, the conversation was run outside Pocket, `POCKET_CHOICES=0`, or Codex's `config.toml` sets `developer_instructions`. | Clear the box, or check the configuration. |
 | "This result is not available. It may have moved or been removed." | The file named in the reply no longer exists at that path. | Ask the agent where the file is now. |
 | "This file is not a result referenced by the conversation." | The download link was opened from another conversation or the file is not in Results. | Open it from Results in the conversation that mentions it. |

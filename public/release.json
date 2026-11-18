@@ -1,7 +1,8 @@
 {
- "version": "1.110.2",
- "assetV": 204,
+ "version": "1.111.0",
+ "assetV": 205,
  "notes": [
+  "When an agent has finished everything you asked for and has nothing more to recommend, its reply now ends with a Complete card that states the outcome in one line, so you don't have to read the reply to know where things stand. Tap the card to close the conversation: it leaves Attention on all your devices, its tab closes and its server process is released. Nothing is deleted; the conversation stays in Recent and a message reopens it. The conversation list shows Complete with the same line, and the tick on that row closes it without opening it. Undo is offered for ten seconds. Asked for by Brad.",
   "Inbox Watch no longer archives mail you starred. When you finish an entry (Resolved, Not useful, Dismiss or the tidy pass), the Pocket Inbox label still comes off in Gmail, but a thread with a star stays in your Gmail inbox, so it keeps showing wherever you look for starred mail. Asked for by Brad.",
   "Ask someone is in the sidebar too. On a computer, the Vault panel in the sidebar now has Ask someone beside Add secret, so you can send someone a one-time link without opening the full Vault page. Asked for by Brad.",
   "Ask someone outside for a secret. In the Vault, Ask someone (or `pocket-vault request` from an agent) makes a one-time link to a plain page with your organisation's name and colour. The person types the login there and it goes straight into the Vault under the name you chose, with nothing sent by email, chat or phone. The link works once, expires after 1 to 7 days (3 by default), and can be cancelled or replaced from Links sent. You get a notification when it is filled in, and agents still ask you before using it. Asked for by Brad.",

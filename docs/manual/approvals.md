@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.106.0
+checked: 1.111.0
 sources: approvals.mjs, trusted.mjs, questions.mjs, subagents.mjs, public/approvals.js, public/workspace.js
 -->
 # Questions and approvals

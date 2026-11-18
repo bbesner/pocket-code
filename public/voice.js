@@ -370,7 +370,7 @@ const Voice = (() => {
   function replyText(id) {
     if (lastReply.get(id)) return lastReply.get(id);
     const all = document.querySelectorAll('#msgs .m-asst:not(.live)'); const m = all[all.length - 1]; if (!m) return '';
-    const c = m.cloneNode(true); c.querySelectorAll('.copybtn,.ledgerwrap,.choices,pre,table,.todo,.todos').forEach(n => n.remove());
+    const c = m.cloneNode(true); c.querySelectorAll('.copybtn,.ledgerwrap,.choices,.done-card,pre,table,.todo,.todos').forEach(n => n.remove());
     return (c.innerText || c.textContent || '').trim();
   }
   const replySummary = id => { const t = replyText(id); return t ? VoiceText.reply(t, replyLength() === 'brief' ? 'brief' : 'normal') : ''; }; // a status answer stays short

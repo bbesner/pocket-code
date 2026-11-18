@@ -174,6 +174,28 @@ html:not(.raw-steps) .ledgerwrap > summary { font-family: system-ui, -apple-syst
 .choice-handoff svg.i { width: 15px; height: 15px; stroke-width: 1.7; flex: none; }
 .choice-handoff:hover { color: var(--text); background: var(--raised); }
 .choice:focus-visible, .choice-x:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+/* The Complete card (1.111): sits where the reply buttons would and shares their shape (10px radius, 44px), but in the
+   app's own material (surface, hairline) rather than your-side clay: it reports where the conversation stands and
+   offers a way out; it is not a message to send. The whole card is one button. The tick is the one success mark. */
+.done-card { display: flex; align-items: center; gap: 12px; max-width: 100%; min-height: 44px; margin: 14px 0 2px;
+  padding: 8px 16px 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--text); font-size: 15px; line-height: 1.35; text-align: left; }
+.done-card[hidden] { display: none; }
+.done-card:hover { background: var(--raised); }
+.done-card:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+.done-card:disabled { opacity: .6; }
+.done-mark { display: grid; place-items: center; flex: none; color: var(--ok); }
+.done-mark svg.i { width: 20px; height: 20px; stroke-width: 2.2; }
+.done-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.done-title { font-weight: 600; }
+.done-sum { font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
+.done-act { flex: none; align-self: stretch; display: flex; align-items: center; margin-left: 4px; padding-left: 16px;
+  border-left: 1px solid var(--line); font-size: 14.5px; font-weight: 600; color: var(--clay); }
+@media (max-width: 600px) { /* phones and narrow panes: the action takes its own line under the outcome */
+  .done-card { flex-wrap: wrap; row-gap: 6px; }
+  .done-body { flex: 1; }
+  .done-act { flex-basis: 100%; margin-left: 32px; padding-left: 0; border-left: 0; }
+}
 
 .turn-err { color: var(--err); font-size: 14.5px; border: 1px solid var(--err); border-radius: 10px;
   padding: 10px 12px; overflow-wrap: break-word; }
@@ -277,6 +299,12 @@ mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
   padding: 10px 18px; border-radius: 12px; opacity: 0; pointer-events: none;
   transition: opacity .18s ease-out, transform .18s ease-out; max-width: 88vw; }
 #toast.show { opacity: 1; transform: translateX(-50%); }
+/* 1.111: a toast with one action (Undo) takes clicks while it shows. */
+#toast.has-action { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 18px; bottom: calc(190px + var(--sab)); } /* above the message box and its chips: it stays ten seconds */
+#toast.has-action.show { pointer-events: auto; }
+.toast-act { min-height: 44px; padding: 0 12px; border-radius: 8px; font-size: 15px; font-weight: 600; color: var(--clay); }
+.toast-act:hover { background: var(--surface); }
+.toast-act:focus-visible { outline: 2px solid var(--clay); outline-offset: -2px; }
 
 
 /* The message field and its buttons are one unit. A percentage flex-basis on the textarea
@@ -1061,7 +1089,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .agent-activity .m-asst { font-size: 14.5px; margin: 8px 0; }
 .agent-activity .agent-brief { color: var(--dim); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 7.5em; overflow: hidden; margin: 8px 0; }
 .agent-activity .ledgerwrap > summary { display: none; }
-.agent-activity .choices { display: none; }
+.agent-activity .choices, .agent-activity .done-card { display: none; }
 
 /* ---------- 1.18: pinned tabs and pin order, quick voice mute ---------- */
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -1082,6 +1110,13 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .pin-toggle[aria-pressed="true"] .i { fill: currentColor; }
 .pin-toggle:focus-visible { outline: 2px solid var(--clay); outline-offset: -2px; }
 @media (pointer: fine) { .pin-toggle { width: 36px; flex-basis: 36px; } }
+/* 1.111: a row whose unread reply ended with a Complete card: one tap closes it without opening it. */
+.done-close { width: 44px; height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: center; margin: 7px 0 0; border-radius: 10px; color: var(--ok); }
+.done-close .i { width: 18px; height: 18px; stroke-width: 2.2; }
+.done-close:hover { background: var(--raised); }
+.done-close:focus-visible { outline: 2px solid var(--clay); outline-offset: -2px; }
+.done-close:disabled { opacity: .5; }
+@media (pointer: fine) { .done-close { width: 36px; flex-basis: 36px; } }
 .pin-grip { display: none; width: 44px; height: 44px; flex: 0 0 44px; align-items: center; justify-content: center; margin: 7px 0 0; border-radius: 10px; color: var(--faint); cursor: grab; touch-action: none; }
 .pin-grip .i { width: 18px; height: 18px; }
 .pin-grip:hover { color: var(--dim); background: var(--surface); }

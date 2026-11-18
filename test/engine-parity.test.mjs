@@ -4,7 +4,7 @@
 // fails here; an engine that cannot do something lists it false in engines.mjs, and the app hides it there.
 //
 // Each fake takes the same prompt markers: __SLOW__ (the reply takes a while), __HANG__ (it runs until stopped),
-// __CHOICES__ (it ends with a ```choices block), __QUESTION__ (it asks "Which color?" with Blue and Red);
+// __CHOICES__ (it ends with a ```choices block), __DONE__ (it ends with a ```done block), __QUESTION__ (it asks "Which color?" with Blue and Red);
 // 1.87: __PLAN__ (a plan of two steps), __EDIT__ (edits parity.txt, "old line" to "new line"), __LIMIT__ (hits a usage or
 // rate limit that lifts 2 s later), and a command it asks to run (Claude __TOOLREQ__ Bash, Codex __CMDAPPROVAL__,
 // OpenRouter every reply), which the trusted list covers.
@@ -129,6 +129,25 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
       if (!blocks.length) { await s.idle(id); blocks = (await s.session(id)).messages.filter(m => m.role === 'assistant').flatMap(m => m.blocks || []); }
       assert.ok(blocks.some(b => b.t === 'choices' && b.options.includes('Merge and deploy')), `${engine}: ${JSON.stringify(blocks)}`);
       assert.ok(!blocks.some(b => b.t === 'text' && /```choices/.test(b.text)), 'the raw block is not shown as text');
+      await s.idle(id);
+    });
+
+    // 1.111: a reply that ends with a ```done block is a Complete card in the conversation, and the list, the tab and
+    // the push read Complete with the agent's outcome line. The next ordinary reply is Response ready again.
+    await t.test(`${engine}: a done block becomes the Complete card and a Complete outcome`, async () => {
+      const id = await s.start(engine, `parity done ${engine} __DONE__`);
+      await s.idle(id);
+      const meta = () => { try { return JSON.parse(fs.readFileSync(path.join(s.dir, 'data', 'session-meta.json'), 'utf8'))[id] || {}; } catch { return {}; } };
+      const first = await s.until(() => meta().outcome?.kind === 'finished' && meta(), 5000, 'the outcome');
+      assert.deepEqual({ label: first.outcome.label, done: first.outcome.done, summary: first.outcome.summary }, { label: 'Complete', done: true, summary: 'Released 2.4.1; tests pass' }, engine);
+      assert.ok(!(first.seen >= first.outcome.at), 'it still waits in Attention until you close or open it');
+      const blocks = (await s.session(id)).messages.filter(m => m.role === 'assistant').flatMap(m => m.blocks || []);
+      assert.deepEqual(blocks.at(-1), { t: 'done', text: 'Released 2.4.1; tests pass' }, `${engine}: ${JSON.stringify(blocks)}`);
+      assert.ok(!blocks.some(b => b.t === 'text' && /```done/.test(b.text)), 'the raw block is not shown as text');
+      const r = await s.call(`/session/${s.e(id)}/message`, { text: `parity after done ${engine}`, approvalMode: 'full' });
+      assert.equal(r.status, 202, JSON.stringify(r.body));
+      const later = await s.until(() => { const m = meta(); return m.outcome?.kind === 'finished' && m.outcome.at > first.outcome.at ? m : null; }, 15000, `${engine} to finish the next reply`);
+      assert.deepEqual({ label: later.outcome.label, done: later.outcome.done }, { label: 'Response ready', done: undefined });
       await s.idle(id);
     });
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitChoices, textBlocks, CHOICE_INSTRUCTIONS } from '../choices.mjs';
+import { splitChoices, splitDone, textBlocks, CHOICE_INSTRUCTIONS, DONE_INSTRUCTIONS } from '../choices.mjs';
 
 test('a trailing choices block becomes reply options and leaves the question as text', () => {
   const r = splitChoices('Tests pass. Should I merge and deploy?\n\n```choices\nMerge and deploy\n- Don\'t merge yet\n1. "Run the tests again"\n```\n');
@@ -77,4 +77,42 @@ test('display blocks: text then choices; rec only when marked; an empty block is
   assert.match(CHOICE_INSTRUCTIONS, /```|`choices`/);
   assert.match(CHOICE_INSTRUCTIONS, /\(Recommended\)/);
   assert.match(CHOICE_INSTRUCTIONS, /sources list above the question/);
+});
+
+// 1.111: the Complete card
+test('a trailing done block becomes a done block with the outcome line', () => {
+  assert.deepEqual(textBlocks('Shipped it.\n\n```done\nReleased 2.4.1; tests pass\n```\n'), [{ t: 'text', text: 'Shipped it.' }, { t: 'done', text: 'Released 2.4.1; tests pass' }]);
+  assert.deepEqual(textBlocks('Shipped it.\n\n```done\n```'), [{ t: 'text', text: 'Shipped it.' }, { t: 'done', text: '' }], 'an empty block is a card with no line');
+  assert.deepEqual(textBlocks('```done\n- "Fixed the import"\nsecond line\n```'), [{ t: 'done', text: 'Fixed the import' }], 'the first line, without list or quote marks');
+  assert.ok(textBlocks('x\n```done\n' + 'y'.repeat(500) + '\n```').at(-1).text.length <= 140);
+  // a sources list may follow it, as with choices
+  assert.deepEqual(textBlocks('Done.\n\n```done\nFixed\n```\n\nSources:\n- [a](https://example.com)'), [{ t: 'text', text: 'Done.\n\nSources:\n- [a](https://example.com)' }, { t: 'done', text: 'Fixed' }]);
+});
+
+test('only the very end counts, and an example mid-reply stays text', () => {
+  const t = 'The format looks like this:\n```done\nReleased\n```\nThat is all.';
+  assert.deepEqual(textBlocks(t), [{ t: 'text', text: t }]);
+  assert.deepEqual(splitDone('No block here.'), { text: 'No block here.', done: null });
+});
+
+test('a reply that asks something is not complete: the claim is dropped and the block never shows', () => {
+  assert.deepEqual(textBlocks('Shipped. Want me to tag it too?\n\n```done\nReleased\n```'), [{ t: 'text', text: 'Shipped. Want me to tag it too?' }]);
+  assert.deepEqual(splitDone('All set.\n\nShould I also close the PR?\n```done\nx\n```'), { text: 'All set.\n\nShould I also close the PR?', done: null });
+  // a question earlier in the reply does not count, only the closing paragraph
+  assert.equal(splitDone('Why did it fail? The port was taken.\n\nFixed and verified.\n```done\nFixed the port clash\n```').done, 'Fixed the port clash');
+});
+
+test('reply buttons win over a done block, whichever came last', () => {
+  const choices = { t: 'choices', options: ['A', 'B'] };
+  assert.deepEqual(textBlocks('Pick one.\n\n```done\nx\n```\n\n```choices\nA\nB\n```'), [{ t: 'text', text: 'Pick one.' }, choices]);
+  assert.deepEqual(textBlocks('Pick one.\n\n```choices\nA\nB\n```\n\n```done\nx\n```'), [{ t: 'text', text: 'Pick one.' }, choices]);
+  // and a reply with choices alone is unchanged
+  assert.deepEqual(textBlocks('Merge?\n```choices\nMerge (Recommended)\nWait\n```'), [{ t: 'text', text: 'Merge?' }, { t: 'choices', options: ['Merge', 'Wait'], rec: 0 }]);
+});
+
+test('the instructions tell the agent when the done block is allowed', () => {
+  assert.match(DONE_INSTRUCTIONS, /`done`/);
+  assert.match(DONE_INSTRUCTIONS, /nothing failed or was skipped/);
+  assert.match(DONE_INSTRUCTIONS, /Never add it to a reply that has a `choices` block/);
+  assert.ok(CHOICE_INSTRUCTIONS.endsWith(DONE_INSTRUCTIONS), 'they travel with the suggested-reply instructions, to every engine');
 });

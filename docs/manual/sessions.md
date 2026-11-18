@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.107.0
+checked: 1.111.0
 sources: prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -128,6 +128,10 @@ The conversation list is the home screen on a phone and the rail on a desktop. C
 - **Attention** collects questions, approvals, failed replies and finished replies you have not opened.
   In **Attention** and **New**, **Mark all reviewed** clears them on every device, with **Undo** for ten
   seconds.
+- A reply that ends with a [Complete card](conversation.md#close-a-finished-conversation-the-complete-card) reads
+  **Complete** in the list, with the agent's one-line outcome under it, until you open or close it. The tick on that
+  row closes the conversation without opening it: it leaves **Attention** on every device, its tab closes and its
+  server process is released, with **Undo** for ten seconds. Its notification reads *Complete* and the outcome.
 - A reply to a wrap-up request skips **Attention**. When the message you send is a short closing reply,
   such as **Mark resolved**, **Mark the alert resolved**, **Dismiss**, **Remind me Nov 7 to recheck the numbers**, **Add a task to test
   the fix**, **No thanks** or **That's all**, the agent's confirmation counts as read the moment it
@@ -146,7 +150,7 @@ until you answer, then back (see [Questions and approvals](approvals.md#what-hap
 **Automated** group at the end of All, unless they are pinned, running or need you.
 
 Each row shows the title, the workspace (left out for the default or home folder), the agent, *Branch*
-for a branch, and the state, such as **Response ready**, **Didn't finish**, **Needs your answer**,
+for a branch, and the state, such as **Response ready**, **Complete**, **Didn't finish**, **Needs your answer**,
 **Needs approval**, **Queue paused** or **Waiting for usage reset**.
 
 ### Pin, rename, hide and mark reviewed

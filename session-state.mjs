@@ -58,6 +58,15 @@ export function wrapUpRequest(text) {
 }
 // The turn's own assistant messages ({blocks}) -> true when the last reply is a short statement: no reply buttons,
 // no question in its closing paragraph, and not a report (over 1,500 characters) the owner would want to read.
+// 1.111: the turn's reply ended with a Complete card. -> the agent's outcome line ('' when it gave none), or null.
+// The done block must close the turn's last assistant message: anything the agent did after saying it was done
+// (another tool call, more text) withdraws the claim. choices.mjs has already refused a claim made beside reply
+// buttons or a closing question, so a done block here is one that held up.
+export function replyDone(msgs) {
+  const last = (Array.isArray(msgs) ? msgs : []).filter(m => m && Array.isArray(m.blocks) && m.blocks.length).at(-1);
+  const b = last?.blocks.at(-1);
+  return b?.t === 'done' ? String(b.text || '') : null;
+}
 export function replyAsksNothing(msgs) {
   const list = (Array.isArray(msgs) ? msgs : []).filter(m => m && Array.isArray(m.blocks));
   const texts = list.flatMap(m => m.blocks.filter(b => b?.t === 'text').map(b => String(b.text || ''))).filter(t => t.trim());

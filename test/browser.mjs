@@ -31,7 +31,7 @@ const rows=[
  {id:'44444444-4444-4444-8444-444444444444',title:'Monthly warehouse summary',cwd:'/workspaces/warehouse',provider:'claude',mtimeMs:now-200000,state:{kind:'finished',label:'Response ready',at:now-200000}},
  {id:'55555555-5555-4555-8555-555555555555',title:'Camera ordering review with a deliberately long title that remains readable on a narrow phone',cwd:'/workspaces/purchasing',provider:'claude',mtimeMs:now-300000,state:{kind:'idle',label:'Recent'}},
 ];
-const idle=rows.at(-1);let dispatches=0,failNext=false,stale=false;const receipts=new Map();const received=[];
+const idle=rows.at(-1);let dispatches=0,failNext=false,stale=false;const receipts=new Map();const received=[];const releases=[]; // releases: 1.111, each close of a conversation's process
 const uploads=[];let uploadDelay=0;
 const uiModes={aboutFailed:false,workerFailed:false,voice:true,voiceText:'Please review the incoming quantities again.'};
 let loginState={status:'idle'},loginSequence=0;const loginCodes=[];
@@ -224,7 +224,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/voice/status')return json(uiModes.voice?{available:true,voices:[{id:'af_heart',label:'American female'},{id:'bm_george',label:'British male (George)'}],defaultVoice:'af_heart'}:{available:false,reason:'Voice is not installed on this server. Run scripts/voice-setup.sh, then restart Pocket Code.'});
  if(url.pathname==='/api/voice/transcribe'){const chunks=[];for await(const c of req)chunks.push(c);voiceLog.transcribe.push({bytes:Buffer.concat(chunks).length,vocabulary:req.headers['x-vocabulary']||''});return json({text:uiModes.voiceText});}
  if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}
- if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
+ if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;releases.push(decodeURIComponent(url.pathname));return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
  if(url.pathname==='/api/me')return json({ok:true,features:{coordination:Boolean(fixtureSettings.coordination)&&!fixtureSettings.assistantMode,projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),inbox:Boolean(fixtureSettings.inbox),assistantMode:Boolean(fixtureSettings.assistantMode),assistantLocked:Boolean(fixtureSettings.assistantLocked),handoffAt:fixtureSettings.handoffAt||0}});
  // 1.99: Coordination's two calls, on a list the test resets.
  if(url.pathname==='/api/coordination')return json({now:Date.now(),seeds:[],holds:coordFixture.holds,recent:coordFixture.recent});
@@ -470,6 +470,7 @@ try{
  if(process.env.POCKET_SLASH_ONLY){ /* POCKET_SLASH_ONLY=n: the / picker checks only, n times over, to shake out a flake */const {runSlashRegressions}=await import('./slash-browser.mjs');for(let k=0;k<Number(process.env.POCKET_SLASH_ONLY);k++){console.log('iteration',k);await runSlashRegressions({browser,base,rows,received,out});}throw Object.assign(Error('slash only'),{docsOnly:true});}
  if(process.env.POCKET_CLI_UPDATES_ONLY){const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');await runCliUpdateRegressions({browser,base,out});throw Object.assign(Error('CLI updates only'),{docsOnly:true});}
  if(process.env.POCKET_COORD_ONLY){await runCoordinationRegressions({p,base,out,repo,rows,settings:fixtureSettings,coord:coordFixture,scan});if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,coordinationOnly:true,screenshots:out}));throw Object.assign(Error('coordination only'),{docsOnly:true});}
+ if(process.env.POCKET_COMPLETE_ONLY){const {runCompleteRegressions}=await import('./complete-browser.mjs');await runCompleteRegressions({browser,base,rows,out,conversations,releases,settings:fixtureSettings});console.log(JSON.stringify({ok:true,completeOnly:true,screenshots:out}));throw Object.assign(Error('complete only'),{docsOnly:true});}
  if(process.env.POCKET_PROJECT_MODE_ONLY){const {runProjectModeRegressions}=await import('./project-mode-browser.mjs');await runProjectModeRegressions({browser,base,rows,out,repo,settings:fixtureSettings,modes:uiModes,boardActs,conversations,scan:null});console.log(JSON.stringify({ok:true,projectModeOnly:true,screenshots:out}));throw Object.assign(Error('project mode only'),{docsOnly:true});}
  if(process.env.POCKET_THEME_ONLY){
   const {runThemeRegressions}=await import('./theme-browser.mjs');
@@ -1009,6 +1010,8 @@ try{
  await runSideChatRegressions({browser,base,rows,out,side:sideFixture,conversations});
  const {runHandoffRegressions}=await import('./handoff-browser.mjs'); // 1.102
  await runHandoffRegressions({browser,base,rows,out,settings:fixtureSettings,received,side:sideFixture,conversations});
+ const {runCompleteRegressions}=await import('./complete-browser.mjs'); // 1.111
+ await runCompleteRegressions({browser,base,rows,out,conversations,releases,settings:fixtureSettings});
  const {runSlashRegressions}=await import('./slash-browser.mjs');
  await runSlashRegressions({browser,base,rows,received,out});
  const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');
