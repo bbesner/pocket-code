@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.109.0
+checked: 1.110.2
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -234,7 +234,7 @@ text alone.
 | **Dismiss** (a digest or look-ahead item) | the card says *Dismissed* | Nothing; the story is unchanged |
 
 With the Gmail label on, finishing an entry in any of the three ways also takes the label off its thread and archives
-it (see [Your list in Gmail](#your-list-in-gmail)). The X on a row is the same Dismiss as the sheet's; with the label on, its
+it, unless you starred it or new mail came in (see [Your list in Gmail](#your-list-in-gmail)). The X on a row is the same Dismiss as the sheet's; with the label on, its
 tip and the confirmation say the label comes off in Gmail at the next check.
 
 Pocket records each decision with the entry; the watcher asks for the ones it has not applied
@@ -323,7 +323,8 @@ in step, both ways, at every check:
 - Take the label off in Gmail and the entry is dismissed in Pocket.
 - Finish an entry in Pocket (resolved, not useful, dismissed, or tidied) and the label comes off and the thread is
   archived. A thread that got new mail after the label went on keeps its place in the inbox, so a reply you have not
-  seen never disappears.
+  seen never disappears. So does a thread you starred (1.110.2): the star means you are keeping it in view, so only the
+  label comes off. When the watcher cannot tell whether a thread is starred, it leaves the thread in the inbox.
 - Restore puts the label back; the thread stays where it is.
 - Label two threads about the same thing (your copy of a reply and the copy sent to Ari only, say) and the check may
   put both on your list as one entry. The second thread keeps its label while that entry is open and loses it when you

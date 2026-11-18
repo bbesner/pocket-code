@@ -247,5 +247,10 @@ class Gmail:
             time.sleep(0.4)
         return out
 
+    def thread_label_ids(self, thread_id: str) -> set[str]:
+        """Every label on any message of the thread (1.110.2: a finished entry's starred thread is not archived)."""
+        msgs = self.u.threads().get(userId="me", id=thread_id, format="minimal").execute().get("messages", [])
+        return {lab for m in msgs for lab in m.get("labelIds") or []}
+
     def thread_raw(self, thread_id: str) -> list[dict]:
         return self.u.threads().get(userId="me", id=thread_id, format="full").execute().get("messages", [])

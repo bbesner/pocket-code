@@ -46,6 +46,10 @@ class FakeGmail:
             self.label_thread(tid, add, remove)
         return {c[0] for c in changes}
 
+    def thread_label_ids(self, tid):
+        self.read = getattr(self, "read", []) + [tid]
+        return set(self.labels.get(tid, set()))
+
 
 class FakePocket:
     inbox = True
@@ -300,6 +304,41 @@ def test_finished_entry_archives_its_thread():
     assert g.labels[B] == {"INBOX"}, "newer mail: the label comes off, the thread stays in the inbox"
     assert g.labels[Z] == {"INBOX"}, "a reply found by this check: stays in the inbox"
     assert states(store) == {}
+
+
+def test_finished_starred_thread_stays_in_the_inbox():
+    """1.110.2: a starred thread loses the label but is not archived (2026-11-17: a starred email archived on Dismiss
+    vanished from the owner's Gmail section for starred mail in the inbox). The star is read only for threads that would
+    be archived, and a mail source that cannot read stars, or a failed read, leaves the thread where it is."""
+    store, g, p = setup()
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    for eid, tid in (("e1", A), ("e2", B)):
+        p.entry(eid, tid)
+        g.labels[tid] = {"INBOX"}
+    E.label_sync(store, g, bring_in=False, dry_run=False)
+    g.labels[A].add("STARRED")
+    g.read = []
+    p.entries = []
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    assert g.labels[A] == {"INBOX", "STARRED"}, f"starred: label off, stays in the inbox: {g.labels[A]}"
+    assert g.labels[B] == set(), f"not starred: archived as before: {g.labels[B]}"
+    assert sorted(g.read) == sorted([A, B]) and states(store) == {}
+
+    class Blind(FakeGmail):  # a source with no star read, then one whose read fails
+        thread_label_ids = None
+    class Broken(FakeGmail):
+        def thread_label_ids(self, tid):
+            raise RuntimeError("thread read failed")
+    for cls in (Blind, Broken):
+        store, g, p = setup()
+        g.__class__ = cls
+        E.label_sync(store, g, bring_in=True, dry_run=False)
+        p.entry("e1", A)
+        g.labels[A] = {"INBOX"}
+        E.label_sync(store, g, bring_in=False, dry_run=False)
+        p.entries = []
+        E.label_sync(store, g, bring_in=True, dry_run=False)
+        assert g.labels[A] == {"INBOX"}, f"{cls.__name__}: unknown star keeps the thread in the inbox"
 
 
 def test_archive_can_be_turned_off():

@@ -1936,7 +1936,8 @@ def pending_skims(store: Store) -> list[dict]:
 #   on the list, not labelled ..................... synced before: the owner took the label off in Gmail -> dismiss the entry;
 #                                                    otherwise -> add the label
 #   labelled, not on the list ..................... synced before: finished in Pocket -> remove the label, and archive the
-#                                                    thread unless mail came in after the label went on (1.77.9);
+#                                                    thread unless mail came in after the label went on (1.77.9) or it is
+#                                                    starred (1.110.2);
 #                                                    unknown: the owner labelled it in Gmail -> judge it (and keep it in INBOX)
 #   labelled, folded into another thread's alert .. ("with:<alert id>", 1.85.1) follows that alert's entry: in step while it
 #                                                    is listed, the label comes off when it is finished
@@ -1970,6 +1971,19 @@ def mail_since(store: Store, tid: str, since: str | None, fresh: set[str]) -> bo
     q = ("select 1 from backlog where thread_id=? union all select 1 from decisions where thread_id=? and created_at>? "
          "union all select 1 from firstpass_log where thread_id=? and at>? limit 1")
     return store.db.execute(q, (tid, tid, since, tid, since)).fetchone() is not None
+
+
+def thread_starred(gmail, tid: str) -> bool:
+    """1.110.2: does any message in the thread carry a star? Finishing an entry never archives a starred thread: the star is
+    the owner keeping it in view (2026-11-17: a starred thread archived on Dismiss vanished from a Gmail section that shows
+    starred mail in the inbox). A mail source that cannot say, or a failed read, reads as yes: the thread stays put."""
+    labels = getattr(gmail, "thread_label_ids", None)
+    if labels is None:
+        return True
+    try:
+        return "STARRED" in labels(tid)
+    except Exception:  # noqa: BLE001
+        return True
 
 
 LABELS_REFRESH_S = 24 * 3600
@@ -2122,6 +2136,8 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
         if known[tid] not in INCOMING:
             mark_label(store, tid, None)
     archive = {t for t in removes if label_archive() and not mail_since(store, t, since.get(t), set(fresh))}
+    starred = {t for t in archive if thread_starred(gmail, t)}  # read last, and only for threads that would be archived
+    archive -= starred
     changes = ([(t, [label, "INBOX"] if label_in_inbox() else [label], []) for t in adds] + [(t, [], [label, "INBOX"] if t in archive else [label]) for t in removes]
                + [(t, ["INBOX"], []) for t in brings])
     if dry_run:
@@ -2163,7 +2179,7 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     failed = len(changes) - len(ok)
     if changes or dismiss or baseline:
         log(f"label {name!r}: {len([t for t in adds if t in ok])} added, {len([t for t in removes if t in ok])} removed "
-            f"({len([t for t in archive if t in ok])} archived), {dismissed} dismissed "
+            f"({len([t for t in archive if t in ok])} archived{f', {len(starred)} starred kept in the inbox' if starred else ''}), {dismissed} dismissed "
             f"in Pocket, {len(incoming)} new from Gmail{f', {failed} not changed (next sync tries again)' if failed else ''}"
             f"{' (first sync)' if baseline else ''}")
     return incoming

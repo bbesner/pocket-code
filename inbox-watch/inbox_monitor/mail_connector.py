@@ -753,6 +753,11 @@ class ConnectorMail:
             raise MailError(404, f"thread {thread_id} not found")
         return got[thread_id]
 
+    def thread_label_ids(self, thread_id: str) -> set[str]:
+        """Every label on any message of the thread, as the connector reads it (1.110.2). A thread already read this run
+        comes from that read (seconds old)."""
+        return {lab for m in self.thread_raw(thread_id) for lab in m.get("labelIds") or []}
+
     def prefetch_threads(self, thread_ids: list[str]) -> None:
         """Read many threads in a few calls before the engine asks for them one by one."""
         self._threads([t for t in thread_ids if t not in self._cache], "fetch")
