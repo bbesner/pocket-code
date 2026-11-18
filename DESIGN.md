@@ -1157,3 +1157,22 @@ The notices (received, no longer active, temporarily unavailable, too many attem
 line icon, green only for received. No motion beyond a 120ms border and shadow change on focus; `text-wrap: pretty` on
 body copy. In the app, **Ask someone** is an ordinary chip before **Add secret**, and **Links sent** is a row group
 above the secrets in the session-row voice, its waiting state in `--text` semibold.
+
+## Complete card (1.111)
+
+Pinned Operate refinement (design-studio → impeccable): variance 3, motion 2, density 7; existing tokens and the existing
+tick icon, no new colour. Read: someone running many conversations should see at a glance that one is finished, and
+clear it in one tap, without reading the reply. The card sits where the reply buttons would, under the latest finished
+reply, and shares their shape (10px radius, 44px tall or more), but not their material: reply buttons are your-side
+clay because a tap sends a message; the card is the app's own surface with a hairline because it reports where the
+conversation stands and offers a way out. A 20px `--ok` tick (success is what `--ok` is for), **Complete** in 600
+weight, the agent's outcome line in `--dim` 14px, then **Close conversation** in clay 600 behind a hairline divider:
+the one action, named. The whole card is a single button, so the target is as large as the message. Up to 600px
+(phones, narrow panes) the action drops to its own line under the outcome. It is never shown beside reply buttons,
+while anything runs or waits, or under an earlier reply. No motion beyond the existing message entrance.
+
+In the list the row reads **Complete** in the existing `--ok` finished colour with the outcome line as its detail, and
+carries an `--ok` tick button (44px, 36px with a fine pointer, like the pin) that closes it without opening it. The
+closing toast carries **Undo** as a clay text button with a 44px target; a toast with an action sits above the message
+box (190px) because it stays ten seconds. Rendered 1440px and 390px screenshots in light and dark, axe scans and the
+impeccable detector reviewed: no finding on the new elements.

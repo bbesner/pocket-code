@@ -215,7 +215,7 @@ export class SideChats {
     if (method === 'item/agentMessage/delta' && p?.delta) return this.emit(chat, { type: 'delta', text: p.delta });
     if (method === 'item/completed' && p?.item && p.item.type !== 'userMessage') {
       const m = this.codex.normalizeItem(p.item, new Date().toISOString());
-      if (m?.role === 'assistant') this.emit(chat, { type: 'assistant', msg: { ...m, blocks: m.blocks.filter(b => b.t !== 'choices') } });
+      if (m?.role === 'assistant') this.emit(chat, { type: 'assistant', msg: { ...m, blocks: m.blocks.filter(b => b.t !== 'choices' && b.t !== 'done') } });
       return;
     }
     if (method === 'turn/completed') {

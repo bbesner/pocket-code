@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.107.0
+checked: 1.111.0
 sources: public/split.js, public/workspace.js, public/tips.js, public/sidechat.js, docs/session-focus.md
 -->
 # Desktop and phone
@@ -60,7 +60,7 @@ A mark before the title shows the conversation's state, matching its rail row:
 | Hourglass | A large prompt cache is about to expire |
 | Snowflake | A large prompt cache has expired; the next reply writes it again |
 
-Hover a tab to read its state. Alt [ and Alt ] move to the previous and next tab. The X on a tab closes
+Hover a tab to read its state (**Complete** for a reply that ended with a Complete card). Alt [ and Alt ] move to the previous and next tab. The X on a tab closes
 the tab only; the conversation and any running work continue. Closing the tab you are on opens a new conversation, as the
 plus does, rather than another tab, so a conversation waiting in Attention stays there until you choose to open it.
 
@@ -111,6 +111,7 @@ If the window narrows below 1280 px, the open panel turns into a sheet and keeps
 | X on a conversation pane | Closes the view. The conversation continues on the server. |
 | X on an unstarted New conversation pane | Discards that pane's draft, attachments, choices and retry state. |
 | **Conversation options → Close conversation process** | Ends the main conversation's server process. If a reply or background job is running, choose **Keep it running in the background** or **Stop the reply**. The first pane becomes the main view (bringing a New conversation pane's draft with it), else New conversation opens. |
+| The **Complete** card under a reply, or the tick on a **Complete** row | Closes a finished conversation: reviewed on every device, its tab or pane closed, its server process ended. **Undo** for ten seconds. See [Close a finished conversation](conversation.md#close-a-finished-conversation-the-complete-card). |
 | **Stop** while a reply runs | Interrupts the reply and pauses the follow-up queue. |
 
 No control deletes a conversation. Closing a browser or a tab leaves the work running.

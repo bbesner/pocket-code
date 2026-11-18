@@ -266,6 +266,12 @@ function rememberOpenSession(s){
  if(openSessions.length>12)openSessions.shift();
  writeLocal('pc-open-sessions',openSessions);writeLocal('pc-last-session',s.id);paintOpenSessions();
 }
+// The tab goes; the conversation and its history stay. -> whether there was one.
+function forgetOpenSession(id){
+ const had=openSessions.some(s=>s.id===id);
+ if(had){openSessions=openSessions.filter(s=>s.id!==id);writeLocal('pc-open-sessions',openSessions);paintOpenSessions();}
+ return had;
+}
 // Tabs follow the session list: pinned sessions first, in their pinned order (shared by every device),
 // then the rest in the order they were opened. Pinned tabs carry the pin and the accent, like the rail rows.
 const pinnedSession=id=>(typeof allSessions!=='undefined'?allSessions:[]).find(s=>s.id===id&&s.pinned)||null;
@@ -281,7 +287,7 @@ function tabState(id){
  if(typeof allSessions==='undefined'||sessionsStale)return null;
  const row=allSessions.find(s=>s.id===id);if(!row)return null;
  const st=listState(row);
- return ['running','background','input','failed','finished','observed','waiting'].includes(st.kind)?{kind:st.kind,label:st.kind==='finished'?'Response ready':st.label}:null;
+ return ['running','background','input','failed','finished','observed','waiting'].includes(st.kind)?{kind:st.kind,label:st.kind==='finished'?(st.done?'Complete':'Response ready'):st.label}:null;
 }
 // 1.28: a large session whose prompt cache is about to expire (hourglass) or has expired (snowflake). Resuming it
 // cold writes the whole context to cache again. Warm and small sessions show nothing; an unconfirmed list neither.

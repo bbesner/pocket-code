@@ -641,9 +641,18 @@ const projShort = cwd => !cwd ? '' : cwd.replace(HOME_RE, '~');
 // (search still matches the full path; the New screen still shows full paths)
 const projName = cwd => !cwd ? '' : projShort(cwd) === '~' ? '~' : (cwd.split('/').pop() || cwd);
 let toastT;
-function toast(msg) {
-  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
+// 1.111: a toast may carry one action (Undo). It then stays ten seconds, like the Mark all reviewed bar, and takes
+// clicks; the button leaves with the toast, so nothing invisible stays in the tab order.
+function toast(msg, { action, onAction } = {}) {
+  const t = $('#toast'), hide = () => { t.classList.remove('show', 'has-action'); t.querySelector('button')?.remove(); };
+  t.textContent = msg; t.classList.toggle('has-action', Boolean(action));
+  if (action) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'toast-act'; b.textContent = action;
+    b.onclick = () => { clearTimeout(toastT); hide(); onAction?.(); };
+    t.append(b);
+  }
+  t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(hide, action ? 10000 : 3200);
 }
 // Stale-build notice: an open window keeps running the build it loaded, even after the server updates and
 // the service worker swaps the cache. Ask the server once a minute and when the app returns to the
@@ -1649,17 +1658,19 @@ function filteredSessions() {
 }
 function sessionRowHTML(s) {
   const state = listState(s), running = state.kind === 'running', background = state.kind === 'background';
+  const complete = state.kind === 'finished' && state.done && !sessionsStale; // unread and ended with a Complete card
   const detail = running && state.startedAt ? `Started ${rel(state.startedAt)}`
     : background ? (state.background?.jobs?.[0]?.description ? `Background: ${state.background.jobs[0].description}` : 'Background work still running')
     : state.kind === 'observed' ? 'Recent transcript activity; run status unconfirmed'
-    : state.kind === 'waiting' && state.retryAt ? `Retry at ${new Date(state.retryAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}` : `Updated ${rel(s.mtimeMs)}`;
+    : state.kind === 'waiting' && state.retryAt ? `Retry at ${new Date(state.retryAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`
+    : complete && state.summary ? state.summary : `Updated ${rel(s.mtimeMs)}`; // 1.111: the agent's outcome line, until you have seen it
   return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}" data-item="${esc(s.id)}">
     <button class="row" data-id="${esc(s.id)}">
       <span class="body"><span class="title">${esc(s.title)}</span>
       <span class="meta">${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${s.provider === 'codex' ? 'Codex' : s.provider === 'acp' ? 'OpenRouter' : 'Claude'}${s.branchOf ? ' · Branch' : ''}</span>
       <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : background && !sessionsStale ? '<span class="ember dim" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
       <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
-    </button><button class="pin-toggle" type="button" data-pin-toggle="${esc(s.id)}" aria-pressed="${s.pinned ? 'true' : 'false'}" aria-label="${s.pinned ? 'Unpin' : 'Pin'} ${esc(s.title)}" title="${s.pinned ? 'Unpin' : 'Pin to the top'}">${IC.pin}</button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned conversation ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
+    </button>${complete ? `<button class="done-close" type="button" data-done-close="${esc(s.id)}" aria-label="Close ${esc(s.title)}: it is complete" title="Complete. Close conversation">${IC.tick}</button>` : ''}<button class="pin-toggle" type="button" data-pin-toggle="${esc(s.id)}" aria-pressed="${s.pinned ? 'true' : 'false'}" aria-label="${s.pinned ? 'Unpin' : 'Pin'} ${esc(s.title)}" title="${s.pinned ? 'Unpin' : 'Pin to the top'}">${IC.pin}</button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned conversation ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
   </div>`;
 }
 /* ---------- pinned order: drag a pin's grip, press its arrow keys, or use Move up/down in Session options.
@@ -1738,6 +1749,7 @@ function bindSessionRows(container) {
     const session = allSessions.find(s => s.id === b.dataset.pinToggle);
     if (session) togglePin(session, refreshSessions);
   });
+  container.querySelectorAll('[data-done-close]').forEach(b => b.onclick = () => { b.disabled = true; closeCompleted(b.dataset.doneClose, { fromList: true }); });
   container.querySelectorAll('[data-more]').forEach(b => b.onclick = () => {
     const session = allSessions.find(s => s.id === b.dataset.more);
     if (session) { closeCurrentSheet?.(); sessionSheet(session, refreshSessions); }
@@ -1851,6 +1863,7 @@ function paintSessionPanels() {
   if(current?.state?.confirmed&&['finished','failed','stopped','ended'].includes(current.state.kind)&&!sessionsStale&&!loadOutbox(chatId)){deliveryNotices.delete(chatId);paintDelivery(chatId);}
   paintSessionFilterSummaries();
   paintRunConfirmation();
+  paintDone();
   const quick = $('#session-switch');
   if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Conversations · status unavailable' : `Conversations · ${c.running} running${c.background ? ` · ${c.background} in background` : ''}${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
   if (typeof paintOpenSessions === 'function') paintOpenSessions(); // tabs show pins and follow the pinned order
@@ -2407,6 +2420,14 @@ function choicesHTML(options, rec) {
       : `<button type="button" class="choice" data-choice="${esc(o)}">${esc(o)}</button>`).join('')
   }</div><button type="button" class="choice-x" aria-label="Dismiss suggested replies and type your own" title="Dismiss">${IC.x}</button></div>`;
 }
+// The Complete card (1.111): the agent ends finished work with a ```done block (see choices.mjs); the server turns it
+// into {t:'done', text}, the agent's one-line outcome. It shows where the reply buttons would, under the latest reply,
+// while nothing is running, waiting on you or typed. The whole card is one button: a tap closes the conversation
+// (closeCompleted) and sends nothing to the agent. Under an earlier reply it never shows.
+function doneHTML(text) {
+  const sum = text || 'Nothing left to do';
+  return `<button type="button" class="done-card" data-done aria-label="Complete: ${esc(sum)}. Close conversation" hidden><span class="done-mark">${IC.tick}</span><span class="done-body"><span class="done-title">Complete</span><span class="done-sum">${esc(sum)}</span></span><span class="done-act">Close conversation</span></button>`;
+}
 function paintChoices() {
   const msgs = $('#msgs'); if (!msgs) return;
   paintTryHarder(msgs);
@@ -2417,7 +2438,44 @@ function paintChoices() {
     const open = !composerWorking && !sendsInFlight.has(chatId) && !loadOutbox(chatId) && !box?.value.trim() && !box?.readOnly;
     sets.forEach(c => { c.hidden = !(open && c.closest('.m-asst') === last && c.dataset.choices !== dismissed); });
   }
+  paintDone(msgs);
   if (typeof Handoff !== 'undefined') Handoff.paintHint(msgs); // 1.102: after the choices, which it joins when they show
+}
+// Also run when the conversation list refreshes: background jobs, a question or a usage wait mean the conversation
+// is not finished, whatever the reply said.
+function paintDone(msgs = $('#msgs')) {
+  const cards = msgs?.querySelectorAll('[data-done]'); if (!cards?.length) return;
+  const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop(), box = $('#box');
+  const open = !composerWorking && !sendsInFlight.has(chatId) && !loadOutbox(chatId) && !box?.value.trim() && !box?.readOnly;
+  const busy = ['running', 'background', 'input', 'waiting'].includes(allSessions.find(s => s.id === chatId)?.state?.kind);
+  cards.forEach(c => { c.hidden = !(open && !busy && c.closest('.m-asst') === last); });
+}
+// Closing a completed conversation, from its card or from its row in the list. Three existing actions in one tap:
+// reviewed on every device (so it leaves Attention), its server process released now instead of at the idle close,
+// and its tab or pane closed. Nothing is deleted or hidden: it stays in Recent and a message reopens it.
+async function closeCompleted(id, { fromList = false } = {}) {
+  const row = allSessions.find(s => s.id === id);
+  try { await api(`/session/${id}/release`, { method: 'POST', body: JSON.stringify({ stop: false }) }); }
+  catch (e) {
+    // Work started since the reply (a queued message, a background job): closing would hide a live conversation.
+    if (e.status === 409) { refreshSessions(); return toast('This conversation is working again, so it stays open.'); }
+  }                                                                  // any other failure: the process closes itself when idle
+  const prior = row ? markReviewed([row]) : [];
+  if (PANE) return paneSay('done', { id });
+  if (fromList && id !== chatId) {
+    forgetOpenSession(id); paintSessionPanels();
+    return toast('Conversation closed', { action: 'Undo', onAction: () => { restoreReviewed(prior); paintSessionPanels(); } });
+  }
+  leaveClosed(id);
+}
+function leaveClosed(id) {
+  forgetOpenSession(id);
+  if (chatId === id) {
+    if (typeof promoteFirstPane === 'function' && promoteFirstPane()) { /* a conversation beside it becomes the main one */ }
+    else if (isWide()) openFreshNew(assistantMode() ? '#/' : '#/new');
+    else location.hash = '#/';                                      // a phone has no tabs: back to the list
+  }
+  toast('Conversation closed', { action: 'Undo', onAction: () => { location.hash = '#/chat/' + id; } });
 }
 // 1.62: Assistant mode's only model control, phrased as an outcome. Under the latest finished Claude reply, it asks
 // for another, more careful pass on the strongest model this Pocket offers at high effort (capped by the policy);
@@ -2449,6 +2507,8 @@ document.addEventListener('click', e => {
     writeLocal('pc-choices-dismissed', m); set.hidden = true; $('#box')?.focus();
     return;
   }
+  const dc = e.target.closest?.('.done-card');
+  if (dc && chatId) { dc.disabled = true; closeCompleted(chatId).finally(() => { dc.disabled = false; }); return; }
   const b = e.target.closest?.('.choice:not(.choice-handoff)'); // Hand off first runs its own handler
   if (b && chatId) {
     const set = b.closest('[data-choices]');
@@ -2547,6 +2607,7 @@ function msgHTML(m) {
     if (b.t === 'tool') tools.push(ledgerHTML(b.name, b.detail));
     else if (b.t === 'todo') { flush(); parts.push(todoHTML(b.todos || [])); }
     else if (b.t === 'choices') { flush(); parts.push(choicesHTML(b.options || [], Number.isInteger(b.rec) ? b.rec : -1)); }
+    else if (b.t === 'done') { flush(); parts.push(doneHTML(b.text)); }
     else { flush(); parts.push(md(b.text)); }
   }
   flush();
@@ -2569,7 +2630,7 @@ document.addEventListener('click', e => {
     e.stopPropagation();
     const clone = msg.closest('.m-asst')?.cloneNode(true);
     if (!clone) return;
-    clone.querySelectorAll('.copybtn, .ledgerwrap, .choices, .away-card').forEach(n => n.remove()); // prose + code, not machinery
+    clone.querySelectorAll('.copybtn, .ledgerwrap, .choices, .done-card, .away-card').forEach(n => n.remove()); // prose + code, not machinery
     return copyText((clone.innerText || '').trim(), msg);
   }
 });
@@ -3774,7 +3835,7 @@ function openES() {
         live = msgs.lastElementChild;
       }
       live.raw = (live.raw || '') + d.text;                   // the suggested-replies block never shows as raw text
-      const cut = live.raw.indexOf('```choices'); live.textContent = cut < 0 ? live.raw : live.raw.slice(0, cut);
+      const cut = live.raw.search(/```(?:choices|done)\b/); live.textContent = cut < 0 ? live.raw : live.raw.slice(0, cut); // nor the done block (1.111)
       scrollBottom();
     }
     else if (d.type === 'assistant') {

@@ -43,7 +43,7 @@ test('a transcript written after the outcome keeps it only when nothing but book
 });
 
 // 1.101: the reply to a wrap-up request (Mark resolved, Remind me …, No thanks) is reviewed as it finishes.
-import {wrapUpRequest, replyAsksNothing} from '../session-state.mjs';
+import {wrapUpRequest, replyAsksNothing, replyDone} from '../session-state.mjs';
 test('wrap-up requests are the short closing phrases, not requests that only start like one',()=>{
   for(const s of ['Mark resolved','Mark it resolved.','Mark as done','Ok, mark it resolved','Mark resolved, thanks','Dismiss','Not useful',
     'Remind me Nov 7 to recheck the numbers','Remind me to test it Monday','Add a task to test the fix','Add a task','Set a reminder for 3pm',
@@ -65,4 +65,20 @@ test('a wrap-up reply counts as read only when it asks nothing back',()=>{
   assert.equal(replyAsksNothing([m({t:'text',text:'Set.'},{t:'choices',options:['Yes','No']})]),false,'reply buttons');
   assert.equal(replyAsksNothing([m({t:'text',text:'x'.repeat(1600)})]),false,'a report');
   assert.equal(replyAsksNothing([]),false,'no reply at all');
+});
+// 1.111: a turn is complete only when a done block closes its last assistant message.
+test('a done block counts only as the last thing the agent did',()=>{
+  const m=(...blocks)=>({blocks});
+  assert.equal(replyDone([m({t:'tool',name:'Bash'}),m({t:'text',text:'Shipped.'},{t:'done',text:'Released 2.4.1'})]),'Released 2.4.1');
+  assert.equal(replyDone([m({t:'done',text:''})]),'','a card with no outcome line');
+  assert.equal(replyDone([m({t:'text',text:'Shipped.'},{t:'done',text:'x'}),m({t:'tool',name:'Bash'})]),null,'work after the claim withdraws it');
+  assert.equal(replyDone([m({t:'text',text:'Shipped.'},{t:'done',text:'x'}),m({t:'text',text:'One more thing.'})]),null,'so does more text');
+  assert.equal(replyDone([m({t:'text',text:'Pick one.'},{t:'choices',options:['A','B']})]),null,'reply buttons');
+  assert.equal(replyDone([m({t:'text',text:'Just an answer.'})]),null);
+  assert.equal(replyDone([]),null);assert.equal(replyDone(null),null);
+});
+test('a Complete outcome reaches the list with its outcome line',()=>{
+  const done={kind:'finished',label:'Complete',done:true,summary:'Released 2.4.1',at:1000};
+  assert.deepEqual(sessionState({turn:null,outcome:done,mtimeMs:1000}),{...done,confirmed:true});
+  assert.equal(sessionState({turn:null,outcome:done,mtimeMs:1000,background:[bash]}).kind,'background','background jobs still outrank it');
 });

@@ -40,7 +40,7 @@ const SideChat = (() => {
       v.live.textContent += d.text;
     } else if (d.type === 'assistant') {
       dropLive();
-      v.list.insertAdjacentHTML('beforeend', msgHTML({ ...d.msg, blocks: (d.msg.blocks || []).filter(b => b.t !== 'choices') }));
+      v.list.insertAdjacentHTML('beforeend', msgHTML({ ...d.msg, blocks: (d.msg.blocks || []).filter(b => b.t !== 'choices' && b.t !== 'done') }));
       mergeToolFolds(v.list);
     } else if (d.type === 'result') {
       dropLive(); v.busy = false; v.total = d.total || 0;
@@ -289,6 +289,7 @@ const Handoff = (() => {
     if (row && ['running', 'background', 'observed', 'waiting', 'input'].includes(rowState(row).kind)) return null;
     const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop();
     if (!last?.matches('.m-asst') || !last.textContent.trim() || last.querySelector('.handoff-card')) return null;
+    if (last.querySelector('.done-card:not([hidden])')) return null; // 1.111: a finished conversation has nothing to hand off
     return { last, used: ctx.used };
   }
   function paintHint(msgs = document.getElementById('msgs')) {

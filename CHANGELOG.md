@@ -3,6 +3,19 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.111.0] — 2026-11-18 · build 205
+
+Asked for by Brad (2026-11-18): reply buttons cover the turns that end in a decision, but a turn that ends with everything finished looked like any other reply, so he had to read it to learn whether anything was left. An agent can now say so, and one tap closes the conversation.
+
+- **The done block** (`choices.mjs`). The instructions every engine already gets for suggested replies gain a second ending: when the work asked for is finished, checked, and nothing is left to recommend, the agent ends its reply with a fenced `done` block holding one line that states the outcome. `textBlocks` turns it into `{t:'done', text}` and strips it from the text. Pocket checks the claim: reply buttons win over it (whichever came last), a closing paragraph with a question drops it, and only a block at the very end counts (a sources list may follow, as with choices). `POCKET_CHOICES=0` turns both off.
+- **The Complete card** (`public/app.js`, `public/app.css`). Under the latest reply, where the reply buttons would be: a tick, **Complete**, the outcome line (or *Nothing left to do*) and **Close conversation**. The whole card is one button. It hides while a reply runs, background jobs run, a question waits or the message box has text, and never shows under an earlier reply.
+- **A tap closes the conversation** (`closeCompleted`). Three existing actions: reviewed on every device (so it leaves Attention), `POST /api/session/:id/release` (its process ends now instead of at the idle close), and its tab or pane closes (a beside pane becomes the main view, else New opens; a phone returns to the list). It sends nothing to the agent and deletes nothing. A 409 from the release (work started again) leaves it open with a message. **Undo** in the toast for ten seconds reopens it.
+- **The list, the tab and the push say Complete** (`server.mjs` `recordOutcome`, `session-state.mjs` `replyDone`). The outcome is recorded as `{kind:'finished', label:'Complete', done:true, summary}` only when the done block is the last thing the agent did in the turn and no background job is running. The row shows **Complete** and the outcome line until it is read, with a tick button that closes it without opening it (Undo restores the unread state); the push reads *Complete · outcome*. An ordinary reply is still **Response ready**.
+- **Toast actions** (`toast(msg, {action, onAction})`). A toast may carry one button; it then stays ten seconds, sits above the message box and takes clicks.
+- Also: the side chat drops done blocks as it drops choices; conversation search and the title summariser read the outcome line; `closeMainPane` shares `promoteFirstPane` with the card and opens a promoted view pane by its own address.
+- Design: DESIGN.md *Complete card (1.111)*. Manual: *Working in a conversation* (Close a finished conversation), *Conversations*, *Desktop and phone*, *For agents*.
+- Tests: `choices.test.mjs` (the block, the refusals, choices winning), `session-state.test.mjs` (`replyDone`), `engine-parity.test.mjs` (Claude, Codex and OpenRouter each record Complete, then Response ready on the next reply), `test/complete-browser.mjs` (the card at 1440 and 390, dark and light, axe, the tap, Undo, the row, a pane, and the cases with no card).
+
 ## [1.110.2] — 2026-11-18 · build 204
 
 Asked for by Brad (2026-11-18): a Coastline Micro email he starred disappeared from his starred mail. He dismissed its alert in Pocket, and the label sync archived the thread with the star still on it. His Gmail Multiple Inboxes section for starred mail searches `in:inbox is:starred`, so the email dropped out of it. 41 starred threads from the last 60 days were outside the inbox. Watcher only; no change to the web app or its build.

@@ -198,6 +198,7 @@ export function awayDigest(msgs) {
       else if (b.t === 'text' && b.text?.trim()) { flushTools(); const txt = b.text.replace(/\s+/g, ' ').trim(); stats.chars += txt.length; lines.push('Agent: ' + txt.slice(0, 600)); }
       else if (b.t === 'todo') { flushTools(); lines.push(`Plan: ${b.todos?.filter(x => x.s === 'completed').length || 0} of ${b.todos?.length || 0} steps done`); }
       else if (b.t === 'choices') { flushTools(); lines.push('Agent asked the owner to choose: ' + (b.options || []).join(' / ')); }
+      else if (b.t === 'done') { flushTools(); lines.push('Agent said the work is complete' + (b.text ? ': ' + b.text : '')); }
     }
   }
   flushTools();

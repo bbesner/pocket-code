@@ -118,19 +118,21 @@ function closePane(key){
 // Close the MAIN conversation (never available inside a pane — panes use pane-close).
 // Closing never deletes or hides the session; it only asks the server to end its live
 // process, then either promotes the first beside pane into main or goes to New session.
+// The first beside pane becomes the main conversation. -> false when there is none.
+function promoteFirstPane(){
+ if(!splitPanes.length)return false;
+ const p=splitPanes[0];
+ splitPanes=splitPanes.filter(x=>x.key!==p.key);saveSplit();
+ // a New-session pane becoming main brings its draft, attachments, choices and retry state
+ if(!p.id)for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-'])try{const v=localStorage.getItem(k+'new-pane-'+p.key);if(v!=null)localStorage.setItem(k+'new',v);localStorage.removeItem(k+'new-pane-'+p.key);}catch{}
+ location.hash=p.id?tabHref(p.id):'#/new';
+ paintSplit();
+ return true;
+}
 async function closeMainPane(){
  if(PANE||!chatId)return;
  const id=chatId;
- const afterRelease=()=>{
-  if(splitPanes.length){
-   const p=splitPanes[0];
-   splitPanes=splitPanes.filter(x=>x.key!==p.key);saveSplit();
-   // a New-session pane becoming main brings its draft, attachments, choices and retry state
-   if(!p.id)for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-'])try{const v=localStorage.getItem(k+'new-pane-'+p.key);if(v!=null)localStorage.setItem(k+'new',v);localStorage.removeItem(k+'new-pane-'+p.key);}catch{}
-   location.hash=p.id?'#/chat/'+p.id:'#/new';
-   paintSplit();
-  }else location.hash='#/new';
- };
+ const afterRelease=()=>{if(!promoteFirstPane())location.hash='#/new';};
  try{
   await api(`/session/${id}/release`,{method:'POST',body:JSON.stringify({stop:false})});
   afterRelease();
@@ -209,6 +211,12 @@ if(PANE){
   const {pocketPane:type,id,title}=e.data;
   if(type==='route'&&typeof id==='string'&&validPane({key:p.key,id})){p.id=id;saveSplit();frame.title='Conversation beside: '+(typeof title==='string'?title:sessionTitle(id));}
   if(type==='close')closePane(p.key);
+  // 1.111: the Complete card tapped inside a pane. The pane did the closing (reviewed, process released); here its
+  // pane and tab go, and Undo puts the conversation back beside the main one.
+  if(type==='done'&&typeof id==='string'&&validPane({key:p.key,id})){
+   closePane(p.key);forgetOpenSession(id);
+   toast('Conversation closed',{action:'Undo',onAction:()=>openBeside(id)});
+  }
   // 1.53.3: a file or project chosen inside a pane (Settings: open beside) gets a pane of its own, to that pane's left.
   if(type==='beside'&&typeof id==='string'&&validPane({key:p.key,id}))openBeside(id,p.key);
   if(type==='main'&&p.id){

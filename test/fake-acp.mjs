@@ -136,7 +136,7 @@ async function handlePrompt(id, params) {
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'usage_update', used: 24000, size: 1048576, cost: { amount: s.cost, currency: 'USD' } } });
   // a real reply takes longer than a test takes to open its stream; these three are read from the live stream
   if (/__(CHOICES|PLAN|COST)__/.test(text)) await new Promise(r => setTimeout(r, 800));
-  const answer = text.includes('__CHOICES__') ? 'Tests pass. Should I merge and deploy?\n\n```choices\nMerge and deploy\nNot yet\n```' : `ran it; echo of ${text.slice(0, 40)}${heard}`;
+  const answer = text.includes('__DONE__') ? 'The release is out and the tests pass.\n\n```done\nReleased 2.4.1; tests pass\n```' : text.includes('__CHOICES__') ? 'Tests pass. Should I merge and deploy?\n\n```choices\nMerge and deploy\nNot yet\n```' : `ran it; echo of ${text.slice(0, 40)}${heard}`;
   notify('session/update', { sessionId: sid, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: answer } } });
   s.updates.push({ sessionUpdate: 'agent_message_chunk', messageId: 'a_' + randomUUID(), content: { type: 'text', text: answer } });
   saveSess(sid, s);
