@@ -72,9 +72,35 @@ resolved", "that one wasn't useful", "dismiss the look-ahead", "bring back the A
 Never resolve, dismiss or mark anything not useful on your own judgment, even when the
 situation looks finished; tell the user what you see and let them decide. A `--note` carries
 the user's reason, in their words, when they gave one. If more than one entry could match what
-the user said, list them and ask which.
+the user said, list them and ask which. (Merging a same-story duplicate into the entry a
+conversation started from is the one exception; see below.)
 
 After acting, confirm in one sentence: the entry's title and what you recorded.
+
+## One entry per story (1.113)
+
+The list holds one open alert per story. When the watcher sends an alert on a story that already has an open entry, that
+entry is updated in place: the new text comes first, what it said before follows under *Earlier on this entry*, it is
+unread again and moves to the top, and it keeps its conversations. `show` says how often it was updated and which threads
+it took in.
+
+**A conversation started from an entry** begins with a short check before the user says what they want (the briefing
+asks for it):
+
+1. Look for other mail on the same story that the briefing does not already cover: the same customer, site, ticket,
+   invoice or sender in the last few weeks. Read what matters and say in a few lines what it adds.
+2. Look at the open entries (`pocket-inbox list --state all`) for another one on the **same story**: the same incident,
+   request or account, often under a slightly different title or story key.
+3. Fold each such duplicate into this conversation's entry, then say which you merged:
+
+```bash
+pocket-inbox merge <other id> --session <this conversation id>   # or --into <entry id>
+```
+
+The other entry leaves the list with a note naming this one. Its Gmail thread loses the Pocket Inbox label, so only this
+entry's thread carries it. The thread stays in the inbox, and **Restore** on the merged entry undoes the merge. Merge only
+same-story duplicates. An entry that asks for something different, even from the same customer, stays as it is: mention
+it instead. This is the one change an agent makes to the list without being asked.
 
 ## When it checks, which models judge, what it costs
 

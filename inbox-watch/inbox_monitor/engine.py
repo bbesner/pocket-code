@@ -1502,6 +1502,14 @@ def briefing_for(store: Store, alert: sqlite3.Row, thread: dict | None) -> str:
         for m in thread["messages"][-3:]:
             lines.append(f"- {m['message_id']} | {m['date']} | {m['from']}")
             lines.append("  " + m["body"][:600].replace("\n", " "))
+    if alert["kind"] != "checkin":  # 1.113 (Brad): a conversation starts by gathering the rest of the story
+        lines += ["", "Before " + OWNER + " says what they want, do a short opening check and report it in a few lines:",
+                  "1. Search the mailbox for other mail on this story that the above does not cover (same customer, site, ticket, invoice "
+                  "or sender, recent weeks). Read what matters and say what it adds.",
+                  "2. Look at the open Inbox entries (pocket-inbox list --state all) for another one on the same story, often under a "
+                  "different title. Merge each same-story duplicate into the entry this conversation started from (pocket-inbox merge "
+                  "<other id> --session <this conversation id>; the pocket-inbox skill has the rules) and say which you merged. "
+                  "Leave an entry that asks for something different and mention it instead."]
     footer = CFG.briefing_footer.strip() if CFG and CFG.briefing_footer else (
         f"{OWNER} will say what they want done (reply, research, troubleshoot). Message ids above are Gmail ids in {MAILBOX}.")
     lines += ["", footer]
@@ -2095,10 +2103,15 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
             g["LABEL_SEEN"] = labelled
             store.set("label_sync_at", iso())
         listed: dict[str, list[str]] = {}
+        merged: set[str] = set()  # 1.113: threads an open entry took in (an update on its story, or a merged duplicate)
         for e in d.inbox_open():
             m = GMAIL_THREAD_RX.search(e.get("gmail") or "")
             if m:
                 listed.setdefault(m.group(1), []).append(e["id"])
+            for t in e.get("merged") or []:
+                mm = GMAIL_THREAD_RX.search((t or {}).get("gmail") or "")
+                if mm:
+                    merged.add(mm.group(1))
     except Exception as ex:  # noqa: BLE001
         log(f"label sync skipped: {str(ex)[:200]}")
         label_refused(store, ex)
@@ -2106,7 +2119,7 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     rows = store.db.execute("select thread_id, state, at from label_sync").fetchall()
     known, since = {r["thread_id"]: r["state"] for r in rows}, {r["thread_id"]: r["at"] for r in rows}
     baseline = not store.get("label_baseline")
-    adds, removes, brings, dismiss = [], [], [], []
+    adds, removes, brings, dismiss, kept = [], [], [], [], set()
     for tid, ids in listed.items():
         if tid in labelled:
             if known.get(tid) != "synced":
@@ -2117,6 +2130,12 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
             adds.append(tid)
     for tid in labelled - set(listed):
         state = known.get(tid)
+        if tid in merged and not baseline and (state == "synced" or (state or "").startswith("with:")):
+            # 1.113 (Brad): one thread per story carries the label. One the watcher labelled, now taken in by another entry on
+            # its story, loses it and stays in the inbox; a thread the owner labelled by hand is judged like any other.
+            removes.append(tid)
+            kept.add(tid)
+            continue
         if state and state.startswith("with:"):
             host = joined_thread(store, state)
             if host is None:
@@ -2135,7 +2154,7 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     for tid in set(known) - labelled - set(listed):  # gone from both sides
         if known[tid] not in INCOMING:
             mark_label(store, tid, None)
-    archive = {t for t in removes if label_archive() and not mail_since(store, t, since.get(t), set(fresh))}
+    archive = {t for t in removes if t not in kept and label_archive() and not mail_since(store, t, since.get(t), set(fresh))}
     starred = {t for t in archive if thread_starred(gmail, t)}  # read last, and only for threads that would be archived
     archive -= starred
     changes = ([(t, [label, "INBOX"] if label_in_inbox() else [label], []) for t in adds] + [(t, [], [label, "INBOX"] if t in archive else [label]) for t in removes]
@@ -2179,7 +2198,8 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     failed = len(changes) - len(ok)
     if changes or dismiss or baseline:
         log(f"label {name!r}: {len([t for t in adds if t in ok])} added, {len([t for t in removes if t in ok])} removed "
-            f"({len([t for t in archive if t in ok])} archived{f', {len(starred)} starred kept in the inbox' if starred else ''}), {dismissed} dismissed "
+            f"({len([t for t in archive if t in ok])} archived{f', {len(starred)} starred kept in the inbox' if starred else ''}"
+            f"{f', {len([t for t in kept if t in ok])} taken in by another entry' if kept else ''}), {dismissed} dismissed "
             f"in Pocket, {len(incoming)} new from Gmail{f', {failed} not changed (next sync tries again)' if failed else ''}"
             f"{' (first sync)' if baseline else ''}")
     return incoming
@@ -2533,6 +2553,21 @@ def sync_worked(store: Store) -> int:
     return n
 
 
+def merge_story(store: Store, key: str, into: str, title: str, when: str) -> None:
+    """1.113: a conversation merged an entry into another on the same story. Its threads join that story, so later mail on them
+    is judged as part of it (and lands on its entry); its own story closes with a note saying where it went."""
+    host = store.story(into) if into else None
+    if not host or not key or key == into:
+        return
+    for r in store.db.execute("select thread_id from story_threads where issue_key=?", (key,)).fetchall():
+        store.link(into, r["thread_id"])
+    store.add_event(into, "feedback", f"Merged in Pocket ({when}): the entry \"{title}\" (story {key}) is part of this one.", [])
+    if store.story(key):
+        store.db.execute("update issues set status='resolved', updated_at=? where issue_key=?", (iso(), key))
+        store.add_event(key, "feedback", f"Merged in Pocket ({when}) into story {into}; later mail belongs there.", [])
+    log(f"merged story {key!r} into {into!r}")
+
+
 def apply_feedback(store: Store, dry_run: bool = False) -> None:
     """What the owner did with earlier alerts in Pocket (1.69 Inbox): Resolved closes the story, Not useful becomes a line
     in the preferences file the judge reads every turn, drops the story to low and (1.109) keeps it off the list from then on,
@@ -2580,6 +2615,8 @@ def apply_feedback(store: Store, dry_run: bool = False) -> None:
                     store.add_event(key, "feedback", f"{OWNER} marked an alert on this story not useful in Pocket ({when}).", [])
             elif action == "restore" and story and (story["status"] == "resolved" or story["not_useful_at"]):
                 restore_story(store, story, when)
+            elif action == "dismiss" and it.get("mergedInto"):
+                merge_story(store, key, it.get("intoStory") or "", title, when)
             done.append(it["id"])
             log(f"feedback {action}: {title!r} story={key or '-'}")
         if done:
