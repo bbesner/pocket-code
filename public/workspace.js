@@ -4,7 +4,13 @@ const PANE=new URLSearchParams(location.search).has('pane');
 // A pane's New session screen keeps its own draft, attachments and retry state, so it
 // never collides with the main window's New screen or another pane's.
 const PANE_KEY=(k=>/^[0-9a-f-]{36}$/.test(k||'')?k:'')(new URLSearchParams(location.search).get('pane'));
-const NEW_KEY=PANE&&PANE_KEY?'new-pane-'+PANE_KEY:'new';
+const NEW_BASE=PANE&&PANE_KEY?'new-pane-'+PANE_KEY:'new';
+// 1.112: a start link (Inbox, a handoff, pocket-start) opens in its own unsent conversation, #/new/<start id>, with its own
+// draft, settings and tab, so starting another never replaces one you have not sent yet (Brad). The route sets NEW_KEY to
+// that draft's key while it shows; everything else on New keeps the plain key.
+let NEW_KEY=NEW_BASE,newView=null;
+const newSlotKey=id=>'new-s-'+id;
+const newStartKeyOf=key=>/^new-s-/.test(key)?'pc-new-start-'+key:'pc-new-start';
 // ?solo=1 (1.31): this window shows one view on its own, in its own browser tab or app window: no rail, no tab
 // strip, no pane controls. "Open in a new window" for a project or a document.
 const SOLO=!PANE&&new URLSearchParams(location.search).has('solo');
@@ -28,11 +34,11 @@ function openViewPreferred(id,prefKey,e,canBeside){
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function writeLocal(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
 // 1.29: project views open like sessions (tabs, panes); their ids are routes without the leading #/.
-const VIEW_TAB_RE=/^(?:projects(?:\/(?:scheduled|[a-z0-9][a-z0-9-]{0,79}))?|documents(?:\/[0-9a-f]{12})?|tasks|coordination|vault|inbox(?:\/[0-9a-f]{12})?|link\/[A-Za-z0-9%._~!*'()-]{1,2000})$/; // 1.30: documents too; 1.36: tasks; 1.39: vault; 1.54: a linked page (links.js)
+const VIEW_TAB_RE=/^(?:new\/[0-9a-f]{12}|projects(?:\/(?:scheduled|[a-z0-9][a-z0-9-]{0,79}))?|documents(?:\/[0-9a-f]{12})?|tasks|coordination|vault|inbox(?:\/[0-9a-f]{12})?|link\/[A-Za-z0-9%._~!*'()-]{1,2000})$/; // 1.30: documents too; 1.36: tasks; 1.39: vault; 1.54: a linked page (links.js)
 const isViewId=id=>typeof id==='string'&&VIEW_TAB_RE.test(id);
 const tabHref=id=>isViewId(id)?'#/'+id:'#/chat/'+encodeURIComponent(id).replaceAll('%3A',':');
 // The view the main column shows when it is not a conversation: a project view (1.29) or a document view (1.30).
-const currentView=()=>(typeof boardView!=='undefined'&&boardView)||(typeof docView!=='undefined'&&docView)||(typeof taskView!=='undefined'&&taskView)||(typeof coordView!=='undefined'&&coordView)||(typeof vaultView!=='undefined'&&vaultView)||(typeof linkView!=='undefined'&&linkView)||(typeof inboxView!=='undefined'&&inboxView)||null; // 1.39: vault; 1.54: a linked page; 1.85.1: the inbox
+const currentView=()=>(typeof boardView!=='undefined'&&boardView)||(typeof docView!=='undefined'&&docView)||(typeof taskView!=='undefined'&&taskView)||(typeof coordView!=='undefined'&&coordView)||(typeof vaultView!=='undefined'&&vaultView)||(typeof linkView!=='undefined'&&linkView)||(typeof inboxView!=='undefined'&&inboxView)||newView||null; // 1.39: vault; 1.54: a linked page; 1.85.1: the inbox; 1.112: a start link's draft
 // Native radio keyboard conventions for our button-based choices.
 function bindRadioGroup(group) {
  const radios=()=>[...group.querySelectorAll('[role="radio"]')].filter(el=>!el.disabled&&!el.hidden);
@@ -238,6 +244,7 @@ function bindWorkspaceDensity(){
 }
 let workspaceFilter=readLocal('pc-workspace-filter',''), providerFilter=readLocal('pc-provider-filter','');
 let hiddenSessions=readLocal('pc-hidden-sessions',{}), openSessions=readLocal('pc-open-sessions',[]);
+let tabDrag=null; // 1.112: the tab being dragged, {id, target, after}
 if(typeof workspaceFilter!=='string')workspaceFilter='';
 if(!['','claude','codex','acp'].includes(providerFilter))providerFilter='';
 if(!hiddenSessions||typeof hiddenSessions!=='object'||Array.isArray(hiddenSessions))hiddenSessions={};
@@ -259,12 +266,27 @@ function paintWorkspaceFilters(){
   el.querySelector('[data-provider-filter]').onchange=e=>{providerFilter=e.target.value;writeLocal('pc-provider-filter',providerFilter);paintSessionPanels();};
  });
 }
-function rememberOpenSession(s){
- const row={id:s.id,title:s.title};
- const index=openSessions.findIndex(r=>r.id===s.id);
+// A tab keeps its place when it is opened again. 1.112: tabs can be dragged into any order, so the one closed to make
+// room for a 13th is the least recently opened, not the leftmost. Rows saved before 1.112 have no time and go first.
+function rememberTab(id,title){
+ const row={id,title,at:Date.now()},index=openSessions.findIndex(r=>r.id===id);
  if(index<0)openSessions.push(row);else openSessions[index]=row;
- if(openSessions.length>12)openSessions.shift();
- writeLocal('pc-open-sessions',openSessions);writeLocal('pc-last-session',s.id);paintOpenSessions();
+ while(openSessions.length>12){
+  const old=openSessions.reduce((pick,r,i)=>r.id!==id&&(pick<0||(r.at||0)<(openSessions[pick].at||0))?i:pick,-1);
+  openSessions.splice(old,1);
+ }
+ writeLocal('pc-open-sessions',openSessions);
+}
+function rememberOpenSession(s){
+ rememberTab(s.id,s.title);writeLocal('pc-last-session',s.id);paintOpenSessions();
+}
+// 1.112: a tab's name follows the conversation's. It was saved once, when the conversation opened, so a new Codex thread
+// (named after its first turn) kept "New conversation" until you left and came back (Brad). Views name themselves.
+function followTabTitles(){
+ if(typeof allSessions==='undefined'||!allSessions.length)return;
+ const live=new Map(allSessions.map(s=>[s.id,s.title]));let changed=false;
+ openSessions=openSessions.map(t=>{const title=!isViewId(t.id)&&live.get(t.id);if(!title||title===t.title)return t;changed=true;return {...t,title};});
+ if(changed)writeLocal('pc-open-sessions',openSessions);
 }
 // The tab goes; the conversation and its history stay. -> whether there was one.
 function forgetOpenSession(id){
@@ -299,13 +321,15 @@ function tabCache(id){
 }
 function paintOpenSessions(){
  const el=document.getElementById('open-sessions');if(!el)return;
+ if(tabDrag)return; // a list refresh must not rebuild the strip under the pointer; the drop repaints it
+ followTabTitles();
  const list=orderedOpenSessions();
  // Repaint only when something shows differently: the list refreshes every few seconds and must not snap the strip's scroll back.
  const states=list.map(s=>tabState(s.id)),caches=list.map(s=>tabCache(s.id));
  const current=id=>id===chatId||(!chatId&&id===currentView());
  const key=JSON.stringify([chatId,currentView(),list.map((s,i)=>[s.id,s.title,Boolean(pinnedSession(s.id)),states[i]?.kind,states[i]?.label,caches[i]?.label])]);
  if(el.dataset.key===key)return;el.dataset.key=key;
- el.innerHTML=list.map((s,i)=>{const pinned=Boolean(pinnedSession(s.id)),st=states[i],ca=caches[i];return `<span class="open-session ${current(s.id)?'current':''} ${pinned?'pinned':''}"><a href="${tabHref(s.id)}" ${current(s.id)?'aria-current="page"':''} title="${esc(s.title)}${pinned?' · Pinned':''}${st?' · '+esc(st.label):''}${ca?' · '+esc(ca.label):''}">${st?`<span class="tab-state ${st.kind==='running'?'ember':st.kind==='background'?'ember dim':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:''}${pinned?`<span class="pinmark">${IC.pin}</span><span class="vh">Pinned: </span>`:''}${ca?`<span class="tab-cache tab-cache-${ca.kind}" role="img" aria-label="${esc(ca.label)}">${ca.kind==='cold'?IC.snow:IC.hourglass}</span>`:''}${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`;}).join('');
+ el.innerHTML=list.map((s,i)=>{const pinned=Boolean(pinnedSession(s.id)),st=states[i],ca=caches[i];return `<span class="open-session ${current(s.id)?'current':''} ${pinned?'pinned':''}" data-tab="${esc(s.id)}"><a href="${tabHref(s.id)}" draggable="false" ${current(s.id)?'aria-current="page"':''} title="${esc(s.title)}${pinned?' · Pinned':''}${st?' · '+esc(st.label):''}${ca?' · '+esc(ca.label):''}">${st?`<span class="tab-state ${st.kind==='running'?'ember':st.kind==='background'?'ember dim':'tab-'+st.kind}" role="img" aria-label="${esc(st.label)}"></span>`:''}${pinned?`<span class="pinmark">${IC.pin}</span><span class="vh">Pinned: </span>`:''}${ca?`<span class="tab-cache tab-cache-${ca.kind}" role="img" aria-label="${esc(ca.label)}">${ca.kind==='cold'?IC.snow:IC.hourglass}</span>`:''}${esc(s.title)}</a><button data-close-session="${esc(s.id)}" aria-label="Close tab for ${esc(s.title)}">${IC.x}</button></span>`;}).join('');
  el.querySelectorAll('[data-close-session]').forEach(b=>b.onclick=()=>{
   const id=b.dataset.closeSession;
   openSessions=openSessions.filter(s=>s.id!==id);writeLocal('pc-open-sessions',openSessions);
@@ -313,7 +337,83 @@ function paintOpenSessions(){
   // seeing it and took a conversation that was waiting for you out of Attention before you had looked (Brad).
   if(chatId===id||currentView()===id){if(typeof openFreshNew==='function')openFreshNew(typeof assistantMode==='function'&&assistantMode()?'#/':'#/new');else location.hash='#/new';}else paintOpenSessions();
  });
+ bindTabDrag(el);
  el.querySelector('[aria-current]')?.scrollIntoView({block:'nearest',inline:'nearest'});
+}
+/* 1.112: tabs go in the order you put them (Brad). Drag a tab, or press Alt Shift [ / ] on it. Pinned tabs stay before the
+   rest and moving one reorders the pins themselves, on every device; the others keep their order on this browser. */
+function moveTab(id,targetId,after){
+ if(id===targetId)return false;
+ const pinned=Boolean(pinnedSession(id));
+ if(pinned!==Boolean(pinnedSession(targetId)))return false; // a pinned tab cannot go among the others, nor the reverse
+ if(pinned){if(typeof placePin!=='function')return false;placePin(id,targetId,after);return true;} // the pin order repaints the strip
+ const row=openSessions.find(s=>s.id===id),rest=openSessions.filter(s=>s.id!==id),j=rest.findIndex(s=>s.id===targetId);
+ if(!row||j<0)return false;
+ rest.splice(j+(after?1:0),0,row);openSessions=rest;writeLocal('pc-open-sessions',openSessions);paintOpenSessions();
+ return true;
+}
+function moveTabBy(id,delta){
+ const pinned=Boolean(pinnedSession(id)),group=orderedOpenSessions().filter(s=>Boolean(pinnedSession(s.id))===pinned),i=group.findIndex(s=>s.id===id),j=i+delta;
+ const inStrip=Boolean(document.activeElement?.closest?.('#open-sessions')); // the repaint below replaces the focused tab
+ if(i<0||j<0||j>=group.length||!moveTab(id,group[j].id,delta>0))return false;
+ if(inStrip)[...document.querySelectorAll('#open-sessions .open-session')].find(e=>e.dataset.tab===id)?.querySelector('a')?.focus();
+ toast((pinned?'Pinned tab ':'Tab ')+(j+1)+' of '+group.length);
+ return true;
+}
+// Mouse and pen: a press that moves 6 px is a drag, a still one is a click. Touch: a swipe scrolls the strip, so a drag
+// starts after a 350 ms hold. The browser's own link drag is off (draggable="false"), so the pointer stays ours.
+function bindTabDrag(el){
+ if(el.dataset.dragBound)return;el.dataset.dragBound='1';
+ let press=null,swallow=false; // swallow: the click that ends a drag
+ const clear=()=>el.querySelectorAll('.drop-before,.drop-after').forEach(x=>x.classList.remove('drop-before','drop-after'));
+ const begin=()=>{
+  tabDrag={id:press.id,target:null,after:false};press.item.classList.add('dragging');el.classList.add('tab-dragging');
+  try{press.link.setPointerCapture(press.pointerId);}catch{}
+ };
+ const finish=e=>{
+  if(!press||e.pointerId!==press.pointerId)return;
+  clearTimeout(press.timer);const p=press;press=null;
+  if(!tabDrag)return;
+  const d=tabDrag;tabDrag=null;swallow=true;
+  p.item.classList.remove('dragging');el.classList.remove('tab-dragging');clear();
+  if(e.type==='pointerup'&&d.target&&moveTab(d.id,d.target,d.after))return;
+  paintOpenSessions(); // a refresh skipped during the drag lands now
+ };
+ el.addEventListener('pointerdown',e=>{
+  const link=e.target.closest?.('.open-session > a');
+  swallow=false;
+  if(!link||e.button||press)return;
+  const item=link.parentElement;
+  press={id:item.dataset.tab,item,link,x:e.clientX,y:e.clientY,pointerId:e.pointerId,touch:e.pointerType==='touch',timer:0};
+  if(press.touch)press.timer=setTimeout(()=>{if(press&&!tabDrag){begin();navigator.vibrate?.(10);}},350);
+ });
+ el.addEventListener('pointermove',e=>{
+  if(!press||e.pointerId!==press.pointerId)return;
+  if(!tabDrag){
+   const moved=Math.hypot(e.clientX-press.x,e.clientY-press.y);
+   if(press.touch){if(moved>8){clearTimeout(press.timer);press=null;}return;} // a swipe before the hold: let it scroll
+   if(moved<6)return;
+   begin();
+  }
+  e.preventDefault();
+  const box=el.getBoundingClientRect();
+  if(e.clientX<box.left+40)el.scrollLeft-=12;else if(e.clientX>box.right-40)el.scrollLeft+=12; // reach tabs scrolled out of sight
+  const over=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('.open-session');
+  clear();tabDrag.target=null;
+  if(!over||over===press.item||!el.contains(over)||over.classList.contains('pinned')!==press.item.classList.contains('pinned'))return;
+  const r=over.getBoundingClientRect();
+  tabDrag.after=e.clientX>r.left+r.width/2;tabDrag.target=over.dataset.tab;over.classList.add(tabDrag.after?'drop-after':'drop-before');
+ });
+ el.addEventListener('pointerup',finish);el.addEventListener('pointercancel',finish);
+ el.addEventListener('lostpointercapture',e=>{if(tabDrag)finish({type:'pointercancel',pointerId:e.pointerId});});
+ el.addEventListener('touchmove',e=>{if(tabDrag)e.preventDefault();},{passive:false}); // a held tab moves; the strip does not scroll
+ el.addEventListener('contextmenu',e=>{if(press?.touch||tabDrag)e.preventDefault();});       // the long press is ours, not the link menu's
+ el.addEventListener('click',e=>{if(!swallow)return;swallow=false;e.preventDefault();e.stopPropagation();},true); // a drop is not a click; the next press clears it
+ el.addEventListener('keydown',e=>{
+  if(!e.altKey||!e.shiftKey||!['BracketLeft','BracketRight'].includes(e.code))return;
+  const id=e.target.closest?.('.open-session')?.dataset.tab;if(!id)return;
+  e.preventDefault();e.stopPropagation();moveTabBy(id,e.code==='BracketRight'?1:-1);
+ });
 }
 function workspaceMount(scrim,sh,kind){
  dockSurface?.remove();dockSurface=null;
@@ -417,7 +517,7 @@ async function openGit(id){
 }
 function keyboardHelp(){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
- sh.innerHTML='<h2>Keyboard shortcuts</h2><dl class="shortcut-list"><dt>Ctrl / ⌘ K</dt><dd>Find a conversation</dd><dt>Ctrl / ⌘ Shift L</dt><dd>Start a conversation</dd><dt>Alt [ / Alt ]</dt><dd>Previous / next open conversation</dd><dt>Ctrl / ⌘ F</dt><dd>Find in the conversation</dd><dt>Ctrl / ⌘ ;</dt><dd>Open or close the side chat</dd><dt>Enter</dt><dd>Send, or start a conversation, in a window at least 900 px wide. On a narrower one it adds a line, and the send button sends</dd><dt>Shift Enter</dt><dd>Add a line</dd><dt>Escape</dt><dd>Close a dialog or search</dd></dl><p class="sheet-help">Open-conversation tabs and workspace filters are saved on this device. Closing a tab never stops an agent or deletes its conversation.</p>';
+ sh.innerHTML='<h2>Keyboard shortcuts</h2><dl class="shortcut-list"><dt>Ctrl / ⌘ K</dt><dd>Find a conversation</dd><dt>Ctrl / ⌘ Shift L</dt><dd>Start a conversation</dd><dt>Alt [ / Alt ]</dt><dd>Previous / next open conversation</dd><dt>Alt Shift [ / Alt Shift ]</dt><dd>Move the tab left / right</dd><dt>Ctrl / ⌘ F</dt><dd>Find in the conversation</dd><dt>Ctrl / ⌘ ;</dt><dd>Open or close the side chat</dd><dt>Enter</dt><dd>Send, or start a conversation, in a window at least 900 px wide. On a narrower one it adds a line, and the send button sends</dd><dt>Shift Enter</dt><dd>Add a line</dd><dt>Escape</dt><dd>Close a dialog or search</dd></dl><p class="sheet-help">Open-conversation tabs, their order and workspace filters are saved on this device. Drag a tab to move it; pinned tabs stay first and moving one reorders the pins. Closing a tab never stops an agent or deletes its conversation.</p>';
  mountSheet(scrim,sh);
 }
 document.addEventListener('keydown',e=>{
@@ -425,6 +525,7 @@ document.addEventListener('keydown',e=>{
  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openSessionSwitcher();return;}
  if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='l'){e.preventDefault();openFreshNew();return;}
  const openId=chatId||currentView();
+ if(e.altKey&&e.shiftKey&&['BracketLeft','BracketRight'].includes(e.code)&&openId&&!closeCurrentSheet){if(openSessions.some(s=>s.id===openId)){e.preventDefault();moveTabBy(openId,e.code==='BracketRight'?1:-1);}return;} // 1.112: move this tab
  if(e.altKey&&['[',']'].includes(e.key)&&openId&&!closeCurrentSheet){const shown=orderedOpenSessions(),index=shown.findIndex(s=>s.id===openId),next=shown[(index+(e.key===']'?1:-1)+shown.length)%shown.length];if(next){e.preventDefault();location.hash=tabHref(next.id);}}
 });
 

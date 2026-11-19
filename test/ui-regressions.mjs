@@ -621,7 +621,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   });
   await check('A start link\'s folder wins in New conversation, listed or not, over the default workspace (1.81, #176)',async()=>{
    const workspace=()=>page.evaluate(()=>({selected:document.querySelector('#plist .row.sel')?.dataset.p||null,custom:document.querySelector('#cpath').value}));
-   const open=async link=>{await page.goto(base+'/#/start/'+link);await page.waitForFunction(()=>location.hash==='#/new'&&/Reach Jordan/.test(document.querySelector('#first')?.value||'')&&document.querySelector('#plist .row'));await pause(150);};
+   const open=async link=>{await page.goto(base+'/#/start/'+link);await page.waitForFunction(link=>location.hash==='#/new/'+link&&/Reach Jordan/.test(document.querySelector('#first')?.value||'')&&document.querySelector('#plist .row'),{},link);await pause(150);};
    setMode({defaultCwd:'/workspaces/products',startDirectory:'/workspaces/warehouse'});
    await open('0123456789ad');
    assert.deepEqual(await workspace(),{selected:'/workspaces/warehouse',custom:''},'a listed folder is selected, not the default');
@@ -629,7 +629,42 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await open('0123456789ae');
    assert.deepEqual(await workspace(),{selected:null,custom:'/workspaces/returns'},'a folder not listed is filled in as a custom path');
    setMode({defaultCwd:null,startDirectory:null});
-   await page.evaluate(()=>{clearDraft(NEW_KEY);localStorage.removeItem('pc-new-start');localStorage.removeItem(briefingKey());});
+   await page.evaluate(()=>{['0123456789ad','0123456789ae'].forEach(forgetNewSlot);});
+  });
+  await check('1.112 Start links: each opens its own unsent conversation and tab; another start, or the plus, never replaces it',async()=>{
+   await page.setViewport({width:1440,height:900});
+   const [A,B]=['0123456789c1','0123456789c2'];
+   const open=async link=>{await page.goto(base+'/#/start/'+link);await page.waitForFunction(link=>location.hash==='#/new/'+link&&/Reach Jordan/.test(document.querySelector('#first')?.value||''),{},link);};
+   const tabs=()=>page.$$eval('#open-sessions .open-session',es=>es.map(e=>e.dataset.tab));
+   const box=()=>page.$eval('#first',e=>e.value);
+   await open(A);
+   assert.ok((await tabs()).includes('new/'+A),'the unsent conversation has a tab');
+   assert.equal(await page.$eval(`.open-session[data-tab="new/${A}"]`,e=>e.classList.contains('current')),true,'and it is the current tab');
+   assert.match(await page.$eval(`.open-session[data-tab="new/${A}"] a`,e=>e.textContent),/Oakridge: Robin asks that nobody be dispatched/,'named after the briefing');
+   await page.focus('#first');await page.keyboard.press('End');await page.keyboard.type(' Also call Robin.');
+   await open(B);
+   assert.ok(!(await box()).includes('Also call Robin.'),'the second start has its own draft');
+   assert.deepEqual((await tabs()).filter(t=>t.startsWith('new/')),['new/'+A,'new/'+B],'both unsent conversations keep a tab');
+   await clickControl(page,`.open-session[data-tab="new/${A}"] a`);await page.waitForFunction(A=>location.hash==='#/new/'+A&&newView==='new/'+A&&document.querySelector('#plist .row'),{},A);
+   assert.match(await box(),/Reach Jordan before 9 a\.m\. Also call Robin\.$/,'the first comes back as it was left');
+   // the plus opens plain New and leaves the drafts alone, even an untouched briefing
+   await page.evaluate(()=>openFreshNew('#/new'));await page.waitForFunction(()=>location.hash==='#/new'&&!newView&&document.querySelector('#plist .row'));
+   assert.ok(!/Reach Jordan/.test(await box()),'plain New is empty');
+   assert.match(await page.evaluate(B=>loadDraft(newSlotKey(B)),B),/Reach Jordan/,'the untouched second draft is kept');
+   assert.deepEqual((await tabs()).filter(t=>t.startsWith('new/')),['new/'+A,'new/'+B]);
+   // opening the same link again reopens its draft, edits and all
+   await page.goto(base+'/#/start/'+A);await page.waitForFunction(A=>location.hash==='#/new/'+A&&/Also call Robin/.test(document.querySelector('#first')?.value||''),{},A);
+   // sending it starts the conversation with the link, and the conversation's tab replaces the draft's
+   await page.waitForSelector('#plist .row.sel, #cpath');
+   const before=received.length;await clickControl(page,'#start');await page.waitForFunction(()=>location.hash.startsWith('#/chat/'));
+   assert.equal(received.length,before+1);assert.equal(received.at(-1).start,A,'the start carries its link');assert.match(received.at(-1).text,/Also call Robin\./);
+   assert.ok(!(await tabs()).includes('new/'+A),'the draft tab is gone');assert.ok((await tabs()).includes('new/'+B),'the other draft stays');
+   assert.equal(await page.evaluate(A=>localStorage.getItem('pc-new-start-'+newSlotKey(A))||loadDraft(newSlotKey(A))||null,A),null,'and its draft is cleared');
+   assert.equal(await page.evaluate(()=>NEW_KEY),'new','the conversation is not a New screen');
+   await scan('start-link-drafts-desktop');
+   // closing a draft's tab keeps its text for the link; Inbox Start brings it back
+   await page.evaluate(B=>{forgetOpenSession('new/'+B);},B);assert.match(await page.evaluate(B=>loadDraft(newSlotKey(B)),B),/Reach Jordan/);
+   await page.evaluate(B=>forgetNewSlot(B),B);
   });
   await check('Attention filter includes Response ready replies until they are opened',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
@@ -786,6 +821,55 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await scan('pinned-tabs-desktop');await page.screenshot({path:path.join(out,'pinned-tabs-desktop.png')});
    for(const id of [a,b]){await clickControl(page,`[data-more="${id}"]`);await page.waitForSelector('#so-pin');await clickControl(page,'#so-pin');await page.waitForFunction(id=>!document.querySelector(`.session-item.pinned[data-item="${id}"]`),{},id);}
    await page.waitForFunction(()=>document.querySelectorAll('#open-sessions .open-session.pinned').length===0);
+  });
+  await check('1.112 Tabs: drag or Alt Shift [ ] reorders them, a drop is not a click, and a tab follows its conversation’s new name',async()=>{
+   await page.setViewport({width:1440,height:900});
+   const [a,b,c]=[rows[1].id,rows[2].id,rows[3].id];
+   await page.evaluate(()=>{openSessions=[];writeLocal('pc-open-sessions',[]);});
+   for(const id of [a,b,c])await openChat(id);
+   const order=()=>page.$$eval('#open-sessions .open-session',es=>es.map(e=>e.dataset.tab));
+   const tab=id=>page.$(`#open-sessions .open-session[data-tab="${id}"] a`);
+   assert.deepEqual(await order(),[a,b,c],'tabs open in order');
+   assert.equal(await page.$eval('#open-sessions a',e=>e.getAttribute('draggable')),'false','the browser’s link drag is off');
+   // drag the last tab onto the first one's left half
+   let from=await (await tab(c)).boundingBox(),to=await (await tab(a)).boundingBox();
+   await page.mouse.move(from.x+from.width/2,from.y+from.height/2);await page.mouse.down();
+   await page.mouse.move(to.x+8,to.y+to.height/2,{steps:10});
+   assert.equal(await page.$eval(`.open-session[data-tab="${a}"]`,e=>e.classList.contains('drop-before')),true,'the drop side is marked');
+   assert.equal(await page.$eval(`.open-session[data-tab="${c}"]`,e=>e.classList.contains('dragging')),true,'the held tab dims');
+   await page.evaluate(()=>paintOpenSessions());                                        // a list refresh mid-drag must not rebuild the strip
+   assert.equal(await page.$eval(`.open-session[data-tab="${a}"]`,e=>e.classList.contains('drop-before')),true,'still marked after a refresh');
+   await page.mouse.up();
+   assert.deepEqual(await order(),[c,a,b],'the drop moves the tab');
+   assert.equal(await page.evaluate(()=>chatId),c,'a drop is not a click: the conversation shown stays');
+   assert.deepEqual(await page.evaluate(()=>readLocal('pc-open-sessions',[]).map(s=>s.id)),[c,a,b],'the order is saved on this browser');
+   assert.equal(await page.$$eval('#open-sessions .drop-before,#open-sessions .drop-after,#open-sessions .dragging',e=>e.length),0,'no marks left');
+   // a short press without movement is still a click
+   const bb=await (await tab(b)).boundingBox();await page.mouse.click(bb.x+bb.width/2,bb.y+bb.height/2);
+   await page.waitForFunction(id=>chatId===id,{},b);
+   // keyboard: Alt Shift ] moves the focused tab right, Alt Shift [ left, and focus stays on it
+   await page.focus(`#open-sessions .open-session[data-tab="${c}"] a`);
+   await page.keyboard.down('Alt');await page.keyboard.down('Shift');await page.keyboard.press('BracketRight');await page.keyboard.up('Shift');await page.keyboard.up('Alt');
+   assert.deepEqual(await order(),[a,c,b],'Alt Shift ] moves it right');
+   assert.equal(await page.evaluate(()=>document.activeElement?.closest('.open-session')?.dataset.tab),c,'focus stays on the moved tab');
+   assert.match(await page.$eval('#toast',e=>e.textContent),/Tab 2 of 3/);
+   await page.keyboard.down('Alt');await page.keyboard.down('Shift');await page.keyboard.press('BracketLeft');await page.keyboard.up('Shift');await page.keyboard.up('Alt');
+   assert.deepEqual(await order(),[c,a,b],'Alt Shift [ moves it back');
+   // the 13th tab closes the least recently opened, not the leftmost (which the user may have put there on purpose)
+   await page.evaluate(([a,b,c])=>{const now=Date.now(),opened={[a]:now-3000,[b]:now-2000,[c]:now-1000};openSessions=openSessions.map(s=>({...s,at:opened[s.id]}));for(let i=0;i<9;i++)openSessions.push({id:'link/'+i,title:'Link '+i,at:now+i});writeLocal('pc-open-sessions',openSessions);},[a,b,c]);
+   await page.evaluate(()=>rememberTab('tasks','Tasks'));
+   const kept=await page.evaluate(()=>openSessions.map(s=>s.id));
+   assert.equal(kept.length,12);assert.equal(kept[0],c,'the tab moved to the front stays');assert.ok(!kept.includes(a),'the oldest-opened tab went: '+kept.join(','));
+   await page.evaluate(id=>{openSessions=openSessions.filter(s=>s.id===id||!/^(link\/|tasks)/.test(s.id));writeLocal('pc-open-sessions',openSessions);paintOpenSessions();},c);
+   // a Codex thread gets its name after its first turn: the tab follows the list, as the header does
+   await openChat(a);
+   const before=rows[1].title;rows[1].title='Listing photos: named after the first turn';
+   try{
+    await page.evaluate(()=>refreshSessions());
+    await page.waitForFunction(id=>document.querySelector(`#open-sessions .open-session[data-tab="${id}"] a`)?.textContent.includes('Listing photos: named after the first turn'),{},a);
+    assert.equal(await page.evaluate(id=>readLocal('pc-open-sessions',[]).find(s=>s.id===id)?.title,a),'Listing photos: named after the first turn','the new name is saved with the tab');
+   }finally{rows[1].title=before;await page.evaluate(()=>refreshSessions());}
+   await scan('tabs-reorder-desktop');await page.screenshot({path:path.join(out,'tabs-reorder-desktop.png')});
   });
   await check('Row pin: one click pins and unpins without opening the conversation; Pin is the first option (1.94, Damon)',async()=>{
    await page.setViewport({width:1440,height:900});
@@ -2678,7 +2762,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      await setBox(draft);
      await page.evaluate(()=>settingsSheet({category:'help'}));await clickControl(page,'#s-keys');await page.waitForSelector('.shortcut-list');
      const rows=await page.$$eval('.shortcut-list dt',ts=>ts.map(t=>[t.textContent.trim(),t.nextElementSibling.textContent.trim()]));
-     assert.deepEqual(rows.map(r=>r[0]),['Ctrl / ⌘ K','Ctrl / ⌘ Shift L','Alt [ / Alt ]','Ctrl / ⌘ F','Ctrl / ⌘ ;','Enter','Shift Enter','Escape']);
+     assert.deepEqual(rows.map(r=>r[0]),['Ctrl / ⌘ K','Ctrl / ⌘ Shift L','Alt [ / Alt ]','Alt Shift [ / Alt Shift ]','Ctrl / ⌘ F','Ctrl / ⌘ ;','Enter','Shift Enter','Escape']);
      assert.equal(rows.find(r=>r[0]==='Ctrl / ⌘ ;')[1],'Open or close the side chat');
      assert.match(rows.find(r=>r[0]==='Enter')[1],/at least 900 px wide.*narrower one it adds a line.*send button sends/);assert.equal(rows.find(r=>r[0]==='Shift Enter')[1],'Add a line');
      await scan('keyboard-shortcuts-'+w);
@@ -2756,7 +2840,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     // 1.77: Start a conversation from the alert: New carries the start link, and the row then shows the conversation
     await clickRow('.inbox-item:has([aria-label="Mark as unread: Oakridge dispatch conflict"]) .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet [data-go]');
     assert.equal(await page.$('.inbox-sheet [data-chat]'),null,'no conversation yet');
-    await clickControl(page,'.inbox-sheet [data-go]');await page.waitForFunction(()=>location.hash==='#/new'&&/Reach Jordan/.test(document.querySelector('#first')?.value||''));
+    await clickControl(page,'.inbox-sheet [data-go]');await page.waitForFunction(()=>location.hash==='#/new/0123456789ab'&&/Reach Jordan/.test(document.querySelector('#first')?.value||'')); // 1.112: its own unsent conversation
     const sentBefore=received.length;await clickControl(page,'#start');await page.waitForFunction(n=>location.hash.startsWith('#/chat/')||false,{},sentBefore);
     assert.equal(received.at(-1).start,'0123456789ab','the start link reaches /api/new');
     await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view .inbox-item .inbox-chat');

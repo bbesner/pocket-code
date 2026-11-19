@@ -34,6 +34,10 @@ export async function runCompleteRegressions({browser,base,rows,out,conversation
    complete();await open(width,id);await page.waitForSelector('.done-card:not([hidden])');
    assert.deepEqual(await card(),{title:'Complete',sum:SUMMARY,act:'Close conversation',name:'Complete: '+SUMMARY+'. Close conversation',tall:true,inside:true,last:true});
    assert.equal(await page.$('[data-choices]:not([hidden])'),null,'never beside reply buttons');
+   // 1.112: unmistakable, not a line of the reply: the finished wash and edge, a filled tick badge and a filled Close button
+   const look=await page.$eval('.done-card:not([hidden])',c=>{const cs=getComputedStyle(c),ok=getComputedStyle(document.documentElement).getPropertyValue('--ok').trim(),surface=getComputedStyle(document.querySelector('.m-asst')||document.body).backgroundColor,probe=document.createElement('i');probe.style.color=ok;document.body.append(probe);const okRgb=getComputedStyle(probe).color;probe.remove();
+    return {wash:cs.backgroundColor!==surface&&cs.backgroundColor!=='rgba(0, 0, 0, 0)',badge:getComputedStyle(c.querySelector('.done-mark')).backgroundColor===okRgb,title:getComputedStyle(c.querySelector('.done-title')).color===okRgb,button:getComputedStyle(c.querySelector('.done-act')).backgroundColor===okRgb};});
+   assert.deepEqual(look,{wash:true,badge:true,title:true,button:true},'the card reads as finished at '+width);
    await scan('card-'+width,'#msgs');
    await page.screenshot({path:path.join(out,'complete-card-'+width+'.png')});
   }

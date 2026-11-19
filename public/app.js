@@ -2830,8 +2830,9 @@ const loadDraft = id => { try { return localStorage.getItem(draftKey(id)) || '';
 const clearDraft = id => { try { localStorage.removeItem(draftKey(id)); } catch { } };
 // 1.69.3: a briefing handed to New (a start link or Inbox alert, a task's or project's Start) stays only for that visit.
 // The plus button opens a clean conversation unless you changed the briefing, so one you walked away from does not return.
-const briefingKey = () => 'pc-new-briefing-' + NEW_KEY;
-const saveBriefing = text => { saveDraft(NEW_KEY, text); writeLocal(briefingKey(), text); };
+// 1.112: these are plain New's (the plus, a project's or task's start); a start link's draft keeps its own keys.
+const briefingKey = () => 'pc-new-briefing-' + NEW_BASE;
+const saveBriefing = text => { saveDraft(NEW_BASE, text); writeLocal(briefingKey(), text); };
 // 1.107.1: New with what a Start just left for it (a project's or task's briefing and pc-new-start). Already on New, setting the
 // hash it has fires no hashchange, so the screen kept its old state: a project started from the sidebar while New was open
 // showed no project, no Conductor chip and no briefing (Brad).
@@ -2841,14 +2842,14 @@ function openFreshNew(hash = '#/new') {
   // The plus pressed on the New conversation screen itself starts over: setting the hash it already has did nothing,
   // so a desktop left on New kept its old draft and the button looked dead. The agent and workspace stay; a start
   // still being delivered is never dropped. Reported by Brad.
-  if (here && document.getElementById('first') && !loadOutbox(NEW_KEY)) {
-    clearDraft(NEW_KEY);
-    try { ['pc-new-start', briefingKey(), 'pc-attachments-' + NEW_KEY].forEach(k => localStorage.removeItem(k)); } catch { }
+  if (here && document.getElementById('first') && !loadOutbox(NEW_BASE)) {
+    clearDraft(NEW_BASE);
+    try { ['pc-new-start', briefingKey(), 'pc-attachments-' + NEW_BASE].forEach(k => localStorage.removeItem(k)); } catch { }
     return Promise.resolve(route()).then(() => document.getElementById('first')?.focus());
   }
   const brief = readLocal(briefingKey(), null);
-  if (brief !== null && !loadOutbox(NEW_KEY)) {
-    if (loadDraft(NEW_KEY) === brief) { clearDraft(NEW_KEY); try { localStorage.removeItem('pc-new-start'); } catch { } }
+  if (brief !== null && !loadOutbox(NEW_BASE)) {
+    if (loadDraft(NEW_BASE) === brief) { clearDraft(NEW_BASE); try { localStorage.removeItem('pc-new-start'); } catch { } }
     try { localStorage.removeItem(briefingKey()); } catch { }
     if (here) return route();
   }
@@ -3919,22 +3920,43 @@ async function openSkills(provider,cwd,box) {
 // 1.77: pc-new-start carries the link's id to /api/new, so the Inbox entry that sent it can show the conversation.
 async function openStartLink(id) {
   if (!/^[0-9a-f]{12}$/.test(id)) { toast('That start link is not valid.'); location.replace('#/new'); return; }
+  const key = newSlotKey(id), startKey = newStartKeyOf(key);
   try {
     const s = await api('/start/' + id);
-    if (s.startedSession) { location.replace('#/chat/' + s.startedSession); return; } // 1.96: a handoff starts once
-    saveBriefing(s.text || '');
-    // 1.81: the link's folder rides in pc-new-start like a project's, so New selects it, or fills it in when it is not
-    // listed, over the default workspace (pc-lastproj alone lost to POCKET_DEFAULT_CWD and to the most recent workspace).
+    if (s.startedSession) { forgetNewSlot(id); location.replace('#/chat/' + s.startedSession); return; } // 1.96: a handoff starts once
+    // 1.112: the link's own draft. Opened again (from the Inbox, say), it comes back as you left it: the briefing goes in
+    // only while the draft is empty, and a start still being delivered is never touched.
+    if (!loadDraft(key) && !loadOutbox(key)) { saveDraft(key, s.text || ''); writeLocal('pc-new-briefing-' + key, s.text || ''); }
+    // 1.81: the link's folder rides in its start like a project's, so New selects it, or fills it in when it is not listed.
     // 1.107: a handoff that continues in a project shows that project and its start on New (the server links from the handoff).
-    const carried = s.kind === 'handoff' && s.project && s.projectName && !assistantMode() ? { project: s.project, projectName: s.projectName, handoffProject: true, ...(handoffStartOf(id, s) ? { projectStart: handoffStartOf(id, s) } : {}) } : {};
-    try { writeLocal('pc-new-start', { start: id, cwd: s.directory || '', ...carried }); if (s.directory) localStorage.setItem('pc-lastproj', s.directory); if (s.provider) localStorage.setItem('pc-provider', s.provider); } catch { }
-  } catch (e) { if (e.message === 'login') return; toast(e.status === 404 ? 'That start link has expired.' : 'Could not load the start link.'); }
-  location.replace('#/new');
+    // 1.112: its agent and a title for the tab ride there too, and the draft starts from New's model and effort.
+    if (!readLocal(startKey, null)) {
+      const carried = s.kind === 'handoff' && s.project && s.projectName && !assistantMode() ? { project: s.project, projectName: s.projectName, handoffProject: true, ...(handoffStartOf(id, s) ? { projectStart: handoffStartOf(id, s) } : {}) } : {};
+      const title = String(s.title || '').trim() || briefingTitle(s.text);
+      writeLocal(startKey, { start: id, cwd: s.directory || '', ...(['claude', 'codex', 'acp'].includes(s.provider) ? { provider: s.provider } : {}), title, ...carried });
+      try { if (localStorage.getItem('pc-prefs-' + key) === null) localStorage.setItem('pc-prefs-' + key, localStorage.getItem('pc-prefs-' + NEW_BASE) || '{}'); } catch { }
+    }
+  } catch (e) { if (e.message === 'login') return; toast(e.status === 404 ? 'That start link has expired.' : 'Could not load the start link.'); if (!loadDraft(key) && !loadOutbox(key)) { location.replace('#/new'); return; } }
+  location.replace('#/new/' + id);
 }
-async function renderNew({ home = false } = {}) {
+// The tab's name: the link's title, else the briefing's first line.
+function briefingTitle(text) {
+  const line = String(text || '').split('\n').map(t => t.replace(/^[#>*\-\s]+/, '').trim()).find(Boolean) || '';
+  return line.length > 80 ? line.slice(0, 79).trimEnd() + '…' : line || 'New conversation';
+}
+// A start link's draft is done with: sent, or started elsewhere. Its keys go, and its tab closes.
+function forgetNewSlot(id) {
+  const key = newSlotKey(id);
+  try { ['pc-new-start-' + key, 'pc-new-briefing-' + key, 'pc-attachments-' + key, 'pc-prefs-' + key].forEach(k => localStorage.removeItem(k)); } catch { }
+  clearDraft(key);
+  if (typeof forgetOpenSession === 'function') forgetOpenSession('new/' + id);
+}
+async function renderNew({ home = false, slot = '' } = {}) {
   const viewVersion=++chatRenderVersion;
+  if (slot) { NEW_KEY = newSlotKey(slot); newView = 'new/' + slot; home = false; } // 1.112: a start link's own draft
+  const NK = NEW_KEY, SK = newStartKeyOf(NK), BK = 'pc-new-briefing-' + NK;
   home = home && assistantMode() && !PANE;
-  const pendingNew = loadOutbox(NEW_KEY);
+  const pendingNew = loadOutbox(NK);
   Voice.onLeave(); // 1.58: the mic below speaks to this New session, not the conversation you left
   // 1.58: the message box is the conversation's own composer (settings chips, attach, skill, save as prompt,
   // mic, hands-free, Send); the task heading, saved prompts and workspace setup sit above it.
@@ -3970,13 +3992,19 @@ async function renderNew({ home = false } = {}) {
   app.innerHTML = withShell(col) + '<input type="file" id="fpick" multiple hidden>';
   wireShell();
   if (PANE) $('#pane-close').onclick = () => paneSay('close'); else if (home) { $('#settings').onclick = settingsSheet; bindAssistantIntro(); paintAssistantHome(); refreshSessions(); } else $('#back').onclick = () => { location.hash = '#/'; };
-  tb = { key: NEW_KEY, prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs(NEW_KEY), attachments: loadAttachments(NEW_KEY), allowAttach: true, provider: pendingNew?.payload.provider || (['codex','acp'].includes(localStorage.getItem('pc-provider')) ? localStorage.getItem('pc-provider') : 'claude') };
+  const slotStart = slot ? readLocal(SK, null) : null;
+  const slotProvider = pendingNew?.payload.provider || (['claude', 'codex', 'acp'].includes(slotStart?.provider) ? slotStart.provider : (['codex','acp'].includes(localStorage.getItem('pc-provider')) ? localStorage.getItem('pc-provider') : 'claude'));
+  tb = { key: NK, prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs(NK), attachments: loadAttachments(NK), allowAttach: true, provider: slotProvider };
   renderToolbar();
   // which agent runs this session — remembered, since most days you stay on one
-  let provider = pendingNew?.payload.provider || (['codex','acp'].includes(localStorage.getItem('pc-provider')) ? localStorage.getItem('pc-provider') : 'claude');
+  let provider = slotProvider;
   let sel = null;
   // 1.49: Start session on a project card leaves its id here; the session is linked to the project when it starts.
-  let startFrom = pendingNew?.payload.project ? { project: pendingNew.payload.project, projectName: pendingNew.payload.projectName || '' } : readLocal('pc-new-start', null);
+  let startFrom = pendingNew?.payload.project ? { project: pendingNew.payload.project, projectName: pendingNew.payload.projectName || '' } : readLocal(SK, null);
+  if (slot) { // 1.112: the draft is a tab of its own until it is sent
+    const title = readLocal(SK, null)?.title || openSessions.find(t => t.id === newView)?.title || 'New conversation';
+    if (PANE) paneSay('route', { id: newView, title }); else if (!SOLO) rememberOpenView(newView, title);
+  }
   const paintNewProject = () => {
     const b = $('#new-project'); if (!b) return;
     b.hidden = !startFrom?.project;
@@ -3987,9 +4015,9 @@ async function renderNew({ home = false } = {}) {
     const name = startFrom.projectName || startFrom.project;
     b.innerHTML = IC.folder + '<span>' + esc(name) + '</span>'; b.title = 'This conversation will be linked to the project ' + name;
     b.setAttribute('aria-label', 'Linked to the project ' + name + '. Options');
-    b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.');
+    b.onclick = () => { if (loadOutbox(NK)) return toast('Retry or discard the unconfirmed start first.');
       if (startFrom.handoffProject) return toast('This handoff continues in ' + name + '.');
-      confirmSheet('Start without the project?', 'The new conversation will not be linked to ' + name + '. ' + (startFrom.note ? 'The project stays in Projects.' : 'The briefing stays in the message; edit it if you no longer want it.'), 'Remove the link', () => { startFrom = null; try { localStorage.removeItem('pc-new-start'); } catch { } paintNewProject(); paintStartMode(); }); };
+      confirmSheet('Start without the project?', 'The new conversation will not be linked to ' + name + '. ' + (startFrom.note ? 'The project stays in Projects.' : 'The briefing stays in the message; edit it if you no longer want it.'), 'Remove the link', () => { startFrom = null; try { localStorage.removeItem(SK); } catch { } paintNewProject(); paintStartMode(); }); };
   };
   // 1.106: a Conductor project's start. Conductor (the default) or Solo, sent as projectStart; an agent without a top model on
   // this server, or one that does not run project mode at all, starts as usual and says so. Removing the project link removes it.
@@ -4000,23 +4028,23 @@ async function renderNew({ home = false } = {}) {
   // 1.106.1: what that start runs, for the Model and Effort chips' Default (projectModeNow on New)
   const startSolo = () => startFrom?.solo?.[provider] || null;
   newProjectMode = () => { const c = startChoice(); return c ? { start: c, modelLabel: c === 'conductor' ? startLead() : startSolo(), effort: startFrom.effort?.[provider] || 'high', pending: true } : null; };
-  const pickStart = v => { if (!startFrom) return; startFrom.projectStart = v; writeLocal('pc-new-start', startFrom); paintStartMode(); };
+  const pickStart = v => { if (!startFrom) return; startFrom.projectStart = v; writeLocal(SK, startFrom); paintStartMode(); };
   // 1.106.1: the start as a chip beside the project chip, so it shows without opening the setup; tapping it offers the other.
   const paintStartChip = () => {
     const b = $('#new-mode'); if (!b) return;
     const c = startChoice(); b.hidden = !c; if (!c) return;
     const word = c === 'solo' ? 'Solo' : 'Conductor', solo = startSolo();
     b.textContent = word; b.setAttribute('aria-label', word + ': how this project conversation starts. Change');
-    b.onclick = () => { if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.');
+    b.onclick = () => { if (loadOutbox(NK)) return toast('Retry or discard the unconfirmed start first.');
       startChoiceSheet(c, startLead(), solo, pickStart); };
   };
   // While the Start control applies, model and effort begin on Default (the server then runs the lead or the Solo model);
   // when it stops applying (another agent, the link removed), the saved picks come back unless one was made here.
   const holdForLead = () => {
-    if (!tb || tb.key !== NEW_KEY || pendingNew) return;
+    if (!tb || tb.key !== NK || pendingNew) return;
     const applies = Boolean(startLead());
     if (applies && !tb.leadHeld) {
-      const saved = getPrefs(NEW_KEY); tb.leadHeld = { model: saved.model, effort: saved.effort };
+      const saved = getPrefs(NK); tb.leadHeld = { model: saved.model, effort: saved.effort };
       tb.prefs = { ...tb.prefs, model: 'default', effort: 'default' }; renderToolbar();
     } else if (!applies && tb.leadHeld) {
       tb.prefs = { ...tb.prefs, ...tb.leadHeld }; tb.leadHeld = null; renderToolbar();
@@ -4039,18 +4067,18 @@ async function renderNew({ home = false } = {}) {
       }
     }
     paintStartChip();
-    if (tb?.key === NEW_KEY) renderToolbar(); else updateNewSummary(); // the chips' Default follows the start (renderToolbar updates the summary)
+    if (tb?.key === NK) renderToolbar(); else updateNewSummary(); // the chips' Default follows the start (renderToolbar updates the summary)
   };
   // 1.107: Start a project. The name starts as the message's first line; the message stays in the box, and the card it makes
   // is linked when the conversation starts. `note` has Send tell the agent which card that is.
   $('#new-track').onclick = () => {
-    if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.');
+    if (loadOutbox(NK)) return toast('Retry or discard the unconfirmed start first.');
     const line = ($('#first').value.trim().split('\n')[0] || '').replace(/^[#>*\-\s]+/, '').trim();
     const name = (line.length > 80 ? line.slice(0, 80).replace(/\s+\S*$/, '') : line).replace(/[.,;:!?]+$/, ''); // a name, not a sentence
     const directory = $('#cpath').value.trim() || sel || '';
     startProjectSheet({ name, directory, onDone: p => {
-      startFrom = { ...(startFrom?.start ? { start: startFrom.start } : {}), project: p.id, projectName: p.name, cwd: directory, note: true, ...conductorStartFields(p) };
-      writeLocal('pc-new-start', startFrom); paintNewProject(); paintStartMode(); $('#first')?.focus();
+      startFrom = { ...(startFrom?.start ? { start: startFrom.start } : {}), ...(startFrom?.provider ? { provider: startFrom.provider } : {}), ...(startFrom?.title ? { title: startFrom.title } : {}), project: p.id, projectName: p.name, cwd: directory, note: true, ...conductorStartFields(p) };
+      writeLocal(SK, startFrom); paintNewProject(); paintStartMode(); $('#first')?.focus();
     } });
   };
   $('#spick').querySelectorAll('.row').forEach(r => r.onclick = () => pickStart(r.dataset.s));
@@ -4063,7 +4091,7 @@ async function renderNew({ home = false } = {}) {
     if (viewVersion !== chatRenderVersion || !p || !startFrom) return;
     const { mode, conductor, solo, effort, ...rest } = startFrom;
     startFrom = { ...rest, projectName: p.name, ...(p.mode === 'conductor' && p.status !== 'done' ? { mode: 'conductor', conductor: { ...(s.conductor || {}) }, solo: { ...(s.conductorStart?.solo || {}) }, effort: { ...(s.conductorStart?.effort || {}) } } : {}) };
-    writeLocal('pc-new-start', startFrom); paintNewProject(); paintStartMode();
+    writeLocal(SK, startFrom); paintNewProject(); paintStartMode();
   }).catch(() => { });
   const context = () => {const cwd=$('#cpath')?.value.trim()||sel;const el=$('#task-context');if(el)el.dataset.workspace=cwd?projName(cwd):'Choose a workspace';updateNewSummary();};
   $('#new-setup').ontoggle=()=>{ $('#new-setup .setup-edit').textContent=$('#new-setup').open?'Close setup':'Edit setup'; };
@@ -4072,7 +4100,7 @@ async function renderNew({ home = false } = {}) {
   const ap = $('#apick');
   const pickAgent = a => {
     provider = a;
-    localStorage.setItem('pc-provider', a);
+    if (slot) { if (startFrom) { startFrom.provider = a; writeLocal(SK, startFrom); } } else localStorage.setItem('pc-provider', a); // 1.112: a draft keeps its own agent
     ap.querySelectorAll('.row').forEach(x => {
       const on = x.dataset.a === a;
       x.classList.toggle('sel', on); x.setAttribute('aria-checked', String(on)); x.tabIndex = on ? 0 : -1;
@@ -4095,10 +4123,10 @@ async function renderNew({ home = false } = {}) {
   });
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const first = $('#first');
-  first.value = pendingNew?.payload.text || loadDraft(NEW_KEY);
+  first.value = pendingNew?.payload.text || loadDraft(NK);
   let savedPrompts = [], recentStarts = [], activeStarter = null; // 1.23 (declared before the handlers that read them)
   const slashNew = bindSlash(first, () => ({ where: 'new', provider, cwd: $('#cpath')?.value.trim() || sel || '' }));
-  first.oninput = () => { sizeComposerBox(); saveDraft(NEW_KEY, first.value); slashNew(); const h = $('#start-hint'); if (h) h.hidden = true; paintSaveButton(); if (activeStarter && first.value !== activeStarter.text) { activeStarter = null; paintStarters(); } };
+  first.oninput = () => { sizeComposerBox(); saveDraft(NK, first.value); slashNew(); const h = $('#start-hint'); if (h) h.hidden = true; paintSaveButton(); if (activeStarter && first.value !== activeStarter.text) { activeStarter = null; paintStarters(); } };
   first.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && isWide()) { e.preventDefault(); startSession(); } }; // like the conversation: Enter starts, Shift+Enter for a newline
   sizeComposerBox();
   try {
@@ -4134,13 +4162,13 @@ async function renderNew({ home = false } = {}) {
   if (pendingNew) $('#cpath').value = pendingNew.payload.cwd;context();
   if (assistantMode() && ($('#cpath').value.trim() || sel)) $('#new-setup').hidden = true; // 1.60: nothing to choose
   const paintNewDelivery = () => {
-    const pending = loadOutbox(NEW_KEY), note = $('#new-delivery');
+    const pending = loadOutbox(NK), note = $('#new-delivery');
     if (!note) return;
     note.hidden = !pending;
     note.classList.toggle('delivery-problem', Boolean(pending));
     note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><div class="delivery-actions"><button class="chip" id="retry-new">Retry start</button><button class="chip" id="discard-new">Discard retry</button></div>' : '';
     const retry = $('#retry-new'); if (retry) retry.onclick = () => startSession();
-    const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NEW_KEY, null); clearDraft(NEW_KEY); localStorage.removeItem('pc-new-start'); localStorage.removeItem(briefingKey()); renderNew(); };
+    const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NK, null); clearDraft(NK); localStorage.removeItem(SK); localStorage.removeItem(BK); renderNew({ slot }); };
     app.querySelectorAll('.pane input,.pane textarea,.pane button,#comp textarea,#comp button:not(#start):not(#composer-toggle)').forEach(el => { el.disabled = Boolean(pending); });
     const label = pending ? 'Retry start' : 'Start conversation';
     $('#start').setAttribute('aria-label', label); $('#start').title = label;
@@ -4154,7 +4182,7 @@ async function renderNew({ home = false } = {}) {
   const describe = p => [p.cwd ? projName(p.cwd) : 'No workspace', p.provider === 'codex' ? 'Codex' : 'Claude Code',
     p.model ? modelLabel(p.model) : '', p.effort ? p.effort[0].toUpperCase() + p.effort.slice(1) : '', p.approvalMode === 'full' ? 'Full access' : p.approvalMode === 'review' ? 'Review actions' : '',
     p.executionMode === 'plan' ? 'Plan first' : ''].filter(Boolean).join(' · ');
-  function paintSaveButton() { const b = $('#save-prompt'); if (b) b.disabled = !first.value.trim() || Boolean(loadOutbox(NEW_KEY)); }
+  function paintSaveButton() { const b = $('#save-prompt'); if (b) b.disabled = !first.value.trim() || Boolean(loadOutbox(NK)); }
   function selectWorkspace(cwd) {
     const pl = $('#plist'), row = cwd && pl?.querySelector(`.row[data-p="${CSS.escape(cwd)}"]`);
     if (row) { row.click(); return; }
@@ -4162,15 +4190,15 @@ async function renderNew({ home = false } = {}) {
     sel = null; $('#cpath').value = cwd || ''; context();
   }
   function applyStarter(p) {
-    if (loadOutbox(NEW_KEY)) return toast('Retry or discard the unconfirmed start first.');
+    if (loadOutbox(NK)) return toast('Retry or discard the unconfirmed start first.');
     pickAgent(p.provider === 'codex' ? 'codex' : 'claude');
     selectWorkspace(p.cwd);
     const prefs = { ...tb.prefs, model: p.model || tb.prefs.model, effort: p.effort || tb.prefs.effort };
     if (tb.leadHeld) { if (p.model) delete tb.leadHeld.model; if (p.effort) delete tb.leadHeld.effort; } // a saved prompt's own pick is a pick
     if (p.approvalMode) { prefs.approvalMode = p.approvalMode; prefs.approvalModeSource = 'user'; }
     if (p.executionMode) prefs.executionMode = p.executionMode;
-    tb.prefs = prefs; setPrefs(NEW_KEY, prefs); renderToolbar();
-    first.value = p.text; saveDraft(NEW_KEY, first.value); paintSaveButton();
+    tb.prefs = prefs; setPrefs(NK, prefs); renderToolbar();
+    first.value = p.text; saveDraft(NK, first.value); paintSaveButton();
     activeStarter = p; paintStarters();
     $('#start-hint').hidden = true;
     first.focus({ preventScroll: true }); first.setSelectionRange(first.value.length, first.value.length);
@@ -4264,8 +4292,8 @@ async function renderNew({ home = false } = {}) {
   api('/prompts').then(d => { if (viewVersion !== chatRenderVersion) return; takeLists(d); paintStarters(); }).catch(() => { });
   let newPending = null;
   const startSession = async ({ allowSecrets = false } = {}) => {
-    if(uploadsInFlight.get(NEW_KEY))return toast('Wait for the attachment upload to finish.');
-    const savedStart = loadOutbox(NEW_KEY);
+    if(uploadsInFlight.get(NK))return toast('Wait for the attachment upload to finish.');
+    const savedStart = loadOutbox(NK);
     const cwd = savedStart?.payload.cwd || $('#cpath').value.trim() || sel;
     const text = savedStart?.payload.text || $('#first').value.trim();
     const hint = msg => { const h = $('#start-hint'); h.textContent = msg; h.hidden = false; };
@@ -4277,17 +4305,18 @@ async function renderNew({ home = false } = {}) {
     try {
       const noted = startFrom?.note && startFrom.project && !text.includes('Pocket project ' + startFrom.project) ? text + '\n\n' + projectNote(startFrom.project) : text;
       const payload = savedStart?.payload || { cwd, text: noted, provider, ...turnOpts(), ...(startFrom?.project ? { project: startFrom.project, projectName: startFrom.projectName || '' } : {}), ...(startFrom?.start ? { start: startFrom.start } : {}), ...(startChoice() ? { projectStart: startChoice() } : {}) };
-      const saved = loadOutbox(NEW_KEY);
+      const saved = loadOutbox(NK);
       if (saved && JSON.stringify(saved.payload) !== JSON.stringify(payload)) { toast('Retry the saved new conversation request before changing it.'); return false; }
       newPending = saved || { payload, clientMessageId: crypto.randomUUID(), ...(allowSecrets ? { allowSecrets: true } : {}) };
-      saveOutbox(NEW_KEY, newPending);
+      saveOutbox(NK, newPending);
       const { id, modelFallback, projectLinkError } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
       setPrefs(id,{model:modelFallback?'default':payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work',approvalMode:payload.approvalMode||approvalPolicy.defaultMode});
-      saveOutbox(NEW_KEY, null);
-      clearDraft(NEW_KEY); localStorage.removeItem('pc-attachments-'+NEW_KEY); localStorage.removeItem('pc-new-start'); localStorage.removeItem(briefingKey()); if (tb?.key === NEW_KEY) tb.attachments = [];
+      saveOutbox(NK, null);
+      clearDraft(NK); localStorage.removeItem('pc-attachments-'+NK); localStorage.removeItem(SK); localStorage.removeItem(BK); if (tb?.key === NK) tb.attachments = [];
       try { localStorage.setItem('pc-lastproj', cwd); } catch { }
       if (payload.project && typeof loadBoard === 'function') loadBoard(true).catch(() => { }); // the card now lists the session
-      Voice.carryTo(NEW_KEY, id); // a spoken start keeps its reply and hands-free conversation in the new session
+      Voice.carryTo(NK, id); // a spoken start keeps its reply and hands-free conversation in the new session
+      if (slot) forgetNewSlot(slot); // 1.112: the conversation's own tab replaces the draft's
       location.hash = '#/chat/' + id;
       if (modelFallback) modelFellBack(null, modelFallback);
       // 1.106: the conversation started, but the server could not link it (the project's conversation limit, say), so
@@ -4295,8 +4324,8 @@ async function renderNew({ home = false } = {}) {
       if (projectLinkError && payload.project) toast(`Started, but not linked to ${payload.projectName || 'the project'}: ${projectLinkError}`);
       return true;
     } catch (e) {
-      if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NEW_KEY, null);
-      if (e.code === 'start_used') { clearDraft(NEW_KEY); localStorage.removeItem('pc-new-start'); localStorage.removeItem(briefingKey()); location.hash = '#/chat/' + e.body.id; return false; } // 1.96: another tap or device started it
+      if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NK, null);
+      if (e.code === 'start_used') { clearDraft(NK); localStorage.removeItem(SK); localStorage.removeItem(BK); if (slot) forgetNewSlot(slot); location.hash = '#/chat/' + e.body.id; return false; } // 1.96: another tap or device started it
       if (e.code === 'secret_detected') holdSecretStart(newPending?.payload.text || text, e.body?.matches || []);
       else toast(e.message || 'Delivery not confirmed. Retry the same request.');
       return false;
@@ -4305,9 +4334,9 @@ async function renderNew({ home = false } = {}) {
   // 1.42: the task waits in the box while the owner chooses Store and send, Send as is or Edit.
   const holdSecretStart = (text, matches = null) => secretHold(text, { matches, trigger: $('#first'),
     onAsIs: () => { if (viewVersion === chatRenderVersion) startSession({ allowSecrets: true }); },
-    onStore: t => { const f = $('#first'); if (viewVersion !== chatRenderVersion || !f) return toast('Stored. The new conversation was not started.'); f.value = t; saveDraft(NEW_KEY, t); paintSaveButton(); startSession(); } });
+    onStore: t => { const f = $('#first'); if (viewVersion !== chatRenderVersion || !f) return toast('Stored. The new conversation was not started.'); f.value = t; saveDraft(NK, t); paintSaveButton(); startSession(); } });
   $('#start').onclick = () => startSession();
-  Voice.bindComposer({ key: NEW_KEY, send: t => { if (viewVersion !== chatRenderVersion) return false; first.value = t; saveDraft(NEW_KEY, t); paintSaveButton(); return startSession(); } });
+  Voice.bindComposer({ key: NK, send: t => { if (viewVersion !== chatRenderVersion) return false; first.value = t; saveDraft(NK, t); paintSaveButton(); return startSession(); } });
 }
 
 /* ---------- router ---------- */
@@ -4324,6 +4353,7 @@ async function route() {
   await loadApprovalPolicy();
   dockSurface?.remove();dockSurface=null;
   const h = location.hash;
+  NEW_KEY = NEW_BASE; newView = null; // 1.112: back to New's own draft unless the route names a start link's
   if (typeof boardView !== 'undefined') boardView = null;
   if (typeof taskView !== 'undefined') taskView = null; // 1.36: a conversation opened from the task list must not count Tasks as the current view
   if (typeof vaultView !== 'undefined') vaultView = null; // 1.39: the same for the Vault
@@ -4334,6 +4364,7 @@ async function route() {
   if (typeof docView !== 'undefined') docView = null;
   if (h === '#/projects/scheduled' && tasksOn()) { location.replace('#/tasks'); return; } // 1.50: with Tasks on, reminders are listed there
   if (h === '#/coordination' && !coordOn()) { location.replace('#/'); return; } // 1.99: off, or an Assistant install
+  if (/^#\/new\/[0-9a-f]{12}$/.test(h)) return renderNew({ slot: h.slice(6) }); // 1.112: a start link's unsent conversation
   if (isViewId(h.slice(2))) return h === '#/vault' ? renderVault('vault') : h === '#/tasks' ? renderTasks('tasks') : h === '#/coordination' ? renderCoordination('coordination') : h.startsWith('#/inbox') ? renderInbox('inbox') : h.startsWith('#/documents') ? renderDocuments(h.slice(2)) : h.startsWith('#/link/') ? renderLink(h.slice(2)) : renderProjects(h.slice(2)); // 1.29/1.30/1.36/1.54: project, document, task and linked-page views
   if (h.startsWith('#/start/')) return openStartLink(h.slice(8)); // 1.57: a start link puts its briefing in New session
   if (h === '#/new') return renderNew();

@@ -8,6 +8,15 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## Tab reorder (1.112)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 7; existing tokens, no new colour,
+no added animation. Read: one operator with a dozen conversations open wants the strip in their own order, the way any
+browser's tabs behave, without a grip cluttering a 220px tab. The whole tab is the handle. The held tab drops to 55%
+opacity, the cursor reads `grabbing`, and a 2px inset `--clay` bar on the target's left or right edge marks where it
+lands: the same vocabulary as the pinned-row drag in the list, turned sideways. Touch waits for a 350ms hold so a swipe
+still scrolls the strip. Pinned tabs never mix with the rest. Alt Shift [ / ] is the keyboard path.
+
 ## Handoff offer (1.102)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 5; existing tokens, components and
@@ -1158,7 +1167,18 @@ line icon, green only for received. No motion beyond a 120ms border and shadow c
 body copy. In the app, **Ask someone** is an ordinary chip before **Add secret**, and **Links sent** is a row group
 above the secrets in the session-row voice, its waiting state in `--text` semibold.
 
-## Complete card (1.111)
+## Complete card (1.111, made unmistakable in 1.112)
+
+1.112 (Brad: "it isn't obvious enough"; the hairline card on the reply's own surface read as one more line of the reply).
+Pinned Operate refinement: variance 2, motion 1, density 5; existing tokens, no new colour. The card now wears the
+finished colour that the tab dot, the list row and the push already use: an 11% `--ok` wash over `--surface` (17% on
+hover) with a 1px edge of `--ok` mixed 55% into `--line`; the tick sits in a 32px filled `--ok` badge with the tick in
+`--bg`; **Complete** is 16px 650 in `--ok`; the outcome line moves up from `--dim` to `--text`; **Close conversation**
+is a filled `--ok` button (40px, 8px radius, `--bg` 650 text) instead of clay text behind a divider, and on a phone
+it spans the card under the outcome. Still never clay (it does not send anything), still one button, still no motion:
+the card repaints with the transcript and an entrance would replay. Contrast holds in both themes (axe), and the
+impeccable detector flags nothing on the card at 1440 and 390. The 1.111 notes below describe the original layout.
+
 
 Pinned Operate refinement (design-studio → impeccable): variance 3, motion 2, density 7; existing tokens and the existing
 tick icon, no new colour. Read: someone running many conversations should see at a glance that one is finished, and
