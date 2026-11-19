@@ -492,11 +492,12 @@ async function inboxWatchSheet(){
    A reply that is running gets the news steered in by the server, so the line waits until nothing is running. */
 const InboxNews=(()=>{
  const cache=new Map();let loading=null;
+ const cur=()=>typeof chatId==='undefined'?null:chatId; // app.js's; this file loads first, and a page can run without it
  const later=()=>readLocal('pc-inbox-news-later',{});
- async function load(id=chatId){
+ async function load(id=cur()){
   if(!id||typeof inboxOn!=='function'||!inboxOn()||loading)return;
   loading=api('/inbox/news?session='+encodeURIComponent(id),{signal:AbortSignal.timeout(8000)})
-   .then(r=>{cache.set(id,{at:Date.now(),news:Array.isArray(r.news)?r.news:[]});if(id===chatId)paint();})
+   .then(r=>{cache.set(id,{at:Date.now(),news:Array.isArray(r.news)?r.news:[]});if(id===cur())paint();})
    .catch(()=>{}).finally(()=>{loading=null;});
  }
  function pick(){
@@ -536,7 +537,7 @@ const InboxNews=(()=>{
   return sent;
  }
  function paint(msgs=document.getElementById('msgs')){
-  if(!msgs)return;
+  if(!msgs||!cur())return;
   const had=msgs.querySelector('.inbox-news');
   msgs.querySelectorAll('.inbox-news').forEach(e=>e.remove());
   const c=cache.get(chatId);if(!c||Date.now()-c.at>30000)load(chatId);
@@ -549,7 +550,7 @@ const InboxNews=(()=>{
   hit.anchor.after(el); // beside the reply, not in it, so copying or reading the reply aloud never includes it
   if(!had&&typeof scrollBottom==='function')scrollBottom();
  }
- setInterval(()=>{if(chatId&&document.visibilityState==='visible')load(chatId);},30000);
- document.addEventListener('visibilitychange',()=>{if(chatId&&document.visibilityState==='visible')load(chatId);});
+ setInterval(()=>{const id=cur();if(id&&document.visibilityState==='visible')load(id);},30000);
+ document.addEventListener('visibilitychange',()=>{const id=cur();if(id&&document.visibilityState==='visible')load(id);});
  return {load,paint};
 })();
