@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.113.0] — Unreleased · build 207
+## [1.113.0] — 2026-11-19 · build 207
 
 Asked for by Brad (2026-11-19), after the three-day review of 1.109: 56 of 272 stories had more than one entry on the list (94 extra entries, 26% of it), 36 of them while the earlier entry was still open. The watcher merged a new alert only into one that had not gone out yet, so once an entry was on the list nothing but the judge's prose stopped a second one. Learned "Notify: replies from …" rules made the judge write an *Update on …* entry per reply, and each message a Gmail filter labelled became its own entry (7 Indeed applicant entries in four hours). Brad also asked that a conversation started from an alert first gather the rest of the story and leave only one thread labelled.
 
