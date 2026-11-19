@@ -102,6 +102,14 @@ entry's thread carries it. The thread stays in the inbox, and **Restore** on the
 same-story duplicates. An entry that asks for something different, even from the same customer, stays as it is: mention
 it instead. This is the one change an agent makes to the list without being asked.
 
+**Catching up (1.113.1).** When the entry a conversation started from gets more mail, or takes in a merged duplicate,
+Pocket brings the news to that conversation rather than a new one: steered into a reply that is running, or, when idle,
+sent as the user's next message once they tap **Bring it in**. It starts *New on this Inbox story since this conversation
+started* (or, for a conversation whose entry was merged away, *The Inbox entry this conversation started from was merged
+into …*). Read the new mail it cites, say in a few lines what it changes for the work in hand, and carry on; if the work
+was already sent or done, say whether anything needs redoing. `pocket-inbox show <id>` lists the entry's conversations and
+which have not had the latest mail.
+
 ## When it checks, which models judge, what it costs
 
 ```bash

@@ -2440,6 +2440,7 @@ function paintChoices() {
   }
   paintDone(msgs);
   if (typeof Handoff !== 'undefined') Handoff.paintHint(msgs); // 1.102: after the choices, which it joins when they show
+  if (typeof InboxNews !== 'undefined') InboxNews.paint(msgs); // 1.113.1: the entry this conversation started from got more mail
 }
 // Also run when the conversation list refreshes: background jobs, a question or a usage wait mean the conversation
 // is not finished, whatever the reply said.

@@ -90,6 +90,7 @@ function card(e) {
   if (e.note) lines.push(`  Note: ${e.note}`);
   if (e.updates) lines.push(`  Updated ${e.updates} time${e.updates === 1 ? '' : 's'} with later mail on the story`);
   for (const m of e.merged || []) if (m.id || m.gmail) lines.push(`  Took in: ${m.title || '(untitled)'}${m.id ? ' (' + m.id + ')' : ''}${m.gmail ? '  ' + m.gmail : ''}`);
+  for (const c of e.sessions || []) lines.push(`  Conversation: ${c.id}${c.story || (c.seen ?? 0) < (e.newsN || 0) ? ' (has not had the latest mail; it offers to bring it in)' : ''}`); // 1.113.1
   if (e.actedAt) lines.push(`  ${e.lastAction === 'restore' ? 'Restored' : 'Marked ' + (STATE[e.state] || e.state)} ${when(e.actedAt)}`);
   return lines.join('\n');
 }

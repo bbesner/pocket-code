@@ -130,6 +130,21 @@ conversation came from. The merged entry leaves the list with a note naming the 
 loses the label. **Restore** on it undoes the merge. An entry that asks for something different stays, and the agent
 mentions it.
 
+**A conversation you already started catches up (1.113).** When more mail arrives on a story whose entry you already
+started a conversation from, that conversation gets it, so the story stays in one conversation:
+
+- If a reply is running in it, the new mail goes straight in, the way a message you type mid-reply does, and the agent
+  takes it into account at its next step.
+- If it is idle, a line under the latest reply says *New mail on this story since you started: …* with **Bring it in**
+  and **Not now**. Bring it in sends the new mail (each update's title, summary, Gmail link and time) as your next
+  message and asks the agent what it changes. Not now hides the line until more mail comes. Nothing starts a reply on
+  its own.
+- The same happens when another entry is merged into this one, and a conversation that was started from the merged
+  entry is offered this entry's story. The conversation that did the merge already has it.
+
+On the entry, **Open the conversation** says when it has not had the latest mail. **Start another conversation** is
+still there for a separate one.
+
 Priorities are critical, high, normal and low. **Critical** is kept for live outages you are the escalation for,
 security incidents and money leaving an account unexpectedly. During quiet hours only critical alerts go out; the
 rest are held. At the digest hour up to five held high or critical alerts go out on their own, marked *Held
@@ -521,6 +536,10 @@ pocket-inbox check                         # Check now
   asks for: other mail on the story, and other open entries on the **same** story. Merge those with
   `pocket-inbox merge <id> --session <this conversation id>` and say which you merged. Never merge an entry that asks for
   something different; mention it instead.
+- **Catching up (1.113).** A message that starts *New on this Inbox story since this conversation started* (or *The Inbox
+  entry this conversation started from was merged into …*) is Pocket bringing later mail on your story into this
+  conversation. Read the mail it cites, say in a few lines what it changes for the work in hand, and carry on.
+  `pocket-inbox show <id>` lists the entry's conversations and which have not had the latest mail.
 - **Change settings only when asked.** To edit the rules ("stop telling me about shipping notices"), read
   `pocket-inbox watch --json` (`profile.rules.text`), add or edit the line, and save the whole settings object,
   `rules` included, with `pocket-inbox watch set --file -`. Confirm the line you added.

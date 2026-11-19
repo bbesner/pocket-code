@@ -391,6 +391,10 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   out=await cli(['merge',sid2,'--into',pid]);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,new RegExp(`Merged "Pier storm" \\(${sid2}\\) into "Pier cameras still down" \\(${pid}\\)`));
   out=await cli(['show',pid]);assert.match(out.stdout,/Updated 1 time with later mail/);assert.match(out.stdout,new RegExp(`Took in: Pier storm \\(${sid2}\\)`));
   await call('/inbox/act',{action:'dismiss',id:pid});await call('/inbox/ack',{ids:[pid,sid2]},bearer);
+  // 1.113.1: a conversation's catch-up, read by the chat view and marked after Bring it in
+  r=await call('/inbox/news?session=sess-none-0000');assert.equal(r.status,200);assert.equal(r.cache,'private, no-store');assert.deepEqual(r.body.news,[]);
+  r=await call('/inbox/caught-up',{session:'sess-none-0000'});assert.deepEqual([r.status,r.body.caughtUp],[200,0]);
+  r=await call('/inbox/caught-up',{session:'x'});assert.equal(r.status,400);
   out=await cli(['feedback','--json']);assert.deepEqual(JSON.parse(out.stdout).map(f=>[f.id,f.action]).sort(),[[cid,'resolved'],[quiet.body.entry.id,'dismissed']].sort(),'both decisions (they can share a second, so in either order)');
   out=await cli(['feedback']);assert.match(out.stdout,/resolved  Lakeview invoice question .*note: Sent the W-9/);
   out=await cli(['ack',cid,quiet.body.entry.id]);assert.equal(out.stdout.trim(),'acked 2');
@@ -551,4 +555,61 @@ test('1.113: one entry per story — a later alert updates the open entry; a con
   const again=new InboxStore(s.file,{now:s.now});assert.deepEqual(again.get(a.id),s.get(a.id));
   // the instructions line names the merge command with this conversation's id
   assert.match(inboxInstructions('/srv/p/scripts/pocket-inbox.mjs','11111111-1111-4111-8111-111111111111'),/merge <other id> --session 11111111-1111-4111-8111-111111111111/);
+});
+test('1.113.1: the conversation an entry started catches up — news after it started, merges both ways, older conversations',()=>{
+  const {s}=freshInbox(),G=t=>'https://mail.google.com/mail/u/0/#all/'+t;
+  const a=s.add({title:'Harbor HOA gate down',text:'The gate controller is offline.',story:'harbor-gate',url:'/#/start/bbbbbbbbbbb1',gmail:G('19b0000000000001')});
+  // no conversation yet: an update records no news
+  s.add({title:'Harbor HOA gate down',text:'Still offline.',story:'harbor-gate',gmail:G('19b0000000000002')});
+  assert.deepEqual([s.get(a.id).newsN,s.get(a.id).news.length],[0,0]);
+  s.linkStart('bbbbbbbbbbb1','sess-aaaa-1111');
+  assert.deepEqual(s.newsFor('sess-aaaa-1111'),[],'a new conversation has everything');
+  // an update after it started: the conversation is behind by that one, with the text it will be sent
+  s.add({title:'Harbor gate: tech on site',text:'Mike is on site at 2 pm. [mail](msg:19b03)',story:'harbor-gate',gmail:G('19b0000000000003')});
+  let n=s.newsFor('sess-aaaa-1111');
+  assert.equal(n.length,1);assert.deepEqual([n[0].id,n[0].story,n[0].news.length,n[0].news[0].kind,n[0].newsN],[a.id,false,1,'update',1]);
+  const text=s.catchUpText(s.get(a.id),n[0],{fmt:()=>'2:14 PM'});
+  assert.match(text,/^New on this Inbox story since this conversation started \("Harbor gate: tech on site"\):/);
+  assert.match(text,/Update, 2:14 PM: Harbor gate: tech on site\nMike is on site at 2 pm\. \[mail\]\(msg:19b03\)\nGmail: https:\/\/mail\.google\.com\//);
+  assert.doesNotMatch(text,/Earlier on this entry/,'only what is new, not the earlier text again');
+  assert.match(s.catchUpText(s.get(a.id),n[0],{running:true}),/When you reach a good point/);
+  assert.deepEqual(s.behind(s.get(a.id)).map(x=>x.session),['sess-aaaa-1111']);
+  // caught up to what the message carried; news arriving in between still shows
+  s.add({title:'Harbor gate fixed',text:'Fixed.',story:'harbor-gate'});
+  assert.equal(s.caughtUp({session:'sess-aaaa-1111',id:a.id,upTo:1}),1);
+  n=s.newsFor('sess-aaaa-1111');assert.deepEqual(n[0].news.map(x=>x.title),['Harbor gate fixed']);
+  assert.equal(s.caughtUp({session:'sess-aaaa-1111'}),1);assert.deepEqual(s.newsFor('sess-aaaa-1111'),[]);
+  assert.equal(s.caughtUp({session:'sess-aaaa-1111'}),0,'nothing left');
+  assert.throws(()=>s.caughtUp({session:'no'}),e=>e.code==='bad_session');
+  // a duplicate with its own conversation merged in from another conversation: the merging one is not behind, the host's
+  // other conversations get the merged entry, and the merged entry's conversation gets the host's story
+  s.linkStart('bbbbbbbbbbb1','sess-bbbb-2222');
+  const dup=s.add({title:'Harbor storm outage',text:'Gate offline since the storm.',story:'harbor-storm',url:'/#/start/bbbbbbbbbbb9',gmail:G('19b0000000000009')});
+  s.linkStart('bbbbbbbbbbb9','sess-cccc-3333');
+  s.merge({id:dup.id,session:'sess-aaaa-1111'});
+  assert.deepEqual(s.newsFor('sess-aaaa-1111'),[],'the conversation that merged found it itself');
+  n=s.newsFor('sess-bbbb-2222');assert.deepEqual([n[0].news.length,n[0].news[0].kind,n[0].news[0].title],[1,'merge','Harbor storm outage']);
+  assert.match(s.catchUpText(s.get(a.id),n[0],{fmt:()=>'x'}),/Merged in, x: Harbor storm outage\nGate offline since the storm\./);
+  n=s.newsFor('sess-cccc-3333');assert.deepEqual([n.length,n[0].id,n[0].story],[1,a.id,true]);
+  const story=s.catchUpText(s.get(a.id),n[0]);
+  assert.match(story,/^The Inbox entry this conversation started from was merged into "Harbor gate fixed"/);assert.match(story,/Fixed\./);
+  // Restore on the merged entry: its conversation no longer waits for the other entry's story
+  s.act({action:'restore',id:dup.id});assert.deepEqual(s.newsFor('sess-cccc-3333'),[]);assert.ok(!s.get(a.id).sessions.some(x=>x.id==='sess-cccc-3333'));
+  s.merge({id:dup.id,into:a.id});assert.equal(s.newsFor('sess-cccc-3333')[0].story,true,'merged again: offered again');
+  assert.equal(s.caughtUp({session:'sess-cccc-3333',id:a.id}),1);assert.deepEqual(s.newsFor('sess-cccc-3333'),[]);
+  // a finished entry asks nothing of its conversations
+  s.add({title:'Harbor again',text:'More.',story:'harbor-gate'});assert.deepEqual(s.newsFor('sess-bbbb-2222')[0].news.map(x=>x.kind),['merge','merge','update'],'both merges and the update');
+  s.act({action:'resolve',id:a.id});assert.deepEqual(s.newsFor('sess-bbbb-2222'),[]);
+  // only the last few news items are kept; reload keeps news, newsN, seen and story
+  s.act({action:'restore',id:a.id});for(let i=0;i<9;i++)s.add({title:'n'+i,text:'t'+i,story:'harbor-gate'});
+  assert.ok(s.get(a.id).news.length<=6);assert.equal(s.get(a.id).news.at(-1).n,s.get(a.id).newsN);
+  const again=new InboxStore(s.file,{now:s.now});assert.deepEqual(again.get(a.id),s.get(a.id));
+  // a conversation from before 1.113.1 (no `seen`) has seen none of the news, which only began then
+  const raw=JSON.parse(JSON.stringify(s.get(a.id)));raw.sessions=[{id:'sess-dddd-4444',at:raw.at}];
+  assert.equal(s.behindOf(raw,raw.sessions[0]).news.length,raw.news.length);
+  // a conversation started from a start link the entry took in was briefed with older news: it catches up on the story
+  const b2=s.add({title:'Pool cams',text:'Down.',story:'pool',url:'/#/start/ccccccccccc1'});
+  s.add({title:'Pool cams still down',text:'Still.',story:'pool',url:'/#/start/ccccccccccc2'});
+  s.linkStart('ccccccccccc1','sess-eeee-5555');
+  assert.deepEqual(s.newsFor('sess-eeee-5555').map(x=>[x.id,x.story]),[[b2.id,true]]);
 });
