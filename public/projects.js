@@ -38,7 +38,7 @@ function quickPicks(){
  const nextMonday=()=>at(((8-new Date().getDay())%7)||7,9);
  return [['tomorrow','Tomorrow morning',at(1,9)],['three','In three days',at(3,9)],['monday','Next Monday',nextMonday()],['week','In a week',at(7,9)]];
 }
-const viewTitle=id=>id==='vault'?'Vault':id==='tasks'?'Tasks':id==='coordination'?'Coordination':id.startsWith('link/')?(typeof linkViewTitle==='function'?linkViewTitle(id):'Link'):id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'Files'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
+const viewTitle=id=>id.startsWith('new/')?(typeof openSessions!=='undefined'&&openSessions.find(t=>t.id===id)?.title)||'New conversation':id==='vault'?'Vault':id==='tasks'?'Tasks':id==='coordination'?'Coordination':id.startsWith('link/')?(typeof linkViewTitle==='function'?linkViewTitle(id):'Link'):id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'Files'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
 const fmtDue=iso=>{const d=new Date(iso),now=new Date();const sameYear=d.getFullYear()===now.getFullYear();return d.toLocaleDateString('en-US',{month:'short',day:'numeric',...(sameYear?{}:{year:'numeric'})})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
 const fmtStamp=iso=>rel(Date.parse(iso));
 const statusWord={active:'Active',waiting:'Waiting',done:'Done'};
@@ -432,12 +432,9 @@ function paintChatProject(s){
 /* ---------- tabs, rail, home and badges ---------- */
 function rememberOpenView(id,title){
  if(typeof openSessions==='undefined')return;
- const row={id,title},index=openSessions.findIndex(r=>r.id===id);
- if(index<0)openSessions.push(row);else openSessions[index]=row;
- if(openSessions.length>12)openSessions.shift();
- writeLocal('pc-open-sessions',openSessions);paintOpenSessions();
+ rememberTab(id,title);paintOpenSessions();
 }
-const viewTabState=id=>{if(id==='vault')return typeof vaultTabState==='function'?vaultTabState():null;if(id==='tasks')return typeof taskTabState==='function'?taskTabState():null;if(id==='coordination'||id.startsWith('documents')||id.startsWith('link/')||id.startsWith('inbox'))return null;if(!boardSnap)return null;const p=id==='projects'||id==='projects/scheduled'?null:projectById(id.slice(9));if(!p&&dueListView()==='tasks')return null;const due=p?p.dueCount:boardDueCount();return due?{kind:'due',label:due===1?'A reminder is due':due+' reminders are due'}:null;};
+const viewTabState=id=>{if(id==='vault')return typeof vaultTabState==='function'?vaultTabState():null;if(id==='tasks')return typeof taskTabState==='function'?taskTabState():null;if(id.startsWith('new/')||id==='coordination'||id.startsWith('documents')||id.startsWith('link/')||id.startsWith('inbox'))return null;if(!boardSnap)return null;const p=id==='projects'||id==='projects/scheduled'?null:projectById(id.slice(9));if(!p&&dueListView()==='tasks')return null;const due=p?p.dueCount:boardDueCount();return due?{kind:'due',label:due===1?'A reminder is due':due+' reminders are due'}:null;};
 function railProjectsHTML(){
  if(!boardSnap)return '<p class="sheet-help">Loading projects…</p>';
  const due=boardDueCount(),rows=boardSnap.projects.filter(p=>p.status!=='done');

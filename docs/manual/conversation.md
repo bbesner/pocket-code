@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.111.0
+checked: 1.112.0
 sources: choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -119,8 +119,8 @@ When a reply ends by asking you to choose between specific next steps, Pocket sh
 ### Close a finished conversation (the Complete card)
 
 When an agent has finished everything you asked for in the conversation and has nothing more to recommend, its reply
-ends with a **Complete** card instead of reply buttons. The card states the outcome in one line, so you do not have to
-read the reply to know where things stand.
+ends with a **Complete** card instead of reply buttons: a green card with a tick, **Complete**, the outcome in one line
+and a green **Close conversation** button, so you do not have to read the reply to know where things stand.
 
 - Tapping the card closes the conversation. It leaves **Attention** on all your devices, its tab or pane closes, and its
   server process is released. On a computer **New conversation** opens (or the conversation beside it becomes the main

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.111.0
+checked: 1.112.0
 sources: public/split.js, public/workspace.js, public/tips.js, public/sidechat.js, docs/session-focus.md
 -->
 # Desktop and phone
@@ -43,9 +43,17 @@ conversation list**) hides the rail; the tabs stay. Both choices are saved on th
 ### Tabs
 
 Each conversation you open gets a tab above it. Pinned conversations come first, in their pinned order,
-with the pin and the highlight colour; the rest follow in the order you opened them. This browser keeps
-the 12 most recent tabs, and other Pocket windows of the same browser see the same tabs. Projects,
-files, tasks, the Vault and the Inbox can be tabs too.
+with the pin and the highlight colour; the rest follow in the order you opened them, until you move them.
+This browser keeps 12 tabs (opening a 13th closes the one you opened longest ago), and other Pocket windows
+of the same browser see the same tabs. Projects, files, tasks, the Vault and the Inbox can be tabs too, and so
+can a conversation a [start link](sessions.md#start-links) opened that you have not sent yet.
+A tab carries the conversation's current name, so a new conversation's tab takes its name as soon as the
+list has it.
+
+To move a tab, drag it along the strip; a clay bar shows where it will land, and the strip scrolls when you
+reach either end. On a touch screen, hold the tab a moment, then drag. From the keyboard, press Alt Shift [
+or Alt Shift ] on a tab. Pinned tabs stay ahead of the others: moving one changes the pinned order, in the
+list and on every device. The other tabs keep the order you leave them in on this browser.
 
 A mark before the title shows the conversation's state, matching its rail row:
 
@@ -192,6 +200,7 @@ Results, Queue, Git, split view and the cost line.
 | Ctrl/⌘ K | Anywhere with a message box or the conversation list | Find a conversation (**Switch conversation**) |
 | Ctrl/⌘ Shift L | Same | New conversation |
 | Alt [ / Alt ] | With a conversation or view open | Previous / next tab |
+| Alt Shift [ / Alt Shift ] | On a tab, or with a conversation or view open | Move the tab left / right |
 | Ctrl/⌘ F | In a conversation | Find in conversation |
 | Ctrl/⌘ ; | In a conversation | Open or close its side chat |
 | Enter | Message box, New conversation, side chat (900 px and wider) | Send or start |

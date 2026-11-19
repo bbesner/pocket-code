@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.111.0
+checked: 1.112.0
 sources: prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -71,9 +71,10 @@ path.** or **Write what you would like done first.** If the start request was se
 request.** **Retry start** sends the same request again without starting a second conversation;
 **Discard retry** drops it.
 
-A briefing put in the box for you (a start link, an Inbox alert, a task's or project's **Start**) stays
-only for that visit. Leave without starting and the next **New conversation** opens empty, unless you
-edited the briefing. A draft you typed yourself is kept.
+A briefing a task's or project's **Start** puts in the box stays only for that visit. Leave without starting
+and the next **New conversation** opens empty, unless you edited the briefing. A draft you typed yourself
+is kept. A start link's briefing (an Inbox alert, a handoff) is different: it opens in an unsent
+conversation of its own, described under [Start links](#start-links).
 
 ### Choose model, effort, permissions and mode
 
@@ -446,10 +447,18 @@ rendered.
 ### Start links
 
 A start link is a briefing handed to Pocket by an agent or a job. Opening `#/start/<id>` while signed in
-puts the briefing in New conversation's box and selects the agent the link names. The link's folder
-wins over the default workspace: it is selected when it is one of the listed workspaces and filled in
-as a custom path when it is not. Nothing starts until you press Start. A link that has
-expired shows *That start link has expired.*
+opens an unsent conversation of its own (`#/new/<id>`) with the briefing in the box and the agent the link
+names selected. The link's folder wins over the default workspace: it is selected when it is one of the
+listed workspaces and filled in as a custom path when it is not. Nothing starts until you press Start. A
+link that has expired shows *That start link has expired.*
+
+On a computer each unsent conversation has a tab, named after the link's title or the briefing's first
+line, so you can open several (**Start a conversation** on one Inbox alert, then on another) and send
+them in any order. Starting another, or pressing the plus for a plain New conversation, never replaces
+one you have not sent. Each keeps its own text, agent, workspace, model and attachments; it starts from
+New conversation's model and effort. Sending it replaces the tab with the conversation's. Closing the
+tab keeps what you typed: opening the same link again (from the Inbox, say) brings it back as you left
+it.
 
 A [handoff](conversation.md#hand-off-to-a-fresh-conversation) is a start link an agent writes from a conversation. It shows as a card
 in the reply, and it starts once.

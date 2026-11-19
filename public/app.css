@@ -174,27 +174,29 @@ html:not(.raw-steps) .ledgerwrap > summary { font-family: system-ui, -apple-syst
 .choice-handoff svg.i { width: 15px; height: 15px; stroke-width: 1.7; flex: none; }
 .choice-handoff:hover { color: var(--text); background: var(--raised); }
 .choice:focus-visible, .choice-x:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
-/* The Complete card (1.111): sits where the reply buttons would and shares their shape (10px radius, 44px), but in the
-   app's own material (surface, hairline) rather than your-side clay: it reports where the conversation stands and
-   offers a way out; it is not a message to send. The whole card is one button. The tick is the one success mark. */
-.done-card { display: flex; align-items: center; gap: 12px; max-width: 100%; min-height: 44px; margin: 14px 0 2px;
-  padding: 8px 16px 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface);
-  color: var(--text); font-size: 15px; line-height: 1.35; text-align: left; }
+/* The Complete card (1.111; 1.112 made it unmistakable, Brad: the hairline card read like one more line of the reply).
+   It sits where the reply buttons would and keeps their 10px radius, but in the finished colour: an --ok wash and edge,
+   a filled --ok tick badge, Complete in --ok, and Close conversation as the one filled button. It reports where the
+   conversation stands and offers a way out; it is not a message to send, so it is never clay. The whole card is one
+   button. No motion: the card repaints with the transcript, and an entrance would replay. */
+.done-card { display: flex; align-items: center; gap: 14px; max-width: 100%; min-height: 56px; margin: 18px 0 2px;
+  padding: 12px 12px 12px 14px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--ok) 55%, var(--line));
+  background: color-mix(in srgb, var(--ok) 11%, var(--surface)); color: var(--text); font-size: 15px; line-height: 1.35; text-align: left; }
 .done-card[hidden] { display: none; }
-.done-card:hover { background: var(--raised); }
+.done-card:hover { background: color-mix(in srgb, var(--ok) 17%, var(--surface)); }
 .done-card:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 .done-card:disabled { opacity: .6; }
-.done-mark { display: grid; place-items: center; flex: none; color: var(--ok); }
-.done-mark svg.i { width: 20px; height: 20px; stroke-width: 2.2; }
-.done-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.done-title { font-weight: 600; }
-.done-sum { font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
-.done-act { flex: none; align-self: stretch; display: flex; align-items: center; margin-left: 4px; padding-left: 16px;
-  border-left: 1px solid var(--line); font-size: 14.5px; font-weight: 600; color: var(--clay); }
-@media (max-width: 600px) { /* phones and narrow panes: the action takes its own line under the outcome */
-  .done-card { flex-wrap: wrap; row-gap: 6px; }
-  .done-body { flex: 1; }
-  .done-act { flex-basis: 100%; margin-left: 32px; padding-left: 0; border-left: 0; }
+.done-mark { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--ok); color: var(--bg); }
+.done-mark svg.i { width: 18px; height: 18px; stroke-width: 2.8; }
+.done-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.done-title { font-size: 16px; font-weight: 650; color: var(--ok); }
+.done-sum { font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
+.done-act { flex: none; display: flex; align-items: center; min-height: 40px; padding: 0 16px; border-radius: 8px;
+  background: var(--ok); color: var(--bg); font-size: 14.5px; font-weight: 650; white-space: nowrap; }
+.done-card:hover .done-act { background: color-mix(in srgb, var(--ok) 88%, var(--text)); }
+@media (max-width: 600px) { /* phones and narrow panes: the action takes its own line under the outcome, full width */
+  .done-card { flex-wrap: wrap; row-gap: 10px; }
+  .done-act { flex-basis: 100%; justify-content: center; }
 }
 
 .turn-err { color: var(--err); font-size: 14.5px; border: 1px solid var(--err); border-radius: 10px;
@@ -695,6 +697,13 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .open-session.current a { color:var(--text); }
 .open-session button { display:grid;place-items:center;min-height:44px;min-width:44px;color:var(--dim);background:none;border:0;cursor:pointer; }
 .open-session button .i { width:16px;height:16px; }
+/* 1.112: drag a tab to move it. The held tab dims and a clay bar marks where it lands, as the pinned rows do. */
+.open-session { user-select:none;-webkit-user-select:none; }
+.open-session a { -webkit-touch-callout:none; }
+.open-session.dragging { opacity:.55; }
+.open-sessions.tab-dragging, .open-sessions.tab-dragging a { cursor:grabbing; }
+.open-session.drop-before { box-shadow:inset 2px 0 0 var(--clay); }
+.open-session.drop-after { box-shadow:inset -2px 0 0 var(--clay); }
 /* Desktop chrome yields space to the conversation and the session list. */
 .density-toggle { display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:44px;min-width:44px;padding:4px 8px;font-size:13px;color:var(--dim);border-radius:6px; }
 .density-toggle .i { width:16px;height:16px; }
