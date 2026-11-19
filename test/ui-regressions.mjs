@@ -634,7 +634,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await check('1.112 Start links: each opens its own unsent conversation and tab; another start, or the plus, never replaces it',async()=>{
    await page.setViewport({width:1440,height:900});
    const [A,B]=['0123456789c1','0123456789c2'];
-   const open=async link=>{await page.goto(base+'/#/start/'+link);await page.waitForFunction(link=>location.hash==='#/new/'+link&&/Reach Jordan/.test(document.querySelector('#first')?.value||''),{},link);};
+   // the last draft's box (holding the same briefing) stays on the page until the new render replaces it, so wait for a fresh one
+   const open=async link=>{await page.evaluate(()=>document.querySelector('#first')?.setAttribute('data-stale','1'));await page.goto(base+'/#/start/'+link);await page.waitForFunction(link=>location.hash==='#/new/'+link&&newView==='new/'+link&&/Reach Jordan/.test(document.querySelector('#first:not([data-stale])')?.value||''),{},link);};
    const tabs=()=>page.$$eval('#open-sessions .open-session',es=>es.map(e=>e.dataset.tab));
    const box=()=>page.$eval('#first',e=>e.value);
    await open(A);
