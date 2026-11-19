@@ -14,7 +14,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
  const scan=async(name,sel)=>{const s=await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});await s.evaluate(e=>e.remove());const r=await page.evaluate(sel=>axe.run(sel,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','best-practice']}}),sel);assert.deepEqual(r.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})),[],name);await page.screenshot({path:path.join(out,'inbox-news-'+name+'.png')});if(process.env.POCKET_DESIGN_SCANNER){await page.evaluate(()=>{window.__IMPECCABLE_CONFIG__={autoScan:false};});if(!await page.evaluate(()=>Boolean(window.impeccableDetectAsync))){const t=await page.addScriptTag({path:process.env.POCKET_DESIGN_SCANNER});await t.evaluate(e=>e.remove());}const r=await page.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false}));const fs=await import('node:fs');fs.writeFileSync(path.join(out,'inbox-news-design-'+name+'.json'),JSON.stringify(r,null,1));}};
  const fixture=(q)=>fetch(base+'/api/inbox/news-fixture?session='+encodeURIComponent(sid)+'&'+q).then(r=>r.json());
  let visit=0;const open=async(width)=>{await page.setViewport({width,height:width<900?844:900});await page.goto(base+'/?news='+width+'-'+(++visit)+'#/chat/'+sid);await page.waitForSelector('#msgs .m-asst');};
- const line=()=>page.$eval('#msgs',m=>{const o=m.querySelector('.inbox-news');return o?{text:o.querySelector('.handoff-offer-text').textContent,afterReply:Boolean(o.previousElementSibling?.matches('.m-asst, .try-harder, .handoff-offer')),bring:o.querySelector('[data-news-bring]').textContent.trim(),later:o.querySelector('[data-news-later]').textContent.trim()}:null;});
+ const line=()=>page.$eval('#msgs',m=>{const o=m.querySelector('.inbox-news');return o?{text:o.querySelector('.handoff-offer-text').textContent,afterReply:Boolean(o.previousElementSibling?.matches('.m-asst, .m-user, .try-harder, .handoff-offer'))&&![...m.querySelectorAll('.m-asst:not(.live), .m-user')].some(x=>o.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING),prev:o.previousElementSibling?.className||'',bring:o.querySelector('[data-news-bring]').textContent.trim(),later:o.querySelector('[data-news-later]').textContent.trim()}:null;});
  const prevInbox=settings.inbox;
  try{
   settings.inbox=true;
@@ -29,7 +29,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
   await open(1440);await page.waitForSelector('.inbox-news');
   const l=await line();
   assert.match(l.text,/^New mail on this story since you started: Harbor gate: tech on site at 2 pm, \d{1,2}:\d\d\s[ap]m\.$/u);
-  assert.deepEqual([l.afterReply,l.bring,l.later],[true,'Bring it in','Not now']);
+  assert.deepEqual([l.afterReply,l.bring,l.later],[true,'Bring it in','Not now'],'right after the last message: '+l.prev);
   await scan('line-1440','#msgs');
 
   console.log('Inbox catch-up: Not now holds until more mail comes');
