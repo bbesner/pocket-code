@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.110.2
+checked: 1.113.0
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -116,6 +116,34 @@ A story gets one alert. A problem that has only been followed quietly, even for 
 test, with how long it has gone on (a line in a morning digest does not count as having been listed); after that more of the same mail updates the story without a new alert, whether or not
 you have dealt with the entry, until something about it changes what someone must do. Newsletters, receipts, routine
 reports that show nothing wrong and anything someone is visibly handling stay off. Your rules override all of this.
+
+**One entry per story (1.113).** When an alert does go out on a story that already has an open entry (new or seen), it
+updates that entry instead of adding a second one. The new text comes first, and what the entry said before follows under
+*Earlier on this entry*. The entry is unread again and moves to the top, keeping its conversations. A finished entry
+(resolved, dismissed, not useful) is never reopened this way: the next alert on its story is a new entry. This applies to
+mail you or a Gmail filter labelled too, so a burst of labelled messages on one story is one entry.
+
+**A conversation started from an alert opens with a short check (1.113).** Before you say what you want, the agent looks
+for other mail on the story that the alert does not cover and tells you in a few lines what it adds. It also looks for
+another open entry on the same story, often under a different title, and merges each one it finds into the entry the
+conversation came from. The merged entry leaves the list with a note naming the one it went into, and its Gmail thread
+loses the label. **Restore** on it undoes the merge. An entry that asks for something different stays, and the agent
+mentions it.
+
+**A conversation you already started catches up (1.113).** When more mail arrives on a story whose entry you already
+started a conversation from, that conversation gets it, so the story stays in one conversation:
+
+- If a reply is running in it, the new mail goes straight in, the way a message you type mid-reply does, and the agent
+  takes it into account at its next step.
+- If it is idle, a line under the latest reply says *New mail on this story since you started: …* with **Bring it in**
+  and **Not now**. Bring it in sends the new mail (each update's title, summary, Gmail link and time) as your next
+  message and asks the agent what it changes. Not now hides the line until more mail comes. Nothing starts a reply on
+  its own.
+- The same happens when another entry is merged into this one, and a conversation that was started from the merged
+  entry is offered this entry's story. The conversation that did the merge already has it.
+
+On the entry, **Open the conversation** says when it has not had the latest mail. **Start another conversation** is
+still there for a separate one.
 
 Priorities are critical, high, normal and low. **Critical** is kept for live outages you are the escalation for,
 security incidents and money leaving an account unexpectedly. During quiet hours only critical alerts go out; the
@@ -326,6 +354,9 @@ in step, both ways, at every check:
   seen never disappears. So does a thread you starred (1.110.2): the star means you are keeping it in view, so only the
   label comes off. When the watcher cannot tell whether a thread is starred, it leaves the thread in the inbox.
 - Restore puts the label back; the thread stays where it is.
+- One thread per entry carries the label (1.113). When an entry takes in another thread, through a later alert on its
+  story or a duplicate merged into it, that thread loses the label and stays in your inbox. Label it again yourself and
+  it is judged like any other.
 - Label two threads about the same thing (your copy of a reply and the copy sent to Ari only, say) and the check may
   put both on your list as one entry. The second thread keeps its label while that entry is open and loses it when you
   finish it, like the first.
@@ -489,6 +520,7 @@ pocket-inbox show <id> [--json]            # one entry in full: text, story, lin
 pocket-inbox act <id> resolve|not_useful|dismiss|restore [--note "…"]
 pocket-inbox act <id> alert|resolve|not_useful|restore --item <ref>   # one item of a digest (show lists each item's ref)
 pocket-inbox act <id> open|unread          # read state only; the watcher is not told
+pocket-inbox merge <id> --session <this conversation id>   # 1.113: fold a same-story duplicate into the entry this conversation started from (or --into <entry id>)
 pocket-inbox watch [--json]                # schedule in force, next check, models, rules, 7 days of cost
 pocket-inbox watch set --every 10          # or --pause, --resume, --file <path|-> (the whole settings object as JSON)
 pocket-inbox watch reset                   # back to the watcher's config file
@@ -500,6 +532,14 @@ pocket-inbox check                         # Check now
 - **Record a decision only when the user names it** ("mark the Acme alert resolved", "that wasn't useful"). Never
   resolve, dismiss or mark not useful on your own judgment. Pass the user's reason as `--note`. If several entries
   could match, list them and ask. Confirm in one sentence afterwards.
+- **One exception: merging (1.113).** In a conversation started from an alert, begin with the opening check the briefing
+  asks for: other mail on the story, and other open entries on the **same** story. Merge those with
+  `pocket-inbox merge <id> --session <this conversation id>` and say which you merged. Never merge an entry that asks for
+  something different; mention it instead.
+- **Catching up (1.113).** A message that starts *New on this Inbox story since this conversation started* (or *The Inbox
+  entry this conversation started from was merged into …*) is Pocket bringing later mail on your story into this
+  conversation. Read the mail it cites, say in a few lines what it changes for the work in hand, and carry on.
+  `pocket-inbox show <id>` lists the entry's conversations and which have not had the latest mail.
 - **Change settings only when asked.** To edit the rules ("stop telling me about shipping notices"), read
   `pocket-inbox watch --json` (`profile.rules.text`), add or edit the line, and save the whole settings object,
   `rules` included, with `pocket-inbox watch set --file -`. Confirm the line you added.
@@ -509,7 +549,8 @@ pocket-inbox check                         # Check now
   [--doc <Files id>] [--dedupe <key>] [--email] [--no-push] [--why "…"]`. It pushes to the user's devices unless `--no-push`;
   `--why` is one line shown on the entry about why it pushed or not;
   `--email` also mails the notification address. A `--dedupe` key used in the last 24 hours adds nothing and prints
-  `duplicate`. A job posting regularly should send `pocket-inbox seen` when it has nothing to post.
+  `duplicate`. An alert with a `--story` that already has an open alert entry from the same source updates that entry
+  and prints `updated` (1.113). A job posting regularly should send `pocket-inbox seen` when it has nothing to post.
 - Exit code 1 with *Inbox Watch is off for this Pocket Code* means the feature is off: tell the user it is under
   **Settings → Projects, files, tasks & vault → Inbox Watch**. Exit code 2 means Pocket is not running here (or
   refused the token).

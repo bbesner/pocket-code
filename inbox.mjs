@@ -34,11 +34,29 @@ const TARGET = { dismiss: 'dismissed', resolve: 'resolved', not_useful: 'not_use
 const ITEM_TARGET = { alert: 'alerted', resolve: 'resolved', not_useful: 'not_useful', dismiss: 'dismissed', restore: 'open' };
 const ITEM_ACTED = ['alerted', 'resolved', 'not_useful', 'dismissed'];
 const sameStory = (a, b) => Boolean((a.story && a.story === b.story) || (a.gmail && a.gmail === b.gmail));
-const remember = (x, id, at) => { if (x.sessions.some(s => s.id === id)) return false; x.sessions = [...x.sessions, { id, at }].slice(-SESSIONS_MAX); return true; };
+// 1.113.1: `seen` is how much of the entry's `news` the conversation has (it starts with all of it); `story` marks one that came
+// with a merged entry and has not had this entry's story yet.
+const remember = (x, id, at, extra = {}) => { if (x.sessions.some(s => s.id === id)) return false; x.sessions = [...x.sessions, { id, at, ...(x.newsN ? { seen: x.newsN } : {}), ...extra }].slice(-SESSIONS_MAX); return true; };
 const WHY_MAX = 200; // 1.105: why an entry pushed, or why it did not
 const NOTE_MAX = 300, URL_MAX = 500, DEDUPE_MAX = 200, SESSIONS_MAX = 5, DAY = 86400_000;
+// 1.113 (Brad): one entry per story. What an entry took in from other entries or earlier alerts on its story: the Gmail thread,
+// title, start link and (for a merged entry) its id. The watcher reads `merged` to take the Gmail label off those threads, so
+// only the entry's own thread carries it. EARLIER marks where an updated entry's previous text begins.
+const MERGED_MAX = 10, EARLIER = '\n\nEarlier on this entry: ';
+const checkMerged = v => Array.isArray(v) ? v.filter(m => m && typeof m === 'object').map(m => {
+  const keep = (f, x) => { try { return f(x); } catch { return ''; } };
+  return { id: typeof m.id === 'string' && /^[0-9a-f]{12}$/.test(m.id) ? m.id : '', title: line(m.title, LIMITS.title), gmail: keep(checkGmail, m.gmail), url: keep(checkUrl, m.url), at: Number.isNaN(ms(m.at)) ? null : m.at };
+}).filter(m => m.gmail || m.url || m.id).slice(-MERGED_MAX) : [];
 const DOC_RE = /^[0-9a-f]{12}$/, START_RE = /^[0-9a-f]{12}$/, SESSION_RE = /^(cx:)?[0-9A-Za-z][0-9A-Za-z_-]{7,79}$/;
-const checkSessions = v => Array.isArray(v) ? v.filter(s => s && SESSION_RE.test(String(s.id)) && !Number.isNaN(ms(s.at))).slice(-SESSIONS_MAX).map(s => ({ id: s.id, at: s.at })) : [];
+const checkSessions = v => Array.isArray(v) ? v.filter(s => s && SESSION_RE.test(String(s.id)) && !Number.isNaN(ms(s.at))).slice(-SESSIONS_MAX)
+  .map(s => ({ id: s.id, at: s.at, ...(Number.isInteger(s.seen) && s.seen >= 0 ? { seen: s.seen } : {}), ...(s.story === true ? { story: true } : {}) })) : [];
+// 1.113.1 (Brad): what reached an entry after a conversation started from it, so that conversation can catch up instead of a
+// second one starting. `n` counts up per entry (newsN); the last NEWS_MAX are kept.
+const NEWS_MAX = 6;
+const checkNews = v => Array.isArray(v) ? v.filter(x => x && Number.isInteger(x.n) && x.n > 0).map(x => {
+  let gmail = ''; try { gmail = checkGmail(x.gmail); } catch { gmail = ''; }
+  return { n: x.n, at: Number.isNaN(ms(x.at)) ? null : x.at, kind: x.kind === 'merge' ? 'merge' : 'update', title: line(x.title, LIMITS.title), text: str(x.text, LIMITS.text), gmail };
+}).slice(-NEWS_MAX) : [];
 const fail = (message, status = 400, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
 const line = (v, max) => str(typeof v === 'string' ? v.replace(/\s+/g, ' ') : v, max);
@@ -176,8 +194,9 @@ function checkProfile(p) {
 // when the user makes one; it never dismisses or resolves on its own judgment.
 export function inboxInstructions(cli, sessionId) {
   cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
-  void sessionId; // entries are not tied to a session; the argument keeps the shape of the other instruction lines
-  return `This Pocket Code keeps Inbox Watch: the alerts, digests and look-aheads the user's inbox watcher sent. \`node ${cli} list\` shows the new ones (\`--state all\` for the rest, \`show <id>\` for one in full), and \`node ${cli} act <id> resolve|not_useful|dismiss\` records what the user decided; act only when the user asks. The pocket-inbox skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-inbox', 'SKILL.md')}\`) has the procedure.`;
+  // 1.113: a conversation started from an entry may fold a same-story duplicate into it; the session id finds that entry
+  const sid = typeof sessionId === 'string' && SESSION_RE.test(sessionId) ? sessionId : '<this conversation id>';
+  return `This Pocket Code keeps Inbox Watch: the alerts, digests and look-aheads the user's inbox watcher sent. \`node ${cli} list\` shows the new ones (\`--state all\` for the rest, \`show <id>\` for one in full), and \`node ${cli} act <id> resolve|not_useful|dismiss\` records what the user decided; act only when the user asks. In a conversation started from an Inbox entry, \`node ${cli} merge <other id> --session ${sid}\` folds another open entry on the same story into it; say which you merged. The pocket-inbox skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-inbox', 'SKILL.md')}\`) has the procedure.`;
 }
 
 const listedLast = e => e.kind === 'digest' ? [...e.items.filter(i => i.section !== 'listed'), ...e.items.filter(i => i.section === 'listed')] : e.items; // the watcher's order otherwise; a look-ahead stays in its order, most pressing first
@@ -210,7 +229,9 @@ export class InboxStore {
       story: line(e.story, LIMITS.story), source: source(e.source), url: keep(checkUrl, e.url), gmail: keep(checkGmail, e.gmail), doc: keep(checkDoc, e.doc), dedupe: str(e.dedupe, DEDUPE_MAX),
       state: ok(e.state, STATES, 'new'), at: e.at, seenAt: e.seenAt || null, actedAt: e.actedAt || null, ackedAt: e.ackedAt || null, note: str(e.note, NOTE_MAX),
       by: e.by === 'ui' ? 'ui' : 'cli', actedBy: e.actedBy === 'ui' || e.actedBy === 'cli' ? e.actedBy : null, revision: Number.isInteger(e.revision) && e.revision > 0 ? e.revision : 1, lastAction: typeof e.lastAction === 'string' ? e.lastAction : null,
-      sessions: checkSessions(e.sessions), items: checkItems(e.items, { strict: false }), pushed: e.pushed !== false, why: line(e.why, WHY_MAX) };
+      sessions: checkSessions(e.sessions), items: checkItems(e.items, { strict: false }), pushed: e.pushed !== false, why: line(e.why, WHY_MAX),
+      updates: Number.isInteger(e.updates) && e.updates > 0 ? e.updates : 0, merged: checkMerged(e.merged), mergedInto: typeof e.mergedInto === 'string' && /^[0-9a-f]{12}$/.test(e.mergedInto) ? e.mergedInto : '',
+      news: checkNews(e.news), newsN: Number.isInteger(e.newsN) && e.newsN > 0 ? e.newsN : 0 };
   }
   save() { this.write(this.file, { version: 1, entries: this.entries, sources: this.sources, profiles: this.profiles, watch: this.watch, checks: this.checks }); }
   get(id) { const e = this.entries.find(x => x.id === id); if (!e) throw fail('That Inbox entry does not exist.', 404, { code: 'inbox_missing' }); return e; }
@@ -244,14 +265,134 @@ export class InboxStore {
     const e = { id: shortId(), kind, priority: pick(input.priority, PRIORITIES, 'normal', 'priority'), title, text: str(input.text, textMax(kind)),
       story: line(input.story, LIMITS.story), source: source(input.source), url: checkUrl(input.url), gmail: checkGmail(input.gmail), doc: checkDoc(input.doc), dedupe: str(input.dedupe, DEDUPE_MAX),
       state: 'new', at: iso(now), seenAt: null, actedAt: null, ackedAt: null, note: '', by: actor === 'ui' ? 'ui' : 'cli', actedBy: null, revision: 1, lastAction: null, sessions: [], items: checkItems(input.items, { strict: true }),
-      pushed: input.push !== false, why: line(input.why, WHY_MAX) }; // 1.105: whether the add asked for a push, and the watcher's reason
+      pushed: input.push !== false, why: line(input.why, WHY_MAX), updates: 0, merged: [], mergedInto: '', news: [], newsN: 0 }; // 1.105: whether the add asked for a push, and the watcher's reason
     this.foldListed(e);
     if (e.dedupe) {
       const seen = this.entries.find(x => x.dedupe === e.dedupe && ms(x.at) >= now - DAY);
       if (seen) return { ...this.view(seen), duplicate: true };
     }
+    // 1.113 (Brad): an alert on a story that already has an open alert entry updates that entry instead of adding a second one.
+    // `merge: false` keeps the old behaviour for a job that wants separate entries.
+    const host = input.merge === false ? null : this.openOnStory(e);
+    if (host) return this.update(host, e, now);
     this.entries.push(e); this.foldCards(e); this.cap(); this.save();
     return this.view(e);
+  }
+
+  // The open alert entry (new or seen) from the same source on the same story, newest first. Only alerts: a digest or look-ahead
+  // links its lines to alerts instead (foldListed).
+  openOnStory(e, skip = null) {
+    if (e.kind !== 'alert' || !e.story) return null;
+    const hits = this.entries.filter(x => x !== skip && x.kind === 'alert' && (x.state === 'new' || x.state === 'opened') && x.source === e.source && x.story === e.story);
+    return hits.sort((a, b) => ms(b.at) - ms(a.at))[0] || null;
+  }
+  // The new alert becomes the entry's text, title and links; what the entry said before follows it under EARLIER (one level: an
+  // earlier text's own EARLIER part is dropped), cut to fit. The entry is unread again and goes to the top, keeping its id, the
+  // conversations started from it and their links. A different Gmail thread joins `merged`, so its label comes off.
+  update(host, e, now) {
+    const had = { id: '', title: host.title, gmail: host.gmail, url: host.url, at: host.at };
+    if (host.gmail && e.gmail && host.gmail !== e.gmail) host.merged = checkMerged([...host.merged.filter(m => m.gmail !== host.gmail), had]);
+    else if (host.url && e.url && host.url !== e.url) host.merged = checkMerged([...host.merged, { ...had, gmail: '' }]); // the old start link still finds this entry
+    if (e.gmail) host.merged = host.merged.filter(m => m.gmail !== e.gmail || m.id); // the thread is the entry's own again
+    const before = host.text.split(EARLIER)[0].trim(), room = LIMITS.text - e.text.length - EARLIER.length;
+    host.text = before && room > 40 ? e.text + EARLIER + (before.length > room ? before.slice(0, room - 1).trimEnd() + '…' : before) : e.text;
+    const rank = p => PRIORITIES.length - PRIORITIES.indexOf(p);
+    Object.assign(host, { title: e.title, priority: rank(e.priority) >= rank(host.priority) ? e.priority : host.priority, url: e.url || host.url, gmail: e.gmail || host.gmail,
+      doc: e.doc || host.doc, dedupe: e.dedupe || host.dedupe, pushed: e.pushed, why: e.why, state: 'new', at: iso(now), by: e.by });
+    host.updates += 1; host.revision += 1;
+    if (host.sessions.length) this.addNews(host, { kind: 'update', title: e.title, text: e.text, gmail: e.gmail }, now); // 1.113.1
+    this.entries = [...this.entries.filter(x => x !== host), host]; // newest last, as an add would be
+    this.foldCards(host); this.save();
+    return { ...this.view(host), updated: true };
+  }
+
+  // 1.113 (Brad): a conversation started from an entry found another open entry on the same story. The other entry leaves the
+  // list (dismissed, with a note naming the entry it went into) and the entry keeps its thread, title and conversations, so the
+  // Gmail label comes off the other thread and only one carries it. `into` is the entry's id; `session` finds it from the
+  // conversation instead (the entry that conversation was started from). Restore undoes it.
+  merge({ id, into, session, note } = {}, { actor = 'cli' } = {}) {
+    const e = this.get(str(id, 40));
+    let host = null;
+    if (into) host = this.get(str(into, 40));
+    else if (session) {
+      const sid = str(session, 90);
+      host = this.entries.filter(x => x.kind === 'alert' && x.sessions.some(s => s.id === sid)).sort((a, b) => ms(b.at) - ms(a.at))[0] || null;
+      if (!host) throw fail('No Inbox entry was started from that conversation.', 404, { code: 'inbox_missing' });
+    } else throw fail('merge needs the entry to merge into (into) or the conversation started from it (session).', 400, { code: 'bad_merge' });
+    if (host === e) throw fail('An entry cannot be merged into itself.', 400, { code: 'bad_merge' });
+    if (e.kind !== 'alert' || host.kind !== 'alert') throw fail('Only alerts can be merged.', 400, { code: 'bad_merge' });
+    if (!(host.state === 'new' || host.state === 'opened')) throw fail('The entry to merge into is no longer on the list; restore it first.', 400, { code: 'bad_merge' });
+    if (!(e.state === 'new' || e.state === 'opened')) throw fail('That entry is no longer on the list.', 400, { code: 'bad_merge' });
+    if (e.source !== host.source) throw fail('Both entries must come from the same watcher.', 400, { code: 'bad_merge' });
+    const at = iso(this.now()), n = typeof note === 'string' && note.trim() ? str(note, NOTE_MAX) : `Merged into "${host.title}".`.slice(0, NOTE_MAX);
+    host.merged = checkMerged([...host.merged.filter(m => m.id !== e.id && !(e.gmail && m.gmail === e.gmail)), { id: e.id, title: e.title, gmail: e.gmail === host.gmail ? '' : e.gmail, url: e.url, at: e.at }]);
+    // 1.113.1: the host's conversations have not seen the merged entry; the merged entry's conversations have not seen the host's
+    // story. The conversation that did the merge (session) found it itself, so it is not behind.
+    if (host.sessions.length) this.addNews(host, { kind: 'merge', title: e.title, text: e.text, gmail: e.gmail }, this.now());
+    for (const s of e.sessions) remember(host, s.id, s.at, { story: true });
+    if (session) this.markCaughtUp(host, str(session, 90));
+    host.revision += 1;
+    Object.assign(e, { state: 'dismissed', actedAt: at, ackedAt: null, lastAction: 'dismissed', note: n, mergedInto: host.id, actedBy: actor === 'ui' ? 'ui' : 'cli' });
+    e.seenAt ||= at; e.revision += 1;
+    this.mirrorToCards(e, 'dismiss', at);
+    this.save();
+    return { entry: this.view(e), into: this.view(host) };
+  }
+
+  // 1.113.1 (Brad): an entry updated after a conversation started from it. The conversation catches up (Bring it in, or steered
+  // into a reply that is running) instead of a second conversation starting on the same story.
+  addNews(host, { kind, title, text, gmail }, now) {
+    host.newsN = (host.newsN || 0) + 1;
+    host.news = checkNews([...(host.news || []), { n: host.newsN, at: iso(now), kind, title, text, gmail }]);
+  }
+  // What a conversation has not seen on this entry: the news after its `seen`, or the whole story for one that came with a merge.
+  // Older news than the kept ones is gone; the entry's text still has the latest under it.
+  behindOf(e, sess) {
+    if (!sess) return null;
+    if (sess.story) return { story: true, news: [] };
+    const news = (e.news || []).filter(x => x.n > (sess.seen ?? 0));
+    return news.length ? { story: false, news } : null;
+  }
+  // The open alerts a conversation was started from (or took in by a merge) that have something it has not seen.
+  newsFor(session) {
+    const sid = str(session, 90); if (!SESSION_RE.test(sid)) return [];
+    const out = [];
+    for (const e of this.entries) {
+      if (e.kind !== 'alert' || !(e.state === 'new' || e.state === 'opened')) continue;
+      const b = this.behindOf(e, e.sessions.find(x => x.id === sid));
+      if (b) out.push({ id: e.id, title: e.title, story: e.story, gmail: e.gmail, at: e.at, newsN: e.newsN, ...b });
+    }
+    return out.sort((a, b) => ms(b.at) - ms(a.at));
+  }
+  // Every conversation of this entry that is behind, for the server to steer the news into a running reply.
+  behind(e) { return e.sessions.map(s => ({ session: s.id, behind: this.behindOf(e, s) })).filter(x => x.behind); }
+  markCaughtUp(e, sid) {
+    const s = e.sessions.find(x => x.id === sid); if (!s) return false;
+    s.seen = e.newsN || 0; delete s.story; return true;
+  }
+  // POST /api/inbox/caught-up: the conversation was given the news (by Bring it in, or steered). `upTo` is the newsN the message
+  // carried, so news that arrived in between still shows.
+  caughtUp({ session, id, upTo } = {}) {
+    const sid = str(session, 90); if (!SESSION_RE.test(sid)) throw fail('caught-up needs the conversation id.', 400, { code: 'bad_session' });
+    const list = id ? [this.get(str(id, 40))] : this.entries.filter(e => e.sessions.some(x => x.id === sid));
+    let n = 0;
+    for (const e of list) {
+      const s = e.sessions.find(x => x.id === sid); if (!s) continue;
+      const to = Number.isInteger(upTo) && upTo >= 0 ? Math.min(upTo, e.newsN || 0) : e.newsN || 0;
+      if (s.story || (s.seen ?? 0) < to) { s.seen = Math.max(s.seen ?? 0, to); delete s.story; n++; }
+    }
+    if (n) this.save();
+    return n;
+  }
+  // The message that catches a conversation up: written as the owner's next message (Bring it in) or steered into a running reply.
+  catchUpText(e, behind, { fmt = v => v, running = false } = {}) {
+    const cut = t => t.split(EARLIER)[0].trim();
+    const ask = running ? 'When you reach a good point, take this into account and tell me in a few lines what it changes.'
+      : 'Read what is new, check it against what we have so far, and tell me in a few lines what it changes.';
+    if (behind.story) return `The Inbox entry this conversation started from was merged into "${e.title}", the entry for the same story. What that entry says:\n\n`
+      + `${cut(e.text)}${e.gmail ? `\nGmail: ${e.gmail}` : ''}\n\n${ask}`;
+    const parts = behind.news.map(x => `${x.kind === 'merge' ? 'Merged in' : 'Update'}, ${fmt(x.at)}: ${x.title}\n${cut(x.text)}${x.gmail ? `\nGmail: ${x.gmail}` : ''}`);
+    return `New on this Inbox story since this conversation started ("${e.title}"):\n\n${parts.join('\n\n')}\n\n${ask}`;
   }
 
   // 1.95 (Brad): nothing already on the owner's list comes back as a new card. A digest item whose story (or Gmail thread) has an
@@ -332,7 +473,10 @@ export class InboxStore {
     } else if (a === 'unread') {
       if (e.state === 'opened') { e.state = 'new'; changed = true; } // a finished entry stays finished; restore it first
     } else if (a === 'restore') {
-      if (ACTED.includes(e.state)) { e.state = 'opened'; e.seenAt ||= at; e.actedAt = at; e.ackedAt = null; e.lastAction = 'restore'; if (n != null) e.note = n; changed = true; this.mirrorToCards(e, 'restore', at); this.foldCards(e); }
+      if (ACTED.includes(e.state)) {
+        e.state = 'opened'; e.seenAt ||= at; e.actedAt = at; e.ackedAt = null; e.lastAction = 'restore'; if (n != null) e.note = n; changed = true; this.mirrorToCards(e, 'restore', at); this.foldCards(e);
+        if (e.mergedInto) { const h = this.entries.find(x => x.id === e.mergedInto); if (h) { h.merged = h.merged.filter(m => m.id !== e.id); h.sessions = h.sessions.filter(x => !(x.story && e.sessions.some(y => y.id === x.id))); h.revision += 1; } e.mergedInto = ''; } // 1.113: out of the entry it went into
+      }
     } else {
       const target = TARGET[a];
       if (e.state !== target || (n != null && n !== e.note)) { e.state = target; e.actedAt = at; e.ackedAt = null; e.lastAction = target; if (n != null) e.note = n; changed = true; this.mirrorToCards(e, a, at); }
@@ -371,7 +515,7 @@ export class InboxStore {
     if (!START_RE.test(sid) || !SESSION_RE.test(sess)) return [];
     const tail = '#/start/' + sid, at = iso(this.now()), out = [];
     for (const e of this.entries) {
-      let hit = e.url.endsWith(tail) && remember(e, sess, at);
+      let hit = (e.url.endsWith(tail) || e.merged.some(m => m.url.endsWith(tail))) && remember(e, sess, at, e.url.endsWith(tail) ? {} : { story: true }); // 1.113: a start link the entry took in (briefed with older news, so it catches up on the story)
       for (const it of e.items) if (it.url.endsWith(tail) && remember(it, sess, at)) { // 1.95: a card's own start link; a card on the same story elsewhere shows it too
         hit = true;
         for (const { it: c } of this.cards(it, e.source, it)) remember(c, sess, at);
@@ -391,7 +535,8 @@ export class InboxStore {
   feedback({ since } = {}) {
     const from = checkSince(since);
     const out = this.entries.filter(e => e.actedAt && e.ackedAt == null && (ACTED.includes(e.state) || e.lastAction === 'restore') && (from == null || ms(e.actedAt) >= from))
-      .map(e => ({ id: e.id, action: e.lastAction === 'restore' ? 'restore' : e.state, at: e.actedAt, note: e.note, title: e.title, story: e.story, source: e.source, kind: e.kind }));
+      .map(e => ({ id: e.id, action: e.lastAction === 'restore' ? 'restore' : e.state, at: e.actedAt, note: e.note, title: e.title, story: e.story, source: e.source, kind: e.kind,
+        ...(e.mergedInto && e.state === 'dismissed' ? { mergedInto: e.mergedInto, intoStory: this.entries.find(x => x.id === e.mergedInto)?.story || '' } : {}) })); // 1.113
     for (const e of this.entries) for (const it of e.items) {
       if (!it.actedAt || it.ackedAt != null || !(ITEM_ACTED.includes(it.state) || it.lastAction === 'restore') || (from != null && ms(it.actedAt) < from)) continue;
       out.push({ id: `${e.id}/${it.ref}`, entry: e.id, item: it.ref, action: it.lastAction === 'restore' ? 'restore' : it.state === 'alerted' ? 'alert' : it.state, at: it.actedAt, note: it.note, title: it.title, story: it.story, text: it.text, gmail: it.gmail, priority: it.priority, source: e.source, kind: 'digest-item' });

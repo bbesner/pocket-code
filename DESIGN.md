@@ -17,6 +17,18 @@ opacity, the cursor reads `grabbing`, and a 2px inset `--clay` bar on the target
 lands: the same vocabulary as the pinned-row drag in the list, turned sideways. Touch waits for a 350ms hold so a swipe
 still scrolls the strip. Pinned tabs never mix with the rest. Alt Shift [ / ] is the keyboard path.
 
+## Inbox catch-up line (1.113)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 5; the Handoff offer's pattern,
+classes and tokens, the existing Inbox rail icon, no new colour. Read: someone who started a conversation from an alert
+should see, in that conversation, that more mail came on the story, and bring it in with one tap instead of starting a
+second conversation. One line of `--dim` 13.5px text under the latest finished reply (after Try harder and the Handoff
+offer when they show): *New mail on this story since you started: <title>, <time>.* (or *N updates…*, or the merge
+wording), then the `.chip` **Bring it in** with the Inbox icon and the quiet text button **Not now**, both 44px. It is
+`.inbox-news`, not `.handoff-offer`, so the Handoff repaint never removes it. Hidden while a reply runs (the server
+steers the news in then). The entry sheet adds *New mail since then: it offers to bring it in* to Open the conversation's
+sub-line, and Start another conversation's sub-line says the one above can catch up instead.
+
 ## Handoff offer (1.102)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 5; existing tokens, components and

@@ -248,7 +248,9 @@ class PocketPush(Delivery):
                 except OSError:
                     pass
         d = d if isinstance(d, dict) else {}
-        return f"inbox={d.get('entry', {}).get('id', '?')} push={d.get('push')} mail={d.get('mail')}"
+        if d.get("updated"):  # 1.113: Pocket updated the open entry on this story instead of adding one
+            self.log(f"updated the open entry {d.get('entry', {}).get('id', '?')} on story {story!r} instead of adding one")
+        return f"inbox={d.get('entry', {}).get('id', '?')} push={d.get('push')} mail={d.get('mail')}{' updated' if d.get('updated') else ''}"
 
     def feedback(self) -> list[dict]:
         """What the owner did in Pocket since the last ack: [{id, action, at, note, title, story, source, kind}]."""

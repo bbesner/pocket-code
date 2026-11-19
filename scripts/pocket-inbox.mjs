@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // pocket-inbox: Inbox Watch from a terminal, an agent session or the inbox watcher itself (1.69).
 // Talks to the running Pocket Code server over loopback with the token it writes to <data dir>/cli-token;
-// it never opens inbox.json itself. An agent records a decision (act) only when the user asks.
+// it never opens inbox.json itself. An agent records a decision (act) only when the user asks; it may merge a same-story
+// duplicate into the entry its conversation started from (1.113) and says so.
 //
 //   pocket-inbox add --title "…" (--text "…" | --file <path|->) [--kind alert|digest|lookahead] [--priority critical|high|normal|low]
 //                    [--story "…"] [--source "…"] [--url </#/start/<id> or a web address>] [--gmail <https://mail.google.com/…>]
@@ -12,6 +13,7 @@
 //   pocket-inbox show <id> [--json]
 //   pocket-inbox act <id> <open|unread|dismiss|resolve|not_useful|restore> [--note "…"] [--json]
 //   pocket-inbox act <id> <alert|resolve|not_useful|dismiss|restore> --item <ref> [--note "…"]       one item of a digest (1.95)
+//   pocket-inbox merge <id> (--into <entry id> | --session <conversation id>) [--note "…"]       1.113: a duplicate on the same story joins that entry
 //   pocket-inbox feedback [--since <ISO>] [--json]                                           the owner's decisions not yet applied
 //   pocket-inbox ack <id…>                                                                   the worker applied them
 //   pocket-inbox seen [--source <name>] [--profile <path|->]                                 a heartbeat: the worker ran (1.70: with its profile)
@@ -44,7 +46,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 const [cmd, ...rest] = opts._;
 const die = (msg, code = 1) => { console.error(msg); process.exit(code); };
-if (!cmd || cmd === 'help' || argv.includes('--help')) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 20).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (!cmd || cmd === 'help' || argv.includes('--help')) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 23).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 
 let token = '';
 try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { die(`Pocket Code is not running here (no cli-token in ${dataDir}).`, 2); }
@@ -86,6 +88,9 @@ function card(e) {
   if (e.gmail) lines.push(`  Gmail: ${e.gmail}`);
   if (e.doc) lines.push(`  File: ${e.doc}`);
   if (e.note) lines.push(`  Note: ${e.note}`);
+  if (e.updates) lines.push(`  Updated ${e.updates} time${e.updates === 1 ? '' : 's'} with later mail on the story`);
+  for (const m of e.merged || []) if (m.id || m.gmail) lines.push(`  Took in: ${m.title || '(untitled)'}${m.id ? ' (' + m.id + ')' : ''}${m.gmail ? '  ' + m.gmail : ''}`);
+  for (const c of e.sessions || []) lines.push(`  Conversation: ${c.id}${c.story || (c.seen ?? 0) < (e.newsN || 0) ? ' (has not had the latest mail; it offers to bring it in)' : ''}`); // 1.113.1
   if (e.actedAt) lines.push(`  ${e.lastAction === 'restore' ? 'Restored' : 'Marked ' + (STATE[e.state] || e.state)} ${when(e.actedAt)}`);
   return lines.join('\n');
 }
@@ -106,7 +111,7 @@ switch (cmd) {
     }
     const r = await call('/api/inbox', { title, text: String(text).trim(), kind: opts.kind || undefined, priority: opts.priority || undefined, story: opts.story || '', source: opts.source || undefined,
       url: opts.url || '', gmail: opts.gmail || '', doc: opts.doc || '', dedupe: opts.dedupe || '', email: Boolean(opts.email), push: !opts.noPush, ...(opts.why ? { why: String(opts.why) } : {}), ...(items ? { items } : {}) });
-    out(r, `${r.entry.id} push=${r.push ?? 'off'} mail=${mailWord(r.mail)}${r.duplicate ? ' duplicate' : ''}`);
+    out(r, `${r.entry.id} push=${r.push ?? 'off'} mail=${mailWord(r.mail)}${r.duplicate ? ' duplicate' : ''}${r.updated ? ' updated' : ''}`);
     break;
   }
   case 'list': {
@@ -128,6 +133,12 @@ switch (cmd) {
     if (!id || !action) die('act needs an entry id and an action: pocket-inbox act <id> resolve');
     const r = await call('/api/inbox/act', { action, id, ...(opts.item ? { item: opts.item } : {}), ...(opts.note !== undefined ? { note: opts.note } : {}) });
     out(r.entry, card(r.entry)); break;
+  }
+  case 'merge': {
+    const id = rest[0];
+    if (!id || !(opts.into || opts.session)) die('merge needs an entry id and --into <entry id> or --session <conversation id>');
+    const r = await call('/api/inbox/merge', { id, ...(opts.into ? { into: opts.into } : {}), ...(opts.session ? { session: opts.session } : {}), ...(opts.note !== undefined ? { note: opts.note } : {}) });
+    out(r, `Merged "${r.entry.title}" (${r.entry.id}) into "${r.into.title}" (${r.into.id}).`); break;
   }
   case 'feedback': {
     const r = await call('/api/inbox/feedback' + qs({ since: opts.since }));

@@ -1945,10 +1945,10 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 
 /* 1.102: the handoff offer, under the latest finished reply once a conversation is large. Operate: variance 2,
    motion 2 (none), density 5. The lineage line's voice: --dim sentence, one chip, a quiet text button. No colour. */
-#msgs > .handoff-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 2px 0 8px; }
+#msgs > .handoff-offer, #msgs > .inbox-news { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 2px 0 8px; }
 .handoff-offer-text { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--dim); max-width: 60ch; }
 .handoff-offer-actions { display: flex; align-items: center; gap: 4px; }
-.handoff-offer .chip { min-height: 44px; display: inline-flex; align-items: center; }
+.handoff-offer .chip, .inbox-news .chip { min-height: 44px; display: inline-flex; align-items: center; }
 .handoff-offer-later { min-height: 44px; padding: 0 12px; border-radius: 10px; font-size: 13.5px; color: var(--dim); }
 .handoff-offer-later:hover { color: var(--text); background: var(--raised); }
 .handoff-offer-later:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }

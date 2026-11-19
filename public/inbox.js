@@ -244,10 +244,11 @@ function inboxSheet(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet task-sheet inbox-sheet';
  const facts=[`<span>${esc(inboxDay(e.at))} ${esc(inboxWhen(e.at))}</span>`,e.story?`<span>${esc(e.story.replace(/-/g,' '))}</span>`:'',`<span>${inboxKindWord(e)}</span>`,e.priority&&e.priority!=='normal'?`<span>${esc(e.priority)}</span>`:'',inboxStateWord(e)?`<span>${inboxStateWord(e)}</span>`:'',inboxPushWord(e)?`<span>${esc(inboxPushWord(e))}</span>`:''].filter(Boolean).join(''); // the sheet's facts stack one per line, as a task's do
  const target=inboxTarget(e),gone=['dismissed','resolved','not_useful'].includes(e.state),sess=inboxSession(e),n=e.sessions?.length||0;
+ const behind=Boolean(sess&&!gone&&(sess.story||(sess.seen??0)<(e.newsN||0))); // 1.113.1: the conversation has not had the latest mail
  sh.innerHTML=`<h2>${e.kind==='alert'?'Alert':e.kind==='digest'?'Digest':'Look-ahead'}</h2><p class="task-text">${esc(e.title)}</p><div class="task-facts">${facts}</div>
   ${e.items?.length?`<div class="inbox-items-wrap" data-items>${inboxItemsHTML(e)}</div>`:`<div class="task-summary inbox-body">${inboxText(e.text)}</div>`}
-  ${sess?`<a class="opt" href="#/chat/${esc(sess.id)}" data-chat>${IC.chat}<span>Open the conversation<span class="sub">${n>1?`The latest of ${n}, started`:'Started'} ${esc(inboxDay(sess.at))} ${esc(inboxWhen(sess.at))}</span></span></a>`:''}
-  ${target?`<button class="opt" data-go>${e.doc&&!e.url?IC.doc:IC.plus}<span>${e.doc&&!e.url?'Open in Files':sess?'Start another conversation':'Start a conversation'}<span class="sub">${e.doc&&!e.url?'The full text, kept in Files':'New conversation, already briefed with the story and the evidence; nothing starts until you press Start'}</span></span></button>`:''}
+  ${sess?`<a class="opt" href="#/chat/${esc(sess.id)}" data-chat>${IC.chat}<span>Open the conversation<span class="sub">${n>1?`The latest of ${n}, started`:'Started'} ${esc(inboxDay(sess.at))} ${esc(inboxWhen(sess.at))}${behind?'. New mail since then: it offers to bring it in':''}</span></span></a>`:''}
+  ${target?`<button class="opt" data-go>${e.doc&&!e.url?IC.doc:IC.plus}<span>${e.doc&&!e.url?'Open in Files':sess?'Start another conversation':'Start a conversation'}<span class="sub">${e.doc&&!e.url?'The full text, kept in Files':sess?'A separate conversation on the same story; the one above can catch up instead':'New conversation, already briefed with the story and the evidence; nothing starts until you press Start'}</span></span></button>`:''}
   ${e.gmail?`<a class="opt" href="${esc(e.gmail)}" target="_blank" rel="noopener">${IC.globe}<span>Open in Gmail</span></a>`:''}
   ${gone?`<button class="opt" data-restore>${IC.swap}<span>Restore<span class="sub">Back to the list; the watcher is told</span></span></button>`:`<button class="opt" data-resolve>${IC.tick}<span>Resolved<span class="sub">This situation is over; the watcher stops following it</span></span></button>
   <button class="opt" data-useless>${IC.bellOff}<span>Not useful<span class="sub">Don’t alert me about this kind of thing; the watcher adds it to your preferences</span></span></button>
@@ -484,3 +485,72 @@ async function inboxWatchSheet(){
  // While the sheet is open, the status and the cost table keep up; the form is left as you have it.
  const poll=setInterval(async()=>{if(!sh.isConnected)return clearInterval(poll);try{const n=await api('/inbox/watch?source='+encodeURIComponent(w.source));w={...w,profile:n.profile,revision:n.revision};$w('#w-status').textContent=watchStatus(w);if(dev&&$w('#w-usage'))$w('#w-usage').innerHTML=watchUsageHTML(n.profile?.usage);}catch{}},20000);
 }
+
+/* 1.113.1 (Brad): a conversation started from an Inbox entry catches up when the entry gets more mail (or takes in a merged
+   duplicate), instead of a second conversation starting on the same story. One quiet line under the latest reply, the
+   Handoff offer's pattern and classes: Bring it in sends the news as your next message; Not now hides it until more comes.
+   A reply that is running gets the news steered in by the server, so the line waits until nothing is running. */
+const InboxNews=(()=>{
+ const cache=new Map();let loading=null;
+ const cur=()=>typeof chatId==='undefined'?null:chatId; // app.js's; this file loads first, and a page can run without it
+ const later=()=>readLocal('pc-inbox-news-later',{});
+ async function load(id=cur()){
+  if(!id||typeof inboxOn!=='function'||!inboxOn()||loading)return;
+  loading=api('/inbox/news?session='+encodeURIComponent(id),{signal:AbortSignal.timeout(8000)})
+   .then(r=>{cache.set(id,{at:Date.now(),news:Array.isArray(r.news)?r.news:[]});if(id===cur())paint();})
+   .catch(()=>{}).finally(()=>{loading=null;});
+ }
+ function pick(){
+  const c=cache.get(chatId);if(!c)return null;
+  const off=later()[chatId]||{};
+  return c.news.find(n=>!(n.id in off)||off[n.id]<n.upTo)||null;
+ }
+ function eligible(msgs){
+  if(!chatId||composerWorking||sendsInFlight.has(chatId)||loadOutbox(chatId))return null;
+  const row=allSessions.find(r=>r.id===chatId);
+  if(row&&['running','background','observed'].includes(rowState(row).kind))return null;
+  const n=pick();if(!n)return null;
+  let anchor=[...msgs.children].filter(e=>e.matches('.m-user, .m-asst:not(.live)')).pop();if(!anchor)return null;
+  while(anchor.nextElementSibling?.matches('.try-harder, .handoff-offer, .done-card'))anchor=anchor.nextElementSibling;
+  return {n,anchor};
+ }
+ const when=at=>{const d=inboxDay(at);return (d==='Today'?'':d+', ')+inboxWhen(at);};
+ function sentence(n){
+  const t=esc(n.latest?.title||n.title),w=n.latest?.at?esc(when(n.latest.at)):'';
+  if(n.story)return `This conversation's Inbox entry was merged into another on the same story: ${esc(n.title)}.`;
+  if(n.count>1)return `${n.count} updates on this story since you started. The latest: ${t}${w?', '+w:''}.`;
+  return n.merged?`Another Inbox entry on this story was merged in: ${t}.`:`New mail on this story since you started: ${t}${w?', '+w:''}.`;
+ }
+ function dismiss(n){
+  const m=later(),own={...(m[chatId]||{}),[n.id]:n.upTo||0};delete m[chatId];m[chatId]=own; // newest last, so pruning drops the oldest
+  const keys=Object.keys(m);keys.slice(0,Math.max(0,keys.length-100)).forEach(k=>delete m[k]);
+  writeLocal('pc-inbox-news-later',m);
+ }
+ async function bring(n,el){
+  const box=document.getElementById('box');
+  if(box?.value.trim()||tb?.attachments?.length)return toast('Send or clear what you are writing first, then bring it in.');
+  if(loadOutbox(chatId)||sendsInFlight.has(chatId))return toast('Wait for your last message to send, then bring it in.');
+  const id=chatId,c=cache.get(id);if(c)c.news=c.news.filter(x=>x.id!==n.id);
+  el.remove();
+  const sent=sendMsg(n.text);
+  api('/inbox/caught-up',{method:'POST',body:JSON.stringify({session:id,id:n.id,upTo:n.upTo})}).catch(()=>{});
+  return sent;
+ }
+ function paint(msgs=document.getElementById('msgs')){
+  if(!msgs||!cur())return;
+  const had=msgs.querySelector('.inbox-news');
+  msgs.querySelectorAll('.inbox-news').forEach(e=>e.remove());
+  const c=cache.get(chatId);if(!c||Date.now()-c.at>30000)load(chatId);
+  const hit=eligible(msgs);if(!hit)return;
+  const el=document.createElement('div');el.className='inbox-news';el.setAttribute('role','group');el.setAttribute('aria-label','New mail on this story');
+  el.innerHTML=`<p class="handoff-offer-text">${sentence(hit.n)}</p>
+   <div class="handoff-offer-actions"><button type="button" class="chip" data-news-bring>${IC.railInbox}<span>Bring it in</span></button><button type="button" class="handoff-offer-later" data-news-later>Not now</button></div>`;
+  el.querySelector('[data-news-bring]').onclick=()=>bring(hit.n,el);
+  el.querySelector('[data-news-later]').onclick=()=>{dismiss(hit.n);el.remove();document.getElementById('box')?.focus();};
+  hit.anchor.after(el); // beside the reply, not in it, so copying or reading the reply aloud never includes it
+  if(!had&&typeof scrollBottom==='function')scrollBottom();
+ }
+ setInterval(()=>{const id=cur();if(id&&document.visibilityState==='visible')load(id);},30000);
+ document.addEventListener('visibilitychange',()=>{const id=cur();if(id&&document.visibilityState==='visible')load(id);});
+ return {load,paint};
+})();

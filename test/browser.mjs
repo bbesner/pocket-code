@@ -141,6 +141,7 @@ const seedBoard=()=>{board.projects.length=0;modeSide.clear();
 };
 // 1.69: Inbox Watch entries: a new alert with a start link and a Gmail thread, an opened digest kept in Files, a resolved alert.
 const inboxStore=new InboxStore(path.join(out,'inbox.json'));
+const inboxCaughtUp=[]; // 1.113.1
 const seedInbox=()=>{inboxStore.entries.length=0;inboxStore.sources={};
  const r=inboxStore.add({kind:'alert',title:'Lakeview alarm timer tests',text:'Ten missed tests since October 13. [Latest](msg:1a151dff1dfb590e)',story:'lakeview-late-alarm-test',source:'inbox-monitor',url:'/#/start/0123456789ac'},{actor:'cli'});inboxStore.act({action:'resolve',id:r.id});
  const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- Storefront payout deductions: the scheduled payout includes $267.48 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
@@ -287,6 +288,16 @@ const server=http.createServer(async(req,res)=>{
    return json({ok:true,lookahead:l.id,alert:al.id});
   }
   if(url.pathname==='/api/inbox/check')return json({ok:true,...inboxStore.requestCheck('')}); // 1.75: Check now
+  if(url.pathname==='/api/inbox/news'){ // 1.113.1: as server.mjs builds it
+   const news=inboxStore.newsFor(url.searchParams.get('session')||'').map(n=>{const e=inboxStore.get(n.id);return {id:n.id,title:n.title,story:n.story,gmail:n.gmail,merged:n.story===true?true:n.news.some(x=>x.kind==='merge'),count:n.story===true?1:n.news.length,
+    latest:n.story===true?{title:e.title,at:e.at}:{title:n.news.at(-1).title,at:n.news.at(-1).at},upTo:e.newsN||0,text:inboxStore.catchUpText(e,n,{fmt:()=>'2:14 PM EST'})};});
+   return json({ok:true,news});}
+  if(url.pathname==='/api/inbox/caught-up'){let raw='';for await(const c of req)raw+=c;try{const b=JSON.parse(raw);inboxCaughtUp.push(b);return json({ok:true,caughtUp:inboxStore.caughtUp(b)});}catch(e){return json({error:e.message},e.status||400);}}
+  if(url.pathname==='/api/inbox/news-fixture'){ // an alert this conversation started from, then later mail on its story
+   const sid=url.searchParams.get('session'),n=Number(url.searchParams.get('n')||1),start=url.searchParams.get('start')||'0123456789ff';
+   if(!inboxStore.entries.some(e=>e.story==='harbor-gate-'+start)){inboxStore.add({kind:'alert',title:'Harbor HOA gate down',text:'The gate controller is offline.',story:'harbor-gate-'+start,source:'inbox-monitor',url:'/#/start/'+start},{actor:'cli'});inboxStore.linkStart(start,sid);}
+   for(let i=0;i<n;i++)inboxStore.add({kind:'alert',title:i?'Harbor gate: fixed':'Harbor gate: tech on site at 2 pm',text:i?'Mike says it is fixed.':'Mike is on site at 2 pm. [Mike](msg:19b03)',story:'harbor-gate-'+start,source:'inbox-monitor',gmail:'https://mail.google.com/mail/u/0/#all/19b000000000000'+i},{actor:'cli'});
+   return json({ok:true});}
   if(url.pathname==='/api/inbox/check-done'){const k=inboxStore.watchSource(),p=inboxStore.profiles[k].profile;p.status={...p.status,checkRequestDone:inboxStore.checks[k]?.at};inboxStore.add({kind:'alert',title:'Added in Gmail: quote request',text:'Pat asks for a quote by Friday.',source:k},{actor:'cli'});return json({ok:true});} // the watcher reports it done, with what it found
   if(url.pathname==='/api/inbox/watch'){ // 1.70
    if(req.method==='POST'){let raw='';for await(const c of req)raw+=c;try{const b=JSON.parse(raw);return json({ok:true,...inboxStore.setWatch(b.source||'inbox-monitor',b.settings??null,{actor:'ui'})});}catch(e){return json({error:e.message,code:e.code},e.status||400);}}
@@ -470,6 +481,7 @@ try{
  if(process.env.POCKET_SLASH_ONLY){ /* POCKET_SLASH_ONLY=n: the / picker checks only, n times over, to shake out a flake */const {runSlashRegressions}=await import('./slash-browser.mjs');for(let k=0;k<Number(process.env.POCKET_SLASH_ONLY);k++){console.log('iteration',k);await runSlashRegressions({browser,base,rows,received,out});}throw Object.assign(Error('slash only'),{docsOnly:true});}
  if(process.env.POCKET_CLI_UPDATES_ONLY){const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');await runCliUpdateRegressions({browser,base,out});throw Object.assign(Error('CLI updates only'),{docsOnly:true});}
  if(process.env.POCKET_COORD_ONLY){await runCoordinationRegressions({p,base,out,repo,rows,settings:fixtureSettings,coord:coordFixture,scan});if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,coordinationOnly:true,screenshots:out}));throw Object.assign(Error('coordination only'),{docsOnly:true});}
+ if(process.env.POCKET_INBOX_NEWS_ONLY){const {runInboxNewsRegressions}=await import('./inbox-news-browser.mjs');await runInboxNewsRegressions({browser,base,rows,out,settings:fixtureSettings,received,inboxStore,inboxCaughtUp,conversations});console.log(JSON.stringify({ok:true,inboxNewsOnly:true,screenshots:out}));throw Object.assign(Error('inbox news only'),{docsOnly:true});}
  if(process.env.POCKET_COMPLETE_ONLY){const {runCompleteRegressions}=await import('./complete-browser.mjs');await runCompleteRegressions({browser,base,rows,out,conversations,releases,settings:fixtureSettings});console.log(JSON.stringify({ok:true,completeOnly:true,screenshots:out}));throw Object.assign(Error('complete only'),{docsOnly:true});}
  if(process.env.POCKET_PROJECT_MODE_ONLY){const {runProjectModeRegressions}=await import('./project-mode-browser.mjs');await runProjectModeRegressions({browser,base,rows,out,repo,settings:fixtureSettings,modes:uiModes,boardActs,conversations,scan:null});console.log(JSON.stringify({ok:true,projectModeOnly:true,screenshots:out}));throw Object.assign(Error('project mode only'),{docsOnly:true});}
  if(process.env.POCKET_THEME_ONLY){
@@ -1010,6 +1022,8 @@ try{
  await runSideChatRegressions({browser,base,rows,out,side:sideFixture,conversations});
  const {runHandoffRegressions}=await import('./handoff-browser.mjs'); // 1.102
  await runHandoffRegressions({browser,base,rows,out,settings:fixtureSettings,received,side:sideFixture,conversations});
+ const {runInboxNewsRegressions}=await import('./inbox-news-browser.mjs'); // 1.113.1
+ await runInboxNewsRegressions({browser,base,rows,out,settings:fixtureSettings,received,inboxStore,inboxCaughtUp,conversations});
  const {runCompleteRegressions}=await import('./complete-browser.mjs'); // 1.111
  await runCompleteRegressions({browser,base,rows,out,conversations,releases,settings:fixtureSettings});
  const {runSlashRegressions}=await import('./slash-browser.mjs');

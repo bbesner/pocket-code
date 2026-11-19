@@ -341,6 +341,55 @@ def test_finished_starred_thread_stays_in_the_inbox():
         assert g.labels[A] == {"INBOX"}, f"{cls.__name__}: unknown star keeps the thread in the inbox"
 
 
+def test_a_thread_taken_in_by_another_entry_loses_the_label_and_stays():
+    """1.113 (Brad, 2026-11-19): one thread per story carries the label. When an entry takes in another thread (an update on
+    its story, or a duplicate merged into it), that thread loses the label and stays in the inbox. A thread the owner labels
+    by hand is judged as before, even when an entry took it in."""
+    store, g, p = setup()
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    for eid, tid in (("e1", A), ("e2", B)):
+        p.entry(eid, tid)
+        g.labels[tid] = {"INBOX"}
+    E.label_sync(store, g, bring_in=False, dry_run=False)
+    assert g.labels[A] == g.labels[B] == {"INBOX", "L1"}
+    # e2 merged into e1: e1 lists B among the threads it took in
+    p.entries = [{"id": "e1", "gmail": f"https://mail.google.com/mail/u/0/#all/{A}", "merged": [{"id": "e2", "gmail": f"https://mail.google.com/mail/u/0/#all/{B}"}]}]
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    assert g.labels[A] == {"INBOX", "L1"}, g.labels[A]
+    assert g.labels[B] == {"INBOX"}, f"label off, not archived: {g.labels[B]}"
+    assert states(store) == {A: "synced"} and p.acted == []
+    # the owner labels B again by hand: it comes in to be judged, the label stays
+    g.labels[B].add("L1")
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == {B}
+    assert "L1" in g.labels[B] and states(store)[B] == "incoming"
+
+
+def test_a_merged_entry_joins_its_story():
+    """1.113: feedback for an entry merged in Pocket links its threads to the story it went into and closes its own story."""
+    store, g, p = setup()
+    for key, tid in (("addison-outage", A), ("addison-storm", B)):
+        store.db.execute("insert into issues(issue_key,status,priority,title) values(?, 'open', 'high', ?)", (key, key))
+        store.link(key, tid)
+    p.feedback = lambda: [{"id": "e2", "action": "dismissed", "story": "addison-storm", "title": "Addison Reserve storm outage",
+                           "mergedInto": "e1", "intoStory": "addison-outage", "at": E.iso()}]
+    acked = []
+    p.ack = acked.extend
+    E.apply_feedback(store)
+    assert acked == ["e2"]
+    assert store.keys_for_threads([B]) == {"addison-outage", "addison-storm"}
+    assert store.story("addison-storm")["status"] == "resolved" and store.story("addison-outage")["status"] == "open"
+    assert any("Merged in Pocket" in e["fact"] for e in store.events("addison-outage"))
+
+
+def test_the_briefing_asks_for_the_opening_check():
+    store, g, p = setup()
+    store.queue_alert("k1", issue_key="s", thread_id=A, kind="notify", priority="normal", text="Pat asked for a quote.",
+                      subject="Quote", sender="Pat <pat@example.com>", status="queued")
+    a = store.db.execute("select * from alerts").fetchone()
+    text = E.briefing_for(store, a, None)
+    assert "opening check" in text and "pocket-inbox merge" in text and "--session" in text
+
+
 def test_archive_can_be_turned_off():
     store, g, p = setup()
     E.CFG.gmail_label["archive"] = False
