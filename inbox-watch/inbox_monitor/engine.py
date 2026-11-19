@@ -278,6 +278,7 @@ what how get more since latest one which now check request due task sent inbox m
 LABEL_NAME = "Pocket Inbox"
 LABEL_CAP = 300  # labelled threads read per sync
 LABEL_ACCESS_S = 6 * 3600  # how long a "can it write the label?" answer is trusted
+LABEL_RETRY_S = 30 * 60  # a thread labelled in Gmail and still unjudged after this long is brought in again
 LABEL_SEEN: set[str] | None = None  # the labelled threads this check's first sync found; the end-of-run pass reuses them
 GMAIL_THREAD_RX = re.compile(r"#(?:all|inbox|sent)/([0-9a-f]{12,20})")  # between checks, still tell Pocket the watcher is alive this often
 
@@ -1018,10 +1019,10 @@ def compact(r: sqlite3.Row, chars: int) -> dict:
     return d
 
 
-def thread_bundle(rows: list[sqlite3.Row]) -> dict | None:
+def thread_bundle(rows: list[sqlite3.Row], skip: set[str] = SKIP_LABELS) -> dict | None:
     if not rows:
         return None
-    if all(SKIP_LABELS & set(json.loads(r["labels"] or "[]")) for r in rows):
+    if all(skip & set(json.loads(r["labels"] or "[]")) for r in rows):
         return None
     out = []
     for r in rows[-MSGS_PER_THREAD:]:
@@ -1946,7 +1947,9 @@ def pending_skims(store: Store) -> list[dict]:
 #   labelled, not on the list ..................... synced before: finished in Pocket -> remove the label, and archive the
 #                                                    thread unless mail came in after the label went on (1.77.9) or it is
 #                                                    starred (1.110.2);
-#                                                    unknown: the owner labelled it in Gmail -> judge it (and keep it in INBOX)
+#                                                    unknown: the owner labelled it in Gmail -> judge it (and keep it in INBOX);
+#                                                    still unjudged after LABEL_RETRY_S -> judge it again (1.113.1);
+#                                                    a filter's label on Promotions/spam/trash ("dropped") -> remove the label
 #   labelled, folded into another thread's alert .. ("with:<alert id>", 1.85.1) follows that alert's entry: in step while it
 #                                                    is listed, the label comes off when it is finished
 # The first sync after the setting is turned on only adds labels: what was labelled before is left alone.
@@ -2119,7 +2122,9 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     rows = store.db.execute("select thread_id, state, at from label_sync").fetchall()
     known, since = {r["thread_id"]: r["state"] for r in rows}, {r["thread_id"]: r["at"] for r in rows}
     baseline = not store.get("label_baseline")
-    adds, removes, brings, dismiss, kept = [], [], [], [], set()
+    adds, removes, brings, dismiss, kept, dropped, retry = [], [], [], [], set(), set(), set()
+    waiting = {r["thread_id"] for r in store.db.execute("select thread_id from backlog")}
+    stale = iso(now_utc() - dt.timedelta(seconds=LABEL_RETRY_S))
     for tid, ids in listed.items():
         if tid in labelled:
             if known.get(tid) != "synced":
@@ -2143,9 +2148,18 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
             elif host and host not in listed and not baseline:
                 removes.append(tid)  # the entry it joined was finished in Pocket
             continue  # "" while the alert waits to go out; in step while its entry is listed
+        if state == "dropped":
+            if not baseline:
+                removes.append(tid)  # 1.113.1: labelled, but never going on the list: the label comes off, the thread stays put
+                dropped.add(tid)
+            continue
         if state == "synced" and not baseline:
             removes.append(tid)  # finished in Pocket: the label comes off
-        elif state in INCOMING or state == "judged":
+        elif state in INCOMING:
+            if bring_in and not baseline and tid not in waiting and (since.get(tid) or "") < stale:
+                retry.add(tid)  # 1.113.1: brought in but never judged (left the backlog without a decision): judged again
+            continue
+        elif state == "judged":
             continue
         elif baseline:
             mark_label(store, tid, "judged")  # labelled before the sync began: left as it is
@@ -2154,7 +2168,7 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     for tid in set(known) - labelled - set(listed):  # gone from both sides
         if known[tid] not in INCOMING:
             mark_label(store, tid, None)
-    archive = {t for t in removes if t not in kept and label_archive() and not mail_since(store, t, since.get(t), set(fresh))}
+    archive = {t for t in removes if t not in kept and t not in dropped and label_archive() and not mail_since(store, t, since.get(t), set(fresh))}
     starred = {t for t in archive if thread_starred(gmail, t)}  # read last, and only for threads that would be archived
     archive -= starred
     changes = ([(t, [label, "INBOX"] if label_in_inbox() else [label], []) for t in adds] + [(t, [], [label, "INBOX"] if t in archive else [label]) for t in removes]
@@ -2183,6 +2197,9 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
         mark_label(store, t, "incoming-filter" if filed_by_rule(store, t, label) else "incoming")
         store.db.execute("delete from label_filed where thread_id=?", (t,))
         incoming.add(t)
+    if retry:
+        log(f"label: {len(retry)} thread(s) labelled in Gmail were never judged; judged again at this check")
+        incoming |= retry
     dismissed = 0
     for tid, ids in dismiss:
         for eid in ids:
@@ -2199,7 +2216,8 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     if changes or dismiss or baseline:
         log(f"label {name!r}: {len([t for t in adds if t in ok])} added, {len([t for t in removes if t in ok])} removed "
             f"({len([t for t in archive if t in ok])} archived{f', {len(starred)} starred kept in the inbox' if starred else ''}"
-            f"{f', {len([t for t in kept if t in ok])} taken in by another entry' if kept else ''}), {dismissed} dismissed "
+            f"{f', {len([t for t in kept if t in ok])} taken in by another entry' if kept else ''}"
+            f"{f', {len([t for t in dropped if t in ok])} never on the list' if dropped else ''}), {dismissed} dismissed "
             f"in Pocket, {len(incoming)} new from Gmail{f', {failed} not changed (next sync tries again)' if failed else ''}"
             f"{' (first sync)' if baseline else ''}")
     return incoming
@@ -2285,6 +2303,7 @@ def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_id
             gmail.prefetch_threads(thread_ids)  # the connector reads them a batch per call, not one call each
         except MAIL_ERRORS as e:
             log(f"prefetch: {e}")
+    added = {r["thread_id"]: r["state"] for r in store.db.execute("select thread_id, state from label_sync where state in (?,?)", INCOMING)}
     for tid in thread_ids:
         if fetch_live:
             try:
@@ -2293,6 +2312,8 @@ def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_id
                 log(f"thread {tid}: {e.resp.status}")
                 if e.resp.status in (404, 403):
                     store.db.execute("delete from backlog where thread_id=?", (tid,))
+                    if tid in added:
+                        mark_label(store, tid, None)
                 continue
         rows = archive.thread(tid, until)
         if not rows and fetch_live:
@@ -2301,11 +2322,16 @@ def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_id
             rows = archive.thread(tid, until + 7 * 86400)
             if rows:
                 log(f"thread {tid}: newest message is dated after now; judging it anyway")
-        b = thread_bundle(rows)
+        # 1.113.1: a label the owner put on by hand outranks Gmail's Promotions tab (it is judged like any other mail they
+        # added); one a filter put on promotional mail is not the owner's choice, and comes off again (`dropped`).
+        b = thread_bundle(rows, SKIP_LABELS - {"CATEGORY_PROMOTIONS"} if added.get(tid) == "incoming" else SKIP_LABELS)
         if b:
             bundles.append(b)
         else:
             store.db.execute("delete from backlog where thread_id=?", (tid,))
+            if tid in added:
+                mark_label(store, tid, "dropped")
+                log(f"label: thread {tid} was labelled in Gmail but is not mail the watcher reads (Promotions, spam, trash); the label comes off")
     store.commit()
     mark_added(store, bundles)
     bundles = first_pass(store, run_id, bundles, cursor_note)

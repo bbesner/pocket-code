@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.113.0
+checked: 1.113.1
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -348,6 +348,10 @@ in step, both ways, at every check:
   this on your list*, not *You added this*, and it teaches the watcher nothing. A label you add to mail already in your
   mailbox is yours. This needs the Gmail API (the service account or your own sign-in); through a connector the
   watcher cannot see when a label went on, so every label counts as yours.
+- Mail in Gmail's Promotions tab (1.113.1): a label you put on it yourself still puts it on your list. A filter's label on
+  promotional mail (or on spam or trash) comes off at the next check, and the thread stays where it is; the watcher does
+  not read that mail, so it never goes on your list. A labelled thread that was never judged (the check that brought it
+  in lost it) is judged again after 30 minutes.
 - Take the label off in Gmail and the entry is dismissed in Pocket.
 - Finish an entry in Pocket (resolved, not useful, dismissed, or tidied) and the label comes off and the thread is
   archived. A thread that got new mail after the label went on keeps its place in the inbox, so a reply you have not
