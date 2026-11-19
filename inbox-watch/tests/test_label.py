@@ -439,6 +439,54 @@ def test_filter_label_is_not_the_owners():
     assert store.db.execute("select count(*) from label_filed").fetchone()[0] == 0, "taken up when brought in"
 
 
+class PromoArchive:
+    """The mail archive for process(): every thread is one message in Gmail's Promotions tab."""
+
+    def thread(self, tid, until):
+        return [{"thread_id": tid, "message_id": "m" + tid[-1], "subject": "Keeping your data secure", "sender": "Ads <ads@example.com>",
+                 "recipients": "ari@example.com", "labels": json.dumps(["CATEGORY_PROMOTIONS", "INBOX", "L1"]), "from_owner": 0,
+                 "body": "A webinar.", "ts": 0, "addressed": None}]
+
+    def related(self, *a, **k):
+        return []
+
+
+def test_promotional_mail_labelled_in_gmail():
+    # 2026-11-19: a Gmail filter labels mail sent only to Ari; promotional mail it caught was dropped before the judge and
+    # kept the Pocket Inbox label for weeks, never on the list. A hand label now outranks Promotions; a filter's comes off.
+    store, g, p = setup()
+    E.label_sync(store, g, bring_in=True, dry_run=False)  # first sync
+    g.labels[A], g.labels[B] = {"L1", "INBOX"}, {"L1", "INBOX"}
+    E.mark_label(store, A, "incoming-filter")
+    E.mark_label(store, B, "incoming")
+    judged = []
+    real = E._process_batch
+    E._process_batch = lambda store, archive, gmail, run_id, batch, *a, **k: judged.extend(b["thread_id"] for b in batch)
+    E.SETTINGS = {**E.DEFAULTS, "firstPass": {"enabled": False}}
+    try:
+        E.process(store, PromoArchive(), g, 1, [A, B], 10**10, False, fetch_live=False)
+    finally:
+        E._process_batch = real
+    assert judged == [B], "the owner's own label is judged; the filter's promotional mail is not"
+    assert states(store) == {A: "dropped", B: "incoming"}, states(store)
+    E.label_sync(store, g, bring_in=True, dry_run=False)
+    assert g.labels[A] == {"INBOX"} and A not in states(store), "the label comes off and the thread stays in the inbox"
+
+
+def test_unjudged_hand_label_is_tried_again():
+    store, g, p = setup()
+    E.label_sync(store, g, bring_in=True, dry_run=False)  # first sync
+    g.labels[B] = {"L1"}
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == {B}
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == set(), "not again while it is fresh"
+    store.db.execute("update label_sync set at=? where thread_id=?", (E.iso(E.now_utc() - E.dt.timedelta(hours=1)), B))
+    store.db.execute("insert into backlog(thread_id,added_at) values(?,?)", (B, E.iso()))
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == set(), "not while it waits in the backlog"
+    store.db.execute("delete from backlog")
+    assert E.label_sync(store, g, bring_in=True, dry_run=False) == {B}, "left the backlog unjudged: brought in again"
+    assert states(store)[B] == "incoming"
+
+
 def test_hand_label_after_a_judgement_says_what_the_watcher_missed():
     store, g, p = setup()
     store.record_decision(1, A, {"issue_key": "a", "action": "digest", "confidence": 0.7, "new_fact": "Vendor asked for a quote."})

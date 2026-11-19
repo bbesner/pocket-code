@@ -3,6 +3,16 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.113.1] — 2026-11-19 · build 207
+
+Asked for by Brad (2026-11-19): he saw *Pocket Inbox* labels in Gmail on mail that was not on his list. An audit of the live mailbox found the sync otherwise in step: 14 labelled threads, 13 of them open entries, and no open entry without the label. The odd one out was a Gemini marketing email from 2026-10-29. Brad's Gmail filter labels mail sent only to Ari, and the watcher drops mail in the Promotions tab before the judge. So the thread was brought in, never judged, never listed, and its label stayed for three weeks. Two more promotional threads (Nassau National Cable, LiveKit) had taken the same path. Watcher only; no change to the web app or its build.
+
+- **A hand label outranks Promotions** (`inbox-watch/inbox_monitor/engine.py` `process`, `thread_bundle`). A thread the owner labelled by hand (`incoming`) is judged even when Gmail put it in Promotions. Spam, trash, drafts and chat are still never read.
+- **A filter's label on mail the watcher does not read comes off** (`label_sync`, state `dropped`). A filter-labelled thread (`incoming-filter`) in Promotions, spam or trash, or a hand-labelled one in spam or trash, loses the label at the next sync. The thread is never archived for it. The sync log counts these as *never on the list*.
+- **An unjudged label is tried again** (`label_sync`, `LABEL_RETRY_S` 30 min). A thread brought in by its label that has left the backlog without a decision and is still unlisted after 30 minutes joins the next check again. A thread Gmail no longer finds (404/403) drops its `incoming` record instead of waiting for ever.
+- Tested: `inbox-watch/tests/test_label.py` `test_promotional_mail_labelled_in_gmail` (the hand label is judged, the filter's label comes off and the thread stays in the inbox), `test_unjudged_hand_label_is_tried_again` (not while fresh, not while in the backlog, then brought in). All 117 watcher tests pass.
+- Manual: *Inbox Watch* (Your list in Gmail).
+
 ## [1.113.0] — 2026-11-19 · build 207
 
 Asked for by Brad (2026-11-19), after the three-day review of 1.109: 56 of 272 stories had more than one entry on the list (94 extra entries, 26% of it), 36 of them while the earlier entry was still open. The watcher merged a new alert only into one that had not gone out yet, so once an entry was on the list nothing but the judge's prose stopped a second one. Learned "Notify: replies from …" rules made the judge write an *Update on …* entry per reply, and each message a Gmail filter labelled became its own entry (7 Indeed applicant entries in four hours). Brad also asked that a conversation started from an alert first gather the rest of the story and leave only one thread labelled.
