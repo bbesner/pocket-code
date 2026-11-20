@@ -876,6 +876,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings" id="s-email-wrap"><form class="email-form" id="s-email-form"><label class="voice-field">Email due tasks and reminders to<input type="email" name="to" id="s-email" placeholder="you@example.com" maxlength="200" autocomplete="email" disabled></label>
       <span class="vault-set-actions"><button class="chip" type="submit" id="s-email-save" disabled>Save</button><button class="chip" type="button" id="s-email-test" disabled>Send a test</button></span>
       <p class="title-note" id="s-email-note" role="status">Loading the email setting…</p></form></div>
+    <button class="opt" id="s-review-all" disabled aria-pressed="false"><span class="dot"></span><span>Mark all reviewed bar<span class="sub" id="s-review-all-state">Loading this setting…</span></span></button>
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
     <button class="opt" id="s-titles" disabled aria-pressed="false"><span class="dot"></span><span>Generate short titles<span class="sub" id="s-titles-state">Loading the title setting…</span></span></button>
@@ -1495,11 +1496,29 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       sh.querySelector('#s-sync-state').textContent = "Conversation names follow Claude Code's titles, and renames here show there too";
+      paintReviewAll();
     } catch {
-      if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-titles-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-context-note').textContent = 'Could not load this setting.'; sh.querySelector('#s-models-note').textContent = 'Could not load the model list.'; sh.querySelector('#s-trusted-note').textContent = 'Could not load the list.'; retry.hidden = false; }
+      if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-review-all-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-titles-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-context-note').textContent = 'Could not load this setting.'; sh.querySelector('#s-models-note').textContent = 'Could not load the model list.'; sh.querySelector('#s-trusted-note').textContent = 'Could not load the list.'; retry.hidden = false; }
     }
   };
   sh.querySelector('#s-sync-retry').onclick = loadSettings;
+  // 1.116: the bar that clears all of Attention or New at once can be hidden, on every device of this server.
+  const paintReviewAll = () => {
+    const b = sh.querySelector('#s-review-all'), on = srv.markAllReviewed !== false;
+    b.disabled = false; b.setAttribute('aria-pressed', String(on)); b.querySelector('.dot').classList.toggle('on', on);
+    sh.querySelector('#s-review-all-state').textContent = on ? 'In Attention and New, one tap clears every waiting reply and failed reply' : 'Hidden. Mark as reviewed on a single conversation still works';
+  };
+  sh.querySelector('#s-review-all').onclick = async e => {
+    const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
+    try {
+      srv = await api('/settings', { method: 'POST', body: JSON.stringify({ markAllReviewed: srv.markAllReviewed === false }), signal: AbortSignal.timeout(8000) });
+      window.pocketFeatures = { ...(window.pocketFeatures || {}), markAllReviewed: srv.markAllReviewed !== false };
+      paintSessionPanels();
+      if (!sh.isConnected) return;
+      paintReviewAll(); toast(srv.markAllReviewed !== false ? 'Mark all reviewed is shown' : 'Mark all reviewed is hidden on all your devices');
+    } catch (err) { toast('Could not save: ' + err.message); }
+    finally { btn.disabled = false; }
+  };
   sh.querySelector('#s-sync').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
     try {
@@ -1772,8 +1791,10 @@ function bindSessionRows(container) {
   });
 }
 // Shown in Attention and New: clears every listed reply or failure at once, then offers Undo.
+// 1.116: Settings can hide it (the server's markAllReviewed, told by /api/me); on unless switched off.
+const reviewAllOn = () => window.pocketFeatures?.markAllReviewed !== false;
 function reviewBarHTML(list) {
-  if (sessionsStale || !['attention','new'].includes(sessionFilter)) return '';
+  if (sessionsStale || !['attention','new'].includes(sessionFilter) || !reviewAllOn()) return '';
   if (reviewUndo) return `<div class="review-bar"><span role="status">Marked ${reviewUndo.length} as reviewed</span><button type="button" class="chip" data-undo-reviewed>Undo</button></div>`;
   const n = list.filter(canMarkReviewed).length;
   return n ? `<div class="review-bar"><span>${n} not reviewed yet</span><button type="button" class="chip" data-mark-all-reviewed>${IC.tick}Mark all reviewed</button></div>` : '';

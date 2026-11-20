@@ -76,6 +76,11 @@ test('HTTP: a message with a secret is held (422, no receipt) unless sent anyway
   const calls=()=>fs.existsSync(path.join(dir,'calls'))?fs.readFileSync(path.join(dir,'calls'),'utf8').trim().split('\n').map(JSON.parse):[];
   const KEY='sk-proj-abcDEF1234567890abcdefXYZ';
   assert.equal((await call('/settings')).body.secretGuard,true,'on by default');
+  // 1.116: the Mark all reviewed bar is a server setting, on by default and told to the browser by /api/me
+  assert.equal((await call('/settings')).body.markAllReviewed,true);assert.equal((await call('/me')).body.features.markAllReviewed,true);
+  assert.equal((await call('/settings',{markAllReviewed:false})).body.markAllReviewed,false);assert.equal((await call('/me')).body.features.markAllReviewed,false);
+  assert.equal((await call('/settings',{markAllReviewed:'no'})).body.markAllReviewed,false,'only a boolean changes it');
+  assert.equal((await call('/settings',{markAllReviewed:true})).body.markAllReviewed,true);assert.equal((await call('/me')).body.features.markAllReviewed,true);
   const id=randomUUID();
   let r=await call('/new',{cwd:repo,text:`Use this key: ${KEY}`,provider:'claude',clientMessageId:id});
   assert.equal(r.status,422);assert.equal(r.body.code,'secret_detected');assert.deepEqual(r.body.matches.map(m=>m.kind),['openai']);

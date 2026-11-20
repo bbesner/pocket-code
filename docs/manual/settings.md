@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.115.0
+checked: 1.116.0
 sources: context-policy.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
@@ -60,6 +60,7 @@ Assistant mode is kept on by the server.
 | **Collapse steps** | Folds each run of tool calls behind a one-line summary | On | This browser |
 | **Describe steps in plain words** | Shows each step as a sentence ("Saved Proposal.pdf") with the command or path beside it. Off shows the tool name and its raw detail | On | This browser |
 | **Show message times** | A time on each message and a divider for each day | On | This browser |
+| **Mark all reviewed bar** | Shows the bar at the top of **Attention** and **New** that clears every waiting reply and failed reply in one tap. Off hides it on every device; **Mark as reviewed** on a single conversation works either way | On | Server |
 | **Sync names with code-server** | Conversation names follow Claude Code's own titles, and a rename in Pocket is written to the transcript so code-server and `claude --resume` show it too | Off | Server |
 | **Generate short titles** | Gives conversations named only by their first message a short generated title. A rename always wins | On, unless `POCKET_AUTO_TITLES=0` | Server |
 | **Update titles as conversations progress** | After a reply, once a conversation has moved on, its title is checked and rewritten to say what it is about now. Renames are never touched. Needs **Generate short titles** | On | Server |
