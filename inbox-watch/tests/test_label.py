@@ -388,6 +388,11 @@ def test_the_briefing_asks_for_the_opening_check():
     a = store.db.execute("select * from alerts").fetchone()
     text = E.briefing_for(store, a, None)
     assert "opening check" in text and "pocket-inbox merge" in text and "--session" in text
+    # 1.113.2 (Brad, 2026-11-20): the check feeds the opening reply; the reply leads with the email itself
+    said, added, stands = (text.index("What the email says, first"), text.index("What the check added"),
+                           text.index("Where it stands"))
+    assert said < added < stands
+    assert text.index("open your reply with the email itself") < said
 
 
 def test_archive_can_be_turned_off():

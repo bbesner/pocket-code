@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.113.1
+checked: 1.113.2
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -124,11 +124,15 @@ updates that entry instead of adding a second one. The new text comes first, and
 mail you or a Gmail filter labelled too, so a burst of labelled messages on one story is one entry.
 
 **A conversation started from an alert opens with a short check (1.113).** Before you say what you want, the agent looks
-for other mail on the story that the alert does not cover and tells you in a few lines what it adds. It also looks for
-another open entry on the same story, often under a different title, and merges each one it finds into the entry the
-conversation came from. The merged entry leaves the list with a note naming the one it went into, and its Gmail thread
-loses the label. **Restore** on it undoes the merge. An entry that asks for something different stays, and the agent
-mentions it.
+for other mail on the story that the alert does not cover. It also looks for another open entry on the same story, often
+under a different title, and merges each one it finds into the entry the conversation came from. The merged entry leaves
+the list with a note naming the one it went into, and its Gmail thread loses the label. **Restore** on it undoes the
+merge. An entry that asks for something different stays, and the agent mentions it.
+
+**The opening reply leads with the email (1.113.2).** The check feeds the reply; it does not replace it. The agent's
+first reply says what the email says (who wrote, what they ask or tell you, the key lines quoted), then in a few lines
+what the check added (other mail, merged entries, or that it found nothing new), then where things stand and the
+suggested next step.
 
 **A conversation you already started catches up (1.113).** When more mail arrives on a story whose entry you already
 started a conversation from, that conversation gets it, so the story stays in one conversation:
@@ -539,7 +543,8 @@ pocket-inbox check                         # Check now
 - **One exception: merging (1.113).** In a conversation started from an alert, begin with the opening check the briefing
   asks for: other mail on the story, and other open entries on the **same** story. Merge those with
   `pocket-inbox merge <id> --session <this conversation id>` and say which you merged. Never merge an entry that asks for
-  something different; mention it instead.
+  something different; mention it instead. The opening reply leads with what the email says, then what the check added,
+  then where it stands (1.113.2).
 - **Catching up (1.113).** A message that starts *New on this Inbox story since this conversation started* (or *The Inbox
   entry this conversation started from was merged into …*) is Pocket bringing later mail on your story into this
   conversation. Read the mail it cites, say in a few lines what it changes for the work in hand, and carry on.

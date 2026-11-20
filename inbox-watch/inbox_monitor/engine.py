@@ -1504,13 +1504,20 @@ def briefing_for(store: Store, alert: sqlite3.Row, thread: dict | None) -> str:
             lines.append(f"- {m['message_id']} | {m['date']} | {m['from']}")
             lines.append("  " + m["body"][:600].replace("\n", " "))
     if alert["kind"] != "checkin":  # 1.113 (Brad): a conversation starts by gathering the rest of the story
-        lines += ["", "Before " + OWNER + " says what they want, do a short opening check and report it in a few lines:",
+        # 1.113.2 (Brad): the check feeds the opening reply, it does not replace it. The reply leads with the email itself.
+        lines += ["", "Before " + OWNER + " says what they want, do a short opening check, then open your reply with the email itself:",
                   "1. Search the mailbox for other mail on this story that the above does not cover (same customer, site, ticket, invoice "
-                  "or sender, recent weeks). Read what matters and say what it adds.",
+                  "or sender, recent weeks). Read what matters.",
                   "2. Look at the open Inbox entries (pocket-inbox list --state all) for another one on the same story, often under a "
                   "different title. Merge each same-story duplicate into the entry this conversation started from (pocket-inbox merge "
-                  "<other id> --session <this conversation id>; the pocket-inbox skill has the rules) and say which you merged. "
-                  "Leave an entry that asks for something different and mention it instead."]
+                  "<other id> --session <this conversation id>; the pocket-inbox skill has the rules). Leave an entry that asks for "
+                  "something different.",
+                  "Then write the opening reply in this order:",
+                  "a. What the email says, first and in the most space: who wrote, what they are asking for or telling us, the key "
+                  "lines quoted, and what it means for " + OWNER + ". Read the newest message in full (the excerpts above are cut).",
+                  "b. What the check added, in a few lines: other mail and what it changes, the entries you merged, an entry left "
+                  "because it asks for something different. Say so in one line when it found nothing new.",
+                  "c. Where it stands and the suggested next step, using what the check found."]
     footer = CFG.briefing_footer.strip() if CFG and CFG.briefing_footer else (
         f"{OWNER} will say what they want done (reply, research, troubleshoot). Message ids above are Gmail ids in {MAILBOX}.")
     lines += ["", footer]

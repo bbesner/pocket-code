@@ -3,6 +3,14 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.113.2] — 2026-11-20 · build 207
+
+Asked for by Brad (2026-11-20), the day after 1.113's opening check went live: in a conversation started from an alert (a customer reply asking for a reference list), the agent's first reply was all about the check (earlier mail on the story, no duplicate entries) and gave the email itself one line at the bottom. Brad's first question was "what did the email say?". The briefing's check was its last instruction and the only one that said what the first reply should hold, so the agent reported the check and treated the email as background. Watcher, manual and skill only; no change to the web app or its build.
+
+- **The opening reply leads with the email** (`inbox-watch/inbox_monitor/engine.py` `briefing_for`). The check still runs first, but the briefing now says what the reply is made of, in order: (a) what the email says, first and in the most space (who wrote, what they ask or tell, the key lines quoted, what it means; the newest message read in full because the excerpts are cut); (b) what the check added, in a few lines, or one line when it found nothing; (c) where it stands and the next step.
+- **The pocket-inbox skill** (*One entry per story*) and the manual (*Inbox Watch*: What goes on the list, For agents) say the same.
+- Tested: `inbox-watch/tests/test_label.py` `test_the_briefing_asks_for_the_opening_check` also checks the order (email, then the check, then where it stands).
+
 ## [1.113.1] — 2026-11-19 · build 207
 
 Asked for by Brad (2026-11-19): he saw *Pocket Inbox* labels in Gmail on mail that was not on his list. An audit of the live mailbox found the sync otherwise in step: 14 labelled threads, 13 of them open entries, and no open entry without the label. The odd one out was a Gemini marketing email from 2026-10-29. Brad's Gmail filter labels mail sent only to Ari, and the watcher drops mail in the Promotions tab before the judge. So the thread was brought in, never judged, never listed, and its label stayed for three weeks. Two more promotional threads (Nassau National Cable, LiveKit) had taken the same path. Watcher only; no change to the web app or its build.
