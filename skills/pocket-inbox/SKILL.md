@@ -102,6 +102,14 @@ entry's thread carries it. The thread stays in the inbox, and **Restore** on the
 same-story duplicates. An entry that asks for something different, even from the same customer, stays as it is: mention
 it instead. This is the one change an agent makes to the list without being asked.
 
+**The check feeds the opening reply; it does not replace it (1.113.2).** Write the first reply in this order:
+
+1. **What the email says**, first and in the most space: who wrote, what they ask for or tell the user, the key lines
+   quoted, and what it means. Read the newest message in full; the briefing's excerpts are cut.
+2. **What the check added**, in a few lines: other mail and what it changes, entries merged, an entry left because it
+   asks for something different. One line when it found nothing new.
+3. **Where it stands** and the suggested next step, using what the check found.
+
 **Catching up (1.113.1).** When the entry a conversation started from gets more mail, or takes in a merged duplicate,
 Pocket brings the news to that conversation rather than a new one: steered into a reply that is running, or, when idle,
 sent as the user's next message once they tap **Bring it in**. It starts *New on this Inbox story since this conversation
