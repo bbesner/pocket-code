@@ -701,6 +701,24 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    for(let attempt=0;attempt<100&&done.seenAt!==undefined;attempt++)await pause(50);
    assert.equal(await listed(),true,'Undo brings it back');
    assert.equal(done.seenAt,undefined,'Undo also clears it on the server');
+   // 1.116: Settings hides the bar; the row stays in Attention and its own Mark as reviewed still works
+   await page.evaluate(()=>settingsSheet());await page.waitForSelector('[data-settings-category=conversation]');await clickControl(page,'[data-settings-category=conversation]');await page.waitForSelector('#s-review-all:not(:disabled)');await pause(250);
+   assert.equal(await page.$eval('#s-review-all',b=>b.getAttribute('aria-pressed')),'true','shown unless switched off');
+   assert.ok(await page.$eval('#s-review-all',b=>b.checkVisibility()&&b.getBoundingClientRect().height>=44),'visible in Conversation, a 44px target');
+   await page.$eval('#s-review-all',b=>b.scrollIntoView({block:'center'}));await page.screenshot({path:path.join(out,'review-all-setting.png')});
+   if(process.env.POCKET_DESIGN_SCANNER){await page.evaluate(()=>{window.__IMPECCABLE_CONFIG__={autoScan:false};});if(!await page.evaluate(()=>Boolean(window.impeccableDetectAsync))){const t=await page.addScriptTag({path:process.env.POCKET_DESIGN_SCANNER});await t.evaluate(e=>e.remove());}fs.writeFileSync(path.join(out,'review-all-design.json'),JSON.stringify(await page.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false}))));}
+   await clickControl(page,'#s-review-all');await page.waitForFunction(()=>document.querySelector('#s-review-all')?.getAttribute('aria-pressed')==='false');
+   assert.equal(settingsState().markAllReviewed,false,'saved on the server');
+   assert.match(await page.$eval('#s-review-all-state',e=>e.textContent),/^Hidden\./);
+   await page.evaluate(()=>closeCurrentSheet?.());await pause(200);
+   assert.equal(await listed(),true,'still in Attention');
+   assert.equal(await page.$('.review-bar'),null,'the bar is hidden');await page.screenshot({path:path.join(out,'review-bar-hidden.png')});
+   await page.evaluate(()=>refreshSessions());await pause(300);assert.equal(await page.$('.review-bar'),null,'and stays hidden after a refresh');
+   assert.ok(await page.$(`[data-more="${done.id}"]`),'Conversation options are still on the row');
+   await page.evaluate(()=>settingsSheet());await page.waitForSelector('[data-settings-category=conversation]');await clickControl(page,'[data-settings-category=conversation]');await page.waitForSelector('#s-review-all:not(:disabled)');await pause(250);
+   await clickControl(page,'#s-review-all');await page.waitForFunction(()=>document.querySelector('#s-review-all')?.getAttribute('aria-pressed')==='true');
+   await page.evaluate(()=>closeCurrentSheet?.());await page.waitForSelector('[data-mark-all-reviewed]');
+   assert.equal(settingsState().markAllReviewed,true);
    await page.evaluate(([id,at])=>localStorage.setItem('pc-seen-'+id,String(at)),[done.id,at]);
    await clickControl(page,'[data-filter="all"]');done.state=saved;delete done.seenAt;
   });

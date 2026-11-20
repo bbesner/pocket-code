@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.115.0
+checked: 1.116.0
 sources: prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -128,7 +128,8 @@ The conversation list is the home screen on a phone and the rail on a desktop. C
   resets them. Filters are saved on this browser.
 - **Attention** collects questions, approvals, failed replies and finished replies you have not opened.
   In **Attention** and **New**, **Mark all reviewed** clears them on every device, with **Undo** for ten
-  seconds.
+  seconds. It clears replies that end with a question for you too; **Settings → Conversation → Mark all
+  reviewed bar** hides it (1.116.0).
 - A reply that ends with a [Complete card](conversation.md#close-a-finished-conversation-the-complete-card) reads
   **Complete** in the list, with the agent's one-line outcome under it, until you open or close it. The tick on that
   row closes the conversation without opening it: it leaves **Attention** on every device, its tab closes and its

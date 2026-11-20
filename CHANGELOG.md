@@ -3,6 +3,17 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.116.0] — 2026-11-20 · build 210
+
+Asked for by Brad (2026-11-20). He noticed the **Mark all reviewed** bar in Attention, did not remember asking for it (it came with 1.15.0's *Mark as reviewed*, added beside the per-conversation option he had asked for) and judged that clearing the whole list in one tap is unwise for him. Other people on other installs may rely on it, so it becomes a choice instead of going away.
+
+- **Settings → Conversation → Mark all reviewed bar** (`public/app.js` `#s-review-all`, `reviewAllOn`, `reviewBarHTML`; listed under *This instance · all devices* in `public/workspace.js`). On by default, so nothing changes until someone switches it off. Off hides the "N not reviewed yet" bar in **Attention** and **New**. The reason to hide it: one tap clears every listed finished reply and failed turn on every device, it does not tell a wrap-up from a reply that ends with a question or reply buttons, and after the ten-second Undo nothing shows what was cleared.
+- **A server setting** (`markAllReviewed` in `pocket-settings.json`, default `true`; `POST /api/settings` takes a boolean; `/api/me` tells the browser in `features.markAllReviewed`). One switch covers every device signed in to the install. The device that flips it repaints at once; another device follows the next time it loads Pocket.
+- **Unchanged:** *Mark as reviewed* in Conversation options (long-press or ⋯), the Complete card and its Undo, opening a conversation, `/api/seen`.
+- Tests: `test/secret-detect.test.mjs` (default on, a boolean changes it, `/api/me` follows), `test/ui-regressions.mjs` (the switch hides the bar and brings it back; the row stays in Attention with its options), `test/documents.test.mjs` (the features list).
+- Manual: *Conversations* (Find a conversation), *Settings* (Conversation). Migration: none; an install with no saved value shows the bar.
+- Numbering: built as 1.114.0 / build 208 from 1.113.2; 1.115.0 was released first, so this was rebased onto it and released as 1.116.0 / build 210. No 1.114.0 was released.
+
 ## [1.115.0] — 2026-11-20 · build 209
 
 Asked for by Brad (2026-11-20), the first time he met 1.113's merge on real mail: a new email had folded into an entry that already had a conversation, he opened the entry, landed in that conversation, and could hardly see the one-line *Bring it in* offer because the big green Complete card sat right under it offering **Close conversation**. He also wanted the choice 1.113 never gave: carry on in the conversation, start a new one because the old one has used enough context, or start a new one because the mail is really a separate subject, with context carried over in both new-conversation cases. The middle option is named in his words: *New conversation, hand-off from the last one*.
