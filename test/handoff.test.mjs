@@ -87,4 +87,29 @@ test('HTTP: parent, double start, permission and folder',{timeout:60_000},async 
   assert.equal(out.e,null,out.stderr);
   const viaCli=(await call('/start/'+JSON.parse(out.stdout).id)).body;
   assert.equal(viaCli.directory,fs.realpathSync(work));assert.equal(viaCli.from,parent);
+
+  // 1.115: a conversation started from an Inbox entry and then handed off gives the entry to the conversation that continues
+  // it, and "separate subject" from there splits the newest mail off with a briefing of its own.
+  assert.equal((await call('/settings',{inbox:true})).status,200);
+  const brief=await call('/start',{text:'Harbor gate: the controller is offline. Check the vendor thread.',directory:work,title:'Harbor gate down'},bearer);
+  const first=(await call('/inbox',{title:'Harbor gate down',text:'The gate controller is offline.',story:'harbor-gate',url:'/#/start/'+brief.body.id,push:false},bearer)).body.entry;
+  const lead=(await call('/new',{cwd:work,text:'__HANG__ gate',start:brief.body.id,approvalMode:'full'})).body.id;
+  const leadAgent={...bearer,'x-pocket-runner':(await running(lead)).runnerToken};
+  const entryNow=async()=>(await call('/inbox?state=all')).body.entries.find(e=>e.id===first.id);
+  assert.deepEqual((await entryNow()).sessions.map(x=>x.id),[lead]);
+  const hand=await call('/start',{text:'Pick up the gate story',directory:work,kind:'handoff'},leadAgent);
+  const next=(await call('/new',{text:'__HANG__ gate, continued',cwd:work,start:hand.body.id,approvalMode:'full'})).body.id;
+  assert.deepEqual((await entryNow()).sessions.map(x=>[x.id,x.handed===true]),[[lead,true],[next,false]],'the entry now opens the conversation that took over');
+  const quote=await call('/start',{text:'Harbor pool cameras: the board asks for a quote.',directory:work,title:'Harbor pool camera quote'},bearer);
+  const upd=(await call('/inbox',{title:'Harbor pool camera quote',text:'The board asks for a quote on two pool cameras.',story:'harbor-gate',url:'/#/start/'+quote.body.id,push:false},bearer)).body;
+  assert.deepEqual([upd.updated,upd.entry.id],[true,first.id]);
+  assert.deepEqual((await call('/inbox/news?session='+lead)).body.news,[],'a handed-off conversation is offered nothing');
+  const split=await call('/inbox/split',{session:next});
+  assert.equal(split.status,200,JSON.stringify(split.body));
+  assert.deepEqual([split.body.entry.title,split.body.entry.splitFrom,split.body.from.title,split.body.session],['Harbor pool camera quote',first.id,'Harbor gate down',null]);
+  assert.match(split.body.start,/^\/#\/start\/[0-9a-f]{12}$/);assert.equal(split.body.entry.url,split.body.start);
+  const own=(await call('/start/'+split.body.start.slice(9))).body;
+  assert.match(own.text,/^Harbor pool cameras: the board asks for a quote\.\n\n---\nThe owner split this off the Inbox entry "Harbor gate down" as a separate subject\. Work it on its own, and do not merge this entry back into that one\.\nBackground only: the earlier conversation on that entry/);
+  assert.deepEqual([own.directory,own.title,own.kind],[fs.realpathSync(work),'Harbor pool camera quote',undefined],'an ordinary briefing in the same folder; nothing starts until Start');
+  assert.deepEqual((await call('/inbox/news?session='+next)).body.news,[]);
 });

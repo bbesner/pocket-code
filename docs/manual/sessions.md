@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.112.0
+checked: 1.115.0
 sources: prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -133,6 +133,8 @@ The conversation list is the home screen on a phone and the rail on a desktop. C
   **Complete** in the list, with the agent's one-line outcome under it, until you open or close it. The tick on that
   row closes the conversation without opening it: it leaves **Attention** on every device, its tab closes and its
   server process is released, with **Undo** for ten seconds. Its notification reads *Complete* and the outcome.
+- A finished conversation whose Inbox entry has had more mail since reads **New mail** instead, with what arrived
+  under it, and has no close tick until you have dealt with the mail (see [Inbox Watch](inbox-watch.md#what-goes-on-the-list)).
 - A reply to a wrap-up request skips **Attention**. When the message you send is a short closing reply,
   such as **Mark resolved**, **Mark the alert resolved**, **Dismiss**, **Remind me Nov 7 to recheck the numbers**, **Add a task to test
   the fix**, **No thanks** or **That's all**, the agent's confirmation counts as read the moment it

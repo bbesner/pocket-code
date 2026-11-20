@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.113.2
+checked: 1.115.0
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -134,20 +134,51 @@ first reply says what the email says (who wrote, what they ask or tell you, the 
 what the check added (other mail, merged entries, or that it found nothing new), then where things stand and the
 suggested next step.
 
-**A conversation you already started catches up (1.113).** When more mail arrives on a story whose entry you already
-started a conversation from, that conversation gets it, so the story stays in one conversation:
+**A conversation you already started catches up (1.113, reworked in 1.115).** When more mail arrives on a story whose
+entry you already started a conversation from, that conversation is behind, and Pocket says so wherever you would meet
+it:
 
 - If a reply is running in it, the new mail goes straight in, the way a message you type mid-reply does, and the agent
   takes it into account at its next step.
-- If it is idle, a line under the latest reply says *New mail on this story since you started: …* with **Bring it in**
-  and **Not now**. Bring it in sends the new mail (each update's title, summary, Gmail link and time) as your next
-  message and asks the agent what it changes. Not now hides the line until more mail comes. Nothing starts a reply on
-  its own.
+- If it is idle, a **news card** sits under the latest reply: *New mail on this story*, when it came, and the mail's
+  first sentence. It takes the place of the [Complete card](conversation.md#close-a-finished-conversation-the-complete-card),
+  so a conversation with unread mail never offers **Close conversation**. The card has three controls:
+  - **Bring it in** sends the new mail (each update's title, summary, Gmail link and time) as your next message and
+    asks the agent what it changes.
+  - **New conversation** opens the two ways to take the mail somewhere else (below).
+  - **Not now** puts the card away on this device, and the Complete card comes back, until more mail arrives.
+- In the conversation list, on its tab and in its header the conversation reads **New mail** instead of Complete, and
+  the list's one-tap close tick is hidden while it does.
+- When the conversation is large, the card says how large (*This conversation is at 412K tokens*), which is the usual
+  reason to start a new one.
 - The same happens when another entry is merged into this one, and a conversation that was started from the merged
   entry is offered this entry's story. The conversation that did the merge already has it.
 
-On the entry, **Open the conversation** says when it has not had the latest mail. **Start another conversation** is
-still there for a separate one.
+Nothing starts a reply on its own.
+
+**Three ways to take new mail (1.115).** Open an entry whose conversation is behind and the sheet gives the choice
+first, before you land anywhere:
+
+| Choice | What happens | Use it when |
+|---|---|---|
+| **Continue the conversation** | Opens the conversation and brings the new mail in. The line under it says when the conversation started and how large it is. | The mail belongs with the work already there. |
+| **New conversation, hand-off from the last one** | The earlier conversation writes a briefing for a new one, with the new mail as the first thing to deal with, and shows the handoff card with **Start**. Once you start it, the entry points at the new conversation, and later mail on the story goes there. | The mail belongs with that work, but the conversation has grown too large to keep going. |
+| **New conversation, separate subject** | The new mail leaves the entry and becomes an Inbox entry of its own, with a briefing on that mail only plus a line naming the earlier conversation as background. The first entry goes back to what it said before. The watcher is told, so later mail on that thread goes to the new entry and the two are not merged again. | The mail is about something else that happened to arrive on the same story. |
+
+The news card's **New conversation** button offers the last two from inside the conversation. A hand-off costs one
+reply in the earlier conversation (it writes the briefing); a separate subject costs none.
+
+When the conversation is not behind, the sheet offers **Open the conversation**, the hand-off, and **Start another
+conversation**, which is briefed with the entry only. The chat icon on a list row still opens the conversation without
+sending anything.
+
+Limits worth knowing: only the latest update, or the latest entry merged in, can be split off, and an update only
+from an entry that has a conversation (an entry nobody opened keeps no record of its separate updates). A split entry
+that had no conversation gets an ordinary briefing; nothing runs until you press **Start**. A split is not undone
+with a tap: merging a split pair back together is refused, on purpose. **Not now** is remembered per device.
+
+An agent can do the split when you ask for it in a conversation: `pocket-inbox split --session <conversation id>`
+(or `split <entry id>`). It never does so on its own.
 
 Priorities are critical, high, normal and low. **Critical** is kept for live outages you are the escalation for,
 security incidents and money leaving an account unexpectedly. During quiet hours only critical alerts go out; the
@@ -529,6 +560,7 @@ pocket-inbox act <id> resolve|not_useful|dismiss|restore [--note "…"]
 pocket-inbox act <id> alert|resolve|not_useful|restore --item <ref>   # one item of a digest (show lists each item's ref)
 pocket-inbox act <id> open|unread          # read state only; the watcher is not told
 pocket-inbox merge <id> --session <this conversation id>   # 1.113: fold a same-story duplicate into the entry this conversation started from (or --into <entry id>)
+pocket-inbox split --session <this conversation id>        # 1.115: the latest mail on this conversation's entry becomes an entry of its own (or split <entry id>); only when the user asks
 pocket-inbox watch [--json]                # schedule in force, next check, models, rules, 7 days of cost
 pocket-inbox watch set --every 10          # or --pause, --resume, --file <path|-> (the whole settings object as JSON)
 pocket-inbox watch reset                   # back to the watcher's config file
@@ -549,6 +581,12 @@ pocket-inbox check                         # Check now
   entry this conversation started from was merged into …*) is Pocket bringing later mail on your story into this
   conversation. Read the mail it cites, say in a few lines what it changes for the work in hand, and carry on.
   `pocket-inbox show <id>` lists the entry's conversations and which have not had the latest mail.
+- **Hand-off and separate subjects (1.115).** When that message ends *Do not work on this here. Hand this off…*, the
+  user chose a new conversation: write the handoff briefing with the new mail as the first thing to deal with, give the
+  handoff card, and do nothing else. When the user says the latest mail is a different subject, run
+  `pocket-inbox split --session <this conversation id>` and give them the briefing link it prints. A briefing that says
+  the owner split its entry off another one means exactly that: never merge the two, and ask before relying on the
+  earlier conversation it names.
 - **Change settings only when asked.** To edit the rules ("stop telling me about shipping notices"), read
   `pocket-inbox watch --json` (`profile.rules.text`), add or edit the line, and save the whole settings object,
   `rules` included, with `pocket-inbox watch set --file -`. Confirm the line you added.

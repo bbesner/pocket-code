@@ -2848,7 +2848,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.$eval('.inbox-item .inbox-chat',a=>[a.getAttribute('href'),a.getAttribute('aria-label'),a.getBoundingClientRect().height>=44&&a.getBoundingClientRect().width>=44].join('|')),'#/chat/66666666-6666-4666-8666-666666666666|Open the conversation: Oakridge dispatch conflict|true');
     assert.equal(await page.$$eval('.inbox-view .inbox-chat',a=>a.length),1,'only the entry it started from');
     await clickRow('.inbox-item:has(.inbox-chat) .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet [data-chat]');
-    assert.deepEqual(await page.$$eval('.inbox-sheet .opt',o=>o.slice(0,2).map(x=>x.firstElementChild.nextElementSibling.firstChild.textContent)),['Open the conversation','Start another conversation']);
+    assert.deepEqual(await page.$$eval('.inbox-sheet .opt',o=>o.slice(0,3).map(x=>x.firstElementChild.nextElementSibling.firstChild.textContent)),['Open the conversation','New conversation, hand-off from the last one','Start another conversation']); // 1.115: the hand-off sits between them
     await scan('inbox-conversation-1440');
     await clickControl(page,'.inbox-sheet [data-chat]');await page.waitForFunction(()=>location.hash==='#/chat/66666666-6666-4666-8666-666666666666'&&!document.querySelector('.inbox-sheet'));
     await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view [data-inbox-more][aria-label="Options for Oakridge dispatch conflict"]');

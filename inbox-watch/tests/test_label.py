@@ -381,6 +381,48 @@ def test_a_merged_entry_joins_its_story():
     assert any("Merged in Pocket" in e["fact"] for e in store.events("addison-outage"))
 
 
+def test_a_split_entry_gets_a_story_of_its_own():
+    """1.115: the owner split a mail off a story as a separate subject. Its thread leaves that story for a new one under the
+    key Pocket gave the entry, the alert follows it, and both stories say so. A merged entry that is split back out reopens
+    its own story. A thread the old story began on stays linked there as well."""
+    store, g, p = setup()
+    store.db.execute("insert into issues(issue_key,thread_id,status,priority,title) values('harbor-gate', ?, 'open', 'high', 'Harbor gate down')", (A,))
+    store.link("harbor-gate", A)
+    store.link("harbor-gate", B)  # a second thread the judge filed under the same story
+    for tid, dk in ((A, "a1"), (B, "b1")):
+        store.db.execute("insert into alerts(dedupe_key,issue_key,thread_id,kind,status,text) values(?, 'harbor-gate', ?, 'alert', 'sent', 'x')", (dk, tid))
+    gmail = lambda t: f"https://mail.google.com/mail/u/0/#all/{t}"
+    p.feedback = lambda: [{"id": "e9:split", "entry": "e9", "action": "split", "story": "harbor-pool-quote-1a2b", "fromStory": "harbor-gate",
+                           "from": "e1", "title": "Harbor pool camera quote", "gmail": gmail(B), "at": E.iso()}]
+    acked = []
+    p.ack = acked.extend
+    E.apply_feedback(store)
+    assert acked == ["e9:split"]
+    assert store.keys_for_threads([B]) == {"harbor-pool-quote-1a2b"} and store.keys_for_threads([A]) == {"harbor-gate"}
+    new = store.story("harbor-pool-quote-1a2b")
+    assert (new["status"], new["priority"], new["title"], new["thread_id"]) == ("open", "high", "Harbor pool camera quote", B)
+    assert dict(store.db.execute("select thread_id, issue_key from alerts").fetchall()) == {A: "harbor-gate", B: "harbor-pool-quote-1a2b"}
+    assert any("separate subject" in e["fact"] and "harbor-pool-quote-1a2b" in e["fact"] for e in store.events("harbor-gate"))
+    assert any("belongs here" in e["fact"] for e in store.events("harbor-pool-quote-1a2b"))
+    # the story's own thread carrying a second subject: linked to both, only the newest alert moves
+    store.db.execute("insert into alerts(dedupe_key,issue_key,thread_id,kind,status,text) values('a2', 'harbor-gate', ?, 'alert', 'sent', 'y')", (A,))
+    p.feedback = lambda: [{"id": "e10:split", "action": "split", "story": "harbor-invoice-3c4d", "fromStory": "harbor-gate", "title": "Harbor invoice",
+                           "gmail": gmail(A), "at": E.iso()}]
+    E.apply_feedback(store)
+    assert store.keys_for_threads([A]) == {"harbor-gate", "harbor-invoice-3c4d"}
+    assert [r[0] for r in store.db.execute("select issue_key from alerts where thread_id=? order by id", (A,))] == ["harbor-gate", "harbor-invoice-3c4d"]
+    # a merged entry split back out: its closed story reopens and takes its thread back
+    store.db.execute("insert into issues(issue_key,status,priority,title) values('harbor-storm', 'open', 'normal', 'Harbor storm')")
+    store.link("harbor-storm", Z)
+    p.feedback = lambda: [{"id": "e3", "action": "dismissed", "story": "harbor-storm", "title": "Harbor storm", "mergedInto": "e1", "intoStory": "harbor-gate", "at": E.iso()}]
+    E.apply_feedback(store)
+    assert store.story("harbor-storm")["status"] == "resolved" and "harbor-gate" in store.keys_for_threads([Z])
+    p.feedback = lambda: [{"id": "e3:split", "action": "split", "story": "harbor-storm", "fromStory": "harbor-gate", "title": "Harbor storm", "gmail": gmail(Z), "at": E.iso()}]
+    E.apply_feedback(store)
+    assert store.story("harbor-storm")["status"] == "open" and store.keys_for_threads([Z]) == {"harbor-storm"}
+    assert store.story("harbor-gate")["status"] == "open"
+
+
 def test_the_briefing_asks_for_the_opening_check():
     store, g, p = setup()
     store.queue_alert("k1", issue_key="s", thread_id=A, kind="notify", priority="normal", text="Pat asked for a quote.",

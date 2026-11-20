@@ -2601,6 +2601,39 @@ def merge_story(store: Store, key: str, into: str, title: str, when: str) -> Non
     log(f"merged story {key!r} into {into!r}")
 
 
+def split_story(store: Store, key: str, old: str, gmail: str, title: str, when: str) -> None:
+    """1.115: the owner split a mail off a story as a separate subject (Pocket: New conversation, separate subject). Its thread
+    moves to a story of its own under the key Pocket gave the new entry, so later mail on it lands on that entry; both stories
+    carry a line saying so, which the judge reads. A thread that is the old story's own (the story began on it) stays linked
+    there too: the same thread now carries two subjects, and the lines tell them apart."""
+    if not key or key == old:
+        return
+    m = GMAIL_THREAD_RX.search(gmail or "")
+    tid = m.group(1) if m else None
+    host = store.story(old) if old else None
+    now = iso()
+    if store.story(key):  # an entry that was merged in and comes back out: its story reopens
+        store.db.execute("update issues set status='open', updated_at=? where issue_key=? and status='resolved'", (now, key))
+    else:
+        store.db.execute("insert into issues(issue_key,thread_id,status,priority,summary,created_at,updated_at,title) values(?,?,?,?,?,?,?,?)",
+                         (key, tid, "open", host["priority"] if host else "normal", title, now, now, title))
+    if tid:
+        own = bool(host and host["thread_id"] == tid)
+        if old and not own:
+            store.db.execute("delete from story_threads where issue_key=? and thread_id=?", (old, tid))
+        store.link(key, tid)
+        if old:  # the alert that was split off (every alert of the thread, unless the old story began on it) follows it
+            rows = store.db.execute("select id from alerts where issue_key=? and thread_id=? order by id desc", (old, tid)).fetchall()
+            for r in (rows[:1] if own else rows):
+                store.db.execute("update alerts set issue_key=? where id=?", (key, r["id"]))
+    store.add_event(key, "feedback", f"{OWNER} split this off story {old or '-'} in Pocket ({when}) as a separate subject: \"{title}\". "
+                                     f"Later mail on this subject belongs here, not under that story.", [])
+    if host:
+        store.add_event(old, "feedback", f"{OWNER} split \"{title}\" off this story in Pocket ({when}) as a separate subject (story {key}). "
+                                         f"Later mail on that subject belongs there, not here.", [])
+    log(f"split story {key!r} off {old!r}")
+
+
 def apply_feedback(store: Store, dry_run: bool = False) -> None:
     """What the owner did with earlier alerts in Pocket (1.69 Inbox): Resolved closes the story, Not useful becomes a line
     in the preferences file the judge reads every turn, drops the story to low and (1.109) keeps it off the list from then on,
@@ -2650,6 +2683,8 @@ def apply_feedback(store: Store, dry_run: bool = False) -> None:
                 restore_story(store, story, when)
             elif action == "dismiss" and it.get("mergedInto"):
                 merge_story(store, key, it.get("intoStory") or "", title, when)
+            elif action == "split":
+                split_story(store, key, it.get("fromStory") or "", it.get("gmail") or "", title, when)
             done.append(it["id"])
             log(f"feedback {action}: {title!r} story={key or '-'}")
         if done:

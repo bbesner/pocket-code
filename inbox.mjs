@@ -49,13 +49,22 @@ const checkMerged = v => Array.isArray(v) ? v.filter(m => m && typeof m === 'obj
 }).filter(m => m.gmail || m.url || m.id).slice(-MERGED_MAX) : [];
 const DOC_RE = /^[0-9a-f]{12}$/, START_RE = /^[0-9a-f]{12}$/, SESSION_RE = /^(cx:)?[0-9A-Za-z][0-9A-Za-z_-]{7,79}$/;
 const checkSessions = v => Array.isArray(v) ? v.filter(s => s && SESSION_RE.test(String(s.id)) && !Number.isNaN(ms(s.at))).slice(-SESSIONS_MAX)
-  .map(s => ({ id: s.id, at: s.at, ...(Number.isInteger(s.seen) && s.seen >= 0 ? { seen: s.seen } : {}), ...(s.story === true ? { story: true } : {}) })) : [];
+  .map(s => ({ id: s.id, at: s.at, ...(Number.isInteger(s.seen) && s.seen >= 0 ? { seen: s.seen } : {}), ...(s.story === true ? { story: true } : {}), ...(s.handed === true ? { handed: true } : {}) })) : [];
 // 1.113.1 (Brad): what reached an entry after a conversation started from it, so that conversation can catch up instead of a
 // second one starting. `n` counts up per entry (newsN); the last NEWS_MAX are kept.
-const NEWS_MAX = 6;
+// 1.115: each also keeps what taking it back off needs (split): the alert's own start link and priority, the merged entry's
+// id (`from`), and what the entry was before the update (`was`: title, links, priority, time, read or not).
+const NEWS_MAX = 6, ENTRY_RE = /^[0-9a-f]{12}$/;
+const checkWas = w => {
+  if (!w || typeof w !== 'object') return null;
+  const keep = (f, x) => { try { return f(x); } catch { return ''; } };
+  return { title: line(w.title, LIMITS.title), gmail: keep(checkGmail, w.gmail), url: keep(checkUrl, w.url), priority: PRIORITIES.includes(w.priority) ? w.priority : '', at: Number.isNaN(ms(w.at)) ? null : w.at, state: w.state === 'new' ? 'new' : 'opened' };
+};
 const checkNews = v => Array.isArray(v) ? v.filter(x => x && Number.isInteger(x.n) && x.n > 0).map(x => {
-  let gmail = ''; try { gmail = checkGmail(x.gmail); } catch { gmail = ''; }
-  return { n: x.n, at: Number.isNaN(ms(x.at)) ? null : x.at, kind: x.kind === 'merge' ? 'merge' : 'update', title: line(x.title, LIMITS.title), text: str(x.text, LIMITS.text), gmail };
+  const keep = (f, y) => { try { return f(y); } catch { return ''; } };
+  const was = checkWas(x.was);
+  return { n: x.n, at: Number.isNaN(ms(x.at)) ? null : x.at, kind: x.kind === 'merge' ? 'merge' : 'update', title: line(x.title, LIMITS.title), text: str(x.text, LIMITS.text), gmail: keep(checkGmail, x.gmail),
+    ...(keep(checkUrl, x.url) ? { url: keep(checkUrl, x.url) } : {}), ...(PRIORITIES.includes(x.priority) ? { priority: x.priority } : {}), ...(typeof x.from === 'string' && ENTRY_RE.test(x.from) ? { from: x.from } : {}), ...(was ? { was } : {}) };
 }).slice(-NEWS_MAX) : [];
 const fail = (message, status = 400, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
@@ -231,7 +240,8 @@ export class InboxStore {
       by: e.by === 'ui' ? 'ui' : 'cli', actedBy: e.actedBy === 'ui' || e.actedBy === 'cli' ? e.actedBy : null, revision: Number.isInteger(e.revision) && e.revision > 0 ? e.revision : 1, lastAction: typeof e.lastAction === 'string' ? e.lastAction : null,
       sessions: checkSessions(e.sessions), items: checkItems(e.items, { strict: false }), pushed: e.pushed !== false, why: line(e.why, WHY_MAX),
       updates: Number.isInteger(e.updates) && e.updates > 0 ? e.updates : 0, merged: checkMerged(e.merged), mergedInto: typeof e.mergedInto === 'string' && /^[0-9a-f]{12}$/.test(e.mergedInto) ? e.mergedInto : '',
-      news: checkNews(e.news), newsN: Number.isInteger(e.newsN) && e.newsN > 0 ? e.newsN : 0 };
+      news: checkNews(e.news), newsN: Number.isInteger(e.newsN) && e.newsN > 0 ? e.newsN : 0,
+      splitFrom: typeof e.splitFrom === 'string' && ENTRY_RE.test(e.splitFrom) ? e.splitFrom : '', fromStory: line(e.fromStory, LIMITS.story), splitAt: e.splitAt || null, splitAcked: e.splitAcked || null };
   }
   save() { this.write(this.file, { version: 1, entries: this.entries, sources: this.sources, profiles: this.profiles, watch: this.watch, checks: this.checks }); }
   get(id) { const e = this.entries.find(x => x.id === id); if (!e) throw fail('That Inbox entry does not exist.', 404, { code: 'inbox_missing' }); return e; }
@@ -265,7 +275,8 @@ export class InboxStore {
     const e = { id: shortId(), kind, priority: pick(input.priority, PRIORITIES, 'normal', 'priority'), title, text: str(input.text, textMax(kind)),
       story: line(input.story, LIMITS.story), source: source(input.source), url: checkUrl(input.url), gmail: checkGmail(input.gmail), doc: checkDoc(input.doc), dedupe: str(input.dedupe, DEDUPE_MAX),
       state: 'new', at: iso(now), seenAt: null, actedAt: null, ackedAt: null, note: '', by: actor === 'ui' ? 'ui' : 'cli', actedBy: null, revision: 1, lastAction: null, sessions: [], items: checkItems(input.items, { strict: true }),
-      pushed: input.push !== false, why: line(input.why, WHY_MAX), updates: 0, merged: [], mergedInto: '', news: [], newsN: 0 }; // 1.105: whether the add asked for a push, and the watcher's reason
+      pushed: input.push !== false, why: line(input.why, WHY_MAX), updates: 0, merged: [], mergedInto: '', news: [], newsN: 0, // 1.105: whether the add asked for a push, and the watcher's reason
+      splitFrom: '', fromStory: '', splitAt: null, splitAcked: null };
     this.foldListed(e);
     if (e.dedupe) {
       const seen = this.entries.find(x => x.dedupe === e.dedupe && ms(x.at) >= now - DAY);
@@ -273,7 +284,7 @@ export class InboxStore {
     }
     // 1.113 (Brad): an alert on a story that already has an open alert entry updates that entry instead of adding a second one.
     // `merge: false` keeps the old behaviour for a job that wants separate entries.
-    const host = input.merge === false ? null : this.openOnStory(e);
+    const host = input.merge === false ? null : this.splitOn(e) || this.openOnStory(e);
     if (host) return this.update(host, e, now);
     this.entries.push(e); this.foldCards(e); this.cap(); this.save();
     return this.view(e);
@@ -286,11 +297,17 @@ export class InboxStore {
     const hits = this.entries.filter(x => x !== skip && x.kind === 'alert' && (x.state === 'new' || x.state === 'opened') && x.source === e.source && x.story === e.story);
     return hits.sort((a, b) => ms(b.at) - ms(a.at))[0] || null;
   }
+  // 1.115: the owner split a thread off a story as a separate subject. Until the watcher has moved that thread to its own story
+  // (the next check), an alert on it still arrives under the old story: it belongs to the split entry, not back on the old one.
+  splitOn(e) {
+    if (e.kind !== 'alert' || !e.story || !e.gmail) return null;
+    return this.entries.find(x => x.kind === 'alert' && (x.state === 'new' || x.state === 'opened') && x.source === e.source && x.splitFrom && x.fromStory === e.story && x.gmail === e.gmail) || null;
+  }
   // The new alert becomes the entry's text, title and links; what the entry said before follows it under EARLIER (one level: an
   // earlier text's own EARLIER part is dropped), cut to fit. The entry is unread again and goes to the top, keeping its id, the
   // conversations started from it and their links. A different Gmail thread joins `merged`, so its label comes off.
   update(host, e, now) {
-    const had = { id: '', title: host.title, gmail: host.gmail, url: host.url, at: host.at };
+    const had = { id: '', title: host.title, gmail: host.gmail, url: host.url, at: host.at }, was = { ...had, priority: host.priority, state: host.state };
     if (host.gmail && e.gmail && host.gmail !== e.gmail) host.merged = checkMerged([...host.merged.filter(m => m.gmail !== host.gmail), had]);
     else if (host.url && e.url && host.url !== e.url) host.merged = checkMerged([...host.merged, { ...had, gmail: '' }]); // the old start link still finds this entry
     if (e.gmail) host.merged = host.merged.filter(m => m.gmail !== e.gmail || m.id); // the thread is the entry's own again
@@ -300,7 +317,7 @@ export class InboxStore {
     Object.assign(host, { title: e.title, priority: rank(e.priority) >= rank(host.priority) ? e.priority : host.priority, url: e.url || host.url, gmail: e.gmail || host.gmail,
       doc: e.doc || host.doc, dedupe: e.dedupe || host.dedupe, pushed: e.pushed, why: e.why, state: 'new', at: iso(now), by: e.by });
     host.updates += 1; host.revision += 1;
-    if (host.sessions.length) this.addNews(host, { kind: 'update', title: e.title, text: e.text, gmail: e.gmail }, now); // 1.113.1
+    if (host.sessions.length) this.addNews(host, { kind: 'update', title: e.title, text: e.text, gmail: e.gmail, url: e.url, priority: e.priority, was }, now); // 1.113.1
     this.entries = [...this.entries.filter(x => x !== host), host]; // newest last, as an add would be
     this.foldCards(host); this.save();
     return { ...this.view(host), updated: true };
@@ -324,11 +341,12 @@ export class InboxStore {
     if (!(host.state === 'new' || host.state === 'opened')) throw fail('The entry to merge into is no longer on the list; restore it first.', 400, { code: 'bad_merge' });
     if (!(e.state === 'new' || e.state === 'opened')) throw fail('That entry is no longer on the list.', 400, { code: 'bad_merge' });
     if (e.source !== host.source) throw fail('Both entries must come from the same watcher.', 400, { code: 'bad_merge' });
+    if (e.splitFrom === host.id || host.splitFrom === e.id) throw fail('The owner split these two apart as separate subjects. Leave them separate.', 400, { code: 'bad_merge' }); // 1.115
     const at = iso(this.now()), n = typeof note === 'string' && note.trim() ? str(note, NOTE_MAX) : `Merged into "${host.title}".`.slice(0, NOTE_MAX);
     host.merged = checkMerged([...host.merged.filter(m => m.id !== e.id && !(e.gmail && m.gmail === e.gmail)), { id: e.id, title: e.title, gmail: e.gmail === host.gmail ? '' : e.gmail, url: e.url, at: e.at }]);
     // 1.113.1: the host's conversations have not seen the merged entry; the merged entry's conversations have not seen the host's
     // story. The conversation that did the merge (session) found it itself, so it is not behind.
-    if (host.sessions.length) this.addNews(host, { kind: 'merge', title: e.title, text: e.text, gmail: e.gmail }, this.now());
+    if (host.sessions.length) this.addNews(host, { kind: 'merge', title: e.title, text: e.text, gmail: e.gmail, from: e.id }, this.now());
     for (const s of e.sessions) remember(host, s.id, s.at, { story: true });
     if (session) this.markCaughtUp(host, str(session, 90));
     host.revision += 1;
@@ -341,14 +359,14 @@ export class InboxStore {
 
   // 1.113.1 (Brad): an entry updated after a conversation started from it. The conversation catches up (Bring it in, or steered
   // into a reply that is running) instead of a second conversation starting on the same story.
-  addNews(host, { kind, title, text, gmail }, now) {
+  addNews(host, { kind, title, text, gmail, ...more }, now) {
     host.newsN = (host.newsN || 0) + 1;
-    host.news = checkNews([...(host.news || []), { n: host.newsN, at: iso(now), kind, title, text, gmail }]);
+    host.news = checkNews([...(host.news || []), { n: host.newsN, at: iso(now), kind, title, text, gmail, ...more }]);
   }
   // What a conversation has not seen on this entry: the news after its `seen`, or the whole story for one that came with a merge.
   // Older news than the kept ones is gone; the entry's text still has the latest under it.
   behindOf(e, sess) {
-    if (!sess) return null;
+    if (!sess || sess.handed) return null; // 1.115: handed off; the conversation that took over gets the news
     if (sess.story) return { story: true, news: [] };
     const news = (e.news || []).filter(x => x.n > (sess.seen ?? 0));
     return news.length ? { story: false, news } : null;
@@ -385,15 +403,113 @@ export class InboxStore {
     return n;
   }
   // The message that catches a conversation up: written as the owner's next message (Bring it in) or steered into a running reply.
-  catchUpText(e, behind, { fmt = v => v, running = false } = {}) {
+  catchUpText(e, behind, { fmt = v => v, running = false, handoff = false } = {}) {
     const cut = t => t.split(EARLIER)[0].trim();
-    const ask = running ? 'When you reach a good point, take this into account and tell me in a few lines what it changes.'
+    // 1.115: New conversation, hand-off from the last one. This conversation does not work the mail; its briefing carries it.
+    const ask = handoff ? 'Do not work on this here. Hand this off: write a briefing for a new conversation to pick up from here, with this new mail as the first thing it deals with, and give me the handoff card.'
+      : running ? 'When you reach a good point, take this into account and tell me in a few lines what it changes.'
       : 'Read what is new, check it against what we have so far, and tell me in a few lines what it changes.';
     if (behind.story) return `The Inbox entry this conversation started from was merged into "${e.title}", the entry for the same story. What that entry says:\n\n`
       + `${cut(e.text)}${e.gmail ? `\nGmail: ${e.gmail}` : ''}\n\n${ask}`;
     const parts = behind.news.map(x => `${x.kind === 'merge' ? 'Merged in' : 'Update'}, ${fmt(x.at)}: ${x.title}\n${cut(x.text)}${x.gmail ? `\nGmail: ${x.gmail}` : ''}`);
     return `New on this Inbox story since this conversation started ("${e.title}"):\n\n${parts.join('\n\n')}\n\n${ask}`;
   }
+
+  // 1.115 (Brad): a conversation started from an entry was handed off. The conversation that continues it takes its place on the
+  // entry (and on any digest card): it is the one later mail goes to, with as much of the news as the old one had. The old one
+  // stays listed as handed off and is offered nothing more.
+  linkHandoff(from, to) {
+    const a = str(from, 90), b = str(to, 90);
+    if (!SESSION_RE.test(a) || !SESSION_RE.test(b) || a === b) return [];
+    const at = iso(this.now()), out = [];
+    const carry = (x, news) => {
+      const s = x.sessions.find(y => y.id === a);
+      if (!s || s.handed || x.sessions.some(y => y.id === b)) return false;
+      const extra = news ? { ...(Number.isInteger(s.seen) ? { seen: s.seen } : x.newsN ? { seen: 0 } : {}), ...(s.story ? { story: true } : {}) } : {};
+      s.handed = true;
+      x.sessions = [...x.sessions, { id: b, at, ...extra }];
+      if (x.sessions.length > SESSIONS_MAX) x.sessions = x.sessions.slice(-SESSIONS_MAX);
+      return true;
+    };
+    for (const e of this.entries) {
+      let hit = carry(e, true);
+      for (const it of e.items) if (carry(it, false)) hit = true;
+      if (hit) { e.revision += 1; out.push(this.view(e)); }
+    }
+    if (out.length) this.save();
+    return out;
+  }
+
+  // 1.115 (Brad): "it's really a separate subject". The newest mail an entry took in comes back off as an entry of its own, under
+  // a story of its own, and the watcher is told (feedback action 'split') so later mail on that thread stays with it.
+  // An update leaves as a new entry and the host goes back to what it said before; a merged entry is restored. `session` is the
+  // conversation asking: one that came with a merged entry splits that entry back out.
+  splitStory(host, title) {
+    const slug = String(title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'separate-subject';
+    // The watcher keeps stories Pocket no longer lists, so the key carries a few random characters: it must be a new story there.
+    let key;
+    do { key = `${slug}-${shortId().slice(0, 4)}`; } while (key === host.story || this.entries.some(x => x.source === host.source && x.story === key));
+    return key;
+  }
+  split({ id, session } = {}, { actor = 'ui' } = {}) {
+    const sid = str(session, 90);
+    let host = null;
+    if (id) host = this.get(str(id, 40));
+    else if (sid) host = this.entries.filter(x => x.kind === 'alert' && (x.state === 'new' || x.state === 'opened') && x.sessions.some(s => s.id === sid && !s.handed)).sort((a, b) => ms(b.at) - ms(a.at))[0] || null; // the open entry it is on: a merged entry it came with is off the list
+    if (!host) throw fail(id || sid ? 'No Inbox entry was started from that conversation.' : 'split needs the entry (id) or the conversation started from it (session).', id || sid ? 404 : 400, { code: id || sid ? 'inbox_missing' : 'bad_split' });
+    if (host.kind !== 'alert') throw fail('Only an alert can be split.', 400, { code: 'bad_split' });
+    if (!(host.state === 'new' || host.state === 'opened')) throw fail('That entry is no longer on the list; restore it first.', 400, { code: 'bad_split' });
+    const now = this.now(), at = iso(now), who = actor === 'cli' ? 'cli' : 'ui';
+    const sess = sid ? host.sessions.find(s => s.id === sid) : null;
+    const mergedIn = pick => this.entries.filter(e => e.mergedInto === host.id && e.state === 'dismissed' && pick(e)).sort((a, b) => ms(b.actedAt || b.at) - ms(a.actedAt || a.at))[0] || null;
+    let out = sess?.story ? mergedIn(e => e.sessions.some(s => s.id === sid)) : null, x = null;
+    if (!out) {
+      x = host.news.at(-1) || null;
+      if (!x) out = mergedIn(() => true); // no conversation was on the entry, so no news was kept: the last entry merged in, if any
+      if (!x && !out) throw fail('Nothing new has come in on this entry, so there is nothing to split off.', 400, { code: 'bad_split' });
+      if (x?.kind === 'merge') {
+        out = mergedIn(e => x.from ? e.id === x.from : e.title === x.title);
+        if (!out) throw fail('The entry that was merged in is gone, so it cannot be split back out.', 400, { code: 'bad_split' });
+      }
+    }
+    let briefUrl = '';
+    if (out) { // a merged entry comes back out, as Restore would bring it, and under a story of its own
+      briefUrl = out.url;
+      Object.assign(out, { state: 'opened', actedAt: at, ackedAt: at, lastAction: 'restore', note: '', mergedInto: '', actedBy: who });
+      out.seenAt ||= at;
+      if (!out.story || out.story === host.story) out.story = this.splitStory(host, out.title);
+      host.merged = host.merged.filter(m => m.id !== out.id);
+      host.sessions = host.sessions.filter(s => !(s.story && out.sessions.some(y => y.id === s.id)));
+      host.news = host.news.filter(n => !(n.kind === 'merge' && (n.from ? n.from === out.id : n.title === out.title)));
+      this.mirrorToCards(out, 'restore', at); this.foldCards(out);
+    } else { // an update leaves as a new entry; the host says what it said before
+      const was = x.was || null, earlier = host.text.split(EARLIER)[1];
+      briefUrl = x.url || host.url;
+      out = { id: shortId(), kind: 'alert', priority: x.priority || host.priority, title: x.title, text: x.text, story: this.splitStory(host, x.title), source: host.source, url: briefUrl, gmail: x.gmail || host.gmail, doc: '', dedupe: '',
+        state: 'opened', at: x.at || at, seenAt: at, actedAt: null, ackedAt: null, note: '', by: host.by, actedBy: who, revision: 0, lastAction: null, sessions: [], items: [], pushed: false, why: '', updates: 0, merged: [], mergedInto: '', news: [], newsN: 0,
+        splitFrom: '', fromStory: '', splitAt: null, splitAcked: null };
+      if (earlier) host.text = earlier.trim();
+      if (was) {
+        if (was.title) host.title = was.title;
+        if (was.priority) host.priority = was.priority;
+        if (was.at) host.at = was.at;
+        if (was.gmail && x.gmail && host.gmail === x.gmail && was.gmail !== x.gmail) host.gmail = was.gmail;
+        if (was.url && host.url === briefUrl && was.url !== briefUrl) host.url = was.url;
+        host.merged = host.merged.filter(m => m.id || !((m.gmail && m.gmail === host.gmail) || (m.url && m.url === host.url))); // its own thread and start link again
+      }
+      host.state = 'opened'; host.seenAt ||= at; // the owner has just dealt with what made it unread
+      host.updates = Math.max(0, host.updates - 1);
+      host.news = host.news.filter(n => n !== x);
+      this.entries.push(out);
+    }
+    Object.assign(out, { splitFrom: host.id, fromStory: host.story, splitAt: at, splitAcked: null });
+    host.revision += 1; out.revision += 1;
+    this.cap(); this.save();
+    // `session`: a conversation the split entry already has (it came back out with its own), so nothing new needs starting
+    return { entry: this.view(out), from: this.view(host), briefUrl, session: out.sessions.filter(s => !s.handed).at(-1)?.id || '' };
+  }
+  // The split entry's own start link, minted by the server once the entry exists.
+  relink(id, url) { const e = this.get(str(id, 40)); e.url = checkUrl(url); e.revision += 1; this.save(); return this.view(e); }
 
   // 1.95 (Brad): nothing already on the owner's list comes back as a new card. A digest item whose story (or Gmail thread) has an
   // open alert entry becomes a 'listed' line that links to that entry (/#/inbox/<id>), whatever section the watcher gave it.
@@ -537,6 +653,9 @@ export class InboxStore {
     const out = this.entries.filter(e => e.actedAt && e.ackedAt == null && (ACTED.includes(e.state) || e.lastAction === 'restore') && (from == null || ms(e.actedAt) >= from))
       .map(e => ({ id: e.id, action: e.lastAction === 'restore' ? 'restore' : e.state, at: e.actedAt, note: e.note, title: e.title, story: e.story, source: e.source, kind: e.kind,
         ...(e.mergedInto && e.state === 'dismissed' ? { mergedInto: e.mergedInto, intoStory: this.entries.find(x => x.id === e.mergedInto)?.story || '' } : {}) })); // 1.113
+    // 1.115: a split is told on its own id ('<entry>:split'), so a later decision on the entry never replaces it
+    for (const e of this.entries) if (e.splitAt && e.splitAcked == null && (from == null || ms(e.splitAt) >= from))
+      out.push({ id: `${e.id}:split`, entry: e.id, action: 'split', at: e.splitAt, note: '', title: e.title, story: e.story, source: e.source, kind: e.kind, from: e.splitFrom, fromStory: e.fromStory, gmail: e.gmail });
     for (const e of this.entries) for (const it of e.items) {
       if (!it.actedAt || it.ackedAt != null || !(ITEM_ACTED.includes(it.state) || it.lastAction === 'restore') || (from != null && ms(it.actedAt) < from)) continue;
       out.push({ id: `${e.id}/${it.ref}`, entry: e.id, item: it.ref, action: it.lastAction === 'restore' ? 'restore' : it.state === 'alerted' ? 'alert' : it.state, at: it.actedAt, note: it.note, title: it.title, story: it.story, text: it.text, gmail: it.gmail, priority: it.priority, source: e.source, kind: 'digest-item' });
@@ -550,6 +669,7 @@ export class InboxStore {
     let n = 0;
     for (const e of this.entries) {
       if (want.has(e.id) && e.actedAt && e.ackedAt == null) { e.ackedAt = at; n++; }
+      if (want.has(`${e.id}:split`) && e.splitAt && e.splitAcked == null) { e.splitAcked = at; n++; }
       for (const it of e.items) if (want.has(`${e.id}/${it.ref}`) && it.actedAt && it.ackedAt == null) { it.ackedAt = at; n++; }
     }
     if (n) this.save();

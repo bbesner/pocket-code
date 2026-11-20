@@ -1629,7 +1629,13 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 function markRead(id, state) { if (document.visibilityState === 'visible' && state?.at && !awaitingEngagement.has(id)) setSeen(id, state.at); }
 function rowState(s) { return s.state || { kind: s.active ? 'observed' : 'idle', label: s.active ? 'Activity elsewhere' : 'Recent' }; }
 // The list announces a finished reply only until it has been opened; afterwards it is an ordinary recent session.
-function listState(s) { const state = rowState(s); return state.kind === 'finished' && !isUnread(s) ? { ...state, kind: 'idle', label: 'Recent' } : state; }
+// 1.115: a conversation at rest whose Inbox entry has mail it has not had reads New mail, never Complete, until the mail is
+// brought in, handed off, split off or put off (Not now).
+function listState(s) {
+  const raw = rowState(s), state = raw.kind === 'finished' && !isUnread(s) ? { ...raw, kind: 'idle', label: 'Recent' } : raw;
+  const news = ['idle', 'finished'].includes(state.kind) && typeof inboxBehindFor === 'function' ? inboxBehindFor(s.id) : null;
+  return news ? { ...state, kind: 'news', label: 'New mail', done: false, summary: news.title } : state;
+}
 function sessionCounts() {
   if(sessionsStale)return {running:0,background:0,input:0,observed:0,attention:allSessions.filter(inAttention).length,fresh:allSessions.filter(isUnread).length};
   return { running: allSessions.filter(s => rowState(s).kind === 'running').length,
@@ -1663,6 +1669,7 @@ function sessionRowHTML(s) {
     : background ? (state.background?.jobs?.[0]?.description ? `Background: ${state.background.jobs[0].description}` : 'Background work still running')
     : state.kind === 'observed' ? 'Recent transcript activity; run status unconfirmed'
     : state.kind === 'waiting' && state.retryAt ? `Retry at ${new Date(state.retryAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`
+    : state.kind === 'news' && state.summary ? state.summary // 1.115: what came in on its Inbox story
     : complete && state.summary ? state.summary : `Updated ${rel(s.mtimeMs)}`; // 1.111: the agent's outcome line, until you have seen it
   return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}" data-item="${esc(s.id)}">
     <button class="row" data-id="${esc(s.id)}">
@@ -1806,8 +1813,8 @@ function bindAssistantIntro() {
   b.onclick = () => { writeLocal('pc-assistant-intro', true); $('#assistant-intro')?.remove(); $('#first')?.focus(); };
 }
 function homeRowHTML(s) {
-  const st = listState(s), kind = st.kind === 'input' ? 'input' : st.kind === 'running' || st.kind === 'observed' ? 'running' : st.kind === 'failed' ? 'failed' : isUnread(s) ? 'ready' : 'idle';
-  const label = { input: 'Needs you', running: 'Working', failed: 'Didn’t finish', ready: 'Ready', idle: '' }[kind];
+  const st = listState(s), kind = st.kind === 'input' ? 'input' : st.kind === 'running' || st.kind === 'observed' ? 'running' : st.kind === 'failed' ? 'failed' : st.kind === 'news' ? 'news' : isUnread(s) ? 'ready' : 'idle';
+  const label = { input: 'Needs you', running: 'Working', failed: 'Didn’t finish', news: 'New mail', ready: 'Ready', idle: '' }[kind];
   return `<a class="home-row state-${kind}" href="#/chat/${esc(s.id)}"><span class="home-dot" aria-hidden="true"></span><span class="home-title">${esc(s.title || 'Untitled conversation')}</span><span class="home-when">${label ? `<span class="home-state">${esc(label)}</span> · ` : ''}${esc(rel(s.mtimeMs))}</span></a>`;
 }
 function paintAssistantHome() {
@@ -1917,7 +1924,8 @@ function paintRunConfirmation(){
   else if(fresh){
    if(state?.kind==='running'&&state.confirmed===true){label='Running on server';kind='running';}
    else if(state?.kind==='running'||state?.kind==='observed'){label='Activity seen. Run unconfirmed';}
-   else if(state?.confirmed===true){label=state.label;kind=state.kind;}
+   else if(state?.confirmed===true){label=state.label;kind=state.kind;
+    if(state.kind==='finished'&&state.done&&typeof inboxBehindFor==='function'&&inboxBehindFor(chatId)){label='New mail';kind='news';}} // 1.115: not Complete while its Inbox story has mail it has not had
    else {label='No active run here';kind='idle';}
   }
   // 1.19: in the title bar (phones, collapsed header) the same states use short words; the tooltip keeps the detail.
@@ -2449,7 +2457,8 @@ function paintDone(msgs = $('#msgs')) {
   const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop(), box = $('#box');
   const open = !composerWorking && !sendsInFlight.has(chatId) && !loadOutbox(chatId) && !box?.value.trim() && !box?.readOnly;
   const busy = ['running', 'background', 'input', 'waiting'].includes(allSessions.find(s => s.id === chatId)?.state?.kind);
-  cards.forEach(c => { c.hidden = !(open && !busy && c.closest('.m-asst') === last); });
+  const news = typeof InboxNews !== 'undefined' && InboxNews.pending(); // 1.115: mail it has not read: the news card takes this place
+  cards.forEach(c => { c.hidden = !(open && !busy && !news && c.closest('.m-asst') === last); });
 }
 // Closing a completed conversation, from its card or from its row in the list. Three existing actions in one tap:
 // reviewed on every device (so it leaves Attention), its server process released now instead of at the idle close,

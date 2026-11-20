@@ -247,14 +247,15 @@ const Handoff = (() => {
     return set && set.dataset.choices !== readLocal('pc-choices-dismissed', {})[chatId] ? set : null;
   };
   const optionsOf = set => set ? [...set.querySelectorAll('.choice:not(.choice-handoff)')].map(b => b.dataset.choice + (b.matches('.choice-rec') ? ' (Recommended)' : '')) : [];
-  const askWith = options => options.length ? HANDOFF_ASK + ' I have not picked one of these options yet: ' + options.map(o => '"' + o + '"').join('; ') + '. Put them in the briefing as the first decision, so the new conversation starts by offering them.' : HANDOFF_ASK;
-  function send(id = chatId) {
+  const askWith = (options, base = HANDOFF_ASK) => options.length ? base + ' I have not picked one of these options yet: ' + options.map(o => '"' + o + '"').join('; ') + '. Put them in the briefing as the first decision, so the new conversation starts by offering them.' : base;
+  // `ask` (1.115): the request in other words. Inbox news hands off with the new mail in it (InboxNews, inbox.js).
+  function send(id = chatId, { ask: own } = {}) {
     if (!id || id !== chatId) return;
     const box = document.getElementById('box');
     if (loadOutbox(id) || sendsInFlight.has(id)) return toast('Wait for your last message to send, then hand off.');
     if (box?.value.trim() || tb?.attachments?.length) return toast('Send or clear what you are writing first, then hand off.');
     dismiss(id);
-    const set = openSet(), ask = askWith(optionsOf(set)); if (set) set.hidden = true;
+    const set = openSet(), ask = askWith(optionsOf(set), own || HANDOFF_ASK); if (set) set.hidden = true;
     const mode = sendModes.get(id), working = composerWorking;
     if (working) sendModes.set(id, 'queue'); // after the reply: a briefing written mid-step would miss the end of it
     const sent = sendMsg(ask);         // sendMsg reads the mode before its first await
@@ -290,6 +291,7 @@ const Handoff = (() => {
     const last = [...msgs.children].filter(e => e.matches('.m-user, .m-asst:not(.live)')).pop();
     if (!last?.matches('.m-asst') || !last.textContent.trim() || last.querySelector('.handoff-card')) return null;
     if (last.querySelector('.done-card:not([hidden])')) return null; // 1.111: a finished conversation has nothing to hand off
+    if (typeof InboxNews !== 'undefined' && InboxNews.pending()) return null; // 1.115: the news card says the size and offers the handoff
     return { last, used: ctx.used };
   }
   function paintHint(msgs = document.getElementById('msgs')) {

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.112.0
+checked: 1.115.0
 sources: choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -133,6 +133,10 @@ and a green **Close conversation** button, so you do not have to read the reply 
   while background jobs are still running or a question is waiting, and never together with reply buttons.
 - In the conversation list the row reads **Complete** with the same line, and the tick on that row closes it without
   opening it (see [Conversations](sessions.md#find-a-conversation)).
+- When mail has arrived on the Inbox entry this conversation was started from, a news card takes the Complete card's
+  place until you bring the mail in, start a new conversation for it or choose **Not now** (see
+  [Inbox Watch](inbox-watch.md#what-goes-on-the-list)). The conversation reads **New mail**, not Complete, while it does. The
+  suggestion to hand off a large conversation waits behind that card too.
 
 The card is the agent's own statement that the work is done. Pocket drops it when the reply also offers choices or ends
 with a question, but it cannot check the work itself.
