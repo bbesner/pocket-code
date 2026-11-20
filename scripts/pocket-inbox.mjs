@@ -14,6 +14,7 @@
 //   pocket-inbox act <id> <open|unread|dismiss|resolve|not_useful|restore> [--note "…"] [--json]
 //   pocket-inbox act <id> <alert|resolve|not_useful|dismiss|restore> --item <ref> [--note "…"]       one item of a digest (1.95)
 //   pocket-inbox merge <id> (--into <entry id> | --session <conversation id>) [--note "…"]       1.113: a duplicate on the same story joins that entry
+//   pocket-inbox split [<id>] [--session <conversation id>]                                    1.115: the newest mail an entry took in becomes its own entry (a separate subject)
 //   pocket-inbox feedback [--since <ISO>] [--json]                                           the owner's decisions not yet applied
 //   pocket-inbox ack <id…>                                                                   the worker applied them
 //   pocket-inbox seen [--source <name>] [--profile <path|->]                                 a heartbeat: the worker ran (1.70: with its profile)
@@ -89,6 +90,7 @@ function card(e) {
   if (e.doc) lines.push(`  File: ${e.doc}`);
   if (e.note) lines.push(`  Note: ${e.note}`);
   if (e.updates) lines.push(`  Updated ${e.updates} time${e.updates === 1 ? '' : 's'} with later mail on the story`);
+  if (e.splitFrom) lines.push(`  Split off entry ${e.splitFrom} as a separate subject; never merge it back`); // 1.115
   for (const m of e.merged || []) if (m.id || m.gmail) lines.push(`  Took in: ${m.title || '(untitled)'}${m.id ? ' (' + m.id + ')' : ''}${m.gmail ? '  ' + m.gmail : ''}`);
   for (const c of e.sessions || []) lines.push(`  Conversation: ${c.id}${c.story || (c.seen ?? 0) < (e.newsN || 0) ? ' (has not had the latest mail; it offers to bring it in)' : ''}`); // 1.113.1
   if (e.actedAt) lines.push(`  ${e.lastAction === 'restore' ? 'Restored' : 'Marked ' + (STATE[e.state] || e.state)} ${when(e.actedAt)}`);
@@ -139,6 +141,12 @@ switch (cmd) {
     if (!id || !(opts.into || opts.session)) die('merge needs an entry id and --into <entry id> or --session <conversation id>');
     const r = await call('/api/inbox/merge', { id, ...(opts.into ? { into: opts.into } : {}), ...(opts.session ? { session: opts.session } : {}), ...(opts.note !== undefined ? { note: opts.note } : {}) });
     out(r, `Merged "${r.entry.title}" (${r.entry.id}) into "${r.into.title}" (${r.into.id}).`); break;
+  }
+  case 'split': { // 1.115: the newest mail an entry took in becomes an entry of its own; the user's decision, like act
+    const id = rest[0];
+    if (!id && !opts.session) die('split needs an entry id or --session <conversation id>');
+    const r = await call('/api/inbox/split', { ...(id ? { id } : {}), ...(opts.session ? { session: opts.session } : {}) });
+    out(r, `Split "${r.entry.title}" (${r.entry.id}) off "${r.from.title}" (${r.from.id}) as a separate subject.${r.start ? ' Its briefing: ' + r.start : ''}`); break;
   }
   case 'feedback': {
     const r = await call('/api/inbox/feedback' + qs({ since: opts.since }));

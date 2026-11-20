@@ -17,7 +17,38 @@ opacity, the cursor reads `grabbing`, and a 2px inset `--clay` bar on the target
 lands: the same vocabulary as the pinned-row drag in the list, turned sideways. Touch waits for a 350ms hold so a swipe
 still scrolls the strip. Pinned tabs never mix with the rest. Alt Shift [ / ] is the keyboard path.
 
+## Inbox news card and the three choices (1.115)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 5; existing tokens and classes
+only (`--clay`, `--ok`, `--dim`, `--surface`, `--line`, `--warn`; `.opt`, `.chip`, the Complete card's pattern), no new
+colour, no new font, no motion. Read: someone opening an Inbox entry that already has a conversation is deciding where
+the new mail goes, and the 1.113 one-line offer lost that decision under the green Complete card. Two rules settle it.
+**Clay means a tap sends a message; green (`--ok`) means finished.** And **a conversation that is behind its mail is not
+finished**, so the two never show together.
+
+- **The news card** (`.inbox-news`, a direct child of `#msgs`) replaces the Complete card while the conversation is
+  behind. Same footprint and structure as `.done-card`, in clay instead of green: a clay wash and edge, a 32px clay
+  badge with the Inbox icon (`.news-mark`), the title at 16px/650 in `--text` with the time in `--dim` beside it
+  (`.news-title`, `.news-when`), the mail's first sentence (`.news-sum`), and, only when the conversation is large,
+  one `--dim` line saying how large (`.news-size`). Actions in one row (`.news-acts`): **Bring it in** as the only
+  filled control (`.news-bring`, clay, 44px), **New conversation** as a `.chip`, **Not now** as the quiet text button.
+  On a phone the actions wrap under the text and Bring it in takes the full width.
+- **Not now** puts the Complete card back until more mail arrives. The Handoff offer waits behind the news card: one
+  decision at a time under a reply.
+- **Behind reads the same everywhere**: the list row, the Home row, the tab dot and the header say **New mail** in
+  `--warn` (`.state-news`, `.tab-news`, `[data-state=news]`), the colour already used for "needs you", and the list's
+  one-tap close tick is hidden so a behind conversation cannot be closed without seeing the mail.
+- **The entry sheet is the choice point.** When the entry's conversation is behind, three `.opt` rows in this order:
+  **Continue the conversation** (sub-line: brings the new mail in, when it started, its size), **New conversation,
+  hand-off from the last one**, **New conversation, separate subject**. Each sub-line says what happens in plain words;
+  the size on the first row is the fact the second choice turns on. When it is not behind the rows are **Open the
+  conversation**, the hand-off, **Start another conversation**.
+- **New conversation** on the card opens a two-row sheet (**Hand-off from this one**, **Separate subject**) rather
+  than two more buttons on the card: three equal buttons under a reply read as a form.
+
 ## Inbox catch-up line (1.113)
+
+*Superseded in 1.115 by the news card above; kept for the reasoning.*
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 5; the Handoff offer's pattern,
 classes and tokens, the existing Inbox rail icon, no new colour. Read: someone who started a conversation from an alert

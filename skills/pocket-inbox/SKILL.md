@@ -118,6 +118,26 @@ into …*). Read the new mail it cites, say in a few lines what it changes for t
 was already sent or done, say whether anything needs redoing. `pocket-inbox show <id>` lists the entry's conversations and
 which have not had the latest mail.
 
+**Hand-off instead (1.115).** The user can choose **New conversation, hand-off from the last one** for that mail. The
+message then carries the same news and ends *Do not work on this here. Hand this off…*. Do what it says: write the
+handoff briefing (`pocket-start add --handoff`, as for any handoff) with the new mail as the first thing the new
+conversation deals with, give the handoff card, and stop. Do not start on the mail yourself. Once the user starts the
+new conversation, the entry points at it and later mail goes there, not to you.
+
+**A separate subject (1.115).** The user can also decide the new mail is not part of this story. In Pocket that is
+**New conversation, separate subject**; in a conversation, when they say so ("that's a different thing, split it off"):
+
+```bash
+pocket-inbox split --session <this conversation id>   # or: pocket-inbox split <entry id>
+```
+
+The latest mail leaves the entry as an Inbox entry of its own, the first entry goes back to what it said before, and
+the command prints the new entry's briefing link: give it to the user. The watcher is told, so later mail on that
+thread goes to the new entry. Split only when the user asks; never on your own reading of the mail. A conversation
+started from a split entry is told so in its briefing ("The owner split this off the Inbox entry …"): work it on its
+own, **never merge it back** into the entry it came from (the merge is refused), and ask before relying on anything
+from the earlier conversation the briefing names.
+
 ## When it checks, which models judge, what it costs
 
 ```bash

@@ -309,7 +309,7 @@ function tabState(id){
  if(typeof allSessions==='undefined'||sessionsStale)return null;
  const row=allSessions.find(s=>s.id===id);if(!row)return null;
  const st=listState(row);
- return ['running','background','input','failed','finished','observed','waiting'].includes(st.kind)?{kind:st.kind,label:st.kind==='finished'?(st.done?'Complete':'Response ready'):st.label}:null;
+ return ['running','background','input','failed','finished','observed','waiting','news'].includes(st.kind)?{kind:st.kind,label:st.kind==='finished'?(st.done?'Complete':'Response ready'):st.label}:null; // 1.115: news = mail on its Inbox story it has not had
 }
 // 1.28: a large session whose prompt cache is about to expire (hourglass) or has expired (snowflake). Resuming it
 // cold writes the whole context to cache again. Warm and small sessions show nothing; an unconfirmed list neither.
