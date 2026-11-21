@@ -33,7 +33,7 @@ regexes = ['''^Zx9_ab12cd34$''', '''^sk-proj-abcDEF1234567890abcdefXYZ$''']
 description = "Vault tests: fake item values"
 condition = "AND"
 paths = ['''(^|/)test/vault\.test\.mjs$''']
-regexes = ['''^sk-live-hunter2-0123456789abcdef$''', '''^txn-key-secret-9876$''', '''^sk-live-rotated-9876543210abcdef$''']
+regexes = ['''^sk-live-hunter2-0123456789abcdef$''', '''^txn-key-secret-9876$''', '''^sk-live-rotated-9876543210abcdef$''', '''^smsgw-secret-30-characters-abc$''']
 
 [[rules.allowlists]]
 description = "Browser test: fake Vault item values"
@@ -49,7 +49,7 @@ regexes = [
   '''^zk-fixture-secret-7731$''',
   '''^wp-fixture-pass-5512$''',
   '''^sc-secret-fixture-3390$''',
-  '''^c2luY2gtZml4dHVyZQ$''',
+  '''^c21zZ3ctZml4dHVyZQ$''',
   '''^sk-proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7cDe0fGh2$''',
   '''^Zq8vR2mX9pL4tY7wK3nB6cJ1hF5dG0sAe$''',
 ]
