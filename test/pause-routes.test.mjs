@@ -25,7 +25,9 @@ async function boot(t, port, { dir = null, env = {} } = {}) {
   dir = dir || fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pause-')));
   const home = path.join(dir, 'home'), cwd = path.join(home, 'work'), data = path.join(dir, 'data');
   for (const d of [home, cwd, path.join(home, 'pocket-uploads'), path.join(dir, 'sessions')]) fs.mkdirSync(d, { recursive: true });
-  const secret = 'pause-' + port, exp = Date.now() + 3600_000;
+  // One secret per data folder: a restart keeps it, as a real one does. Since 1.118 the password mark in auth-state.json is
+  // keyed by POCKET_SECRET, so a restart with another secret reads as a new password and starts a new sign-in generation.
+  const secret = 'pause-' + path.basename(dir), exp = Date.now() + 3600_000;
   const cookie = 'pc_auth=' + exp + '.' + createHmac('sha256', secret).update(String(exp)).digest('hex');
   const child = spawn(process.execPath, ['server.mjs'], { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'], env: {
     ...cleanEnv(), HOME: home, PORT: String(port), POCKET_SKILLS: '0', POCKET_ENV_FILE: '', POCKET_AUTO_TITLES: '0', POCKET_PASSWORD: 'test-only', POCKET_SECRET: secret,

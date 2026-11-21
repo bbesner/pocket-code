@@ -1,6 +1,6 @@
 /* Pocket Code SW — cache the shell, never the API; handle push notifications */
-const V = 'pc-v211';
-const SHELL = ['/theme.js?v=211', '/', '/release.json?v=211', '/app.css?v=211', '/app.js?v=211', '/cli-updates.js?v=211', '/workspace.js?v=211', '/sidechat.js?v=211', '/projects.js?v=211', '/documents.js?v=211', '/links.js?v=211', '/tasks.js?v=211', '/coordination.js?v=211', '/inbox.js?v=211', '/vault.js?v=211', '/secret-detect.js?v=211', '/phrases.js?v=211', '/approvals.js?v=211', '/automation.js?v=211', '/split.js?v=211', '/tips.js?v=211', '/format.js?v=211', '/voice-text.js?v=211', '/voice.js?v=211', '/voice-worklet.js?v=211', '/vendor/marked.js?v=211', '/vendor/purify.js?v=211', '/manifest.webmanifest', '/icon-192.png'];
+const V = 'pc-v212';
+const SHELL = ['/theme.js?v=212', '/', '/release.json?v=212', '/app.css?v=212', '/app.js?v=212', '/cli-updates.js?v=212', '/workspace.js?v=212', '/sidechat.js?v=212', '/projects.js?v=212', '/documents.js?v=212', '/links.js?v=212', '/tasks.js?v=212', '/coordination.js?v=212', '/inbox.js?v=212', '/vault.js?v=212', '/secret-detect.js?v=212', '/phrases.js?v=212', '/approvals.js?v=212', '/automation.js?v=212', '/split.js?v=212', '/tips.js?v=212', '/format.js?v=212', '/voice-text.js?v=212', '/voice.js?v=212', '/voice-worklet.js?v=212', '/vendor/marked.js?v=212', '/vendor/purify.js?v=212', '/manifest.webmanifest', '/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -28,7 +28,7 @@ self.addEventListener('push', e => {
     tag: d.tag || 'pc',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    data: { url: d.url || '/', ...(d.vaultRequest ? { vaultRequest: String(d.vaultRequest) } : {}), ...(d.snooze && typeof d.snooze === 'object' ? { snooze: d.snooze } : {}) },
+    data: { url: d.url || '/', ...(d.vaultRequest ? { vaultRequest: String(d.vaultRequest) } : {}), ...(d.docRequest ? { docRequest: String(d.docRequest) } : {}), ...(d.snooze && typeof d.snooze === 'object' ? { snooze: d.snooze } : {}) },
   };
   // 1.41: a Vault request carries Allow and Deny, answered from the notification without opening Pocket.
   // 1.50: a due task or reminder carries Tomorrow (and Done for a task), answered the same way.
@@ -48,7 +48,7 @@ const openUrl = url => clients.matchAll({ type: 'window', includeUncontrolled: t
   return clients.openWindow(url);
 });
 // Allow answers once (never Always allow from a lock screen); Deny denies. If the answer does not land, Pocket opens at
-// that request and says why (1.93, Damon): signed out, the Vault locked, already answered or expired, or offline.
+// that request and says why (1.93, colleague request): signed out, the Vault locked, already answered or expired, or offline.
 const missedWhy = status => status === 401 || status === 403 ? 'signin' : status === 423 ? 'locked' : status === 404 || status === 409 ? 'gone' : 'error';
 const answerVault = (request, action, url) => {
   const missed = why => openUrl('/#/vault/request/' + encodeURIComponent(request) + '?missed=' + why + '&tap=' + (action === 'allow' ? 'allow' : 'deny'));
@@ -57,6 +57,12 @@ const answerVault = (request, action, url) => {
     body: JSON.stringify({ action: 'answer', request, decision: action === 'allow' ? 'once' : 'deny' }),
   }).then(r => { if (!r.ok) return missed(missedWhy(r.status)); }, () => missed('offline'));
 };
+// 1.118 (PC-04): an agent's share or publish of a file is answered the same way; if the answer does not land (signed out,
+// already answered, expired, the file changed, offline), Files opens with the request card.
+const answerDoc = (request, action) => fetch('/api/documents/requests/' + encodeURIComponent(request) + '/answer', {
+  method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ decision: action === 'allow' ? 'allow' : 'deny' }),
+}).then(r => { if (!r.ok) return openUrl('/#/documents'); }, () => openUrl('/#/documents'));
 // 1.50: Tomorrow moves a due task or project reminder to 9 AM tomorrow in this device's zone; Done finishes a task.
 // Both go through the ordinary routes with the signed-in cookie; if the answer does not land, Pocket opens instead.
 const tomorrowNine = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d.toISOString(); };
@@ -71,6 +77,7 @@ self.addEventListener('notificationclick', e => {
   e.notification.close();
   const data = e.notification.data || {}, url = data.url || '/';
   if ((e.action === 'allow' || e.action === 'deny') && data.vaultRequest) { e.waitUntil(answerVault(data.vaultRequest, e.action, url)); return; }
+  if ((e.action === 'allow' || e.action === 'deny') && data.docRequest) { e.waitUntil(answerDoc(data.docRequest, e.action)); return; }
   if ((e.action === 'later' || e.action === 'done') && data.snooze) { e.waitUntil(answerDue(data.snooze, e.action, url)); return; }
   e.waitUntil(openUrl(url));
 });

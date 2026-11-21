@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// pocket-vault: use the owner's stored credentials by name, without ever seeing them (1.39).
+// pocket-vault: use the owner's stored credentials by name, keeping the values out of the conversation (1.39).
 // Talks to the running Pocket Code server over loopback with the token it writes to <data dir>/cli-token.
 // Values never pass through this process: `run` asks the daemon to run the command with the values in
 // its environment, and prints the output with every value replaced by {{vault:name}}.
@@ -96,7 +96,7 @@ async function stream(p, body) {
   const handle = ev => {
     if (ev.t === 'out') process.stdout.write(ev.s);
     else if (ev.t === 'err') process.stderr.write(ev.s);
-    else if (ev.t === 'request') console.error(`Asking the owner to allow this command (request ${ev.id}, ${ev.items.join(', ')})…`);
+    else if (ev.t === 'request') console.error(`Asking the owner to allow this command (request ${ev.id}, ${ev.items.join(', ')})${ev.changed === 'changed' ? `. It was allowed always, but ${ev.changedFiles?.length ? ev.changedFiles.join(', ') + (ev.changedFiles.length > 1 ? ' have' : ' has') : 'the program or a file it names has'} changed since` : ev.changed === 'unpinned' || ev.changed === 'unbound' ? '. It was allowed always before Pocket recorded what it runs and which variable gets which secret; the owner confirms it once' : ev.changed === 'variables' ? '. It was allowed always with other variables; the owner checks the new ones' : ev.changed === 'refused' ? '. Pocket can no longer check what it runs, so the owner is asked every time' : ''}…`);
     else if (ev.t === 'pending') { console.error(`pending ${ev.id}\nThe owner has not answered yet. Say so, and continue with: pocket-vault wait ${ev.id}`); process.exit(4); }
     else if (ev.t === 'denied') { console.error(ev.message || 'The owner did not allow this command.'); process.exit(5); }
     else if (ev.t === 'exit') { if (ev.truncated) console.error('[output truncated at 1 MB]'); if (ev.timedOut) console.error('[the command was stopped at the timeout]'); process.exit(ev.code ?? (ev.signal ? 128 : 1)); }
@@ -133,7 +133,7 @@ switch (cmd) {
     out(i, card(i)); break;
   }
   case 'run': {
-    if (!command.length) die('run needs the command after --: pocket-vault run --env TOKEN=zoho-books -- node sync.mjs');
+    if (!command.length) die('run needs the command after --: pocket-vault run --env TOKEN=zeta-books -- node sync.mjs');
     if (!opts.env.length) die('run needs at least one --env VAR=<name>[.field]');
     const bind = {};
     for (const e of opts.env) { const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/.exec(e); if (!m) die(`--env needs VAR=<name>[.field], got ${e}`); bind[m[1]] = m[2]; }
@@ -146,7 +146,7 @@ switch (cmd) {
     break;
   }
   case 'put': {
-    const name = rest[0]; if (!name) die('put needs a name: pocket-vault put zoho-books --kind api_key --stdin');
+    const name = rest[0]; if (!name) die('put needs a name: pocket-vault put zeta-books --kind api_key --stdin');
     const kind = opts.kind; if (!kind) die('put needs --kind api_key, token, login, credentials or note');
     const fields = { api_key: ['value'], token: ['value'], login: ['username', 'password'], credentials: [], note: ['text'] }[kind]; if (!fields) die('--kind must be api_key, token, login, credentials or note');
     const values = {};

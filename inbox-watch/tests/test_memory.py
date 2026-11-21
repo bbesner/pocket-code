@@ -66,25 +66,25 @@ def test_items_marked_after_and_future_hidden():
 
 def test_unrelated_memory_left_out():
     setup()
-    E.MEMORY_SEARCH = FakeSearch([hit("zoho", "session", "2026-10-21T15:00:00Z", "Audit the Zoho Books billing for the monitoring accounts"),
+    E.MEMORY_SEARCH = FakeSearch([hit("zeta", "session", "2026-10-21T15:00:00Z", "Audit the Zeta Books billing for the monitoring accounts"),
                                   hit("own", "memory", "2026-10-21T15:00:00Z", "Alex asked the assistant about Oct billing"),
                                   hit("inv", "daily", "2026-10-21T15:00:00Z", "2026-10-21"),
-                                  hit("riley", "distillation", "2026-10-21T15:00:00Z", "Riley Morgan asked to change the billing card")])
-    E.MEMORY_SEARCH.body = lambda mid: {"inv": "Sent Fabrikam the corrected INV-17693 on Tuesday."}.get(mid, "")
+                                  hit("jamie", "distillation", "2026-10-21T15:00:00Z", "Jamie Lindqvist asked to change the billing card")])
+    E.MEMORY_SEARCH.body = lambda mid: {"inv": "Sent Fabrikam the corrected INV-10042 on Tuesday."}.get(mid, "")
     try:
-        got = E.memory_items("Billing Information INV-17693 Riley Morgan fabrikamop", None, 3)
+        got = E.memory_items("Billing Information INV-10042 Jamie Lindqvist fabrikamop", None, 3)
     finally:
         E.MEMORY_SEARCH = None
-    assert [m["ref"] for m in got] == ["mem:inv", "mem:riley"], "one shared word is not enough; the owner's and assistant's names and dates count for nothing; an identifier is"
+    assert [m["ref"] for m in got] == ["mem:inv", "mem:jamie"], "one shared word is not enough; the owner's and assistant's names and dates count for nothing; an identifier is"
     assert E.memory_relevant("Doorbell reset", "Reset the front doorbell camera", "")
     assert not E.memory_relevant("Invoice", "Invoice for the access audit", ""), "a one-word query needs an identifier"
 
 
 def test_query_names_the_sender_not_a_system():
     setup()
-    q = E.memory_query("RE: Order 7000123 missing camera", '"Dana Whitfield" <greg@northwind.example>', "about order 7000123")
+    q = E.memory_query("RE: Order 7000123 missing camera", '"Dana Whitfield" <dana@northwind.example>', "about order 7000123")
     assert "Dana Whitfield" in q and "northwind" in q and "7000123" in q and "@" not in q, q
-    q = E.memory_query("Your statement is ready", "Northwind Bank <no-reply@notify.northwindbank.com>")
+    q = E.memory_query("Your statement is ready", "Northwind Bank <no-reply@notify.northwindbank.example>")
     assert "Northwind Bank" not in q and "northwindbank" in q, q
 
 

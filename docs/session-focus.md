@@ -11,7 +11,7 @@ button and the options buttons. Expand it to restore the project name, the open-
 tabs, the Sessions, Results, Queue and Git buttons, Find, Changed files (wide windows),
 and the age of the last status check. Since 1.35 the conversation has one header, so
 those buttons sit in the same bar as the title: on the title row when it is wide, on a
-second line inside it when it is narrow. In Mission Control, the same control also hides
+second line inside it when it is narrow. In the dashboard wrapper, the same control also hides
 or restores the outer branding and navigation. The session list has its existing
 independent toggle.
 

@@ -75,7 +75,7 @@ When the reply ends with suggested replies, the line gives way to one more butto
 the `.choice` shape in a quiet outline (`--line` border, `--dim` text, no fill, the hand icon), so it reads as a way
 out rather than another answer, and the recommended reply stays the one filled button.
 
-## A pin on every conversation row (1.94, Damon)
+## A pin on every conversation row (1.94, colleague request)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 8; existing tokens and the
 existing pin icon, no new colour. Read: someone who organizes by pinning should pin or unpin in one click, without the
@@ -395,7 +395,7 @@ key requirement in words with the generation command in mono, and shows a rotate
 Rendered checks: no horizontal overflow at 390 for the list, an item sheet and a request;
 axe clean on each; the detector reports only the app-shell baseline.
 
-**Finding and answering (1.93, Damon).** Pinned Operate refinement: variance 2, motion 2,
+**Finding and answering (1.93, colleague request).** Pinned Operate refinement: variance 2, motion 2,
 density 6; existing tokens only. The list sorts **Newest first** (an **Order** select beside
 **Search secrets** offers A–Z), reusing the Files toolbar (`.documents-tools`,
 `.session-search`, `.voice-field`). A secret under a day old carries a small clay-outline
@@ -409,6 +409,27 @@ allow* staying a chip between them. A notice that a notification's answer failed
 request already ended, is a bordered `--warn` line, never a toast. A secret a conversation
 stored gets a file card (`.vault-card`) with the kind icon in the thumbnail slot and "In the
 Vault" where Files says "In Files".
+
+**What Always allow checks (1.118).** Pinned Operate refinement: variance 2, motion 1, density unchanged; existing
+tokens and classes only. A run request gains, under the command, a dim **Runs** line with the program's full path in
+`.vault-path` mono (for a launcher, the program it starts). A note in body colour at 13.5px (`.vault-request-note`, no
+border) says what Pocket cannot check: inline code, a launcher option it does not know, a file checked only by size and
+dates, a script that is a pipe or folder. When *Always allow* is offered and the command names files, a borderless
+fieldset, **Files that Always allow checks**, lists them as `.task-label` checkboxes (clay accent, 44px rows), ticked by
+default, with one dim line of help: untick a file the command writes. The bordered `--warn` notice for a changed command
+names the file that changed, in mono, instead of "the program or a file". Rendered checks: no horizontal overflow at 390
+and 1280; the detector reports only the app-shell baseline (flat type hierarchy).
+
+**Variables and what is never allowed always (1.118).** Same pinned refinement (variance 2, motion 1,
+density unchanged), existing classes only. Under **Runs**, a dim **Variables** line in the same `.vault-request-where`
+pattern gives each variable in `.vault-path` mono and the secret it gets in the `.vault-name` mono ("`TOKEN` gets
+reports-api", a login or card field in brackets), one span per variable so a pair wraps whole on a phone, separated by
+the folder line's dim dot. The bordered `--warn` notice covers three more cases in plain sentences: the variables changed
+(naming what was allowed before), allowed before the variables were recorded, and no longer offered Always allow. Two
+more `.vault-request-note` sentences: when Pocket cannot pin a command, one sentence says why and ends "Always allow is
+not offered." (the chip is then absent, leaving Deny and Allow once at 44px); when an agent can change a script an
+interpreter opens by its path, one says so and that Allow once is safer. Rendered checks at 390 and 1280, light and
+dark: no overflow, every answer button 44px tall, and the detector reports nothing on the Vault page.
 
 ## Appearance modes (1.38)
 
@@ -796,7 +817,7 @@ model, effort, permission, mode and alert settings. Attachment access stays besi
 the input, and attached files, upload/delivery problems and active-turn controls
 remain visible. Preferences persist per browser without rebuilding the conversation.
 
-Mission Control hides its masthead only after its verified Pocket iframe reports
+The dashboard wrapper hides its masthead only after its verified Pocket iframe reports
 an active session with a restore control. Expanding the session restores the parent
 navigation. Old clients and non-chat views retain the parent's own restore button.
 Messages contain only visibility state; both sides check origin and source window.
@@ -1212,7 +1233,7 @@ above the secrets in the session-row voice, its waiting state in `--text` semibo
 
 ## Complete card (1.111, made unmistakable in 1.112)
 
-1.112 (Brad: "it isn't obvious enough"; the hairline card on the reply's own surface read as one more line of the reply).
+1.112 (the owner: "it isn't obvious enough"; the hairline card on the reply's own surface read as one more line of the reply).
 Pinned Operate refinement: variance 2, motion 1, density 5; existing tokens, no new colour. The card now wears the
 finished colour that the tab dot, the list row and the push already use: an 11% `--ok` wash over `--surface` (17% on
 hover) with a 1px edge of `--ok` mixed 55% into `--line`; the tick sits in a 32px filled `--ok` badge with the tick in

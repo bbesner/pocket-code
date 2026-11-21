@@ -205,7 +205,7 @@ def searches(b):
 
 
 def test_time_bounds_reach_the_connector_as_dates():
-    """Since 2026-10-27 the claude.ai connector answers `after:<seconds>` with nothing and no error (Damon, 2026-10-28)."""
+    """Since 2026-10-27 the claude.ai connector answers `after:<seconds>` with nothing and no error (reported by a colleague, 2026-10-28)."""
     import datetime as dt
     b = Box()
     now = int(time.time())
@@ -238,15 +238,15 @@ def test_the_scope_reaches_every_fetch():
     assert searches(b)[-1]["query"] == "newer_than:2d in:inbox", searches(b)[-1]["query"]
     m.search_ids("from:pat@vendor.example", 10)
     assert "in:inbox" not in searches(b)[-1]["query"], "an archive or research search is not the scope's business"
-    m = b.mail(scope={"mode": "inbox_labels", "labels": ["Clients", "Ultra/Ask first"]})
+    m = b.mail(scope={"mode": "inbox_labels", "labels": ["Clients", "Team/Ask first"]})
     m.baseline_threads("newer_than:1d")
-    assert searches(b)[-1]["query"] == "newer_than:1d {in:inbox label:Clients label:Ultra-Ask-first}", searches(b)[-1]["query"]
+    assert searches(b)[-1]["query"] == "newer_than:1d {in:inbox label:Clients label:Team-Ask-first}", searches(b)[-1]["query"]
     b.data["threads"] = []
     b.data["date_blind"] = True
     b.save()
     m.changed_threads(f"t:{now - 300}")
     probe = searches(b)[-1]["query"]
-    assert probe.startswith("newer_than:1d ") and probe.endswith(" {in:inbox label:Clients label:Ultra-Ask-first}"), probe
+    assert probe.startswith("newer_than:1d ") and probe.endswith(" {in:inbox label:Clients label:Team-Ask-first}"), probe
     assert b.mail().scope == "" and "in:inbox" not in (b.mail().baseline_threads() or searches(b)[-1]["query"])
 
 
@@ -320,9 +320,9 @@ def test_gmail_history_keeps_the_owners_replies_inside_a_scope():
 def test_list_labels_names_the_owners_labels():
     """1.100: the scope picker's label list, from the Claude transport; Gmail's own labels (INBOX) are left out, names sorted."""
     b = Box()
-    b.data["labels"] = {"Ultra/Ask first": "Label_174", "Clients": "Label_2"}
+    b.data["labels"] = {"Team/Ask first": "Label_174", "Clients": "Label_2"}
     b.save()
-    assert b.mail().list_labels() == ["Clients", "Ultra/Ask first"]
+    assert b.mail().list_labels() == ["Clients", "Team/Ask first"]
 
 
 def test_paging_stops_at_mail_already_seen():
@@ -580,6 +580,43 @@ def test_codex_bot_check_is_a_503_and_claude_takes_over():
                             "fallback": {"bin": str(b.bin)}}, "", "", "", b.dir, log=logs.append)
     assert both.changed_threads(f"t:{now - 300}")[0] == {"t1"}
     assert any("using ClaudeConnector" in x for x in logs)
+
+
+def test_gmail_token_is_private_from_the_start():
+    """The OAuth token file is created 0600, whatever the umask, and an existing file is put back to 0600."""
+    try:
+        import googleapiclient  # noqa: F401
+    except ImportError:  # CI has no Google client; the helper needs none
+        fake = {"googleapiclient": {}, "googleapiclient.discovery": {"build": None}, "googleapiclient.errors": {"HttpError": Exception}}
+        for name, attrs in fake.items():
+            sys.modules.setdefault(name, type(sys)(name))
+            vars(sys.modules[name]).update(attrs)
+    from inbox_monitor.mail_gmail import write_private
+    seen = []
+    real_open = os.open
+
+    def watch_open(path, flags, mode=0o777, *a, **k):
+        seen.append(mode)
+        return real_open(path, flags, mode, *a, **k)
+
+    old = os.umask(0)
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            token = Path(d) / "token.json"
+            os.open = watch_open
+            try:
+                write_private(token, '{"refresh_token": "x"}')
+            finally:
+                os.open = real_open
+            assert seen == [0o600], seen
+            assert stat.S_IMODE(token.stat().st_mode) == 0o600
+            assert token.read_text() == '{"refresh_token": "x"}'
+            token.chmod(0o644)
+            write_private(token, "{}")
+            assert stat.S_IMODE(token.stat().st_mode) == 0o600
+            assert token.read_text() == "{}"
+    finally:
+        os.umask(old)
 
 
 if __name__ == "__main__":

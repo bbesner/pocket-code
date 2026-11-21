@@ -36,7 +36,7 @@ export function createMailer(url, { from = '', log = () => {} } = {}) {
 
 // A plausible address: one @, no spaces, something either side. Pocket is not a mail validator; the
 // test message in Settings is the real check.
-export const looksLikeEmail = s => typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim()) && s.trim().length <= 200;
+export const looksLikeEmail = s => typeof s === 'string' && s.trim().length <= 200 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim()); // 1.118: length first; the pattern is quadratic on a long one
 
 const escapeHtml = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // 1.77.6: the zone is named ("Nov 11, 2026, 6:00 AM EST") so a reader in any zone knows which time it is.

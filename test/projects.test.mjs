@@ -22,11 +22,11 @@ test('ProjectStore: tracking, editing, stale edits, steps, reminders and finishi
   assert.equal(s.act({action:'track',name:'Warehouse stock report'}).id,'warehouse-stock-report-2','a repeated name gets a distinct id');
   assert.throws(()=>s.act({action:'track',name:' '}),/name/);assert.throws(()=>s.act({action:'track',name:'x',link:'ftp://no'}),/http/);assert.throws(()=>s.act({action:'track',name:'x',directory:'rel'}),/full path/);
   assert.throws(()=>s.act({action:'update',project:a.id,expected_revision:7,next:'x'}),e=>e.status===409&&e.project.revision===1,'a stale edit is refused with the current card');
-  clock+=60000;const b=s.act({action:'update',project:a.id,expected_revision:1,next:'Order from ENS',waitingFor:'Quote'});
-  assert.equal(b.revision,2);assert.equal(b.next,'Order from ENS');assert.equal(b.verified,'2026-10-09T12:01:00Z','an update verifies the card');
+  clock+=60000;const b=s.act({action:'update',project:a.id,expected_revision:1,next:'Order from Litware',waitingFor:'Quote'});
+  assert.equal(b.revision,2);assert.equal(b.next,'Order from Litware');assert.equal(b.verified,'2026-10-09T12:01:00Z','an update verifies the card');
   const t=s.act({action:'task-add',project:a.id,text:'Count aisle 4'}).tasks[0];assert.equal(t.done,false);
   const r1=s.act({action:'remind',project:a.id,at:'2026-10-10T09:00:00Z',task:t.id}).reminders[0];assert.equal(r1.label,'Count aisle 4');assert.equal(r1.task,t.id);
-  const withNote=s.act({action:'note',project:a.id,text:'Spoke to ENS'});assert.equal(withNote.verified,'2026-10-09T12:01:00Z','a note does not verify');assert.equal(withNote.history.at(-1).detail,'Spoke to ENS');
+  const withNote=s.act({action:'note',project:a.id,text:'Spoke to Litware'});assert.equal(withNote.verified,'2026-10-09T12:01:00Z','a note does not verify');assert.equal(withNote.history.at(-1).detail,'Spoke to Litware');
   const r2=s.act({action:'remind',project:a.id,at:'2026-10-11T09:00:00Z',task:t.id}).reminders;assert.equal(r2.length,1);assert.notEqual(r2[0].id,r1.id,'a new reminder on the same step replaces the open one');
   s.act({action:'remind',project:a.id,at:'2026-10-12T09:00:00Z',text:'Check in'});assert.equal(s.view(s.get(a.id)).reminders.length,2,'one per project plus one per step');
   const done=s.act({action:'task-update',project:a.id,task:t.id,done:true});assert.equal(done.tasks[0].done,true);assert.equal(done.reminders.length,1,'finishing a step stops its reminder');
@@ -83,14 +83,14 @@ test('ProjectStore: a reminder time without an offset is read in the owner zone 
 });
 
 const snapshotFixture=()=>({version:2,generated_at:'2026-10-09T12:00:00+00:00',timezone:'America/New_York',projects:[
-  {id:'nvr-review',name:'NVR review',summary:'Chunk 7 drafted',next_step:'Review RTSP redirect',waiting_for:'',status:'active',directory:'/home/u/nvr',link:'https://github.com/x/y/pull/1',created:'2026-09-30T20:00:00+00:00',updated:'2026-10-08T03:28:04+00:00',verified:'2026-10-08T03:28:04+00:00',revision:14,enrollment:'explicit-user-request',
+  {id:'nvr-review',name:'NVR review',summary:'Step 7 drafted',next_step:'Review RTSP redirect',waiting_for:'',status:'active',directory:'/home/u/nvr',link:'https://github.com/x/y/pull/1',created:'2026-09-30T20:00:00+00:00',updated:'2026-10-08T03:28:04+00:00',verified:'2026-10-08T03:28:04+00:00',revision:14,enrollment:'explicit-user-request',
    tasks:[{id:'06f35f99ed42',project:'nvr-review',text:'Decide retention',done:0,created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00'},{id:'aa11',project:'nvr-review',text:'Old step',done:1,created:'2026-10-01T00:00:00+00:00',updated:'2026-10-02T00:00:00+00:00'}],
    reminders:[{id:'bc0d81efc253',project:'nvr-review',task:null,label:'Check-in',due_at:'2037-10-14T13:00:00+00:00',state:'open',version:2,notified_at:null,digest_date:null,updated:'2026-10-08T00:00:00+00:00'},{id:'dead',project:'nvr-review',task:'missing-task',label:'Orphan',due_at:'2037-10-14T13:00:00+00:00',state:'open',updated:'2026-10-08T00:00:00+00:00'}],
    due_count:0,history:[{id:1,project:'nvr-review',at:'2026-09-30T20:00:00+00:00',actor:'agent',action:'tracked',detail:'{"name": "NVR review"}'},{id:2,project:'nvr-review',at:'2026-10-08T03:28:04+00:00',actor:'agent',action:'updated',detail:{summary:'x'}}]},
   {id:'blog',name:'Blog cleanup',summary:'',next_step:'',waiting_for:'Owner to review',status:'waiting',directory:'',link:'',created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00',verified:'2026-10-01T00:00:00+00:00',revision:3,enrollment:'explicit-user-request',tasks:[],reminders:[],due_count:0,history:[]},
-  {id:'',name:'',status:'active',tasks:[],reminders:[],history:[]}],due_count:0,reminder_health:{},programs:[],alarms:[],events:[],unboarded:[],total_asks:0,blocked_brad:0});
+  {id:'',name:'',status:'active',tasks:[],reminders:[],history:[]}],due_count:0,reminder_health:{},programs:[],alarms:[],events:[],unboarded:[],total_asks:0,blocked_owner:0});
 
-test('ProjectStore: a Mission Control snapshot imports once, field for field',()=>{
+test('ProjectStore: a dashboard snapshot imports once, field for field',()=>{
   const dir=tmp(),s=new ProjectStore(path.join(dir,'projects.json'),{now:()=>Date.parse('2026-10-09T12:00:00Z')});
   const r=s.importSnapshot(snapshotFixture());
   assert.deepEqual(r.added,['nvr-review','blog']);assert.deepEqual(r.skipped,[{id:'project',reason:'no name'}]);

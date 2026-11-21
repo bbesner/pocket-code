@@ -35,7 +35,7 @@ test('mute and unmute are quick commands on the device; longer sentences are not
 
 test('spoken reply length: brief is one line, normal about two sentences, detailed the whole reply', () => {
   const md = '**Done.** The nightly import now skips archived suppliers, so the run is down from 14 minutes to 3.\n\n' +
-    'I also added a retry around the Zoho token refresh. It failed twice last week when the token expired mid-run.\n\n' +
+    'I also added a retry around the Zeta token refresh. It failed twice last week when the token expired mid-run.\n\n' +
     '```sh\nnpm test\n```\n\nNext, the duplicate SKU check should move into the same job so it runs once a night.';
   assert.equal(V.reply(md, 'brief'), 'The nightly import now skips archived suppliers, so the run is down from 14 minutes to 3.');
   assert.equal(V.reply(md, 'normal'), V.summary(md));
@@ -60,7 +60,7 @@ test('spoken alerts: who finished, a one-line summary, and what needs you', () =
   const reply = '**Done.** Updated the reorder report: 42 products are below their reorder level. See the CSV.';
   assert.equal(V.alertText({ title: 'Warehouse inventory', kind: 'finished', reply }, 'summary'), 'The Warehouse inventory conversation finished. Updated the reorder report: 42 products are below their reorder level.');
   assert.equal(V.alertText({ title: 'Warehouse inventory', kind: 'finished', reply }, 'name'), 'The Warehouse inventory conversation finished.');
-  assert.equal(V.alertText({ title: 'DAD bug 41 session', kind: 'input', approvals: 1 }, 'summary'), 'The DAD bug 41 session needs your approval.');
+  assert.equal(V.alertText({ title: 'Shop bug 41 session', kind: 'input', approvals: 1 }, 'summary'), 'The Shop bug 41 session needs your approval.');
   assert.equal(V.alertText({ title: 'Footer refresh', kind: 'input' }, 'name'), 'The Footer refresh conversation has a question for you.');
   assert.equal(V.alertText({ title: 'Nightly import', kind: 'failed' }, 'summary'), 'The Nightly import conversation stopped with an error.');
   assert.equal(V.shortTitle('Review `/home/u/projects/x/src/very/long/path.py` and then fix the remaining flaky tests in CI'), 'Review path.py and then fix the remaining flaky…');
@@ -97,9 +97,9 @@ test('voice service: not installed, custom engine, transcribe, speak, idle stop 
   assert.equal(v.status().available, true);
   const [a, b] = await Promise.all([v.ensure(), v.ensure()]);
   assert.equal(a, b, 'concurrent first uses share one engine');
-  const out = await v.transcribe(Buffer.alloc(32000), 'MemStem, Zoho — café ✓\nContoso');
+  const out = await v.transcribe(Buffer.alloc(32000), 'MemStem, Zeta — café ✓\nContoso');
   assert.equal(out.text, 'tell it to run the unit tests');
-  assert.equal(out.prompt, 'MemStem, Zoho caf Contoso', 'hint is single-line printable ASCII');
+  assert.equal(out.prompt, 'MemStem, Zeta caf Contoso', 'hint is single-line printable ASCII');
   await assert.rejects(v.transcribe(Buffer.alloc(100)), e => e.status === 400);
   const wav = await v.speak('Hello there.', 'not-a-voice');
   assert.equal(wav.subarray(0, 4).toString(), 'RIFF');

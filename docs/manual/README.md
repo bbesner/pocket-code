@@ -27,7 +27,7 @@ say conversation.
 | [Automation](automation.md) | Pause all, who started a reply, and limits on work that runs without you |
 | [Inbox Watch](inbox-watch.md) | Alerts, digests and look-aheads from your mailbox, setup, and the `pocket-inbox` command |
 | [Gmail, Calendar and Drive](google.md) | Using Google through each agent's connectors, and the drafts-first rule |
-| [Vault](vault.md) | Credentials agents use by name and never see, approvals, and the `pocket-vault` command |
+| [Vault](vault.md) | Credentials agents use by name, approvals, what the Vault does not stop, and the `pocket-vault` command |
 | [Voice](voice.md) | Dictation and hands-free voice mode (beta) |
 | [For agents](for-agents.md) | How Pocket runs agents, the instructions and skills it gives them, and the commands they can use |
 

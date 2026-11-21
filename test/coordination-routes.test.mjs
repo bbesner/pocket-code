@@ -51,48 +51,51 @@ test('coordination routes and CLI', { timeout: 90_000 }, async t => {
 
   const a = (await call('/new', { provider: 'claude', cwd: work, text: 'holder __HANG__', approvalMode: 'full' })).body.id, ta = await running(a);
   const b = (await call('/new', { provider: 'claude', cwd: work, text: 'waiter __HANG__', approvalMode: 'full' })).body.id, tb = await running(b);
-  await call(`/session/${encodeURIComponent(a)}/rename`, { name: 'DAD 1.168 build' }).catch(() => { });
+  await call(`/session/${encodeURIComponent(a)}/rename`, { name: 'Shop 1.168 build' }).catch(() => { });
 
   // Who is holding comes from the runner token.
-  const forged = await call('/coordination/hold', { name: 'tpv-deploy', reason: 'x', holder: { kind: 'conversation', session: a }, session: a }, { ...bearer, 'x-pocket-runner': 'not-a-token' });
+  const forged = await call('/coordination/hold', { name: 'site-deploy', reason: 'x', holder: { kind: 'conversation', session: a }, session: a }, { ...bearer, 'x-pocket-runner': 'not-a-token' });
   assert.equal(forged.status, 200); assert.deepEqual(forged.body.hold.holder, { kind: 'terminal', session: null }, 'a body and a bad token prove nothing');
   assert.equal((await call('/coordination/hold', { name: 'x', reason: 'y' })).status, 403, 'a cookie is not a holder');
 
-  const held = await cli(['hold', 'dad-staging', '--reason', 'Building 1.168', '--ttl', '45m'], ta);
-  assert.equal(held.code, 0, held.err); assert.match(held.out, /Holding dad-staging until/);
-  const clash = await cli(['hold', 'dad-staging', '--reason', 'Mine'], tb);
-  assert.equal(clash.code, 2); assert.match(clash.err, /dad-staging is held by ".+": Building 1\.168\. Held for under a minute\./);
-  assert.match(clash.err, /pocket-coord wait dad-staging/);
+  const held = await cli(['hold', 'shop-staging', '--reason', 'Building 1.168', '--ttl', '45m'], ta);
+  assert.equal(held.code, 0, held.err); assert.match(held.out, /Holding shop-staging until/);
+  const clash = await cli(['hold', 'shop-staging', '--reason', 'Mine'], tb);
+  assert.equal(clash.code, 2); assert.match(clash.err, /shop-staging is held by ".+": Building 1\.168\. Held for under a minute\./);
+  assert.match(clash.err, /pocket-coord wait shop-staging/);
   const close = await cli(['hold', 'staging', '--reason', 'x'], tb);
-  assert.equal(close.code, 2); assert.match(close.err, /close to dad-staging/);
-  assert.equal((await cli(['hold', 'dad-staging', '--reason', 'Still building'], ta)).code, 0, 'the same conversation renews');
-  assert.equal((await cli(['hold', 'dad-staging', '--ttl', '99h'], ta)).code, 1);
+  assert.equal(close.code, 2); assert.match(close.err, /close to shop-staging/);
+  assert.equal((await cli(['hold', 'shop-staging', '--reason', 'Still building'], ta)).code, 0, 'the same conversation renews');
+  assert.equal((await cli(['hold', 'shop-staging', '--ttl', '99h'], ta)).code, 1);
 
   // The list line, and the view.
   const list = await call('/sessions');
-  assert.equal(list.body.held.find(h => h.name === 'dad-staging').name, 'dad-staging');
+  assert.equal(list.body.held.find(h => h.name === 'shop-staging').name, 'shop-staging');
   const shown = (await cli(['list', '--json'])).out;
-  assert.equal(JSON.parse(shown).holds.find(h => h.name === 'dad-staging').holder.session, a);
+  assert.equal(JSON.parse(shown).holds.find(h => h.name === 'shop-staging').holder.session, a);
+  const text = (await cli(['list'])).out;
+  assert.match(text, /^shop-staging is held by/m);
+  assert.match(text, /^Known from the start: pocket-main\. Other names are learned the first time each is held\.$/m);
 
   // A terminal cannot let go of a proven hold or be woken.
-  const refused = await cli(['release', 'dad-staging']);
+  const refused = await cli(['release', 'shop-staging']);
   assert.equal(refused.code, 1); assert.match(refused.err, /held by another conversation/);
-  assert.match((await cli(['wait', 'dad-staging'])).err, /--block/);
+  assert.match((await cli(['wait', 'shop-staging'])).err, /--block/);
 
   // Waiting: the conversation is told it will be woken, keeps its approval mode, and gets one labeled message.
-  const wait = await cli(['wait', 'dad-staging'], tb);
+  const wait = await cli(['wait', 'shop-staging'], tb);
   assert.equal(wait.code, 0, wait.err); assert.match(wait.out, /Number 1 in line.*wakes this conversation/s);
-  assert.equal((await call('/coordination')).body.holds.find(h => h.name === 'dad-staging').waiters[0].session, b);
+  assert.equal((await call('/coordination')).body.holds.find(h => h.name === 'shop-staging').waiters[0].session, b);
   await call(`/session/${encodeURIComponent(b)}/stop`, {}); await idle(b);
   const before = calls().length;
-  const released = await cli(['release', 'dad-staging', '--note', 'Staging is clean'], ta);
-  assert.equal(released.code, 0, released.err); assert.match(released.out, /Released dad-staging\. Woke/);
+  const released = await cli(['release', 'shop-staging', '--note', 'Staging is clean'], ta);
+  assert.equal(released.code, 0, released.err); assert.match(released.out, /Released shop-staging\. Woke/);
   for (let i = 0; i < 200 && calls().length === before; i++) await sleep(30);
   const woke = calls().at(-1);
-  assert.equal(woke.id, b); assert.match(woke.text, /^\[Pocket coordination\] dad-staging is free\./); assert.match(woke.text, /Staging is clean/);
+  assert.equal(woke.id, b); assert.match(woke.text, /^\[Pocket coordination\] shop-staging is free\./); assert.match(woke.text, /Staging is clean/);
   assert.equal(woke.permissionMode, calls().find(c => c.id === b).permissionMode, 'same approval mode');
   await idle(b);
-  assert.equal((await cli(['release', 'dad-staging'], ta)).code, 1, 'already released says so');
+  assert.equal((await cli(['release', 'shop-staging'], ta)).code, 1, 'already released says so');
 
   // The owner's release takes the cookie: the real CLI token gets 401 and the hold stays.
   await cli(['hold', 'pocket-main', '--reason', 'Merging'], ta);
@@ -105,24 +108,24 @@ test('coordination routes and CLI', { timeout: 90_000 }, async t => {
   assert.equal((await call('/coordination')).body.recent[0].event, 'owner');
 
   // --block waits in the shell and ends when the holder lets go; a timeout exits 3 and leaves the line.
-  await cli(['hold', 'tpv-cloud', '--reason', 'Deploy', '--new'], ta);
-  const timedOut = await cli(['wait', 'tpv-cloud', '--block', '--timeout', '1s']);
+  await cli(['hold', 'web-cloud', '--reason', 'Deploy', '--new'], ta);
+  const timedOut = await cli(['wait', 'web-cloud', '--block', '--timeout', '1s']);
   assert.equal(timedOut.code, 3); assert.match(timedOut.err, /Still held/);
-  assert.deepEqual((await call('/coordination')).body.holds.find(h => h.name === 'tpv-cloud').waiters, [], 'it left the line');
-  const blocked = cli(['wait', 'tpv-cloud', '--block', '--timeout', '30s']);
-  for (let i = 0; i < 100 && !(await call('/coordination')).body.holds.find(h => h.name === 'tpv-cloud').waiters.length; i++) await sleep(30);
-  assert.equal((await cli(['release', 'tpv-cloud'], ta)).code, 0);
+  assert.deepEqual((await call('/coordination')).body.holds.find(h => h.name === 'web-cloud').waiters, [], 'it left the line');
+  const blocked = cli(['wait', 'web-cloud', '--block', '--timeout', '30s']);
+  for (let i = 0; i < 100 && !(await call('/coordination')).body.holds.find(h => h.name === 'web-cloud').waiters.length; i++) await sleep(30);
+  assert.equal((await cli(['release', 'web-cloud'], ta)).code, 0);
   const free = await blocked;
-  assert.equal(free.code, 0, free.err); assert.match(free.out, /tpv-cloud is free/);
+  assert.equal(free.code, 0, free.err); assert.match(free.out, /web-cloud is free/);
 
   // A person's paused queue stays paused, and a wake waits behind it.
-  await cli(['hold', 'tpv-cloud', '--reason', 'Again'], ta);
+  await cli(['hold', 'web-cloud', '--reason', 'Again'], ta);
   const c = (await call('/new', { provider: 'claude', cwd: work, text: 'third __HANG__', approvalMode: 'full' })).body.id, tc = await running(c);
   await call(`/session/${encodeURIComponent(c)}/message`, { text: 'mine first', mode: 'queue', approvalMode: 'full' });
-  await cli(['wait', 'tpv-cloud'], tc);
+  await cli(['wait', 'web-cloud'], tc);
   await call(`/session/${encodeURIComponent(c)}/stop`, {}); await idle(c);
   const count = calls().length;
-  await cli(['release', 'tpv-cloud'], ta);
+  await cli(['release', 'web-cloud'], ta);
   await sleep(600);
   assert.equal(calls().length, count, 'nothing started behind a stopped queue');
   assert.deepEqual((await call(`/session/${encodeURIComponent(c)}/queue`)).body.items?.map(i => i.text.slice(0, 20)), ['mine first', '[Pocket coordination']);

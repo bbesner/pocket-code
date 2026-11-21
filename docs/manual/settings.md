@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.117.0
+checked: 1.118.0
 sources: context-policy.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
@@ -29,7 +29,7 @@ Both modes show seven categories, and Assistant mode has fewer controls:
 |---|---|---|
 | [Appearance](#appearance) | Everything | Everything |
 | [Conversation](#conversation) | Reading, titles and summaries | **Collapse steps** and **Show message times** |
-| [Agents & instance](#agents--instance) | Everything | Replaced by **Accounts**: **Accounts & instance** and **Connectors** only |
+| [Agents & instance](#agents--instance) | Everything | Replaced by **Accounts**: **Accounts & instance**, **Connectors** and **Sign out** only |
 | [Projects, files, tasks & vault](#projects-files-tasks--vault) | Everything | Replaced by [Features](#features-assistant-mode): the five switches and **Automatic model choice** |
 | [Automation](#automation) | Everything | Everything |
 | [Notifications & voice](#notifications--voice) | Everything | Everything |
@@ -87,6 +87,7 @@ Everything here applies to the whole install.
 | **Actions that run without asking** | Read-only actions Claude Code, Codex and OpenRouter run without an approval card in **Review actions** (Codex and OpenRouter since 1.87, for commands). Type a rule (`Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`) and press **Add**; **Remove** takes one off. Edit and Write always ask; Codex is not covered. **Use the server's list** goes back to `POCKET_TRUSTED_ACTIONS` |
 | **Automatic model choice** | In Assistant mode, sends a request typed from scratch to a small decision model that picks one of four levels; see below. Assistant mode shows only its switch, under **Features** |
 | **One sign-in** | Lets a Cloudflare Access sign-in replace Pocket's password; see below |
+| **Sign out** | 1.118. **Sign out** signs this browser out and turns off its notifications. **Sign out everywhere** asks first, then signs out every browser and phone, this one included, and turns off notifications on all of them; turn **Push to this device** on again on the ones you keep. Conversations and replies in progress carry on. Changing `POCKET_PASSWORD` and restarting signs every browser out too. With **One sign-in** on, a signed-out browser is let back in by Cloudflare Access, so revoke Access sessions in Cloudflare as well |
 
 **Defaults.** The picker offers every Claude model, or the list in `POCKET_CLAUDE_MODELS`. No
 action runs without asking, unless `POCKET_TRUSTED_ACTIONS` lists some. A list saved in Settings
@@ -189,10 +190,10 @@ Each group has **Reset to defaults**. A value is checked when it is saved: out o
 | Control | What it does | Default | Stored |
 |---|---|---|---|
 | **Completion chime** | A two-note blip when a reply finishes on screen | On | This browser |
-| **Push to this device** | Web push to this browser, even when Pocket is closed. The bell on the conversation list does the same | Off until you turn it on | Server, per device (`push-subs.json`) |
+| **Push to this device** | Web push to this browser, even when Pocket is closed. The bell on the conversation list does the same. **Sign out** turns it off on this browser, **Sign out everywhere** on every device | Off until you turn it on | Server, per device (`push-subs.json`) |
 | **Finished replies** | Push when a conversation finishes a reply, unless the conversation is muted or open in a browser, or you stopped the reply | On when push is turned on | Server, per device |
 | **Due tasks and reminders** | Push once when each comes due; **Tomorrow** and **Done** on the notification answer without opening Pocket | On when push is turned on | Server, per device |
-| **Vault requests** | Push when an agent needs a secret you have to allow, with **Allow** and **Deny** | On when push is turned on | Server, per device |
+| **Vault requests** | Push when an agent needs a secret, or wants to share or publish a file, and you have to allow it, with **Allow** and **Deny** | On when push is turned on | Server, per device |
 | **Inbox alerts** | Push for an alert from Inbox Watch or another job on the server, and the **Unattended work held** notice when an [Automation limit](automation.md#one-notice-per-reason-per-day) holds work. Which Inbox Watch alerts push is chosen in its schedule sheet ([Push notifications](inbox-watch.md#push-notifications)) | On when push is turned on | Server, per device |
 | **Count on the app icon** | How many tasks and reminders are due, on the installed app's icon. Disabled in browsers without app-badge support | On | This browser, and with its push subscription |
 | **Voice (beta)** | Voice preferences for this device; see below | | This browser |
@@ -300,6 +301,7 @@ defaults to the Pocket Code directory:
 | `automation-state.json`, `automation-audit.jsonl` | The day's counts and limit notices, and a line for each pause, resume, settings change and unattended reply (never message text) |
 | `push-subs.json` | One entry per device with push on, with its choice of kinds and icon count. A subscription the push service reports as gone is removed |
 | `router-key` | The key saved under **Automatic model choice** (mode `0600`) |
+| `auth-state.json` | The sign-in generation that **Sign out everywhere** moves on, and a keyed hash of the password (mode `0600`, 1.118). Never the password itself |
 | `mutes.json`, `session-meta.json` | Per-conversation mutes, and pins and names (not part of Settings, the same on every device) |
 
 The Vault's key is saved in `.env` in the Pocket Code directory, not in the data directory.

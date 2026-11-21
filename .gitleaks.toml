@@ -1,0 +1,90 @@
+title = "Pocket Code gitleaks configuration"
+
+[extend]
+useDefault = true
+
+# Fake fixture values in the secret-detection, Vault and browser tests. None of them is a real
+# credential; they exist so the detectors and redaction have something realistic to catch.
+#
+# Each entry exempts only the listed values, only in that file and only for the rule that reports
+# them, so a real key pasted into one of these files later is still reported. (A top-level
+# [[allowlists]] block with `paths` skips the whole file whatever its other conditions, so the
+# entries sit on the rules instead; gitleaks adds them to its default rules of the same id.)
+# Paths are written `(^|/)test/...` so the scan works from the repository root (`gitleaks dir .`)
+# and when it is given the checkout's absolute path. To add a fixture: run the scan, then add its
+# exact value under the rule it was reported for, anchored with ^ and $.
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "MCP proxy test: a fake bank API secret"
+condition = "AND"
+paths = ['''(^|/)test/mcp-proxy\.test\.mjs$''']
+regexes = ['''^bank-secret-123$''']
+
+[[rules.allowlists]]
+description = "Secret-detection test: made-up values"
+condition = "AND"
+paths = ['''(^|/)test/secret-detect\.test\.mjs$''']
+regexes = ['''^Zx9_ab12cd34$''', '''^sk-proj-abcDEF1234567890abcdefXYZ$''']
+
+[[rules.allowlists]]
+description = "Vault tests: fake item values"
+condition = "AND"
+paths = ['''(^|/)test/vault(-pin)?\.test\.mjs$''']
+regexes = ['''^sk-live-hunter2-0123456789abcdef$''', '''^txn-key-secret-9876$''', '''^sk-live-rotated-9876543210abcdef$''', '''^smsgw-secret-30-characters-abc$''']
+
+[[rules.allowlists]]
+description = "Browser test: fake Vault item values"
+condition = "AND"
+paths = ['''(^|/)test/browser\.mjs$''']
+regexes = ['''^acme-secret-fixture-4410$''', '''^sq-signature-fixture-6631$''']
+
+[[rules.allowlists]]
+description = "UI regression test: fake Vault item values and a made-up project key"
+condition = "AND"
+paths = ['''(^|/)test/ui-regressions\.mjs$''']
+regexes = [
+  '''^zk-fixture-secret-7731$''',
+  '''^wp-fixture-pass-5512$''',
+  '''^sc-secret-fixture-3390$''',
+  '''^c21zZ3ctZml4dHVyZQ$''',
+  '''^sk-proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7cDe0fGh2$''',
+  '''^Zq8vR2mX9pL4tY7wK3nB6cJ1hF5dG0sAe$''',
+  # base64 of a made-up fixture word; the line it sat on (older commits, around test line 1310) is gone from the tree, and this keeps a full-history scan clean
+  '''^c2luY2gtZml4dHVyZQ$''',
+]
+
+[[rules]]
+id = "stripe-access-token"
+
+[[rules.allowlists]]
+description = "Secret-detection test: a made-up live key"
+condition = "AND"
+paths = ['''(^|/)test/secret-detect\.test\.mjs$''']
+regexes = ['''^sk_live_51HxAbCdEfGhIjKlMnOp$''']
+
+[[rules.allowlists]]
+description = "Vault tests: a made-up live key"
+condition = "AND"
+paths = ['''(^|/)test/vault\.test\.mjs$''']
+regexes = ['''^sk_live_abcdefgh123$''']
+
+[[rules]]
+id = "jwt"
+
+[[rules.allowlists]]
+description = "Secret-detection test: a sample token with no real claims"
+condition = "AND"
+paths = ['''(^|/)test/secret-detect\.test\.mjs$''']
+regexes = ['''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U$''']
+
+[[rules]]
+id = "gcp-api-key"
+
+[[rules.allowlists]]
+description = "Secret-detection test: a made-up key"
+condition = "AND"
+paths = ['''(^|/)test/secret-detect\.test\.mjs$''']
+regexes = ['''^AIzaSyA1234567890abcdefghijklmnopqrstuv$''']

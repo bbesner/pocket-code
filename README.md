@@ -11,7 +11,7 @@ than one thing at a time. Sessions run on your server, so closing the browser, l
 phone or restarting the app changes nothing. A session rail sorts what is running, what is
 waiting on you and what just finished. Saved prompts start recurring work in a tap. Agents
 answer with buttons, offer a to-do when work needs a later check, keep the reports they
-produce in Files, and use credentials from an encrypted Vault without ever seeing them.
+produce in Files, and use credentials from an encrypted Vault by name, keeping the values out of the conversation.
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
@@ -21,7 +21,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.117.0 / build 211**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.118.0 / build 212**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -52,8 +52,9 @@ reports, dashboards and spreadsheets agents produce, rendered in place and share
 you ask. **Tasks** are to-dos with an optional date, linked to the session they came from;
 **Start** opens a new session with the task already written in, and a **start link** lets an agent or a job on the server hand Pocket a briefing that opens the same way. The **Vault** keeps API keys,
 tokens and logins encrypted on the server; agents use them by name, in commands or typed into
-a web page's login form, and never see the values. You decide how much they may do without
-asking, and every use is recorded. Lists keep up on their own: something an agent adds
+a web page's login form, while in normal use the values stay out of the conversation and the
+transcript. You decide how much they may do without asking, and every use is recorded. It is not
+a wall against an agent that sets out to get a value: see [SECURITY.md](SECURITY.md#vault). Lists keep up on their own: something an agent adds
 mid-turn shows up without a reload.
 
 <table>
@@ -66,10 +67,10 @@ mid-turn shows up without a reload.
 <td align="center"><b>Files</b>: what the work produced, private until shared</td>
 </tr>
 <tr>
-<td colspan="2" valign="top"><img src="docs/images/vault-desktop.png" alt="The Vault: a waiting request from an agent to run a command with the zoho-books secret, with Deny, Always allow and Allow once, above five secrets showing their kind, site and how much agents may do with each"></td>
+<td colspan="2" valign="top"><img src="docs/images/vault-desktop.png" alt="The Vault: a waiting request from an agent to run a command with the zeta-books secret, with Deny, Always allow and Allow once, above five secrets showing their kind, site and how much agents may do with each"></td>
 </tr>
 <tr>
-<td colspan="2" align="center"><b>Vault</b>: agents ask before they use a secret, and never see its value</td>
+<td colspan="2" align="center"><b>Vault</b>: agents use a secret by name, and ask before they use it</td>
 </tr>
 </table>
 
@@ -259,7 +260,8 @@ device, and when you open them, so an item an agent adds shows up without a relo
   work directly. See [Conductor mode](docs/manual/projects.md#conductor-mode).
 - **Files** keeps the reports, dashboards and spreadsheets that came out of the work, in a
   grid or a list. HTML renders sandboxed; PDFs, images, Markdown and CSV render in place.
-  Files are private until you share one by link or publicly; removed files wait 30 days
+  Files are private until you share one by link or publicly; a link's address is shown once,
+  when you make it, and an agent's share or publish waits for your Allow; removed files wait 30 days
   in the trash, and **Select** removes several at once; **Delete forever** and **Empty trash**
   free the space now. Keep a file from a session's Results, upload one, or let agents keep
   deliverables. See [Files](docs/manual/files.md).
@@ -276,17 +278,20 @@ device, and when you open them, so an item an agent adds shows up without a relo
   - **Set up in one switch.** Turning it on creates the key, saves it to the install's
     `.env` and shows a **recovery key** to save once (1.44). Settings can download the
     recovery key again, rotate the key, or restore a lost one from the recovery key.
-  - **Used by name, never seen.** An agent runs `pocket-vault run --env TOKEN=zoho-books --
+  - **Used by name.** An agent runs `pocket-vault run --env TOKEN=zeta-books --
     <command>`: the command gets the value in its environment and the agent gets the output
-    with the value replaced. Values never appear in arguments, transcripts or MemStem.
+    with the value replaced, so in normal use values stay out of arguments, transcripts and
+    MemStem. The command receives the real value and can do anything with it, and an item on
+    Free rein can be obtained by any agent on the server: keep Free rein for low-value keys.
   - **You set how much agents may do.** **Agent access** is Free rein, Ask once per command
     (the default) or Ask every time; any item can be *Only you*. A request is answered from the
     push notification's Allow and Deny buttons, the Vault view, or a reply in the conversation,
     and every use is in the item's history.
-  - **Typed by Pocket (1.43).** Agents log into web pages without seeing the password: a
-    browser-tool call names `{{vault:name.field}}`, and Pocket's relay
+  - **Typed by Pocket (1.43).** Agents log into web pages without the password in the
+    conversation: a browser-tool call names `{{vault:name.field}}`, and Pocket's relay
     (`scripts/pocket-mcp-proxy.mjs`) types the value in on the way to the browser and removes
-    it from everything that comes back.
+    it from everything that comes back. The agent drives that page, so it can read a filled
+    value back.
   - **Secrets caught before they are sent (1.42).** A key or password pasted or typed into a
     message is held, with **Store in the Vault** putting `{{vault:name}}` in its place. The
     server refuses a secret-shaped message unless you choose to send it anyway (**Catch
@@ -473,7 +478,7 @@ another program (1.43.1). Each works only while its feature is on. Run them as
 | Command | Common use |
 |---|---|
 | `pocket-board` | `track --requested --name "…" --summary "…" --next "…"`, `update` (with `--mode conductor\|off`, `--done-when "…"`, `--works-in "a,b"` for Conductor mode, 1.106), `task add\|done` (`--check "…"` gives a step its pass/fail check), `remind --at "YYYY-MM-DDTHH:MM"`, `dismiss`, `note`, `status [--all]`, `scheduled`, `context`, `import`, `link-session <id>`, `unlink-session <id>`, `task edit\|reopen` |
-| `pocket-docs` | `add <path> [--title] [--project] [--session] [--visibility]`, `list [--q]`, `show <id>`, `share <id> [--expires 7d\|30d\|none]`, `set <id> --visibility private\|link\|public`, `trash <id>`, `restore <id>` |
+| `pocket-docs` | `add <path> [--title] [--project] [--session] [--visibility]`, `list [--q]`, `show <id>`, `share <id> [--expires 7d\|30d\|none]`, `set <id> --visibility private\|link\|public`, `wait <request id>`, `trash <id>`, `restore <id>`. Sharing or publishing waits for your Allow; exits 6 while it waits and 7 when it is denied |
 | `pocket-coord` | `hold <name> --reason "…" [--ttl] [--new]`, `wait <name> [--block --timeout]`, `release <name> [--note]`, `list [--json]` |
 | `pocket-tasks` | `add "…" [--due] [--session <id>] [--summary "…"] [--dir]`, `list [--all]`, `show <id>`, `done <id>`, `reopen <id>`, `edit <id> [--clear-due]`, `remove <id>` |
 | `pocket-notify` | `--title "…" --body "…" [--url /#/start/<id> or another Pocket path] [--tag <key>] [--email]` (1.65.0): a push to every device that wants alerts, and an email to the notification address with `--email`; pair it with `pocket-start` so the alert opens a briefed New session |
@@ -603,8 +608,9 @@ can enable or disallow Full access. These modes are execution controls, not empl
 accounts or an isolation boundary. Changing the mode affects subsequent turns;
 steering does not change permissions on an already-running turn.
 
-The app binds to loopback, uses a signed secure cookie and login rate limiting, and
-sends a same-origin Content Security Policy. Allow embedding origins explicitly with
+The app binds to loopback, uses a signed secure cookie, login rate limiting and **Sign out
+everywhere**, and sends a same-origin Content Security Policy. A reverse proxy in front must send
+`X-Forwarded-For` (see [docs/install.md](docs/install.md)), or every caller looks local. Allow embedding origins explicitly with
 `POCKET_FRAME_ANCESTORS`. Keep `.env`, private state and transcripts out of version control.
 Use an additional identity layer in front when appropriate for your installation.
 Read the [security model](SECURITY.md) and [approval/recovery behavior](docs/action-approvals.md).

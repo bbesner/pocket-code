@@ -446,7 +446,7 @@ let railProjectsPainted='';
 function paintRailProjects(){
  const el=document.getElementById('rail');if(!el||railView()!=='projects')return;
  const html=railProjectsHTML();
- if(html!==railProjectsPainted||!el.querySelector('.rail-board')){ // 1.50: a refresh that changes nothing leaves the rows (and a tap on one) alone. 1.77.3: .rail-board, not .rail-projects: the Tasks, Vault and Inbox lists share that class for their styling, so after Tasks the old test found the task list and left it there. Reported by Brad.
+ if(html!==railProjectsPainted||!el.querySelector('.rail-board')){ // 1.50: a refresh that changes nothing leaves the rows (and a tap on one) alone. 1.77.3: .rail-board, not .rail-projects: the Tasks, Vault and Inbox lists share that class for their styling, so after Tasks the old test found the task list and left it there. Reported by the owner.
   railProjectsPainted=html;el.innerHTML=html;
   el.querySelector('#rail-track')?.addEventListener('click',()=>projectEditor(null));
   el.querySelectorAll('[data-project-more]').forEach(b=>b.onclick=()=>projectOptions(b.dataset.projectMore));

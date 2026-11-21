@@ -49,7 +49,7 @@ and the date or time from the offer.
 ## How to write it
 
 ```bash
-pocket-tasks add "Call ENS about the aisle 4 count" --session <session-id>
+pocket-tasks add "Call Litware about the aisle 4 count" --session <session-id>
 pocket-tasks add "Review the NVR report" --due "2026-10-14T09:00" --session <session-id>
 pocket-tasks add "Finish the storefront header" --session <session-id> \
   --summary "Rebuilding the shop header in the Astro site. The logo and nav are done; the cart badge still overlaps on phones. Next is the 390px layout in header.astro."

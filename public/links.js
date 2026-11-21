@@ -2,7 +2,7 @@
    Open files and links): as a tab, beside the conversation in a split pane, or in a new browser window. A Pocket
    address (#/documents/…, #/projects/…, a session) opens that view; a share or public link to one of your own
    files opens the file; an image or file served by this Pocket shows in a small link view (#/link/<address>). A
-   download stays a download, and a link to an outside website is left to the browser, as before (1.54.1: Brad —
+   download stays a download, and a link to an outside website is left to the browser, as before (1.54.1: the owner —
    "I really only meant for links that are to our own internal documents"). */
 let linkView=null;
 const linkLabels=new Map(); // address → the text it was clicked by, for the tab title (this window only)
@@ -39,9 +39,10 @@ function openIdPreferred(id,prefKey){
  }
  if(!here)location.hash=tabHref(id);
 }
-// A share or public link of one of your own files is that file.
+// A public link of one of your own files is that file. 1.118 (PC-05): a share link is no longer matched, since the library
+// keeps only a hash of its address; it opens as the link it is.
 async function resolveSharedLink(u){
- try{const s=await loadDocs();return (s?.documents||[]).find(d=>(d.url&&d.url===u.pathname)||(d.share?.url&&d.share.url===u.pathname))?.id||null;}catch{return null;}
+ try{const s=await loadDocs();return (s?.documents||[]).find(d=>d.url&&d.url===u.pathname)?.id||null;}catch{return null;}
 }
 // A plain click on a link in a conversation. Returns true when the click was handled here; false leaves it to
 // the browser (the link's own target opens a new tab).

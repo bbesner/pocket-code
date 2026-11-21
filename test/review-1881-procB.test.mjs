@@ -1,5 +1,5 @@
-// Casey's 1.88.1 review, group procB: the Claude runner lifecycle in server.mjs (F-8 to F-11).
-// Each test drives a real daemon on a temp data dir with the fake CLI; test/casey-1881-stubborn-claude.mjs is
+// The external 1.88.1 review, group procB: the Claude runner lifecycle in server.mjs (F-8 to F-11).
+// Each test drives a real daemon on a temp data dir with the fake CLI; test/review-1881-stubborn-claude.mjs is
 // fake-claude.mjs as a CLI that hangs when its input closes (and, if asked, ignores SIGTERM).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,9 +10,9 @@ import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
-const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CASEY)_/.test(k)));
+const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|REVIEW)_/.test(k)));
 const alive=pid=>{try{process.kill(pid,0);return true;}catch{return false;}};
-const STUBBORN=path.join(repo,'test/casey-1881-stubborn-claude.mjs');
+const STUBBORN=path.join(repo,'test/review-1881-stubborn-claude.mjs');
 
 // The runner test fixture (test/runner.test.mjs), plus the turnlog dir and a log reset per daemon start.
 async function fixture(t,port,env={}){
@@ -52,7 +52,7 @@ const ageLastLine=file=>{const lines=fs.readFileSync(file,'utf8').split('\n');co
 // replacement for good. Fixed: the replacement gets the prompt only once the old one has exited, and the close
 // escalates to SIGKILL.
 test('F-8: a replaced process has exited before its successor gets the prompt, and a TERM-proof one is killed',{timeout:120_000},async t=>{
- const f=await fixture(t,21381,{CLAUDE_BIN:STUBBORN,CASEY_STUBBORN:'hang-ignore-term'});
+ const f=await fixture(t,21381,{CLAUDE_BIN:STUBBORN,REVIEW_STUBBORN:'hang-ignore-term'});
  const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  const old=f.calls()[0].pid;
@@ -94,7 +94,7 @@ test('F-9: lines Pocket\'s own live CLI wrote across a restart do not count as a
 // stops none. Two markers for one session exist whenever a closing process outlives its replacement's start
 // (F-8's overlap) and the daemon restarts. Fixed: the newest is adopted and the others are stopped.
 test('F-10: after a restart with two live processes for one session, the newer is adopted and the older stopped',{timeout:60_000},async t=>{
- const f=await fixture(t,21401,{CLAUDE_BIN:STUBBORN,CASEY_STUBBORN:'hang'});
+ const f=await fixture(t,21401,{CLAUDE_BIN:STUBBORN,REVIEW_STUBBORN:'hang'});
  const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  // Since F-8's fix a replacement starts only once its predecessor has exited, so the duplicate is made the way a 1.88.1
@@ -142,7 +142,7 @@ test('F-11: a process whose marker could not be written is not left running unma
 // 1.89 review finding 4: the short close steps (SIGTERM 3 s after EOF) are for a replacement only. An ordinary close
 // (here idle) keeps its 30 s grace before SIGTERM, for SessionEnd hooks and MCP shutdowns.
 test('F-8: an idle close still leaves a slow CLI its 30 s grace; only a replacement uses the short steps',{timeout:60_000},async t=>{
- const f=await fixture(t,21421,{CLAUDE_BIN:STUBBORN,CASEY_STUBBORN:'hang',POCKET_IDLE_CLOSE_MS:'500'});
+ const f=await fixture(t,21421,{CLAUDE_BIN:STUBBORN,REVIEW_STUBBORN:'hang',POCKET_IDLE_CLOSE_MS:'500'});
  const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  const old=f.calls()[0].pid;
@@ -155,7 +155,7 @@ test('F-8: an idle close still leaves a slow CLI its 30 s grace; only a replacem
 // in the wait stopped that process and nothing sent the user's text. It is now held in the follow-up queue and runs once
 // the stopped process has gone.
 test('F-8: a restart while a reply waits for the closing process runs that reply afterwards',{timeout:60_000},async t=>{
- const f=await fixture(t,21431,{CLAUDE_BIN:STUBBORN,CASEY_STUBBORN:'hang-ignore-term'});
+ const f=await fixture(t,21431,{CLAUDE_BIN:STUBBORN,REVIEW_STUBBORN:'hang-ignore-term'});
  const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  const old=f.calls()[0].pid;

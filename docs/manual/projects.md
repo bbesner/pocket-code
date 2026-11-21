@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.112.0
+checked: 1.118.0
 sources: projects.mjs, project-mode.mjs, public/projects.js, scripts/pocket-board.mjs, scripts/owner-zone.mjs, skills/pocket-projects/SKILL.md
 -->
 # Projects
@@ -248,7 +248,7 @@ Times are printed in the user's time zone (the one their browser reports to Pock
 | `link-session <id>` / `unlink-session <id>` | Links or unlinks a conversation. |
 | `scheduled` | Every open reminder across projects, earliest first, due ones marked `DUE`. |
 | `context [--hook]` | A short briefing on the current directory's unfinished project, for a session start. Prints nothing and exits 0 when there is no project, Projects is off or Pocket is down. `--hook` prints it as Claude Code SessionStart hook JSON. |
-| `import <snapshot.json>` | One-time import of a board snapshot (version 2 JSON) from the older Mission Control board. Projects whose ids already exist are skipped. |
+| `import <snapshot.json>` | One-time import of a board snapshot (version 2 JSON) from an older dashboard's board. Projects whose ids already exist are skipped. |
 | `help` | The usage summary. |
 
 Add `--json` to `status`, `scheduled` and any command that changes a card to get JSON instead of text.

@@ -6,7 +6,7 @@ const PANE=new URLSearchParams(location.search).has('pane');
 const PANE_KEY=(k=>/^[0-9a-f-]{36}$/.test(k||'')?k:'')(new URLSearchParams(location.search).get('pane'));
 const NEW_BASE=PANE&&PANE_KEY?'new-pane-'+PANE_KEY:'new';
 // 1.112: a start link (Inbox, a handoff, pocket-start) opens in its own unsent conversation, #/new/<start id>, with its own
-// draft, settings and tab, so starting another never replaces one you have not sent yet (Brad). The route sets NEW_KEY to
+// draft, settings and tab, so starting another never replaces one you have not sent yet (owner request). The route sets NEW_KEY to
 // that draft's key while it shows; everything else on New keeps the plain key.
 let NEW_KEY=NEW_BASE,newView=null;
 const newSlotKey=id=>'new-s-'+id;
@@ -281,7 +281,7 @@ function rememberOpenSession(s){
  rememberTab(s.id,s.title);writeLocal('pc-last-session',s.id);paintOpenSessions();
 }
 // 1.112: a tab's name follows the conversation's. It was saved once, when the conversation opened, so a new Codex thread
-// (named after its first turn) kept "New conversation" until you left and came back (Brad). Views name themselves.
+// (named after its first turn) kept "New conversation" until you left and came back (owner request). Views name themselves.
 function followTabTitles(){
  if(typeof allSessions==='undefined'||!allSessions.length)return;
  const live=new Map(allSessions.map(s=>[s.id,s.title]));let changed=false;
@@ -334,13 +334,13 @@ function paintOpenSessions(){
   const id=b.dataset.closeSession;
   openSessions=openSessions.filter(s=>s.id!==id);writeLocal('pc-open-sessions',openSessions);
   // 1.103: closing the tab you are on opens New, as the plus does, and never a neighbouring tab. Opening one counted as
-  // seeing it and took a conversation that was waiting for you out of Attention before you had looked (Brad).
+  // seeing it and took a conversation that was waiting for you out of Attention before you had looked (owner request).
   if(chatId===id||currentView()===id){if(typeof openFreshNew==='function')openFreshNew(typeof assistantMode==='function'&&assistantMode()?'#/':'#/new');else location.hash='#/new';}else paintOpenSessions();
  });
  bindTabDrag(el);
  el.querySelector('[aria-current]')?.scrollIntoView({block:'nearest',inline:'nearest'});
 }
-/* 1.112: tabs go in the order you put them (Brad). Drag a tab, or press Alt Shift [ / ] on it. Pinned tabs stay before the
+/* 1.112: tabs go in the order you put them (owner request). Drag a tab, or press Alt Shift [ / ] on it. Pinned tabs stay before the
    rest and moving one reorders the pins themselves, on every device; the others keep their order on this browser. */
 function moveTab(id,targetId,after){
  if(id===targetId)return false;
@@ -800,7 +800,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
  const groups=assistantMode()?[
   ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This Pocket · all devices','#s-mode']]],
   ['conversation','Conversation','How replies and steps read', [['This device','#s-tools,#s-times']]],
-  ['accounts','Accounts','Your Claude sign-in and Gmail, Calendar and Drive', [['','#s-environment,#s-connectors']]],
+  ['accounts','Accounts','Your Claude sign-in, Gmail, Calendar and Drive, and signing out', [['','#s-environment,#s-connectors,#s-signout']]],
   // 1.81 (#175): the switches the Developer category holds, for the seats that can change them; a locked Pocket gets a line saying what is on.
   featuresLocked()
    ?['features','Features','Which parts of Pocket are on', [['','#s-features-lead']]]
@@ -812,7 +812,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
  ]:[
   ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This instance · all devices','#s-mode']]],
   ['conversation','Conversation','Reading, conversation titles and summaries', [['This device','#s-tools,#s-plain,#s-times'],['This instance · all devices','#s-review-all,#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
-  ['agents','Agents & instance','Accounts, connectors, plan usage, models, context and subagents, automatic model choice, actions that run without asking and sign-in', [['This instance · all devices','#s-environment,#s-connectors,#s-usage,#s-models,#s-context,#s-trusted,#s-router,#s-access']]],
+  ['agents','Agents & instance','Accounts, connectors, plan usage, models, context and subagents, automatic model choice, actions that run without asking and sign-in', [['This instance · all devices','#s-environment,#s-connectors,#s-usage,#s-models,#s-context,#s-trusted,#s-router,#s-access,#s-signout']]],
   ['libraries','Projects, files, tasks & vault','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents,#s-autokeep,#s-tasks,#s-coordination,#s-inbox,#s-inbox-watch,#s-vault,#s-vault-more'],['This device','', '#s-projects-open,#s-files-button,#s-documents-open']]],
   ['automation','Automation','Pause all, and limits on unattended work: plan ceilings, a daily count and the longest reply', [['This instance · all devices','#s-automation']]], // 1.117
   ['notifications','Notifications & voice','Chime, push, the icon count, email and spoken replies', [['This device','#s-chime,#s-push,#s-push-kinds,#s-badge,#s-voice'],['This instance · all devices','#s-ahead,#s-email-wrap']]],

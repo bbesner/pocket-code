@@ -1289,14 +1289,15 @@ test('§7: idle lock reset by owner activity only through open()', () => {
 // ============================================================================================ §8 scrubbing
 test('§8.1 needlesFor exact examples', () => {
   assert.deepEqual(needlesFor(['abc']), []);
-  assert.deepEqual(needlesFor(['abcd']), ['YWJjZA==', 'YWJjZA', 'abcd']);
-  assert.deepEqual(needlesFor([123, null, 'abcd']), ['YWJjZA==', 'YWJjZA', 'abcd']);
+  // PC-02: hex (lower and upper case, one entry when they agree) and reversed are forms too.
+  assert.deepEqual(needlesFor(['abcd']), ['YWJjZA==', '61626364', 'YWJjZA', 'abcd', 'dcba']);
+  assert.deepEqual(needlesFor([123, null, 'abcd']), ['YWJjZA==', '61626364', 'YWJjZA', 'abcd', 'dcba']);
   // 1.82.1: the value's three alignments inside longer base64 ('YS9iImPDq', 'hL2IiY8Op', 'EvYiJjw6') are forms too.
-  assert.deepEqual(needlesFor(['a/b"cé']), ['a%2Fb%22c%C3%A9', 'a\\/b\\"c\\u00e9', 'YS9iImPDqQ==', 'a/b\\"c\\u00e9', 'YS9iImPDqQ', 'YS9iImPDq', 'hL2IiY8Op', 'a/b\\\\\\"cé', 'EvYiJjw6', 'a\\/b\\"cé', 'a/b\\"cé', 'a/b"cé']);
-  assert.deepEqual(needlesFor(['pa ss😀w']), ['pa%20ss%F0%9F%98%80w', 'pa ss\\ud83d\\ude00w', 'cGEgc3Pwn5iAdw==', 'cGEgc3Pwn5iAdw', 'cGEgc3Pwn5iAd', 'wYSBzc/CfmIB3', 'wYSBzc_CfmIB3', 'BhIHNz8J+YgH', 'BhIHNz8J-YgH', 'pa ss😀w']);
+  assert.deepEqual(needlesFor(['a/b"cé']), ['a%2Fb%22c%C3%A9', '612f622263c3a9', '612F622263C3A9', 'a\\/b\\"c\\u00e9', 'YS9iImPDqQ==', 'a/b\\"c\\u00e9', 'YS9iImPDqQ', 'YS9iImPDq', 'hL2IiY8Op', 'a/b\\\\\\"cé', 'EvYiJjw6', 'a\\/b\\"cé', 'a/b\\"cé', 'a/b"cé', 'éc"b/a']);
+  assert.deepEqual(needlesFor(['pa ss😀w']), ['7061207373f09f988077', '7061207373F09F988077', 'pa%20ss%F0%9F%98%80w', 'pa ss\\ud83d\\ude00w', 'cGEgc3Pwn5iAdw==', 'cGEgc3Pwn5iAdw', 'cGEgc3Pwn5iAd', 'wYSBzc/CfmIB3', 'wYSBzc_CfmIB3', 'BhIHNz8J+YgH', 'BhIHNz8J-YgH', 'pa ss😀w', 'w😀ss ap']);
   const lone = needlesFor(['x\ud800yz']);
-  assert.equal(lone.length, 11, '1.82.1: plus the U+FFFD spelling\'s alignments inside longer base64');
-  assert.deepEqual([...lone].sort(), ['x%EF%BF%BDyz', 'x\\\\ud800yz', 'x\\ud800yz', 'x\\ufffdyz', 'eO+/vXl6', 'eO-_vXl6', 'jvv715e', '477+9eX', '477-9eX', 'x\ud800yz', 'x�yz'].sort());
+  assert.equal(lone.length, 15, '1.82.1: plus the U+FFFD spelling\'s alignments inside longer base64; PC-02: hex once, both spellings reversed');
+  assert.deepEqual([...lone].sort(), ['x%EF%BF%BDyz', 'x\\\\ud800yz', 'x\\ud800yz', 'x\\ufffdyz', 'eO+/vXl6', 'eO-_vXl6', 'jvv715e', '477+9eX', '477-9eX', 'x\ud800yz', 'x�yz', '78efbfbd797a', '78EFBFBD797A', 'zy\ud800x', 'zy�x'].sort());
   for (let i = 1; i < lone.length; i++) assert.ok(lone[i - 1].length >= lone[i].length, 'sorted by length desc');
   const ab = needlesFor(['ab?>c']);
   assert.ok(ab.includes('YWI/PmM=') && ab.includes('YWI_PmM') && ab.includes('YWI/PmM'), '1.82.1: unpadded standard base64 too');

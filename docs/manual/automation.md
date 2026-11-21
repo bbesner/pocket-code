@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.117.0
+checked: 1.118.0
 sources: automation.mjs, public/automation.js, server.mjs, queue.mjs, codex.mjs, acp.mjs, sidechat.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
 -->
 # Automation: Pause all and limits on unattended work

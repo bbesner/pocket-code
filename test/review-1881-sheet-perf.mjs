@@ -1,4 +1,4 @@
-// F-21 (Casey 1.88.1): opens and closes one sheet on a long conversation in Chrome and times it, with app.inert as
+// F-21 (external review 1.88.1): opens and closes one sheet on a long conversation in Chrome and times it, with app.inert as
 // shipped and with the inert toggle made a no-op, at 1x and 4x CPU, with and without renderer accessibility.
 // Open/close are timed two ways: sync (the call plus a forced style and layout) and frame (to the next frame's task).
 import puppeteer from 'puppeteer-core';

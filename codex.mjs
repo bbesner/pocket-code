@@ -1266,7 +1266,7 @@ function onTurnNotify(turn, method, params) {
         // 1.48: Codex's inputTokens already includes cachedInputTokens (a subset, unlike Claude's
         // separate cache_read figure), so the context is the input alone. Adding the two counted
         // nearly the whole context twice and pinned the meter at 100% from about 55% real
-        // (Damon, 2026-10-14, Ramesh's session: 153k input / 152k cached shown as 118%).
+        // (reported by a colleague, 2026-10-14, from another user's session: 153k input / 152k cached shown as 118%).
         const used = contextUsed(last), cached = cachedTokens(last);
         turn.tokenSum = (turn.tokenSum || 0) + (Number(last.totalTokens) || 0); // 1.87: the reply's tokens, shown under it
         const window = tu.modelContextWindow || null;

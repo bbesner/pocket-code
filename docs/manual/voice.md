@@ -82,7 +82,7 @@ Short phrases are answered on your device, without the agent:
 | "mute", "voice off", "stop speaking" | Mutes voice on this device |
 | "unmute", "voice on" | Turns voice back on |
 
-A leading "okay", "hey", "so" or "pocket" and a trailing "please" are ignored. Anything longer than nine words, or different, is sent to the conversation as a normal message.
+A leading "okay", "hey", "so", "um", "uh", "and" or "please", then a leading "pocket" or "hey pocket", and a trailing "please" are ignored. Anything longer than nine words, or different, is sent to the conversation as a normal message.
 
 ### Hear replies
 

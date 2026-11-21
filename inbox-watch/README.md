@@ -167,8 +167,8 @@ on demand (and with the digest and look-aheads).
 
 **What it reads (`[mail] scope`, also a Pocket setting; 1.100).** By default the watcher fetches every thread but spam, trash
 and drafts, so mail the owner's Gmail filters archive or file away is judged too. `scope = "inbox"` reads only threads in the
-Gmail inbox; `scope = "inbox_labels"` with `scope_labels = ["Clients", "Ultra/Ask first"]` adds threads under those labels (as
-`{in:inbox label:clients label:ultra-ask-first}` on a search; by label id on the Gmail API's history reads). The bound applies
+Gmail inbox; `scope = "inbox_labels"` with `scope_labels = ["Clients", "Team/Ask first"]` adds threads under those labels (as
+`{in:inbox label:clients label:team-ask-first}` on a search; by label id on the Gmail API's history reads). The bound applies
 to the per-check fetch, the first-run baseline, the rebaseline and the blind-mailbox probe; research and archive searches, and
 a thread the owner labels Pocket Inbox, are not bounded. The owner's replies stay in: the per-check read adds `in:sent` and drops
 a new email the owner started (on Codex's search, which does not give a thread's length, a sent email is read). The heartbeat carries the owner's label names (`options.labels`,
@@ -214,7 +214,8 @@ calls than 5, 15 minutes 31% fewer, 30 minutes 44% fewer, for the same mail.
 
 Reusing a Google sign-in another app already holds (an assistant connected to the same Gmail) works too: write an
 `authorized_user` token file (`client_id`, `client_secret`, `refresh_token`, `token_uri`, and the `scopes` it was granted)
-and point `oauth_token_file` at it. The watcher renews it with those scopes and only ever reads.
+and point `oauth_token_file` at it. The watcher renews it with those scopes and only ever reads. The token file holds a
+refresh token: `gmail-auth` and every renewal write it mode `0600` (and put an existing file back to `0600`).
 
 `touch STOP` beside the config pauses everything. `--dry-run` evaluates without sending. `notify --subject … --text …`
 sends one alert through the same channel from any other job; with `--urgency emergency|outage|money|security|waiting|deadline`

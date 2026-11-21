@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.117.0
+checked: 1.118.0
 sources: docs/install.md, scripts/pocket-init.mjs, access.mjs, public/manifest.webmanifest, public/sw.js, public/workspace.js
 -->
 # Getting started
@@ -37,9 +37,14 @@ Open the HTTPS address. The sign-in screen asks for one thing, the **Password**,
 - The password is `POCKET_PASSWORD` in the `.env` file in the Pocket Code directory. On a terminal
   `pocket-init` prints it once; run by an agent, it leaves it in `.env` for you to read with
   `grep '^POCKET_PASSWORD=' ~/pocket-code/.env`.
-- A successful sign-in keeps that browser signed in for 90 days.
+- A successful sign-in keeps that browser signed in for 90 days, until you sign it out in
+  [Settings → Agents & instance → Sign out](settings.md#agents--instance) (**Accounts** in
+  Assistant mode; 1.118), choose **Sign out everywhere**, or change the password.
 - After 20 sign-in attempts from one address within an hour, further attempts get **Too many
-  attempts — wait an hour.**
+  attempts — wait an hour.** When many addresses fail at once, Pocket checks sign-ins one at a
+  time and may answer **Too many sign-in attempts right now. Try again in a minute.** A browser
+  that has signed in before is let through that queue (it still has its own address's 20 tries),
+  so you can still sign in there while it lasts.
 - There is one login for the whole install. Pocket Code is built for one owner; anyone who can
   sign in can run commands on the server as the user Pocket runs as. Read the
   [security model](../../SECURITY.md#security-model) before you share access.
@@ -113,7 +118,7 @@ are under **Settings → Features**, with **Automatic model choice**. While the 
 | **Files** | A library for the reports, PDFs, spreadsheets and pages agents produce, private until you share one | [Files](files.md) |
 | **Tasks** | To-dos with an optional date, linked to the conversation they came from | [Tasks](tasks.md) |
 | **Inbox Watch** | Reads your Gmail on a schedule and lists only what needs you, through the Gmail connector of Claude Code or Codex | [Inbox Watch](inbox-watch.md) |
-| **Vault** | API keys, tokens and logins, encrypted on the server, that agents use by name without seeing them. Turning it on creates the key and shows a recovery key to save once | [Vault](vault.md) |
+| **Vault** | API keys, tokens and logins, encrypted on the server, that agents use by name, kept out of the conversation in normal use. Turning it on creates the key and shows a recovery key to save once | [Vault](vault.md) |
 | **Voice** (beta) | Speak to a conversation and hear a short reply. Not a switch: install the speech engine with `bash scripts/voice-setup.sh` from the Pocket Code directory, then restart Pocket; the mic appears beside Send | [Voice](voice.md) |
 
 While a feature is on, Pocket installs its agent skill for Claude Code and Codex, so agents on the
@@ -190,7 +195,9 @@ When a user asks you to set up or explain Pocket Code:
 |---|---|---|
 | The password is accepted but you land back on the sign-in screen | The sign-in cookie is marked `Secure`; over plain HTTP on a network address the browser drops it | Open Pocket through its HTTPS address |
 | **Too many attempts — wait an hour.** | More than 20 sign-in attempts from one address within an hour | Wait an hour, and check the password in `.env` |
-| You changed `POCKET_PASSWORD` but other browsers are still signed in | Sign-in cookies are signed with `POCKET_SECRET`, not the password | Change `POCKET_SECRET` as well and restart; every browser has to sign in again |
+| You changed `POCKET_PASSWORD` but other browsers are still signed in | Pocket reads the password at start, so the change takes effect at the next restart (before 1.118 a new password did not sign anyone out) | Restart Pocket; every browser has to sign in again. **Sign out everywhere** in Settings does the same without a restart |
+| **Too many sign-in attempts right now. Try again in a minute.** | Many wrong passwords from many addresses within an hour, so Pocket checks sign-ins one at a time | Wait a minute; a browser that has signed in before is let through |
+| Every browser had to sign in again after an upgrade | The first start of 1.118 begins a new sign-in generation, once | Sign in again; it does not repeat |
 | **Push not configured on server** when you tap the bell | `VAPID_PUBLIC` and `VAPID_PRIVATE` are not set | Run `node scripts/pocket-init.mjs` again (it adds missing keys) or set them by hand, then restart |
 | **Notifications blocked** | The browser's notification permission for the site is off | Allow notifications in the browser's site settings, then turn push on again |
 | No **Projects, files, tasks & vault** in Settings | You are in Assistant mode | Use **Settings → Features**, or switch to Developer mode in **Settings → Appearance → Mode** |

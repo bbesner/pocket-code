@@ -1,13 +1,13 @@
 ---
 name: pocket-vault
-description: Use credentials from Pocket Code's Vault without ever seeing them. Use when a task needs an API key, token, password, login or other credential to run a command or call a service; when the user mentions a secret, asks you to "store this key", "save the password", "use the Zoho token" or asks "what credentials do we have"; and when you meet something that looks like a secret (a key, token, password or private key) in a message, a file or a tool result. The Vault runs your command with the value in its environment and hands back output with the value replaced.
+description: Use credentials from Pocket Code's Vault by name, keeping their values out of the conversation. Use when a task needs an API key, token, password, login or other credential to run a command or call a service; when the user mentions a secret, asks you to "store this key", "save the password", "use the Zeta token" or asks "what credentials do we have"; and when you meet something that looks like a secret (a key, token, password or private key) in a message, a file or a tool result. The Vault runs your command with the value in its environment and hands back output with the value replaced.
 ---
 
 # Pocket Code Vault
 
 Pocket Code keeps a **Vault** on its own server: API keys, tokens, logins and secure notes,
-encrypted, each under a short name such as `zoho-books` or `stripe-live`. You never see a
-value. You name the secret, and Pocket runs your command with the value in the command's
+encrypted, each under a short name such as `zeta-books` or `stripe-live`. You do not look at
+a value. You name the secret, and Pocket runs your command with the value in the command's
 environment, then gives you the output with every value replaced by `{{vault:name}}`. The
 owner adds, views and copies values in the Vault view in Pocket Code, approves which commands
 may use them, and sees every use. You work with the Vault through the `pocket-vault` command.
@@ -22,11 +22,13 @@ How this feature works, how it is set up and its limits: `docs/manual/vault.md` 
 
 ## The one rule
 
-**You never see a secret value, and you never put one anywhere.** Refer to a secret by its
+**You never look at a secret value, and you never put one anywhere.** Refer to a secret by its
 name and use it with `pocket-vault run`. Never print, echo, `cat`, log or decode a value;
 never write one to a file, a commit, a message, a task, a project note or a memory; never pass
-one as a command-line argument. There is no command that gives you a value, and you should
-not look for another way to get one (reading `.env`, the store file or another process).
+one as a command-line argument. The Vault does not stop an agent that goes after a value (a
+command you run receives the real value, and a filled field can be read back); the owner relies
+on you not to. Do not look for a way to get one (reading `.env`, the store file, another
+process, a filled field, or the Vault's own routes).
 
 **Never ask the user to paste a secret into the chat.** Anything typed into the conversation
 goes to the model provider and into the transcript. Point them to the Vault instead: **Add
@@ -66,7 +68,7 @@ variable itself:
 
 ```bash
 # Node or Python reading process.env / os.environ
-pocket-vault run --env ZOHO_TOKEN=zoho-books -- node sync-invoices.mjs
+pocket-vault run --env BOOKS_TOKEN=zeta-books -- node sync-invoices.mjs
 pocket-vault run --env STRIPE_KEY=stripe-live -- python3 monthly_report.py
 
 # A login: two fields, two variables
@@ -74,7 +76,7 @@ pocket-vault run --env PORTAL_USER=vendor-portal.username --env PORTAL_PASS=vend
   -- python3 fetch_statements.py
 
 # curl with a header: run it through a shell so the child expands the variable
-pocket-vault run --env TOKEN=zoho-books -- sh -c 'curl -sS -H "Authorization: Bearer $TOKEN" https://www.zohoapis.com/books/v3/invoices'
+pocket-vault run --env TOKEN=zeta-books -- sh -c 'curl -sS -H "Authorization: Bearer $TOKEN" https://books.example.com/api/v3/invoices'
 
 # Tools that read a credential from an environment variable
 pocket-vault run --env GH_TOKEN=github-ci -- gh api user
@@ -91,7 +93,30 @@ pocket-vault run --env SSH_KEY=deploy-key.text -- sh -c 'umask 077; f=$(mktemp);
   process lists, approvals and the record of use.
 - **Keep commands stable.** An approved command is saved as an exact match (the program, its
   arguments and the working directory); a changed argument is a new command and asks the
-  owner again. Put what varies in a script or a file the command reads.
+  owner again. It also records the content of the program, its `#!` interpreter, the program a
+  launcher (`env`, `timeout`, `nice`, `sudo`, …) starts, and every file named in the arguments
+  or plainly in inline code: editing an approved script asks the owner again, and the request
+  names the file that changed. Pocket finds the program on its own `PATH`, not yours; give a
+  full path for a program outside it. Put what varies in a data file the command reads, not in
+  the script.
+- **Keep variable names stable too.** The approval covers which variable gets which secret
+  (`--env TOKEN=billing-api`); another name, another secret or an extra `--env` asks the owner
+  again. Use plain names such as `API_TOKEN`. Names a program acts on by itself are refused
+  with "… cannot be bound." (`PATH`, `HOME`, `NODE_*`, `PYTHON*`, `GIT_*` other than
+  `GIT_TOKEN`/`GIT_PASSWORD`, `LD_*`, `TMPDIR`, `LANG`, `LC_*`, `EDITOR`, `PAGER` and others);
+  pick another name rather than working around it.
+- **Run the script, not a runner.** The owner is never offered *Always allow* for a command
+  whose real work Pocket cannot see before it starts: `npm run`, `npm test`, `npx`, `docker run`,
+  `find … -exec`, `xargs … sh`, `ssh host command`, `parallel`, `watch`, `node --watch` and the
+  like. Each such run asks the owner. Where you can, call the script or program directly
+  (`node scripts/deploy.mjs` rather than `npm run deploy`) so the owner can approve it once.
+- **Prefer a script file to inline code.** For `sh -c`, `node -e`, `python3 -c` and the like,
+  the owner is told Pocket cannot check everything the code runs. A script the owner can read
+  and approve once is easier to trust.
+- **Say which files the command writes.** A file the command writes (an output, a log) changes
+  on every run; the owner can untick it on the request so Always allow does not ask each time.
+  Only the owner can do that. A run can be stopped with "… changed just before the command
+  started" when a file changed at that moment: check why before running it again.
 - **The command runs with the server's permissions**, outside your own sandbox, and can do
   whatever the credential allows. Run only what the task needs.
 - `{{vault:name}}` in the output means the command printed the value. Do not try to recover
@@ -103,8 +128,8 @@ With the Playwright browser tools, never type a password yourself. Put the place
 the text goes, and Pocket types the real value on its way to the browser:
 
 ```
-browser_type      text: {{vault:ovrc-brad.password}}
-browser_fill_form value: {{vault:ups-developer-account.username}}
+browser_type      text: {{vault:router-admin.password}}
+browser_fill_form value: {{vault:shipping-api-account.username}}
 ```
 
 Use `name.field` for a login (`.username`, `.password`) or any item with more than one field.
@@ -125,8 +150,8 @@ not in place: stop and tell the owner.
 How freely you may use secrets is the owner's choice. **Agent access** in Settings applies
 to every item, and an item can override it:
 
-- **Free rein**: any command runs at once, and is recorded. Most developers who want their
-  agents to work on their own choose this.
+- **Free rein**: any command runs at once, and is recorded. Any agent on the server can obtain
+  such a value, so owners should keep it for low-value keys.
 - **Ask once per command**: a command the owner approved before (with *Always allow*) runs at
   once; a new one waits for the owner.
 - **Ask every time**: every run waits for the owner.
@@ -167,7 +192,7 @@ printf '%s' "$TWILIO_AUTH" | pocket-vault put twilio-auth --kind token --stdin \
 ```
 
 - **Name:** lowercase letters, digits and dashes, up to 64 characters, saying what it is:
-  `zoho-books`, `stripe-live`, `vendor-portal`.
+  `zeta-books`, `stripe-live`, `vendor-portal`.
 - **The value never goes on the command line.** Take it from an environment variable
   (`--from-env`), a file (`--from-file`, with `--map field=key,…` to pick fields out of a JSON
   file) or standard input (`--stdin`). A JSON object gives several fields at once: the kind's
@@ -207,8 +232,8 @@ pocket-vault request ups-api --kind credentials --fields client_id,client_secret
 
 ```bash
 pocket-vault list                      # names, kinds, urls, tags, policy, expiry, last used
-pocket-vault list --kind login --tag zoho
-pocket-vault show zoho-books           # metadata, which fields exist, approved commands
+pocket-vault list --kind login --tag zeta
+pocket-vault show zeta-books           # metadata, which fields exist, approved commands
 pocket-vault history                   # this session's uses of the Vault
 ```
 

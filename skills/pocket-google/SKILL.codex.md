@@ -41,7 +41,7 @@ other one only when an app is not connected, and say which account it reached.
 
 **Find:** `search_emails` with Gmail search syntax first, not a scroll through the inbox:
 `from:jane newer_than:7d`, `to:me is:unread -category:promotions`, `subject:"invoice" after:2026/10/01`,
-`has:attachment from:@acme.com`. Use `search_email_ids` only when the next tool needs bare ids.
+`has:attachment from:@example.com`. Use `search_email_ids` only when the next tool needs bare ids.
 
 **Read:** open the whole thread (`read_email_thread`) before you summarise or reply to
 it, not only its latest message. Attachments: `read_attachment`.

@@ -16,10 +16,10 @@ const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>
 test('auto-allow is bound to the live turn, audited first, and fails closed',async()=>{
  const writes=[],audit=[];let broken=false,turn='turn-1';
  const box=new ApprovalInbox({sessionId:()=>'s',turnId:()=>turn,write:async(id,r)=>writes.push([id,r]),audit:r=>{if(broken)throw Error('disk full');audit.push(r);}});
- const req={nativeId:'n1',turnId:'turn-1',kind:'tool',title:'Allow Bash?',details:{tool:'Bash',input:{command:'techpro-lookup secret-arg'}},allow:{behavior:'allow'},deny:{behavior:'deny'},rule:'Bash(techpro-lookup:*)',tool:'Bash'};
+ const req={nativeId:'n1',turnId:'turn-1',kind:'tool',title:'Allow Bash?',details:{tool:'Bash',input:{command:'acme-lookup secret-arg'}},allow:{behavior:'allow'},deny:{behavior:'deny'},rule:'Bash(acme-lookup:*)',tool:'Bash'};
  assert.equal(box.autoAllow(req),true);await sleep(0);
  assert.deepEqual(writes,[['n1',{behavior:'allow'}]]);assert.equal(box.list().length,0,'no card');
- assert.deepEqual([audit[0].event,audit[0].decision,audit[0].source,audit[0].rule,audit[0].tool],['auto-allowed','allow','auto-trusted','Bash(techpro-lookup:*)','Bash']);
+ assert.deepEqual([audit[0].event,audit[0].decision,audit[0].source,audit[0].rule,audit[0].tool],['auto-allowed','allow','auto-trusted','Bash(acme-lookup:*)','Bash']);
  assert.equal(JSON.stringify(audit).includes('secret-arg'),false,'the audit holds no arguments');
  assert.equal(box.autoAllow(req),true);await sleep(0);assert.equal(writes.length,1,'a repeated request is not answered twice');
  assert.equal(box.autoAllow({...req,nativeId:'n2',turnId:'old-turn'}),false,'an old turn cannot be auto-approved');
@@ -29,7 +29,7 @@ test('auto-allow is bound to the live turn, audited first, and fails closed',asy
  assert.equal(box.autoAllow({...req,nativeId:'n6',details:{text:'x'.repeat(200001)}}),false);
  box.clear();assert.equal(box.autoAllow({...req,nativeId:'n7'}),false);
  let failed=null;const lost=new ApprovalInbox({sessionId:()=>'s',turnId:()=>'t',write:async()=>{throw Error('pipe lost');},onAutoError:(e,info)=>failed=[e.message,info.rule]});
- assert.equal(lost.autoAllow({...req,turnId:'t'}),true);await sleep(0);assert.deepEqual(failed,['pipe lost','Bash(techpro-lookup:*)']);
+ assert.equal(lost.autoAllow({...req,turnId:'t'}),true);await sleep(0);assert.deepEqual(failed,['pipe lost','Bash(acme-lookup:*)']);
 });
 
 async function server(t,port,env){
@@ -61,30 +61,30 @@ async function server(t,port,env){
 }
 
 test('HTTP: trusted actions run without a card in Review actions, are audited, and everything else still asks',async t=>{
- const s=await server(t,18556,{POCKET_TRUSTED_ACTIONS:'Bash(techpro-lookup:*), mcp__memstem__*\nEdit, Bash(x; y)'});
+ const s=await server(t,18556,{POCKET_TRUSTED_ACTIONS:'Bash(acme-lookup:*), mcp__memstem__*\nEdit, Bash(x; y)'});
  assert.match(s.logs(),/POCKET_TRUSTED_ACTIONS: ignored "Edit": Edit changes files, so it always asks\./);
  assert.match(s.logs(),/POCKET_TRUSTED_ACTIONS: ignored "Bash\(x; y\)"/);
  const tr=(await s.call('/settings')).body.trusted;
- assert.deepEqual([tr.source,tr.saved,tr.rules,tr.env],['env',false,['Bash(techpro-lookup:*)','mcp__memstem__*'],['Bash(techpro-lookup:*)','mcp__memstem__*']]);
+ assert.deepEqual([tr.source,tr.saved,tr.rules,tr.env],['env',false,['Bash(acme-lookup:*)','mcp__memstem__*'],['Bash(acme-lookup:*)','mcp__memstem__*']]);
  assert.deepEqual(tr.envIgnored.map(x=>x.rule),['Edit','Bash(x; y)']);
 
  // A trusted read runs straight through: answered Allow, no card, one audit line naming the rule.
- const ok=await s.ask('Bash',{command:'techpro-lookup quote QT-0001 fixture-arg',description:'Look up a quote'});
+ const ok=await s.ask('Bash',{command:'acme-lookup quote QT-0001 fixture-arg',description:'Look up a quote'});
  assert.equal(ok.auto,'allow');assert.equal(ok.card,null);
  assert.equal((await s.call(`/session/${ok.id}/approvals`)).body.requests.length,0);
  const entry=s.lines('data/approval-decisions.jsonl').find(x=>x.sessionId===ok.id);
- assert.deepEqual([entry.event,entry.decision,entry.source,entry.rule,entry.tool,entry.kind],['auto-allowed','allow','auto-trusted','Bash(techpro-lookup:*)','Bash','tool']);
+ assert.deepEqual([entry.event,entry.decision,entry.source,entry.rule,entry.tool,entry.kind],['auto-allowed','allow','auto-trusted','Bash(acme-lookup:*)','Bash','tool']);
  assert.equal(fs.readFileSync(s.auditFile,'utf8').includes('fixture-arg'),false,'arguments never reach the audit');
- assert.match(s.logs(),/trusted action allowed session=\S+ tool=Bash rule="Bash\(techpro-lookup:\*\)"/);
+ assert.match(s.logs(),/trusted action allowed session=\S+ tool=Bash rule="Bash\(acme-lookup:\*\)"/);
  const mcp=await s.ask('mcp__memstem__memstem_search',{query:'quote'});assert.equal(mcp.auto,'allow');
 
  // An injection attempt, a look-alike name and an unlisted tool each get the normal card.
- for(const [tool,input] of [['Bash',{command:'techpro-lookup help; rm -rf ~'}],['Bash',{command:'techpro-lookup $(id)'}],['Bash',{command:'techpro-lookup-evil'}],['mcp__memstemx__tool',{}],['Write',{file_path:'/tmp/x',content:'x'}]]){
+ for(const [tool,input] of [['Bash',{command:'acme-lookup help; rm -rf ~'}],['Bash',{command:'acme-lookup $(id)'}],['Bash',{command:'acme-lookup-evil'}],['mcp__memstemx__tool',{}],['Write',{file_path:'/tmp/x',content:'x'}]]){
   const r=await s.ask(tool,input);assert.equal(r.auto,null,JSON.stringify(input));assert.equal(r.card.title,'Allow '+tool+'?');
   assert.equal((await s.call(`/session/${r.id}/approvals/${r.card.id}/decision`,{decision:'deny'})).status,200);
  }
  // Full access is untouched: the trusted list never answers for it.
- const full=await s.ask('Bash',{command:'techpro-lookup help'},'full');assert.equal(full.auto,null);
+ const full=await s.ask('Bash',{command:'acme-lookup help'},'full');assert.equal(full.auto,null);
  assert.equal(s.lines('data/approval-decisions.jsonl').some(x=>x.sessionId===full.id&&x.event==='auto-allowed'),false);
 
  // Settings: validated, saved outside git, outranks the environment; an empty saved list trusts nothing.
@@ -93,19 +93,19 @@ test('HTTP: trusted actions run without a card in Review actions, are audited, a
  assert.equal((await s.call('/settings',{trustedActions:'Bash(a:*)'})).status,400);
  assert.equal((await s.call('/settings',{trustedActions:['Bash']})).status,400);
  assert.equal((await s.call('/settings',{trustedActions:['mcp__*']})).status,400);
- const saved=await s.call('/settings',{trustedActions:['  Bash(sck-site product :*)','WebSearch','WebSearch']});
- assert.equal(saved.status,200);assert.deepEqual([saved.body.trusted.source,saved.body.trusted.saved,saved.body.trusted.rules],['settings',true,['Bash(sck-site product:*)','WebSearch']]);
- assert.deepEqual(JSON.parse(fs.readFileSync(path.join(s.dir,'data','pocket-settings.json'),'utf8')).trustedActions,['Bash(sck-site product:*)','WebSearch']);
- assert.equal((await s.ask('Bash',{command:'sck-site product list'})).auto,'allow','a saved rule applies at once');
- assert.equal((await s.ask('Bash',{command:'techpro-lookup help'})).auto,null,'the saved list replaces the environment list');
+ const saved=await s.call('/settings',{trustedActions:['  Bash(shop-site product :*)','WebSearch','WebSearch']});
+ assert.equal(saved.status,200);assert.deepEqual([saved.body.trusted.source,saved.body.trusted.saved,saved.body.trusted.rules],['settings',true,['Bash(shop-site product:*)','WebSearch']]);
+ assert.deepEqual(JSON.parse(fs.readFileSync(path.join(s.dir,'data','pocket-settings.json'),'utf8')).trustedActions,['Bash(shop-site product:*)','WebSearch']);
+ assert.equal((await s.ask('Bash',{command:'shop-site product list'})).auto,'allow','a saved rule applies at once');
+ assert.equal((await s.ask('Bash',{command:'acme-lookup help'})).auto,null,'the saved list replaces the environment list');
  const none=await s.call('/settings',{trustedActions:[]});assert.deepEqual([none.body.trusted.source,none.body.trusted.rules],['settings',[]]);
- assert.equal((await s.ask('Bash',{command:'sck-site product list'})).auto,null);
+ assert.equal((await s.ask('Bash',{command:'shop-site product list'})).auto,null);
  const reset=await s.call('/settings',{trustedActions:null});
  assert.deepEqual([reset.body.trusted.source,reset.body.trusted.saved,reset.body.trustedActions],['env',false,null]);
 
  // An audit that cannot be written approves nothing.
  fs.rmSync(s.auditFile);fs.mkdirSync(s.auditFile);
- const blind=await s.ask('Bash',{command:'techpro-lookup help'});assert.notEqual(blind.auto,'allow');
+ const blind=await s.ask('Bash',{command:'acme-lookup help'});assert.notEqual(blind.auto,'allow');
 });
 
 test('HTTP: without POCKET_TRUSTED_ACTIONS or a saved list, every action asks as before',async t=>{

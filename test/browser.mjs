@@ -52,7 +52,7 @@ const fixtureOffer=saved=>resolveOffer({saved:Array.isArray(saved)?saved:null,en
 const fixtureClaudeModels=()=>({...fixtureOffer(fixtureSettings.offeredClaudeModels),env:null,saved:Array.isArray(fixtureSettings.offeredClaudeModels),
  policy:{dir:'/etc/claude-code',files:['/etc/claude-code/managed-settings.json'],limits:true,error:null},pocketDefault:{configured:null,used:null,label:'Test agent'}});
 // 1.56: actions that run without asking. The fixture server's POCKET_TRUSTED_ACTIONS names one rule and skips one.
-const fixtureTrustedEnv=['Bash(techpro-lookup:*)'];
+const fixtureTrustedEnv=['Bash(acme-lookup:*)'];
 const fixtureTrusted=()=>{const saved=Array.isArray(fixtureSettings.trustedActions);return {rules:saved?fixtureSettings.trustedActions:fixtureTrustedEnv,source:saved?'settings':'env',saved,env:fixtureTrustedEnv,envIgnored:[{rule:'Edit',error:'Edit changes files, so it always asks.'}]};};
 // 1.50: the fixture server has mail set up (so Settings shows the address field) and records test messages.
 const fixtureEmail=()=>({configured:true,from:'pocket@example.test',to:fixtureSettings.notifyEmail||'',on:Boolean(fixtureSettings.notifyEmail),hook:false,error:null,base:'http://localhost'});
@@ -62,10 +62,10 @@ const secretRefusal=body=>{if(fixtureSettings.secretGuard===false||body.allowSec
 // 1.41: extraRequests are added to the snapshot's requests as they are (a request on an item that asks every time).
 const vaultFixture={passphrase:null,imported:null,extraRequests:[],key:null}; // 1.44: key is the fixture store's key, the recovery key the routes hand out
 const coordFixture={holds:[],recent:[],released:[],failNext:false,reset(holds){const ago=m=>Date.now()-m*60000-5000;this.released=[];this.failNext=false;
- this.holds=holds||[{name:'dad-staging',reason:'Building and verifying',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'DAD 1.168 build'},heldAt:ago(12),expiresAt:Date.now()+48*60000,ttlMs:3600000,waiters:[{id:'w1',kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',at:ago(4),block:false,title:'PayPal fix'}]},
-  {name:'tpv-deploy',reason:'Rolling out to the Oaks recorder from a terminal on the ops box, so wait for it to finish',holder:{kind:'terminal',session:null,title:''},heldAt:ago(185),expiresAt:Date.now()+295*60000,ttlMs:28800000,waiters:[]}];
+ this.holds=holds||[{name:'shop-staging',reason:'Building and verifying',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'Shop 1.168 build'},heldAt:ago(12),expiresAt:Date.now()+48*60000,ttlMs:3600000,waiters:[{id:'w1',kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',at:ago(4),block:false,title:'PayPal fix'}]},
+  {name:'site-deploy',reason:'Rolling out to the warehouse recorder from a terminal on the ops box, so wait for it to finish',holder:{kind:'terminal',session:null,title:''},heldAt:ago(185),expiresAt:Date.now()+295*60000,ttlMs:28800000,waiters:[]}];
  this.recent=[{name:'pocket-main',reason:'Release',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'Release 1.98'},heldAt:ago(90),endedAt:ago(40),event:'released',note:'Deployed and checked'},
-  {name:'dad-production',reason:'Rollout',holder:{kind:'terminal',session:null,title:''},heldAt:ago(300),endedAt:ago(120),event:'expired',note:''},
+  {name:'shop-production',reason:'Rollout',holder:{kind:'terminal',session:null,title:''},heldAt:ago(300),endedAt:ago(120),event:'expired',note:''},
   {name:'staging-db',reason:'Reset',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',title:'Database reset'},heldAt:ago(500),endedAt:ago(200),event:'owner',note:''}];}};
 coordFixture.reset();
 const resetVaultLock=()=>{Object.assign(fixtureSettings,{vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',vaultCanCreateKey:false,vaultNeedsKey:false});vaultFixture.passphrase=null;vaultFixture.imported=null;vaultFixture.extraRequests=[];};
@@ -85,25 +85,25 @@ const taskStore=new TaskStore(path.join(out,'tasks.json'));
 const seedTasks=()=>{taskStore.tasks.length=0;
  taskStore.act({action:'add',text:'Send the aisle 4 recount to purchasing',dueAt:new Date(now-3600000).toISOString(),session:rows[0].id,sessionTitle:rows[0].title,directory:rows[0].cwd,summary:'Recounting aisle 4 against the Friday delivery.\nAisles 1-3 reconcile; aisle 4 is 14 units short.\nThe recount sheet is in results.'});
  taskStore.act({action:'add',text:'Chase the revised camera quote',dueAt:new Date(now+3*86400000).toISOString()});
- taskStore.act({action:'add',text:'Read the TVT firmware notes'});
+ taskStore.act({action:'add',text:'Read the Lumacam firmware notes'});
  const d=taskStore.act({action:'add',text:'Book the forklift service'});taskStore.act({action:'update',task:d.id,done:true});};
 // 1.39: the vault is the real store on a scratch vault.enc under a test key: an API key that asks (one approved command),
 // a login agents may use that expires in 5 days, an owner-only note, a removed token, and one request waiting for the owner.
 // 1.39.1: Credentials with two custom fields, and an API key that carries one custom field beside its key.
-// 1.41: zoho-books and acme-oauth follow the Vault default (Agent access); square-hooks sets its own (asks once per command).
+// 1.41: zeta-books and acme-oauth follow the Vault default (Agent access); square-hooks sets its own (asks once per command).
 const vaultDir=path.join(out,'vault');let vaultStore=null;
 const seedVault=()=>{fs.rmSync(vaultDir,{recursive:true,force:true});fs.mkdirSync(vaultDir,{recursive:true});
  vaultFixture.key=newKey();vaultStore=new VaultStore(path.join(vaultDir,'vault.enc'),{key:parseKey(vaultFixture.key)});vaultStore.access=()=>fixtureSettings.vaultAccess||'once';
  // 1.93: the items were added an hour apart, ten days ago, so Newest first has one order; square-hooks is the newest.
  let added=now-10*86400000;const act=vaultStore.act.bind(vaultStore);vaultStore.now=()=>added;vaultStore.act=(...a)=>{const r=act(...a);if(a[0]?.action==='add')added+=3600000;return r;};
- vaultStore.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:'zk-fixture-secret-7731'},url:'https://books.zoho.com',tags:['billing']});
+ vaultStore.act({action:'add',name:'zeta-books',kind:'api_key',values:{value:'zk-fixture-secret-7731'},url:'https://books.example.com',tags:['billing']});
  vaultStore.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'ops@example.test',password:'portal-fixture-pass'},url:'https://portal.example.test',policy:'auto',expiresAt:new Date(now+5*86400000).toISOString()});
  vaultStore.act({action:'add',name:'bank-recovery',kind:'note',values:{text:'recovery codes fixture'},policy:'owner'});
  vaultStore.act({action:'add',name:'acme-oauth',kind:'credentials',values:{client_id:'acme-client-fixture',client_secret:'acme-secret-fixture-4410'},url:'https://auth.acme.test'});
  vaultStore.act({action:'add',name:'square-hooks',kind:'api_key',values:{value:'sq-fixture-key-2208',signature_key:'sq-signature-fixture-6631'},policy:'ask'});
  const old=vaultStore.act({action:'add',name:'old-twilio',kind:'token',values:{value:'tw-fixture-old'}});vaultStore.act({action:'remove',item:old.id});
  vaultStore.act=act;vaultStore.now=Date.now;
- const ask=argv=>{const env={TOKEN:'zoho-books'},bound=vaultStore.resolveBindings(env),cmd=vaultStore.checkCommand(argv,vaultDir);return vaultStore.request({bound,cmd,need:vaultStore.decide(bound,cmd),env,session:rows[0].id,sessionTitle:rows[0].title});};
+ const ask=argv=>{const env={TOKEN:'zeta-books'},bound=vaultStore.resolveBindings(env),cmd=vaultStore.checkCommand(argv,vaultDir);return vaultStore.request({bound,cmd,need:vaultStore.decide(bound,cmd),env,session:rows[0].id,sessionTitle:rows[0].title});};
  vaultStore.answer(ask(['node','sync-invoices.mjs']).id,'always');
  ask(['node','export-ledger.mjs','--month','2026-09']);};
 seedVault();
@@ -130,11 +130,11 @@ const actOnBoard=input=>{
  modeSide.set(p.id,m);return withMode(p);
 };
 const seedBoard=()=>{board.projects.length=0;modeSide.clear();
- const a=board.act({action:'track',name:'Warehouse stock report',summary:'Counts for aisles 1-3 are reconciled against MOM. Aisle 4 still shows 14 units unaccounted for.',next:'Recount aisle 4 with the Friday delivery excluded, then post the adjustment.',directory:'/workspaces/warehouse',link:'https://example.test/stock',session:rows[0].id});
- board.act({action:'task-add',project:a.id,text:'Reconcile aisles 1-3 against MOM'});const t=board.act({action:'task-add',project:a.id,text:'Recount aisle 4 excluding Friday delivery'}).tasks[1];
+ const a=board.act({action:'track',name:'Warehouse stock report',summary:'Counts for aisles 1-3 are reconciled against the stock ledger. Aisle 4 still shows 14 units unaccounted for.',next:'Recount aisle 4 with the Friday delivery excluded, then post the adjustment.',directory:'/workspaces/warehouse',link:'https://example.test/stock',session:rows[0].id});
+ board.act({action:'task-add',project:a.id,text:'Reconcile aisles 1-3 against the stock ledger'});const t=board.act({action:'task-add',project:a.id,text:'Recount aisle 4 excluding Friday delivery'}).tasks[1];
  board.act({action:'task-update',project:a.id,task:board.get(a.id).tasks[0].id,done:true});
  board.act({action:'remind',project:a.id,at:new Date(now-3600000).toISOString(),task:t.id});
- const b=board.act({action:'track',name:'Supplier inventory import',summary:'CSV mapping drafted for ENS and Centro feeds.',next:'Run the dry import against staging and compare counts.',directory:'/workspaces/inventory',session:rows[2].id});
+ const b=board.act({action:'track',name:'Supplier inventory import',summary:'CSV mapping drafted for Litware and Proseware feeds.',next:'Run the dry import against staging and compare counts.',directory:'/workspaces/inventory',session:rows[2].id});
  board.act({action:'task-add',project:b.id,text:'Dry run on staging'});
  const c=board.act({action:'track',name:'Camera ordering review',summary:'Vendor quotes collected; waiting on the revised pricing.',next:'Compare the revised quote and decide.'});
  board.act({action:'update',project:c.id,status:'waiting',waitingFor:'Revised vendor quote'});board.act({action:'remind',project:c.id,at:new Date(now+5*86400000).toISOString(),text:'Chase the revised quote'});
@@ -144,9 +144,9 @@ const seedBoard=()=>{board.projects.length=0;modeSide.clear();
 const inboxStore=new InboxStore(path.join(out,'inbox.json'));
 const inboxCaughtUp=[],inboxSplits=[]; // 1.113.1; 1.115
 const seedInbox=()=>{inboxStore.entries.length=0;inboxStore.sources={};
- const r=inboxStore.add({kind:'alert',title:'Lakeview alarm timer tests',text:'Ten missed tests since October 13. [Latest](msg:1a151dff1dfb590e)',story:'lakeview-late-alarm-test',source:'inbox-monitor',url:'/#/start/0123456789ac'},{actor:'cli'});inboxStore.act({action:'resolve',id:r.id});
- const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- Storefront payout deductions: the scheduled payout includes $267.48 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
- inboxStore.add({kind:'alert',priority:'high',title:'Oakridge dispatch conflict',text:'Robin says the visit was supposed to be last night and asks that nobody be dispatched, while the 8:03 notice has Jordan on the way for 9–10. [Call transcript](msg:1a1540e0de10f879) · [Dispatch notice](msg:1a1540b3f8676388) Avery should reach Jordan before 9 a.m.',story:'oakridge-service-scheduling',source:'inbox-monitor',url:'/#/start/0123456789ab',gmail:'https://mail.google.com/mail/u/0/#all/1a1540b3f8676388',dedupe:'oakridge|1'},{actor:'cli'});
+ const r=inboxStore.add({kind:'alert',title:'Birchwood alarm timer tests',text:'Ten missed tests since October 13. [Latest](msg:19f0aa01b2c3d4f4)',story:'birchwood-late-alarm-test',source:'inbox-monitor',url:'/#/start/0123456789ac'},{actor:'cli'});inboxStore.act({action:'resolve',id:r.id});
+ const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- Storefront payout deductions: the scheduled payout includes $150.00 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
+ inboxStore.add({kind:'alert',priority:'high',title:'Elmstead dispatch conflict',text:'Robin says the visit was supposed to be last night and asks that nobody be dispatched, while the 8:03 notice has Jordan on the way for 9–10. [Call transcript](msg:19f0aa01b2c3d4f1) · [Dispatch notice](msg:19f0aa01b2c3d4f2) Avery should reach Jordan before 9 a.m.',story:'elmstead-service-scheduling',source:'inbox-monitor',url:'/#/start/0123456789ab',gmail:'https://mail.google.com/mail/u/0/#all/19f0aa01b2c3d4f2',dedupe:'elmstead|1'},{actor:'cli'});
  inboxStore.seen('inbox-monitor');
  // 1.70: the watcher's profile, as inbox-monitor 0.3 sends it with its heartbeat; no owner settings yet
  inboxStore.profiles={};inboxStore.watch={};
@@ -211,7 +211,7 @@ const server=http.createServer(async(req,res)=>{
   const rel=url.pathname.slice('/mission-control/'.length),file=path.join(process.env.MISSION_CONTROL_REPO,'web',rel);
   if(!file.startsWith(path.join(process.env.MISSION_CONTROL_REPO,'web')+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}
   let body=fs.readFileSync(file);
-  if(rel.endsWith('.html'))body=Buffer.from(body.toString().replaceAll('https://claude.bbesner.com','http://localhost:'+server.address().port).replaceAll('href="/','href="/mission-control/').replaceAll('src="/','src="/mission-control/'));
+  if(rel.endsWith('.html'))body=Buffer.from(body.toString().replace(/https:\/\/claude\.[a-z0-9.-]+\.[a-z]{2,}/g,'http://localhost:'+server.address().port).replaceAll('href="/','href="/mission-control/').replaceAll('src="/','src="/mission-control/'));
   res.writeHead(200,{'content-type':rel.endsWith('.js')?'text/javascript':rel.endsWith('.css')?'text/css':'text/html'});res.end(body);return;
  }
  if(url.pathname==='/api/upload'){
@@ -257,8 +257,8 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname.endsWith('/pin')){let raw='';for await(const c of req)raw+=c;const r=rows.find(x=>x.id===decodeURIComponent(url.pathname.split('/').at(-2)));if(r){if(JSON.parse(raw||'{}').pinned)r.pinned=true;else{delete r.pinned;delete r.pinOrder;}}return json({ok:true,pinned:Boolean(r?.pinned)});}
  if(url.pathname==='/api/pins/order'){let raw='';for await(const c of req)raw+=c;const ids=JSON.parse(raw||'{}').ids||[];pinOrders.push(ids);ids.forEach((id,i)=>{const r=rows.find(x=>x.id===id);if(r?.pinned)r.pinOrder=i;});return json({ok:true,order:ids});}
- if(/^\/api\/start\/f00d[0-9a-f]{8}$/.test(url.pathname)){const id=url.pathname.slice(11),h=uiModes.handoffs?.[id];return h?json({ok:true,id,kind:'handoff',title:'Finish the Oakridge schedule',text:'Pick up the Oakridge schedule from the last draft. The dispatch list is done; the on-call rota for next week is not.',directory:'/workspaces/warehouse',provider:'claude',approvalMode:'review',...h}):json({error:'missing'},404);} // 1.96 handoff cards
- if(url.pathname.startsWith('/api/start/'))return /^\/api\/start\/[0-9a-f]{12}$/.test(url.pathname)?json({ok:true,id:url.pathname.slice(11),text:'Oakridge: Robin asks that nobody be dispatched. Reach Jordan before 9 a.m.',directory:uiModes.startDirectory||'/workspaces/warehouse',provider:'claude'}):json({error:'missing'},404); // 1.57 start links; 1.77 the Inbox briefing; 1.81 startDirectory: a link to another folder
+ if(/^\/api\/start\/f00d[0-9a-f]{8}$/.test(url.pathname)){const id=url.pathname.slice(11),h=uiModes.handoffs?.[id];return h?json({ok:true,id,kind:'handoff',title:'Finish the Elmstead schedule',text:'Pick up the Elmstead schedule from the last draft. The dispatch list is done; the on-call rota for next week is not.',directory:'/workspaces/warehouse',provider:'claude',approvalMode:'review',...h}):json({error:'missing'},404);} // 1.96 handoff cards
+ if(url.pathname.startsWith('/api/start/'))return /^\/api\/start\/[0-9a-f]{12}$/.test(url.pathname)?json({ok:true,id:url.pathname.slice(11),text:'Elmstead: Robin asks that nobody be dispatched. Reach Jordan before 9 a.m.',directory:uiModes.startDirectory||'/workspaces/warehouse',provider:'claude'}):json({error:'missing'},404); // 1.57 start links; 1.77 the Inbox briefing; 1.81 startDirectory: a link to another folder
  if(url.pathname==='/api/projects')return json(uiModes.lockedWorkspace?{projects:['/workspaces/warehouse'],defaultCwd:'/workspaces/warehouse',locked:true}:{projects:['/workspaces/warehouse','/workspaces/products'],...(uiModes.defaultCwd&&{defaultCwd:uiModes.defaultCwd})}); // 1.55: lockedWorkspace = one folder, nothing to choose; 1.81 defaultCwd: POCKET_DEFAULT_CWD
  if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}],...(url.searchParams.get('provider')==='codex'?{}:{available:['context','compact','init','recap','code-review']})});
  if(url.pathname==='/api/claude/models')return json(Array.isArray(fixtureSettings.offeredClaudeModels)?{models:fixtureOffer(fixtureSettings.offeredClaudeModels).models.filter(m=>m.offered).map(({id,label,sub})=>({id,label,sub})),defaultLabel:'Test agent',limited:true}:{models:[{id:'test',label:'Test agent'},{id:'claude-opus-5-5[1m]',label:'Opus 5.5'}],defaultLabel:'Test agent'});
@@ -274,7 +274,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/inbox/digest-cards'){ // 1.95: a digest whose story is also an open alert, and two lines of its own
    const al=inboxStore.add({kind:'alert',title:'Gate controller offline',text:'The north gate stopped answering at 6:12.',story:'north-gate',source:'inbox-monitor'},{actor:'cli'});
    const d=inboxStore.add({kind:'digest',title:'Morning email digest — Sat Nov 7',text:'## Worth knowing\n- Payout deductions\nIgnored since the last digest: 12 threads.',source:'inbox-monitor',items:[
-    {ref:'a1',section:'worth',title:'Payout deductions',text:'The scheduled payout includes $267.48 in deductions.',story:'payout',url:'/#/start/0123456789ad'},
+    {ref:'a1',section:'worth',title:'Payout deductions',text:'The scheduled payout includes $150.00 in deductions.',story:'payout',url:'/#/start/0123456789ad'},
     {ref:'a2',section:'worth',title:'Vendor price list',text:'The new price list starts Monday.',story:'vendor-prices',url:'/#/start/0123456789ae'},
     {ref:'a3',section:'worth',title:'North gate',text:'The north gate stopped answering.',story:'north-gate',url:'/#/start/0123456789af'},
    ]},{actor:'cli'});
@@ -304,7 +304,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/inbox/news-fixture'){ // an alert this conversation started from, then later mail on its story
    const sid=url.searchParams.get('session'),n=Number(url.searchParams.get('n')||1),start=url.searchParams.get('start')||'0123456789ff';
    if(!inboxStore.entries.some(e=>e.story==='harbor-gate-'+start)){inboxStore.add({kind:'alert',title:'Harbor HOA gate down',text:'The gate controller is offline.',story:'harbor-gate-'+start,source:'inbox-monitor',url:'/#/start/'+start},{actor:'cli'});inboxStore.linkStart(start,sid);}
-   for(let i=0;i<n;i++)inboxStore.add({kind:'alert',title:i?'Harbor gate: fixed':'Harbor gate: tech on site at 2 pm',text:i?'Mike says it is fixed.':'Mike is on site at 2 pm. [Mike](msg:19b03)',story:'harbor-gate-'+start,source:'inbox-monitor',gmail:'https://mail.google.com/mail/u/0/#all/19b000000000000'+i},{actor:'cli'});
+   for(let i=0;i<n;i++)inboxStore.add({kind:'alert',title:i?'Harbor gate: fixed':'Harbor gate: tech on site at 2 pm',text:i?'Kai says it is fixed.':'Kai is on site at 2 pm. [Kai](msg:19b03)',story:'harbor-gate-'+start,source:'inbox-monitor',gmail:'https://mail.google.com/mail/u/0/#all/19b000000000000'+i},{actor:'cli'});
    return json({ok:true});}
   if(url.pathname==='/api/inbox/check-done'){const k=inboxStore.watchSource(),p=inboxStore.profiles[k].profile;p.status={...p.status,checkRequestDone:inboxStore.checks[k]?.at};inboxStore.add({kind:'alert',title:'Added in Gmail: quote request',text:'Pat asks for a quote by Friday.',source:k},{actor:'cli'});return json({ok:true});} // the watcher reports it done, with what it found
   if(url.pathname==='/api/inbox/watch'){ // 1.70
@@ -339,7 +339,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/vault/lock'){if(!pass)return json({error:'The Vault is opened by the server key; there is nothing to lock.'},400);fixtureSettings.vaultLocked=true;return json({ok:true});}
   if(url.pathname==='/api/vault/export'){const b=await body();if(!longEnough(b.passphrase)||b.confirm!==b.passphrase)return json({error:'Use a passphrase of at least 12 characters, typed the same twice.'},400);
    res.writeHead(200,{'content-type':'application/octet-stream','content-disposition':'attachment; filename="pocket-vault-export-2026-10-12.pvault"'});res.end(Buffer.from('PVAULT fixture bytes'));return;}
-  if(url.pathname==='/api/vault/import'){const b=await body();if(b.passphrase!=='import-fixture-pass')return json({error:'Wrong passphrase, or not a Pocket Code Vault export.'},400);vaultFixture.imported=Buffer.from(String(b.data||''),'base64').toString();return json({ok:true,added:2,skipped:['zoho-books']});}
+  if(url.pathname==='/api/vault/import'){const b=await body();if(b.passphrase!=='import-fixture-pass')return json({error:'Wrong passphrase, or not a Pocket Code Vault export.'},400);vaultFixture.imported=Buffer.from(String(b.data||''),'base64').toString();return json({ok:true,added:2,skipped:['zeta-books']});}
   if(url.pathname==='/api/vault'){const snap=vaultStore.snapshot({owner:true});return json({...snap,requests:[...snap.requests,...vaultFixture.extraRequests],push:{enabled:false}});}
   // The whole body goes to the real store, so values (fixed and custom) and removeFields reach it unchanged.
   if(url.pathname==='/api/vault/agent-add'){const b=await body();try{return json({ok:true,item:vaultStore.act({action:'add',name:b.name,kind:b.kind,values:b.values},{actor:'agent',session:b.session,sessionTitle:b.sessionTitle})});}catch(e){return fail(e);}} // 1.93: an agent's pocket-vault put from a conversation
@@ -362,10 +362,14 @@ const server=http.createServer(async(req,res)=>{
    res.end(fs.readFileSync(file));};
   if(url.pathname.startsWith('/files/')){const r=docStore.resolvePublic(decodeURIComponent(url.pathname.slice(7)));if(!r){res.writeHead(404);res.end();return;}return sendDoc(r,false);}
   if(url.pathname.startsWith('/share/')){const r=docStore.resolveShare(url.pathname.slice(7));if(!r){res.writeHead(404);res.end();return;}return sendDoc(r,false);}
-  if(url.pathname==='/api/documents'&&req.method==='GET')return json({documents:docStore.list({project:url.searchParams.get('project')||'',q:url.searchParams.get('q')||''}),trash:docStore.list({trashed:true}),dir:docsDir,limits:{inlineHtml:10485760,trashDays:30},thumbs:{html:true,pdf:false,image:false}});
+  if(url.pathname==='/api/documents'&&req.method==='GET')return json({documents:docStore.list({project:url.searchParams.get('project')||'',q:url.searchParams.get('q')||''}),trash:docStore.list({trashed:true}),dir:docsDir,limits:{inlineHtml:10485760,trashDays:30},thumbs:{html:true,pdf:false,image:false},requests:docStore.pendingRequests(),answered:docStore.answeredRequests()});
   if(url.pathname==='/api/documents'&&req.method==='POST'){const chunks=[];for await(const c of req)chunks.push(c);try{return json(docStore.addFromBuffer(String(req.headers['x-filename']||''),Buffer.concat(chunks),{addedBy:'ui',project:String(req.headers['x-project']||'')}));}catch(e){return json({error:e.message},e.status||400);}}
   if(url.pathname==='/api/documents/keep'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw);const src=path.join(out,'kept-source.md');fs.writeFileSync(src,'# Kept from a session\n\nbody');try{return json(docStore.addFromPath(src,{session:b.session,project:b.project||'',addedBy:'session'}));}catch(e){return json({error:e.message},e.status||400);}}
   if(url.pathname==='/api/documents/reset'){seedDocs();return json({ok:true});}
+  // 1.118 (PC-04): an agent's share or publish request (raised here as a conversation would), and the owner's answer.
+  if(url.pathname==='/api/documents/requests/seed'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');try{const r=await docStore.raiseRequest(b.doc,b.change,{caller:{actor:'agent',session:rows[0].id},session:rows[0].id,sessionTitle:'Quarter close',source:path.join(os.homedir(),'reports',docStore.get(b.doc).file)});return json(docStore.requestView(r));}catch(e){return json({error:e.message},e.status||400);}}
+  const dr=/^\/api\/documents\/requests\/([0-9a-f]{16})\/answer$/.exec(url.pathname);
+  if(dr&&req.method==='POST'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,request:await docStore.answerRequest(dr[1],JSON.parse(raw||'{}').decision)});}catch(e){return json({error:e.message,...(e.code?{code:e.code}:{})},e.status||400);}}
   // 1.45: select mode's Remove, Delete forever and Empty trash, on the real store.
   if(url.pathname==='/api/documents/bulk'&&req.method==='POST'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');try{return json(docStore.bulk(b.action,b.ids));}catch(e){return json({error:e.message},e.status||400);}}
   if(url.pathname==='/api/documents/trash/empty'&&req.method==='POST')return json(docStore.emptyTrash());
@@ -954,16 +958,16 @@ try{
   await f.evaluate(id=>location.hash='#/chat/'+id,idle.id);await f.waitForSelector('#box');
   await f.evaluate(()=>{document.querySelector('#box').value='Fold regression draft';saveDraft(chatId,'Fold regression draft');window.originalComposer=document.querySelector('#box');});
   assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('clipboard-read')),true);
-  // Voice mode inside the wrapper: Mission Control must delegate the microphone and screen wake lock to the frame.
-  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('microphone')),true,'Mission Control grants Pocket the microphone');
-  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('screen-wake-lock')),true,'Mission Control grants screen wake lock');
+  // Voice mode inside the wrapper: the dashboard must delegate the microphone and screen wake lock to the frame.
+  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('microphone')),true,'the dashboard grants Pocket the microphone');
+  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('screen-wake-lock')),true,'the dashboard grants screen wake lock');
   {
    await f.waitForSelector('#micb:not([hidden])');const heard=voiceLog.transcribe.length;
    const b=await (await f.$('#micb')).boundingBox();await p.mouse.move(b.x+b.width/2,b.y+b.height/2);await p.mouse.down();
    await f.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='true');
    await new Promise(r=>setTimeout(r,900));await p.mouse.up();
    await f.waitForFunction(()=>/Added to your draft/.test(document.querySelector('#voice-strip').textContent));
-   assert.equal(voiceLog.transcribe.length,heard+1,'speech recorded inside Mission Control reached the server');
+   assert.equal(voiceLog.transcribe.length,heard+1,'speech recorded inside the dashboard reached the server');
    await f.evaluate(()=>{document.querySelector('#box').value='Fold regression draft';saveDraft(chatId,'Fold regression draft');});
   }
   for(const [width,height] of [[390,844],[691,650],[840,650],[1000,700],[390,844]]){
@@ -983,7 +987,7 @@ try{
   await p.waitForFunction(()=>document.querySelector('.masthead').hidden);
   await new Promise(r=>setTimeout(r,100));
   const after=await f.$eval('main.scroll',e=>e.clientHeight);assert.ok(after-before>80,'collapsing both headers returns reading space');
-  assert.equal(await p.$eval('.masthead',e=>e.hidden),true,'whole Mission Control header yields to the session control');
+  assert.equal(await p.$eval('.masthead',e=>e.hidden),true,'whole dashboard header yields to the session control');
   assert.ok(await f.$eval('header #run-confirmation',e=>e.getClientRects().length)>0,'status remains in the header');
   await f.click('#composer-toggle');
   const focused=await f.$eval('main.scroll',e=>e.clientHeight);

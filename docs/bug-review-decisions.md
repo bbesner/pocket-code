@@ -37,7 +37,7 @@ Run 2026-10-27 on `vault.mjs` at 1.82.0. The five real faults (DIV-3, 7, 16, 20,
 | DIV-18: a store opened by an old key saves under the new one | Guarded | Boot adopts the key that opened the store (`server.mjs`, `openedWith`). |
 | DIV-21: values under 4 characters are not scrubbed | Deliberate | A 1–3 character value would shred the output (comment in `needlesFor`). |
 | DIV-23: a run resolves before its group's SIGKILL on timeout, abort or the cap | Deliberate | Decision 4 of 2026-10-21: the slot is freed and the KILL follows on its own timer. |
-| DIV-24: an AbortSignal already aborted at the start is ignored | Guarded | `server.mjs` checks `aborted` right before the spawn (rated the same as Casey's S2-B4-2 on 2026-10-21). |
+| DIV-24: an AbortSignal already aborted at the start is ignored | Guarded | `server.mjs` checks `aborted` right before the spawn (rated the same as the external review's S2-B4-2 on 2026-10-21). |
 
 Open, for the owner to decide (not settled): DIV-19, any agent call resets the passphrase Vault's idle-lock timer, so an
 agent that keeps using the Vault keeps it unlocked.
@@ -60,15 +60,15 @@ Restoration rechecks its version and protocol and refuses a changed target. Mana
 are retained without pruning so running processes are never stripped of their package files.
 
 
-## Casey's 1.88.1 batch — 2026-10-30
+## The external 1.88.1 batch — 2026-10-30
 
 22 faults (`faults-1.88.1.md`) and a six-item private security report, checked by reading `dd93e6f`; each item was
-tested against 1.88.1 before anything changed (`test/casey-1881-*.test.mjs`). 24 real (fixed in 1.89.0), two already
+tested against 1.88.1 before anything changed (`test/review-1881-*.test.mjs`). 24 real (fixed in 1.89.0), two already
 fixed (F-5 in 1.82.0, F-14 in 1.83.0), and the two below left as they are.
 
 | Finding | Ruling | Reason |
 |---|---|---|
 | F-13: the "Message delivered." note stays while the state is `background` | Not a fault | `background` means the reply is still working (1.64); the CLI's own turn ends finished, failed or stopped and clears it, and the next send clears the old note before showing its own (`public/app.js` `sendMessage`). |
-| F-21: every sheet toggles `app.inert`, which recalculates style for the whole page | Deliberate | Measured on a 5,377-element page (headless Chrome, median of 5): 27 ms per open-and-close at normal speed, 123 ms at 4× CPU slowdown, 100 / 83 ms open / close at 4× with accessibility on (Casey measured 56, and 451 / 971 with accessibility on). A focus trap without `inert` is faster but lets find-in-page match text behind the sheet and leaves assistive technology relying on `aria-modal`. Kept; `test/casey-1881-sheet-perf.mjs` (`POCKET_PERF=1`) re-measures it. |
+| F-21: every sheet toggles `app.inert`, which recalculates style for the whole page | Deliberate | Measured on a 5,377-element page (headless Chrome, median of 5): 27 ms per open-and-close at normal speed, 123 ms at 4× CPU slowdown, 100 / 83 ms open / close at 4× with accessibility on (the reviewer measured 56, and 451 / 971 with accessibility on). A focus trap without `inert` is faster but lets find-in-page match text behind the sheet and leaves assistive technology relying on `aria-modal`. Kept; `test/review-1881-sheet-perf.mjs` (`POCKET_PERF=1`) re-measures it. |
 | F-12: `closeCodexSession` resolved two seconds after SIGKILL by design (1.73.7) | Changed | The intent (never block forever) stands, but the close now reports the truth: it completes only on a confirmed exit and fails with 423 after five more seconds, so a replacement is not started beside a live process. |
 | F-9 as described (ignore transcript growth while Pocket's CLI is alive) | Not adopted | It would break `test/runner.test.mjs:151`: a terminal turn written while Pocket's idle process is alive must still count as another app's. The fault itself (a turn the CLI ran while the daemon was down read as foreign after a restart) is fixed by replaying the runner output from the offset the marker records. |

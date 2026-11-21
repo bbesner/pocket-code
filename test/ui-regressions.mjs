@@ -641,7 +641,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await open(A);
    assert.ok((await tabs()).includes('new/'+A),'the unsent conversation has a tab');
    assert.equal(await page.$eval(`.open-session[data-tab="new/${A}"]`,e=>e.classList.contains('current')),true,'and it is the current tab');
-   assert.match(await page.$eval(`.open-session[data-tab="new/${A}"] a`,e=>e.textContent),/Oakridge: Robin asks that nobody be dispatched/,'named after the briefing');
+   assert.match(await page.$eval(`.open-session[data-tab="new/${A}"] a`,e=>e.textContent),/Elmstead: Robin asks that nobody be dispatched/,'named after the briefing');
    await page.focus('#first');await page.keyboard.press('End');await page.keyboard.type(' Also call Robin.');
    await open(B);
    assert.ok(!(await box()).includes('Also call Robin.'),'the second start has its own draft');
@@ -890,7 +890,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    }finally{rows[1].title=before;await page.evaluate(()=>refreshSessions());}
    await scan('tabs-reorder-desktop');await page.screenshot({path:path.join(out,'tabs-reorder-desktop.png')});
   });
-  await check('Row pin: one click pins and unpins without opening the conversation; Pin is the first option (1.94, Damon)',async()=>{
+  await check('Row pin: one click pins and unpins without opening the conversation; Pin is the first option (1.94, colleague request)',async()=>{
    await page.setViewport({width:1440,height:900});
    const a=rows[4].id,clay='rgb(217, 119, 87)';
    await openChat(rows[3].id);
@@ -1407,7 +1407,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.goto(base+'/#/tasks');await page.waitForSelector('.task-item');
    const list=await page.evaluate(()=>({titles:[...document.querySelectorAll('.task-item .title')].map(e=>e.textContent),groups:[...document.querySelectorAll('.project-group h2')].map(h=>h.textContent.replace(/\s+/g,' ').trim()),due:document.querySelector('.task-item.due .due-label')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent,badge:document.querySelector('[data-tasks-badge]')?.textContent,done:document.querySelector('details.project-group')?.open}));
    // 1.50: with Projects on, the open project reminders sit among the dated tasks, soonest first; the Tasks badge counts both.
-   assert.deepEqual(list.titles,['Send the aisle 4 recount to purchasing','Recount aisle 4 excluding Friday delivery','Chase the revised camera quote','Chase the revised quote','Read the TVT firmware notes','Book the forklift service'],'due first (task, then reminder), then dated by time, then undated, finished last');
+   assert.deepEqual(list.titles,['Send the aisle 4 recount to purchasing','Recount aisle 4 excluding Friday delivery','Chase the revised camera quote','Chase the revised quote','Read the Lumacam firmware notes','Book the forklift service'],'due first (task, then reminder), then dated by time, then undated, finished last');
    assert.deepEqual(list.groups,['To do 5 · 2 due','Done 1']);assert.match(list.due,/^Due /);assert.equal(list.tab,'Tasks','the list is a tab like a session');assert.equal(list.badge,'2','due tasks and reminders on the rail switch');assert.equal(list.done,false,'finished tasks start collapsed');
    const rem=await page.evaluate(()=>{const r=document.querySelector('.reminder-item');return {due:r.classList.contains('due'),facts:r.querySelector('.session-status').textContent,href:r.querySelector('a.row').getAttribute('href'),icon:r.querySelector('.task-check').getAttribute('aria-label'),projectsBadge:document.querySelector('[data-projects-badge]')?.hidden,tabMark:document.querySelector('.open-session.current .tab-state')?.getAttribute('aria-label')};});
    assert.equal(rem.due,true);assert.match(rem.facts,/^Due .*Warehouse stock report/);assert.match(rem.href,/^#\/projects\/warehouse-stock-report/);assert.match(rem.icon,/^Reminder options: Recount aisle 4/);
@@ -1444,7 +1444,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('[data-tasks-badge]',e=>e.textContent),'1','the due task is done: the due reminder is what remains');
    // From a session: the Add task chip, the editor naming the session, the briefing on by default and kept with the task.
    await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#task-open')?.hidden===false);
-   // 1.50: the rail switch shows the due count on every view, here a conversation with the rail on Sessions (reported by Brad).
+   // 1.50: the rail switch shows the due count on every view, here a conversation with the rail on Sessions (reported by the owner).
    await page.waitForFunction(()=>document.querySelector('[data-rail-view="sessions"]')?.getAttribute('aria-pressed')==='true'&&document.querySelector('[data-tasks-badge]')?.textContent==='1');
    assert.equal(await page.$eval('[data-tasks-badge]',e=>e.hidden),false,'the Tasks count shows without opening the Tasks list');
    assert.equal(await page.$eval('#task-open',e=>e.textContent),'Add task');assert.equal(await page.$eval('#task-open',e=>Boolean(e.closest('#tbar'))),true,'Add task is a chip in the message toolbar');
@@ -1547,7 +1547,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.setViewport({width,height:900});await page.goto(base+'/#/');await page.waitForSelector('.rail,.list,main');
     await page.evaluate(()=>settingsSheet({category:'agents'}));await page.waitForFunction(()=>!document.querySelector('#s-trusted-list').hasAttribute('aria-busy'));
     // The server default, said so, with the rule it skipped.
-    assert.deepEqual(await rules(),['Bash(techpro-lookup:*)']);
+    assert.deepEqual(await rules(),['Bash(acme-lookup:*)']);
     assert.match(await page.$eval('#s-trusted-note',e=>e.textContent),/^From POCKET_TRUSTED_ACTIONS on this server: one action run without asking\. A change here replaces it\. The server's list skips one rule it cannot use: Edit\.$/);
     assert.equal(await page.$eval('#s-trusted-reset',e=>e.hidden),true);
     assert.equal(await page.$eval('#s-trusted-add',e=>e.disabled),true,'nothing to add yet');
@@ -1559,20 +1559,20 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(settings.trustedActions,undefined,'nothing was saved');
     await scan('settings-trusted-error-'+width);
     // Typing clears the error; a good rule is saved for the instance, normalised, and the field empties.
-    await page.evaluate(()=>{const i=document.querySelector('#s-trusted-input');i.value='';});await page.type('#s-trusted-input','Bash(sck-site product :*)');
+    await page.evaluate(()=>{const i=document.querySelector('#s-trusted-input');i.value='';});await page.type('#s-trusted-input','Bash(shop-site product :*)');
     assert.equal(await page.$eval('#s-trusted-error',e=>e.textContent),'');
     await page.keyboard.press('Enter');for(let i=0;i<30&&!Array.isArray(settings.trustedActions);i++)await sleep(100);
-    assert.deepEqual(settings.trustedActions,['Bash(techpro-lookup:*)','Bash(sck-site product:*)']);
+    assert.deepEqual(settings.trustedActions,['Bash(acme-lookup:*)','Bash(shop-site product:*)']);
     await page.waitForFunction(()=>document.querySelectorAll('#s-trusted-list .trusted-row').length===2&&document.querySelector('#s-trusted-input').value==='');
     assert.match(await page.$eval('#s-trusted-note',e=>e.textContent),/^Chosen here: 2 actions run without asking\. This replaces the server's list\.$/);
     assert.equal(await page.$eval('#s-trusted-reset',e=>e.hidden),false);
     const overflow=await page.evaluate(()=>{const s=document.querySelector('.settings-sheet');return s.scrollWidth-s.clientWidth;});assert.ok(overflow<=1,'no horizontal overflow at '+width);
     await scan('settings-trusted-'+width);await page.screenshot({path:path.join(out,'settings-trusted-'+width+'.png')});
     // Remove the first: saved, and focus goes to the row that took its place.
-    assert.equal(await page.$eval('[data-trusted-remove="0"]',e=>e.getAttribute('aria-label')),'Remove Bash(techpro-lookup:*)');
+    assert.equal(await page.$eval('[data-trusted-remove="0"]',e=>e.getAttribute('aria-label')),'Remove Bash(acme-lookup:*)');
     await clickControl(page,'[data-trusted-remove="0"]');for(let i=0;i<30&&settings.trustedActions.length!==1;i++)await sleep(100);
-    assert.deepEqual(settings.trustedActions,['Bash(sck-site product:*)']);
-    await page.waitForFunction(()=>document.activeElement?.dataset?.trustedRemove==='0'&&document.activeElement.getAttribute('aria-label')==='Remove Bash(sck-site product:*)');
+    assert.deepEqual(settings.trustedActions,['Bash(shop-site product:*)']);
+    await page.waitForFunction(()=>document.activeElement?.dataset?.trustedRemove==='0'&&document.activeElement.getAttribute('aria-label')==='Remove Bash(shop-site product:*)');
     // Remove the last: the list says every action asks; focus falls back to the field.
     await clickControl(page,'[data-trusted-remove="0"]');for(let i=0;i<30&&settings.trustedActions.length;i++)await sleep(100);
     await page.waitForFunction(()=>/Every action shows the approval card/.test(document.querySelector('#s-trusted-list').textContent)&&document.activeElement?.id==='s-trusted-input');
@@ -1599,7 +1599,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // The list: the waiting request above the secrets, a badge on the rail switch, the login's expiry in amber.
    await page.goto(base+'/#/vault');await page.reload();await page.waitForSelector('.vault-item');
    const list=await page.evaluate(()=>({names:[...document.querySelectorAll('#vault-main .vault-item [data-vault-open] .title')].map(e=>e.textContent),requests:[...document.querySelectorAll('#vault-main .vault-request h3 .vault-name')].map(e=>e.textContent),badge:document.querySelector('[data-vault-badge]')?.textContent,rail:Boolean(document.querySelector('[data-rail-view="vault"]')),due:document.querySelector('.vault-item.due .due-label')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent}));
-   assert.deepEqual(list.names,['square-hooks','acme-oauth','bank-recovery','vendor-portal','zoho-books'],'newest first by default');assert.deepEqual(list.requests,['zoho-books']);assert.equal(list.badge,'1');assert.equal(list.rail,true,'the rail switch shows Vault');assert.match(list.due,/^Expires /);assert.equal(list.tab,'Vault');
+   assert.deepEqual(list.names,['square-hooks','acme-oauth','bank-recovery','vendor-portal','zeta-books'],'newest first by default');assert.deepEqual(list.requests,['zeta-books']);assert.equal(list.badge,'1');assert.equal(list.rail,true,'the rail switch shows Vault');assert.match(list.due,/^Expires /);assert.equal(list.tab,'Vault');
    await scan('vault-list-desktop');await page.screenshot({path:path.join(out,'vault-list-desktop.png')});
    // 1.110.1: the rail's Vault panel has Ask someone beside Add secret, and it opens the same sheet as the page's.
    await clickControl(page,'[data-rail-view="vault"]');await page.waitForSelector('#rail .rail-vault #rail-vault-ask');
@@ -1610,18 +1610,18 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.screenshot({path:path.join(out,'vault-rail-ask-desktop.png')});
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-ask'));
    await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
-   // 1.93 (Damon): the request is one plain sentence; Allow is the brand orange beside a matching Deny.
+   // 1.93 (colleague request): the request is one plain sentence; Allow is the brand orange beside a matching Deny.
    const ask=await page.evaluate(()=>{const c=document.querySelector('#vault-main .vault-request'),a=c.querySelector('.vault-allow'),p=document.createElement('i');p.style.color='var(--clay)';document.body.append(p);const clay=getComputedStyle(p).color;p.remove();
     return {text:c.querySelector('h3').textContent.replace(/\s+/g,' ').trim(),allow:a?.dataset.answer,allowText:a?.textContent,deny:c.querySelector('.vault-deny')?.dataset.answer,bg:getComputedStyle(a).backgroundColor,clay,h:a.getBoundingClientRect().height};});
-   assert.equal(ask.text,'The agent in “Warehouse stock report” wants to use zoho-books for this command');
+   assert.equal(ask.text,'The agent in “Warehouse stock report” wants to use zeta-books for this command');
    assert.equal(ask.allow,'once');assert.equal(ask.allowText,'Allow once');assert.equal(ask.deny,'deny');assert.equal(ask.bg,ask.clay,'Allow is the brand orange');assert.ok(ask.h>=44,'Allow is a full-size button');
    // Order: A–Z on request, remembered on the device; the search narrows the list by name, kind or tag.
    const shownNames=()=>page.$$eval('#vault-main .vault-secrets .vault-item:not([hidden]) [data-vault-open] .title',e=>e.map(x=>x.textContent));
    await page.select('#vault-order','name');await page.waitForFunction(()=>document.querySelector('#vault-main .vault-secrets .vault-item .title')?.textContent==='acme-oauth');
-   assert.deepEqual(await shownNames(),['acme-oauth','bank-recovery','square-hooks','vendor-portal','zoho-books']);assert.equal(await page.evaluate(()=>localStorage.getItem('pc-vault-order')),'name');
+   assert.deepEqual(await shownNames(),['acme-oauth','bank-recovery','square-hooks','vendor-portal','zeta-books']);assert.equal(await page.evaluate(()=>localStorage.getItem('pc-vault-order')),'name');
    await page.select('#vault-order','new');await page.waitForFunction(()=>document.querySelector('#vault-main .vault-secrets .vault-item .title')?.textContent==='square-hooks');
    const query=async q=>{await page.$eval('#vault-query',(e,q)=>{e.value=q;e.dispatchEvent(new Event('input',{bubbles:true}));},q);};
-   await query('billing');assert.deepEqual(await shownNames(),['zoho-books'],'a tag matches');assert.equal(await page.$eval('[data-vault-count]',e=>e.textContent),'1 of 5');
+   await query('billing');assert.deepEqual(await shownNames(),['zeta-books'],'a tag matches');assert.equal(await page.$eval('[data-vault-count]',e=>e.textContent),'1 of 5');
    await query('login vendor');assert.deepEqual(await shownNames(),['vendor-portal'],'every word must match');
    await query('nothing-like-this');assert.deepEqual(await shownNames(),[]);assert.equal(await page.$eval('[data-vault-none]',e=>e.hidden?'':e.textContent),'No secrets match “nothing-like-this”.');
    await query('');assert.equal((await shownNames()).length,5);
@@ -1637,14 +1637,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-sheet'));
    // Always allow answers the request and saves the command on the item.
    await clickControl(page,'#vault-main .vault-request [data-answer="always"]');await page.waitForFunction(()=>!document.querySelector('#vault-main .vault-request'));
-   await page.waitForFunction(()=>vaultSnap.items.find(i=>i.name==='zoho-books')?.recipes.length===2);
+   await page.waitForFunction(()=>vaultSnap.items.find(i=>i.name==='zeta-books')?.recipes.length===2);
    assert.equal(await page.$eval('[data-vault-badge]',e=>e.hidden),true,'no request, no badge');
    // 1.93: the notification for an answered request opens on what happened to it.
    await page.goto(base+'/#/vault/request/'+rid);await page.waitForSelector('#vault-main .vault-notice');
-   assert.match(await page.$eval('#vault-main .vault-notice',e=>e.textContent),/^You already allowed zoho-books /);
+   assert.match(await page.$eval('#vault-main .vault-notice',e=>e.textContent),/^You already allowed zeta-books /);
    // The sheet: a value only on Show, gone from the page once it closes, never in storage.
    const id=name=>page.evaluate(n=>(vaultSnap.items.find(i=>i.name===n)||vaultSnap.trash.find(i=>i.name===n)).id,name);
-   const zoho=await id('zoho-books');await clickControl(page,`[data-vault-open="${zoho}"]`);await page.waitForSelector('.vault-sheet [data-history] ul');
+   const zeta=await id('zeta-books');await clickControl(page,`[data-vault-open="${zeta}"]`);await page.waitForSelector('.vault-sheet [data-history] ul');
    assert.equal((await page.content()).includes(SECRET),false,'no value before Show');assert.equal(await page.$$eval('.vault-sheet [data-recipe]',e=>e.length),2);
    await clickControl(page,'.vault-sheet [data-field="value"] [data-show]');await page.waitForFunction(s=>document.querySelector('.vault-value.shown')?.textContent===s,{},SECRET);
    await scan('vault-sheet-desktop');await page.screenshot({path:path.join(out,'vault-sheet-desktop.png')});
@@ -1657,8 +1657,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForFunction(()=>!document.querySelector('.vault-editor')&&vaultSnap.items.some(i=>i.name==='stripe-live'));
    assert.equal(await page.evaluate(()=>document.documentElement.outerHTML.includes('sk-fixture-stripe')||JSON.stringify(localStorage).includes('sk-fixture-stripe')),false);
    // A save against a stale revision is refused and the form stays open with the reason.
-   await clickControl(page,`[data-vault-open="${zoho}"]`);await page.waitForSelector('.vault-sheet [data-edit]');await clickControl(page,'.vault-sheet [data-edit]');await page.waitForSelector('.vault-editor form');
-   await page.evaluate(id=>{const i=vaultSnap.items.find(x=>x.id===id);return fetch('/api/vault/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'update',item:id,expected_revision:i.revision,tags:['elsewhere']})});},zoho);
+   await clickControl(page,`[data-vault-open="${zeta}"]`);await page.waitForSelector('.vault-sheet [data-edit]');await clickControl(page,'.vault-sheet [data-edit]');await page.waitForSelector('.vault-editor form');
+   await page.evaluate(id=>{const i=vaultSnap.items.find(x=>x.id===id);return fetch('/api/vault/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'update',item:id,expected_revision:i.revision,tags:['elsewhere']})});},zeta);
    await clickControl(page,'.vault-editor .primary');await page.waitForFunction(()=>/changed on another device/.test(document.querySelector('.vault-form-error')?.textContent||''));
    assert.ok(await page.$('.vault-editor form'),'the form stays open');await page.keyboard.press('Escape');
    // Remove sends it to Removed; Restore brings it back.
@@ -1679,7 +1679,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     const before=convo.length;convo.push({role:'assistant',blocks:[{t:'text',text:'Here is the next step.\n\n'+base+'/#/start/'+hid+'\n\n'+base+'/#/start/'+spare+'\n\n'+base+'/#/start/'+gone+'\n\n'+base+'/#/start/'+second+'\n\nSee '+base+'/#/start/'+inline+' when you can.'}]});
     await page.setViewport({width:1440,height:900});await page.goto(base+'/#/chat/'+rows[0].id);await page.waitForSelector(`[data-handoff="${hid}"] [data-handoff-start]`);
     const seen=await page.$eval(`[data-handoff="${hid}"]`,e=>({text:e.textContent.replace(/\s+/g,' '),review:e.querySelector('a.chip').getAttribute('href'),hidden:e.previousElementSibling.hidden}));
-    assert.match(seen.text,/Continue in a new conversation/);assert.match(seen.text,/Finish the Oakridge schedule/);assert.match(seen.text,/Review actions/);assert.equal(seen.review,'#/start/'+hid);assert.equal(seen.hidden,true,'the link stays in the reply, hidden, so copying keeps it');
+    assert.match(seen.text,/Continue in a new conversation/);assert.match(seen.text,/Finish the Elmstead schedule/);assert.match(seen.text,/Review actions/);assert.equal(seen.review,'#/start/'+hid);assert.equal(seen.hidden,true,'the link stays in the reply, hidden, so copying keeps it');
     assert.equal(await page.$eval(`[data-handoff="${spare}"] [data-handoff-start]`,e=>e.disabled),true,'no Start into a missing folder');
     assert.match(await page.$eval(`[data-handoff="${spare}"]`,e=>e.textContent),/no longer exists/);
     assert.equal(await page.$(`[data-handoff="${inline}"]`),null,'a link inside a sentence stays a link');
@@ -1701,7 +1701,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await clickControl(page,'[data-vault-home]');await page.waitForSelector('.vault-item');
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390');
    await scan('vault-list-mobile');await page.screenshot({path:path.join(out,'vault-list-mobile.png')});
-   // 1.93 (Damon): a secret an agent stores from a conversation is marked New, and the conversation gets a card that opens it.
+   // 1.93 (colleague request): a secret an agent stores from a conversation is marked New, and the conversation gets a card that opens it.
    await page.setViewport({width:1440,height:900});
    await page.evaluate(s=>fetch('/api/vault/agent-add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'staging-wp',kind:'login',values:{username:'ops',password:'wp-fixture-pass-5512'},...s})}),{session:rows[0].id,sessionTitle:rows[0].title});
    await page.goto(base+'/#/chat/'+rows[0].id);await page.waitForSelector('.file-card[data-card-vault]');
@@ -1723,7 +1723,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     const id=name=>page.evaluate(n=>(vaultSnap.items.find(i=>i.name===n)||vaultSnap.trash.find(i=>i.name===n)).id,name);
     // The sheet lists every field, fixed first then custom; each is masked until Show, and the agent hint names item.field.
     const acme=await id('acme-oauth');
-    assert.equal(await page.$eval(`.vault-item[data-item="${acme}"] .vault-kind`,e=>e.innerHTML),await page.$eval(`.vault-item[data-item="${await id('zoho-books')}"] .vault-kind`,e=>e.innerHTML),'Credentials use the key icon');
+    assert.equal(await page.$eval(`.vault-item[data-item="${acme}"] .vault-kind`,e=>e.innerHTML),await page.$eval(`.vault-item[data-item="${await id('zeta-books')}"] .vault-kind`,e=>e.innerHTML),'Credentials use the key icon');
     await clickControl(page,`[data-vault-open="${acme}"]`);await page.waitForSelector('.vault-sheet [data-history] ul');
     const sheetA=await page.evaluate(()=>({kind:document.querySelector('.vault-sheet h2').textContent,labels:[...document.querySelectorAll('.vault-sheet .vault-field-label')].map(e=>e.textContent),use:[...document.querySelectorAll('.vault-sheet .vault-use code')].map(e=>e.textContent)}));
     assert.deepEqual(sheetA,{kind:'Credentials',labels:['client_id','client_secret'],use:['acme-oauth.client_id','acme-oauth.client_secret']});
@@ -1783,15 +1783,15 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   });
   await check('Vault in-place edit (1.44.2): Show reveals every field of a multi-field API key with its line break, and Edit loads a saved value to correct it, at 390 and 1440',async()=>{
    const settings=settingsState();settings.vault=true;settings.vaultReady=true;
-   const PASTED='sinch-secret-fixture-30-chars\nAuthorization: Basic c2luY2gtZml4dHVyZQ==',CLEAN='sinch-secret-fixture-30-chars';
+   const PASTED='smsgw-secret-fixture-30-chars\nAuthorization: Basic c21zZ3ctZml4dHVyZQ==',CLEAN='smsgw-secret-fixture-30-chars';
    const acts=[],views=[];const onReq=r=>{const u=new URL(r.url()).pathname;if(r.method()!=='POST')return;if(u==='/api/vault/act')acts.push(JSON.parse(r.postData()||'{}'));if(u==='/api/vault/field')views.push(JSON.parse(r.postData()||'{}').field);};page.on('request',onReq);
-   const leaked=()=>page.evaluate(vs=>vs.filter(v=>document.documentElement.outerHTML.includes(v)||JSON.stringify(localStorage).includes(v)||JSON.stringify(sessionStorage).includes(v)),['sinch-secret-fixture','c2luY2gtZml4dHVyZQ','sinch-key-fixture']);
+   const leaked=()=>page.evaluate(vs=>vs.filter(v=>document.documentElement.outerHTML.includes(v)||JSON.stringify(localStorage).includes(v)||JSON.stringify(sessionStorage).includes(v)),['smsgw-secret-fixture','c21zZ3ctZml4dHVyZQ','smsgw-key-fixture']);
    try{
     for(const [w,h] of [[390,844],[1440,900]]){
      await page.setViewport({width:w,height:h});
      await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
      await page.goto(base+'/#/vault');await page.reload();await page.waitForSelector('#vault-main .vault-item');
-     const id=await page.evaluate(v=>fetch('/api/vault/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'add',name:'sinch-engage',kind:'api_key',values:{value:'sinch-key-fixture-2026',base_url:'https://au.app.api.sinch.com',api_secret:v}})}).then(r=>r.json()).then(j=>j.item.id),PASTED);
+     const id=await page.evaluate(v=>fetch('/api/vault/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'add',name:'sms-gateway',kind:'api_key',values:{value:'smsgw-key-fixture-2026',base_url:'https://api.sms.example.com',api_secret:v}})}).then(r=>r.json()).then(j=>j.item.id),PASTED);
      await page.evaluate(()=>loadVault(true).then(repaintVault));await page.waitForSelector(`[data-vault-open="${id}"]`);
      // The sheet: Show on each field shows that field, and a pasted line break shows as one.
      await clickControl(page,`[data-vault-open="${id}"]`);await page.waitForSelector('.vault-sheet [data-history] ul');
@@ -1799,7 +1799,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      for(const f of ['value','base_url','api_secret'])await clickControl(page,`.vault-sheet [data-field="${f}"] [data-show]`);
      await page.waitForFunction(()=>document.querySelectorAll('.vault-sheet .vault-value.shown').length===3);
      const shown=await page.evaluate(()=>[...document.querySelectorAll('.vault-sheet .vault-field')].map(r=>{const v=r.querySelector('.vault-value');const b=v.getBoundingClientRect();return {f:r.dataset.field,text:v.textContent,ws:getComputedStyle(v).whiteSpace,h:b.height,w:b.width};}));
-     assert.deepEqual(shown.map(x=>x.text),['sinch-key-fixture-2026','https://au.app.api.sinch.com',PASTED]);
+     assert.deepEqual(shown.map(x=>x.text),['smsgw-key-fixture-2026','https://api.sms.example.com',PASTED]);
      assert.equal(shown[2].ws,'pre-wrap');assert.ok(shown.every(x=>x.w>100&&x.h>10),'every value is visible: '+JSON.stringify(shown));
      assert.equal(await page.evaluate(()=>{const s=document.querySelector('.vault-sheet');return s.scrollWidth>s.clientWidth+1||document.documentElement.scrollWidth>innerWidth;}),false,'the sheet fits at '+w);
      await scan('vault-sheet-shown-'+w);await page.screenshot({path:path.join(out,`vault-sheet-shown-${w}.png`)});
@@ -1821,7 +1821,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      await clickControl(page,'.vault-editor [data-custom="api_secret"] [data-reveal]');assert.equal(views.length,before+1,'loaded once');
      // The Key is loaded too but left as it was; emptying a loaded value is refused, not saved as "keep".
      await clickControl(page,'.vault-editor [data-secret="value"] ~ [data-reveal]');
-     await page.waitForFunction(()=>document.querySelector('.vault-editor [data-secret="value"]').value==='sinch-key-fixture-2026');
+     await page.waitForFunction(()=>document.querySelector('.vault-editor [data-secret="value"]').value==='smsgw-key-fixture-2026');
      assert.equal(await page.$eval('.vault-editor [data-secret="value"]',e=>e.type),'text');
      await page.$eval(secretBox,e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));});
      const sent=acts.length;await clickControl(page,'.vault-editor .primary');
@@ -1927,7 +1927,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     const file=path.join(out,'fixture-import.pvault');fs.writeFileSync(file,'PVAULT import fixture');
     await (await page.$('.vault-import-sheet input[type=file]')).uploadFile(file);
     await page.type('.vault-import-sheet [name=passphrase]',IMPORT_PASS);await clickControl(page,'.vault-import-sheet .primary');
-    await page.waitForFunction(()=>document.querySelector('.vault-import-sheet .vault-pass-result')?.textContent==='Already here: zoho-books');
+    await page.waitForFunction(()=>document.querySelector('.vault-import-sheet .vault-pass-result')?.textContent==='Already here: zeta-books');
     assert.equal(await page.$eval('#toast',e=>e.textContent),'Imported 2 items');
     const imp=last('/api/vault/import');assert.equal(imp.body.passphrase,IMPORT_PASS);assert.equal(vaultFixture.imported,'PVAULT import fixture','the file went as base64');
     assert.equal(await page.$eval('.vault-import-sheet [name=passphrase]',e=>e.value),'','the passphrase is wiped once imported');
@@ -1982,17 +1982,17 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.$eval('#s-vault-access-note',e=>e.textContent),'Every use needs your approval, from the notification or in the conversation.');
     await page.select('#s-vault-access','free');for(let i=0;i<30&&settings.vaultAccess!=='free';i++)await pause(100);
     await page.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Agent access: Free rein');
-    assert.match(await page.$eval('#s-vault-access-note',e=>e.textContent),/^Agents use any secret by name without asking\. Values still never enter the conversation, and every use is recorded\.$/);
+    assert.match(await page.$eval('#s-vault-access-note',e=>e.textContent),/^Agents use any secret by name without asking, and every use is recorded\. Any agent on this server can obtain such a value, so keep it for low-value keys\.$/);
     await page.$eval('#s-vault-more',e=>e.scrollIntoView({block:'center'}));
     await scan('vault-settings-access');await page.screenshot({path:path.join(out,'vault-settings-access.png')});
     await page.select('#s-vault-access','every');for(let i=0;i<30&&settings.vaultAccess!=='every';i++)await pause(100);
     await page.keyboard.press('Escape');
     // The list: an item that follows the default reads as the setting; one with its own policy keeps it.
-    const zoho=await id('zoho-books'),sq=await id('square-hooks');
-    await page.waitForFunction(z=>/Asks every time/.test(document.querySelector(`#vault-main .vault-item[data-item="${z}"] .session-status`)?.textContent||''),{},zoho);
+    const zeta=await id('zeta-books'),sq=await id('square-hooks');
+    await page.waitForFunction(z=>/Asks every time/.test(document.querySelector(`#vault-main .vault-item[data-item="${z}"] .session-status`)?.textContent||''),{},zeta);
     assert.match(await page.$eval(`#vault-main .vault-item[data-item="${sq}"] .session-status`,e=>e.textContent),/Asks once per command/);
     // The sheet: the effective word, no override note for an item on the default.
-    await clickControl(page,`[data-vault-open="${zoho}"]`);await page.waitForSelector('.vault-sheet [data-policy]');
+    await clickControl(page,`[data-vault-open="${zeta}"]`);await page.waitForSelector('.vault-sheet [data-policy]');
     assert.equal(await page.$eval('.vault-sheet .vault-policy strong',e=>e.textContent),'Asks every time');
     assert.equal(await page.$('.vault-sheet .vault-policy-note'),null,'no note while it follows the default');
     // Change who can use it: five choices, the default named with the current setting and selected.
@@ -2026,6 +2026,23 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.deepEqual(await page.$$eval('#vault-main .vault-request[data-request="fixture-every"] [data-answer]',bs=>bs.map(b=>b.dataset.answer)),['deny','once']);
     assert.ok(await page.$('#vault-main .vault-request:not([data-request="fixture-every"]) [data-answer="always"]'),'a request that may be remembered keeps Always allow');
     await scan('vault-request-every');
+    // Second review: the card shows each variable with the secret it gets; a command allowed with other variables says so
+    // and names them; a script an agent can change gets a note; a command Pocket cannot pin says why and offers no Always allow.
+    const fx=(id,extra)=>({id,items:['fixture'],itemNames:['reports-api'],cwd:'/workspaces/reports',session:rows[0].id,sessionTitle:rows[0].title,created:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60000).toISOString(),answer:null,...extra});
+    vaultFixture.extraRequests=[...vaultFixture.extraRequests,
+     fx('fixture-vars',{itemNames:['reports-api','mail-login'],argv:['node','scripts/stock-report.mjs'],program:'/usr/local/bin/node',variables:[{v:'REPORTS_TOKEN',name:'reports-api',field:'value'},{v:'MAIL_PASS',name:'mail-login',field:'password'}],changed:'variables',was:[{v:'REPORTS_TOKEN',name:'reports-api',field:'value'}],files:[{path:'/usr/local/bin/node',role:'program'},{path:'/workspaces/reports/scripts/stock-report.mjs',role:'script',writable:true}],allowAlways:true}),
+     fx('fixture-refuse',{argv:['npm','run','deploy'],program:'/usr/local/bin/npm',variables:[{v:'REPORTS_TOKEN',name:'reports-api',field:'value'}],files:[{path:'/usr/local/bin/npm',role:'program'}],refuse:{why:'scripts',how:'npm run'},allowAlways:false}),
+    ];
+    await page.reload();await page.waitForSelector('#vault-main .vault-request[data-request="fixture-refuse"]');
+    const vars=await page.$eval('#vault-main .vault-request[data-request="fixture-vars"]',c=>({vars:[...c.querySelectorAll('.vault-request-vars > span:not([aria-hidden])')].map(e=>e.textContent.replace(/\s+/g,' ').trim()),changed:c.querySelector('.vault-request-changed')?.textContent.replace(/\s+/g,' ').trim(),notes:[...c.querySelectorAll('.vault-request-note')].map(n=>n.textContent.replace(/\s+/g,' ').trim()),answers:[...c.querySelectorAll('[data-answer]')].map(b=>b.dataset.answer)}));
+    assert.deepEqual(vars.vars,['Variables','REPORTS_TOKEN gets reports-api','MAIL_PASS gets mail-login (password)']);
+    assert.equal(vars.changed,'You allowed this command always with REPORTS_TOKEN gets reports-api, but its variables have changed. Check them before you allow it again.');
+    assert.ok(vars.notes.some(n=>/^An agent can change scripts\/stock-report\.mjs or its folder/.test(n)),JSON.stringify(vars.notes));
+    assert.deepEqual(vars.answers,['deny','always','once']);
+    const ref=await page.$eval('#vault-main .vault-request[data-request="fixture-refuse"]',c=>({notes:[...c.querySelectorAll('.vault-request-note')].map(n=>n.textContent.replace(/\s+/g,' ').trim()),answers:[...c.querySelectorAll('[data-answer]')].map(b=>b.dataset.answer)}));
+    assert.deepEqual(ref.notes,['npm run runs a script the project defines (in package.json or a task file), which Pocket does not check. Always allow is not offered.']);
+    assert.deepEqual(ref.answers,['deny','once']);
+    await scan('vault-request-variables');
     // The phone: Settings → Vault and the requests fit at 390.
     await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('#vault-main .vault-request[data-request="fixture-every"]');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390');
@@ -2297,14 +2314,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await clickControl(page,'[data-resume]');await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Active');
    c=await card();assert.deepEqual(c.reminders,[],'resuming does not restore them');assert.deepEqual(c.actions,['Start conversation','Edit','Remind me','Finish project']);
    // 1.49 Start session: a New session in the project's directory, briefed on the card and linked to the project when it starts.
-   await page.evaluate(async()=>{const act=b=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:'warehouse-stock-report',...b})});await act({action:'note',text:'MOM shows the Friday delivery twice.'});await act({action:'remind',at:new Date(Date.now()+86400000).toISOString(),text:'Revisit Warehouse stock report'});});
+   await page.evaluate(async()=>{const act=b=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:'warehouse-stock-report',...b})});await act({action:'note',text:'The stock ledger shows the Friday delivery twice.'});await act({action:'remind',at:new Date(Date.now()+86400000).toISOString(),text:'Revisit Warehouse stock report'});});
    await page.reload();await page.waitForSelector('.project-card [data-start]');
    await clickControl(page,'.project-card [data-start]');await page.waitForSelector('#first');await page.waitForFunction(()=>document.querySelector('#plist .row.sel')&&!document.querySelector('#new-project').hidden);
    const brief=await page.$eval('#first',e=>e.value);
    assert.match(brief,/^Pick up the project "Warehouse stock report" where it left off\.\n\nWhere we left off: Counts for aisles 1-3/);
    assert.match(brief,/\nNext step: Recount aisle 4 with the Friday delivery excluded/);
    assert.match(brief,/\nRemaining steps \(2 of 3 done\):\n- Post the inventory adjustment \(step [0-9a-f]{12}\)\n/);
-   assert.match(brief,/\nRecent notes:\n- .+: MOM shows the Friday delivery twice\.\n/);assert.match(brief,/\nReminders:\n- Revisit Warehouse stock report/);
+   assert.match(brief,/\nRecent notes:\n- .+: The stock ledger shows the Friday delivery twice\.\n/);assert.match(brief,/\nReminders:\n- Revisit Warehouse stock report/);
    assert.match(brief,new RegExp('Earlier conversations on this project, newest last:\\n- Warehouse stock report \\(Claude conversation '+rows[0].id+'\\)'));
    assert.match(brief,/\(Pocket project warehouse-stock-report; this conversation is linked to it\..*pocket-board update -p warehouse-stock-report/);
    assert.equal(await page.$eval('#plist .row.sel',e=>e.dataset.p),'/workspaces/warehouse','Start picks the project\'s directory');
@@ -2453,12 +2470,38 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const shareUrl=await page.$eval('#share-url',e=>e.value);assert.match(shareUrl,new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'/share/[A-Za-z0-9_-]{40,}$'));
    const shared=await page.goto(shareUrl);assert.equal(shared.status(),200);assert.match(shared.headers()['content-security-policy'],/frame-ancestors 'none'/);
    await back();await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet [data-reshare]');
+   // 1.118 (PC-05): a link made earlier is not shown again; the sheet says it is open, with Make a new link and Revoke link.
+   assert.equal(await page.$('.share-sheet #share-url'),null,'an existing link is not shown again');assert.ok(await page.$('.share-sheet [data-revoke]'),'Revoke link is offered');
+   assert.equal(await page.$('.doc-tools [data-copy-link]'),null,'no Copy link for a link the library cannot show');
    await clickControl(page,'.share-sheet [data-reshare]');await page.waitForSelector('.share-sheet #share-url');const shareUrl2=await page.$eval('#share-url',e=>e.value);assert.notEqual(shareUrl2,shareUrl);
    assert.equal((await page.goto(shareUrl)).status(),404,'the old link no longer works');await back();
    await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await clickControl(page,'.share-sheet [data-v="public"]');await page.waitForFunction(()=>/\/files\//.test(document.querySelector('#share-url')?.value||''));
    const pubUrl=await page.$eval('#share-url',e=>e.value);assert.match(pubUrl,/\/files\/ops-dashboard\.html$/);assert.equal((await page.goto(pubUrl)).status(),200);await back();
    await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await clickControl(page,'.share-sheet [data-v="private"]');await page.waitForFunction(()=>!document.querySelector('.share-sheet'));
    assert.equal((await page.goto(pubUrl)).status(),404,'private again');await back();
+   // 1.118 (PC-04): an agent's publish waits for the owner: the Vault's request card at the top of Files, the exact change,
+   // and Allow or Deny. Allow does exactly that change; Deny leaves the file as it was.
+   const dashId=await page.evaluate(()=>docsSnap.documents.find(d=>d.kind==='html').id);
+   const seed=change=>page.evaluate(async(doc,change)=>(await fetch('/api/documents/requests/seed',{method:'POST',body:JSON.stringify({doc,change})})).json(),dashId,change);
+   const asked=await seed({to:'public'});assert.match(asked.id,/^[0-9a-f]{16}$/,JSON.stringify(asked));
+   await page.goto(base+'/#/documents');await page.waitForSelector('#doc-requests .vault-request');
+   const card=await page.$eval('#doc-requests',el=>({h2:el.querySelector('h2').textContent.replace(/\s+/g,' ').trim(),h3:el.querySelector('h3').textContent.replace(/\s+/g,' ').trim(),change:el.querySelector('.vault-cmd').textContent,where:el.querySelector('.vault-request-where').textContent.replace(/\s+/g,' '),buttons:[...el.querySelectorAll('.vault-request-actions button')].map(b=>b.textContent)}));
+   assert.equal(card.h2,'Requests 1 waiting');assert.equal(card.h3,'The agent in “Quarter close” wants to publish Ops dashboard');
+   assert.equal(card.change,'Make public at '+base+'/files/ops-dashboard.html');assert.match(card.where,/^~\/reports\/ops-dashboard\.html\s*·\s*HTML · \d+ B\s*·\s*Asked just now$/);assert.deepEqual(card.buttons,['Deny','Allow']);
+   const allowCss=await page.$eval('#doc-requests .vault-allow',e=>getComputedStyle(e).backgroundColor),vaultCss=await page.evaluate(()=>{const b=document.createElement('button');b.className='vault-answer vault-allow';document.body.append(b);const c=getComputedStyle(b).backgroundColor;b.remove();return c;});
+   assert.equal(allowCss,vaultCss,'the Vault\'s own Allow button');
+   await scan('documents-request-desktop');await page.screenshot({path:path.join(out,'documents-request-desktop.png')});
+   const vp=page.viewport();await page.setViewport({width:390,height:844});await page.goto(base+'/#/documents');await page.waitForSelector('#doc-requests .vault-request');
+   await scan('documents-request-mobile');await page.screenshot({path:path.join(out,'documents-request-mobile.png')});await page.setViewport(vp);
+   await page.goto(base+'/#/documents');await page.waitForSelector('#doc-requests .vault-request');
+   assert.equal((await page.goto(base+'/files/ops-dashboard.html')).status(),404,'nothing public before Allow');await page.goto(base+'/#/documents');await page.waitForSelector('#doc-requests .vault-allow');
+   await clickControl(page,'#doc-requests .vault-allow');await page.waitForFunction(()=>!document.querySelector('#doc-requests'));
+   assert.equal(await page.evaluate(id=>docsSnap.documents.find(d=>d.id===id).visibility,dashId),'public');assert.equal((await page.goto(base+'/files/ops-dashboard.html')).status(),200,'Allow published it');await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
+   await page.evaluate(async id=>{await fetch('/api/documents/'+id,{method:'POST',body:JSON.stringify({visibility:'private'})});},dashId);
+   const asked2=await seed({to:'link',expiresAt:null});assert.match(asked2.id||'',/^[0-9a-f]{16}$/,JSON.stringify(asked2));await page.reload();await page.waitForSelector('#doc-requests .vault-deny');
+   assert.equal(await page.$eval('#doc-requests .vault-cmd',e=>e.textContent),'Create a share link, with no expiry');
+   await clickControl(page,'#doc-requests .vault-deny');await page.waitForFunction(()=>!document.querySelector('#doc-requests'));
+   assert.equal(await page.evaluate(id=>docsSnap.documents.find(d=>d.id===id).visibility,dashId),'private','Deny changed nothing');
    // Markdown and CSV render natively.
    await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
    await page.evaluate(()=>{[...document.querySelectorAll('.document-item')].find(r=>r.querySelector('.doc-kind').textContent==='MD').querySelector('a').click();});
@@ -2823,9 +2866,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.$eval('aside.rail',e=>e.style.width='');
     await page.waitForFunction(()=>document.querySelector('[data-inbox-badge]')?.textContent==='1');
     await scan('rail-six-1440');
-    // 1.77.3 (Brad): every order of switching shows the entry's own list. Tasks → Projects left the task list where it was: the
+    // 1.77.3 (owner request): every order of switching shows the entry's own list. Tasks → Projects left the task list where it was: the
     // Tasks, Vault and Inbox lists carry .rail-projects for their styling, and once Projects had painted, its painter took any
-    // of them for its own list and did nothing. Chats → Projects worked, which is how Brad got there.
+    // of them for its own list and did nothing. Chats → Projects worked, which is how the owner got there.
     const railLists=()=>page.evaluate(()=>[...document.querySelectorAll('#rail > .session-panel, #rail > .rail-projects, #rail > .rail-documents')].map(e=>['session-panel','rail-documents','rail-tasks','rail-vault','rail-inbox'].find(c=>e.classList.contains(c))||'rail-board').map(c=>({'session-panel':'sessions','rail-board':'projects','rail-documents':'documents','rail-tasks':'tasks','rail-vault':'vault','rail-inbox':'inbox'})[c]).join('+')); // the project list is the .rail-projects root that is none of the other three
     const switchRail=async view=>{await clickControl(page,`[data-rail-view="${view}"]`);await page.waitForFunction(v=>document.querySelector(`[data-rail-view="${v}"]`)?.getAttribute('aria-pressed')==='true',{},view);
      try{await page.waitForFunction(v=>document.querySelectorAll('#rail > *').length===1&&(v==='sessions'?document.querySelector('#rail > .session-panel'):v==='projects'?document.querySelector('#rail > .rail-projects:not(.rail-tasks):not(.rail-vault):not(.rail-inbox) .project-item'):document.querySelector(`#rail > .rail-${v}`)),{timeout:3000},view);}catch{}
@@ -2837,7 +2880,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      assert.equal(await page.$eval('#ktitle',e=>e.textContent),'Inbox');
      assert.deepEqual(await page.$$eval('.inbox-view .inbox-item',r=>r.map(x=>x.className.match(/state-\w+/)[0])),['state-new','state-opened'],'1.71: Open opens first: unread and read, nothing finished, at '+w);
      await clickControl(page,'[data-inbox-filter="new"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1);
-     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item .title',t=>t.map(x=>x.textContent)),['Oakridge dispatch conflict'],'Unread shows the one new alert at '+w);
+     assert.deepEqual(await page.$$eval('.inbox-view .inbox-item .title',t=>t.map(x=>x.textContent)),['Elmstead dispatch conflict'],'Unread shows the one new alert at '+w);
      assert.ok((await page.$$eval('.inbox-item button',bs=>bs.map(b=>b.getBoundingClientRect().height))).every(h=>h>=44),'44px targets');
      await clickControl(page,'[data-inbox-filter="open"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
      assert.match(await page.$eval('.inbox-item.state-new .inbox-text',e=>e.textContent),/Robin says/);
@@ -2850,39 +2893,39 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     // The list repaints when the server answers an action; a click that lands on the row just replaced is tried again.
     const clickRow=async sel=>{for(let i=0;;i++){try{return await clickControl(page,sel);}catch(e){if(i>=4||!/detached|not clickable|No element/i.test(String(e.message)))throw e;await new Promise(r=>setTimeout(r,250));}}};
     // 1.77: the dot is its own control: read → unread → read, the row staying where it is; it sits level with the title
-    await clickRow('[data-inbox-read][aria-label="Mark as unread: Oakridge dispatch conflict"]');await page.waitForSelector('.inbox-view .inbox-item.state-new [data-inbox-read][aria-label="Mark as read: Oakridge dispatch conflict"]');
+    await clickRow('[data-inbox-read][aria-label="Mark as unread: Elmstead dispatch conflict"]');await page.waitForSelector('.inbox-view .inbox-item.state-new [data-inbox-read][aria-label="Mark as read: Elmstead dispatch conflict"]');
     assert.equal(await page.$eval('.inbox-item.state-new .inbox-mark .i circle',c=>getComputedStyle(c).fill!=='none'),true,'unread is a filled dot');
     assert.ok(await page.$eval('.inbox-item.state-new',r=>{const d=r.querySelector('.inbox-mark .i').getBoundingClientRect(),t=r.querySelector('.row .title').getBoundingClientRect();const mid=d.top+d.height/2;return mid>t.top&&mid<t.top+28;}),'the dot is level with the first line of the title');
     assert.equal(await page.evaluate(()=>document.querySelector('.inbox-sheet')),null,'the dot opens nothing');
-    await clickRow('[data-inbox-read][aria-label="Mark as read: Oakridge dispatch conflict"]');await page.waitForFunction(()=>!document.querySelector('.inbox-view .inbox-item.state-new'));
-    assert.equal(await page.$eval('[data-inbox-read][aria-label="Mark as unread: Oakridge dispatch conflict"] .i circle',c=>getComputedStyle(c).fill),'none','read is a ring');
+    await clickRow('[data-inbox-read][aria-label="Mark as read: Elmstead dispatch conflict"]');await page.waitForFunction(()=>!document.querySelector('.inbox-view .inbox-item.state-new'));
+    assert.equal(await page.$eval('[data-inbox-read][aria-label="Mark as unread: Elmstead dispatch conflict"] .i circle',c=>getComputedStyle(c).fill),'none','read is a ring');
     // 1.77: Start a conversation from the alert: New carries the start link, and the row then shows the conversation
-    await clickRow('.inbox-item:has([aria-label="Mark as unread: Oakridge dispatch conflict"]) .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet [data-go]');
+    await clickRow('.inbox-item:has([aria-label="Mark as unread: Elmstead dispatch conflict"]) .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet [data-go]');
     assert.equal(await page.$('.inbox-sheet [data-chat]'),null,'no conversation yet');
     await clickControl(page,'.inbox-sheet [data-go]');await page.waitForFunction(()=>location.hash==='#/new/0123456789ab'&&/Reach Jordan/.test(document.querySelector('#first')?.value||'')); // 1.112: its own unsent conversation
     const sentBefore=received.length;await clickControl(page,'#start');await page.waitForFunction(n=>location.hash.startsWith('#/chat/')||false,{},sentBefore);
     assert.equal(received.at(-1).start,'0123456789ab','the start link reaches /api/new');
     await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view .inbox-item .inbox-chat');
-    assert.equal(await page.$eval('.inbox-item .inbox-chat',a=>[a.getAttribute('href'),a.getAttribute('aria-label'),a.getBoundingClientRect().height>=44&&a.getBoundingClientRect().width>=44].join('|')),'#/chat/66666666-6666-4666-8666-666666666666|Open the conversation: Oakridge dispatch conflict|true');
+    assert.equal(await page.$eval('.inbox-item .inbox-chat',a=>[a.getAttribute('href'),a.getAttribute('aria-label'),a.getBoundingClientRect().height>=44&&a.getBoundingClientRect().width>=44].join('|')),'#/chat/66666666-6666-4666-8666-666666666666|Open the conversation: Elmstead dispatch conflict|true');
     assert.equal(await page.$$eval('.inbox-view .inbox-chat',a=>a.length),1,'only the entry it started from');
     await clickRow('.inbox-item:has(.inbox-chat) .row[data-inbox-open]');await page.waitForSelector('.inbox-sheet [data-chat]');
     assert.deepEqual(await page.$$eval('.inbox-sheet .opt',o=>o.slice(0,3).map(x=>x.firstElementChild.nextElementSibling.firstChild.textContent)),['Open the conversation','New conversation, hand-off from the last one','Start another conversation']); // 1.115: the hand-off sits between them
     await scan('inbox-conversation-1440');
     await clickControl(page,'.inbox-sheet [data-chat]');await page.waitForFunction(()=>location.hash==='#/chat/66666666-6666-4666-8666-666666666666'&&!document.querySelector('.inbox-sheet'));
-    await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view [data-inbox-more][aria-label="Options for Oakridge dispatch conflict"]');
-    await clickRow('[data-inbox-more][aria-label="Options for Oakridge dispatch conflict"]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
-    assert.match(await page.$eval('.inbox-sheet .inbox-body',e=>e.innerHTML),/<a href="https:\/\/mail\.google\.com\/mail\/u\/0\/#all\/1a1540e0de10f879"/,'a citation is a Gmail link');
+    await page.goto(base+'/#/inbox');await page.waitForSelector('.inbox-view [data-inbox-more][aria-label="Options for Elmstead dispatch conflict"]');
+    await clickRow('[data-inbox-more][aria-label="Options for Elmstead dispatch conflict"]');await page.waitForSelector('.inbox-sheet');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
+    assert.match(await page.$eval('.inbox-sheet .inbox-body',e=>e.innerHTML),/<a href="https:\/\/mail\.google\.com\/mail\/u\/0\/#all\/19f0aa01b2c3d4f1"/,'a citation is a Gmail link');
     assert.deepEqual(await page.evaluate(()=>['[data-go]','a.opt[href^="https://mail.google.com/"]','[data-resolve]','[data-useless]','[data-dismiss]','[data-restore]'].map(q=>Boolean(document.querySelector('.inbox-sheet '+q)))),[true,true,true,true,true,false],'the choices: open, Gmail, Resolved, Not useful, Dismiss; no Restore on a new entry');
     assert.equal(await page.$eval('.inbox-sheet [data-dismiss] .sub',e=>e.textContent),'Off your list and out of Pocket Inbox in Gmail; the watcher learns nothing','1.103: Dismiss says what it does in Gmail');
     await clickControl(page,'.inbox-sheet [data-resolve]');await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));
-    await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1,'Oakridge leaves Open');
-    await clickControl(page,'[data-inbox-filter="done"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item.state-resolved').length===2,'Done: Oakridge joins Lakeview as resolved');
-    assert.equal(await page.$eval('[data-inbox-dismiss][aria-label="Dismiss: Oakridge dispatch conflict"]',b=>b.title),'Dismiss: off your list and out of Pocket Inbox in Gmail','1.103: with the Gmail label on, the X says the label comes off');
-    await clickControl(page,'[data-inbox-dismiss][aria-label="Dismiss: Oakridge dispatch conflict"]');await page.waitForSelector('.inbox-item.state-dismissed');
+    await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===1,'Elmstead leaves Open');
+    await clickControl(page,'[data-inbox-filter="done"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item.state-resolved').length===2,'Done: Elmstead joins Birchwood as resolved');
+    assert.equal(await page.$eval('[data-inbox-dismiss][aria-label="Dismiss: Elmstead dispatch conflict"]',b=>b.title),'Dismiss: off your list and out of Pocket Inbox in Gmail','1.103: with the Gmail label on, the X says the label comes off');
+    await clickControl(page,'[data-inbox-dismiss][aria-label="Dismiss: Elmstead dispatch conflict"]');await page.waitForSelector('.inbox-item.state-dismissed');
     await page.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Dismissed. The Pocket Inbox label comes off in Gmail at the next check','the X confirms it like the sheet\'s Dismiss');
     assert.equal(await page.$$eval('.inbox-view .inbox-item',r=>r.length),2,'Done holds resolved and dismissed alike');
     await clickControl(page,'.inbox-item.state-dismissed [data-inbox-more]');await page.waitForSelector('.inbox-sheet [data-restore]');await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));await clickControl(page,'.inbox-sheet [data-restore]');
-    await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-view .inbox-item .title')].map(x=>x.textContent).join()==='Lakeview alarm timer tests','restored: only Lakeview is left in Done');
+    await page.waitForFunction(()=>!document.querySelector('.inbox-sheet'));await page.waitForFunction(()=>[...document.querySelectorAll('.inbox-view .inbox-item .title')].map(x=>x.textContent).join()==='Birchwood alarm timer tests','restored: only Birchwood is left in Done');
     await clickControl(page,'[data-inbox-filter="open"]');await page.waitForFunction(()=>document.querySelectorAll('.inbox-view .inbox-item').length===2);
     // 1.75: Check now, beside Schedule in the view and beside All in the rail; busy until the watcher reports it done
     assert.equal(await page.evaluate(()=>{const d=document.createElement('div');d.innerHTML=railInboxHTML();return [...d.querySelector('.rail-project-actions').children].map(x=>x.textContent.trim()).join('|');}),'All|Check now','the rail: Check now beside All');
@@ -2907,7 +2950,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));settings.assistantMode=true;
     await page.setViewport({width:390,height:844});await page.goto(base+'/#/');await page.reload();await page.waitForSelector('.assistant-home');
     await page.waitForSelector('#home-waiting .inbox-card');
-    assert.equal(await page.$eval('#home-waiting .inbox-card .home-card-title',e=>e.textContent),'Oakridge dispatch conflict');
+    assert.equal(await page.$eval('#home-waiting .inbox-card .home-card-title',e=>e.textContent),'Elmstead dispatch conflict');
     assert.match(await page.$eval('#home-waiting .inbox-card',e=>e.getAttribute('href')),/^#\/inbox\/[0-9a-f]{12}$/,'1.69.1: the card opens the entry to read, not the session');
     await page.mouse.move(1,1);await page.evaluate(()=>document.querySelector('#tip')?.setAttribute('hidden',''));await scan('assistant-home-inbox-390');
    }finally{Object.assign(settings,before);settings.assistantMode=false;await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}

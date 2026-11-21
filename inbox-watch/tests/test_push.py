@@ -93,9 +93,9 @@ def test_urgent_pushes_only_chosen_kinds():
 
 def test_repeat_on_a_story_waits_until_it_gets_worse():
     store, pocket = setup({"mode": "urgent", "kinds": list(S.PUSH_KINDS), "perDay": 0, "repeat": "worse"})
-    alert(store, "Site down", story="oaks-down", priority="normal", push_kind="outage")
-    alert(store, "Site still down", story="oaks-down", priority="normal", push_kind="outage")
-    alert(store, "Site down, 40 cameras", story="oaks-down", priority="high", push_kind="outage")
+    alert(store, "Site down", story="pines-down", priority="normal", push_kind="outage")
+    alert(store, "Site still down", story="pines-down", priority="normal", push_kind="outage")
+    alert(store, "Site down, 40 cameras", story="pines-down", priority="high", push_kind="outage")
     assert [p for _, p, _ in pocket.sent] == [True, False, True], pocket.sent
     assert pocket.sent[1][2].startswith("Not pushed: this story"), pocket.sent[1]
 

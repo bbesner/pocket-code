@@ -45,7 +45,7 @@ export function claudeConnectorsOff({ home, managedDir, env = process.env }) {
 
 // 1.53.2: a failed read says why and is marked `transient`, so the server logs it and does not keep it.
 // chatgpt.com sometimes answers a server's connector-directory request with a Cloudflare bot check
-// (an HTML page) instead of the list; seen from AWS on 2026-10-16. Returns a short, HTML-free detail.
+// (an HTML page) instead of the list; seen once from a cloud host in October 2026. Returns a short, HTML-free detail.
 export function connectorError(e) {
   const raw = String(e?.message || e || '');
   const challenge = /cf_chl|challenge-platform|Just a moment|<html|<!DOCTYPE/i.test(raw);

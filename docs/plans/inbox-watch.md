@@ -1,6 +1,6 @@
 # Inbox Watch in Pocket: plan
 
-**Prepared:** October 19, 2026 · **Status:** shipped: the Inbox library in 1.69.0 (October 19) and its schedule, models, first pass and cost settings in 1.70.0 (October 20); inbox-monitor 0.2 and 0.3 on Brad's instance · **Built against:** Pocket Code 1.68.1 (build 133) and inbox-monitor 0.1.0
+**Prepared:** October 19, 2026 · **Status:** shipped: the Inbox library in 1.69.0 (October 19) and its schedule, models, first pass and cost settings in 1.70.0 (October 20); inbox-monitor 0.2 and 0.3 on the owner's instance · **Built against:** Pocket Code 1.68.1 (build 133) and inbox-monitor 0.1.0
 
 ## What it is
 
@@ -13,7 +13,7 @@ Vault, built the way Tasks was: a small store on the server, a few routes, a vie
 agents and jobs, and a Settings switch. The worker stays outside Pocket on its timer; Pocket is
 where the owner reads and answers.
 
-**The test it has to pass:** Brad opens Inbox on his phone, sees this morning's Oakridge alert and
+**The test it has to pass:** The owner opens Inbox on his phone, sees this morning's Elmstead alert and
 the 8 a.m. look-ahead in one list, taps X on a notice he never wants again, and the next morning's
 digest does not mention that kind of notice. On a seat, an account manager sees the same list with
 no file path, model name or dollar figure anywhere.
@@ -67,12 +67,12 @@ new|opened|dismissed|resolved|not_useful, seenAt, actedAt, actor }`. Limits: 500
 [--priority …] [--story …] [--url …] [--gmail …] [--doc …] [--email]`, `list [--state new]`,
 `act <id> <action>`, `feedback [--since …]`, `ack <ids…>`. Same loopback/token pattern as the
 other four commands. A `pocket-inbox` skill is written while the feature is on, so an agent
-asked "what did Inbox Watch send today" or "mark the Lakeview alert resolved" can do it.
+asked "what did Inbox Watch send today" or "mark the Birchwood alert resolved" can do it.
 
 **View** (`public/inbox.js`, rail view `inbox`):
 
 - Rows newest first, grouped by day. A row: unread dot, time, **title**, first sentence of the
-  text with citations rendered as Gmail links, then a quiet line "Oakridge service-call story ·
+  text with citations rendered as Gmail links, then a quiet line "Elmstead service-call story ·
   alert" (or "digest", "look-ahead"). Actions on the row: **Open** (the briefed conversation
   for an alert, the Files document for a digest or look-ahead), **Gmail**, **X** (dismiss).
 - The row's **…** menu: Resolved ("this situation is over"), Not useful ("don't alert me about
@@ -89,7 +89,7 @@ label on wide screens, icon only below 480px**, the pressed entry keeping its la
 `aria-label`, 44px targets and the existing badge. One change for all five libraries, shipped in
 this release whether or not Inbox is on, so the rail is one component, not two.
 
-**Assistant mode.** A `new` alert adds a **Waiting for you** card on home ("Inbox Watch: Oakridge
+**Assistant mode.** A `new` alert adds a **Waiting for you** card on home ("Inbox Watch: Elmstead
 needs dispatch attention before 9 a.m." · Open); the card clears when the row is opened or
 dismissed. Digests and look-aheads do not make cards; they wait in Inbox and Files.
 
@@ -103,7 +103,7 @@ the notification settings).
 the CLI. Browser suite: the list at 390 and 1440 in both modes, the row actions, the rail with six
 entries at 360/390/768/1440, the Waiting-for-you card, axe clean.
 
-**Done when:** the Oakridge alert sent by the worker appears in Inbox within a run, opens the
+**Done when:** the Elmstead alert sent by the worker appears in Inbox within a run, opens the
 briefed conversation from the row, X hides it, Not useful shows up in `/api/inbox/feedback`,
 the rail reads at 360px with six entries and 44px targets, and the browser suite is green.
 
@@ -113,7 +113,7 @@ the rail reads at 360px with six entries and 44px targets, and the browser suite
   gives the entry, the push and the optional email) instead of calling `pocket-notify`. The entry
   carries the story key, priority, start link, Gmail thread, and the Files id for a digest.
 - At the start of every run the worker reads `/api/inbox/feedback`, applies it, and acks:
-  - **Resolved** → the story is marked resolved with a timeline event "Brad marked this resolved
+  - **Resolved** → the story is marked resolved with a timeline event "the owner marked this resolved
     in Pocket"; the judge sees it and stops following.
   - **Not useful** → one line appended to `preferences.md` ("Do not alert on: *title* — marked
     not useful on Oct 20"), which the judge reads every turn, and the story's priority drops to
@@ -133,12 +133,12 @@ toggle. Nothing in a conversation changes.
 
 Pocket 1.69 follows CONTRIBUTING.md: branch, unit and browser suites, PR, merge, deploy here,
 then tenants and seats with the guarded scripts, ledger entry. inbox-monitor 0.2 follows on
-Brad's instance first (his delivery is already `pocket`), then the first seat (one account manager's), two
-working days, then the other three, logged in `AGENT-SEATS.md`. Each seat needs its own
+The owner's instance first (his delivery is already `pocket`), then the first seat (one account manager's), two
+working days, then the other three, logged in the seats' rollout log. Each seat needs its own
 `config.toml` (service-account mail access, judge Sonnet/Opus, delivery `pocket`), a timer, and a
 `preferences.md` seeded with the role's standing preferences.
 
-## Decisions (Brad, October 19): the recommendations, all five
+## Decisions (the owner, October 19): the recommendations, all five
 
 1. **The rail name.** "Inbox" (recommended: one word like the others) or "Inbox Watch".
 2. **The rail at phone width.** Icons only below 480px with the pressed entry labelled

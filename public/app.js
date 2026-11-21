@@ -14,7 +14,7 @@ const IC = {
   // 1.76.2: the rail switch's own glyphs, one silhouette each (a bubble, a flag, a page, a circle, a lock, an envelope),
   // since a folder, a page, a checkbox and a tray all read as the same small box. The folder stays the workspace glyph.
   railChats: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h15v10.5h-8.5l-4.5 3.8v-3.8h-2z"/><path d="M8.5 9.5h7M8.5 12.5h4.5"/></svg>',
-  railProjects: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V3.5"/><path d="M6 4.5h12.5l-3.5 4.5 3.5 4.5H6"/></svg>', // 1.76.4: a flag, a goal with a next step (Damon's glyph)
+  railProjects: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V3.5"/><path d="M6 4.5h12.5l-3.5 4.5 3.5 4.5H6"/></svg>', // 1.76.4: a flag, a goal with a next step (a colleague's glyph)
   railFiles: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3h7.5l4.5 4.5V21h-12z"/><path d="M14 3v4.5h4.5M9.5 12h6M9.5 15.5h6"/></svg>',
   railTasks: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M8.3 12.3l2.6 2.6 4.9-5.3"/></svg>',
   railInbox: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M4 7l8 6 8-6"/></svg>',
@@ -690,6 +690,12 @@ function renderUnreachable(e) {
   clearTimeout(renderUnreachable.timer);
   renderUnreachable.timer = setTimeout(() => { if (document.querySelector('[data-offline]')) route(); }, 10000);
 }
+// 1.118: the owner's time zone (Inbox Watch, quiet hours, due times) goes to the server with a POST once per page load.
+let zoneReported = false;
+function reportTimezone() {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; if (zoneReported || !tz) return; zoneReported = true;
+  api('/timezone', { method: 'POST', body: JSON.stringify({ tz }) }).catch(() => { zoneReported = false; });
+}
 /* ---------- login ---------- */
 function renderLogin() {
   app.innerHTML = `
@@ -704,7 +710,7 @@ function renderLogin() {
     try {
       await api('/login', { method: 'POST', body: JSON.stringify({ password: $('#pw').value }) });
       route();
-    } catch (e) { $('#lerr').textContent = e.status === 429 ? 'Too many attempts — wait an hour.' : 'Wrong password.'; }
+    } catch (e) { $('#lerr').textContent = e.code === 'busy' ? 'Too many sign-in attempts right now. Try again in a minute.' : e.status === 429 ? 'Too many attempts — wait an hour.' : 'Wrong password.'; }
   };
   $('#go').onclick = go;
   $('#pw').onkeydown = e => { if (e.key === 'Enter') go(); };
@@ -726,9 +732,16 @@ async function pushRegistration() {
   } catch { return null; }
   finally { clearTimeout(timer); }
 }
+// D-5.3: a browser can still hold a subscription the server dropped (Sign out everywhere removes them all); it is
+// unsubscribed here, so the bell and Settings show Off and the owner turns notifications on again.
 async function pushState() {
-  try { const reg = await pushRegistration(); return reg ? await reg.pushManager.getSubscription() : null; }
-  catch { return null; }
+  try {
+    const reg = await pushRegistration(), sub = reg ? await reg.pushManager.getSubscription() : null;
+    if (!sub) return null;
+    try { await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) }); }
+    catch (e) { if (e.code === 'not_subscribed') { await sub.unsubscribe().catch(() => { }); return null; } }
+    return sub;
+  } catch { return null; }
 }
 async function togglePush(btn) {
   if (btn) btn.disabled = true;
@@ -859,6 +872,11 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
         <p class="vault-field-error" id="s-access-error" role="alert"></p>
         <span class="vault-set-actions"><button class="chip" type="submit" id="s-access-save" disabled>Save</button><button class="chip" type="button" id="s-access-off" hidden>Turn off</button><button class="chip" type="button" id="s-access-reset" hidden>Use the server's values</button></span>
       </form></div>
+    <div class="title-settings model-offer" id="s-signout" role="group" aria-labelledby="s-signout-h" aria-describedby="s-signout-lead">
+      <p class="vault-set-head" id="s-signout-h">Sign out</p>
+      <p class="title-note" id="s-signout-lead">Sign out also turns off notifications on this browser. Sign out everywhere does both on every browser and phone, this one included; turn notifications on again where you still want them. Use it for a lost phone or a shared computer.</p>
+      <p class="vault-field-error" id="s-signout-error" role="alert"></p>
+      <span class="vault-set-actions"><button class="chip" type="button" id="s-signout-here">Sign out</button><button class="chip" type="button" id="s-signout-all">Sign out everywhere</button></span></div>
     <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-conversation tabs</span></span></button>
     <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a reply finishes on screen</span></span></button>
     <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse steps<span class="sub">Fold each run of steps behind a one-line summary</span></span></button>
@@ -868,7 +886,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings push-kinds" id="s-push-kinds" role="group" aria-label="Which notifications this device gets">
       <button class="opt" id="s-push-turns" disabled aria-pressed="false"><span class="dot"></span><span>Finished replies<span class="sub">When a conversation finishes a reply, unless it is muted</span></span></button>
       <button class="opt" id="s-push-reminders" disabled aria-pressed="false"><span class="dot"></span><span>Due tasks and reminders<span class="sub">Once when each comes due. Tomorrow and Done on the notification answer without opening Pocket</span></span></button>
-      <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">When an agent needs a secret you have to allow</span></span></button>
+      <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">When an agent needs a secret, or wants to share or publish a file, and you have to allow it</span></span></button>
       <button class="opt" id="s-push-alerts" disabled aria-pressed="false"><span class="dot"></span><span>Inbox alerts<span class="sub">An alert from Inbox Watch or another job on the server; urgent, like a due reminder</span></span></button>
     </div>
     <button class="opt" id="s-badge" aria-pressed="false"><span class="dot"></span><span>Count on the app icon<span class="sub" id="s-badge-state">How many tasks and reminders are due, on the installed app's icon</span></span></button>
@@ -995,8 +1013,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   };
   const refreshPush = async () => {
     const reg = await pushRegistration();
-    let sub = null;
-    try { if (reg) sub = await reg.pushManager.getSubscription(); } catch { }
+    const sub = reg ? await pushState() : null;
     if (!sh.isConnected) return;
     pushSub = sub; pushPrefs = null;
     const btn = sh.querySelector('#s-push');
@@ -1189,6 +1206,20 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   sh.querySelector('#s-access-form').onsubmit = e => { e.preventDefault(); saveAccess({ team: sh.querySelector('#s-access-team').value, aud: sh.querySelector('#s-access-aud').value, emails: sh.querySelector('#s-access-emails').value }, 'One sign-in saved'); };
   sh.querySelector('#s-access-off').onclick = () => confirmSheet('Turn off one sign-in?', 'Pocket asks for its own password again after Cloudflare Access. Browsers already signed in stay signed in for up to a day.', 'Turn off', () => saveAccess({ enabled: false }, 'One sign-in is off'));
   sh.querySelector('#s-access-reset').onclick = () => saveAccess(null, 'Using the server\'s values');
+  // 1.118: sign out this browser, or every browser (the server ends every earlier cookie); either way the sign-in page follows.
+  // D-5.3: the server forgets this browser's push subscription (Sign out everywhere forgets them all) and the browser drops it.
+  const signOut = async everywhere => {
+    const err = sh.querySelector('#s-signout-error'); err.textContent = '';
+    let sub = null; try { sub = await (await pushRegistration())?.pushManager.getSubscription(); } catch { }
+    try {
+      await api(everywhere ? '/logout/everywhere' : '/logout', { method: 'POST', body: JSON.stringify(sub && !everywhere ? { endpoint: sub.endpoint } : {}) });
+      try { await sub?.unsubscribe(); } catch { }
+      closeCurrentSheet?.(); renderLogin();
+    }
+    catch (e2) { if (e2.message !== 'login' && sh.isConnected) err.textContent = e2.message || 'Could not sign out'; }
+  };
+  sh.querySelector('#s-signout-here').onclick = () => signOut(false);
+  sh.querySelector('#s-signout-all').onclick = () => confirmSheet('Sign out everywhere?', 'Every browser and phone signed in to Pocket, this one included, has to sign in again, and notifications stop on all of them until you turn them on again. Conversations and replies in progress carry on.', 'Sign out everywhere', () => signOut(true));
   sh.querySelector('#s-models-list').onclick = e => {
     const btn = e.target.closest('[data-offer-model]'), cm = srv?.claudeModels; if (!btn || !cm) return;
     const m = cm.models.find(x => x.id === btn.dataset.offerModel); if (!m) return;
@@ -1397,9 +1428,9 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const on = Boolean(srv.vault), ready = srv.vaultReady !== false, create = srv.vaultCanCreateKey === true, needsKey = srv.vaultNeedsKey === true;
     btn.disabled = !on && (needsKey || (!ready && !create)); btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
     sh.querySelector('#s-vault-state').textContent = needsKey ? "This Vault's key is missing on this server. Restore it from your recovery key."
-      : on ? 'On: keys and passwords agents use by name in commands without seeing them. Every use is recorded'
+      : on ? 'On: keys and passwords agents use by name, kept out of the conversation. Every use is recorded'
       : create ? "Off. Turning it on creates this install's encryption key; you'll be shown a recovery key to save."
-      : ready ? 'Off. Turn on to keep keys and passwords that agents use without seeing the value'
+      : ready ? 'Off. Turn on to keep keys and passwords that agents use by name, kept out of the conversation'
       : srv.vaultError && !/not set/i.test(srv.vaultError) ? 'Off. The Vault cannot be opened: ' + srv.vaultError
       : 'Off. Set POCKET_VAULT_KEY in .env (see the README) and restart to turn it on';
     sh.querySelector('#s-vault-restore-wrap').hidden = !needsKey;
@@ -1757,7 +1788,7 @@ function bindPinDrag(container) {
     };
   });
 }
-// 1.94 (Damon): the row's pin button and Conversation options share one toggle.
+// 1.94 (colleague request): the row's pin button and Conversation options share one toggle.
 async function togglePin(s, refresh) {
   try {
     const r = await api(`/session/${s.id}/pin`, { method: 'POST', body: JSON.stringify({ pinned: !s.pinned }) });
@@ -2382,7 +2413,7 @@ async function paintFileCards(container, fresh = false) {
     list.insertAdjacentHTML('beforeend', html);
     list.lastElementChild.querySelector('.file-card-img')?.addEventListener('error', e => e.target.remove());
   }
-  // 1.93 (Damon): a secret this conversation stored in the Vault gets a card under the first reply after it was stored,
+  // 1.93 (colleague request): a secret this conversation stored in the Vault gets a card under the first reply after it was stored,
   // which opens the Vault at that secret. Only the name and kind are shown; the value never reaches the page.
   const secrets = typeof vaultOn === 'function' && vaultOn() && typeof vaultSnap !== 'undefined' && vaultSnap?.items ? vaultSnap.items.filter(i => i.addedIn?.session === id) : [];
   container.querySelectorAll('.file-card[data-card-vault]').forEach(el => { if (!secrets.some(i => i.id === el.dataset.cardVault)) el.remove(); });
@@ -2879,13 +2910,13 @@ const briefingKey = () => 'pc-new-briefing-' + NEW_BASE;
 const saveBriefing = text => { saveDraft(NEW_BASE, text); writeLocal(briefingKey(), text); };
 // 1.107.1: New with what a Start just left for it (a project's or task's briefing and pc-new-start). Already on New, setting the
 // hash it has fires no hashchange, so the screen kept its old state: a project started from the sidebar while New was open
-// showed no project, no Conductor chip and no briefing (Brad).
+// showed no project, no Conductor chip and no briefing (owner request).
 function showNew() { if (location.hash === '#/new') return route(); location.hash = '#/new'; }
 function openFreshNew(hash = '#/new') {
   const here = location.hash === hash || (hash === '#/' && !location.hash);
   // The plus pressed on the New conversation screen itself starts over: setting the hash it already has did nothing,
   // so a desktop left on New kept its old draft and the button looked dead. The agent and workspace stay; a start
-  // still being delivered is never dropped. Reported by Brad.
+  // still being delivered is never dropped. Reported by the owner.
   if (here && document.getElementById('first') && !loadOutbox(NEW_BASE)) {
     clearDraft(NEW_BASE);
     try { ['pc-new-start', briefingKey(), 'pc-attachments-' + NEW_BASE].forEach(k => localStorage.removeItem(k)); } catch { }
@@ -2919,7 +2950,7 @@ function railSwitchHTML() {
   // 1.69: each entry is an icon with its name; with five or more entries the rail shows the name only on the pressed one
   // (the icon, aria-label and title carry it for the rest), so Inbox fits beside the other four.
   // 1.76.2: the pressed entry is the rail's list; aria-current marks what the main area shows (a clay bar when the two
-  // differ), so Files opened in a tab is marked while the rail keeps listing chats. Reported by Damon.
+  // differ), so Files opened in a tab is marked while the rail keeps listing chats. Reported by a colleague.
   const main = mainAreaView();
   const seg = (key, icon, label, badge) => `<button data-rail-view="${key}" aria-pressed="${v === key}"${main === key ? ' aria-current="page"' : ''} aria-label="${label}" title="${label}">${icon}<span class="rail-label">${label}</span>${badge ? `<span class="badge" ${badge} hidden></span>` : ''}</button>`;
   const segs = [seg('sessions', IC.railChats, 'Chats'), projectsOn() ? seg('projects', IC.railProjects, 'Projects', 'data-projects-badge') : '', documentsOn() ? seg('documents', IC.railFiles, 'Files') : '', tasksOn() ? seg('tasks', IC.railTasks, 'Tasks', 'data-tasks-badge') : '', vaultOn() ? seg('vault', IC.vault, 'Vault', 'data-vault-badge') : '', inboxOn() ? seg('inbox', IC.railInbox, 'Inbox', 'data-inbox-badge') : ''].filter(Boolean);
@@ -2969,7 +3000,7 @@ function wireShell() {
 }
 let railCache = { at: 0, sessions: [] };
 // 1.50: the counts on the rail switch (due tasks and reminders, Vault requests) show on every view, not only after a
-// segment has been opened: paint from what is cached at once, then from a fresh list. Reported by Brad.
+// segment has been opened: paint from what is cached at once, then from a fresh list. Reported by the owner.
 function paintRailBadges() {
   if (!document.querySelector('.rail-switch')) return;
   if (projectsOn()) { if (boardSnap) paintProjectBadges(); loadBoard().then(paintProjectBadges).catch(() => { }); }
@@ -4393,7 +4424,7 @@ async function route() {
   rememberViewNavigation(location.hash || '#/');
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { const me = await api('/me?tz=' + encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || '')); window.pocketFeatures = me.features || {}; applyAssistantMode(); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } loadSecretGuard(); Automation.fromMe(me); } // 1.20.1: 200 {ok:false} when signed out
+  try { const me = await api('/me'); window.pocketFeatures = me.features || {}; applyAssistantMode(); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } loadSecretGuard(); reportTimezone(); Automation.fromMe(me); } // 1.20.1: 200 {ok:false} when signed out
   catch (e) { // 401 rendered the login; anything else (offline, deploy restart) gets a retry view
     if (e.message !== 'login') renderUnreachable(e);
     reportWorkspaceChrome(); return;

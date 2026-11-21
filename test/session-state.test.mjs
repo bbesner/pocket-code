@@ -57,6 +57,13 @@ test('wrap-up requests are the short closing phrases, not requests that only sta
     'Remind me tomorrow and then deploy it now','Commit the fix and resolve the alert','Send it and remind me Monday to close #226',
     'Confirm it\'s the portal notice, then resolve','Mark it resolved, then deploy','Mark 1 done; approve 2, 3, 5, 6, 8','Close the PR','Mark resolved\n\n[Attached file: notes.txt]','Remind me to '+'x'.repeat(80),null,undefined])assert.equal(wrapUpRequest(s),false,String(s));
 });
+// CodeQL js/polynomial-redos: the trailing-punctuation strip was quadratic; a handoff briefing (agent-written) reaches it too.
+test('a long run of punctuation is answered at once, not after seconds',()=>{
+  const t=Date.now();
+  assert.equal(wrapUpRequest('!'.repeat(200_000)+'x'),false);assert.equal(wrapUpRequest('Mark resolved'+'.'.repeat(500)),false);
+  assert.ok(Date.now()-t<200,`took ${Date.now()-t} ms`);
+  assert.equal(wrapUpRequest('Mark it resolved!!!'),true,'a short phrase with trailing punctuation still counts');
+});
 test('a wrap-up reply counts as read only when it asks nothing back',()=>{
   const m=(...blocks)=>({blocks});
   assert.equal(replyAsksNothing([m({t:'tool',name:'Bash'}),m({t:'text',text:'Marked resolved. The reminder is set for Nov 7.'})]),true);

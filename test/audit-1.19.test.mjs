@@ -13,20 +13,20 @@ const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID)_/.test(k)));
 
 test('automation labels scheduled runs by job name and leaves ordinary requests alone',()=>{
-  assert.deepEqual(automation('[cron:6bebd6e9-4c1a MemStem Fleet Health — Daily 6:20am ET] Run the report'),{automated:true,title:'MemStem Fleet Health — Daily 6:20am ET'});
+  assert.deepEqual(automation('[cron:0a1b2c3d-4e5f Nightly Report — Daily 6:00am] Run the report'),{automated:true,title:'Nightly Report — Daily 6:00am'});
   assert.equal(automation('OpenClaw runtime context for this turn: Treat this…').automated,true);
   assert.equal(automation('Review the cron schedule [cron:x y]').automated,false);
   assert.equal(automation('Fix the login page').automated,false);
 });
 
 test('cleanTitle keeps a short plain title and rejects errors and essays',()=>{
-  assert.equal(cleanTitle('"Chunk 7 code review for the camera NVR."'),'Chunk 7 code review for the camera NVR');
+  assert.equal(cleanTitle('"Step 7 code review for the parking app."'),'Step 7 code review for the parking app');
   assert.equal(cleanTitle('Title: Warehouse stock report\n\nextra'),'Warehouse stock report');
   assert.equal(cleanTitle("I don't have access to:\n\n- Google Meet\n- Email"),null,'an answer is not a title');
   assert.equal(cleanTitle("I appreciate you reaching out, but I need to clarify my role"),null);
   assert.equal(cleanTitle('Here is a title for your session'),null);
   assert.equal(cleanTitle('one two three four five six seven eight nine ten eleven twelve thirteen'),null);
-  assert.equal(cleanTitle('# Planning Phase: Email from Eric Wilson'),'Planning Phase: Email from Eric Wilson');
+  assert.equal(cleanTitle('# Planning Phase: Email from Sam Wilson'),'Planning Phase: Email from Sam Wilson');
   assert.equal(cleanTitle('**Title:** Warehouse **stock** report'),'Warehouse stock report');
   assert.equal(cleanTitle('- `pocket-code` release check'),'pocket-code release check');
   assert.equal(cleanTitle('Not logged in · Please run /login'),null);
@@ -111,7 +111,7 @@ test('HTTP: generated titles, automated runs, 304 session lists, gzip and failur
 
 test('Codex names that are just the opening request count as untitled (1.19.1)',async()=>{
   const {promptOnlyName}=await import('../codex.mjs');
-  const ask='there was a previous session running doing chunk 7 code review for techpro vision nvr. I need you to continue';
+  const ask='there was a previous session running doing step 7 code review for the acme parking app. I need you to continue';
   assert.equal(promptOnlyName({name:ask,preview:ask}),true);
   assert.equal(promptOnlyName({name:ask.slice(0,60),preview:ask}),true,'a clipped copy of the request');
   assert.equal(promptOnlyName({name:'x'.repeat(81),preview:''}),true,'a sentence-length name');

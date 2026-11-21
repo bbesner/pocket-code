@@ -6,7 +6,7 @@ sources: coordination.mjs, public/coordination.js, scripts/pocket-coord.mjs, ski
 
 Coordination shows which conversation holds a shared thing such as staging or a deploy, who is waiting for it, and what ended lately. Agents make the claims. You read the list and can release anything on it.
 
-A hold is a named claim such as `dad-staging`: one holder, a reason and an expiry. **A hold is advice.** Agents check it because their instructions tell them to, and nothing in Pocket stops a deploy. If you have a real deploy lock, keep it. A hold is still useful because it covers the whole job (build, verify, wait for you), where a lock usually covers only the rollout step.
+A hold is a named claim such as `shop-staging`: one holder, a reason and an expiry. **A hold is advice.** Agents check it because their instructions tell them to, and nothing in Pocket stops a deploy. If you have a real deploy lock, keep it. A hold is still useful because it covers the whole job (build, verify, wait for you), where a lock usually covers only the rollout step.
 
 ## Turn it on
 
@@ -23,7 +23,7 @@ Assistant mode has no Coordination: the switch, the view and the line above the 
 
 ### See what is held
 
-- While something is held, one line shows above the conversation list: `dad-staging held by "DAD 1.168 build"`, with `and 2 more` when there are others. It opens the view. Nothing shows when nothing is held.
+- While something is held, one line shows above the conversation list: `shop-staging held by "Shop 1.168 build"`, with `and 2 more` when there are others. It opens the view. Nothing shows when nothing is held.
 - The **Coordination** chip sits beside Files, Tasks and Projects on the home screen and on **Your conversations**.
 - On a computer you can also pick it from the split view chooser beside a conversation.
 - The full view is at `#/coordination`. It opens like a conversation: as a tab, beside a conversation, in a window of its own, or full screen on a phone.
@@ -66,7 +66,7 @@ pocket-coord list [--json]
 | 4 | The command couldn't sign in to Pocket |
 | 5 | Coordination is off |
 
-- **Names** are lowercase letters, numbers, dots, dashes and underscores, up to 64 characters. The usual ones are `dad-staging`, `dad-production`, `tpv-deploy` and `pocket-main`. `pocket-coord list` shows them, and names used lately. A name close to an existing one is refused unless the agent passes `--new`, so `staging` and `dad-staging` don't become two holds.
+- **Names** are lowercase letters, numbers, dots, dashes and underscores, up to 64 characters. Pocket starts with one known name, `pocket-main`, and learns the rest the first time each is held (`shop-staging`, `site-deploy` and so on); a learned name stays known. `pocket-coord list` shows what is held now, names used lately, and the name known from the start. A name close to an existing one is refused unless the agent passes `--new`, so `staging` and `shop-staging` don't become two holds.
 - **Holding again** renews a hold you already have.
 - **A terminal session** can hold, and shows as `Terminal session`, unverified. It can't be woken, so it waits with `--block`, in its own shell. It can't release a conversation's hold, and any session can release a terminal session's hold.
 

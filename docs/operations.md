@@ -260,6 +260,10 @@ Pocket-owned persistent state includes:
   neither holds a readable value, and `vault.enc` is useless without its key;
 - the documents folder (`POCKET_DOCUMENTS_DIR`, default `documents/`), holding the stored
   files, a `.trash/` folder of removed files, and a `.thumbs/` cache of preview pictures;
+- `auth-state.json` (mode `0600`, since 1.118), the sign-in generation and a keyed hash of the
+  password (never the password). Sign out everywhere writes a new generation here. Restoring an
+  older copy brings back the cookies of that generation, and deleting it signs every browser out
+  at the next start; after a restore, use **Sign out everywhere**;
 - `automation-state.json` and `automation-audit.jsonl`, the day's counts and limit notices behind
   [Automation](manual/automation.md), and its append-only record (created with mode `0600`) of pauses, resumes, settings
   changes and unattended replies. The audit never holds message text. Whether Pocket is paused, and the saved Automation settings, are in
@@ -436,6 +440,14 @@ sessions together, after which every unlock and key restore waits out the hour a
 `vault: 50 wrong passphrases or keys within the hour across all sessions`. See `docs/install.md`
 and `SECURITY.md`.
 
+Since 1.118 an IPv6 caller counts by its /64, and the login also keeps one budget across all
+addresses: past 30 wrong passwords in an hour, sign-ins are checked one at a time with a pause that
+starts at 1 second and grows to 10, and a try that would wait more than 20 seconds is told to try
+again in a minute (`busy`). A browser that signed in before carries a known-device cookie
+(`pc_device`) and skips that queue. Vault intake links count per address only for an address Pocket
+can place, and past 300 unknown links an hour across the install each further one is answered after
+1.5 seconds.
+
 **Trash.** Removing a file moves it to `.trash/` in the documents folder. The daemon
 purges files trashed more than 30 days ago, checking a minute after start and then every six
 hours. Restore a file before then from the Files library, or free the space now with
@@ -459,7 +471,7 @@ else the address in `cli-url`, then `PORT` from this checkout's `.env`, and only
 `PORT`. They read `cli-token` from the data directory and send it as a bearer
 token. The daemon accepts it
 only on the Projects, Files, Tasks, Inbox and Vault routes and the start-link and notify routes, and only on a direct loopback
-connection with no `cf-connecting-ip` or `x-forwarded-for` header; a request that came
+connection with no `cf-connecting-ip`, `x-forwarded-for`, `forwarded` or `x-real-ip` header; a request that came
 through the tunnel or a proxy is refused. On the Vault routes it allows only what agents
 may do: list, show, run, create an item and read the calling session's history; it never
 returns a value. A new token is generated at every start, so the CLIs must run on the
@@ -520,10 +532,17 @@ forgotten passphrase; an export (below) is the owner's own backup.
 passphrase typed for it, holding every live item with its values; an import adds items whose
 names are new and skips the rest. Both are owner-only, cookie routes, and recorded.
 
-**Runs.** `pocket-vault run` asks the daemon to start the command. The daemon starts it with
-the filtered agent environment plus the bound values, no terminal, output piped back through
-a filter that replaces each value (and its base64 and URL-encoded forms) with
-`{{vault:name}}`. Output is capped at 1 MB and a run is stopped after 10 minutes by default.
+**Runs.** `pocket-vault run` asks the daemon to start the command. The daemon finds the program on
+`POCKET_VAULT_PATH` (default: its own `PATH` at start; absolute folders only), records the SHA-256 of
+the program, its `#!` interpreter, the program a known launcher (`env`, `timeout`, `sudo` and others)
+starts, the script a known interpreter runs and every file named in the arguments, and starts what it
+checked with the filtered agent environment (that `PATH`) plus the bound values, no terminal, output
+piped back through a filter that replaces each value (and its base64, URL-encoded, hex and reversed
+forms) with `{{vault:name}}`. On Linux a native program is started from the file it hashed
+(`/proc/self/fd`) and a shell script from a private copy of what was hashed; anything else is hashed
+again just before the start (since 1.118). An *Always allow* recipe matches only while those hashes are
+unchanged; a recipe saved before they were recorded asks once more. At start, with the Vault on, the
+log warns about each folder on that `PATH` this user can write to, create or replace. Output is capped at 1 MB and a run is stopped after 10 minutes by default.
 Since 1.73.7 the command leads its own process group, and its exit, the timeout, the cap or a
 stop ends everything still in it (TERM, then KILL after five seconds); the run finishes within
 about two seconds of the command's exit. A command that starts a background service expecting
@@ -540,7 +559,7 @@ answers; only its **Allow** or **Deny** action does. When the service worker's a
 `?missed=<why>` so the card says the answer did not go through, and the daemon logs
 `vault answer request=<id> refused <status>`. The owner's snapshot also lists answered requests
 (id, names, decision, time) for their 15 minutes, so an opened notification can say what happened. A request is answered
-once and expires after 15 minutes. A pending request lives in the daemon's memory only (a restart drops it; the agent is told the request no longer exists); the recipes an answer of *Always allow* saves are kept inside `vault.enc`. A request records what it is for (`action`: `run` or `fill`) and who raised it (1.73.4); a continuation (`POST /api/vault/wait`, or `/api/vault/release` with `request`) is refused with 409 `request_mismatch` for the other kind of use, 403 `request_mismatch` from another session, 409 `request_used` once it has been used, and 409 `request_stale` when an item or a policy changed since the answer. Recipes carry the action; older ones are read from their command.
+once and expires after 15 minutes. A pending request lives in the daemon's memory only (a restart drops it; the agent is told the request no longer exists); the recipes an answer of *Always allow* saves are kept inside `vault.enc`. A request records what it is for (`action`: `run` or `fill`) and who raised it (1.73.4); a continuation (`POST /api/vault/wait`, or `/api/vault/release` with `request`) is refused with 409 `request_mismatch` for the other kind of use, 403 `request_mismatch` from another session, 409 `request_used` once it has been used, and 409 `request_stale` when an item or a policy changed since the answer, or the program or a file the command names changed since the request. Recipes carry the action; older ones are read from their command.
 
 **Typed by Pocket (1.43).** `scripts/pocket-mcp-proxy.mjs [--name <server>] -- <MCP server command…>` is a
 stdio MCP relay. Wrap a browser tool with it so agents can fill `{{vault:name.field}}` into web forms:
@@ -565,8 +584,8 @@ call again; the relay gives the daemon that long plus 15 seconds to answer (1.73
 string per placeholder, and starts the server without any of the daemon's own secrets (the same list `agentEnv` keeps
 from agent turns). A signal sent to the relay is passed to the server and followed by SIGKILL five seconds later. If the owner locks the Vault while a request is waiting, the run is told so
 (`pocket-vault` exits 3) and the fill is answered `423 vault_locked`; neither can be continued afterwards. The values pass through
-the relay and the browser tool, which run as the same OS user as the agent; the model and the transcript never see
-them. A Claude Code PreToolUse hook could rewrite the call too, but Claude Code records hook output in the transcript
+the relay and the browser tool, which run as the same OS user as the agent; in normal use the model and the
+transcript hold only the placeholder, but the agent drives the page and can read a filled value back. A Claude Code PreToolUse hook could rewrite the call too, but Claude Code records hook output in the transcript
 file, so the relay is the only clean path.
 
 **Intake links (1.110).** `/intake/<token>` is served without a login, like `/share/`, so an identity proxy in front of Pocket must let it through for an outside person to reach it; test it from outside in a private window before you send a link. The links live inside `vault.enc`, so a locked Vault answers every link with *Temporarily unavailable* and the link stays open. Branding comes from `POCKET_INTAKE_ORG`, `POCKET_INTAKE_ACCENT` and `POCKET_INTAKE_LOGO` (read at start). The daemon log names a filled link's item and field names, never a value or a token.

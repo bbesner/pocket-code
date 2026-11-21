@@ -33,8 +33,8 @@ test('detector: known key formats, private keys, URL passwords, cards and assign
 });
 
 test('detector: ordinary text is left alone',()=>{
-  for(const t of ['the password is required for login','set the token = true','export TOKEN=$GITHUB_TOKEN','password: <your password>','use {{vault:zoho-books}} for the call',
-    'commit 3f2a1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a fixed it','order 1234567812345670 shipped','call 561-206-4382','id 550e8400-e29b-41d4-a716-446655440000','the pass is open',
+  for(const t of ['the password is required for login','set the token = true','export TOKEN=$GITHUB_TOKEN','password: <your password>','use {{vault:zeta-books}} for the call',
+    'commit 3f2a1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a fixed it','order 1234567812345670 shipped','call 201-555-0143','id 550e8400-e29b-41d4-a716-446655440000','the pass is open',
     'Xk9#mPq2Lw8vRt5zNb3yHc7d','api_key: ********','sk-short'])
     assert.deepEqual(kinds(t),[],t);
 });
@@ -42,7 +42,7 @@ test('detector: ordinary text is left alone',()=>{
 test('detector: paste mode also catches a lone random-looking token, but not URLs, paths, UUIDs, commits or words',()=>{
   assert.deepEqual(found('  Xk9#mPq2Lw8vRt5zNb3yHc7d  ','paste'),['Xk9#mPq2Lw8vRt5zNb3yHc7d']);
   assert.deepEqual(kinds('9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08','paste'),['random'],'a 64-character hex key');
-  for(const t of ['https://example.com/some/long/path/to/a/page?id=12345','/home/ubuntu/projects/pocket-claude/server.mjs','550e8400-e29b-41d4-a716-446655440000',
+  for(const t of ['https://example.com/some/long/path/to/a/page?id=12345','/home/user/projects/pocket-claude/server.mjs','550e8400-e29b-41d4-a716-446655440000',
     '3f2a1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a','hello world this is normal text','Supercalifragilisticexpialidocious','12345678901234567890','someone@example.com','{{vault:openai-api-key}}'])
     assert.deepEqual(kinds(t,'paste'),[],t);
 });

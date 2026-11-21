@@ -5,7 +5,7 @@
 
 This plan turns the October 2026 mobile/desktop design review into four stages.
 The first priority is keeping track of running sessions. Pocket Code remains a
-standalone, mobile-first PWA; the Mission Control entry point is deployed, and employee packaging follows daily-use validation.
+standalone, mobile-first PWA; the dashboard-wrapper entry point is deployed, and employee packaging follows daily-use validation.
 
 ## 1. Session visibility and delivery reliability — implemented in 1.1.0
 
@@ -65,9 +65,9 @@ real phone software-keyboard and screen-reader checks before release claims.
 Acceptance: one complete task on phone and desktop, cold load, phone sleep/resume,
 long conversations, empty/error states, responsive and rendered design review.
 
-## 4. Mission Control integration delivered; employee instances deferred
+## 4. Dashboard-wrapper integration delivered; employee instances deferred
 
-- Delivered: Mission Control embeds the same app origin while preserving direct PWA entry.
+- Delivered: the operations dashboard embeds the same app origin while preserving direct PWA entry.
 - One maintained release with per-instance modules, defaults and authorized skills.
 - Separate persistent session storage, credentials, workspaces and MemStem access.
 - Versioned container packaging, health checks, backup/restore and rollback.
@@ -105,7 +105,7 @@ adds native action approvals for both providers and is pending release approval.
 Queue edits pause dispatch, and real staged/working Git views supplement the older
 transcript-based Session edits view. Both providers passed real native question,
 answer and continuation checks; read-only account summaries show CLI identities.
-The Mission Control app and standalone Pocket Code remain separate installs.
+The operations dashboard and standalone Pocket Code remain separate installs.
 
 Next: desktop/phone daily-use feedback; choose an employee pilot and its allowed
 workspaces, credentials, skills and approval policy before provisioning. Employee

@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
-import {VaultStore,parseKey,newKey,encryptStore,decryptStore,storeHeader,deriveKey,scrubber,needlesFor,makeScrubStream,runWithSecrets,vaultInstructions,LIMITS,EXPORT_FORMAT} from '../vault.mjs';
+import {VaultStore,parseKey,newKey,encryptStore,decryptStore,storeHeader,deriveKey,scrubber,needlesFor,makeScrubStream,runWithSecrets,vaultInstructions,LIMITS,EXPORT_FORMAT,pinCommand,pinKey,runPath} from '../vault.mjs';
 import {agentEnv} from '../environment.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
@@ -32,18 +32,18 @@ test('key and file format: round trip, wrong key and tampering fail closed',()=>
 test('VaultStore: items, policies, recipes, requests, trash, audit; values never leave through a view',()=>{
   const dir=tmp(),file=path.join(dir,'vault.enc'),key=parseKey(newKey());let clock=Date.parse('2026-10-12T12:00:00Z');
   const s=new VaultStore(file,{key,now:()=>clock});
-  const a=s.act({action:'add',name:'Zoho-Books',kind:'api_key',values:{value:SECRET},url:'https://books.zoho.com',tags:['Zoho','finance'],notes:'Renew yearly'});
-  assert.equal(a.name,'zoho-books');assert.equal(a.policy,'default','follows the Agent access setting by default');assert.equal(a.effectivePolicy,'ask');assert.equal(a.policyWord,'Asks once per command');assert.deepEqual(a.fields,['value']);assert.deepEqual(a.tags,['zoho','finance']);assert.equal(a.notes,'Renew yearly');
+  const a=s.act({action:'add',name:'Zeta-Books',kind:'api_key',values:{value:SECRET},url:'https://books.example.com',tags:['Zeta','finance'],notes:'Renew yearly'});
+  assert.equal(a.name,'zeta-books');assert.equal(a.policy,'default','follows the Agent access setting by default');assert.equal(a.effectivePolicy,'ask');assert.equal(a.policyWord,'Asks once per command');assert.deepEqual(a.fields,['value']);assert.deepEqual(a.tags,['zeta','finance']);assert.equal(a.notes,'Renew yearly');
   assert.equal(JSON.stringify(a).includes('hunter2'),false,'no value in a view');assert.equal('values' in a,false);
-  const login=s.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'brad@example.test',password:'P@ss word "quoted"'},policy:'auto'});
+  const login=s.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'sam@example.test',password:'P@ss word "quoted"'},policy:'auto'});
   assert.equal(login.policy,'auto');assert.deepEqual(login.fields,['username','password']);
   assert.throws(()=>s.act({action:'add',name:'Bad Name',kind:'token',values:{value:'x'}}),/lower-case letters/);
-  assert.throws(()=>s.act({action:'add',name:'zoho-books',kind:'token',values:{value:'x'}}),e=>e.status===409);
+  assert.throws(()=>s.act({action:'add',name:'zeta-books',kind:'token',values:{value:'x'}}),e=>e.status===409);
   assert.throws(()=>s.act({action:'add',name:'empty',kind:'token',values:{value:'  '}}),/required/);
-  assert.throws(()=>s.act({action:'add',name:'ph',kind:'token',values:{value:'{{vault:zoho-books}}'}}),/placeholder/);
+  assert.throws(()=>s.act({action:'add',name:'ph',kind:'token',values:{value:'{{vault:zeta-books}}'}}),/placeholder/);
   assert.throws(()=>s.act({action:'add',name:'k',kind:'card',values:{}}),/kind must be/);
   // 1.39.1: custom fields on any kind, and a credentials kind with only custom fields.
-  const authnet=s.act({action:'add',name:'authorize-net',kind:'login',values:{username:'login-id-123',password:'txn-key-secret-9876',signature_key:'sig-key-secret-abcdef'}});
+  const authnet=s.act({action:'add',name:'card-gateway',kind:'login',values:{username:'login-id-123',password:'txn-key-secret-9876',signature_key:'sig-key-secret-abcdef'}});
   assert.deepEqual(authnet.fields,['username','password','signature_key']);assert.deepEqual(authnet.custom,['signature_key']);
   const ups=s.act({action:'add',name:'ups-api',kind:'credentials',values:{client_id:'ups-client-id-1',client_secret:'ups-client-secret-2'}});
   assert.deepEqual(ups.fields,['client_id','client_secret']);assert.deepEqual(ups.custom,['client_id','client_secret']);
@@ -59,8 +59,8 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   assert.throws(()=>s.act({action:'update',item:authnet.id,values:{'bad-name':'x'}}),/not a field name/);
   assert.equal(s.field(authnet.id,'signature_key'),'sig-key-secret-abcdef');
   assert.throws(()=>s.resolveBindings({U:'ups-api'}),/name one, for example ups-api\.client_id/);
-  assert.equal(s.resolveBindings({S:'authorize-net.signature_key'})[0].field,'signature_key');
-  assert.throws(()=>s.resolveBindings({S:'authorize-net.nope'}),/no field nope/);
+  assert.equal(s.resolveBindings({S:'card-gateway.signature_key'})[0].field,'signature_key');
+  assert.throws(()=>s.resolveBindings({S:'card-gateway.nope'}),/no field nope/);
   // Agents: create-only, nothing else.
   const fromAgent=s.act({action:'add',name:'twilio-auth',kind:'token',values:{value:'tw-secret-value-1234'},policy:'auto',notes:'ignored'},{actor:'agent',session:S1,sessionTitle:'Billing'});
   assert.equal(fromAgent.policy,'default','an agent cannot pick a policy');assert.equal('notes' in fromAgent,false,'agents never see notes');
@@ -69,7 +69,7 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   assert.throws(()=>s.act({action:'remove',item:a.id},{actor:'terminal'}),e=>e.status===403);
   assert.throws(()=>s.act({action:'answer',request:'x',decision:'once'},{actor:'agent'}),e=>e.status===403);
   // Owner edits: values only when typed; stale revisions refused.
-  clock+=1000;const e1=s.act({action:'update',item:a.id,expected_revision:1,values:{value:''},url:'https://books.zoho.com/app'});
+  clock+=1000;const e1=s.act({action:'update',item:a.id,expected_revision:1,values:{value:''},url:'https://books.example.com/app'});
   assert.equal(e1.revision,2);assert.equal(s.get(a.id).values.value,SECRET,'an empty value leaves the stored one');
   assert.throws(()=>s.act({action:'update',item:a.id,expected_revision:1,url:'x'}),e=>e.status===409&&e.item.revision===2);
   s.act({action:'update',item:a.id,values:{value:'sk-live-rotated-9876543210abcdef'}});assert.equal(s.get(a.id).values.value,'sk-live-rotated-9876543210abcdef');
@@ -79,16 +79,16 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   const cmd=s.checkCommand(['node','sync.mjs'],dir);
   assert.throws(()=>s.resolveBindings({TOKEN:'nope'}),e=>e.status===404);
   assert.throws(()=>s.resolveBindings({TOKEN:'vendor-portal'}),/name one, for example vendor-portal\.username/);
-  assert.throws(()=>s.resolveBindings({PATH:'zoho-books'}),/cannot be bound/);assert.throws(()=>s.resolveBindings({'bad-name':'zoho-books'}),/not a variable name/);
+  assert.throws(()=>s.resolveBindings({PATH:'zeta-books'}),/cannot be bound/);assert.throws(()=>s.resolveBindings({'bad-name':'zeta-books'}),/not a variable name/);
   assert.throws(()=>s.checkCommand(['node'],'relative'),/full path/);assert.throws(()=>s.checkCommand(['node'],path.join(dir,'missing')),/does not exist/);
-  let bound=s.resolveBindings({TOKEN:'zoho-books',USER:'vendor-portal.username',PASS:'vendor-portal.password'});
-  assert.deepEqual(bound.map(b=>b.v+'='+b.item.name+'.'+b.field),['TOKEN=zoho-books.value','USER=vendor-portal.username','PASS=vendor-portal.password']);
-  let need=s.decide(bound,cmd);assert.deepEqual(need.map(i=>i.name),['zoho-books'],'only the ask item without a recipe needs the owner');
-  s.act({action:'update',item:a.id,policy:'owner'});assert.throws(()=>s.decide(s.resolveBindings({TOKEN:'zoho-books'}),cmd),e=>e.code==='owner_only');
+  let bound=s.resolveBindings({TOKEN:'zeta-books',USER:'vendor-portal.username',PASS:'vendor-portal.password'});
+  assert.deepEqual(bound.map(b=>b.v+'='+b.item.name+'.'+b.field),['TOKEN=zeta-books.value','USER=vendor-portal.username','PASS=vendor-portal.password']);
+  let need=s.decide(bound,cmd);assert.deepEqual(need.map(i=>i.name),['zeta-books'],'only the ask item without a recipe needs the owner');
+  s.act({action:'update',item:a.id,policy:'owner'});assert.throws(()=>s.decide(s.resolveBindings({TOKEN:'zeta-books'}),cmd),e=>e.code==='owner_only');
   s.act({action:'update',item:a.id,policy:'ask'});
   // A request, answered "always", becomes a recipe; "once" does not; the answer is single-use and the row expires.
-  bound=s.resolveBindings({TOKEN:'zoho-books'});need=s.decide(bound,cmd);
-  const r=s.request({bound,cmd,need,env:{TOKEN:'zoho-books'},session:S1,sessionTitle:'Billing'});
+  bound=s.resolveBindings({TOKEN:'zeta-books'});need=s.decide(bound,cmd);
+  const r=s.request({bound,cmd,need,env:{TOKEN:'zeta-books'},session:S1,sessionTitle:'Billing'});
   assert.equal(s.snapshot({owner:true}).requests[0].id,r.id);assert.equal(s.snapshot({owner:true}).requests[0].pending,true);
   assert.throws(()=>s.answer(r.id,'maybe'),/once, always or deny/);assert.throws(()=>s.answer('nope','once'),e=>e.status===404);
   const waited=s.waitAnswer(r.id,5000);
@@ -97,17 +97,17 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   return waited.then(async w=>{
     assert.equal(w.answer.decision,'always');
     assert.equal(s.get(a.id).recipes.length,1);assert.deepEqual(s.get(a.id).recipes[0].argv,['node','sync.mjs']);
-    assert.deepEqual(s.decide(s.resolveBindings({TOKEN:'zoho-books'}),cmd),[],'the approved command runs without asking');
-    assert.equal(s.decide(s.resolveBindings({TOKEN:'zoho-books'}),s.checkCommand(['node','sync.mjs','--all'],dir)).length,1,'a changed argument is a new request');
+    assert.deepEqual(s.decide(s.resolveBindings({TOKEN:'zeta-books'}),cmd),[],'the approved command runs without asking');
+    assert.equal(s.decide(s.resolveBindings({TOKEN:'zeta-books'}),s.checkCommand(['node','sync.mjs','--all'],dir)).length,1,'a changed argument is a new request');
     assert.equal(s.snapshot({owner:true}).requests.length,0,'answered requests are not listed');
-    const r2=s.request({bound,cmd:s.checkCommand(['node','other.mjs'],dir),need,env:{TOKEN:'zoho-books'}});
+    const r2=s.request({bound,cmd:s.checkCommand(['node','other.mjs'],dir),need,env:{TOKEN:'zeta-books'}});
     assert.equal(await s.waitAnswer(r2.id,30),null,'no answer in time');
     clock+=LIMITS.requestTtlMs+1;s.expireRequests();assert.equal(s.requests.has(r2.id),false,'expired');
-    const r3=s.request({bound,cmd:s.checkCommand(['node','third.mjs'],dir),need,env:{TOKEN:'zoho-books'}});
+    const r3=s.request({bound,cmd:s.checkCommand(['node','third.mjs'],dir),need,env:{TOKEN:'zeta-books'}});
     s.answer(r3.id,'deny');assert.equal((await s.waitAnswer(r3.id,10)).answer.decision,'deny');
     s.act({action:'recipe-remove',item:a.id,recipe:s.get(a.id).recipes[0].id});assert.equal(s.get(a.id).recipes.length,0);
     // Release: recorded first, last used stamped, the secrets come out by variable.
-    const secrets=s.release(s.resolveBindings({TOKEN:'zoho-books',PASS:'vendor-portal.password'}),cmd,{session:S1,sessionTitle:'Billing',by:'agent'});
+    const secrets=s.release(s.resolveBindings({TOKEN:'zeta-books',PASS:'vendor-portal.password'}),cmd,{session:S1,sessionTitle:'Billing',by:'agent'});
     assert.deepEqual(secrets,{TOKEN:'sk-live-rotated-9876543210abcdef',PASS:'P@ss word "quoted"'});
     assert.equal(s.view(s.get(a.id)).lastUsedBy.session,S1);
     // The owner reads one field at a time; each read is recorded.
@@ -143,7 +143,7 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
 test('passphrase mode (1.40): the store locks and unlocks, idles out, exports and imports; nothing opens without the passphrase',()=>{
   const dir=tmp(),file=path.join(dir,'vault.enc'),key=parseKey(newKey());let clock=Date.parse('2026-10-12T12:00:00Z');
   const s=new VaultStore(file,{key,now:()=>clock});
-  const a=s.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:SECRET}});
+  const a=s.act({action:'add',name:'zeta-books',kind:'api_key',values:{value:SECRET}});
   assert.equal(s.mode,'key');assert.throws(()=>s.lock(),/set a passphrase/);assert.equal(s.checkPassphrase('x'),false);
   assert.throws(()=>s.setPassphrase('short','short'),/at least 12/);assert.throws(()=>s.setPassphrase('correct horse battery','correct horse staple'),/do not match/);
   s.setPassphrase('correct horse battery','correct horse battery');
@@ -153,7 +153,7 @@ test('passphrase mode (1.40): the store locks and unlocks, idles out, exports an
   assert.throws(()=>s.rotate(newKey()),/protected by a passphrase/);
   // A reopened store is locked: every read and write refuses with 423 until the owner unlocks it.
   const r=new VaultStore(file,{key,now:()=>clock});assert.equal(r.locked,true);assert.equal(r.mode,'passphrase');
-  for(const f of [()=>r.snapshot(),()=>r.act({action:'add',name:'x',kind:'token',values:{value:'xxxxxxxx'}}),()=>r.field(a.id,'value'),()=>r.resolveBindings({T:'zoho-books'}),()=>r.exportBundle('x'.repeat(12),'x'.repeat(12))])assert.throws(f,e=>e.status===423&&e.code==='vault_locked');
+  for(const f of [()=>r.snapshot(),()=>r.act({action:'add',name:'x',kind:'token',values:{value:'xxxxxxxx'}}),()=>r.field(a.id,'value'),()=>r.resolveBindings({T:'zeta-books'}),()=>r.exportBundle('x'.repeat(12),'x'.repeat(12))])assert.throws(f,e=>e.status===423&&e.code==='vault_locked');
   assert.throws(()=>r.unlock('correct horse staple'),e=>e.status===401);
   assert.equal(r.unlock('correct horse battery'),true);assert.equal(r.locked,false);assert.equal(r.get(a.id).values.value,SECRET);
   assert.equal(new VaultStore(file,{now:()=>clock}).locked,true,'opens (locked) with no env key at all');
@@ -173,7 +173,7 @@ test('passphrase mode (1.40): the store locks and unlocks, idles out, exports an
   assert.throws(()=>t.importBundle(encryptStore(key,{items:[]}),'export passphrase one'),/not a Vault export/,'a format-1 store is not an export');
   let r1=t.importBundle(bundle,'export passphrase one');assert.deepEqual(r1,{added:2,skipped:[]},'the trashed item is not exported');
   assert.equal(t.get(t.byName('ups-api').id).values.client_secret,'ups-secret-value-2');assert.deepEqual(t.byName('ups-api').custom,['client_id','client_secret']);assert.equal(t.byName('ups-api').lastUsedAt,null);
-  r1=t.importBundle(bundle,'export passphrase one');assert.equal(r1.added,0);assert.deepEqual(r1.skipped.sort(),['ups-api','zoho-books']);
+  r1=t.importBundle(bundle,'export passphrase one');assert.equal(r1.added,0);assert.deepEqual(r1.skipped.sort(),['ups-api','zeta-books']);
   // Back to key mode needs the env key and the passphrase.
   assert.throws(()=>new VaultStore(file,{now:()=>clock}).removePassphrase('correct horse battery'),e=>e.status===423);
   const k2=new VaultStore(file,{now:()=>clock});k2.unlock('correct horse battery');assert.throws(()=>k2.removePassphrase('correct horse battery'),e=>e.code==='vault_no_key');
@@ -187,25 +187,25 @@ test('passphrase mode (1.40): the store locks and unlocks, idles out, exports an
 test('Agent access (1.41): the install-wide dial, per-item overrides, ask-every-time, and the old store migrates',()=>{
   const dir=tmp(),file=path.join(dir,'vault.enc'),key=parseKey(newKey());let access='once';
   const s=new VaultStore(file,{key});s.access=()=>access;
-  const a=s.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:SECRET}});
+  const a=s.act({action:'add',name:'zeta-books',kind:'api_key',values:{value:SECRET}});
   const own=s.act({action:'add',name:'bank',kind:'note',values:{text:'routing 123456789'},policy:'owner'});
   const every=s.act({action:'add',name:'stripe-live',kind:'api_key',values:{value:'sk_live_abcdefgh123'},policy:'every'});
-  const cmd=s.checkCommand(['node','sync.mjs'],dir),zb=s.resolveBindings({T:'zoho-books'});
+  const cmd=s.checkCommand(['node','sync.mjs'],dir),zb=s.resolveBindings({T:'zeta-books'});
   assert.equal(s.decide(zb,cmd).length,1,'once: a new command asks');
   access='free';assert.deepEqual(s.decide(zb,cmd),[],'free rein: nothing asks');assert.equal(s.view(s.get(a.id)).policyWord,'Free rein');assert.equal(s.snapshot().access,'free');
   assert.throws(()=>s.decide(s.resolveBindings({B:'bank'}),cmd),e=>e.code==='owner_only','an Only you item stays closed under free rein');
   assert.equal(s.decide(s.resolveBindings({S:'stripe-live'}),cmd).length,1,'an item set to ask every time still asks under free rein');
   access='every';const need=s.decide(zb,cmd);assert.equal(need.length,1);
-  const r=s.request({bound:zb,cmd,need,env:{T:'zoho-books'}});assert.equal(s.requestView(r).allowAlways,false,'no Always allow when it asks every time');
+  const r=s.request({bound:zb,cmd,need,env:{T:'zeta-books'}});assert.equal(s.requestView(r).allowAlways,false,'no Always allow when it asks every time');
   s.answer(r.id,'always');assert.equal(s.get(a.id).recipes.length,0,'and Always saves no recipe');
-  access='once';const r2=s.request({bound:zb,cmd,need:s.decide(zb,cmd),env:{T:'zoho-books'}});assert.equal(s.requestView(r2).allowAlways,true);s.answer(r2.id,'always');assert.equal(s.get(a.id).recipes.length,1);
+  access='once';const r2=s.request({bound:zb,cmd,need:s.decide(zb,cmd),env:{T:'zeta-books'}});assert.equal(s.requestView(r2).allowAlways,true);s.answer(r2.id,'always');assert.equal(s.get(a.id).recipes.length,1);
   access='every';assert.equal(s.decide(zb,cmd).length,1,'ask every time ignores saved recipes');
   access='bogus';assert.equal(s.view(s.get(a.id)).effectivePolicy,'ask','an unknown setting behaves as once');
   assert.throws(()=>s.act({action:'update',item:a.id,policy:'sometimes'}),/default, auto, ask, every or owner/);
   s.act({action:'update',item:a.id,policy:'auto'});access='every';assert.deepEqual(s.decide(zb,cmd),[],'an item set to free rein runs under any setting');
   // Pending requests by session.
   const S2='22222222-2222-4222-8222-222222222222';s.act({action:'update',item:a.id,policy:'default'});
-  const r3=s.request({bound:zb,cmd:s.checkCommand(['node','x.mjs'],dir),need:[s.get(a.id)],env:{T:'zoho-books'},session:S2});
+  const r3=s.request({bound:zb,cmd:s.checkCommand(['node','x.mjs'],dir),need:[s.get(a.id)],env:{T:'zeta-books'},session:S2});
   assert.deepEqual(s.pendingFor(S2).map(x=>x.id),[r3.id]);assert.deepEqual(s.pendingFor(S1),[]);
   // A 1.39/1.40 store: its ask items were the old default and now follow the setting; explicit auto and owner stay.
   const old=path.join(dir,'old.enc');
@@ -234,9 +234,9 @@ test('scrubber: every form of a value, across chunk boundaries; short values are
 
 test('runWithSecrets: the value is in the child environment only, scrubbed from both streams; timeout, cap and a missing binary',async()=>{
   const dir=tmp();
-  const run=(argv,extra={})=>new Promise(resolve=>{let out='',err='';runWithSecrets({argv,cwd:dir,env:{PATH:process.env.PATH,HOME:dir},secrets:{TOKEN:SECRET,PASS:'P@ss word "quoted"'},placeholders:{[SECRET]:'zoho-books'},onOut:t=>out+=t,onErr:t=>err+=t,...extra}).then(r=>resolve({...r,out,err}));});
+  const run=(argv,extra={})=>new Promise(resolve=>{let out='',err='';runWithSecrets({argv,cwd:dir,env:{PATH:process.env.PATH,HOME:dir},secrets:{TOKEN:SECRET,PASS:'P@ss word "quoted"'},placeholders:{[SECRET]:'zeta-books'},onOut:t=>out+=t,onErr:t=>err+=t,...extra}).then(r=>resolve({...r,out,err}));});
   let r=await run(['sh','-c','echo "t=$TOKEN"; printf %s "$TOKEN" | base64; echo "p=$PASS" >&2; echo "k=${POCKET_VAULT_KEY-unset}"; exit 3']);
-  assert.equal(r.code,3);assert.equal(r.out,'t={{vault:zoho-books}}\n{{vault:zoho-books}}\nk=unset\n');assert.equal(r.err,'p={{vault}}\n');
+  assert.equal(r.code,3);assert.equal(r.out,'t={{vault:zeta-books}}\n{{vault:zeta-books}}\nk=unset\n');assert.equal(r.err,'p={{vault}}\n');
   r=await run(['sh','-c','sleep 5'],{timeoutMs:200});assert.equal(r.timedOut,true);assert.ok(r.signal||r.code!==0);
   r=await run(['sh','-c','yes | head -c 50000; echo END'],{maxOutput:1000});assert.equal(r.truncated,true);assert.ok(r.out.length<=1000);assert.doesNotMatch(r.out,/END/);
   r=await run(['/nonexistent/binary']);assert.match(r.error,/ENOENT/);
@@ -333,7 +333,8 @@ test('request binding (1.73.4): action, caller, one use, the policy as it is now
   item.recipes=[{id:'legacy',argv:['pocket-fill','browser','type'],cwd:fill.cwd,created:'2026-01-01T00:00:00.000Z'}];
   assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),fill).length,0,'a legacy fill recipe is a fill');
   assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),{...fill,action:'run'}).length,1);
-  item.recipes=[{id:'legacy2',argv:['true'],cwd:run.cwd,created:'2026-01-01T00:00:00.000Z'}];
+  // (A run recipe also records its variables now; one without them asks once more, which vault-pin-followups covers.)
+  item.recipes=[{id:'legacy2',argv:['true'],cwd:run.cwd,created:'2026-01-01T00:00:00.000Z',bindings:VaultStore.bindingsOf(s.resolveBindings({V0:'alpha-renamed'}))}];
   assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),run).length,0,'a legacy run recipe is a run');
   assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),{...run,action:'fill'}).length,1);
   // Expiry is swept on answer and wait, not only on the next snapshot.
@@ -424,9 +425,9 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   assert.equal((await call('/vault',null,bearer)).status,200,'the loopback token reads the list');
   assert.equal((await call('/vault',null,{...bearer,'cf-connecting-ip':'203.0.113.5'})).status,401,'not through the tunnel');
   assert.equal((await call('/sessions',null,bearer)).status,401,'the token opens nothing else');
-  const made=await call('/vault/act',{action:'add',name:'zoho-books',kind:'api_key',values:{value:SECRET},url:'https://books.zoho.com',notes:'owner note',tags:['zoho']});
+  const made=await call('/vault/act',{action:'add',name:'zeta-books',kind:'api_key',values:{value:SECRET},url:'https://books.example.com',notes:'owner note',tags:['zeta']});
   assert.equal(made.status,200);assert.equal(made.body.item.policy,'default');assert.equal(made.body.item.effectivePolicy,'ask');assert.equal(made.body.item.notes,'owner note');
-  const auto=await call('/vault/act',{action:'add',name:'vendor-portal',kind:'login',values:{username:'brad@example.test',password:'P@ss word "quoted"'},policy:'auto'});assert.equal(auto.status,200);
+  const auto=await call('/vault/act',{action:'add',name:'vendor-portal',kind:'login',values:{username:'sam@example.test',password:'P@ss word "quoted"'},policy:'auto'});assert.equal(auto.status,200);
   const ownerOnly=await call('/vault/act',{action:'add',name:'bank',kind:'note',values:{text:'routing 123456789 account 9876543210'},policy:'owner'});assert.equal(ownerOnly.status,200);
   const xo=await call('/vault/act',{action:'add',name:'x',kind:'token',values:{value:'xxxxxxxx'}},{...headers,origin:'https://evil.example'});assert.equal(xo.status,403,'a cross-origin cookie request is refused');
   const viaAgent=await call('/vault/act',{action:'add',name:'twilio-auth',kind:'token',values:{value:'tw-secret-value-1234'},policy:'auto',notes:'x'},agent);
@@ -448,17 +449,17 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   // Owner-only: refused with a code the CLI maps to exit 5.
   r=await streamCall('/vault/run',{argv:['true'],cwd:dir,env:{B:'bank'}},agent);assert.equal(r.events.at(-1).t,'error');assert.equal(r.events.at(-1).code,'owner_only');
   // Ask policy: a request appears, the owner answers "always", the run proceeds; the recipe then runs without asking.
-  const pending=streamCall('/vault/run',{argv:['sh','-c','echo "t=$T"'],cwd:dir,env:{T:'zoho-books'},wait:60},agent);
+  const pending=streamCall('/vault/run',{argv:['sh','-c','echo "t=$T"'],cwd:dir,env:{T:'zeta-books'},wait:60},agent);
   let reqs=[];for(let i=0;i<60&&!reqs.length;i++){await sleep(50);reqs=(await call('/vault')).body.requests;}
-  assert.equal(reqs.length,1);assert.deepEqual(reqs[0].argv,['sh','-c','echo "t=$T"']);assert.equal(reqs[0].session,sid);assert.equal(reqs[0].itemNames[0],'zoho-books');
+  assert.equal(reqs.length,1);assert.deepEqual(reqs[0].argv,['sh','-c','echo "t=$T"']);assert.equal(reqs[0].session,sid);assert.equal(reqs[0].itemNames[0],'zeta-books');
   assert.equal((await call('/vault/act',{action:'answer',request:reqs[0].id,decision:'always'},agent)).status,403,'agents cannot answer');
   const ans=await call('/vault/act',{action:'answer',request:reqs[0].id,decision:'always'});assert.equal(ans.status,200);assert.equal(ans.body.request.answer.decision,'always');
-  r=await pending;assert.equal(r.events[0].t,'request');assert.equal(r.events.filter(e=>e.t==='out').map(e=>e.s).join(''),'t={{vault:zoho-books}}\n');assert.equal(r.events.at(-1).code,0);
+  r=await pending;assert.equal(r.events[0].t,'request');assert.equal(r.events.filter(e=>e.t==='out').map(e=>e.s).join(''),'t={{vault:zeta-books}}\n');assert.equal(r.events.at(-1).code,0);
   assert.match(logs,/vault request=/);
-  assert.equal((await call('/vault')).body.items.find(i=>i.name==='zoho-books').recipes.length,1,'always saved a recipe');
-  r=await streamCall('/vault/run',{argv:['sh','-c','echo "t=$T"'],cwd:dir,env:{T:'zoho-books'}},agent);assert.equal(r.events[0].t,'start','an approved command runs without asking');
+  assert.equal((await call('/vault')).body.items.find(i=>i.name==='zeta-books').recipes.length,1,'always saved a recipe');
+  r=await streamCall('/vault/run',{argv:['sh','-c','echo "t=$T"'],cwd:dir,env:{T:'zeta-books'}},agent);assert.equal(r.events[0].t,'start','an approved command runs without asking');
   // A short wait: pending, then `wait` picks it up; deny ends it.
-  r=await streamCall('/vault/run',{argv:['sh','-c','echo again $T'],cwd:dir,env:{T:'zoho-books'},wait:1},agent);
+  r=await streamCall('/vault/run',{argv:['sh','-c','echo again $T'],cwd:dir,env:{T:'zeta-books'},wait:1},agent);
   assert.equal(r.events.at(-1).t,'pending');const rid=r.events.at(-1).id;
   const waiting=streamCall('/vault/wait',{request:rid,wait:60},agent);await sleep(100);
   assert.equal((await call('/vault/act',{action:'answer',request:rid,decision:'deny'})).status,200);
@@ -481,7 +482,7 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   // 1.43.1: the CLIs find the daemon through <data dir>/cli-url, so a PORT exported by some other app never redirects them (or the token).
   assert.equal(fs.readFileSync(path.join(dir,'data','cli-url'),'utf8').trim(),`http://127.0.0.1:${port}`);assert.equal(fs.statSync(path.join(dir,'data','cli-url')).mode&0o777,0o600);
   let o=await cli(['list'],{env:{PORT:'9'}});assert.equal(o.code,0,'an inherited PORT is ignored: '+o.stderr);
-  o=await cli(['list']);assert.equal(o.code,0,o.stderr);assert.match(o.stdout,/^bank  \(note\)  Only you/m);assert.match(o.stdout,/zoho-books  \(api_key\)  Asks once per command  https:\/\/books\.zoho\.com  #zoho/);assert.doesNotMatch(o.stdout,/hunter2|P@ss/);
+  o=await cli(['list']);assert.equal(o.code,0,o.stderr);assert.match(o.stdout,/^bank  \(note\)  Only you/m);assert.match(o.stdout,/zeta-books  \(api_key\)  Asks once per command  https:\/\/books\.example\.com  #zeta/);assert.doesNotMatch(o.stdout,/hunter2|P@ss/);
   o=await cli(['show','vendor-portal']);assert.match(o.stdout,/fields: username, password/);assert.match(o.stdout,/--env VAR=vendor-portal\.username/);
   o=await cli(['put','github-pat','--kind','token','--stdin','--url','https://github.com'],{stdin:'ghp_abcdefghijklmnop1234\n'});assert.equal(o.code,0,o.stderr);assert.equal(o.stdout,'github-pat\n');
   o=await cli(['put','github-pat','--kind','token','--stdin'],{stdin:'x'});assert.equal(o.code,1);assert.match(o.stderr,/already exists/);
@@ -534,7 +535,7 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   assert.equal((await call('/vault')).body.items.find(i=>i.name==='github-pat').recipes.length,0,'once saves no recipe');
   o=await cli(['run','--env','B=bank','--','true']);assert.equal(o.code,5);assert.match(o.stderr,/owner only/);
   o=await cli(['run','--','true']);assert.equal(o.code,1);assert.match(o.stderr,/at least one --env/);
-  o=await cli(['run','--env','T=zoho-books']);assert.equal(o.code,1);assert.match(o.stderr,/needs the command after --/);
+  o=await cli(['run','--env','T=zeta-books']);assert.equal(o.code,1);assert.match(o.stderr,/needs the command after --/);
   o=await cli(['history']);assert.equal(o.code,0,o.stderr);assert.match(o.stdout,/run  vendor-portal/);assert.doesNotMatch(o.stdout,/hunter2|P@ss/);
   // 1.40: a passphrase locks the store; agents get 423 and the CLI says so; the owner unlocks, exports, imports and can go back.
   let st2=await call('/settings');assert.equal(st2.body.vaultMode,'key');assert.equal(st2.body.vaultLocked,false);assert.equal(st2.body.vaultKeyPresent,true);assert.equal(st2.body.vaultAutoLockMinutes,0);
@@ -548,11 +549,11 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   st2=await call('/settings');assert.equal(st2.body.vaultMode,'passphrase');assert.equal(st2.body.vaultLocked,true);
   let lockedSnap=await call('/vault',null,agent);assert.equal(lockedSnap.status,200);assert.equal(lockedSnap.body.locked,true);assert.equal(lockedSnap.body.ready,false);assert.deepEqual(lockedSnap.body.items,[]);
   assert.equal((await call('/vault/act',{action:'add',name:'l',kind:'token',values:{value:'xxxxxxxxxx'}},agent)).status,423);
-  r=await streamCall('/vault/run',{argv:['true'],cwd:dir,env:{T:'zoho-books'}},agent);assert.equal(r.status,423);assert.equal(r.body.code,'vault_locked');
+  r=await streamCall('/vault/run',{argv:['true'],cwd:dir,env:{T:'zeta-books'}},agent);assert.equal(r.status,423);assert.equal(r.body.code,'vault_locked');
   assert.equal((await call('/vault/field',{item:made.body.item.id,field:'value'})).status,423,'the owner cannot read a value from a locked store either');
   assert.equal((await call('/vault/export',{passphrase:'x'.repeat(12),confirm:'x'.repeat(12)})).status,423);
   o=await cli(['list']);assert.equal(o.code,3);assert.match(o.stderr,/The Vault is locked/);
-  o=await cli(['run','--env','T=zoho-books','--','true']);assert.equal(o.code,3);assert.match(o.stderr,/locked/);
+  o=await cli(['run','--env','T=zeta-books','--','true']);assert.equal(o.code,3);assert.match(o.stderr,/locked/);
   assert.match(logs,/vault locked by the owner/);
   assert.equal((await call('/vault/unlock',{passphrase:'correct horse staple'})).status,401);
   assert.equal((await call('/vault/unlock',{passphrase:'correct horse battery'},bearer)).status,401,'the token cannot unlock');
@@ -562,7 +563,7 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   const ex=await fetch(`http://127.0.0.1:${port}/api/vault/export`,{method:'POST',headers,body:JSON.stringify({passphrase:'export passphrase one',confirm:'export passphrase one'})});
   assert.equal(ex.status,200);assert.match(ex.headers.get('content-disposition'),/attachment; filename="pocket-vault-export-\d{4}-\d{2}-\d{2}\.pvault"/);assert.equal(ex.headers.get('content-type'),'application/octet-stream');
   const bytes=Buffer.from(await ex.arrayBuffer());assert.equal(bytes[0],2);assert.equal(bytes.toString('latin1').includes('hunter2'),false);
-  const imp=await call('/vault/import',{data:bytes.toString('base64'),passphrase:'export passphrase one'});assert.equal(imp.status,200);assert.equal(imp.body.added,0);assert.ok(imp.body.skipped.includes('zoho-books'));
+  const imp=await call('/vault/import',{data:bytes.toString('base64'),passphrase:'export passphrase one'});assert.equal(imp.status,200);assert.equal(imp.body.added,0);assert.ok(imp.body.skipped.includes('zeta-books'));
   assert.equal((await call('/vault/import',{data:bytes.toString('base64'),passphrase:'export passphrase two'})).status,400);
   assert.equal((await call('/vault/import',{data:'',passphrase:'x'})).status,400);
   assert.equal((await call('/vault/passphrase',{action:'set',passphrase:'another passphrase 2',confirm:'another passphrase 2',current:'wrong one here'})).status,401);
@@ -680,44 +681,143 @@ test('HTTP: a request continues only as what it is, by who raised it, and once; 
   assert.doesNotMatch(logs,/TypeError|unhandled rejection/);
 });
 
+// PC-02: an Always recipe used to match the command's text alone, so a script rewritten after the owner's Always, or a program
+// of the same name put earlier on PATH, ran with the secret unasked. The recipe now holds what the command runs.
+test('HTTP (PC-02): an Always recipe holds what the command runs; a changed script or a PATH shim asks again and runs nothing; an old recipe asks once',async t=>{
+  const dir=tmp();let port=19913;
+  const secret=randomUUID(),exp=Date.now()+3600000,key=newKey();
+  const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
+  const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
+  const shim=path.join(dir,'shim'),bin=path.join(dir,'bin'),work=path.join(dir,'work');
+  for(const d of ['sessions','data',shim,bin,work])fs.mkdirSync(path.resolve(dir,d),{recursive:true});
+  let child,logs='';
+  const start=async()=>{
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),POCKET_VAULT_KEY:key,
+     POCKET_VAULT_PATH:[shim,bin,'relative-dir','',path.dirname(process.execPath),'/usr/bin','/bin'].join(':')},stdio:['ignore','pipe','pipe']});
+   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
+   throw Error('Test server failed: '+logs);
+  };
+  const stop=async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}};
+  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
+  const streamCall=async(p,body,h)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:'POST',headers:h,body:JSON.stringify(body)});if(!r.ok)return {status:r.status,events:[],body:await r.json().catch(()=>({}))};const text=await r.text();return {status:r.status,events:text.trim().split('\n').filter(Boolean).map(l=>JSON.parse(l))};};
+  const out=r=>r.events.filter(e=>e.t==='out').map(e=>e.s).join('');
+  await start();
+  const bearer={'content-type':'application/json',authorization:'Bearer '+fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim()};
+  assert.equal((await call('/settings',{vault:true})).body.vault,true);
+  assert.equal((await call('/vault/act',{action:'add',name:'deploy-key',kind:'token',values:{value:SECRET}})).status,200,'asks once per command');
+  const script=path.join(work,'deploy.sh'),ran=path.join(work,'ran');
+  fs.writeFileSync(script,'echo "deployed with $T"\n');
+  const run=(argv,extra={})=>streamCall('/vault/run',{argv,cwd:work,env:{T:'deploy-key'},wait:1,...extra},bearer);
+  const allow=async(argv,decision)=>{const r=await run(argv);assert.equal(r.events.at(-1).t,'pending',JSON.stringify(r.events));assert.equal((await call('/vault/act',{action:'answer',request:r.events.at(-1).id,decision})).status,200);return [r,await streamCall('/vault/wait',{request:r.events.at(-1).id},bearer)];};
+  // The owner allows `sh deploy.sh` always; unchanged, it runs again without asking.
+  let [,r]=await allow(['sh','deploy.sh'],'always');assert.equal(out(r),'deployed with {{vault:deploy-key}}\n');
+  r=await run(['sh','deploy.sh']);assert.equal(r.events.some(e=>e.t==='request'),false,'the unchanged script is not asked about');assert.equal(out(r),'deployed with {{vault:deploy-key}}\n');
+  let recipe=(await call('/vault')).body.items[0].recipes[0];
+  assert.deepEqual(recipe.pin.files.map(f=>f.role),['program','script']);assert.ok(path.isAbsolute(recipe.pin.program));assert.equal(recipe.pin.files[1].path,script);assert.match(recipe.pin.files[1].sha256,/^[0-9a-f]{64}$/);
+  // The agent rewrites the script to spell the value another way: a new request, saying it changed, and nothing runs.
+  fs.writeFileSync(script,'touch ran\nprintf %s "$T" | od -An -tx1\n');
+  r=await run(['sh','deploy.sh']);
+  assert.deepEqual(r.events.map(e=>e.t),['request','pending']);assert.equal(r.events[0].changed,'changed');assert.equal(fs.existsSync(ran),false,'the changed script did not run');
+  const req=(await call('/vault')).body.requests.find(x=>x.id===r.events[0].id);assert.equal(req.changed,'changed');assert.equal(req.program,recipe.pin.program);assert.equal('pin' in req,false,'the card carries the program, not the hashes');
+  // Allowed once, then changed again before the agent continues: the answer was about other content, so nothing runs.
+  assert.equal((await call('/vault/act',{action:'answer',request:r.events[0].id,decision:'once'})).status,200);
+  fs.appendFileSync(script,'echo more\n');
+  r=await streamCall('/vault/wait',{request:r.events[0].id},bearer);assert.equal(r.events.at(-1).t,'error');assert.match(r.events.at(-1).message,/changed since the owner was asked/);assert.equal(fs.existsSync(ran),false);
+  // A PATH shim: `tool` approved always from bin/; a `tool` dropped into a folder earlier on the Vault's PATH is not run.
+  fs.writeFileSync(path.join(bin,'tool'),'#!/bin/sh\necho "tool with $T"\n',{mode:0o755});
+  [,r]=await allow(['tool'],'always');assert.equal(out(r),'tool with {{vault:deploy-key}}\n');
+  r=await run(['tool']);assert.equal(r.events.some(e=>e.t==='request'),false);assert.equal(out(r),'tool with {{vault:deploy-key}}\n');
+  fs.writeFileSync(path.join(shim,'tool'),'#!/bin/sh\ntouch ran\necho "shim with $T"\n',{mode:0o755});
+  r=await run(['tool']);assert.deepEqual(r.events.map(e=>e.t),['request','pending']);assert.equal(r.events[0].changed,'changed');assert.equal(fs.existsSync(ran),false,'the shim did not run');
+  assert.equal((await call('/vault')).body.requests.find(x=>x.id===r.events[0].id).program,path.join(shim,'tool'),'the card names the program that would run');
+  // Empty and relative PATH entries are dropped: a `tool2` in the working folder is not found by its bare name.
+  fs.writeFileSync(path.join(work,'tool2'),'#!/bin/sh\ntouch ran\n',{mode:0o755});
+  r=await run(['tool2']);assert.equal(r.events.at(-1).t,'error');assert.match(r.events.at(-1).message,/tool2 was not found on the Vault's PATH/);assert.equal(fs.existsSync(ran),false);
+  // A recipe saved before pins existed asks once more, saying why; Always then pins it in place, and it runs unasked again.
+  fs.writeFileSync(script,'echo "deployed with $T"\n');
+  await stop();
+  const file=path.join(dir,'data','vault.enc'),k=parseKey(key),data=decryptStore([k],fs.readFileSync(file));
+  for(const i of data.items)i.recipes=i.recipes.map(({pin,...rest})=>rest);fs.writeFileSync(file,encryptStore(k,data));
+  await start();
+  const bearer2={...bearer,authorization:'Bearer '+fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim()};Object.assign(bearer,bearer2);
+  r=await run(['sh','deploy.sh']);assert.deepEqual(r.events.map(e=>e.t),['request','pending']);assert.equal(r.events[0].changed,'unpinned');
+  assert.equal((await call('/vault/act',{action:'answer',request:r.events[0].id,decision:'always'})).status,200);
+  r=await streamCall('/vault/wait',{request:r.events[0].id},bearer);assert.equal(out(r),'deployed with {{vault:deploy-key}}\n');
+  const recipes=(await call('/vault')).body.items[0].recipes;assert.equal(recipes.filter(x=>x.argv.join(' ')==='sh deploy.sh').length,1,'pinned in place, not doubled');assert.ok(recipes.find(x=>x.argv.join(' ')==='sh deploy.sh').pin);assert.equal(recipes.find(x=>x.argv[0]==='tool').pin,undefined,'another old recipe waits for its own next use');
+  r=await run(['sh','deploy.sh']);assert.equal(r.events.some(e=>e.t==='request'),false);assert.equal(out(r),'deployed with {{vault:deploy-key}}\n');
+  assert.equal(fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8').includes(SECRET),false);
+  assert.doesNotMatch(logs,/TypeError|unhandled rejection/);
+});
+
+test('pinCommand (PC-02): the program, a #! interpreter and the one env names, file arguments and --flag=file; an unreadable file compares by size and times',async()=>{
+  const dir=tmp(),bin=path.join(dir,'bin');fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin,'node-ish'),'#!/bin/sh\n',{mode:0o755});
+  fs.writeFileSync(path.join(dir,'tool.sh'),'#!/usr/bin/env -S node-ish --flag\n',{mode:0o755});
+  fs.writeFileSync(path.join(dir,'conf.json'),'{}');fs.writeFileSync(path.join(dir,'data.txt'),'x');
+  const PATH=[bin,'/usr/bin','/bin'].join(':');
+  const p=await pinCommand({argv:['./tool.sh','--config=conf.json','data.txt','-v','missing.txt',dir],cwd:dir},{PATH});
+  assert.deepEqual(p.files.map(f=>[f.role,f.path]),[['program',path.join(dir,'tool.sh')],['interpreter','/usr/bin/env'],['interpreter',path.join(bin,'node-ish')],['argument',path.join(dir,'conf.json')],['argument',path.join(dir,'data.txt')]]);
+  assert.ok(pinKey(p));const same=await pinCommand({argv:['./tool.sh','--config=conf.json','data.txt','-v','missing.txt',dir],cwd:dir},{PATH});assert.equal(pinKey(same),pinKey(p));
+  fs.writeFileSync(path.join(dir,'conf.json'),'{"x":1}');assert.notEqual(pinKey(await pinCommand({argv:['./tool.sh','--config=conf.json'],cwd:dir},{PATH})),pinKey(p));
+  fs.writeFileSync(path.join(bin,'node-ish'),'#!/bin/sh\necho changed\n',{mode:0o755});
+  const p2=await pinCommand({argv:['./tool.sh','--config=conf.json','data.txt','-v','missing.txt',dir],cwd:dir},{PATH});assert.notEqual(pinKey(p2),pinKey(p),'the interpreter env finds is part of it');
+  await assert.rejects(pinCommand({argv:['no-such-program-pc02'],cwd:dir},{PATH}),e=>e.status===400&&/not found on the Vault's PATH/.test(e.message));
+  assert.equal(runPath('relative::/usr/bin:.:/bin'),'/usr/bin:/bin');
+  // 1.118 (D-2): a file that cannot be hashed (here: unreadable) is recorded by its size and times, so the same file matches
+  // (an Allow once can run it) and a replaced one does not.
+  if(process.getuid?.()!==0){fs.chmodSync(path.join(dir,'data.txt'),0);const u=await pinCommand({argv:['./tool.sh','data.txt'],cwd:dir},{PATH});const f=u.files.find(x=>x.path===path.join(dir,'data.txt'));assert.equal(f.why,'unreadable');assert.equal(f.sha256,undefined);assert.equal(f.stamp.size,'1');assert.equal(VaultStore.pinsMatch(u,u),true);
+   fs.rmSync(path.join(dir,'data.txt'));fs.writeFileSync(path.join(dir,'data.txt'),'y',{mode:0});assert.equal(VaultStore.pinsMatch(u,await pinCommand({argv:['./tool.sh','data.txt'],cwd:dir},{PATH})),false,'a replacement of the same size is a new file');}
+  assert.equal(VaultStore.pinsMatch(null,undefined),true,'a store caller that pins nothing matches only unpinned recipes');assert.equal(VaultStore.pinsMatch(undefined,p),false);assert.equal(VaultStore.pinsMatch(p,undefined),false);
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
+test('scrubber (PC-02): hex in either case and the reversed value are scrubbed from a run too',async()=>{
+  const out=[];
+  await runWithSecrets({argv:[process.execPath,'-e','const t=process.env.T;console.log([...t].reverse().join(""));console.log(Buffer.from(t).toString("hex"));console.log(Buffer.from(t).toString("hex").toUpperCase())'],cwd:os.tmpdir(),env:cleanEnv(),secrets:{T:SECRET},placeholders:{[SECRET]:'k'},onOut:s=>out.push(s)});
+  assert.equal(out.join(''),'{{vault:k}}\n'.repeat(3));
+});
+
 // 1.44.2: the owner corrects a value in place. The editor's Show loads the saved value (an owner view, recorded), the
 // owner trims it and saves an update; the audit names the field, never the value. Agents and terminals still cannot
 // change an item, so an owner's mistake is the owner's to fix.
 test('in-place edit (1.44.2): the store changes one field, names it in the audit, and keeps the agent restriction',()=>{
   const dir=tmp(),file=path.join(dir,'vault.enc'),key=parseKey(newKey());
   const s=new VaultStore(file,{key});
-  const pasted='sinch-secret-30-characters-abc\nAuthorization: Basic c2luY2gta2V5OnNpbmNo';
-  const it=s.act({action:'add',name:'sinch-engage',kind:'api_key',values:{value:'sinch-key-1234567890',base_url:'https://au.app.api.sinch.com',api_secret:pasted}});
+  const pasted='smsgw-secret-30-characters-abc\nAuthorization: Basic c21zZ3cta2V5OnNtc2d3';
+  const it=s.act({action:'add',name:'sms-gateway',kind:'api_key',values:{value:'smsgw-key-1234567890',base_url:'https://api.sms.example.com',api_secret:pasted}});
   assert.deepEqual(it.fields,['value','base_url','api_secret']);
   assert.equal(s.field(it.id,'api_secret'),pasted,'Show returns the whole value, line break included');
   // Agents and terminals cannot replace or edit it, by update or by adding over the name.
   for(const actor of ['agent','terminal']){
     assert.throws(()=>s.act({action:'update',item:it.id,values:{api_secret:'x'}},{actor}),e=>e.status===403);
     assert.throws(()=>s.act({action:'update',item:it.id,removeFields:['api_secret']},{actor}),e=>e.status===403);
-    assert.throws(()=>s.act({action:'add',name:'sinch-engage',kind:'api_key',values:{value:'x'}},{actor}),/agents cannot replace it/);
+    assert.throws(()=>s.act({action:'add',name:'sms-gateway',kind:'api_key',values:{value:'x'}},{actor}),/agents cannot replace it/);
   }
   assert.equal(s.get(it.id).values.api_secret,pasted,'unchanged by the refused calls');
   // The owner trims one field; the others are untouched and the change survives a reopen.
   const rev=s.get(it.id).revision;
-  const out=s.act({action:'update',item:it.id,expected_revision:rev,values:{api_secret:'sinch-secret-30-characters-abc'}});
+  const out=s.act({action:'update',item:it.id,expected_revision:rev,values:{api_secret:'smsgw-secret-30-characters-abc'}});
   assert.equal(out.revision,rev+1);assert.equal('values' in out,false,'the answer carries no value');
   const again=new VaultStore(file,{key});
-  assert.deepEqual(again.get(it.id).values,{value:'sinch-key-1234567890',base_url:'https://au.app.api.sinch.com',api_secret:'sinch-secret-30-characters-abc'});
+  assert.deepEqual(again.get(it.id).values,{value:'smsgw-key-1234567890',base_url:'https://api.sms.example.com',api_secret:'smsgw-secret-30-characters-abc'});
   // A fixed field edits in place too; an empty value keeps it; a stale revision is refused.
-  s.act({action:'update',item:it.id,values:{value:'sinch-key-0987654321',api_secret:''}});
-  assert.equal(s.get(it.id).values.value,'sinch-key-0987654321');assert.equal(s.get(it.id).values.api_secret,'sinch-secret-30-characters-abc');
+  s.act({action:'update',item:it.id,values:{value:'smsgw-key-0987654321',api_secret:''}});
+  assert.equal(s.get(it.id).values.value,'smsgw-key-0987654321');assert.equal(s.get(it.id).values.api_secret,'smsgw-secret-30-characters-abc');
   assert.throws(()=>s.act({action:'update',item:it.id,expected_revision:rev,values:{value:'x'}}),e=>e.status===409&&e.item?.id===it.id);
   // Add and remove fields in the same store, without re-creating the item.
-  s.act({action:'update',item:it.id,values:{sender:'+15619228416'},removeFields:['base_url']});
+  s.act({action:'update',item:it.id,values:{sender:'+15555550100'},removeFields:['base_url']});
   assert.deepEqual(s.view(s.get(it.id)).fields,['value','api_secret','sender']);assert.equal(s.get(it.id).id,it.id);
   // The audit: each edit names the fields it changed, an untouched save names none, and no value appears anywhere.
-  s.act({action:'update',item:it.id,values:{value:'sinch-key-0987654321'},tags:['sms']});
+  s.act({action:'update',item:it.id,values:{value:'smsgw-key-0987654321'},tags:['sms']});
   const rows=s.auditRows({owner:true,item:it.id}).filter(r=>r.action==='update').reverse();
   assert.deepEqual(rows.map(r=>r.fields||[]),[['api_secret'],['value'],['base_url','sender'],[]]);
   assert.ok(rows.every(r=>r.by==='owner'));
   const audit=fs.readFileSync(path.join(dir,'vault-audit.jsonl'),'utf8');
-  for(const v of ['sinch-secret','sinch-key-','Authorization','+15619228416'])assert.equal(audit.includes(v),false,'no value in the audit: '+v);
-  assert.equal(fs.readFileSync(file).toString('latin1').includes('sinch-secret'),false,'the store stays encrypted');
+  for(const v of ['smsgw-secret','smsgw-key-','Authorization','+15555550100'])assert.equal(audit.includes(v),false,'no value in the audit: '+v);
+  assert.equal(fs.readFileSync(file).toString('latin1').includes('smsgw-secret'),false,'the store stays encrypted');
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
@@ -740,29 +840,29 @@ test('HTTP in-place edit (1.44.2): the owner loads and saves a field; the token 
   await start();
   assert.equal((await call('/settings',{vault:true})).status,200);
   const token=fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim(),bearer={'content-type':'application/json',authorization:'Bearer '+token};
-  const pasted='sinch-secret-30-characters-abc\nAuthorization: Basic c2luY2gta2V5OnNpbmNo';
-  const made=await call('/vault/act',{action:'add',name:'sinch-engage',kind:'api_key',values:{value:'sinch-key-1234567890',base_url:'https://au.app.api.sinch.com',api_secret:pasted}});
+  const pasted='smsgw-secret-30-characters-abc\nAuthorization: Basic c21zZ3cta2V5OnNtc2d3';
+  const made=await call('/vault/act',{action:'add',name:'sms-gateway',kind:'api_key',values:{value:'smsgw-key-1234567890',base_url:'https://api.sms.example.com',api_secret:pasted}});
   assert.equal(made.status,200);const id=made.body.item.id;
   // Show on each field of a multi-field API key returns that field's value to the owner.
-  for(const [f,v] of [['value','sinch-key-1234567890'],['base_url','https://au.app.api.sinch.com'],['api_secret',pasted]]){
+  for(const [f,v] of [['value','smsgw-key-1234567890'],['base_url','https://api.sms.example.com'],['api_secret',pasted]]){
     const r=await call('/vault/field',{item:id,field:f});assert.equal(r.status,200,f);assert.equal(r.body.value,v,f);
   }
   assert.equal((await call('/vault/field',{item:id,field:'api_secret'},bearer)).status,401,'no value for the token');
   // The token (a terminal, or an agent) cannot edit it, nor replace it by name.
   assert.equal((await call('/vault/act',{action:'update',item:id,values:{api_secret:'x'}},bearer)).status,403);
-  const replace=await call('/vault/act',{action:'add',name:'sinch-engage',kind:'api_key',values:{value:'x'}},bearer);
+  const replace=await call('/vault/act',{action:'add',name:'sms-gateway',kind:'api_key',values:{value:'x'}},bearer);
   assert.equal(replace.status,409);assert.match(replace.body.error,/agents cannot replace it/);
   // The owner saves the trimmed value; a cross-origin save is refused.
   assert.equal((await call('/vault/act',{action:'update',item:id,values:{api_secret:'x'}},{...headers,origin:'https://evil.example'})).status,403);
-  const saved=await call('/vault/act',{action:'update',item:id,expected_revision:made.body.item.revision,values:{api_secret:'sinch-secret-30-characters-abc'}});
-  assert.equal(saved.status,200);assert.equal(JSON.stringify(saved.body).includes('sinch-secret'),false,'the answer carries no value');
-  assert.equal((await call('/vault/field',{item:id,field:'api_secret'})).body.value,'sinch-secret-30-characters-abc');
-  assert.equal((await call('/vault/field',{item:id,field:'value'})).body.value,'sinch-key-1234567890','other fields untouched');
+  const saved=await call('/vault/act',{action:'update',item:id,expected_revision:made.body.item.revision,values:{api_secret:'smsgw-secret-30-characters-abc'}});
+  assert.equal(saved.status,200);assert.equal(JSON.stringify(saved.body).includes('smsgw-secret'),false,'the answer carries no value');
+  assert.equal((await call('/vault/field',{item:id,field:'api_secret'})).body.value,'smsgw-secret-30-characters-abc');
+  assert.equal((await call('/vault/field',{item:id,field:'value'})).body.value,'smsgw-key-1234567890','other fields untouched');
   const hist=await call('/vault/audit?item='+id);
   const update=hist.body.rows.find(r=>r.action==='update');assert.deepEqual(update.fields,['api_secret']);assert.equal(update.by,'owner');
   assert.ok(hist.body.rows.filter(r=>r.action==='owner-view').length>=4,'every load is recorded');
   const audit=fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8');
-  for(const v of ['sinch-secret','sinch-key-','Authorization'])assert.equal(audit.includes(v)||logs.includes(v),false,'no value in the audit or the log: '+v);
+  for(const v of ['smsgw-secret','smsgw-key-','Authorization'])assert.equal(audit.includes(v)||logs.includes(v),false,'no value in the audit or the log: '+v);
 });
 
 // 1.73.6: every change is computed on a copy, written, then installed; the passphrase salt and the key are taken up only once

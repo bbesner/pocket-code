@@ -52,7 +52,7 @@ import {ModelRouter, capEffort, tierChoice, TIERS} from './router.mjs';
 import {AccessVerifier} from './access.mjs';
 import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
 import {syncSkills, googleInstructions, manualInstructions} from './skills.mjs';
-import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
+import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS, REQUEST_LIMITS as DOC_REQUEST_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
 import {InboxStore, inboxInstructions} from './inbox.mjs';
 import { InboxRunner } from './inbox-runner.mjs';
@@ -61,7 +61,7 @@ import { conductorPlaybook, conductorHandoffAt, startOf, LEAD_EFFORT } from './p
 import {Thumbnailer,openChecked} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
 import { SideChats } from './sidechat.mjs';
-import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
+import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, prepareRun, exposedFolders, runPath, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
 import {renderIntake, intakeBrand, intakeThemeCSS, intakeWhen} from './intake-page.mjs';
 import { CliUpdates } from './cli-updates.mjs';
 import { parseEnv } from './env-file.mjs';
@@ -91,6 +91,11 @@ for (const k of ['POCKET_SMTP_URL', 'POCKET_SMTP_FROM', 'POCKET_ROUTER_KEY']) de
 const PROJECTS_ROOT = process.env.POCKET_SESSION_ROOT || path.join(HOME, '.claude', 'projects');
 const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
+// D-5: whether a daemon has started on this data folder before, read before this start writes anything. Every start since
+// 1.43.1 writes cli-token and cli-url, so any earlier start leaves them. (Settings and stores are not evidence: an operator
+// or a test may write those before the first start.) The sign-in state (auth below) uses it to tell a new install from an
+// auth-state.json that went missing.
+const DATA_USED_BEFORE = ['auth-state.json', 'cli-token', 'cli-url'].some(f => { try { fs.lstatSync(path.join(DATA_DIR, f)); return true; } catch { return false; } });
 const deliveryReceipts = new DeliveryReceipts(path.join(DATA_DIR, 'delivery-receipts.json'));
 const followups = new FollowupQueue(path.join(DATA_DIR, 'followup-queue.json'));
 const usage = new UsageStore(path.join(DATA_DIR, 'usage-state.json'));
@@ -368,7 +373,7 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 // threw) must cost that request, never the daemon: a crash drops every open stream and
 // the in-memory approval/question inboxes of every live turn.
 process.on('unhandledRejection', e => log(`unhandled rejection: ${e?.stack || e}`));
-// Origins allowed to embed the app (Mission Control). Space-separated; default = same origin.
+// Origins allowed to embed the app (an operations dashboard). Space-separated; default = same origin.
 const FRAME_ANCESTORS = (process.env.POCKET_FRAME_ANCESTORS || '').split(/\s+/).filter(Boolean);
 
 // ---------- web push (turn-completion notifications) ----------
@@ -441,6 +446,7 @@ const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 // the board serves pocket-docs on /api/documents* only.
 const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'documents');
 const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
+if (docs.migrated) log(docs.migrateError ? `documents: ${docs.migrated} share address(es) could not be removed from documents.json yet: ${docs.migrateError}` : `documents: removed ${docs.migrated} stored share address(es) from documents.json; their links keep working`); // 1.118 (PC-05)
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 // 1.61: pictures for file cards in a conversation (PDF pages and images only), cached under the data directory.
 const artifactThumbs = new Thumbnailer({ dir: path.join(DATA_DIR, 'artifact-thumbs'), filePath: r => r.file }, { log });
@@ -481,7 +487,7 @@ const START_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-start.mjs');
 const startsClaimed = new Set(); // 1.96: handoffs whose /api/new is running, so a second tap in that window never makes a second conversation
 const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).json({ error: 'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'tasks_off' });
 // ---------- 1.39: the vault ----------
-// Credentials agents use by name and never see (vault.mjs): <data dir>/vault.enc, one AES-256-GCM blob under
+// Credentials agents use by name (vault.mjs): <data dir>/vault.enc, one AES-256-GCM blob under
 // POCKET_VAULT_KEY, decrypted into memory here; vault-audit.jsonl records every use and never a value. Off until
 // Settings turns it on, which needs the key. The same loopback token serves pocket-vault on /api/vault* only;
 // what each caller may do is decided per route (the owner's cookie, or an agent's token plus its runner token).
@@ -489,6 +495,18 @@ const VAULT_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-vault.mjs');
 // 1.40: a passphrase-mode store opens without the env key and starts locked; the owner unlocks it from Pocket.
 let vault = null, vaultError = '';
 const VAULT_FILE = path.join(DATA_DIR, 'vault.enc');
+// PC-02: the PATH a Vault run is resolved and started with, fixed at start (POCKET_VAULT_PATH, or the daemon's own PATH),
+// never the caller's; absolute folders only.
+const VAULT_PATH = runPath(process.env.POCKET_VAULT_PATH || process.env.PATH);
+// 1.118 (D-4): a folder on that PATH the service's user can change lets an agent put a program there, and an approved script
+// that starts a program by name would run it. One warning per such folder, once, when the Vault is on (at start, or when
+// it is turned on).
+let vaultPathWarned = false;
+const VAULT_PATH_WHY = { writable: 'can be written by this user', parent: 'is inside a folder this user can write, so it can be replaced', missing: 'does not exist and this user can create it' };
+function warnVaultPath() {
+  if (vaultPathWarned) return; vaultPathWarned = true;
+  for (const { dir, why } of exposedFolders(VAULT_PATH)) log(`vault: warning: the Vault's PATH folder ${dir} ${VAULT_PATH_WHY[why]}; an agent could put a program there that an approved command starts. Set POCKET_VAULT_PATH to folders this user cannot change (docs/manual/vault.md, Choose the Vault's PATH).`);
+}
 const openVault = (keyRaw, oldRaw = '') => { const v = new VaultStore(VAULT_FILE, { key: keyRaw ? parseKey(keyRaw) : null, oldKeys: oldRaw ? [parseKey(oldRaw)] : [], log }); v.access = () => settings.vaultAccess; return v; }; // 1.41: Agent access
 try { vault = openVault(VAULT_KEY_RAW, VAULT_KEY_PREVIOUS); } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); }
 // 1.76.3: a rotation that stopped between its two .env saves left POCKET_VAULT_KEY holding a key the owner was never shown, with
@@ -557,12 +575,18 @@ fs.writeFileSync(CLI_TOKEN_FILE, cliToken + '\n', { mode: 0o600 }); fs.chmodSync
 const CLI_URL_FILE = path.join(DATA_DIR, 'cli-url');
 fs.writeFileSync(CLI_URL_FILE, `http://127.0.0.1:${PORT}\n`, { mode: 0o600 }); fs.chmodSync(CLI_URL_FILE, 0o600);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+// A request that names a client address in a proxy header. D-7: Forwarded (RFC 7239) and X-Real-IP count as well as
+// Cloudflare's and X-Forwarded-For, so a proxy that sends only one of those is not taken for this box. This only ever makes
+// Pocket trust a request less; the address the limits count is still chosen by clientAddress.
+const proxied = req => Boolean(req.get('cf-connecting-ip') || req.get('x-forwarded-for') || req.get('forwarded') || req.get('x-real-ip'));
+// A request made on this box straight to the port: a loopback socket and no proxy header. A proxy that adds none (nginx's
+// proxy_pass on its own) looks the same as this box, so docs/install.md has it send X-Forwarded-For.
+const directLoopback = req => LOOPBACK.has(req.socket.remoteAddress) && !proxied(req);
 // Cookie, or the loopback CLI token: mounted only on /api/board* and /api/documents*.
 async function requireBoardAuth(req, res, next) {
   if (checkCookie(getCookie(req, 'pc_auth'))) return next();
   const m = /^Bearer ([0-9a-f]{64})$/.exec(req.get('authorization') || '');
-  const direct = LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
-  if (m && direct && timingSafeEqual(Buffer.from(m[1]), Buffer.from(cliToken))) { req.boardActor = 'cli'; return next(); }
+  if (m && directLoopback(req) && timingSafeEqual(Buffer.from(m[1]), Buffer.from(cliToken))) { req.boardActor = 'cli'; return next(); }
   if (await accessSignIn(req, res)) return next(); // 1.63
   res.status(401).json({ error: 'unauthorized' });
 }
@@ -857,7 +881,7 @@ async function pushNotify(sessionId, title, body) {
 // choice in Settings → Notifications); returns how many received it, or null when push is off or no device wants it.
 // `badge` is the count of due items for the app icon, sent only to devices that show it.
 // 1.50.2: a due task or reminder and a Vault request are sent as urgent, so Android delivers them while the phone is idle
-// (a normal-priority push waits until the phone wakes, which is how the 1.50.0 reminder pushes went missing on Brad's phone);
+// (a normal-priority push waits until the phone wakes, which is how the 1.50.0 reminder pushes went missing on the owner's phone);
 // a finished turn stays normal priority, so a busy session does not keep waking the phone.
 async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra }) { // 1.41: extra fields (actions, vaultRequest) ride along for the service worker
   if (!pushReady) return null;
@@ -876,9 +900,62 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
 }
 
 // ---------- auth ----------
+// 1.118 (PC-06): a sign-in generation, kept in <data dir>/auth-state.json (0600) with a keyed mark of the password, is mixed
+// into every cookie's signature. "Sign out everywhere" replaces it, and so does a start with a different POCKET_PASSWORD, and
+// every cookie signed before stops working.
+// D-5: a new install (a data folder no daemon has used: DATA_USED_BEFORE) starts at generation 0, which signs the expiry
+// alone as before 1.118; nobody holds a cookie yet, and it stays 0 until the first Sign out everywhere or password change.
+// Every later generation is 128 random bits. A start in a used data folder that finds no usable state file (missing,
+// unreadable, corrupt, or written by an earlier build) begins a new one, and every browser signs in again: so a deleted file,
+// or a data folder restored from a copy taken before the upgrade, never makes a signed-out or pre-upgrade cookie valid again,
+// and the first start on this version (an upgrade: a used folder with no state file) ends the cookies from before it, which
+// covers a password changed in the same restart. The limits are in SECURITY.md: restoring an older auth-state.json brings
+// back that file's generation, and a data folder emptied of every Pocket file counts as a new install.
+const AUTH_STATE_FILE = path.join(DATA_DIR, 'auth-state.json');
+const PASSWORD_MARK = createHmac('sha256', SECRET).update('pocket-password\0' + PASSWORD).digest('hex');
+const newGeneration = () => randomBytes(16).toString('hex');
+const authState = (() => {
+  let raw = null, why = 'is missing';
+  try { raw = fs.readFileSync(AUTH_STATE_FILE, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') why = 'could not be read'; }
+  if (raw === null && !DATA_USED_BEFORE) return { v: 2, generation: 0, password: PASSWORD_MARK };
+  if (raw !== null) {
+    let s = null; try { s = JSON.parse(raw); } catch { }
+    if (s?.v === 2 && (s.generation === 0 || /^[0-9a-f]{32}$/.test(s.generation)) && /^[0-9a-f]{64}$/.test(s.password)) return { v: 2, generation: s.generation, password: s.password };
+    why = s && typeof s === 'object' && s.v === undefined && Number.isSafeInteger(s.generation) ? 'is from an earlier build' : 'could not be read';
+  }
+  log(`${AUTH_STATE_FILE} ${why}: a new sign-in generation starts, and every browser signs in again`);
+  return { v: 2, generation: newGeneration(), password: PASSWORD_MARK };
+})();
+const saveAuthState = () => atomicWrite(AUTH_STATE_FILE, authState);
+if (authState.password !== PASSWORD_MARK) { authState.generation = newGeneration(); log('POCKET_PASSWORD changed since the last start: every browser signs in again'); }
+authState.password = PASSWORD_MARK; saveAuthState();
 function sign(exp) {
-  return createHmac('sha256', SECRET).update(String(exp)).digest('hex');
+  return createHmac('sha256', SECRET).update(authState.generation ? `${exp}.${authState.generation}` : String(exp)).digest('hex');
 }
+// D-6 (1.118): a "known device" cookie, set at each sign-in and sent back only to /api/login. A sign-in that carries a valid
+// one skips the queue across all addresses (it still counts against its own address's 20), so a flood of wrong passwords from
+// many addresses cannot keep the owner out on a browser that has signed in before. It never signs anything in by itself: no
+// other route reads it, and its signature is in its own domain, so it is not a pc_auth value either. It is bound to the
+// generation (Sign out everywhere ends every one) and to the password mark (a new POCKET_PASSWORD ends them too). A device
+// cookie that has carried five wrong passwords within the hour stops skipping the queue, so a stolen one buys little.
+const DEVICE_DAYS = 365;
+const deviceSig = exp => createHmac('sha256', SECRET).update(`pocket-known-device\0${exp}\0${authState.generation}\0${PASSWORD_MARK}`).digest('hex');
+const makeDeviceCookie = () => { const exp = Date.now() + DEVICE_DAYS * 24 * 3600_000; return `d.${exp}.${deviceSig(exp)}`; };
+const deviceMisses = new Map(); // device cookie signature -> {n wrong, resetAt}
+function knownDevice(v) { // the cookie's signature when it is valid and has not carried too many wrong passwords, else null
+  const m = /^d\.(\d{13,15})\.([0-9a-f]{64})$/.exec(v || '');
+  if (!m || Number(m[1]) < Date.now()) return null;
+  if (!timingSafeEqual(Buffer.from(m[2]), Buffer.from(deviceSig(m[1])))) return null;
+  const miss = deviceMisses.get(m[2]);
+  return miss && miss.resetAt > Date.now() && miss.n >= 5 ? null : m[2];
+}
+function deviceFailed(sig) {
+  const now = Date.now(), rec = deviceMisses.get(sig);
+  if (deviceMisses.size > 5000) for (const [k, v] of deviceMisses) if (v.resetAt < now) deviceMisses.delete(k);
+  if (!rec || rec.resetAt < now) deviceMisses.set(sig, { n: 1, resetAt: now + 3600_000 }); else rec.n++;
+}
+// HTTPS as the browser saw it: the tunnel or proxy says so in X-Forwarded-Proto, or Cloudflare's CF-Visitor.
+const viaHttps = req => (req.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase() === 'https' || /"scheme"\s*:\s*"https"/.test(req.get('cf-visitor') || '');
 function makeCookie(ms = 90 * 24 * 3600 * 1000) {
   const exp = Date.now() + ms;
   return `${exp}.${sign(exp)}`;
@@ -905,6 +982,43 @@ function loginFailed(ip) {
   const now = Date.now(), rec = loginAttempts.get(ip);
   if (loginAttempts.size > 5000) for (const [k, v] of loginAttempts) if (v.resetAt < now) loginAttempts.delete(k);
   if (!rec || rec.resetAt < now) loginAttempts.set(ip, { n: 1, resetAt: now + 3600_000 }); else rec.n++;
+  if (loginGlobal.resetAt < now) Object.assign(loginGlobal, { n: 1, resetAt: now + 3600_000 }); else loginGlobal.n++;
+}
+// 1.118 (PC-07): a budget across all addresses, so a guesser with many addresses (an IPv6 range, a botnet) is slowed too.
+// The first 30 wrong passwords in an hour cost nothing. Past that, passwords are checked one at a time with a gap between
+// checks that starts at POCKET_LOGIN_BACKOFF_MS (1 s) and doubles every 20 more wrong ones, up to ten times that; a
+// request waits for its turn, and one that would wait more than twenty gaps is answered 429 `busy` at once, unchecked.
+// Nothing here closes the page for an hour: once the guessing stops, the owner's password is checked within one gap, and
+// a signed-in browser never comes here. Right passwords take a turn but never count.
+const LOGIN_BACKOFF_MS = Math.max(1, msSetting('POCKET_LOGIN_BACKOFF_MS', 1000));
+const LOGIN_GLOBAL = { free: 30, step: 20, capMs: 10 * LOGIN_BACKOFF_MS, maxWaitMs: 20 * LOGIN_BACKOFF_MS };
+const loginGlobal = { n: 0, resetAt: 0, nextAt: 0 };
+function loginTurn() { // ms this attempt waits before its check, or -1: the queue is too long
+  const now = Date.now();
+  if (loginGlobal.resetAt < now) Object.assign(loginGlobal, { n: 0, resetAt: 0 });
+  const excess = loginGlobal.n - LOGIN_GLOBAL.free;
+  if (excess < 0) return 0;
+  const at = Math.max(now, loginGlobal.nextAt);
+  if (at - now > LOGIN_GLOBAL.maxWaitMs) return -1;
+  loginGlobal.nextAt = at + Math.min(LOGIN_GLOBAL.capMs, LOGIN_BACKOFF_MS * 2 ** Math.floor(excess / LOGIN_GLOBAL.step));
+  return at - now;
+}
+// 1.118 (PC-07): the key an address counts under. An IPv6 caller can use any address of its /64 (usually the whole of one
+// home or server), so it counts as the /64; an IPv4-mapped address counts as the IPv4 one.
+// D-6: the mapped form is read whichever way it is written (::ffff:1.2.3.4, ::ffff:102:304, 0:0:0:0:0:ffff:…), and ::1
+// counts on its own rather than under the all-zero /64 the mapped addresses fall in.
+function addressKey(ip) {
+  const a = String(ip || '?').split('%')[0].trim().toLowerCase().slice(0, 64);
+  if (!a.includes(':')) return a;
+  const [head, tail, extra] = a.split('::'), part = s => s ? s.split(':') : [];
+  if (extra !== undefined) return a; // not an address (two '::'): it counts as itself
+  const h = part(head), t = part(tail), v4 = g => /^\d+\.\d+\.\d+\.\d+$/.test(g);
+  const words = list => list.flatMap(g => v4(g) ? (([p, q, r, s]) => [((p & 255) << 8 | (q & 255)).toString(16), ((r & 255) << 8 | (s & 255)).toString(16)])(g.split('.').map(Number)) : [g]);
+  const hw = words(h), tw = words(t);
+  const groups = (tail === undefined ? hw : [...hw, ...Array(Math.max(0, 8 - hw.length - tw.length)).fill('0'), ...tw]).map(g => parseInt(g, 16) || 0);
+  if (groups.length === 8 && groups.slice(0, 5).every(g => g === 0) && groups[5] === 0xffff) return [groups[6] >> 8, groups[6] & 255, groups[7] >> 8, groups[7] & 255].join('.');
+  if (groups.length === 8 && groups.slice(0, 7).every(g => g === 0) && groups[7] === 1) return '::1';
+  return groups.slice(0, 4).map(g => (g & 0xffff).toString(16)).join(':') + '::/64';
 }
 // 1.89 (S-6): the address the login and Vault attempt limits count against. cf-connecting-ip is Cloudflare's, but any
 // caller that reaches the port can type it, so a new value on each try never ran out of tries. It counts only when the
@@ -924,7 +1038,7 @@ function getCookie(req, name) {
   const h = req.headers.cookie || '';
   for (const part of h.split(';')) {
     const [k, ...rest] = part.trim().split('=');
-    if (k === name) return decodeURIComponent(rest.join('='));
+    if (k === name) { try { return decodeURIComponent(rest.join('=')); } catch { return null; } } // a malformed %-escape is no cookie, not a 500
   }
   return null;
 }
@@ -1490,7 +1604,7 @@ const claudeLogin = new ClaudeLogin({
 process.on('exit', () => claudeLogin.dispose());
 for (const signal of ['SIGINT','SIGTERM']) process.once(signal, () => { claudeLogin.dispose(); process.exit(0); });
 const TURNLOG_DIR = path.join(DATA_DIR, 'turnlogs');
-fs.mkdirSync(TURNLOG_DIR, { recursive: true });
+fs.mkdirSync(TURNLOG_DIR, { recursive: true, mode: 0o700 }); try { fs.chmodSync(TURNLOG_DIR, 0o700); } catch { } // the owner's alone, whatever the umask; also a folder an earlier version made
 // 1.73.2: input pipes live outside the data directory (pipes.mjs); pre-1.73.2 runners keep theirs in turnlogs/.
 const PIPES = pipeDirs(DATA_DIR), PIPE_DIR = PIPES.claude;
 const turnFiles = id => ({
@@ -1562,12 +1676,12 @@ function holdRetry(m) {
   clearTimeout(retryTimers.get(m.sessionId)); retryTimers.delete(m.sessionId);
   const held = { ...m, held: true };
   heldRetries.set(m.sessionId, held);
-  try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(held)); } catch { }
+  try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(held), { mode: 0o600 }); } catch { }
   log(`auto-resume held (paused) session=${m.sessionId}`);
 }
 function rearmRetry(m) {
   const { held, ...rest } = m;
-  try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(rest)); } catch { }
+  try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(rest), { mode: 0o600 }); } catch { }
   armRetry(rest);
 }
 function scheduleRetry(sessionId, turn, resetAt) {
@@ -1576,7 +1690,7 @@ function scheduleRetry(sessionId, turn, resetAt) {
     model: turn.model || turn.requestedModel || null, effort: turn.effort || null, approvalMode:turn.approvalMode, attempt: (turn.retryAttempt || 0) + 1, fork: turn.runner?.fork || null,
     rootOrigin: auto.normRoot(turn.rootOrigin), ...(turn.originRef ? { originRef: turn.originRef } : {}), // 1.117: a retry carries the root of the turn it retries
   };
-  try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m)); } catch { }
+  try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m), { mode: 0o600 }); } catch { }
   if (pausedNow()) holdRetry(m); else armRetry(m);
   log(`rate limited session=${sessionId} — ${heldRetries.has(sessionId) ? 'auto-resume held (paused)' : `auto-resume at ${fmtOwnerTime(resetAt)}`} (attempt ${m.attempt})`);
 }
@@ -1598,7 +1712,7 @@ async function fireRetry(m) {
       if (g.reason === 'paused') return holdRetry(m);
       // the marker takes the new time too, so the conversation shows when it will try again
       const next = { ...m, at: Math.max(Number(g.until) || 0, Date.now() + AUTOMATION_TICK_MS) };
-      try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(next)); } catch { }
+      try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(next), { mode: 0o600 }); } catch { }
       log(`auto-resume re-armed (${g.reason}) session=${m.sessionId} — next try at ${fmtOwnerTime(next.at)}`);
       return armRetry(next);
     }
@@ -2284,8 +2398,8 @@ const userJSON = text => JSON.stringify({ type: 'user', message: { role: 'user',
 // open between turns, so a message must not be written once the turn is finishing — the
 // idle CLI would run it as a new, unlabeled turn.
 // 1.76.1: a steered message no longer waits behind a pending question. Claude Code (and Codex) hold steered input
-// until the question is answered, so a person who typed instead of answering got no reply and no sign why (Damon,
-// 2026-10-22: 33 minutes). After the message is written, each blocking question gets its no-answer reply; Claude reads
+// until the question is answered, so a person who typed instead of answering got no reply and no sign why (reported by a
+// colleague, 2026-10-22: 33 minutes). After the message is written, each blocking question gets its no-answer reply; Claude reads
 // the skip note as the tool result and the message beside it, in the same turn (checked against the real CLI).
 const QUESTION_SKIPPED = 'The user skipped these questions without answering and sent a message instead; it follows. Respond to that message. Ask again later only if you still need the answers.';
 function skipQuestions(questions) {
@@ -2581,9 +2695,13 @@ for (const verb of ['get', 'post', 'patch', 'delete']) {
   app[verb] = (p, ...hs) => hs.length ? orig(p, ...hs.map(h => typeof h !== 'function' || h.length >= 4 ? h
     : (req, res, next) => { try { const r = h(req, res, next); if (r && typeof r.catch === 'function') r.catch(next); } catch (e) { next(e); } })) : orig(p);
 }
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
+  // 1.118 (PC-11): HSTS when the request reached the tunnel or proxy over HTTPS (it says so in X-Forwarded-Proto, or
+  // Cloudflare's CF-Visitor). A browser only honours it over HTTPS, so plain loopback HTTP never gets it. No includeSubDomains:
+  // other names under the owner's domain are not Pocket's to decide.
+  if (viaHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   // No inline scripts, no third-party hosts: everything the app needs is same-origin.
   // img-src 'self' also stops agent-written Markdown from loading a remote image (a
   // prompt-injected turn could otherwise exfiltrate text through an image URL).
@@ -2607,22 +2725,64 @@ app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index
 }));
 
 app.post('/api/login', async (req, res) => {
-  const ip = await clientAddress(req); // 1.89 (S-6)
-  if (rateLimited(ip)) return res.status(429).json({ error: 'too many attempts' });
+  const ip = await clientAddress(req), key = addressKey(ip); // 1.89 (S-6); 1.118 an IPv6 /64 counts once
+  if (rateLimited(key)) return res.status(429).json({ error: 'too many attempts' });
+  const device = knownDevice(getCookie(req, 'pc_device')); // D-6: a browser that signed in before skips the queue
+  const wait = device ? 0 : loginTurn(); // 1.118 (PC-07)
+  if (wait < 0) return res.status(429).set('Retry-After', String(Math.ceil(LOGIN_GLOBAL.maxWaitMs / 1000))).json({ error: 'too many sign-in attempts right now', code: 'busy' });
+  if (wait) {
+    await new Promise(r => setTimeout(r, wait));
+    if (rateLimited(key)) return res.status(429).json({ error: 'too many attempts' }); // D-6: a queued burst from one address stops at its 20
+  }
   const given = String(req.body?.password || '');
   const digest = s => createHash('sha256').update(s, 'utf8').digest();
   if (timingSafeEqual(digest(PASSWORD), digest(given))) {
-    res.setHeader('Set-Cookie', `pc_auth=${makeCookie()}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${90 * 24 * 3600}`);
+    res.setHeader('Set-Cookie', [`pc_auth=${makeCookie()}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${90 * 24 * 3600}`,
+      `pc_device=${makeDeviceCookie()}; HttpOnly;${viaHttps(req) ? ' Secure;' : ''} SameSite=Lax; Path=/api/login; Max-Age=${DEVICE_DAYS * 24 * 3600}`]);
     return res.json({ ok: true });
   }
-  loginFailed(ip);
+  if (device) deviceFailed(device);
+  loginFailed(key);
   log(`login FAIL from ${ip}`);
   res.status(403).json({ error: 'wrong password' });
+});
+// 1.118 (PC-06): sign out this browser, or every browser. Only from Pocket's own page: JSON, not cross-site, and an Origin
+// (when one is sent) naming this host, as for the CLI updates and stop-all controls. Behind Cloudflare Access with One
+// sign-in on, the next visit through Access signs in again; remove the person in Access to keep them out.
+const ownPageJson = (req, res, next) => {
+  const origin = req.get('origin');
+  if (req.get('sec-fetch-site') === 'cross-site' || (origin && origin !== `https://${req.get('host')}` && origin !== `http://${req.get('host')}`)) return res.status(403).json({ error: 'Open this control from Pocket Code.' });
+  if (!req.is('application/json')) return res.status(415).json({ error: 'Expected JSON.' });
+  next();
+};
+const clearAuthCookie = res => res.setHeader('Set-Cookie', 'pc_auth=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0');
+// D-5.3: Sign out also forgets this browser's push subscription (the page sends its endpoint and unsubscribes the browser),
+// and only for a caller that is still signed in. Sign out everywhere removes every subscription: a lost phone stops
+// receiving notification text, and the owner turns notifications on again on the devices that stay.
+app.post('/api/logout', ownPageJson, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const endpoint = req.body?.endpoint;
+  if (typeof endpoint === 'string' && endpoint && checkCookie(getCookie(req, 'pc_auth'))) {
+    try { const subs = loadSubs(), keep = subs.filter(s => s.endpoint !== endpoint); if (keep.length !== subs.length) { saveSubs(keep); log(`push unsubscribed at sign-out (${keep.length} devices)`); } }
+    catch (e) { log(`sign out: the push subscription could not be removed: ${e.message}`); }
+  }
+  clearAuthCookie(res); res.json({ ok: true });
+});
+app.post('/api/logout/everywhere', ownPageJson, requireAuth, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const before = authState.generation;
+  authState.generation = newGeneration();
+  try { saveAuthState(); } catch (e) { authState.generation = before; log(`sign out everywhere failed: ${e.message}`); return res.status(500).json({ error: 'Pocket could not save the change, so nobody was signed out. Try again.' }); }
+  deviceMisses.clear();
+  let push = 0; // the sign-out above already holds; a failure here is logged, as for any other push store write
+  try { push = loadSubs().length; if (push) saveSubs([]); }
+  catch (e) { push = null; log(`sign out everywhere: the push subscriptions could not be removed: ${e.message}`); }
+  clearAuthCookie(res); log(`signed out everywhere: every browser signs in again; ${push} push subscriptions removed`); res.json({ ok: true, pushRemoved: push });
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
 // 1.73.3: signed out, the reply names only the mode (the sign-in page says Pocket Assistant or Pocket Code); which modules are on is for the owner.
-app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) { learnPublicUrl(req); learnTimezone(req.query.tz); } return res.json({ ok, features: ok ? { coordination: coordLive(), projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked, handoffAt: handoffAt(), markAllReviewed: settings.markAllReviewed !== false, automation: true } : { assistantMode: assistantOn() }, ...(ok ? { paused: pausedNow() ? { at: pausedNow().at } : null } : {}) }); }); // 1.117: automation, paused
+app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) learnPublicUrl(req); return res.json({ ok, features: ok ? { coordination: coordLive(), projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked, handoffAt: handoffAt(), markAllReviewed: settings.markAllReviewed !== false, automation: true } : { assistantMode: assistantOn() }, ...(ok ? { paused: pausedNow() ? { at: pausedNow().at } : null } : {}) }); }); // 1.117: automation, paused
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -2778,7 +2938,7 @@ app.get('/api/projects', requireAuth, async (_req, res) => {
 // that gap (it does, right after the send is acknowledged) would lose the message just sent until the turn
 // ends. Show the turn's own text as pending until the transcript has it. Match the text among user lines
 // written since the turn started, not "the last user line": a steered or queued message can land after it.
-// (Reported, with a first patch, by Damon Delcoro 2026-10-05.) 1.48.1: Codex sessions too. Pocket reads a Codex
+// (Reported, with a first patch, by a colleague 2026-10-05.) 1.48.1: Codex sessions too. Pocket reads a Codex
 // thread through a separate reader process, which has the new user message only a few hundred ms after
 // turn/start returns, so the same re-render dropped it there. Codex stores attachments as a note after the text.
 function withPendingUser(messages, turn) {
@@ -2791,6 +2951,7 @@ function withPendingUser(messages, turn) {
 }
 
 app.get('/api/session/:id', requireAuth, async (req, res) => {
+  if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid conversation' }); // 1.118: a Codex id reaches a lock-file path below
   if (isAcpId(req.params.id)) { // OpenRouter (ACP): history from OpenCode's session/load; a live turn streams the rest
     const id = req.params.id, turn = acp.ownedAcpTurn(id);
     if (!ACP_ON) return res.status(404).json({ error: 'not found' });
@@ -3631,7 +3792,7 @@ app.post('/api/session/:id/message', requireAuth, ownerSendGate, validateApprova
   if(!anyId(id))return res.status(400).json({error:'Invalid conversation'});
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
-  vaultAnswerFromMessage(id, text); // 1.41: "Allow zoho-books for this command" answers that session's pending Vault request
+  vaultAnswerFromMessage(id, text); // 1.41: "Allow zeta-books for this command" answers that session's pending Vault request
   const mode=req.body.mode || 'auto';
   if(!['auto','steer','queue'].includes(mode))return res.status(400).json({error:'Invalid delivery mode'});
   if(mode==='steer'&&!ownedTurn(id))return res.status(409).json({error:'The reply has ended. Review the conversation, then send a new message.'});
@@ -4037,6 +4198,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
   saveSettings();
   if (['projects', 'documents', 'tasks', 'inbox', 'coordination', 'assistantMode'].some(k => k in next) || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
+  if (vaultToggled && settings.vault) warnVaultPath();
   if ('contextPolicy' in next && JSON.stringify(readPolicy(next.contextPolicy)) !== JSON.stringify(readPolicy(prevContextPolicy))) { // 1.92
     log(`context policy: ${JSON.stringify(readPolicy(settings.contextPolicy))}`);
     restartIdleRunners('context policy changed');
@@ -4247,11 +4409,12 @@ app.post('/api/session/:id/branch', requireAuth, ownerSendGate, validateApproval
 app.post('/api/upload', requireAuth, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
   const raw = String(req.headers['x-filename'] || 'file.bin');
   const safe = path.basename(raw).replace(/[^\w.\-]+/g, '_').slice(-80) || 'file.bin';
-  if (!req.body?.length) return res.status(400).json({ error: 'empty upload' });
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'empty upload' }); // 1.118: a JSON body arrives parsed, not raw
   const dir = path.join(UPLOAD_DIR, new Date().toISOString().slice(0, 7));
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); // 1.118 (PC-13): the owner's alone, whatever the umask
+  for (const d of [UPLOAD_DIR, dir]) try { fs.chmodSync(d, 0o700); } catch { }
   const dest = path.join(dir, `${Date.now().toString(36)}-${safe}`);
-  fs.writeFileSync(dest, req.body);
+  fs.writeFileSync(dest, req.body, { mode: 0o600 });
   log(`upload ${dest} (${req.body.length} bytes)`);
   res.json({ path: dest, name: safe, size: req.body.length });
 });
@@ -4402,7 +4565,7 @@ app.post('/api/board/act', requireBoardAuth, boardOn, (req, res) => {
     res.set('Cache-Control', 'private, no-store').json({ ok: true, project });
   } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.project ? { project: e.project } : {}) }); }
 });
-// One-time import of a Mission Control board snapshot; projects already here are left alone.
+// One-time import of an older dashboard's board snapshot; projects already here are left alone.
 app.post('/api/board/import', requireBoardAuth, boardOn, (req, res) => {
   try {
     const r = board.importSnapshot(req.body, { actor: req.boardActor || 'ui' });
@@ -4440,7 +4603,7 @@ app.post('/api/tasks/act', requireBoardAuth, tasksOn, async (req, res) => {
   } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.task ? { task: e.task } : {}) }); }
 });
 // 1.57: start links. Both routes accept the owner's cookie or the loopback token (a direct loopback request only, as for
-// the board), so a job on the server (Ari's inbox monitor) can mint a link and the CLI can show one; nothing else reads them.
+// the board), so a job on the server (the assistant's inbox monitor) can mint a link and the CLI can show one; nothing else reads them.
 // 1.96: a handoff. The parent is whatever the runner token proves, never anything in the body, so an agent can't claim
 // another conversation or borrow its permissions. With no proven parent (a terminal, OpenRouter) the mode is Review actions.
 function handoffFrom(req) {
@@ -4494,6 +4657,9 @@ function learnTimezone(tz) {
   try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return; }
   settings.ownerTimezone = tz; saveSettings(); log(`owner time zone: ${tz}`);
 }
+// 1.118 (PC-12): the browser reports its zone with a POST from Pocket's own page; GET /api/me?tz= used to store it, and a
+// link on another site could set it, since the cookie rides along on a top-level GET.
+app.post('/api/timezone', ownPageJson, requireAuth, (req, res) => { learnTimezone(req.body?.tz); res.json({ ok: true }); });
 // ---------- 1.69: inbox routes ----------
 // Inbox Watch: the owner's cookie or the loopback token (a direct loopback request only, as for Tasks and start links).
 // POST /api/inbox is the worker's one call: the entry, the push (kind alerts, urgent) and, when asked, the email.
@@ -4565,7 +4731,7 @@ app.post('/api/inbox/merge', requireBoardAuth, inboxOn, (req, res) => {
     res.set('Cache-Control', 'private, no-store').json({ ok: true, ...r });
   } catch (e) { inboxError(res, e); }
 });
-// 1.115 (Brad): "it's really a separate subject". The newest mail an entry took in comes back off as an entry of its own (the
+// 1.115 (owner request): "it's really a separate subject". The newest mail an entry took in comes back off as an entry of its own (the
 // store), the watcher hears it on its next check (feedback action 'split'), and the new entry gets a briefing of its own: the
 // one the watcher wrote for that mail, a line saying the owner split it off, and where the earlier conversation is, as
 // background only. An entry that comes back out with a conversation of its own needs no briefing: the client opens that one.
@@ -4595,7 +4761,7 @@ app.post('/api/inbox/split', requireBoardAuth, inboxOn, (req, res) => {
     res.set('Cache-Control', 'private, no-store').json({ ok: true, entry, from: r.from, start, session: r.session || null });
   } catch (e) { inboxError(res, e); }
 });
-// 1.113.1 (Brad): a conversation started from an entry that has since been updated (or took in a merged entry) catches up in
+// 1.113.1 (owner request): a conversation started from an entry that has since been updated (or took in a merged entry) catches up in
 // place. A reply running in it gets the news steered in now; an idle one shows "New mail on this story" with Bring it in, which
 // sends the text below as the owner's next message and then calls caught-up. Nothing starts a reply on its own.
 const inboxTimeOf = v => {
@@ -4765,8 +4931,8 @@ function vaultCaller(req) {
   return { actor: 'terminal', session: null, sessionTitle: '', tokenHash: null };
 }
 const sessionName = id => { const m = smeta[id]; return (m && typeof m.name === 'string' && m.name) || ''; };
-// 1.41: the owner can answer a pending request in the conversation that raised it: "Allow zoho-books for this command",
-// "Always allow zoho-books for this command", "Deny zoho-books" (the suggested replies agents offer), or a bare "Allow"/"Deny"
+// 1.41: the owner can answer a pending request in the conversation that raised it: "Allow zeta-books for this command",
+// "Always allow zeta-books for this command", "Deny zeta-books" (the suggested replies agents offer), or a bare "Allow"/"Deny"
 // when that session has exactly one pending request. Only the owner's own messages (cookie) reach here; the message is
 // still delivered, so the agent sees the answer and continues with `pocket-vault wait`.
 function vaultAnswerFromMessage(sessionId, text) {
@@ -4859,7 +5025,7 @@ app.post('/api/vault/import', requireAuth, vaultOn, vaultOpen, sameOrigin, vault
     res.json({ ok: true, ...r });
   } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
 });
-// 1.93 (Damon): the request notification says plainly what is asked: "Allow ptvip-staging-damon-wp?" over "Fix the staging
+// 1.93 (colleague request): the request notification says plainly what is asked: "Allow staging-wp?" over "Fix the staging
 // login wants to use it for: wp plugin list". A tap on its body opens that request in the Vault (it never approves); only the
 // Allow button answers, once.
 function vaultPushText(r, what) {
@@ -4926,7 +5092,7 @@ app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, 
   res.json({ ok: true });
 }).catch(next));
 // A run: the daemon binds the values, checks policy, asks the owner when it must, spawns the child itself and streams
-// scrubbed output back as JSON lines. The CLI never receives a value.
+// scrubbed output back as JSON lines. The CLI never receives a value; the command does.
 const vaultRuns = new Set();
 async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: existing }) {
   const c = vaultCaller(req);
@@ -4936,17 +5102,21 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
   const ac = new AbortController();
   res.on('close', () => { if (!res.writableEnded) ac.abort(); }); // the CLI went away: stop the child (a request's own close fires once its body is read)
   const end = () => { clearInterval(beat); try { res.end(); } catch { } };
+  let plan = null;
   try {
     let reqRow = null, bound, cmd;
     if (existing) {
       reqRow = vault.continuation(existing, { action: 'run', caller: c }); // 1.73.4: this caller's own run request, not yet used; anything else is refused before the wait
     } else {
       bound = vault.resolveBindings(env); cmd = { ...vault.checkCommand(argv, cwd), action: 'run' };
+      plan = await prepareRun(cmd, { PATH: VAULT_PATH, forRun: true }); cmd.pin = plan.pin; // PC-02: what will run, by path and content; a recipe matches only this
+      bound = vault.rebind(bound); // 1.118 (D-4): the items as they are after the hashing, not as they were before it
       const need = vault.decide(bound, cmd);
       if (need.length) {
+        plan.close(); plan = null; // the run is prepared again after the owner answers
         reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor, tokenHash: c.tokenHash });
-        send({ t: 'request', id: reqRow.id, items: reqRow.itemNames });
-        const devices = await pushRaw(...vaultPushText(reqRow, `for: ${cmd.argv.join(' ').slice(0, 80)}`), vaultPushOpts(reqRow));
+        send({ t: 'request', id: reqRow.id, items: reqRow.itemNames, ...(reqRow.changed ? { changed: reqRow.changed } : {}), ...(reqRow.changedFiles ? { changedFiles: reqRow.changedFiles.map(f => f.path).filter(Boolean).slice(0, 5) } : {}) });
+        const devices = await pushRaw(...vaultPushText(reqRow, `${reqRow.changed === 'changed' ? '(changed since you allowed it) ' : ''}for: ${cmd.argv.join(' ').slice(0, 80)}`), vaultPushOpts(reqRow));
         log(`vault request=${reqRow.id} items=${reqRow.itemNames.join(',')} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
       }
     }
@@ -4959,14 +5129,22 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
       if (answered.answer.decision === 'locked') { send({ t: 'error', message: 'The Vault was locked before the owner answered. Ask the owner to unlock it in Pocket Code, then try again.', code: 'vault_locked' }); return end(); } // 1.73.3
     }
     if (vaultRuns.size >= VAULT_LIMITS.concurrent) { send({ t: 'error', message: 'Too many vault runs at once; try again in a moment.' }); return end(); } // 1.73.4: before the approval is used up
-    if (reqRow) ({ bound, cmd } = vault.claim(reqRow.id, { action: 'run', caller: c })); // 1.73.4: rebinds by item id, re-decides, marks the row used, all in one synchronous step
+    // 1.73.4: rebinds by item id, re-decides, marks the row used, all in one synchronous step. PC-02: with what the command
+    // runs now, which must be what the owner was asked about.
+    if (reqRow) { plan = await prepareRun(reqRow, { PATH: VAULT_PATH, forRun: true }); ({ bound, cmd } = vault.claim(reqRow.id, { action: 'run', caller: c, pin: plan.pin })); }
+    plan.verify(); // 1.118 (D-1): nothing changed since the hashing, checked before the record is written…
     const secrets = vault.release(bound, cmd, { session: c.session, sessionTitle: c.sessionTitle, by: c.actor, request: reqRow?.id || null });
     const placeholders = {}; for (const b of bound) placeholders[b.item.values[b.field]] = b.item.name;
-    send({ t: 'start' });
     const timeoutMs = Math.min(VAULT_LIMITS.timeoutMax, Math.max(1, Number(timeout) || VAULT_LIMITS.timeoutDefault)) * 1000;
     const key = {}; vaultRuns.add(key);
     try {
-      const r = await runWithSecrets({ argv: cmd.argv, cwd: cmd.cwd, env: agentEnv(process.env), secrets, placeholders, timeoutMs, signal: ac.signal, onOut: s => send({ t: 'out', s }), onErr: s => send({ t: 'err', s }) });
+      // …and again after it, with nothing between this check and the start: runWithSecrets spawns synchronously.
+      try { plan.verify(); }
+      catch (e) { vault.audit({ action: 'run-stopped', item: bound[0]?.item.id, name: bound.map(b => b.item.name).join(','), by: c.actor, session: c.session, sessionTitle: c.sessionTitle, argv: cmd.argv, cwd: cmd.cwd, request: reqRow?.id || null, decision: 'changed' }); throw e; }
+      const running = runWithSecrets({ argv: cmd.argv, plan, cwd: cmd.cwd, env: { ...agentEnv(process.env), PATH: VAULT_PATH }, secrets, placeholders, timeoutMs, signal: ac.signal, onOut: s => send({ t: 'out', s }), onErr: s => send({ t: 'err', s }) });
+      plan.close(); plan = null; // the child holds its own copies of the handles
+      send({ t: 'start' });
+      const r = await running;
       if (r.error) send({ t: 'error', message: `Could not start the command: ${r.error}` });
       else send({ t: 'exit', code: r.code, signal: r.signal, truncated: r.truncated, timedOut: r.timedOut });
       log(`vault run argv=${JSON.stringify(cmd.argv.slice(0, 3))} by ${c.actor}${c.session ? ' session=' + c.session : ''} code=${r.code ?? r.signal ?? r.error}`);
@@ -4974,15 +5152,16 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
   } catch (e) {
     if (!e.status) log(`vault run failed: ${e.stack || e.message}`);
     send({ t: 'error', message: e.message, ...(e.code ? { code: e.code } : {}) });
-  }
+  } finally { plan?.close(); }
   end();
 }
 app.post('/api/vault/run', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (req, res) => vaultRun(req, res, { ...(req.body || {}) }));
 // 1.43: Typed by Pocket. pocket-mcp-proxy sits between an agent and a browser tool (Playwright MCP); when a tool call
 // names {{vault:name.field}}, it asks here for the values, under the same Agent access policy and approval flow as a
 // run (the "command" is pocket-fill <server> <tool> in the proxy's folder), types them into the tool call on its way to
-// the browser, and scrubs them from everything the tool sends back. The model and the transcript only ever hold the
-// placeholder. Answers {ok, values}, {pending, request} (the proxy retries with `request`) or {denied}.
+// the browser, and scrubs them from everything the tool sends back. In normal use the model and the transcript hold
+// only the placeholder; this route returns the values to its caller, so an agent holding the CLI token can obtain any
+// value it could have filled, and the agent driving the page can read a filled value back (SECURITY.md, Vault). Answers {ok, values}, {pending, request} (the proxy retries with `request`) or {denied}.
 app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, async (req, res) => {
   const c = vaultCaller(req), b = req.body || {};
   const name = v => /^[\w.-]{1,64}$/.test(String(v || '')) ? String(v) : null;
@@ -5000,7 +5179,7 @@ app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin,
       const need = vault.decide(bound, cmd);
       if (need.length) {
         reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor, tokenHash: c.tokenHash });
-        const devices = await pushRaw(...vaultPushText(reqRow, `to fill into ${tool}`), vaultPushOpts(reqRow));
+        const devices = await pushRaw(...vaultPushText(reqRow, `to fill into ${tool}, and will be able to read what is filled`), vaultPushOpts(reqRow));
         log(`vault fill request=${reqRow.id} items=${reqRow.itemNames.join(',')} tool=${tool} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
       }
     }
@@ -5098,7 +5277,8 @@ const docError = (res, e) => { if (!e.status) throw e; res.status(e.status).json
 const checkDocProject = p => { const id = typeof p === 'string' ? p.trim() : ''; if (id && !board.projects.some(x => x.id === id)) throw Object.assign(new Error(`There is no project with the id ${id}. pocket-board status --all lists the ids.`), { status: 400 }); };
 app.get('/api/documents', requireBoardAuth, docsOn, (req, res) => {
   const project = typeof req.query.project === 'string' ? req.query.project : '', q = typeof req.query.q === 'string' ? req.query.q : '';
-  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities() });
+  const owner = req.boardActor !== 'cli'; // PC-04: the requests waiting for the owner are the owner's to see
+  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities(), ...(owner ? { requests: docs.pendingRequests(), answered: docs.answeredRequests() } : {}) });
 });
 app.post('/api/documents', requireAuth, docsOn, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
   try {
@@ -5107,12 +5287,16 @@ app.post('/api/documents', requireAuth, docsOn, express.raw({ type: () => true, 
     log(`document added by upload ${d.id} ${d.file} (${d.size} bytes)`); res.json(d);
   } catch (e) { docError(res, e); }
 });
+// PC-04: an agent's add always keeps the file private; a link or public visibility it asked for becomes a request for the
+// owner (see shareRequest below), answered here when the owner allows within `wait` seconds, else `pending`.
 app.post('/api/documents/add', requireBoardAuth, docsOn, async (req, res) => {
   try {
     checkDocProject(req.body?.project);
-    const real = await documentSource(req.body?.path);
-    const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: req.body?.session || null, visibility: VISIBILITY_OK(req.body?.visibility), addedBy: req.boardActor === 'cli' ? 'cli' : 'ui' });
-    log(`document added ${d.id} ${d.file} by ${req.boardActor || 'ui'}`); res.json(d);
+    const real = await documentSource(req.body?.path), wanted = VISIBILITY_OK(req.body?.visibility), agent = req.boardActor === 'cli';
+    const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: req.body?.session || null, visibility: agent ? 'private' : wanted, addedBy: agent ? 'cli' : 'ui' });
+    log(`document added ${d.id} ${d.file} by ${req.boardActor || 'ui'}`);
+    if (agent && wanted !== 'private') return await shareRequest(req, res, d.id, { to: wanted, expiresAt: null }, { source: real, kept: d });
+    res.json(d);
   } catch (e) { docError(res, e); }
 });
 const VISIBILITY_OK = v => ['private', 'link', 'public'].includes(v) ? v : 'private';
@@ -5130,7 +5314,7 @@ app.post('/api/documents/keep', requireAuth, docsOn, async (req, res) => {
   } catch (e) { docError(res, e); }
 });
 app.post('/api/documents/import', requireBoardAuth, docsOn, (req, res) => {
-  try { const r = docs.importMeta(req.body); log(`documents import: ${JSON.stringify(r.counts)} adopted=${r.adopted} missing=${r.missing.length}`); res.json({ ok: true, ...r }); }
+  try { const r = docs.importMeta(req.body, { hold: req.boardActor === 'cli' }); log(`documents import: ${JSON.stringify(r.counts)} adopted=${r.adopted} missing=${r.missing.length}${r.held.length ? ` held private=${r.held.length}` : ''} by ${req.boardActor || 'ui'}`); res.json({ ok: true, ...r }); } // PC-04: an agent's import keeps everything private
   catch (e) { docError(res, e); }
 });
 app.get('/api/documents/:id/raw', requireAuth, docsOn, (req, res) => {
@@ -5164,14 +5348,69 @@ app.post('/api/documents/trash/empty', requireAuth, sameOrigin, docsOn, (_req, r
   const r = docs.emptyTrash();
   log(`documents trash emptied: ${r.done.length} deleted${r.failed.length ? `, ${r.failed.length} failed` : ''}`); res.json(r);
 });
-app.post('/api/documents/:id', requireBoardAuth, docsOn, (req, res) => {
-  const action = req.body?.action;
+app.post('/api/documents/:id', requireBoardAuth, docsOn, async (req, res) => {
+  const action = req.body?.action, body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
   if (action === 'delete') return res.status(403).json({ error: "Deleting is the owner's: Delete forever in the library's Trash." });
   try {
-    if (!action && req.body && 'project' in req.body) checkDocProject(req.body.project);
-    const r = action === 'trash' ? docs.trash(req.params.id) : action === 'restore' ? docs.restore(req.params.id) : docs.update(req.params.id, req.body || {}, { actor: req.boardActor || 'ui' });
+    if (!action && 'project' in body) checkDocProject(body.project);
+    if (action === 'trash' || action === 'restore') { const r = action === 'trash' ? docs.trash(req.params.id) : docs.restore(req.params.id); log(`document ${action} ${req.params.id} by ${req.boardActor || 'ui'}`); return res.json(r); }
+    // PC-04: for an agent, the part of the change that would expose the file more goes to the owner; the rest (title,
+    // project, conversation) is made now. Making it private, or a shorter expiry, needs nobody.
+    const change = req.boardActor === 'cli' ? docs.exposureChange(req.params.id, body) : null;
+    if (change) {
+      const { visibility, expiresAt, action: _, ...rest } = body;
+      const kept = Object.keys(rest).length ? docs.update(req.params.id, rest, { actor: 'cli' }) : null;
+      return await shareRequest(req, res, req.params.id, change, { kept });
+    }
+    const r = docs.update(req.params.id, body, { actor: req.boardActor || 'ui' });
     log(`document ${action || 'updated'} ${req.params.id} by ${req.boardActor || 'ui'}`); res.json(r);
   } catch (e) { docError(res, e); }
+});
+// ---------- 1.118 (PC-04): an agent's share or publish waits for the owner ----------
+// The Vault's request flow for Files: the call answers `pending <id>` (202) unless the owner answers within `wait` seconds
+// (at most the Vault's wait); the owner gets a push with Allow and Deny (the Vault requests kind) and a card at the top of
+// Files; the agent continues with POST /api/documents/requests/<id>/wait. Only the owner answers, with the cookie, from
+// Pocket's own origin: the CLI token is not accepted on the answer route at all.
+const docWhen = iso => { const o = { dateStyle: 'medium', timeStyle: 'short' }; try { return new Date(iso).toLocaleString('en-US', { ...o, timeZone: ownerZone() || undefined }); } catch { return new Date(iso).toLocaleString('en-US', o); } };
+function docChangeWords(row) {
+  const until = row.change.expiresAt ? `expires ${docWhen(row.change.expiresAt)}` : 'no expiry';
+  if (row.change.to === 'public') return `Make public at ${publicBase() || ''}${row.url}`;
+  if (row.change.reshare) return `Replace its share link (the old one stops working), ${until}`;
+  if (row.change.extend) return `Keep its share link open longer, ${until}`;
+  return `Create a share link, ${until}`;
+}
+async function shareRequest(req, res, id, change, { source = '', kept = null } = {}) {
+  const c = vaultCaller(req);
+  const row = await docs.raiseRequest(id, change, { caller: c, session: c.session, sessionTitle: c.sessionTitle, source });
+  const who = row.session ? (row.sessionTitle || 'An agent') : 'A terminal';
+  const devices = await pushRaw(`${row.change.to === 'public' ? 'Publish' : 'Share'} ${row.title}?`, `${who} asks: ${docChangeWords(row)}.`, { tag: 'docs:' + row.id, url: '/#/documents', kind: 'vault', docRequest: row.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
+  log(`document request=${row.id} doc=${id} change=${JSON.stringify(row.change)} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
+  return settleShare(req, res, row, c, { kept });
+}
+async function settleShare(req, res, row, c, { kept = null } = {}) {
+  let gone = false; res.on('close', () => { gone = true; });
+  const answered = await docs.waitRequest(row.id, Math.min(DOC_REQUEST_LIMITS.waitMax, Math.max(0, Number(req.body?.wait) || 0)) * 1000);
+  if (gone) return;
+  if (!answered) { const d = docs.documents.find(x => x.id === row.doc); return res.status(202).json({ pending: true, request: row.id, change: row.change, what: docChangeWords(row), url: row.url, expiresAt: row.expiresAt, document: kept || (d ? docs.view(d) : null) }); }
+  const out = docs.collectRequest(row.id, c);
+  log(`document request=${row.id} collected by ${c.actor}${c.session ? ' session=' + c.session : ''}`);
+  res.json({ ...out.document, ...(out.token ? { token: out.token } : {}), request: row.id });
+}
+app.post('/api/documents/requests/:id/wait', requireBoardAuth, docsOn, async (req, res) => {
+  try { const c = vaultCaller(req), row = docs.continuation(req.params.id, c); await settleShare(req, res, row, c); }
+  catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) }); }
+});
+app.post('/api/documents/requests/:id/answer', requireAuth, sameOrigin, docsOn, async (req, res) => {
+  const decision = req.body?.decision;
+  try {
+    const r = await docs.answerRequest(req.params.id, decision);
+    log(`document request=${r.id} ${decision === 'allow' ? 'allowed' : 'denied'} by the owner: doc=${r.doc} change=${JSON.stringify(r.change)}`);
+    res.json({ ok: true, request: r });
+  } catch (e) {
+    if (!e.status) throw e;
+    log(`document request=${String(req.params.id).slice(0, 40)} answer refused ${e.status}: ${e.message}`);
+    res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) });
+  }
 });
 // Unauthenticated: public files by name, link documents by token. Nothing while the feature is off.
 app.get('/files/:name', (req, res) => {
@@ -5201,8 +5440,19 @@ function intakeCount(key, max, windowMs) {
 }
 const intakeOver = (key, max) => { const rec = intakeHits.get(key); return Boolean(rec && rec.resetAt > Date.now() && rec.n >= max); };
 const INTAKE_LIMIT = { get: [60, 600_000], post: [15, 600_000], miss: [20, 3600_000], missAll: [300, 3600_000] };
-function intakeMiss(ip) { intakeCount('miss:' + ip, ...INTAKE_LIMIT.miss); intakeCount('miss:*', ...INTAKE_LIMIT.missAll); }
-const intakeBlocked = ip => intakeOver('miss:' + ip, INTAKE_LIMIT.miss[0]) || intakeOver('miss:*', INTAKE_LIMIT.missAll[0]);
+// 1.118 (PC-08): the per-address counts apply only to an address Pocket knows: the caller's cf-connecting-ip when it can be
+// trusted (clientAddress), or the socket's own address when the request came through no proxy. A tunnelled caller Pocket
+// cannot place (every one of them is the tunnel's 127.0.0.1) is not counted per address, so a stranger's wrong links no
+// longer close the page for everyone. The instance-wide count of wrong links never refuses anything: past 300 an hour, each
+// wrong link is answered after INTAKE_SLOW_MS. A right link is never turned away by someone else's wrong ones.
+const INTAKE_SLOW_MS = 1500;
+async function intakeAddress(req) {
+  const ip = await clientAddress(req);
+  if (ip === req.socket.remoteAddress && proxied(req)) return null;
+  return addressKey(ip);
+}
+async function intakeMiss(ip) { if (ip) intakeCount('miss:' + ip, ...INTAKE_LIMIT.miss); if (intakeCount('miss:*', ...INTAKE_LIMIT.missAll)) await new Promise(r => setTimeout(r, INTAKE_SLOW_MS)); }
+const intakeBusy = (ip, kind) => Boolean(ip) && (intakeCount(kind + ':' + ip, ...INTAKE_LIMIT[kind]) || intakeOver('miss:' + ip, INTAKE_LIMIT.miss[0]));
 function sendIntake(res, status, html) {
   res.status(status).set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, max-age=0', Pragma: 'no-cache', 'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet',
     'Referrer-Policy': 'same-origin', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': INTAKE_CSP, 'Cross-Origin-Opener-Policy': 'same-origin', ...(status === 503 ? { 'Retry-After': '1800' } : {}) }).send(html);
@@ -5221,26 +5471,26 @@ app.get('/intake/logo', (_req, res) => {
 });
 app.get('/intake/done', (_req, res) => sendIntake(res, 200, intakePage('received')));
 app.get('/intake/:token', async (req, res) => {
-  const ip = await clientAddress(req);
-  if (intakeCount('get:' + ip, ...INTAKE_LIMIT.get) || intakeBlocked(ip)) return sendIntake(res, 429, intakePage('busy'));
+  const ip = await intakeAddress(req); // 1.118 (PC-08): null for a tunnelled caller Pocket cannot place
+  if (intakeBusy(ip, 'get')) return sendIntake(res, 429, intakePage('busy'));
   if (!settings.vault || !vault || vault.locked) { intakeLockedPush(); return sendIntake(res, 503, intakePage('unavailable')); }
   const hit = vault.resolveIntake(req.params.token);
-  if (!hit) { intakeMiss(ip); return sendIntake(res, 404, intakePage('inactive')); }
+  if (!hit) { await intakeMiss(ip); return sendIntake(res, 404, intakePage('inactive')); }
   if (hit.state !== 'pending') return sendIntake(res, 404, intakePage('inactive'));
   sendIntake(res, 200, intakePage('form', { r: hit.intake, token: req.params.token, expires: intakeWhen(hit.intake.expiresAt, ownerZone()) }));
 });
 // The form posts urlencoded; the parser is this route's alone, and a body it refuses (too large, too many fields) is answered as a form error.
 const intakeForm = express.urlencoded({ extended: false, limit: '1mb', parameterLimit: 40 });
 app.post('/intake/:token', (req, res, next) => intakeForm(req, res, err => { if (err) { req.intakeParseError = err; req.body = {}; } next(); }), async (req, res) => {
-  const ip = await clientAddress(req), token = req.params.token;
-  if (intakeCount('post:' + ip, ...INTAKE_LIMIT.post) || intakeBlocked(ip)) return sendIntake(res, 429, intakePage('busy'));
+  const ip = await intakeAddress(req), token = req.params.token;
+  if (intakeBusy(ip, 'post')) return sendIntake(res, 429, intakePage('busy'));
   // A cross-site post is refused. The page's referrer policy is same-origin, so browsers send Origin here; a privacy setting
   // can still turn it into "null", and then Sec-Fetch-Site decides. The link's form nonce is the real guard either way.
   const origin = req.get('origin'), site = req.get('sec-fetch-site'); let host = null; try { host = origin && origin !== 'null' ? new URL(origin).host : null; } catch { host = ''; }
   if ((host !== null && host !== req.get('host')) || (site && site !== 'same-origin' && site !== 'none')) { log('vault intake: a post from another origin was refused'); return sendIntake(res, 403, intakePage('inactive')); }
   if (!settings.vault || !vault || vault.locked) { intakeLockedPush(); return sendIntake(res, 503, intakePage('unavailable', { nothingSaved: true })); }
   const hit = vault.resolveIntake(token);
-  if (!hit) { intakeMiss(ip); return sendIntake(res, 404, intakePage('inactive')); }
+  if (!hit) { await intakeMiss(ip); return sendIntake(res, 404, intakePage('inactive')); }
   if (hit.state !== 'pending') return sendIntake(res, 404, intakePage('inactive'));
   const r = hit.intake, form = (status, error, errorField = '') => sendIntake(res, status, intakePage('form', { r, token, expires: intakeWhen(r.expiresAt, ownerZone()), error, errorField }));
   if (req.intakeParseError) return form(req.intakeParseError.status === 413 ? 413 : 400, 'That was more than this form can take.');
@@ -5298,7 +5548,7 @@ app.post('/api/notify/test-email', requireAuth, async (_req, res) => {
     res.json({ ok: true, to: settings.notifyEmail });
   } catch (e) { log(`mail test failed: ${e.message}`); res.status(502).json({ error: 'The test message could not be sent: ' + e.message, code: 'mail_failed' }); }
 });
-// 1.58.1: an alert from an agent or a job on the server (Ari's inbox monitor), as a push to every device that wants
+// 1.58.1: an alert from an agent or a job on the server (the assistant's inbox monitor), as a push to every device that wants
 // alerts and, when asked and set up, an email to the address in Settings. Owner's cookie or the loopback token (direct
 // loopback only, as for the board). The link is a Pocket path (a start link, a conversation, Files) or the public address.
 app.post('/api/notify', requireBoardAuth, async (req, res) => {
@@ -5347,9 +5597,14 @@ app.get('/api/file', requireAuth, (req, res) => {
   res.sendFile(real);
 });
 
-app.get('/api/health', (_req, res) => res.json({
-  ok: true, active: turns.size + codex.codexTurns.size, codexActive: codex.codexTurns.size, processes: runners.size, codexProcesses: codex.codexSessions.size, uptime: process.uptime(),
-}));
+// 1.118 (PC-10): the counts (what is running, for how long) go to the signed-in owner and to a request made on this box
+// straight to the port (pocket-init, deploy scripts: curl localhost:3610/api/health). Anyone else, a caller through the
+// tunnel included, learns only that Pocket answers.
+app.get('/api/health', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!directLoopback(req) && !checkCookie(getCookie(req, 'pc_auth'))) return res.json({ ok: true });
+  res.json({ ok: true, active: turns.size + codex.codexTurns.size, codexActive: codex.codexTurns.size, processes: runners.size, codexProcesses: codex.codexSessions.size, uptime: process.uptime() });
+});
 
 // model picker options — Claude's from CLAUDE_MODELS, Codex's straight from its app-server
 app.get('/api/claude/models', requireAuth, (_req, res) => { const offer = claudeOffer(); res.json({
@@ -5375,7 +5630,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // 1.86: Pocket's ask tool (acp-ask-mcp.mjs) inside an OpenRouter reply's OpenCode process. Direct loopback only, and
 // the key that one process was started with, which also names its conversation. Ask, then poll for the answer.
 function acpAskTurn(req, res) {
-  const direct = LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
+  const direct = directLoopback(req);
   const key = String(req.get('x-pocket-ask-key') || ''), session = direct && /^[0-9a-f]{48}$/.test(key) ? acp.acpSessionByAskKey(key) : null;
   if (!session) { res.status(403).json({ error: 'not allowed' }); return null; }
   return session;
@@ -5411,7 +5666,7 @@ app.get('/api/acp/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["Pause all. One control now stops every running reply on Claude Code, Codex and OpenRouter, holds usage-limit retries and queued messages, and pauses Inbox Watch. Your own messages still run, and a banner with Resume shows on every device until you resume. The pause survives a restart. Find it under More (the three dots beside Filters), in the Ctrl/⌘ K switcher, at the top of the new Automation section in Settings, or say \"pause everything\". Automation also holds limits on work that runs without you: plan ceilings for Claude Code and Codex, a daily count, a daily OpenRouter spend and a longest reply, each with Reset to defaults. They are for check-backs and jobs, which arrive in the next releases; two switches extend them to your own queued messages, retries and coordination wakes, and both are off unless you turn them on. A conversation whose newest reply you did not start now says what started it: a queued message, a usage-limit retry or a coordination wake.", "You can hide Mark all reviewed. The bar at the top of Attention and New clears every waiting reply and failed reply in one tap, including replies that end with a question for you, and after its ten-second Undo nothing shows what was cleared. If you would rather not have it, turn off Mark all reviewed bar in Settings, under Conversation: it goes from every device on this server. It stays on unless you change it, and Mark as reviewed on a single conversation (long-press it or tap the three dots) works either way. Asked for by Brad.", "When new mail lands on an Inbox entry you already have a conversation for, you now choose where it goes. Opening the entry gives three options: Continue the conversation, which opens it and brings the new mail in; New conversation, hand-off from the last one, where the earlier conversation writes a briefing and a fresh one picks up from it, for when the first has grown too large; and New conversation, separate subject, which moves the new mail to an Inbox entry of its own with its own briefing, for when it is really about something else. Inside the conversation, a card under the latest reply shows the new mail with Bring it in, New conversation and Not now. It takes the place of the green Complete card, so a conversation with unread mail no longer offers Close conversation, and it reads New mail in the list, on its tab and in its header. Asked for by Brad.", "A conversation you start from an Inbox alert now opens with the email itself. The agent still checks for other mail on the story and merges duplicate entries first, but its first reply leads with what the email says (who wrote, what they are asking, the key lines quoted), then a few lines on what the check added, then where things stand and the next step. Before, the reply could be all about the side search and barely mention the email you opened it for. Asked for by Brad.", "Inbox Watch keeps the Pocket Inbox label honest on promotional mail. A label you add yourself in Gmail now puts mail from the Promotions tab on your list like any other. When a Gmail filter labels promotional mail, which the watcher does not read, the label comes off at the next check and the email stays in your inbox. A labelled email that never got judged is tried again after 30 minutes. Asked for by Brad.", "Inbox Watch keeps one entry per story. When more mail comes in on something already on your list, that entry is updated and moves back to the top as unread, instead of a second entry appearing beside it; what it said before stays below the new text. A conversation you start from an alert now opens with a short check: the agent looks for other mail on the story and tells you what it adds, and merges any other open entry about the same thing into this one, so only one thread keeps the Pocket Inbox label in Gmail. Restore on a merged entry undoes it. And a conversation you already started from an alert catches up instead of a second one starting: when more mail arrives on that story, the conversation shows “New mail on this story since you started” with Bring it in, which sends the new mail as your next message, and a reply that is running when it arrives gets it straight away. Asked for by Brad.","Tabs go where you put them. On a computer, drag a tab along the strip to move it (on a touch screen, hold it a moment first), or press Alt Shift [ or Alt Shift ] on a tab. Pinned tabs stay ahead of the others, and moving one changes the pinned order on all your devices; the rest keep the order you leave them in on this browser. With more than 12 tabs, the one you opened longest ago closes, not the leftmost. Also fixed: a new Codex conversation's tab kept saying New conversation until you switched away and back; a tab now takes the conversation's name as soon as it has one. And a conversation you start from the Inbox (or any start link) now opens in its own tab until you send it: start another and it gets a tab of its own, and pressing the plus for a new conversation leaves both alone. Each keeps what you typed, and opening the same alert's Start again brings it back. The Complete card is also easier to spot: it is now green, with a filled tick and a green Close conversation button, instead of a quiet outline that looked like part of the reply. Asked for by Brad.", "When an agent has finished everything you asked for and has nothing more to recommend, its reply now ends with a Complete card that states the outcome in one line, so you don't have to read the reply to know where things stand. Tap the card to close the conversation: it leaves Attention on all your devices, its tab closes and its server process is released. Nothing is deleted; the conversation stays in Recent and a message reopens it. The conversation list shows Complete with the same line, and the tick on that row closes it without opening it. Undo is offered for ten seconds. Asked for by Brad.", "Inbox Watch no longer archives mail you starred. When you finish an entry (Resolved, Not useful, Dismiss or the tidy pass), the Pocket Inbox label still comes off in Gmail, but a thread with a star stays in your Gmail inbox, so it keeps showing wherever you look for starred mail. Asked for by Brad.", "Ask someone is in the sidebar too. On a computer, the Vault panel in the sidebar now has Ask someone beside Add secret, so you can send someone a one-time link without opening the full Vault page. Asked for by Brad.", "Ask someone outside for a secret. In the Vault, Ask someone (or `pocket-vault request` from an agent) makes a one-time link to a plain page with your organisation's name and colour. The person types the login there and it goes straight into the Vault under the name you chose, with nothing sent by email, chat or phone. The link works once, expires after 1 to 7 days (3 by default), and can be cancelled or replaced from Links sent. You get a notification when it is filled in, and agents still ask you before using it. Asked for by Brad.", "Inbox Watch's list is now a work queue. An email goes on your list when it leaves something to do: a failure or problem to look into (a site, server, job, backup, device, licence, payment or account), a person waiting on your reply, or mail like what you worked on before. Starting a conversation from an alert now teaches the watcher that such mail belongs on the list. A problem it had only followed quietly, sometimes for weeks, is listed once with how long it has gone on. Not useful is now final: that story stays off your list unless it turns critical, until you restore it or label the mail yourself. With the morning digest off, nothing is written for a digest nobody gets. The rules box now holds 12,000 characters, up from 8,000, so the rules it learns from your choices have room to grow. Which alerts push to your phone is unchanged. Asked for by Brad.", "Pocket Code tells you when it is behind. The daily 4 a.m. update check now also looks for a newer Pocket Code release, and the notice at the top names it (for example: Pocket Code update available). Settings, About & updates, Updates shows the version this server runs, the latest release, its release notes and how to update. Nothing is installed from here: whoever manages the server upgrades Pocket Code, and the notice goes away once it runs the new version. Asked for by Brad.", "Starting a project conversation from the sidebar works on New conversation too. With New conversation already open, Start a conversation in a project's ⋯ options in the sidebar's Projects list left the screen as it was: no project, no Conductor chip and no briefing in the box, so the conversation would have started unlinked on your usual model. It now opens New with the project, its start and its briefing, as it does from the Projects page. Start on a task in the sidebar had the same problem and is fixed too.", "Start a project from New conversation, and Conductor mode explained wherever you choose it. New conversation has a Start a project button: name the project (it offers the first line of your message), switch Conductor mode on if the work is big, say what done means if you like, and the message you send starts the conversation linked to the new card. A handoff card from a Conductor or Solo conversation shows the start as a chip: tap it to pick the other one before Start, and Review first carries the project and that choice to New conversation. An info button (ⓘ) beside every Conductor choice says what the mode is and when to use it: point at it on a computer, tap it on a phone. Fixed: Review first on a handoff card opened the link viewer instead of New conversation. Asked for by Brad.", "Conductor mode shows what it runs, and stays out of Assistant mode. Starting a conversation from a Conductor project now shows a Conductor chip beside the project chip, and the model and effort chips name what will run (the lead, at High) instead of your usual model; tap the chip for Solo. The project's ⋯ options say which model leads and can turn Conductor mode on or off. In Assistant mode, where Pocket never runs Conductor mode, the switch, Works in and the Conductor or Solo choice are hidden; Done when and a step's Passes when check still show. Asked for by Brad.", "Conductor mode for projects. A project card has a new Conductor mode switch. While it is on, a conversation started in that project runs with the newest top model as the lead at high effort: it plans the work, hands each piece to a cheaper model, checks what comes back and stops only for a decision from you. Start conversation also offers Solo, one model doing the work itself, for a small task. The card gains Done when and Works in, and a step can carry a Passes when check. Handoffs keep the project and the mode, and a chip in the conversation shows which one is on. Off until you switch it on for a project. Asked for by Brad.", "Suggested-reply buttons survive a sources list. A reply that looked something up on the web ended with a Sources list after its choices, and Pocket then showed the choices as a plain code box with no buttons. A Sources or References list after the choices no longer stops them: the buttons show, and the sources stay in the reply above them. Agents are also asked to put sources above the question. Reported by Brad.", "Inbox Watch separates your list from your phone. Every alert still goes on the list, and the new Push notifications section of its schedule sheet decides which also push: every alert (as before), only what can't wait (emergencies, outages you're the escalation for, money at risk, security incidents, someone waiting on you, deadlines today, each a switch, with a daily limit and one push per story until it gets worse), or nothing. An open alert says whether it pushed and why.", "Inbox Watch's email checks use about a fifth fewer tokens. Each check used to carry every alert of the last day and up to six earlier threads per email; it now carries the newest few alerts plus any that relate to the emails being checked, and up to three earlier threads per email (plus the same sender's). Tested on 30 past checks: decisions stayed within the judge's own run-to-run variation. Asked for by Brad.", "Inbox Watch's learned rules get more room: up to about 3,300 characters (was about 2,300), still within the rules box beside your own rules. On a busy install the rebuilt rules filled the old limit on the first day, so new lessons would have had to squeeze out older ones. Asked for by Brad.", "Inbox Watch no longer loses what you teach it. A learned rule that ran long was cut off mid-sentence, and once the learned rules filled their space the newest ones were dropped without a word, so recent hand labels stopped counting. The watcher now splits a long rule in two, sends an answer that does not fit back once, and logs anything it still has to cut. The learned rules get more room (up to 20 lines, about 2,300 characters), and a new learn --rebuild command folds every lesson in again to bring back rules an earlier version dropped. Reported by Brad.", "Inbox Watch's tidy pass no longer takes an entry off your list while someone is waiting on your assistant. It already kept an entry when the latest email asked you for something; a request to your assistant (send me the current sheets, say) now counts the same, and so does a reply like send me X and I'll do Y, which waits on your side until X is sent. Reported by Brad.", "Closing a tab no longer opens another one. Closing the tab you are on now takes you to a new conversation, as the plus does, so you pick what to open next, and a conversation waiting in Attention stays there until you open it. And Dismiss says what it does in Gmail: with the Pocket Inbox label on, the X on an Inbox row and Dismiss in the entry's sheet now say the label comes off in Gmail at the next check, as it already did. Requested by Brad.", "Pocket now offers a handoff when a conversation gets large. A Handoff button sits beside Branch (and in Conversation options), and once a conversation passes 200K tokens a line under the latest finished reply says how large it is, with Hand off and Not now. Hand off asks the agent for the briefing and card; Not now hides the line until the conversation grows by another 200K. When the reply ends with suggested replies, they get a Hand off first button instead, and the new conversation opens by offering those same choices. The context ring turns amber at the same point. Change the size or turn it off in Settings → Context and subagents. Pocket never hands off by itself. Requested by Brad.", "Wrap-up replies no longer wait in Attention. When you tap Mark resolved, Remind me …, Add a task …, No thanks or a similar closing reply, the agent's short confirmation now counts as read the moment it finishes, on every device, and sends no notification, so you no longer have to open the conversation again or scroll to clear it, even after closing its tab. If the agent answers with a question, reply buttons or a long report, the conversation waits in Attention as before, and an ordinary request still does. Reported by Brad.", "What it reads: choose which mail Inbox Watch looks at. Settings → Inbox Watch now offers Everything (every thread but spam, trash and drafts, as before), Inbox only, and Inbox and these labels, with your Gmail labels to pick from. Everything is the default, so nothing changes until you choose. In the narrower choices your replies still count, so the watcher sees that you answered; a new email you start is not read. Requested by Damon and Brad.", "New Coordination view shows which conversation holds staging or a deploy, who is waiting, and what ended lately. Agents claim with pocket-coord, a clash names the holder, and the first waiter is woken on release. Holds are advice, not a lock. Off until you turn it on in Settings.", "The Git panel now lists every worktree of a repository as In use, Has work or Ready to remove, and says why. Remove only appears when nothing would be lost, names any ignored files and conversations affected, and keeps the branch. A conversation whose folder was removed carries on from your home folder and says so once.", "The Git panel now follows the work. It shows the repository the conversation is working in, not the folder it started in, offers a picker when it touched several, and names other running conversations in the same repository. Branch starts in that folder too and says so.", "Pass work to a fresh conversation with one tap. When a conversation has grown long, ask the agent to hand off (or type /handoff). It writes a briefing and the reply shows a card with the title, folder, agent and permissions, a Start button and Review first. Start opens a new conversation that begins with only the briefing, so it reads far less than the old one, and each conversation links to the other. A handoff starts once, even from two devices, and it never gets more permission than the conversation it came from. Requested by Brad.", "The morning digest is readable and each line has its own buttons. The digest used to open as one block of text; it now shows each line as a card under its heading (Worth knowing, Held overnight, and so on), and the whole digest is shown rather than cut off after 2,000 characters. Under each card: Start a conversation, which opens a new conversation briefed with that one story and teaches Inbox Watch nothing; Add to Inbox, which puts that story on your Inbox as an alert right away and teaches Inbox Watch to alert on that kind of email from now on; Resolved and Not useful, which land on that story rather than on the whole digest; Dismiss; and Gmail. Undo takes any of them back, except an alert already sent. Each story has one status: lines on the same story share a card, and a story that is an open alert on your list appears under Already on your list as a link to that entry, showing what you decide there, so nothing is worked twice. Look-aheads work the same way: each item is a card with the same choices, most pressing first, and the whole look-ahead is shown rather than cut off after 2,000 characters. Add to Inbox on a look-ahead item teaches nothing, since it is a finding rather than a kind of email. Requested by Damon after a client's text message was filed for the digest instead of alerting him, with the one-status rule and the look-ahead cards from Brad.", "The morning digest can be turned off. Settings → Inbox Watch now has Off for Morning digest, as the look-aheads do. With it off, alerts held overnight arrive one by one when quiet hours end, and lines that would only have been in the digest are not sent. Requested by Brad.", "Pin and unpin in one click. Every conversation in the list now has a pin beside its ⋯ button: faint gray on an unpinned conversation (click it to pin) and orange on a pinned one (click it to unpin). Pin conversation is also the first choice in Conversation options now, instead of near the bottom. Requested by Damon.", "Finding a secret and answering the Vault is easier. The Vault list now shows the newest secrets first (Order switches to A–Z), a secret stored in the last day is marked New with the conversation that stored it, and Search secrets narrows the list by name, kind, tag or website. A conversation that stores a secret shows a card for it, and agents now link the name; either opens the Vault with that secret open. A request reads as one sentence, such as The agent in “Staging site” wants to use staging-wp for this command, with Allow once as an orange button beside Deny. Tapping the notification opens that request instead of the list; only the notification's Allow button approves, and if that Allow could not be recorded (signed out, locked, offline, or already ended) the request says so and you can answer it there. Requested by Damon.", "Keep long conversations and subagents in check. Settings → Agents & instance has a new Context and subagents group. Each reply reads the whole conversation again, so a conversation left to grow toward a million tokens uses the most of your plan. Compact conversations has the agent summarize the older part before a size you choose (150K to 600K tokens). Subagent model runs subagents one tier below the conversation: Fable conversations get Opus subagents, Opus gets Sonnet and GPT Astra gets GPT Sol; a conversation can still name a model for one subagent. Subagent effort sets how hard they think. It applies to Claude Code and Codex conversations from their next reply; OpenRouter keeps its own behavior for now. Nothing changes until you choose. Requested by Brad.", "Inbox Watch set up with Codex uses the newest models. When Pocket sets up Inbox Watch on a server where only Codex is signed in, the judge now runs the newest GPT Sol the installed Codex lists (GPT-6.1 Sol today, not GPT-6 Sol), and reading mail the newest GPT Luna. A Codex too old for GPT-6.1 Sol keeps GPT-6 Sol. A watcher that is already set up keeps its models. Requested by Brad.", "Only the newest model versions are shown, and new ones appear by themselves. The Codex menu lists GPT-6.1 Sol instead of GPT-6 Sol, and Default says GPT-6.1 Sol; the Claude menu lists the newest Fable, Opus, Sonnet and Haiku, without Sonnet 5 and Haiku 4.5 beside their newer versions. A conversation, saved prompt or Pocket default that names an older version now runs the newest one. Codex's menu was already its live list; for Claude, Pocket now reads Anthropic's model list once a day with the sign-in Claude Code already has, so a new model such as an Opus 6 joins the menu and replaces the older one without a Pocket update. Requested by Brad.", "Inbox Watch learns from what you put on your list, and no longer says you added something a Gmail filter labelled. An email that arrives already carrying the Pocket Inbox label (because one of your Gmail filters adds it) now reads Your Gmail filter put this on your list, not You added this. When you label an email yourself, the watcher notes what it had done with it (ignored it, kept it for the digest, skipped it as routine) and turns that into a short rule, as narrow as the examples allow: one email teaches it about that sender and topic, several of a kind teach it the kind. Not useful works the same way in the other direction, and the rules it has learned are merged, widened or dropped as you go on. They sit at the end of your rules under Learned from your choices, where you can edit or delete any of them, and the quick first pass now reads the whole rules file. Reported by Brad.", "Switching Claude accounts no longer makes you wait or start over. A message you send to a conversation whose background job (a build, a watcher) still holds the earlier sign-in now waits in its queue and sends by itself, on the new account, as soon as the job finishes. Stop background jobs and send now beside it skips the wait, and the Queue shows what it is waiting for. Reported by Brad.", "Switching Claude accounts no longer leaves a conversation stuck. When you sign in with another account, a conversation with a background job still running (a test run, a watcher) keeps the earlier sign-in so the job is not cut off, and Pocket refused your messages there until the job ended, which for a watcher could be never. The Not sent card now names the job and offers Stop background jobs and send, which ends the job and continues the conversation on the new account. And Retry same message now really asks again: a refused message used to get the same refusal back without checking, even after the reason had gone. Reported by Brad.", "Fixes from Casey's second review, checked against 1.88.1. Side chats: a Codex side chat now switches off every MCP server Codex knows about, however it is written in the config file, and refuses to start when it cannot ask; a Claude side chat searches the web only when the conversation is in Full access; Stop on a stuck Codex side chat closes it; a side chat that reconnects after a long run gets the right events. Processes: a replacement Claude process waits for the old one to exit, a Pocket restart adopts the right process and stops duplicates, and work the agent did while Pocket was down counts as Pocket's own instead of as another app's. A background agent's request that is waiting when a reply ends with an After this reply message now reaches you, and a subagent working alone no longer makes the conversation read Running. Transcript bookkeeping (a task notification, a compaction summary) no longer shows as a message you sent, a steered message with a file shows once, long first prompts no longer bloat the conversation list, a skill whose description spans several lines shows it in the / list, and a pasted HEIC or TIFF keeps its name. Security: notification links can only open Pocket's own pages, file previews and downloads read the file they checked, pictures are decoded only as what their name says, and the login and Vault attempt limits can no longer be reset by a caller naming its own address (see POCKET_TRUSTED_PROXY in the install guide). Reported by Casey.", "Finished replies stay in Attention. A conversation whose reply you had not opened could drop out of Attention and read Recent, with its reply buttons still waiting inside. When Pocket closes an idle conversation's process (after an hour, or seconds after a reply when several conversations start at once, such as a burst of Inbox Watch alerts), Claude Code writes a little bookkeeping to the transcript, and Pocket took that for work in another app. It now counts only messages, so Response ready stays until you open the conversation. Replies hidden this way since the problem began reappear in Attention once; Mark all reviewed clears them. Reported by Brad.", "The OpenRouter model menu has a search box. OpenRouter offers hundreds of models; type any words of a model's name or maker, such as kimi or sonnet 5.5, and the list narrows as you type, with Default and the tested models still first. It says how many match, or that none do. Enter picks the first match and the arrow keys move through the list; on a phone the keyboard waits until you tap the box. Escape clears the box, a second Escape closes the menu. Requested by Brad.", "Codex conversations now have what Claude Code conversations had over them. Changed files shows each Codex edit's diff, and files Codex writes become file cards and are kept in Files like Claude's. When Codex hits its usage limit, the conversation waits for the reset and picks the task up again by itself, as Claude's do, and tells you when. The / list offers compact, review (the uncommitted changes, or against a base branch), recap and context. Your attachments show as file chips, a subagent's activity opens, the trusted read-only actions in Settings apply to Codex (and OpenRouter) commands, each reply shows the tokens it used, a reply Codex moves to another model says so, the Usage sheet reads 5-hour and Weekly, and Plan first shows its plan. OpenRouter gets the same diffs in Changed files and picks up again after a rate limit. Requested by Brad.", "After a CLI upgrade, Pocket shows which Claude Code and Codex conversations still have an older process. The update notice stays visible until they switch. The review names each conversation, shows whether it is idle or working, and offers Switch now for idle work. Stop work & switch asks before interrupting a running reply; the next turn opens the selected CLI. Restarting Pocket does not switch those processes.", "OpenRouter conversations now have the everyday features Claude Code and Codex conversations have. Your message shows as soon as you send it. A question from the model is a question card with its options as buttons, and a reply that asks you to choose ends with reply buttons, because Pocket's instructions now reach OpenRouter too. Attachments and images reach it, Plan first works, Stop stops (a queued message waits), a message queued with After this reply runs on OpenRouter, and the context meter, Results, Search and the Git panel work. What OpenRouter cannot do yet (Steer, Side chat, Branch, While you were away) is hidden on its conversations instead of offered and failing. And OpenCode needs no setup of its own any more: Pocket starts it with the ask-first permissions it needs. Behind this, every feature now goes through one layer for all three agents, with one test run against each. Requested by Brad.", "Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to Ari only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by Brad.", "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.", "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.", "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by Brad.", "OpenRouter conversations now work the way they should. Before, every reply ran on OpenCode's own free model whatever you picked, a conversation waiting for your OK said Recent with no Allow button, and there was no way to set the effort. Now the reply runs on the model you picked (Pocket checks with OpenCode first and stops rather than let it run on another), the approval shows on the banner with Allow and Don't allow, and the effort chip offers the levels the chosen model has, such as None, Low, High and Max for DeepSeek V4.1 Flash; a model with no effort setting shows no chip. Reported by Brad.", "OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by Brad.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
+const RELEASE_NOTES = ["Sign out from Settings. Under Agents & instance (Accounts in Assistant mode), Sign out ends this browser's sign-in and turns off its notifications, and Sign out everywhere does the same on every browser and phone, for a lost phone or a shared computer. Changing the password and restarting Pocket now signs everyone out too. Everyone signs in once after this update. When many wrong passwords arrive from many places at once, Pocket checks sign-ins one at a time, and a browser you have signed in on before still gets through.", "An agent can no longer share or publish a file on its own. When it asks to make a link, make a file public, make a new link or keep a link open longer, a Requests card appears at the top of Files, and a notification, with Allow and Deny. Allow makes exactly that change, once, and only if the file has not changed since the agent asked. Deny, or no answer within 15 minutes, changes nothing.", "A share link's address is shown once. Pocket now keeps only a fingerprint of each link, so copy the address when you make it. Afterwards Files says a link is open and when it expires, with Make a new link and Revoke link. Links you already sent keep working, but Pocket cannot show them again.", "Always allow in the Vault now checks what a command really runs: the program, its interpreter, the program a launcher such as env or sudo starts, and the files the command names, each by its content. If any of them changes, you are asked again. The request card shows the program that runs, says when Pocket cannot check everything, and lists the files it will check, so you can untick a file the command writes itself. It also records which variable gets which secret, so another name asks again, and it is not offered for commands whose real work Pocket cannot see, such as npm run, npx or docker run. Commands you allowed always before ask once more; programs must be on the Vault's PATH (POCKET_VAULT_PATH).", "Less for strangers to see. The health check tells callers that are not signed in only that Pocket answers, HTTPS answers carry HSTS, and preview pictures of HTML files are drawn with scripts and the network off. If Pocket sits behind nginx or another reverse proxy, it must send X-Forwarded-For: see the install guide.", "Pause all. One control now stops every running reply on Claude Code, Codex and OpenRouter, holds usage-limit retries and queued messages, and pauses Inbox Watch. Your own messages still run, and a banner with Resume shows on every device until you resume. The pause survives a restart. Find it under More (the three dots beside Filters), in the Ctrl/⌘ K switcher, at the top of the new Automation section in Settings, or say \"pause everything\". Automation also holds limits on work that runs without you: plan ceilings for Claude Code and Codex, a daily count, a daily OpenRouter spend and a longest reply, each with Reset to defaults. They are for check-backs and jobs, which arrive in the next releases; two switches extend them to your own queued messages, retries and coordination wakes, and both are off unless you turn them on. A conversation whose newest reply you did not start now says what started it: a queued message, a usage-limit retry or a coordination wake.", "You can hide Mark all reviewed. The bar at the top of Attention and New clears every waiting reply and failed reply in one tap, including replies that end with a question for you, and after its ten-second Undo nothing shows what was cleared. If you would rather not have it, turn off Mark all reviewed bar in Settings, under Conversation: it goes from every device on this server. It stays on unless you change it, and Mark as reviewed on a single conversation (long-press it or tap the three dots) works either way. Asked for by the owner.", "When new mail lands on an Inbox entry you already have a conversation for, you now choose where it goes. Opening the entry gives three options: Continue the conversation, which opens it and brings the new mail in; New conversation, hand-off from the last one, where the earlier conversation writes a briefing and a fresh one picks up from it, for when the first has grown too large; and New conversation, separate subject, which moves the new mail to an Inbox entry of its own with its own briefing, for when it is really about something else. Inside the conversation, a card under the latest reply shows the new mail with Bring it in, New conversation and Not now. It takes the place of the green Complete card, so a conversation with unread mail no longer offers Close conversation, and it reads New mail in the list, on its tab and in its header. Asked for by the owner.", "A conversation you start from an Inbox alert now opens with the email itself. The agent still checks for other mail on the story and merges duplicate entries first, but its first reply leads with what the email says (who wrote, what they are asking, the key lines quoted), then a few lines on what the check added, then where things stand and the next step. Before, the reply could be all about the side search and barely mention the email you opened it for. Asked for by the owner.", "Inbox Watch keeps the Pocket Inbox label honest on promotional mail. A label you add yourself in Gmail now puts mail from the Promotions tab on your list like any other. When a Gmail filter labels promotional mail, which the watcher does not read, the label comes off at the next check and the email stays in your inbox. A labelled email that never got judged is tried again after 30 minutes. Asked for by the owner.", "Inbox Watch keeps one entry per story. When more mail comes in on something already on your list, that entry is updated and moves back to the top as unread, instead of a second entry appearing beside it; what it said before stays below the new text. A conversation you start from an alert now opens with a short check: the agent looks for other mail on the story and tells you what it adds, and merges any other open entry about the same thing into this one, so only one thread keeps the Pocket Inbox label in Gmail. Restore on a merged entry undoes it. And a conversation you already started from an alert catches up instead of a second one starting: when more mail arrives on that story, the conversation shows “New mail on this story since you started” with Bring it in, which sends the new mail as your next message, and a reply that is running when it arrives gets it straight away. Asked for by the owner.","Tabs go where you put them. On a computer, drag a tab along the strip to move it (on a touch screen, hold it a moment first), or press Alt Shift [ or Alt Shift ] on a tab. Pinned tabs stay ahead of the others, and moving one changes the pinned order on all your devices; the rest keep the order you leave them in on this browser. With more than 12 tabs, the one you opened longest ago closes, not the leftmost. Also fixed: a new Codex conversation's tab kept saying New conversation until you switched away and back; a tab now takes the conversation's name as soon as it has one. And a conversation you start from the Inbox (or any start link) now opens in its own tab until you send it: start another and it gets a tab of its own, and pressing the plus for a new conversation leaves both alone. Each keeps what you typed, and opening the same alert's Start again brings it back. The Complete card is also easier to spot: it is now green, with a filled tick and a green Close conversation button, instead of a quiet outline that looked like part of the reply. Asked for by the owner.", "When an agent has finished everything you asked for and has nothing more to recommend, its reply now ends with a Complete card that states the outcome in one line, so you don't have to read the reply to know where things stand. Tap the card to close the conversation: it leaves Attention on all your devices, its tab closes and its server process is released. Nothing is deleted; the conversation stays in Recent and a message reopens it. The conversation list shows Complete with the same line, and the tick on that row closes it without opening it. Undo is offered for ten seconds. Asked for by the owner.", "Inbox Watch no longer archives mail you starred. When you finish an entry (Resolved, Not useful, Dismiss or the tidy pass), the Pocket Inbox label still comes off in Gmail, but a thread with a star stays in your Gmail inbox, so it keeps showing wherever you look for starred mail. Asked for by the owner.", "Ask someone is in the sidebar too. On a computer, the Vault panel in the sidebar now has Ask someone beside Add secret, so you can send someone a one-time link without opening the full Vault page. Asked for by the owner.", "Ask someone outside for a secret. In the Vault, Ask someone (or `pocket-vault request` from an agent) makes a one-time link to a plain page with your organisation's name and colour. The person types the login there and it goes straight into the Vault under the name you chose, with nothing sent by email, chat or phone. The link works once, expires after 1 to 7 days (3 by default), and can be cancelled or replaced from Links sent. You get a notification when it is filled in, and agents still ask you before using it. Asked for by the owner.", "Inbox Watch's list is now a work queue. An email goes on your list when it leaves something to do: a failure or problem to look into (a site, server, job, backup, device, licence, payment or account), a person waiting on your reply, or mail like what you worked on before. Starting a conversation from an alert now teaches the watcher that such mail belongs on the list. A problem it had only followed quietly, sometimes for weeks, is listed once with how long it has gone on. Not useful is now final: that story stays off your list unless it turns critical, until you restore it or label the mail yourself. With the morning digest off, nothing is written for a digest nobody gets. The rules box now holds 12,000 characters, up from 8,000, so the rules it learns from your choices have room to grow. Which alerts push to your phone is unchanged. Asked for by the owner.", "Pocket Code tells you when it is behind. The daily 4 a.m. update check now also looks for a newer Pocket Code release, and the notice at the top names it (for example: Pocket Code update available). Settings, About & updates, Updates shows the version this server runs, the latest release, its release notes and how to update. Nothing is installed from here: whoever manages the server upgrades Pocket Code, and the notice goes away once it runs the new version. Asked for by the owner.", "Starting a project conversation from the sidebar works on New conversation too. With New conversation already open, Start a conversation in a project's ⋯ options in the sidebar's Projects list left the screen as it was: no project, no Conductor chip and no briefing in the box, so the conversation would have started unlinked on your usual model. It now opens New with the project, its start and its briefing, as it does from the Projects page. Start on a task in the sidebar had the same problem and is fixed too.", "Start a project from New conversation, and Conductor mode explained wherever you choose it. New conversation has a Start a project button: name the project (it offers the first line of your message), switch Conductor mode on if the work is big, say what done means if you like, and the message you send starts the conversation linked to the new card. A handoff card from a Conductor or Solo conversation shows the start as a chip: tap it to pick the other one before Start, and Review first carries the project and that choice to New conversation. An info button (ⓘ) beside every Conductor choice says what the mode is and when to use it: point at it on a computer, tap it on a phone. Fixed: Review first on a handoff card opened the link viewer instead of New conversation. Asked for by the owner.", "Conductor mode shows what it runs, and stays out of Assistant mode. Starting a conversation from a Conductor project now shows a Conductor chip beside the project chip, and the model and effort chips name what will run (the lead, at High) instead of your usual model; tap the chip for Solo. The project's ⋯ options say which model leads and can turn Conductor mode on or off. In Assistant mode, where Pocket never runs Conductor mode, the switch, Works in and the Conductor or Solo choice are hidden; Done when and a step's Passes when check still show. Asked for by the owner.", "Conductor mode for projects. A project card has a new Conductor mode switch. While it is on, a conversation started in that project runs with the newest top model as the lead at high effort: it plans the work, hands each piece to a cheaper model, checks what comes back and stops only for a decision from you. Start conversation also offers Solo, one model doing the work itself, for a small task. The card gains Done when and Works in, and a step can carry a Passes when check. Handoffs keep the project and the mode, and a chip in the conversation shows which one is on. Off until you switch it on for a project. Asked for by the owner.", "Suggested-reply buttons survive a sources list. A reply that looked something up on the web ended with a Sources list after its choices, and Pocket then showed the choices as a plain code box with no buttons. A Sources or References list after the choices no longer stops them: the buttons show, and the sources stay in the reply above them. Agents are also asked to put sources above the question. Reported by the owner.", "Inbox Watch separates your list from your phone. Every alert still goes on the list, and the new Push notifications section of its schedule sheet decides which also push: every alert (as before), only what can't wait (emergencies, outages you're the escalation for, money at risk, security incidents, someone waiting on you, deadlines today, each a switch, with a daily limit and one push per story until it gets worse), or nothing. An open alert says whether it pushed and why.", "Inbox Watch's email checks use about a fifth fewer tokens. Each check used to carry every alert of the last day and up to six earlier threads per email; it now carries the newest few alerts plus any that relate to the emails being checked, and up to three earlier threads per email (plus the same sender's). Tested on 30 past checks: decisions stayed within the judge's own run-to-run variation. Asked for by the owner.", "Inbox Watch's learned rules get more room: up to about 3,300 characters (was about 2,300), still within the rules box beside your own rules. On a busy install the rebuilt rules filled the old limit on the first day, so new lessons would have had to squeeze out older ones. Asked for by the owner.", "Inbox Watch no longer loses what you teach it. A learned rule that ran long was cut off mid-sentence, and once the learned rules filled their space the newest ones were dropped without a word, so recent hand labels stopped counting. The watcher now splits a long rule in two, sends an answer that does not fit back once, and logs anything it still has to cut. The learned rules get more room (up to 20 lines, about 2,300 characters), and a new learn --rebuild command folds every lesson in again to bring back rules an earlier version dropped. Reported by the owner.", "Inbox Watch's tidy pass no longer takes an entry off your list while someone is waiting on your assistant. It already kept an entry when the latest email asked you for something; a request to your assistant (send me the current sheets, say) now counts the same, and so does a reply like send me X and I'll do Y, which waits on your side until X is sent. Reported by the owner.", "Closing a tab no longer opens another one. Closing the tab you are on now takes you to a new conversation, as the plus does, so you pick what to open next, and a conversation waiting in Attention stays there until you open it. And Dismiss says what it does in Gmail: with the Pocket Inbox label on, the X on an Inbox row and Dismiss in the entry's sheet now say the label comes off in Gmail at the next check, as it already did. Requested by the owner.", "Pocket now offers a handoff when a conversation gets large. A Handoff button sits beside Branch (and in Conversation options), and once a conversation passes 200K tokens a line under the latest finished reply says how large it is, with Hand off and Not now. Hand off asks the agent for the briefing and card; Not now hides the line until the conversation grows by another 200K. When the reply ends with suggested replies, they get a Hand off first button instead, and the new conversation opens by offering those same choices. The context ring turns amber at the same point. Change the size or turn it off in Settings → Context and subagents. Pocket never hands off by itself. Requested by the owner.", "Wrap-up replies no longer wait in Attention. When you tap Mark resolved, Remind me …, Add a task …, No thanks or a similar closing reply, the agent's short confirmation now counts as read the moment it finishes, on every device, and sends no notification, so you no longer have to open the conversation again or scroll to clear it, even after closing its tab. If the agent answers with a question, reply buttons or a long report, the conversation waits in Attention as before, and an ordinary request still does. Reported by the owner.", "What it reads: choose which mail Inbox Watch looks at. Settings → Inbox Watch now offers Everything (every thread but spam, trash and drafts, as before), Inbox only, and Inbox and these labels, with your Gmail labels to pick from. Everything is the default, so nothing changes until you choose. In the narrower choices your replies still count, so the watcher sees that you answered; a new email you start is not read. Requested by a colleague and the owner.", "New Coordination view shows which conversation holds staging or a deploy, who is waiting, and what ended lately. Agents claim with pocket-coord, a clash names the holder, and the first waiter is woken on release. Holds are advice, not a lock. Off until you turn it on in Settings.", "The Git panel now lists every worktree of a repository as In use, Has work or Ready to remove, and says why. Remove only appears when nothing would be lost, names any ignored files and conversations affected, and keeps the branch. A conversation whose folder was removed carries on from your home folder and says so once.", "The Git panel now follows the work. It shows the repository the conversation is working in, not the folder it started in, offers a picker when it touched several, and names other running conversations in the same repository. Branch starts in that folder too and says so.", "Pass work to a fresh conversation with one tap. When a conversation has grown long, ask the agent to hand off (or type /handoff). It writes a briefing and the reply shows a card with the title, folder, agent and permissions, a Start button and Review first. Start opens a new conversation that begins with only the briefing, so it reads far less than the old one, and each conversation links to the other. A handoff starts once, even from two devices, and it never gets more permission than the conversation it came from. Requested by the owner.", "The morning digest is readable and each line has its own buttons. The digest used to open as one block of text; it now shows each line as a card under its heading (Worth knowing, Held overnight, and so on), and the whole digest is shown rather than cut off after 2,000 characters. Under each card: Start a conversation, which opens a new conversation briefed with that one story and teaches Inbox Watch nothing; Add to Inbox, which puts that story on your Inbox as an alert right away and teaches Inbox Watch to alert on that kind of email from now on; Resolved and Not useful, which land on that story rather than on the whole digest; Dismiss; and Gmail. Undo takes any of them back, except an alert already sent. Each story has one status: lines on the same story share a card, and a story that is an open alert on your list appears under Already on your list as a link to that entry, showing what you decide there, so nothing is worked twice. Look-aheads work the same way: each item is a card with the same choices, most pressing first, and the whole look-ahead is shown rather than cut off after 2,000 characters. Add to Inbox on a look-ahead item teaches nothing, since it is a finding rather than a kind of email. Requested by a colleague after a client's text message was filed for the digest instead of alerting him, with the one-status rule and the look-ahead cards from the owner.", "The morning digest can be turned off. Settings → Inbox Watch now has Off for Morning digest, as the look-aheads do. With it off, alerts held overnight arrive one by one when quiet hours end, and lines that would only have been in the digest are not sent. Requested by the owner.", "Pin and unpin in one click. Every conversation in the list now has a pin beside its ⋯ button: faint gray on an unpinned conversation (click it to pin) and orange on a pinned one (click it to unpin). Pin conversation is also the first choice in Conversation options now, instead of near the bottom. Requested by a colleague.", "Finding a secret and answering the Vault is easier. The Vault list now shows the newest secrets first (Order switches to A–Z), a secret stored in the last day is marked New with the conversation that stored it, and Search secrets narrows the list by name, kind, tag or website. A conversation that stores a secret shows a card for it, and agents now link the name; either opens the Vault with that secret open. A request reads as one sentence, such as The agent in “Staging site” wants to use staging-wp for this command, with Allow once as an orange button beside Deny. Tapping the notification opens that request instead of the list; only the notification's Allow button approves, and if that Allow could not be recorded (signed out, locked, offline, or already ended) the request says so and you can answer it there. Requested by a colleague.", "Keep long conversations and subagents in check. Settings → Agents & instance has a new Context and subagents group. Each reply reads the whole conversation again, so a conversation left to grow toward a million tokens uses the most of your plan. Compact conversations has the agent summarize the older part before a size you choose (150K to 600K tokens). Subagent model runs subagents one tier below the conversation: Fable conversations get Opus subagents, Opus gets Sonnet and GPT Astra gets GPT Sol; a conversation can still name a model for one subagent. Subagent effort sets how hard they think. It applies to Claude Code and Codex conversations from their next reply; OpenRouter keeps its own behavior for now. Nothing changes until you choose. Requested by the owner.", "Inbox Watch set up with Codex uses the newest models. When Pocket sets up Inbox Watch on a server where only Codex is signed in, the judge now runs the newest GPT Sol the installed Codex lists (GPT-6.1 Sol today, not GPT-6 Sol), and reading mail the newest GPT Luna. A Codex too old for GPT-6.1 Sol keeps GPT-6 Sol. A watcher that is already set up keeps its models. Requested by the owner.", "Only the newest model versions are shown, and new ones appear by themselves. The Codex menu lists GPT-6.1 Sol instead of GPT-6 Sol, and Default says GPT-6.1 Sol; the Claude menu lists the newest Fable, Opus, Sonnet and Haiku, without Sonnet 5 and Haiku 4.5 beside their newer versions. A conversation, saved prompt or Pocket default that names an older version now runs the newest one. Codex's menu was already its live list; for Claude, Pocket now reads Anthropic's model list once a day with the sign-in Claude Code already has, so a new model such as an Opus 6 joins the menu and replaces the older one without a Pocket update. Requested by the owner.", "Inbox Watch learns from what you put on your list, and no longer says you added something a Gmail filter labelled. An email that arrives already carrying the Pocket Inbox label (because one of your Gmail filters adds it) now reads Your Gmail filter put this on your list, not You added this. When you label an email yourself, the watcher notes what it had done with it (ignored it, kept it for the digest, skipped it as routine) and turns that into a short rule, as narrow as the examples allow: one email teaches it about that sender and topic, several of a kind teach it the kind. Not useful works the same way in the other direction, and the rules it has learned are merged, widened or dropped as you go on. They sit at the end of your rules under Learned from your choices, where you can edit or delete any of them, and the quick first pass now reads the whole rules file. Reported by the owner.", "Switching Claude accounts no longer makes you wait or start over. A message you send to a conversation whose background job (a build, a watcher) still holds the earlier sign-in now waits in its queue and sends by itself, on the new account, as soon as the job finishes. Stop background jobs and send now beside it skips the wait, and the Queue shows what it is waiting for. Reported by the owner.", "Switching Claude accounts no longer leaves a conversation stuck. When you sign in with another account, a conversation with a background job still running (a test run, a watcher) keeps the earlier sign-in so the job is not cut off, and Pocket refused your messages there until the job ended, which for a watcher could be never. The Not sent card now names the job and offers Stop background jobs and send, which ends the job and continues the conversation on the new account. And Retry same message now really asks again: a refused message used to get the same refusal back without checking, even after the reason had gone. Reported by the owner.", "Fixes from the reviewer's second review, checked against 1.88.1. Side chats: a Codex side chat now switches off every MCP server Codex knows about, however it is written in the config file, and refuses to start when it cannot ask; a Claude side chat searches the web only when the conversation is in Full access; Stop on a stuck Codex side chat closes it; a side chat that reconnects after a long run gets the right events. Processes: a replacement Claude process waits for the old one to exit, a Pocket restart adopts the right process and stops duplicates, and work the agent did while Pocket was down counts as Pocket's own instead of as another app's. A background agent's request that is waiting when a reply ends with an After this reply message now reaches you, and a subagent working alone no longer makes the conversation read Running. Transcript bookkeeping (a task notification, a compaction summary) no longer shows as a message you sent, a steered message with a file shows once, long first prompts no longer bloat the conversation list, a skill whose description spans several lines shows it in the / list, and a pasted HEIC or TIFF keeps its name. Security: notification links can only open Pocket's own pages, file previews and downloads read the file they checked, pictures are decoded only as what their name says, and the login and Vault attempt limits can no longer be reset by a caller naming its own address (see POCKET_TRUSTED_PROXY in the install guide). Reported by the reviewer.", "Finished replies stay in Attention. A conversation whose reply you had not opened could drop out of Attention and read Recent, with its reply buttons still waiting inside. When Pocket closes an idle conversation's process (after an hour, or seconds after a reply when several conversations start at once, such as a burst of Inbox Watch alerts), Claude Code writes a little bookkeeping to the transcript, and Pocket took that for work in another app. It now counts only messages, so Response ready stays until you open the conversation. Replies hidden this way since the problem began reappear in Attention once; Mark all reviewed clears them. Reported by the owner.", "The OpenRouter model menu has a search box. OpenRouter offers hundreds of models; type any words of a model's name or maker, such as kimi or sonnet 5.5, and the list narrows as you type, with Default and the tested models still first. It says how many match, or that none do. Enter picks the first match and the arrow keys move through the list; on a phone the keyboard waits until you tap the box. Escape clears the box, a second Escape closes the menu. Requested by the owner.", "Codex conversations now have what Claude Code conversations had over them. Changed files shows each Codex edit's diff, and files Codex writes become file cards and are kept in Files like Claude's. When Codex hits its usage limit, the conversation waits for the reset and picks the task up again by itself, as Claude's do, and tells you when. The / list offers compact, review (the uncommitted changes, or against a base branch), recap and context. Your attachments show as file chips, a subagent's activity opens, the trusted read-only actions in Settings apply to Codex (and OpenRouter) commands, each reply shows the tokens it used, a reply Codex moves to another model says so, the Usage sheet reads 5-hour and Weekly, and Plan first shows its plan. OpenRouter gets the same diffs in Changed files and picks up again after a rate limit. Requested by the owner.", "After a CLI upgrade, Pocket shows which Claude Code and Codex conversations still have an older process. The update notice stays visible until they switch. The review names each conversation, shows whether it is idle or working, and offers Switch now for idle work. Stop work & switch asks before interrupting a running reply; the next turn opens the selected CLI. Restarting Pocket does not switch those processes.", "OpenRouter conversations now have the everyday features Claude Code and Codex conversations have. Your message shows as soon as you send it. A question from the model is a question card with its options as buttons, and a reply that asks you to choose ends with reply buttons, because Pocket's instructions now reach OpenRouter too. Attachments and images reach it, Plan first works, Stop stops (a queued message waits), a message queued with After this reply runs on OpenRouter, and the context meter, Results, Search and the Git panel work. What OpenRouter cannot do yet (Steer, Side chat, Branch, While you were away) is hidden on its conversations instead of offered and failing. And OpenCode needs no setup of its own any more: Pocket starts it with the ask-first permissions it needs. Behind this, every feature now goes through one layer for all three agents, with one test run against each. Requested by the owner.", "Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to the assistant only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by the owner.", "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.", "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.", "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by the owner.", "OpenRouter conversations now work the way they should. Before, every reply ran on OpenCode's own free model whatever you picked, a conversation waiting for your OK said Recent with no Allow button, and there was no way to set the effort. Now the reply runs on the model you picked (Pocket checks with OpenCode first and stops rather than let it run on another), the approval shows on the banner with Allow and Don't allow, and the effort chip offers the levels the chosen model has, such as None, Low, High and Max for DeepSeek V4.1 Flash; a model with no effort setting shows no chip. Reported by the owner.", "OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by the owner.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by a colleague.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by the owner.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by the reviewer's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by the owner after talking with an outside reviewer.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by the owner after talking with an outside reviewer.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by the owner.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
@@ -5438,7 +5693,7 @@ function binVersion(bin) {
   const hit = verCache.get(bin);
   if (hit && hit.stamp === stamp) return hit.v;
   let v = null;
-  try { v = execSync(`'${bin}' --version`, { timeout: 5000 }).toString().trim(); } catch { }
+  try { v = execFileSync(bin, ['--version'], { timeout: 5000 }).toString().trim(); } catch { } // 1.118: no shell between the path and the CLI
   verCache.set(bin, { stamp, v });
   return v;
 }
@@ -5750,7 +6005,7 @@ app.use((err, req, res, _next) => {
   if (res.headersSent) { try { res.end(); } catch { } return; }
   res.status(err?.status || 503).json({ error: err?.status ? err.message : 'Request failed. Please retry.' });
 });
-const server = app.listen(PORT, '127.0.0.1', () => log(`pocket-claude listening on 127.0.0.1:${server.address().port}`));
+const server = app.listen(PORT, '127.0.0.1', () => { log(`pocket-claude listening on 127.0.0.1:${server.address().port}`); if (settings.vault) warnVaultPath(); });
 // 1.91: keep the model lists current. Codex's list is read a few seconds after startup, so a turn that names an
 // older version runs the newest from the first reply. Anthropic's list is read a while after startup and then
 // daily; a newer Claude model joins the picker and replaces its family's older one. POCKET_CLAUDE_DISCOVERY=0 turns

@@ -1,6 +1,6 @@
 {
   "name": "pocket-code",
-  "version": "1.117.0",
+  "version": "1.118.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -49,10 +49,10 @@
     "check:manual": "node scripts/check-manual.mjs"
   },
   "dependencies": {
-    "dompurify": "3.4.16",
+    "dompurify": "3.4.18",
     "express": "^4.19.0",
     "marked": "18.0.14",
-    "nodemailer": "^7.0.13",
+    "nodemailer": "^10.6.1",
     "web-push": "^3.6.7"
   },
   "devDependencies": {

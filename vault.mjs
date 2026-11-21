@@ -1,9 +1,10 @@
-// The Vault (1.39): credentials agents use without seeing. One encrypted file in the data directory
+// The Vault (1.39): credentials agents use by name. One encrypted file in the data directory
 // (<data dir>/vault.enc, AES-256-GCM over the whole store under POCKET_VAULT_KEY) holds every item, its
 // policy and the commands the owner has approved for it; nothing about the store is readable on disk
-// without the key. The daemon decrypts it into memory at boot. Agents never receive a value: `pocket-vault
-// run` sends the daemon a command and the variables to bind, the daemon spawns the child itself with the
-// values in its environment, and the output comes back with every value scrubbed. Every release of a value,
+// without the key. The daemon decrypts it into memory at boot. `pocket-vault run` sends the daemon a command
+// and the variables to bind, the daemon spawns the child itself with the values in its environment, and the
+// output comes back with every value scrubbed. That keeps values out of the conversation in normal use; it does
+// not keep them from the command, or from an agent that asks for a browser fill (SECURITY.md, Vault). Every release of a value,
 // every request and answer, and every owner view is appended to vault-audit.jsonl, which never holds a value.
 // Design: docs/plans/1.39.0-vault.md.
 import fs from 'node:fs';
@@ -12,6 +13,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, scryptSync, 
 import { spawn } from 'node:child_process';
 import { signalGroup } from './proctree.mjs';
 import { shellArg } from './skills.mjs';
+import { PIN_VERSION, pinDiff, pinView, withData } from './vault-pin.mjs';
 
 // Fixed fields by kind; any item may carry custom fields beside them (1.39.1), and `credentials` has only custom ones.
 export const KINDS = { api_key: ['value'], token: ['value'], login: ['username', 'password'], credentials: [], note: ['text'] };
@@ -32,6 +34,36 @@ export const LIMITS = { items: 500, name: 64, url: 500, notes: 2000, tags: 20, t
   customFields: 20, output: 1 << 20, timeoutMax: 3600, timeoutDefault: 600, waitMax: 300, requestTtlMs: 15 * 60_000, trashDays: 30, recipes: 50, auditRows: 200, concurrent: 8 };
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ENV_RE = /^[A-Z_][A-Z0-9_]{0,63}$/;
+// Variable names a value may not be bound to (PC-02 follow-up). An approved command's recipe records which variable gets
+// which item and the card shows it, so a rerun under another name asks again; these names are refused outright because a
+// program acts on them by itself, before or instead of anything the approved command does with the value: it loads, runs
+// or parses the value as code, options or a command line (a part of the value then shows in an error the scrubber does not
+// recognise), creates a file or folder named after it (an agent then sees the value as a name in a listing), or sends it to
+// another computer. The second review showed node creating a folder named after the value from NODE_V8_COVERAGE.
+//   Pocket's own and the run's: POCKET_*, PATH, HOME. The loader: LD_*, DYLD_*.
+//   Interpreter start-up: NODE_* (NODE_OPTIONS, NODE_V8_COVERAGE, NODE_COMPILE_CACHE, NODE_REDIRECT_WARNINGS, …; not
+//     NODE_AUTH_TOKEN, which node does not read and npm's setup convention uses for a registry token), NPM_CONFIG_* (npm
+//     reads npm_config_* in any case: script-shell, userconfig, cache), PYTHON*, PERL*, RUBY*, the JVM's option variables.
+//   Shells: BASH_ENV, ENV, IFS (splits words on the value's characters), PS0-PS9 (expanded on every traced line),
+//     PROMPT_COMMAND, SHELLOPTS, BASHOPTS, ZDOTDIR, SHELL.
+//   git: GIT_* (it runs programs from GIT_SSH_COMMAND, GIT_ASKPASS, GIT_EXTERNAL_DIFF, GIT_PAGER, GIT_EDITOR,
+//     GIT_PROXY_COMMAND, takes any setting from GIT_CONFIG_*, writes traces to files named in GIT_TRACE*); GIT_TOKEN,
+//     GIT_PASSWORD, GIT_USERNAME, GIT_CREDENTIALS and GIT_AUTH_TOKEN are not git's and stay allowed.
+//   Programs started by name: PAGER, MANPAGER, EDITOR, VISUAL, BROWSER, LESS* (LESSOPEN runs a command), SSH_ASKPASS,
+//     SUDO_ASKPASS, MAKEFLAGS, MFLAGS, MAKEFILES.
+//   Folders and files a program creates: TMPDIR, TMP, TEMP, TEMPDIR, XDG_*, SSLKEYLOGFILE, HISTFILE, GNUPGHOME, DOCKER_CONFIG.
+//   Sent along or echoed in part: LANG, LANGUAGE, LC_* (ssh sends them to the other computer by default), TZ.
+// Ordinary credential names are not touched: GITHUB_TOKEN, GH_TOKEN, AWS_SECRET_ACCESS_KEY, NPM_TOKEN, PGPASSWORD,
+// HTTPS_PROXY, SSH_KEY, SUDO_PW and the like (checked against the names agents on real installs bind). The list cannot
+// name every variable every program reads; the card's variable line is what tells the owner the rest.
+const REFUSED_ENV = new RegExp('^(?:' + ['POCKET_.*', 'PATH', 'HOME', 'LD_.*', 'DYLD_.*',
+  'NODE_(?!AUTH_TOKEN$).*', 'NPM_CONFIG_.*', 'PYTHON.*', 'PERL.*', 'RUBY.*', 'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS',
+  'BASH_ENV', 'ENV', 'IFS', 'PS[0-9]', 'PROMPT_COMMAND', 'SHELLOPTS', 'BASHOPTS', 'ZDOTDIR', 'SHELL',
+  'GIT_(?!(?:TOKEN|PASSWORD|USERNAME|CREDENTIALS|AUTH_TOKEN)$).*',
+  'PAGER', 'MANPAGER', 'EDITOR', 'VISUAL', 'BROWSER', 'LESS.*', 'SSH_ASKPASS', 'SUDO_ASKPASS', 'MAKEFLAGS', 'MFLAGS', 'MAKEFILES',
+  'TMPDIR', 'TMP', 'TEMP', 'TEMPDIR', 'XDG_.*', 'SSLKEYLOGFILE', 'HISTFILE', 'GNUPGHOME', 'DOCKER_CONFIG',
+  'LANG', 'LANGUAGE', 'LC_.*', 'TZ'].join('|') + ')$');
+export const refusedVariable = v => REFUSED_ENV.test(String(v));
 const SESSION_RE = /^(cx:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const fail = (message, status = 400, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
@@ -105,8 +137,8 @@ export function vaultInstructions(cli, sessionId) {
   const skill = shellArg(path.join(path.dirname(String(cli)), '..', 'skills', 'pocket-vault', 'SKILL.md'));
   cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
   return [
-    'This Pocket Code keeps a Vault of credentials (API keys, tokens, logins) that agents use by name and never see.',
-    `Run commands that need one with \`node ${cli} run --env VAR=<name>[.field] -- <command…>\`: Pocket runs the command with the value in that variable and returns the output with the value scrubbed. Values never appear in arguments, output, files, messages or your context; never print, echo, write down or ask for one.`,
+    'This Pocket Code keeps a Vault of credentials (API keys, tokens, logins) that agents use by name, without looking at the values.',
+    `Run commands that need one with \`node ${cli} run --env VAR=<name>[.field] -- <command…>\`: Pocket runs the command with the value in that variable and returns the output with the value scrubbed. Keep values out of arguments, output, files, messages and your context; never print, echo, write down or ask for one.`,
     'If the command answers `pending <id>`, the owner is being asked to allow it (a push with Allow and Deny went to their devices): say so in one line and end your reply offering "Allow <name> for this command" and "Deny <name>" as the choices; the owner answering either way, by the notification, the Vault view or that reply, settles the request, and you then continue with `wait <id>`. If it is refused, say so and stop; do not look for another way to the value.',
     'To type a stored value into a web page with the Playwright browser tools (a login form, say), put `{{vault:<name>.<field>}}` as the text to type or fill; Pocket fills in the real value on the way to the browser and removes it from what comes back. Never read a filled value back out of the page. Values go into typing and form-filling tools only, and once one has been typed, screenshots and other pictures from that browser are unavailable for the rest of the session (a value cannot be scrubbed out of a picture): use text snapshots.',
     `When you meet a secret in a file, a result or a message, store it at once with \`node ${cli} put <name> --kind <api_key|token|login|credentials|note> --stdin\` (or --from-file), tell the owner it was seen, and use the name from then on. \`list\` shows what exists. When someone outside (a customer, a vendor) has a credential the work needs, never ask for it by email, chat or phone: make a one-time link with \`node ${cli} request <name> --kind login --for "<who>" --note "<what it is>"\` and send that. A \`{{vault:name}}\` in a message is the owner handing you a stored secret by name.`,
@@ -270,7 +302,15 @@ export class VaultStore {
     const eff = this.effective(i);
     return { ...rest, fields: fieldNames(i), custom: i.custom, effectivePolicy: eff, policyWord: POLICY_WORDS[eff], ...(owner ? { notes } : {}), expiring: Boolean(i.expiresAt) && Date.parse(i.expiresAt) - now < 14 * 86400_000 };
   }
-  requestView(r) { const { env, waiters, caller, bindings, ...rest } = r; return { ...rest, pending: !r.answer, allowAlways: r.allowAlways !== false }; }
+  // PC-02: the card gets the files a run is checked by (paths and roles, never hashes), what cannot be checked, and the
+  // program a launcher starts.
+  // Second review: and each variable with the item (and field) it gets; `was`, when the command was allowed always with
+  // other variables.
+  requestView(r) {
+    const { env, waiters, caller, bindings, pin, was, ...rest } = r;
+    const vars = list => (list || []).map(b => ({ v: b.v, name: b.name, field: b.field }));
+    return { ...rest, ...(r.action === 'run' ? { ...pinView(pin), variables: vars(bindings), ...(was ? { was: vars(was) } : {}) } : {}), pending: !r.answer, allowAlways: r.allowAlways !== false };
+  }
   // The policy that applies to an item now: its own, or the Agent access setting's when it follows the default.
   effective(i) { if (i.policy !== 'default') return i.policy; const a = this.access(); return ACCESS_POLICY[ACCESS.includes(a) ? a : 'once']; }
   snapshot({ owner = false, now = this.now() } = {}) {
@@ -310,7 +350,7 @@ export class VaultStore {
     }
     if (action === 'answer') {
       if (!owner) throw fail('Only the owner answers requests.', 403);
-      return this.answer(str(input.request, 40), str(input.decision, 10));
+      return this.answer(str(input.request, 40), str(input.decision, 10), { data: input.data });
     }
     if (!owner) throw fail('Agents cannot change items. Ask the owner.', 403);
     const live = this.get(str(input.item, 40));
@@ -483,7 +523,7 @@ export class VaultStore {
     const bound = [];
     for (const [v, ref] of entries) {
       if (!ENV_RE.test(v)) throw fail(`${v} is not a variable name.`);
-      if (/^POCKET_|^PATH$|^HOME$|^LD_|^NODE_OPTIONS$/.test(v)) throw fail(`${v} cannot be bound.`);
+      if (REFUSED_ENV.test(v)) throw fail(`${v} cannot be bound.`);
       const m = /^([a-z0-9-]+)(?:\.([a-z][a-z0-9_]*))?$/.exec(String(ref || '')); if (!m) throw fail(`${ref} is not an item name.`);
       const item = this.byName(m[1]); if (!item) throw fail(`There is no item named ${m[1]}. \`list\` shows what exists.`, 404);
       const fields = fieldNames(item);
@@ -506,14 +546,65 @@ export class VaultStore {
   // 1.73.4: a command is a run or a browser fill; a recipe saved before 1.73.4 carries no action and is read from its argv.
   static actionOf(x) { return x?.action === 'fill' || (!x?.action && x?.argv?.[0] === 'pocket-fill') ? 'fill' : 'run'; }
   static sameCommand(a, b) { return a.cwd === b.cwd && VaultStore.actionOf(a) === VaultStore.actionOf(b) && a.argv.length === b.argv.length && a.argv.every((x, k) => x === b.argv[k]); }
+  // PC-02: a run recipe also holds what the command executes (vault-pin.mjs: the program, its interpreter, the program a
+  // launcher starts, the script and every file argument, by path and content hash), and matches only while all of it is
+  // unchanged (pinDiff). A file that could not be hashed compares by size and times; an argument the owner marked as data
+  // is not compared. A recipe saved before pins, or under an earlier pin version that no longer agrees, asks once more.
+  // A fill runs nothing of the agent's, so its recipe has no pin. A command with no pin object at all is one the store
+  // was handed without a check (only direct callers of the store do that; every HTTP run is pinned), and matches only a
+  // recipe without one.
+  static samePin(a, b) { if (VaultStore.actionOf(b) === 'fill') return true; return VaultStore.pinsMatch(a?.pin, b?.pin); }
+  static pinsMatch(a, b) { if (!a && !b) return true; return Boolean(a && b) && pinDiff(a, b).length === 0; }
+  // Second review: a run recipe also holds its variables, each name with the item (by id, so a renamed item still matches)
+  // and field it gets, and matches only the same set: a rerun that binds the value under another name (one a program acts on
+  // by itself, say), adds a binding or swaps fields asks again. A recipe saved before this has none and asks once more.
+  static bindingsOf(list) { return (list || []).map(b => ({ v: b.v, item: b.item?.id ?? b.item, field: b.field, name: b.item?.name ?? b.name })).sort((a, b) => a.v < b.v ? -1 : a.v > b.v ? 1 : 0); }
+  static bindingKey(list) { return JSON.stringify(VaultStore.bindingsOf(list).map(b => [b.v, b.item, b.field])); }
+  static sameBindings(recipe, cmd) { if (VaultStore.actionOf(cmd) === 'fill') return true; return Array.isArray(recipe.bindings) && Array.isArray(cmd.bindings) && VaultStore.bindingKey(recipe.bindings) === VaultStore.bindingKey(cmd.bindings); }
+  static withBindings(cmd, bound) { return VaultStore.actionOf(cmd) === 'run' ? { ...cmd, bindings: VaultStore.bindingsOf(bound) } : cmd; }
+  static recipeFor(item, cmd) { if (VaultStore.unpinnable(cmd.pin)) return null; return item.recipes.find(r => VaultStore.sameCommand(r, cmd) && VaultStore.samePin(r, cmd) && VaultStore.sameBindings(r, cmd) && !VaultStore.unpinnable(r.pin)) || null; }
+  // Never allowed always, so every run is asked about: a script that is not a regular file (a pipe, a device, a folder python
+  // runs) has no content to compare; and (second review) a command whose launcher Pocket cannot read (`unknown`), or that
+  // Pocket cannot pin (`refuse`: a script it cannot find, find -exec, npm run, npx, docker run, ssh with a command, …).
+  static unpinnable(pin) { return Boolean(pin?.files?.some(f => f?.role === 'script' && f.kind) || pin?.unknown || pin?.refuse); }
+  // Why an approved command asks again: { why: 'changed', files } (what differs from the closest recipe: [{path, how}]),
+  // { why: 'variables', was } (the same command allowed with other variables), { why: 'unpinned' } (approved before content
+  // was checked as it is now), { why: 'unbound' } (approved before its variables were recorded), { why: 'refused' } (allowed
+  // always before, but Pocket no longer offers that for this command), or null when no recipe has this text.
+  static recipeChange(items, cmd) {
+    if (VaultStore.actionOf(cmd) === 'fill') return null;
+    const same = items.flatMap(i => i.recipes.filter(r => VaultStore.sameCommand(r, cmd))); if (!same.length) return null;
+    if (VaultStore.unpinnable(cmd.pin)) return { why: 'refused' };
+    const miss = same.filter(r => !(VaultStore.samePin(r, cmd) && VaultStore.sameBindings(r, cmd))); if (!miss.length) return null;
+    const was = r => Array.isArray(r.bindings) && !VaultStore.sameBindings(r, cmd) ? { was: r.bindings.map(({ v, name, field }) => ({ v, name, field })) } : {};
+    // What runs is unchanged: only the variables differ, or the recipe was saved before they were recorded.
+    const pinOk = miss.filter(r => VaultStore.samePin(r, cmd));
+    if (pinOk.length) { const r = pinOk.find(x => Array.isArray(x.bindings)); return r ? { why: 'variables', ...was(r) } : { why: 'unbound' }; }
+    const current = miss.filter(r => r.pin?.v === PIN_VERSION);
+    if (!current.length) return { why: 'unpinned' };
+    const best = current.map(r => ({ r, d: pinDiff(r.pin, cmd.pin) })).sort((a, b) => a.d.length - b.d.length)[0];
+    return { why: 'changed', files: best.d.slice(0, 20).map(({ path: p, how }) => ({ path: p, how })), ...was(best.r) };
+  }
+  // The arguments an earlier Always for this command text marked as data: a new Always keeps them unless the owner says otherwise.
+  static dataPaths(items, cmd) { return [...new Set(items.flatMap(i => i.recipes.filter(r => VaultStore.sameCommand(r, cmd)).flatMap(r => (r.pin?.files || []).filter(f => f?.data).map(f => f.path))))]; }
+  // D-4: the bound items as the store holds them now (an await, such as hashing a large file, may have let the owner edit,
+  // remove or lock them); by item id, as claim() does.
+  rebind(bound) {
+    this.open();
+    return bound.map(b => {
+      const item = this.items.find(x => x.id === b.item.id);
+      if (!item || item.trashedAt || !fieldNames(item).includes(b.field)) throw fail(`${b.item.name} changed while the command was being checked; run it again.`, 409, { code: 'request_stale' });
+      return { ...b, item };
+    });
+  }
   // What the policies say about running this command with these items: 'run', or 'ask' with the items that need the owner's word.
   decide(bound, cmd) {
-    const need = [];
+    const need = []; cmd = VaultStore.withBindings(cmd, bound);
     for (const { item: boundItem } of new Map(bound.map(b => [b.item.id, b])).values()) {
       const item = this.items.find(x => x.id === boundItem.id) || boundItem; // 1.73.6: an edit replaces the item object; the policy read is the one in the store now
       const p = this.effective(item);
       if (p === 'owner') throw fail(`${item.name} is for the owner only; agents cannot use it. Ask the owner to change its policy.`, 403, { code: 'owner_only' });
-      if (p === 'every' || (p === 'ask' && !item.recipes.some(r => VaultStore.sameCommand(r, cmd)))) need.push(item);
+      if (p === 'every' || (p === 'ask' && !VaultStore.recipeFor(item, cmd))) need.push(item);
     }
     return need;
   }
@@ -524,7 +615,13 @@ export class VaultStore {
     this.expireRequests();
     const now = this.now();
     let id = shortId(); for (let n = 0; this.requests.has(id); n++) { if (n >= 8) throw fail('Could not number the request; try again.', 500); id = shortId(); } // never over an existing row
-    const r = { id, action: VaultStore.actionOf(cmd), items: need.map(i => i.id), itemNames: need.map(i => i.name), argv: cmd.argv, cwd: cmd.cwd, env, session, sessionTitle, by, created: iso(now), expiresAt: iso(now + LIMITS.requestTtlMs), answer: null, consumed: false, waiters: [], allowAlways: need.every(i => this.effective(i) !== 'every'),
+    // PC-02: the row keeps the pin of what was asked about (an Always saves it, a continuation must still match it) and says
+    // when an approved command asks again because what it runs changed, or because it was approved before content was checked.
+    // 1.118 (D-3): it also names the files that changed, and carries the arguments an earlier Always marked as data.
+    cmd = VaultStore.withBindings(cmd, bound);
+    const change = VaultStore.recipeChange(need, cmd), data = cmd.pin ? VaultStore.dataPaths(need, cmd) : [];
+    const r = { id, action: VaultStore.actionOf(cmd), items: need.map(i => i.id), itemNames: need.map(i => i.name), argv: cmd.argv, cwd: cmd.cwd, env, session, sessionTitle, by, created: iso(now), expiresAt: iso(now + LIMITS.requestTtlMs), answer: null, consumed: false, waiters: [], allowAlways: need.every(i => this.effective(i) !== 'every') && !VaultStore.unpinnable(cmd.pin),
+      pin: cmd.pin || null, program: cmd.pin?.program || null, changed: change?.why || null, ...(change?.files?.length ? { changedFiles: change.files } : {}), ...(change?.was ? { was: change.was } : {}), ...(data.length ? { data } : {}),
       bindings: bound.map(b => ({ v: b.v, item: b.item.id, name: b.item.name, field: b.field })), caller: { actor: by, session, tokenHash } };
     this.audit({ action: 'request', request: r.id, item: need[0].id, name: need.map(i => i.name).join(','), by, session, sessionTitle, argv: cmd.argv, cwd: cmd.cwd });
     this.requests.set(r.id, r);
@@ -548,7 +645,9 @@ export class VaultStore {
   // both pass: the bindings are resolved again by item id against the store as it is now (a removed item or field voids the
   // approval; a renamed item does not), the policy decision is run again (an item that is now the owner's only refuses; one
   // that now needs approval and was not in the answered set sends the agent back to ask), and the row is marked used.
-  claim(id, { action = 'run', caller = null } = {}) {
+  // PC-02: `pin` is what the command runs now (pinCommand, just before the claim); it must be what the owner was asked about,
+  // so a script rewritten while the request waited is not run on the strength of an answer about its old content.
+  claim(id, { action = 'run', caller = null, pin = null } = {}) {
     const r = this.continuation(id, { action, caller });
     if (!r.answer || !['once', 'always'].includes(r.answer.decision)) throw fail('The owner has not allowed that request.', 409);
     const bound = [];
@@ -557,24 +656,43 @@ export class VaultStore {
       if (!item || item.trashedAt || !fieldNames(item).includes(b.field)) throw fail(`${b.name} changed since the owner was asked; ask again.`, 409, { code: 'request_stale' });
       bound.push({ v: b.v, item, field: b.field });
     }
-    const cmd = { argv: r.argv, cwd: r.cwd, action: r.action };
+    if (r.action === 'run' && !VaultStore.pinsMatch(r.pin, pin)) {
+      const d = r.pin && pin ? pinDiff(r.pin, pin) : [], first = d[0]?.path ? (path.relative(r.cwd, d[0].path).startsWith('..') ? d[0].path : path.relative(r.cwd, d[0].path)) : '';
+      throw fail(`${first ? (d[0].how === 'program' ? `The program (now ${d[0].path})` : first) : 'The program or a file the command names'} changed since the owner was asked; ask again.`, 409, { code: 'request_stale' });
+    }
+    const cmd = { argv: r.argv, cwd: r.cwd, action: r.action, ...(r.action === 'run' && pin ? { pin } : {}) };
     const need = this.decide(bound, cmd);
     if (need.some(i => !r.items.includes(i.id))) throw fail('A policy changed since the owner was asked; ask again.', 409, { code: 'request_stale' });
     r.consumed = true;
     return { request: r, bound, cmd };
   }
-  answer(id, decision) {
+  // 1.118 (D-3): `data` lists arguments the owner says the command writes itself (an output, log or state file); an
+  // Always saves them unchecked. Only a file the command names as a plain argument can be marked (never the program, an
+  // interpreter, a launched program or the script); left out, the marks an earlier Always made for this command stay.
+  answer(id, decision, { data } = {}) {
     this.expireRequests();
     const r = this.requests.get(id); if (!r) throw fail('That request does not exist or has expired.', 404);
     if (r.answer) throw fail('That request was already answered.', 409);
     if (!['once', 'always', 'deny'].includes(decision)) throw fail('Answer once, always or deny.');
+    let marks = r.data || [];
+    if (data !== undefined && data !== null) {
+      const ok = new Set([...(r.pin?.files || []).filter(f => f.role === 'argument').map(f => f.path), ...(r.data || [])]);
+      if (!Array.isArray(data) || data.length > LIMITS.argv || data.some(p => typeof p !== 'string' || !ok.has(p))) throw fail('Only a file the command names as an argument can be left unchecked.');
+      marks = [...new Set(data)];
+    }
     const answer = { decision, at: iso(this.now()) };
     // 1.73.6: the recipes an Always saves are written first; the row is answered, and its waiters woken, only once they are on disk.
     let next = null;
     if (decision === 'always') {
+      // PC-02: a run recipe keeps the pin of what the owner was asked about; a recipe with the same text whose pin no longer
+      // matches (the script changed, or it was saved before pins) takes the new pin instead of gaining a twin.
+      const pinned = r.action === 'run' ? { pin: withData(r.pin, marks), bindings: VaultStore.bindingsOf(r.bindings) } : {};
       next = this.items.map(live => {
-        if (!r.items.includes(live.id) || live.trashedAt || this.effective(live) === 'every' || live.recipes.some(x => VaultStore.sameCommand(x, r))) return live;
-        const i = structuredClone(live); i.recipes.push({ id: shortId(), argv: r.argv, cwd: r.cwd, action: r.action, created: answer.at }); if (i.recipes.length > LIMITS.recipes) i.recipes.shift(); this.touch(i); return i;
+        if (!r.items.includes(live.id) || live.trashedAt || this.effective(live) === 'every' || VaultStore.unpinnable(r.pin) || VaultStore.recipeFor(live, { ...r, ...pinned })) return live;
+        const i = structuredClone(live), old = i.recipes.find(x => VaultStore.sameCommand(x, r));
+        if (old) { if (r.pin) Object.assign(old, pinned, { pinned: answer.at }); else if (pinned.bindings) old.bindings = pinned.bindings; } // never unpins a recipe
+        else { i.recipes.push({ id: shortId(), argv: r.argv, cwd: r.cwd, action: r.action, ...pinned, created: answer.at }); if (i.recipes.length > LIMITS.recipes) i.recipes.shift(); }
+        this.touch(i); return i;
       });
     }
     this.audit({ action: 'request-answered', request: r.id, item: r.items[0], name: r.itemNames.join(','), by: 'owner', decision, session: r.session, sessionTitle: r.sessionTitle, argv: r.argv, cwd: r.cwd });
@@ -627,6 +745,9 @@ export class VaultStore {
   }
 }
 
+// What a run executes (PC-02): vault-pin.mjs.
+export { PIN_LIMITS, PIN_VERSION, runPath, findProgram, pinCommand, prepareRun, pinKey, pinDiff, exposedFolders, replaceable } from './vault-pin.mjs';
+
 // ---------- scrubbing ----------
 // Every form a value is likely to take in a program's output: as typed, base64, base64url, URL-encoded, JSON-escaped
 // (1.73.3: in the spellings other JSON writers use too, and escaped twice).
@@ -646,6 +767,10 @@ export function needlesFor(values) {
       const core = Buffer.concat([Buffer.alloc(k), bytes]).toString('base64').slice(Math.ceil(k * 8 / 6), Math.floor((k + bytes.length) * 8 / 6));
       if (core.length >= 7) { out.add(core); out.add(core.replace(/\+/g, '-').replace(/\//g, '_')); }
     }
+    // PC-02: hex (either case) and reversed, as defence in depth. Scrubbing is not the control: a command can always
+    // spell a value some other way; what may run is decided by the recipe and its pin.
+    const hex = bytes.toString('hex'); out.add(hex); out.add(hex.toUpperCase());
+    const rev = [...v].reverse().join(''); if (rev !== v) out.add(rev);
     try { const e = encodeURIComponent(v); if (e !== v) out.add(e); } catch { }
     const j = JSON.stringify(v).slice(1, -1); if (j !== v) out.add(j);
     // PHP's json_encode writes "/" as "\/" and, like Python's json.dumps, non-ASCII as \uXXXX; a JSON string carried inside
@@ -684,7 +809,12 @@ export function scrubber(values, placeholder = '{{vault}}') { return makeScrubSt
 // KILL after five seconds), and so does the command's own exit: whatever it started and left running is ended, so a run
 // cannot leave a daemon behind holding the values or the output pipes. The run resolves within about two seconds of the
 // command's exit even if something outside the group still holds a pipe.
-export function runWithSecrets({ argv, cwd, env, secrets, placeholders, timeoutMs = LIMITS.timeoutDefault * 1000, maxOutput = LIMITS.output, onOut = () => {}, onErr = () => {}, signal }) {
+// PC-02: `file` is the program pinCommand found (run by full path, with argv[0] kept as the program's own name). 1.118:
+// `plan` (prepareRun) says how to start what was checked: the file (a /proc/self/fd path when the program runs from the
+// handle that was hashed), the arguments (a shell script's replaced by its private copy), argv[0], and the handles the
+// child gets as fd 3 and up. The caller checks the plan (plan.verify()) immediately before this call; the spawn happens
+// synchronously inside it.
+export function runWithSecrets({ argv, file = null, plan = null, cwd, env, secrets, placeholders, timeoutMs = LIMITS.timeoutDefault * 1000, maxOutput = LIMITS.output, onOut = () => {}, onErr = () => {}, signal }) {
   return new Promise(resolve => {
     // One replacer per stream: every form of every value becomes that value's own placeholder, longest values first.
     const table = Object.values(secrets).map(v => ({ forms: needlesFor([v]), ph: placeholders?.[v] ? `{{vault:${placeholders[v]}}}` : '{{vault}}' })).filter(p => p.forms.length).sort((a, b) => b.forms[0].length - a.forms[0].length);
@@ -695,7 +825,10 @@ export function runWithSecrets({ argv, cwd, env, secrets, placeholders, timeoutM
     const abort = () => { if (!child?.pid || aborted || done) return; aborted = true; group('SIGTERM'); setTimeout(() => group('SIGKILL'), 5000).unref(); };
     const timer = setTimeout(() => { timedOut = true; abort(); }, timeoutMs);
     signal?.addEventListener?.('abort', abort);
-    try { child = spawn(argv[0], argv.slice(1), { cwd, env: { ...env, ...secrets }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: true }); }
+    try {
+      child = plan ? spawn(plan.file, plan.args, { cwd, env: { ...env, ...secrets }, argv0: plan.argv0, stdio: ['ignore', 'pipe', 'pipe', ...plan.fds], windowsHide: true, detached: true })
+        : spawn(file || argv[0], argv.slice(1), { cwd, env: { ...env, ...secrets }, ...(file ? { argv0: argv[0] } : {}), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: true });
+    }
     catch (e) { return finish(null, null, e.message); }
     child.on('error', e => finish(null, null, e.message));
     const emit = (fn, text) => { if (!text) return; total += text.length; if (total > maxOutput) { if (!truncated) { truncated = true; fn(text.slice(0, Math.max(0, text.length - (total - maxOutput)))); abort(); } return; } fn(text); };

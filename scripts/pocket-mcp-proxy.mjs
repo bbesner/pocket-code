@@ -7,8 +7,8 @@
 // A tool call whose arguments name {{vault:name}} or {{vault:name.field}} gets the real values from the Pocket Code
 // Vault (under the owner's Agent access setting, with the same approval flow as `pocket-vault run`), typed into the
 // arguments on the way to the server. Every value released this way is then removed from everything the server sends
-// back (results, snapshots, logs), replaced by its placeholder. The agent's tool call and the transcript only ever hold
-// the placeholder. A call with no placeholder passes through untouched, so wrapping a server never changes its
+// back (results, snapshots, logs), replaced by its placeholder. In normal use the agent's tool call and the transcript
+// hold only the placeholder; the agent drives the page, so it can read a filled value back (SECURITY.md, Vault). A call with no placeholder passes through untouched, so wrapping a server never changes its
 // ordinary behaviour; if the Vault is off, locked or unreachable, only calls that name a placeholder fail, with a
 // message the agent can act on.
 //

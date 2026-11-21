@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.107.1
+checked: 1.116.0
 sources: tasks.mjs, public/tasks.js, scripts/pocket-tasks.mjs, scripts/owner-zone.mjs, skills/pocket-tasks/SKILL.md
 -->
 # Tasks
@@ -79,7 +79,7 @@ Click a task to open its sheet: the text, the date, the conversation it came fro
 
 | Option | What it does |
 |---|---|
-| **Start** | Opens a new conversation in the task's workspace, with the agent of the conversation it came from. The first message is already written: the task, its context, and a line asking the agent to mark the task done with `pocket-tasks done <id>` when it is finished. Edit it if you like, then send it. |
+| **Start** | Open tasks only. Opens a new conversation in the task's workspace, with the agent of the conversation it came from. The first message is already written: the task, its context, and a line asking the agent to mark the task done with `pocket-tasks done <id>` when it is finished. Edit it if you like, then send it. |
 | **Open the conversation** | Goes back to the conversation the task came from. |
 | **Mark done** / **Reopen** | Finishes the task or puts it back on the list. A finished task is not announced. |
 | **Remind later** | For an open, dated task: **Tomorrow morning**, **In three days**, **Next Monday**, **In a week** (each at 9:00 on this device), or **Another time**. |
@@ -175,6 +175,7 @@ pocket-tasks done 1c2d3e4f5a6b
 |---|---|
 | 0 | Done. |
 | 1 | Any other error; the message says what. |
+| 2 | The task changed since it was read (someone edited or finished it). The message is followed by the task as it is now; check it before changing it again. |
 | 3 | Tasks is off. Tell the user to turn it on under **Settings → Projects, files, tasks & vault → Tasks**; do not keep a to-do list anywhere else. |
 | 4 | The token was refused. |
 | 5 | No task has that id (`show`). |

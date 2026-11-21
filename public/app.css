@@ -174,7 +174,7 @@ html:not(.raw-steps) .ledgerwrap > summary { font-family: system-ui, -apple-syst
 .choice-handoff svg.i { width: 15px; height: 15px; stroke-width: 1.7; flex: none; }
 .choice-handoff:hover { color: var(--text); background: var(--raised); }
 .choice:focus-visible, .choice-x:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
-/* The Complete card (1.111; 1.112 made it unmistakable, Brad: the hairline card read like one more line of the reply).
+/* The Complete card (1.111; 1.112 made it unmistakable, the owner: the hairline card read like one more line of the reply).
    It sits where the reply buttons would and keeps their 10px radius, but in the finished colour: an --ok wash and edge,
    a filled --ok tick badge, Complete in --ok, and Close conversation as the one filled button. It reports where the
    conversation stands and offers a way out; it is not a message to send, so it is never clay. The whole card is one
@@ -1110,7 +1110,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .open-session .tab-failed { background: var(--err); }
 .open-session .tab-finished { background: var(--ok); }
 .open-session :is(.tab-observed,.tab-waiting) { box-sizing: border-box; border: 1.5px solid var(--dim); }
-/* 1.94 (Damon): one-click pin on every row. Faint outline when unpinned, clay when pinned; 44px tall, 36px wide with a fine pointer. */
+/* 1.94 (colleague request): one-click pin on every row. Faint outline when unpinned, clay when pinned; 44px tall, 36px wide with a fine pointer. */
 .pin-toggle { width: 44px; height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: center; margin: 7px 0 0; border-radius: 10px; color: var(--faint); opacity: .55; }
 .pin-toggle .i { width: 16px; height: 16px; }
 .pin-toggle:hover, .pin-toggle:focus-visible, .pin-toggle[aria-pressed="true"] { opacity: 1; }
@@ -1539,7 +1539,7 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
    notification kinds use; a model this computer's Claude Code policy blocks keeps its row, with a dashed ring and
    the reason in place of its description, so a missing picker entry is explained rather than hidden. No new colour. */
 .model-offer { gap: 4px; padding: 10px 0 12px; }
-.model-offer > .vault-set-head, .model-offer > .title-note, .model-offer > .vault-set-actions { margin-left: 14px; margin-right: 14px; }
+.model-offer > .vault-set-head, .model-offer > .title-note, .model-offer > .vault-set-actions, .model-offer > .vault-field-error { margin-left: 14px; margin-right: 14px; }
 .model-offer > .vault-set-head { margin-bottom: 2px; }
 .model-offer .chip[hidden] { display: none; }
 .model-offer-list { display: flex; flex-direction: column; }
@@ -1629,6 +1629,7 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-cmd { display: block; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .vault-request .vault-cmd { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } /* a long command stays two lines; its title carries the rest */
 .vault-request .vault-cmd:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.vault-request .vault-cmd.vault-cmd-whole { display: block; -webkit-line-clamp: none; overflow: visible; } /* 1.118: a file request's change is what Allow does, so all of it shows */
 .vault-request-where { display: flex; flex-wrap: wrap; gap: 4px 7px; margin: 8px 0 0; font-size: 13px; color: var(--dim); overflow-wrap: anywhere; }
 .vault-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
 .vault-request-actions { margin-top: 10px; }
@@ -1636,7 +1637,7 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 @media (max-width: 600px) { .vault-request-actions .chip, .vault-request-actions .vault-answer { flex: 1 1 auto; justify-content: center; } } /* three answers share the row, then wrap */
 .rail .vault-request { padding-inline: 14px; }
 .rail .vault-request-actions .chip, .rail .vault-request-actions .vault-answer { flex: 1 1 auto; justify-content: center; padding-inline: 10px; }
-/* 1.93 (Damon): the request reads as a sentence, and the answer is plain to see. Allow once is the accent's filled button
+/* 1.93 (colleague request): the request reads as a sentence, and the answer is plain to see. Allow once is the accent's filled button
    (the brand orange by default) and Deny its outlined twin at the same size; Always allow stays a chip. */
 .vault-request h3 { display: block; font-weight: 400; line-height: 1.45; }
 .vault-request h3:focus { outline: none; } /* focused only to bring a link's reader to the request */
@@ -1648,8 +1649,18 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-deny:hover { background: var(--raised); }
 .vault-answer:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 .vault-answer:disabled { opacity: .55; cursor: default; filter: none; }
-.vault-request-missed, .vault-notice { margin: 0 0 10px; padding: 9px 12px; border: 1px solid var(--warn); border-radius: 10px; color: var(--text); font-size: 14px; line-height: 1.45; max-width: 64ch; }
+.vault-request-missed, .vault-request-changed, .vault-notice { margin: 0 0 10px; padding: 9px 12px; border: 1px solid var(--warn); border-radius: 10px; color: var(--text); font-size: 14px; line-height: 1.45; max-width: 64ch; }
 .vault-notice { margin: 0 18px 14px; }
+/* What Pocket checks for a run: the program line reuses .vault-request-where; a note says what it cannot check, and the
+   argument files Always allow pins are a short checklist the owner can untick for a file the command writes. */
+.vault-request .vault-request-runs { margin-top: 6px; }
+.vault-request-runs + .vault-request-where { margin-top: 2px; }
+.vault-request-note { margin: 8px 0 0; font-size: 13.5px; line-height: 1.45; color: var(--text); max-width: 64ch; overflow-wrap: anywhere; }
+.vault-request-files { margin: 10px 0 0; padding: 0; border: 0; min-width: 0; max-width: 64ch; }
+.vault-request-files legend { padding: 0; font-size: 13.5px; font-weight: 650; color: var(--text); }
+.vault-request-files-help { margin: 2px 0 0; font-size: 13px; line-height: 1.45; color: var(--dim); }
+.vault-request-files .task-label { padding: 6px 0; min-height: 44px; align-items: center; font-size: 14px; }
+.vault-request-files .task-label input { margin: 0; }
 .vault-notice:focus { outline: none; }
 /* Finding a secret: search and order over the list, a New mark for a day, and a short highlight on the row a link opened. */
 .vault-tools { padding-top: 0; }
@@ -1949,7 +1960,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .handoff-offer-text { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--dim); max-width: 60ch; }
 .handoff-offer-actions { display: flex; align-items: center; gap: 4px; }
 .handoff-offer .chip, .inbox-news .chip { min-height: 44px; display: inline-flex; align-items: center; }
-/* 1.115 (Brad): the Inbox news card. Mail came in on the story this conversation was started from. It takes the Complete
+/* 1.115 (owner request): the Inbox news card. Mail came in on the story this conversation was started from. It takes the Complete
    card's place under the latest reply (never both), with the same shape, badge and type sizes, in clay instead of --ok:
    clay is the colour of a tap that sends a message, and Bring it in is the one filled button. New conversation is a
    hairline chip and Not now is plain text, so the three read in the order they are likely. No motion, as the Complete card. */
@@ -2010,7 +2021,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .rail-switch.many button[aria-pressed="true"] .badge { position: static; margin-left: 2px; min-width: 18px; height: 18px; font-size: 11.5px; }
 /* 1.76.2: with five or more entries every entry names itself, its icon over a caption, and the switch takes the
    head's first row (the rail's buttons wrap to the second). Below 300px of rail (a 320px rail keeps its names even beside a Windows scrollbar) it falls back to icons with only the
-   pressed entry named. The clay bar marks what the main area shows when that is not the rail's list. Asked for by Damon. */
+   pressed entry named. The clay bar marks what the main area shows when that is not the rail's list. Asked for by a colleague. */
 .rail-switch button[aria-current="page"]:not([aria-pressed="true"])::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 16px; height: 2px; border-radius: 1px; background: var(--clay); transform: translateX(-50%); pointer-events: none; }
 @container (min-width: 300px) {
   .railhead:has(.rail-switch.many) { padding-inline: 4px; }
@@ -2048,7 +2059,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .inbox-body { font-size: 15.5px; line-height: 1.55; overflow-wrap: anywhere; }
 .inbox-body a { color: var(--clay); }
 /* 1.95: the text as blocks (a heading, bullets with room between them, paragraphs) instead of one run of line breaks, and a
-   digest's or look-ahead's items as cards, each with its own choices (Add to Inbox, Resolved, Not useful, Gmail). Asked for by Damon. */
+   digest's or look-ahead's items as cards, each with its own choices (Add to Inbox, Resolved, Not useful, Gmail). Asked for by a colleague. */
 .inbox-body { white-space: normal; }
 .inbox-body p { margin: 0 0 8px; }
 .inbox-body p:last-child, .inbox-body ul:last-child { margin-bottom: 0; }

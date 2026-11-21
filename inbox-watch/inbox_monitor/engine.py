@@ -519,7 +519,7 @@ SAME_SENDER_THREADS = 3
 
 
 def sender_domain(sender: str) -> str | None:
-    """Registered domain of an outside sender (notification.capitalone.com -> capitalone.com); None for freemail and our own."""
+    """Registered domain of an outside sender (alerts.mail.example.com -> example.com); None for freemail and our own."""
     m = re.search(r"@([A-Za-z0-9.-]+)", sender or "")
     if not m:
         return None
@@ -790,8 +790,9 @@ class Archive:
         self.db.executescript(ARCHIVE_SCHEMA)
 
     def migrate(self) -> None:
-        """1.81: the column that marks the owner's own mail was named after one owner (`from_brad`); archives written before then
-        are renamed in place when opened, keeping every row. Idempotent: a new archive, or one already renamed, is left alone."""
+        """1.81: the column that marks the owner's own mail was named after one owner; archives written before then
+        are renamed in place when opened, keeping every row. Idempotent: a new archive, or one already renamed, is left alone.
+        `from_brad` is a historical column name, kept here only so archives from existing installs still migrate."""
         have = {r["name"] for r in self.db.execute("pragma table_info(mail)")}
         if "from_brad" in have and "from_owner" not in have:
             try:
@@ -992,7 +993,7 @@ IDENT_MAX, IDENT_COMMON, IDENT_REPORT = 30, 12, 15
 
 
 def identifiers(text: str) -> list[str]:
-    """Codes that name a specific thing: P40-137T, IP12-034, S7564, INV-011558, 7644799. Not dates, times, sizes or words."""
+    """Codes that name a specific thing: P12-345T, IP01-002, S1234, INV-000123, 1234567. Not dates, times, sizes or words."""
     seen, out = set(), []
     text = re.sub(r"https?://\S+|\S*%[0-9A-Fa-f]{2}\S*|\S+@\S+", " ", text or "")  # links and addresses are not identifiers
     text = re.sub(r"\b\d{1,2}-(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*-\d{2,4}\b", " ", text, flags=re.I)
@@ -1503,8 +1504,8 @@ def briefing_for(store: Store, alert: sqlite3.Row, thread: dict | None) -> str:
         for m in thread["messages"][-3:]:
             lines.append(f"- {m['message_id']} | {m['date']} | {m['from']}")
             lines.append("  " + m["body"][:600].replace("\n", " "))
-    if alert["kind"] != "checkin":  # 1.113 (Brad): a conversation starts by gathering the rest of the story
-        # 1.113.2 (Brad): the check feeds the opening reply, it does not replace it. The reply leads with the email itself.
+    if alert["kind"] != "checkin":  # 1.113 (owner request): a conversation starts by gathering the rest of the story
+        # 1.113.2 (owner request): the check feeds the opening reply, it does not replace it. The reply leads with the email itself.
         lines += ["", "Before " + OWNER + " says what they want, do a short opening check, then open your reply with the email itself:",
                   "1. Search the mailbox for other mail on this story that the above does not cover (same customer, site, ticket, invoice "
                   "or sender, recent weeks). Read what matters.",
@@ -1655,7 +1656,7 @@ def send_digest(store: Store, overflow: list[sqlite3.Row], dry_run: bool) -> Non
             links = bool(url)  # Pocket did not answer: the other cards go without rather than each waiting out its own timeout
         return {"ref": f"a{a['id']}", "section": section, "title": a["subject"] or first(text)[:120] or "(no subject)", "text": text, "story": a["issue_key"] or "",
                 "gmail": GMAIL_THREAD_URL.format(thread_id=a["thread_id"]) if a["thread_id"] else "", "priority": a["priority"] or "normal", "url": url or ""}
-    # 1.95 (Brad): a story that already has an open entry on the owner's list never comes back as a new card. Such lines go
+    # 1.95 (owner request): a story that already has an open entry on the owner's list never comes back as a new card. Such lines go
     # under "Already on your list", each linking to its entry; Pocket applies the same rule itself when it stores the digest.
     listed: dict[int, str] = {}
     box = pocket_inbox()
@@ -1748,7 +1749,7 @@ def skip_digest(store: Store) -> None:
 
 
 def lookahead_cards(store: Store, archive: Archive, alert_id: int, text: str, stories: list[dict], until: int, links: bool) -> list[dict]:
-    """1.95 (Brad): a look-ahead as cards, one per bullet of its message, so nothing it says is lost. Each bullet is matched to the
+    """1.95 (owner request): a look-ahead as cards, one per bullet of its message, so nothing it says is lost. Each bullet is matched to the
     story that names it (`bullet`), else to the story whose evidence it cites most, else it stays a card with no story. A bullet
     covering two stories is one card on the first. ref "c<alert id>.<bullet>": apply_item_feedback knows it by that shape."""
     bullets = [m.group(1).strip() for m in (re.match(r"[ \t]*[-*][ \t]+(.+)", l) for l in (text or "").split("\n")) if m]
@@ -2058,7 +2059,7 @@ FILED_KEEP_S = 14 * 86400
 def note_arrived(store: Store, gmail) -> None:
     """Remember the threads whose new mail arrived already carrying a user label: a Gmail filter put it there (only the Gmail
     API's history can tell; a connector's search cannot, so its labels all count as the owner's). label_sync reads these
-    to tell "your filter put this on your list" from "you added this" (2026-10-31: a Sent-to-Ari-only filter adds the Pocket
+    to tell "your filter put this on your list" from "you added this" (2026-10-31: a Sent-to-assistant-only filter adds the Pocket
     Inbox label, and the alert said the owner had added it)."""
     for tid, labels in (getattr(gmail, "arrived_labels", None) or {}).items():
         user = sorted(x for x in labels if x.startswith("Label_"))
@@ -2143,7 +2144,7 @@ def label_sync(store: Store, gmail, bring_in: bool, dry_run: bool, force: bool =
     for tid in labelled - set(listed):
         state = known.get(tid)
         if tid in merged and not baseline and (state == "synced" or (state or "").startswith("with:")):
-            # 1.113 (Brad): one thread per story carries the label. One the watcher labelled, now taken in by another entry on
+            # 1.113 (owner request): one thread per story carries the label. One the watcher labelled, now taken in by another entry on
             # its story, loses it and stays in the inbox; a thread the owner labelled by hand is judged like any other.
             removes.append(tid)
             kept.add(tid)
@@ -2963,7 +2964,7 @@ LEARNED_HEADERS = ("## Learned from ", "## From Inbox in Pocket")  # the second:
 LEARN_MAX_RULES = 30   # 15 before 1.103.2, 20 before 1.109
 LEARN_MAX_CHARS = 5000  # the most the learned section may take; it also has to fit beside the owner's rules in Pocket's rules box
 # (1800 before 1.103.2, which dropped the newest rules silently once a busy owner had taught it a few dozen things; 2400 in 1.103.2,
-# full on the first day for an owner with 168 lessons; 3400 before 1.109, when the rules box grew from 8,000 to 12,000 characters
+# full on the first day for an owner with many lessons; 3400 before 1.109, when the rules box grew from 8,000 to 12,000 characters
 # because an owner's own rules of about 5,000 characters left the learned section 80 characters to grow)
 LEARN_ASK_MARGIN = 200  # the judge is asked for this much less than the room, so a slightly long answer still fits
 LEARN_REBUILD_NOTE = """## One-time rebuild

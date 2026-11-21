@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 import {collectResults,reference} from '../results.mjs';import {FollowupQueue} from '../queue.mjs';
 test('results index assistant references, deduplicates and ignores user/tool HTML injection',()=>{
  const m=[{role:'user',text:'[private](https://example.com/private)'},{role:'assistant',blocks:[{t:'text',text:'[Inventory](https://example.com/report)\n[CSV](/home/test/reports/stock.csv)\n[bad](javascript:alert(1))\n[env](/home/test/.env)\n[hidden](/home/test/.config/token.json)\n\n`/home/test/reports/summary.pdf`'}]},{role:'assistant',blocks:[{t:'text',text:'[Latest inventory](https://example.com/report)'}]}];
- const {results}=collectResults(m);assert.equal(results.length,3);assert.equal(results[0].label,'Latest inventory');assert.equal(results.filter(r=>r.kind==='file').length,2);assert.equal(reference('//evil.com'),null);assert.equal(reference('https://user:pass@example.com'),null);
+ const {results}=collectResults(m);assert.equal(results.length,3);assert.equal(results[0].label,'Latest inventory');assert.equal(results.filter(r=>r.kind==='file').length,2);assert.equal(reference('//evil.example'),null);assert.equal(reference('https://user:pass@example.com'),null);
 });
 const make=t=>{const d=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-queue-'));t.after(()=>fs.rmSync(d,{recursive:true,force:true}));const file=path.join(d,'queue.json');return {file,q:new FollowupQueue(file)}};
 test('queue survives restart; edits use revisions and stale removal cannot delete changed work',t=>{

@@ -61,7 +61,7 @@ export async function captureDocs({browser,base,rows,dir,conversations,settings,
    const saved={entries:inboxStore.entries,watch:structuredClone(inboxStore.watch)};
    try{
     inboxStore.entries=[];
-    const lk=inboxStore.add({kind:'lookahead',priority:'high',title:'Look-ahead · Tue 8 AM',text:'Two things worth catching today: the Lakeside quote expires at 5 p.m., and the insurance renewal form still needs a signature. [Quote](msg:3c4d5e6f7081) · [Renewal](msg:4d5e6f708192)',source:'inbox-monitor'},{actor:'cli'});
+    const lk=inboxStore.add({kind:'lookahead',priority:'high',title:'Look-ahead · Tue 8 AM',text:'Two things worth catching today: the Cedar Hollow quote expires at 5 p.m., and the insurance renewal form still needs a signature. [Quote](msg:3c4d5e6f7081) · [Renewal](msg:4d5e6f708192)',source:'inbox-monitor'},{actor:'cli'});
     const dg=inboxStore.add({kind:'digest',priority:'low',title:'Morning email digest · Tue Oct 20',text:'## Worth knowing\n- Harbor Supply: invoice 4471 for $1,240 is due Friday.\n- Two new website leads asked for quotes.\nIgnored since the last digest: 96 threads.',source:'inbox-monitor',doc:'0a1b2c3d4e5f'},{actor:'cli'});
     inboxStore.add({kind:'alert',priority:'high',title:'Northgate gate camera offline again',text:'The Northgate gate camera went offline at 6:12 a.m., the third time this week, and Tuesday’s service report says the power supply was replaced. [Offline notice](msg:1a2b3c4d5e6f) · [Service report](msg:2b3c4d5e6f70) Someone should check whether the new supply is failing before tonight.',story:'northgate-gate-camera',source:'inbox-monitor',url:'/#/start/0123456789ab'},{actor:'cli'});
     inboxStore.act({action:'open',id:lk.id});inboxStore.act({action:'open',id:dg.id});

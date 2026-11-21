@@ -1,6 +1,6 @@
 # Plain Pocket and Assistant mode: plan
 
-**Prepared:** October 19, 2026 · **Revised:** October 19, 2026 after Brad's review · **Status:** approved, in build · **Built against:** Pocket Code 1.58.0 (build 119)
+**Prepared:** October 19, 2026 · **Revised:** October 19, 2026 after the owner's review · **Status:** approved, in build · **Built against:** Pocket Code 1.58.0 (build 119)
 
 ## What it is
 
@@ -18,7 +18,7 @@ taking anything away from people who want the full workbench.
    Tasks and Vault underneath.
 
 Each Pocket belongs to one person (one seat per employee), so nothing here is multi-user.
-Brad's own Pocket keeps the full workbench and gets the Plain Pocket improvements; the TechPro
+The owner's own Pocket keeps the full workbench and gets the Plain Pocket improvements; the staff
 seats switch to Assistant mode.
 
 **The test Assistant mode has to pass:** an account manager who has never seen Pocket opens it,
@@ -55,7 +55,7 @@ path, a model name, a dollar figure or a developer term.
 - **Existing tokens, no new colour.** DESIGN.md's warm ink/paper themes, clay accent, native
   system font, 44px touch targets. Monospace stays the "machinery" font and only appears where
   machinery is shown (Show details, the developer's raw ledger).
-- **No customer branding.** Assistant mode is named Pocket Assistant; no TechPro logo.
+- **No customer branding.** Assistant mode is named Pocket Assistant; no company logo.
 - Build flow: this brief, then `impeccable` with the brief pinned; rendered checks at 390 and
   1440, axe clean, detector run on the rendered pages, as for every recent release.
 
@@ -87,7 +87,7 @@ can read; the client shows it in place of the raw mono line:
 | Gmail / Calendar / Drive / Docs / Sheets / Slides connectors | Checked Gmail · Made a Gmail draft · Looked at your calendar |
 | MemStem | Checked past conversations |
 | Task / Agent | Started a helper: "…" |
-| Skill | Followed the "techpro-quote-proposal" steps |
+| Skill | Followed the "quote-proposal" steps |
 | TodoWrite | Updated the plan |
 | Anything else (`mcp__server__tool`) | Used *Server name* |
 
@@ -107,7 +107,7 @@ trusted actions and the audit log don't change.
 `pocket-settings.json` (same pattern as `autoTitles`). `locked` (seats): the person can't turn it
 off. `on`: on, and Settings can switch to the full view. Exposed at `/api/me` →
 `features.assistantMode`, read by an `assistantMode()` helper beside `projectsOn()`. Seats get
-`agent-seats/provision/22-assistant-mode.sh`, which also sets `POCKET_LOCK_CWD`, Review actions
+a provisioning step, which also sets `POCKET_LOCK_CWD`, Review actions
 and no Full access (already available).
 
 **Home is the start screen.** "What would you like done?", the saved-prompt buttons and the
@@ -127,7 +127,7 @@ Projects and tasks still work by asking ("remind me Friday to follow up").
 subagents panel becomes one line under the reply ("Working on 2 things at once").
 
 **No meters.** Cost, timing, cache and token counts are hidden. Push notifications say what
-finished: "Ready: Proposal for Village of Golf" (all Pockets get this wording; the developer
+finished: "Ready: Proposal for Cedar Hollow HOA" (all Pockets get this wording; the developer
 Pocket keeps the cost after it).
 
 **Settings.** Appearance, Notifications (this device), Voice, Accounts (Claude sign-in and Google
@@ -150,7 +150,7 @@ When a reply mentions a file Pocket can serve (pdf, docx, pptx, xlsx, csv, html,
 **Download** and **Keep in Files** (or **Kept · Open in Files**).
 
 - **Open** and a tap on the card follow **Settings → Open files and links** exactly as a link
-  does today: a tab, side by side, or a window. Brad's "side by side" keeps working.
+  does today: a tab, side by side, or a window. The owner's "side by side" keeps working.
 - Thumbnails reuse `thumbnails.mjs` (HTML via headless Chrome, PDF via pdftoppm, images), now
   for conversation artifacts too, cached by path and modified time. Office files (docx, pptx,
   xlsx) show a type tile until a LibreOffice → PDF step is available; the seats don't have
@@ -161,13 +161,13 @@ When a reply mentions a file Pocket can serve (pdf, docx, pptx, xlsx, csv, html,
 ## Release 1.62: choosing the model automatically (Assistant mode; optional "Auto" elsewhere)
 
 1. **Saved prompts carry a model and effort.** Two optional fields in `saved-prompts.json` and
-   the seats' `seat-config/prompts/*.json`: "Check my email" → Sonnet 5.5 low; "Draft a reply"
+   the seats' own saved-prompt files: "Check my email" → Sonnet 5.5 low; "Draft a reply"
    → Sonnet 5.5 medium; "Proposal from a quote", "Slide deck" → Opus 5.5 high.
 2. **A router for typed requests.** One decision-model call picks among the combinations the
    managed policy allows before the first turn. Candidates: TypeSafe Jev through OpenRouter
    (p50 0.42 s, about $0.0003 a call, already used by the directory picker; alpha, had timeouts
    in September) and OpenAI's Decisions API with `gpt-6-luna` (public beta since October 6,
-   p50 0.24–0.47 s, deterministic, already in TechPro Vision). Backtest both on about 200 real
+   p50 0.24–0.47 s, deterministic, already used by another in-house product). Backtest both on about 200 real
    first messages and keep the more accurate. Fail open: 1.5 s timeout, error, refusal or low
    confidence → the instance default (Sonnet 5.5, medium). The choice is kept for the rest of
    the conversation (a model change restarts the Claude process and loses the prompt cache).
@@ -196,15 +196,15 @@ hides. Every Assistant-mode change sits behind `assistantMode()`.
 
 ## Rollout
 
-Each release follows CONTRIBUTING.md: branch, tests and browser suite, PR, Brad's merge and
-deploy on brads-server, ledger entry in `~/ari/maintenance/ai-services/POCKET-CLAUDE.md`. Seats
-follow: Guy's seat for two working days, then the other three; seat changes logged in
-`AGENT-SEATS.md`.
+Each release follows CONTRIBUTING.md: branch, tests and browser suite, PR, the owner's merge and
+deploy on the maintainer's server, an entry in the operations log. Seats
+follow: one staff seat for two working days, then the other three; seat changes logged in
+the seat register.
 
-## Decisions (Brad, October 19)
+## Decisions (the owner, October 19)
 
 - Plain words, progress lines, approval cards, file cards and one sign-in go to every Pocket.
 - File cards open according to the **Open files and links** setting.
-- Assistant mode is called **Pocket Assistant**; no TechPro branding.
+- Assistant mode is called **Pocket Assistant**; no company branding.
 - Still open: locked or switchable on the seats (recommended locked); router provider
   (recommended: backtest both); auto-keep files (recommended on in Assistant mode).
