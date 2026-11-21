@@ -5,7 +5,7 @@
 const SPLIT_MIN=380,SPLIT_MAX_PANES=3,SPLIT_GRIP=5;
 let splitRailObserver=null,observedSplitRail=null;
 // id null = the pane is on its New session screen until that session starts
-const validPane=p=>p&&typeof p.key==='string'&&/^[0-9a-f-]{36}$/.test(p.key)&&(p.id===null||typeof p.id==='string'&&(/^(?:(?:cx:)?[0-9a-f-]{36}|acp:ses_[0-9A-Za-z-]{1,64})$/.test(p.id)||isViewId(p.id))); // 1.29: a pane may show a project view
+const validPane=p=>p&&typeof p.key==='string'&&/^[0-9a-f-]{36}$/.test(p.key)&&(p.id===null||typeof p.id==='string'&&(/^(?:(?:cx:|agy:)?[0-9a-f-]{36}|acp:ses_[0-9A-Za-z-]{1,64})$/.test(p.id)||isViewId(p.id))); // 1.29: a pane may show a project view
 let splitPanes=PANE?[]:readLocal('pc-split-panes',[]);
 splitPanes=Array.isArray(splitPanes)?splitPanes.filter(validPane).slice(0,SPLIT_MAX_PANES).map(p=>({key:p.key,id:p.id,w:Number.isFinite(p.w)?p.w:null})):[];
 const saveSplit=()=>writeLocal('pc-split-panes',splitPanes);
@@ -174,7 +174,7 @@ function chooseBesideNow(loading=false){
   const groups=[['New and libraries',[['new','New conversation','Start a conversation in the new pane']]],['Conversations',[]],['Projects',[]],['Files',[]]];
   for(const s of [...openSessions.slice().reverse(),...allSessions.filter(s=>!isHiddenSession(s))]){
    if(taken.has(s.id)||seen.has(s.id)||isViewId(s.id))continue;seen.add(s.id);const full=allSessions.find(r=>r.id===s.id)||s;
-   groups[1][1].push([s.id,full.title||s.title,[projName(full.cwd),full.provider==='codex'?'Codex':full.provider==='acp'?'OpenRouter':'Claude',full.state?.label].filter(Boolean).join(' · ')]);
+   groups[1][1].push([s.id,full.title||s.title,[projName(full.cwd),window.PocketEngines.label(full.provider),full.state?.label].filter(Boolean).join(' · ')]);
   }
   if(projectsOn()){
    groups[0][1].push(['projects','Projects','All tracked projects'],['projects/scheduled','Scheduled','Reminders, due first']);

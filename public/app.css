@@ -274,6 +274,8 @@ mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
 .projlist { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
 .projlist .row { padding: 13px 14px; gap: 10px; align-items: center; }
 .projlist .row:last-child { border-bottom: 0; }
+.projlist .row[hidden] { display: none; } /* an agent this server has not turned on (OpenRouter, Antigravity) */
+.projlist .row:not(:has(~ .row:not([hidden]))) { border-bottom: 0; } /* the last row that shows */
 .projlist .row.sel { background: var(--raised); }
 .projlist .workspace-locked { display: flex; cursor: default; } /* 1.55: a locked Pocket's one folder */
 .projlist .workspace-locked .workspace-note { color: var(--dim); font-size: 13px; flex: none; }
@@ -2224,6 +2226,11 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .conversation-mode[hidden] { display: none; }
 .start-modes .row .p { white-space: normal; }
 #new-start-mode[hidden], .start-modes[hidden] { display: none; }
+/* New: what an agent needs before it can start (Antigravity signed out), under the Agent rows */
+.agent-note { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 10px; }
+.agent-note[hidden] { display: none; }
+.agent-note .title-note { text-wrap: pretty; max-width: 62ch; }
+.agent-note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--text); background: var(--raised); border-radius: 6px; padding: 1px 6px; }
 #pe-done-help, #pe-works-help, #step-check-help, #new-start-none { text-wrap: pretty; } /* DESIGN.md: notes wrap pretty */
 .sheet .sheet-note, .mode-sheet .sheet-help { padding-inline: 14px; } /* on the rows' inset, under the heading */
 /* 1.107: the Conductor info button sits at the end of the row it explains (.mode-row), a 44px target in --dim. Hover or

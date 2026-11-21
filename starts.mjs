@@ -42,7 +42,7 @@ export class StartStore {
     if (typeof body.text === 'string' && body.text.trim().length > LIMITS.text) throw fail(`The briefing is too long (at most ${LIMITS.text} characters).`);
     let directory = str(body.directory, 1000);
     if (directory) { if (!path.isAbsolute(directory)) throw fail('The directory must be a full path.'); directory = path.normalize(directory).replace(/\/+$/, '') || '/'; }
-    const provider = str(body.provider, 10);
+    const provider = str(body.provider, 20); // 'antigravity' is 11 characters
     if (provider && !providers.includes(provider)) throw fail(`The agent must be ${providers.join(' or ')}.`);
     const title = str(body.title, LIMITS.title);
     let ttl = body.ttlDays === undefined || body.ttlDays === '' ? LIMITS.ttlDaysDefault : Number(body.ttlDays);
