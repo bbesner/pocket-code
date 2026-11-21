@@ -2453,12 +2453,38 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const shareUrl=await page.$eval('#share-url',e=>e.value);assert.match(shareUrl,new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'/share/[A-Za-z0-9_-]{40,}$'));
    const shared=await page.goto(shareUrl);assert.equal(shared.status(),200);assert.match(shared.headers()['content-security-policy'],/frame-ancestors 'none'/);
    await back();await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet [data-reshare]');
+   // 1.117 (PC-05): a link made earlier is not shown again; the sheet says it is open, with Make a new link and Revoke link.
+   assert.equal(await page.$('.share-sheet #share-url'),null,'an existing link is not shown again');assert.ok(await page.$('.share-sheet [data-revoke]'),'Revoke link is offered');
+   assert.equal(await page.$('.doc-tools [data-copy-link]'),null,'no Copy link for a link the library cannot show');
    await clickControl(page,'.share-sheet [data-reshare]');await page.waitForSelector('.share-sheet #share-url');const shareUrl2=await page.$eval('#share-url',e=>e.value);assert.notEqual(shareUrl2,shareUrl);
    assert.equal((await page.goto(shareUrl)).status(),404,'the old link no longer works');await back();
    await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await clickControl(page,'.share-sheet [data-v="public"]');await page.waitForFunction(()=>/\/files\//.test(document.querySelector('#share-url')?.value||''));
    const pubUrl=await page.$eval('#share-url',e=>e.value);assert.match(pubUrl,/\/files\/ops-dashboard\.html$/);assert.equal((await page.goto(pubUrl)).status(),200);await back();
    await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await clickControl(page,'.share-sheet [data-v="private"]');await page.waitForFunction(()=>!document.querySelector('.share-sheet'));
    assert.equal((await page.goto(pubUrl)).status(),404,'private again');await back();
+   // 1.117 (PC-04): an agent's publish waits for the owner: the Vault's request card at the top of Files, the exact change,
+   // and Allow or Deny. Allow does exactly that change; Deny leaves the file as it was.
+   const dashId=await page.evaluate(()=>docsSnap.documents.find(d=>d.kind==='html').id);
+   const seed=change=>page.evaluate(async(doc,change)=>(await fetch('/api/documents/requests/seed',{method:'POST',body:JSON.stringify({doc,change})})).json(),dashId,change);
+   const asked=await seed({to:'public'});assert.match(asked.id,/^[0-9a-f]{16}$/,JSON.stringify(asked));
+   await page.goto(base+'/#/documents');await page.waitForSelector('#doc-requests .vault-request');
+   const card=await page.$eval('#doc-requests',el=>({h2:el.querySelector('h2').textContent.replace(/\s+/g,' ').trim(),h3:el.querySelector('h3').textContent.replace(/\s+/g,' ').trim(),change:el.querySelector('.vault-cmd').textContent,where:el.querySelector('.vault-request-where').textContent.replace(/\s+/g,' '),buttons:[...el.querySelectorAll('.vault-request-actions button')].map(b=>b.textContent)}));
+   assert.equal(card.h2,'Requests 1 waiting');assert.equal(card.h3,'The agent in “Quarter close” wants to publish Ops dashboard');
+   assert.equal(card.change,'Make public at '+base+'/files/ops-dashboard.html');assert.match(card.where,/^~\/reports\/ops-dashboard\.html\s*·\s*HTML · \d+ B\s*·\s*Asked just now$/);assert.deepEqual(card.buttons,['Deny','Allow']);
+   const allowCss=await page.$eval('#doc-requests .vault-allow',e=>getComputedStyle(e).backgroundColor),vaultCss=await page.evaluate(()=>{const b=document.createElement('button');b.className='vault-answer vault-allow';document.body.append(b);const c=getComputedStyle(b).backgroundColor;b.remove();return c;});
+   assert.equal(allowCss,vaultCss,'the Vault\'s own Allow button');
+   await scan('documents-request-desktop');await page.screenshot({path:path.join(out,'documents-request-desktop.png')});
+   const vp=page.viewport();await page.setViewport({width:390,height:844});await page.goto(base+'/#/documents');await page.waitForSelector('#doc-requests .vault-request');
+   await scan('documents-request-mobile');await page.screenshot({path:path.join(out,'documents-request-mobile.png')});await page.setViewport(vp);
+   await page.goto(base+'/#/documents');await page.waitForSelector('#doc-requests .vault-request');
+   assert.equal((await page.goto(base+'/files/ops-dashboard.html')).status(),404,'nothing public before Allow');await page.goto(base+'/#/documents');await page.waitForSelector('#doc-requests .vault-allow');
+   await clickControl(page,'#doc-requests .vault-allow');await page.waitForFunction(()=>!document.querySelector('#doc-requests'));
+   assert.equal(await page.evaluate(id=>docsSnap.documents.find(d=>d.id===id).visibility,dashId),'public');assert.equal((await page.goto(base+'/files/ops-dashboard.html')).status(),200,'Allow published it');await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
+   await page.evaluate(async id=>{await fetch('/api/documents/'+id,{method:'POST',body:JSON.stringify({visibility:'private'})});},dashId);
+   const asked2=await seed({to:'link',expiresAt:null});assert.match(asked2.id||'',/^[0-9a-f]{16}$/,JSON.stringify(asked2));await page.reload();await page.waitForSelector('#doc-requests .vault-deny');
+   assert.equal(await page.$eval('#doc-requests .vault-cmd',e=>e.textContent),'Create a share link, with no expiry');
+   await clickControl(page,'#doc-requests .vault-deny');await page.waitForFunction(()=>!document.querySelector('#doc-requests'));
+   assert.equal(await page.evaluate(id=>docsSnap.documents.find(d=>d.id===id).visibility,dashId),'private','Deny changed nothing');
    // Markdown and CSV render natively.
    await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
    await page.evaluate(()=>{[...document.querySelectorAll('.document-item')].find(r=>r.querySelector('.doc-kind').textContent==='MD').querySelector('a').click();});

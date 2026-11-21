@@ -68,14 +68,32 @@ old one only if the user asks.
 Files are private until the user asks to share. Never share on your own.
 
 ```bash
-pocket-docs share <id> [--expires 7d|30d|<n>d|none]   # an unguessable link; prints the URL
+pocket-docs share <id> [--expires 7d|30d|<n>d|none]   # an unguessable link; prints the URL once allowed
 pocket-docs set <id> --visibility public         # a fixed public address; only when asked to publish
-pocket-docs set <id> --visibility private        # stop sharing
+pocket-docs set <id> --visibility private        # stop sharing (no approval needed)
+pocket-docs wait <request-id>                    # continue after `pending <request-id>`
 ```
 
 "Send me a link" or "share it with Sam" means a link (`share`). "Publish it" or "make it
-public" means public. Making a new link stops the old one working, so for the link to a file
-that is already shared, give the Share URL `pocket-docs show <id>` prints; never run `share` for it.
+public" means public.
+
+**The user approves every share.** Sharing or publishing a file (a link, a new link, a later
+expiry, a public address, and `add --visibility link|public`) asks the user to allow it in
+Pocket, by a card at the top of Files and a notification. The command waits up to 90 seconds
+(`--wait <s>`, at most 300). If the user has not answered by then it prints `pending <id>`
+and exits 6; the file stays private (or as it was) until they allow it.
+
+- Tell the user plainly: "I've asked to share *Title*; it's waiting for your Allow in Files."
+- Then run `pocket-docs wait <id>`. It prints the address once allowed, or `pending` again.
+- Exit 7 means denied, expired, already used, or the file changed before they answered.
+  Nothing was shared. Say so, and don't ask again unless the user wants you to.
+- If you change the file after asking, the request fails when the user allows it; ask again.
+
+**A link's address is shown once.** Pocket keeps only a hash of it, so copy the address from
+the output of `share` or `wait` into your reply right away. Later, `show` says only that a link
+is open and when it expires. If the user asks for the link to a file already shared by link,
+tell them Pocket cannot show it again and ask for the one they were given; run `share` for a new
+one only if they want it, since the old address then stops working.
 
 ## Finding and tidying
 

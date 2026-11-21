@@ -120,7 +120,7 @@ test('skills and agent lines: every name for the library maps to Files; projects
   assert.match(projects,/at most one short question/);assert.match(projects,/Never add a reminder by default/);assert.match(projects,/--requested/);
   assert.match(renderSkill('a\n<!-- pocket:commands -->\nold\n<!-- /pocket:commands -->\nb','/x/c.mjs','pocket-docs'),/^a\n<!-- pocket:commands -->\nOn this server, run `pocket-docs` as `node \/x\/c\.mjs`\..*\n<!-- \/pocket:commands -->\nb$/s);
   const d=documentInstructions('/x/pocket-docs.mjs','s1');
-  for(const phrase of ['files, my files, documents, my documents or docs','pocket-files skill','add <path> --session s1'])assert.ok(d.includes(phrase),phrase);
+  for(const phrase of ['files, my files, documents, my documents or docs','pocket-files skill','add <path> --session s1','wait <id>'])assert.ok(d.includes(phrase),phrase);
   const p=projectInstructions('/x/pocket-board.mjs','s1');
   for(const phrase of ['pocket-projects skill','status --all','track --requested','at most one question'])assert.ok(p.includes(phrase),phrase);
 });

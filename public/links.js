@@ -39,9 +39,10 @@ function openIdPreferred(id,prefKey){
  }
  if(!here)location.hash=tabHref(id);
 }
-// A share or public link of one of your own files is that file.
+// A public link of one of your own files is that file. 1.117 (PC-05): a share link is no longer matched, since the library
+// keeps only a hash of its address; it opens as the link it is.
 async function resolveSharedLink(u){
- try{const s=await loadDocs();return (s?.documents||[]).find(d=>(d.url&&d.url===u.pathname)||(d.share?.url&&d.share.url===u.pathname))?.id||null;}catch{return null;}
+ try{const s=await loadDocs();return (s?.documents||[]).find(d=>d.url&&d.url===u.pathname)?.id||null;}catch{return null;}
 }
 // A plain click on a link in a conversation. Returns true when the click was handled here; false leaves it to
 // the browser (the link's own target opens a new tab).

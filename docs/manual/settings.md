@@ -179,7 +179,7 @@ Settings, with no **Open Settings** button.
 | **Push to this device** | Web push to this browser, even when Pocket is closed. The bell on the conversation list does the same | Off until you turn it on | Server, per device (`push-subs.json`) |
 | **Finished replies** | Push when a conversation finishes a reply, unless the conversation is muted or open in a browser, or you stopped the reply | On when push is turned on | Server, per device |
 | **Due tasks and reminders** | Push once when each comes due; **Tomorrow** and **Done** on the notification answer without opening Pocket | On when push is turned on | Server, per device |
-| **Vault requests** | Push when an agent needs a secret you have to allow, with **Allow** and **Deny** | On when push is turned on | Server, per device |
+| **Vault requests** | Push when an agent needs a secret, or wants to share or publish a file, and you have to allow it, with **Allow** and **Deny** | On when push is turned on | Server, per device |
 | **Inbox alerts** | Push for an alert from Inbox Watch or another job on the server. Which Inbox Watch alerts push is chosen in its schedule sheet ([Push notifications](inbox-watch.md#push-notifications)) | On when push is turned on | Server, per device |
 | **Count on the app icon** | How many tasks and reminders are due, on the installed app's icon. Disabled in browsers without app-badge support | On | This browser, and with its push subscription |
 | **Voice (beta)** | Voice preferences for this device; see below | | This browser |

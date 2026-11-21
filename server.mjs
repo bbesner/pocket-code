@@ -52,7 +52,7 @@ import {ModelRouter, capEffort, tierChoice, TIERS} from './router.mjs';
 import {AccessVerifier} from './access.mjs';
 import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
 import {syncSkills, googleInstructions, manualInstructions} from './skills.mjs';
-import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS} from './documents.mjs';
+import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS, REQUEST_LIMITS as DOC_REQUEST_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
 import {InboxStore, inboxInstructions} from './inbox.mjs';
 import { InboxRunner } from './inbox-runner.mjs';
@@ -440,6 +440,7 @@ const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 // the board serves pocket-docs on /api/documents* only.
 const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'documents');
 const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
+if (docs.migrated) log(docs.migrateError ? `documents: ${docs.migrated} share address(es) could not be removed from documents.json yet: ${docs.migrateError}` : `documents: removed ${docs.migrated} stored share address(es) from documents.json; their links keep working`); // 1.117 (PC-05)
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 // 1.61: pictures for file cards in a conversation (PDF pages and images only), cached under the data directory.
 const artifactThumbs = new Thumbnailer({ dir: path.join(DATA_DIR, 'artifact-thumbs'), filePath: r => r.file }, { log });
@@ -4984,7 +4985,8 @@ const docError = (res, e) => { if (!e.status) throw e; res.status(e.status).json
 const checkDocProject = p => { const id = typeof p === 'string' ? p.trim() : ''; if (id && !board.projects.some(x => x.id === id)) throw Object.assign(new Error(`There is no project with the id ${id}. pocket-board status --all lists the ids.`), { status: 400 }); };
 app.get('/api/documents', requireBoardAuth, docsOn, (req, res) => {
   const project = typeof req.query.project === 'string' ? req.query.project : '', q = typeof req.query.q === 'string' ? req.query.q : '';
-  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities() });
+  const owner = req.boardActor !== 'cli'; // PC-04: the requests waiting for the owner are the owner's to see
+  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities(), ...(owner ? { requests: docs.pendingRequests(), answered: docs.answeredRequests() } : {}) });
 });
 app.post('/api/documents', requireAuth, docsOn, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
   try {
@@ -4993,12 +4995,16 @@ app.post('/api/documents', requireAuth, docsOn, express.raw({ type: () => true, 
     log(`document added by upload ${d.id} ${d.file} (${d.size} bytes)`); res.json(d);
   } catch (e) { docError(res, e); }
 });
+// PC-04: an agent's add always keeps the file private; a link or public visibility it asked for becomes a request for the
+// owner (see shareRequest below), answered here when the owner allows within `wait` seconds, else `pending`.
 app.post('/api/documents/add', requireBoardAuth, docsOn, async (req, res) => {
   try {
     checkDocProject(req.body?.project);
-    const real = await documentSource(req.body?.path);
-    const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: req.body?.session || null, visibility: VISIBILITY_OK(req.body?.visibility), addedBy: req.boardActor === 'cli' ? 'cli' : 'ui' });
-    log(`document added ${d.id} ${d.file} by ${req.boardActor || 'ui'}`); res.json(d);
+    const real = await documentSource(req.body?.path), wanted = VISIBILITY_OK(req.body?.visibility), agent = req.boardActor === 'cli';
+    const d = docs.addFromPath(real, { title: req.body?.title, project: req.body?.project, session: req.body?.session || null, visibility: agent ? 'private' : wanted, addedBy: agent ? 'cli' : 'ui' });
+    log(`document added ${d.id} ${d.file} by ${req.boardActor || 'ui'}`);
+    if (agent && wanted !== 'private') return await shareRequest(req, res, d.id, { to: wanted, expiresAt: null }, { source: real, kept: d });
+    res.json(d);
   } catch (e) { docError(res, e); }
 });
 const VISIBILITY_OK = v => ['private', 'link', 'public'].includes(v) ? v : 'private';
@@ -5016,7 +5022,7 @@ app.post('/api/documents/keep', requireAuth, docsOn, async (req, res) => {
   } catch (e) { docError(res, e); }
 });
 app.post('/api/documents/import', requireBoardAuth, docsOn, (req, res) => {
-  try { const r = docs.importMeta(req.body); log(`documents import: ${JSON.stringify(r.counts)} adopted=${r.adopted} missing=${r.missing.length}`); res.json({ ok: true, ...r }); }
+  try { const r = docs.importMeta(req.body, { hold: req.boardActor === 'cli' }); log(`documents import: ${JSON.stringify(r.counts)} adopted=${r.adopted} missing=${r.missing.length}${r.held.length ? ` held private=${r.held.length}` : ''} by ${req.boardActor || 'ui'}`); res.json({ ok: true, ...r }); } // PC-04: an agent's import keeps everything private
   catch (e) { docError(res, e); }
 });
 app.get('/api/documents/:id/raw', requireAuth, docsOn, (req, res) => {
@@ -5050,14 +5056,69 @@ app.post('/api/documents/trash/empty', requireAuth, sameOrigin, docsOn, (_req, r
   const r = docs.emptyTrash();
   log(`documents trash emptied: ${r.done.length} deleted${r.failed.length ? `, ${r.failed.length} failed` : ''}`); res.json(r);
 });
-app.post('/api/documents/:id', requireBoardAuth, docsOn, (req, res) => {
-  const action = req.body?.action;
+app.post('/api/documents/:id', requireBoardAuth, docsOn, async (req, res) => {
+  const action = req.body?.action, body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
   if (action === 'delete') return res.status(403).json({ error: "Deleting is the owner's: Delete forever in the library's Trash." });
   try {
-    if (!action && req.body && 'project' in req.body) checkDocProject(req.body.project);
-    const r = action === 'trash' ? docs.trash(req.params.id) : action === 'restore' ? docs.restore(req.params.id) : docs.update(req.params.id, req.body || {}, { actor: req.boardActor || 'ui' });
+    if (!action && 'project' in body) checkDocProject(body.project);
+    if (action === 'trash' || action === 'restore') { const r = action === 'trash' ? docs.trash(req.params.id) : docs.restore(req.params.id); log(`document ${action} ${req.params.id} by ${req.boardActor || 'ui'}`); return res.json(r); }
+    // PC-04: for an agent, the part of the change that would expose the file more goes to the owner; the rest (title,
+    // project, conversation) is made now. Making it private, or a shorter expiry, needs nobody.
+    const change = req.boardActor === 'cli' ? docs.exposureChange(req.params.id, body) : null;
+    if (change) {
+      const { visibility, expiresAt, action: _, ...rest } = body;
+      const kept = Object.keys(rest).length ? docs.update(req.params.id, rest, { actor: 'cli' }) : null;
+      return await shareRequest(req, res, req.params.id, change, { kept });
+    }
+    const r = docs.update(req.params.id, body, { actor: req.boardActor || 'ui' });
     log(`document ${action || 'updated'} ${req.params.id} by ${req.boardActor || 'ui'}`); res.json(r);
   } catch (e) { docError(res, e); }
+});
+// ---------- 1.117 (PC-04): an agent's share or publish waits for the owner ----------
+// The Vault's request flow for Files: the call answers `pending <id>` (202) unless the owner answers within `wait` seconds
+// (at most the Vault's wait); the owner gets a push with Allow and Deny (the Vault requests kind) and a card at the top of
+// Files; the agent continues with POST /api/documents/requests/<id>/wait. Only the owner answers, with the cookie, from
+// Pocket's own origin: the CLI token is not accepted on the answer route at all.
+const docWhen = iso => { const o = { dateStyle: 'medium', timeStyle: 'short' }; try { return new Date(iso).toLocaleString('en-US', { ...o, timeZone: ownerZone() || undefined }); } catch { return new Date(iso).toLocaleString('en-US', o); } };
+function docChangeWords(row) {
+  const until = row.change.expiresAt ? `expires ${docWhen(row.change.expiresAt)}` : 'no expiry';
+  if (row.change.to === 'public') return `Make public at ${publicBase() || ''}${row.url}`;
+  if (row.change.reshare) return `Replace its share link (the old one stops working), ${until}`;
+  if (row.change.extend) return `Keep its share link open longer, ${until}`;
+  return `Create a share link, ${until}`;
+}
+async function shareRequest(req, res, id, change, { source = '', kept = null } = {}) {
+  const c = vaultCaller(req);
+  const row = await docs.raiseRequest(id, change, { caller: c, session: c.session, sessionTitle: c.sessionTitle, source });
+  const who = row.session ? (row.sessionTitle || 'An agent') : 'A terminal';
+  const devices = await pushRaw(`${row.change.to === 'public' ? 'Publish' : 'Share'} ${row.title}?`, `${who} asks: ${docChangeWords(row)}.`, { tag: 'docs:' + row.id, url: '/#/documents', kind: 'vault', docRequest: row.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
+  log(`document request=${row.id} doc=${id} change=${JSON.stringify(row.change)} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
+  return settleShare(req, res, row, c, { kept });
+}
+async function settleShare(req, res, row, c, { kept = null } = {}) {
+  let gone = false; res.on('close', () => { gone = true; });
+  const answered = await docs.waitRequest(row.id, Math.min(DOC_REQUEST_LIMITS.waitMax, Math.max(0, Number(req.body?.wait) || 0)) * 1000);
+  if (gone) return;
+  if (!answered) { const d = docs.documents.find(x => x.id === row.doc); return res.status(202).json({ pending: true, request: row.id, change: row.change, what: docChangeWords(row), url: row.url, expiresAt: row.expiresAt, document: kept || (d ? docs.view(d) : null) }); }
+  const out = docs.collectRequest(row.id, c);
+  log(`document request=${row.id} collected by ${c.actor}${c.session ? ' session=' + c.session : ''}`);
+  res.json({ ...out.document, ...(out.token ? { token: out.token } : {}), request: row.id });
+}
+app.post('/api/documents/requests/:id/wait', requireBoardAuth, docsOn, async (req, res) => {
+  try { const c = vaultCaller(req), row = docs.continuation(req.params.id, c); await settleShare(req, res, row, c); }
+  catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) }); }
+});
+app.post('/api/documents/requests/:id/answer', requireAuth, sameOrigin, docsOn, async (req, res) => {
+  const decision = req.body?.decision;
+  try {
+    const r = await docs.answerRequest(req.params.id, decision);
+    log(`document request=${r.id} ${decision === 'allow' ? 'allowed' : 'denied'} by the owner: doc=${r.doc} change=${JSON.stringify(r.change)}`);
+    res.json({ ok: true, request: r });
+  } catch (e) {
+    if (!e.status) throw e;
+    log(`document request=${String(req.params.id).slice(0, 40)} answer refused ${e.status}: ${e.message}`);
+    res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) });
+  }
 });
 // Unauthenticated: public files by name, link documents by token. Nothing while the feature is off.
 app.get('/files/:name', (req, res) => {

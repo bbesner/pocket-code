@@ -879,7 +879,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings push-kinds" id="s-push-kinds" role="group" aria-label="Which notifications this device gets">
       <button class="opt" id="s-push-turns" disabled aria-pressed="false"><span class="dot"></span><span>Finished replies<span class="sub">When a conversation finishes a reply, unless it is muted</span></span></button>
       <button class="opt" id="s-push-reminders" disabled aria-pressed="false"><span class="dot"></span><span>Due tasks and reminders<span class="sub">Once when each comes due. Tomorrow and Done on the notification answer without opening Pocket</span></span></button>
-      <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">When an agent needs a secret you have to allow</span></span></button>
+      <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">When an agent needs a secret, or wants to share or publish a file, and you have to allow it</span></span></button>
       <button class="opt" id="s-push-alerts" disabled aria-pressed="false"><span class="dot"></span><span>Inbox alerts<span class="sub">An alert from Inbox Watch or another job on the server; urgent, like a due reminder</span></span></button>
     </div>
     <button class="opt" id="s-badge" aria-pressed="false"><span class="dot"></span><span>Count on the app icon<span class="sub" id="s-badge-state">How many tasks and reminders are due, on the installed app's icon</span></span></button>

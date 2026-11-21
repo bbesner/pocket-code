@@ -34,7 +34,7 @@ test('DocumentStore: adopt, add, share, revoke, trash, restore, purge and import
   const b=s.addFromPath(src,{addedBy:'cli'});assert.equal(b.file,'Weekly_summary-2.md','a name clash gets a suffix');
   assert.throws(()=>s.addFromPath(path.join(dir,'nope.md')),/ENOENT/);assert.throws(()=>s.addFromBuffer('run.sh',Buffer.from('x')),/cannot be kept/);assert.throws(()=>s.addFromBuffer('a.txt',Buffer.alloc(0)),/empty/);
   const up=s.addFromBuffer('photo.PNG',Buffer.from([1,2,3]),{addedBy:'ui'});assert.equal(up.kind,'image');assert.equal(up.size,3);
-  const shared=s.update(a.id,{visibility:'link'});assert.match(shared.token,/^[A-Za-z0-9_-]{40,}$/);assert.equal(shared.share.url,'/share/'+shared.token);assert.equal(s.resolveShare(shared.token).id,a.id);
+  const shared=s.update(a.id,{visibility:'link'});assert.match(shared.token,/^[A-Za-z0-9_-]{40,}$/);assert.deepEqual(shared.share,{expiresAt:null},'1.117 (PC-05): the address is in this answer only');assert.equal(s.resolveShare(shared.token).id,a.id);
   assert.equal(s.resolveShare('short'),null);assert.equal(s.resolveShare(shared.token+'x'),null);
   const again=s.update(a.id,{action:'reshare'});assert.notEqual(again.token,shared.token);assert.equal(s.resolveShare(shared.token),null,'reshare revokes the old link');assert.equal(s.resolveShare(again.token).id,a.id);
   s.update(a.id,{expiresAt:'2026-10-10T12:00:00Z'});assert.equal(s.resolveShare(again.token).id,a.id);clock=Date.parse('2026-10-10T12:00:01Z');assert.equal(s.resolveShare(again.token),null,'expired');clock=Date.parse('2026-10-09T13:00:00Z');
@@ -51,7 +51,7 @@ test('DocumentStore: adopt, add, share, revoke, trash, restore, purge and import
   // import of an older dashboard's metadata: public stays public, staff becomes a link, private stays private; unknown names are reported
   fs.writeFileSync(path.join(docsDir,'pub.html'),'<title>Public one</title>');fs.writeFileSync(path.join(docsDir,'staff.pdf'),'%PDF');fs.writeFileSync(path.join(docsDir,'priv.png'),'x');fs.writeFileSync(path.join(docsDir,'extra.md'),'# Extra');
   const imp=reloaded.importMeta({'pub.html':{visibility:'public',updated:'2026-09-01T00:00:00Z'},'staff.pdf':{visibility:'private',access:'techpro'},'priv.png':{visibility:'private'},'gone.html':{visibility:'public'},'dropped.html':{visibility:'public'}});
-  assert.deepEqual(imp.counts,{public:1,link:1,private:1,skipped:1});assert.deepEqual(imp.missing,['gone.html']);assert.equal(imp.links.length,1);assert.equal(imp.links[0].file,'staff.pdf');assert.equal(imp.adopted,1,'extra.md adopted from the folder');
+  assert.deepEqual(imp.counts,{public:1,link:1,private:1,skipped:1});assert.deepEqual(imp.missing,['gone.html']);assert.equal(imp.links.length,1);assert.equal(imp.links[0].file,'staff.pdf');{const tok=imp.links[0].url.slice('/share/'.length);assert.equal(reloaded.resolveShare(tok).file,'staff.pdf');assert.equal(fs.readFileSync(path.join(dir,'documents.json'),'utf8').includes(tok),false,'1.117 (PC-05): an import hands its link out once and stores only the hash');}assert.equal(imp.adopted,1,'extra.md adopted from the folder');
   assert.equal(reloaded.resolvePublic('pub.html').title,'Public one');assert.equal(reloaded.resolvePublic('pub.html').added,'2026-09-01T00:00:00Z');
   assert.equal(reloaded.get('x'===1?'':reloaded.documents.find(d=>d.file==='dropped.html').id).visibility,'private','already-known files are left alone');
   assert.throws(()=>reloaded.importMeta([]),/metadata/);
@@ -133,7 +133,11 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   fs.writeFileSync(path.join(srcDir,'hidden.md'),'# no');fs.writeFileSync(path.join(okDir,'report.md'),'# Quarterly report\n\nnumbers');
   assert.equal((await call('/api/documents/add',{path:path.join(srcDir,'hidden.md')},bearer)).status,403,'hidden directories are refused');
   assert.equal((await call('/api/documents/add',{path:'relative.md'},bearer)).status,400);assert.equal((await call('/api/documents/add',{path:path.join(okDir,'missing.md')},bearer)).status,404);
-  const added=await call('/api/documents/add',{path:path.join(okDir,'report.md'),session:S1,visibility:'link'},bearer);
+  // 1.117 (PC-04): an agent's link waits for the owner's Allow; the agent then collects the address once.
+  const asked=await call('/api/documents/add',{path:path.join(okDir,'report.md'),session:S1,visibility:'link'},bearer);
+  assert.equal(asked.status,202);assert.equal(asked.body.pending,true);assert.equal(asked.body.document.visibility,'private');
+  assert.equal((await call('/api/documents/requests/'+asked.body.request+'/answer',{decision:'allow'})).status,200);
+  const added=await call('/api/documents/requests/'+asked.body.request+'/wait',{},bearer);
   assert.equal(added.status,200);assert.equal(added.body.addedBy,'cli');assert.equal(added.body.title,'Quarterly report');assert.match(added.body.token,/^[A-Za-z0-9_-]{40,}$/);assert.equal(added.body.session,S1);
   assert.equal((await call('/api/documents',null,{...bearer,'cf-connecting-ip':'203.0.113.5'})).status,401,'the token is refused through the tunnel');
   // Share and public paths: no login; the right file and nothing else; strict headers; revocation.
@@ -178,23 +182,27 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   assert.equal((await call('/api/documents?project=warehouse-stock-report')).body.documents.length,2);assert.equal((await call('/api/documents?q=quarterly')).body.documents.length,2);
   // Import of an older dashboard's metadata.
   fs.writeFileSync(path.join(docsDir,'old-public.html'),'<title>Old public</title>');fs.writeFileSync(path.join(docsDir,'old-staff.html'),'<title>Old staff</title>');
-  const imp=await call('/api/documents/import',{'old-public.html':{visibility:'public'},'old-staff.html':{visibility:'private',access:'techpro'},'dashboard.html':{visibility:'private'},'nothere.pdf':{visibility:'public'}},bearer);
+  const imp=await call('/api/documents/import',{'old-public.html':{visibility:'public'},'old-staff.html':{visibility:'private',access:'techpro'},'dashboard.html':{visibility:'private'},'nothere.pdf':{visibility:'public'}}); // the owner's import (an agent's keeps everything private: share-publish.test.mjs)
   assert.deepEqual(imp.body.counts,{public:1,link:1,private:0,skipped:1});assert.deepEqual(imp.body.missing,['nothere.pdf']);assert.equal((await raw('/files/old-public.html')).status,200);assert.equal((await raw(imp.body.links[0].url)).status,200);
   // The CLI.
   const cli=(args,cwd=okDir)=>new Promise(r=>execFile(process.execPath,[path.join(repo,'scripts/pocket-docs.mjs'),...args],{cwd,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),POCKET_PUBLIC_URL:'https://pocket.example.test'}},(e,stdout,stderr)=>r({code:e?e.code:0,stdout,stderr})));
+  // 1.117 (PC-04): a share from the CLI waits for the owner; this answers the next request the way the owner's card does.
+  const allowNext=async()=>{for(let i=0;i<200;i++){const q=(await call('/api/documents')).body.requests||[];if(q.length){assert.equal(q.length,1);return call('/api/documents/requests/'+q[0].id+'/answer',{decision:'allow'},{...headers,origin:base()});}await sleep(50);}throw Error('no request came');};
+  const cliAllowed=async args=>(await Promise.all([cli([...args,'--wait','30']),allowNext()]))[0];
   let out=await cli(['list']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/Ops dashboard/);assert.match(out.stdout,/Quarterly report/);
   fs.writeFileSync(path.join(okDir,'memo.txt'),'memo');
   out=await cli(['add','memo.txt','--title','Memo to staff','--project','warehouse-stock-report']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/Kept in Files:\n[0-9a-f]{12}  private txt    Memo to staff  \[warehouse-stock-report\]/);
   const memoId=/\n([0-9a-f]{12}) /.exec(out.stdout)[1];
-  out=await cli(['share',memoId,'--expires','7d']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/^Share URL: https:\/\/pocket\.example\.test\/share\/[A-Za-z0-9_-]{40,}  \(expires /);
+  out=await cliAllowed(['share',memoId,'--expires','7d']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/^Share URL: https:\/\/pocket\.example\.test\/share\/[A-Za-z0-9_-]{40,}  \(expires /);
   const url=/\/share\/([A-Za-z0-9_-]+)/.exec(out.stdout)[1];assert.equal((await raw('/share/'+url)).status,200);
   // 1.81 (#179): show and set print the link already made; share on a shared file says the old link stopped working; a project
   // id that names no project is refused; --expires takes any number of days.
-  out=await cli(['show',memoId]);assert.match(out.stdout,new RegExp(`Share URL: https://pocket\\.example\\.test/share/${url}  expires `));
-  out=await cli(['set',memoId,'--title','Memo to staff']);assert.match(out.stdout,new RegExp(`Share URL: https://pocket\\.example\\.test/share/${url}`));
-  out=await cli(['share',memoId,'--expires','45d']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/\nThe previous link no longer works\.$/m);
+  // 1.117 (PC-05): show and set say a link is open and when it expires; the address was printed once, by share.
+  out=await cli(['show',memoId]);assert.match(out.stdout,/Shared by link \(expires [^)]+\)\. Pocket cannot show the address again/);assert.doesNotMatch(out.stdout,new RegExp(url));
+  out=await cli(['set',memoId,'--title','Memo to staff']);assert.match(out.stdout,/Shared by link/);assert.doesNotMatch(out.stdout,new RegExp(url));
+  out=await cliAllowed(['share',memoId,'--expires','45d']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/\nThe previous link no longer works\.$/m);
   const url2=/\/share\/([A-Za-z0-9_-]+)/.exec(out.stdout)[1];assert.notEqual(url2,url);assert.equal((await raw('/share/'+url)).status,404);
-  assert.match((await cli(['show',memoId])).stdout,new RegExp(`/share/${url2}  expires `));
+  assert.doesNotMatch((await cli(['show',memoId])).stdout,new RegExp(url2));assert.doesNotMatch(fs.readFileSync(path.join(dir,'data','documents.json'),'utf8'),new RegExp(url2),'the token is not on disk');
   out=await cli(['share',memoId,'--expires','0d']);assert.equal(out.code,1);assert.match(out.stderr,/number of days, like 7d or 30d, or none/);
   out=await cli(['set',memoId,'--project','warehouse-stok-report']);assert.equal(out.code,1);assert.match(out.stderr,/no project with the id warehouse-stok-report/);
   out=await cli(['add','memo.txt','--project','nope']);assert.equal(out.code,1);assert.match(out.stderr,/no project with the id nope/);
