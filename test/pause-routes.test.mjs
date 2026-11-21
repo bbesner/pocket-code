@@ -342,6 +342,25 @@ test('Background jobs and replies the agent starts: Pause all stops them on Clau
   assert.ok(!fs.existsSync(path.join(s.dir, 'calls.autoturns')), 'the turn was interrupted before it finished');
   assert.equal(push.for(cx).length, 1, 'no push for it');
   assert.ok(!s.smeta()[cx]?.lastOrigin);
+
+  // A Claude reply still running with a background job: stopping the reply ends its process (the process group, as Stop
+  // does) and the job with it, counted once. That holds with the switch Off too: the job can't outlive its process.
+  assert.equal((await s.call('/resume', {})).status, 200);
+  const runnerPid = id => { const d = path.join(s.data, 'turnlogs'); return JSON.parse(fs.readFileSync(path.join(d, fs.readdirSync(d).find(f => f.startsWith(id) && f.endsWith('.runner.json'))), 'utf8')).pid; };
+  for (const on of [true, false]) {
+    assert.equal((await s.call('/automation/settings', { group: 'pause', values: { backgroundJobs: on } })).status, 200);
+    const id = await s.start('claude', `bg running ${on} __BGHANG__`);
+    const w = await s.until(async () => { const x = (await s.call('/pause')).body.would; return x.background === 1 ? x : null; }, 10000, 'the running reply\'s job to count');
+    assert.equal(w.replies.claude, 1, 'the reply counts as a reply');
+    const pid = runnerPid(id);
+    const pz = await s.call('/pause', {});
+    assert.deepEqual([pz.body.stopped.replies.claude, pz.body.stopped.background], [1, 1], `switch ${on ? 'On' : 'Off'}: one reply, one job`);
+    assert.equal(s.audit().filter(x => x.action === 'pause').at(-1).background, 1);
+    await s.idle(id);
+    await s.until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 5000, 'the process and its job to end');
+    assert.match(s.logs(), new RegExp(`stopping 1 background job\\(s\\) with the running reply \\(Pause all\\) session=${id}`));
+    assert.equal((await s.call('/resume', {})).status, 200);
+  }
 });
 
 test('Paused while a queued message or a retry reopens its Codex conversation: nothing starts, the row stays and the retry is held', { timeout: 120_000 }, async t => {

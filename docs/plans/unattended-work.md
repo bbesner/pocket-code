@@ -517,7 +517,7 @@ above are these defaults, not fixed numbers.
 |---|---|---|
 | Your own messages while paused | Run, with a banner | Run · Blocked until you resume |
 | Pause all also pauses Inbox Watch | On | On · Off |
-| Pause all also stops background jobs | On | On · Off (they keep running; the reply they would start is stopped) |
+| Pause all also stops background jobs | On | On · Off (jobs whose reply has ended keep running; the reply they would start is stopped) |
 | On Resume, re-arm held usage-limit retries | On | On · Off (they stay held until you start them) |
 | On Resume, run overdue check-backs | On, using the catch-up window | On · Off (mark them missed) |
 | Show what will stop before pausing | On | On · Off (pause on one tap) |

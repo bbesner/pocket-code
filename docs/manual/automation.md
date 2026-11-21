@@ -13,7 +13,7 @@ Pause all is always available. Nothing else changes until you set it: with the d
 ### What it does
 
 - **Stops** every running reply, on Claude Code, Codex and OpenRouter, side chats included. It stops them the way **Stop** does ([Stop a reply](conversation.md#stop-a-reply)): work already done stays done.
-- **Stops background jobs** in Claude conversations that show **Working in background** (a build or a watcher the agent left running), the way **Stop background jobs** does. The reply the agent would start when a job finishes never comes. If you turn off **Pause all also stops background jobs**, the jobs keep running and only that reply is stopped.
+- **Stops background jobs** in Claude conversations that show **Working in background** (a build or a watcher the agent left running), the way **Stop background jobs** does. The reply the agent would start when a job finishes never comes. If you turn off **Pause all also stops background jobs**, the jobs keep running and only that reply is stopped. A job started by a reply that is still running ends with that reply, as with **Stop**, whichever way the switch is set; the count includes it.
 - **Stops a reply the agent starts by itself** while paused (Claude after a background job, Codex after a background terminal) as soon as it begins, with no notification. Pocket doesn't stop Codex's background terminals themselves; it doesn't track them.
 - **Holds** every pending usage-limit retry. The retry is kept, not cancelled. A reply that hits a usage limit while paused has its retry held at once, and its notification says *The retry is held until you resume* (or *send a message to carry on* when **On Resume, re-arm held usage-limit retries** is off).
 - **Pauses Inbox Watch** (its checks, digests and look-aheads), unless you turned that off in the settings below.
@@ -66,7 +66,7 @@ The pause is saved. After Pocket restarts it is still paused, and a retry that w
 |---|---|---|
 | **Your own messages while paused** | **Run, with a banner** | **Run, with a banner** or **Blocked until you resume** |
 | **Pause all also pauses Inbox Watch** | On | On or Off |
-| **Pause all also stops background jobs** | On | On, or Off (they keep running; the reply they would start is stopped) |
+| **Pause all also stops background jobs** | On | On, or Off (jobs whose reply has ended keep running; the reply they would start is stopped) |
 | **On Resume, re-arm held usage-limit retries** | On | On, or Off (they stay held until your next message) |
 | **Show what will stop before pausing** | On | On, or Off (pause on one tap) |
 
@@ -193,6 +193,6 @@ See [For agents](for-agents.md).
 
 **The page says *This server does not offer automation settings yet.*** The server is on an older version.
 
-**A build or watcher stopped when I paused.** Pause all stops background jobs. Turn off **Pause all also stops background jobs** to leave them running; the reply they would start is still stopped while paused.
+**A build or watcher stopped when I paused.** Pause all stops background jobs. Turn off **Pause all also stops background jobs** to leave them running; the reply they would start is still stopped while paused. A job whose reply was still running ends with the reply either way.
 
 **My own message was refused.** **Your own messages while paused** is **Blocked until you resume**. Tap **Resume**, then send again, or change the setting.

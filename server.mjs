@@ -5547,15 +5547,18 @@ const pausedView = () => pausedNow() ? { at: pausedNow().at, by: pausedNow().by 
 const liveSides = () => [...sideChats.chats.values()].filter(c => c.busy && !c.closed);
 // Claude conversations Working in background: no reply runs, but their process has background jobs, and the CLI starts a
 // reply by itself when one finishes. Stopped through the same path as Stop background jobs (the process and its jobs end),
-// unless the owner turned that off; then the reply they start is stopped instead (handleRunnerLine). A conversation with a
-// reply running is not counted here: stopping the reply ends its process, background jobs included.
+// unless the owner turned that off; then the reply they start is stopped instead (handleRunnerLine).
 const backgroundRunners = () => autoValues('pause').backgroundJobs
   ? [...runners.values()].filter(r => !r.turn && !turns.has(r.sessionId) && !r.exited && !r.closing && r.bgTasks.length) : [];
+// A reply still running whose process has background jobs: stopping the reply (signalTurn on turn.pid, the runner's process
+// group, as Stop does) ends the process and its jobs with it, whatever the switch says. Counted here, once each.
+const runningJobRunners = live => live.claude.map(([id, turn]) => runners.get(id)).filter(r => r && r.turn && turns.get(r.sessionId) === r.turn && !r.exited && !r.closing && r.bgTasks.length);
+const jobCount = rs => rs.reduce((n, r) => n + r.bgTasks.length, 0);
 function pauseWould() {
   const live = liveTurns(), pause = autoValues('pause'), sides = liveSides();
   const side = p => sides.filter(c => (c.provider === 'codex') === (p === 'codex')).length;
   return { replies: { claude: live.claude.length + side('claude'), codex: live.codex.length + side('codex'), openrouter: live.openrouter.length },
-    background: backgroundRunners().reduce((n, r) => n + r.bgTasks.length, 0), retries: retryTimers.size, checkbacks: 0,
+    background: jobCount(backgroundRunners()) + jobCount(runningJobRunners(live)), retries: retryTimers.size, checkbacks: 0,
     inboxWatch: Boolean(settings.inbox) && pause.inboxWatch && !inboxStore.paused() };
 }
 // The banner's part (also carried on /api/sessions); GET /api/pause adds what Pause all would stop, for the confirmation.
@@ -5583,6 +5586,7 @@ function pauseAll() {
     } catch (e) { log(`pause: Inbox Watch not paused: ${e.message}`); }
   }
   settings.paused = record; saveSettings(); // saved before anything stops, so nothing new starts behind it
+  for (const r of runningJobRunners(live)) log(`stopping ${r.bgTasks.length} background job(s) with the running reply (Pause all) session=${r.sessionId}`);
   for (const [id, turn] of live.claude) { turn.stopped = true; signalTurn(turn); log(`stop requested (Pause all) session=${id}`); }
   for (const [tid] of live.codex) { codex.stopCodexTurn(tid); log(`stop requested (Pause all) thread=${tid}`); }
   for (const [sid] of live.openrouter) { acp.stopAcpTurn(sid, 'Stopped by Pause all'); log(`stop requested (Pause all) session=${acp.ACP + sid}`); }
