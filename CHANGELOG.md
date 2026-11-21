@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.120.0] — Unreleased · build 214
+## [1.120.0] — 2026-11-21 · build 214
 
 **Antigravity, a fourth agent (opt-in).** Google's Antigravity CLI (`agy`) beside Claude Code, Codex and OpenRouter, signed in with the owner's own Google account, so replies use the Gemini models and the usage a Google AI plan includes. Off unless the server sets `POCKET_AGY_ENABLE=1` and `agy` is installed; with it off nothing changes. Asked for by the owner (2026-11-21).
 
