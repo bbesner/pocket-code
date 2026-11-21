@@ -26,6 +26,7 @@ test('mail.mjs: the transport is optional and checked, the messages name the ite
   await m.send({to:'me@example.test',subject:'Hi',text:'t',html:'<p>t</p>'});
   const line=JSON.parse(fs.readFileSync(file,'utf8').trim());assert.equal(line.to,'me@example.test');assert.equal(line.from,'pocket@example.test');
   assert.equal(looksLikeEmail('me@example.test'),true);assert.equal(looksLikeEmail('me@'),false);assert.equal(looksLikeEmail('no spaces@x.y'),false);assert.equal(looksLikeEmail(42),false);
+  {const t=Date.now();assert.equal(looksLikeEmail('a@b.'+'a.'.repeat(100_000)+'@'),false);assert.ok(Date.now()-t<200,`a long string is refused by length, not by a slow match (${Date.now()-t} ms)`);} // CodeQL js/polynomial-redos
   const task=dueMessage({kind:'task',task:'abc',text:'Check the refund',dueAt:'2026-10-23T13:00:00Z',url:'/#/tasks'},{base:'https://pocket.example.test/',tz:'America/New_York'});
   assert.equal(task.subject,'[Pocket Code] Task due: Check the refund');assert.match(task.text,/Due: Oct 23, 2026, 9:00 AM EDT/);assert.match(task.text,/https:\/\/pocket\.example\.test\/#\/tasks/);assert.match(task.html,/Open Tasks/);
   const ahead=dueMessage({kind:'task',task:'abc',text:'Check the refund',dueAt:'2026-10-23T13:00:00Z'},{ahead:true});

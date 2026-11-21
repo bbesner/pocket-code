@@ -51,7 +51,8 @@ const LEAD = /^(?:remind\s+me\s+(?:to|on|at|in|about|tomorrow|tonight|today|next
 // Words that add a second step ("Mark it resolved, then deploy", "Remind me Monday and send it now") make it a real request.
 const MORE = /\b(?:and|then|also|but|after|before|first|next|now)\b/i;
 export function wrapUpRequest(text) {
-  const s = String(text ?? '').trim().replace(/[.!]+$/, '').replace(POLITE, '').trim();
+  const raw = String(text ?? '').trim(); if (raw.length > 400) return false; // 1.117: before the trailing-punctuation strip, which is quadratic on a long run
+  const s = raw.replace(/[.!]+$/, '').replace(POLITE, '').trim();
   if (!s || s.length > 80 || /[?\n]/.test(s)) return false;          // a question, or anything longer, is a real request
   if (WHOLE.test(s)) { const reason = s.match(/[,;]\s+([^,;]{1,50})$/)?.[1] || ''; return !MORE.test(reason); }
   return LEAD.test(s) && !MORE.test(s.replace(LEAD, '').split(/\bto\b/)[0]);
