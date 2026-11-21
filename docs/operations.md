@@ -442,7 +442,7 @@ else the address in `cli-url`, then `PORT` from this checkout's `.env`, and only
 `PORT`. They read `cli-token` from the data directory and send it as a bearer
 token. The daemon accepts it
 only on the Projects, Files, Tasks, Inbox and Vault routes and the start-link and notify routes, and only on a direct loopback
-connection with no `cf-connecting-ip` or `x-forwarded-for` header; a request that came
+connection with no `cf-connecting-ip`, `x-forwarded-for`, `forwarded` or `x-real-ip` header; a request that came
 through the tunnel or a proxy is refused. On the Vault routes it allows only what agents
 may do: list, show, run, create an item and read the calling session's history; it never
 returns a value. A new token is generated at every start, so the CLIs must run on the

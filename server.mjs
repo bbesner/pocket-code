@@ -560,8 +560,13 @@ fs.writeFileSync(CLI_TOKEN_FILE, cliToken + '\n', { mode: 0o600 }); fs.chmodSync
 const CLI_URL_FILE = path.join(DATA_DIR, 'cli-url');
 fs.writeFileSync(CLI_URL_FILE, `http://127.0.0.1:${PORT}\n`, { mode: 0o600 }); fs.chmodSync(CLI_URL_FILE, 0o600);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-// A request made on this box straight to the port: a loopback socket and no proxy header (a tunnel or proxy adds one).
-const directLoopback = req => LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
+// A request that names a client address in a proxy header. D-7: Forwarded (RFC 7239) and X-Real-IP count as well as
+// Cloudflare's and X-Forwarded-For, so a proxy that sends only one of those is not taken for this box. This only ever makes
+// Pocket trust a request less; the address the limits count is still chosen by clientAddress.
+const proxied = req => Boolean(req.get('cf-connecting-ip') || req.get('x-forwarded-for') || req.get('forwarded') || req.get('x-real-ip'));
+// A request made on this box straight to the port: a loopback socket and no proxy header. A proxy that adds none (nginx's
+// proxy_pass on its own) looks the same as this box, so docs/install.md has it send X-Forwarded-For.
+const directLoopback = req => LOOPBACK.has(req.socket.remoteAddress) && !proxied(req);
 // Cookie, or the loopback CLI token: mounted only on /api/board* and /api/documents*.
 async function requireBoardAuth(req, res, next) {
   if (checkCookie(getCookie(req, 'pc_auth'))) return next();
@@ -5156,7 +5161,7 @@ const INTAKE_LIMIT = { get: [60, 600_000], post: [15, 600_000], miss: [20, 3600_
 const INTAKE_SLOW_MS = 1500;
 async function intakeAddress(req) {
   const ip = await clientAddress(req);
-  if (ip === req.socket.remoteAddress && (req.get('cf-connecting-ip') || req.get('x-forwarded-for'))) return null;
+  if (ip === req.socket.remoteAddress && proxied(req)) return null;
   return addressKey(ip);
 }
 async function intakeMiss(ip) { if (ip) intakeCount('miss:' + ip, ...INTAKE_LIMIT.miss); if (intakeCount('miss:*', ...INTAKE_LIMIT.missAll)) await new Promise(r => setTimeout(r, INTAKE_SLOW_MS)); }
@@ -5338,7 +5343,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // 1.86: Pocket's ask tool (acp-ask-mcp.mjs) inside an OpenRouter reply's OpenCode process. Direct loopback only, and
 // the key that one process was started with, which also names its conversation. Ask, then poll for the answer.
 function acpAskTurn(req, res) {
-  const direct = LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
+  const direct = directLoopback(req);
   const key = String(req.get('x-pocket-ask-key') || ''), session = direct && /^[0-9a-f]{48}$/.test(key) ? acp.acpSessionByAskKey(key) : null;
   if (!session) { res.status(403).json({ error: 'not allowed' }); return null; }
   return session;

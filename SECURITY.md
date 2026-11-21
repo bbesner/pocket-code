@@ -49,6 +49,14 @@ Built in:
   tunnel or proxy over HTTPS (`X-Forwarded-Proto` or Cloudflare's `CF-Visitor`), since 1.117.
 - `/api/health` tells a caller that is neither signed in nor a direct loopback connection only
   `{"ok":true}` (since 1.117); the running counts and uptime are for the owner and the box itself.
+- **A reverse proxy must send `X-Forwarded-For`** (and `X-Forwarded-Proto`). Pocket tells a request
+  made on the box from one that came through a proxy by the proxy's headers: `X-Forwarded-For`,
+  `Forwarded`, `X-Real-IP` or Cloudflare's `CF-Connecting-IP`. A proxy that sends none of them,
+  such as nginx's `proxy_pass` on its own, makes every caller look local: strangers get the
+  `/api/health` detail, every caller shares the intake links' per-address limits, and without
+  `X-Forwarded-Proto` HSTS is not sent. Cloudflare Tunnel, Caddy and Tailscale Serve send
+  `X-Forwarded-For` themselves; nginx needs the two `proxy_set_header` lines in
+  `docs/install.md`.
 - Uploads are written mode `0600` in folders that are `0700` (since 1.117), whatever the umask.
 - A Content-Security-Policy on every response: same-origin scripts, styles and
   connections only, no remote images (so Markdown written by an agent cannot load an
@@ -127,8 +135,9 @@ of its picture.
 **CLI token.** The `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-coord` and `pocket-vault` commands
 use a bearer token that the daemon writes to `cli-token` in the data directory (mode `0600`)
 and replaces at every start. It is accepted only on the Projects, Files, Tasks and Vault
-routes, and only on a direct loopback connection: a request carrying a `cf-connecting-ip` or
-`x-forwarded-for` header, as one arriving through a tunnel or proxy does, is refused. It
+routes, and only on a direct loopback connection: a request carrying a `cf-connecting-ip`,
+`x-forwarded-for`, `forwarded` or `x-real-ip` header, as one arriving through a tunnel or proxy
+does, is refused. It
 never replaces the login cookie anywhere else. Anyone who can read that file as the
 service's OS user can read and change those libraries, and so can the agents, which run
 as that user. On the Vault routes the token can do what an agent may (see below), and that
