@@ -35,7 +35,7 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   const a=s.act({action:'add',name:'Zeta-Books',kind:'api_key',values:{value:SECRET},url:'https://books.example.com',tags:['Zeta','finance'],notes:'Renew yearly'});
   assert.equal(a.name,'zeta-books');assert.equal(a.policy,'default','follows the Agent access setting by default');assert.equal(a.effectivePolicy,'ask');assert.equal(a.policyWord,'Asks once per command');assert.deepEqual(a.fields,['value']);assert.deepEqual(a.tags,['zeta','finance']);assert.equal(a.notes,'Renew yearly');
   assert.equal(JSON.stringify(a).includes('hunter2'),false,'no value in a view');assert.equal('values' in a,false);
-  const login=s.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'brad@example.test',password:'P@ss word "quoted"'},policy:'auto'});
+  const login=s.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'sam@example.test',password:'P@ss word "quoted"'},policy:'auto'});
   assert.equal(login.policy,'auto');assert.deepEqual(login.fields,['username','password']);
   assert.throws(()=>s.act({action:'add',name:'Bad Name',kind:'token',values:{value:'x'}}),/lower-case letters/);
   assert.throws(()=>s.act({action:'add',name:'zeta-books',kind:'token',values:{value:'x'}}),e=>e.status===409);
@@ -426,7 +426,7 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   assert.equal((await call('/sessions',null,bearer)).status,401,'the token opens nothing else');
   const made=await call('/vault/act',{action:'add',name:'zeta-books',kind:'api_key',values:{value:SECRET},url:'https://books.example.com',notes:'owner note',tags:['zeta']});
   assert.equal(made.status,200);assert.equal(made.body.item.policy,'default');assert.equal(made.body.item.effectivePolicy,'ask');assert.equal(made.body.item.notes,'owner note');
-  const auto=await call('/vault/act',{action:'add',name:'vendor-portal',kind:'login',values:{username:'brad@example.test',password:'P@ss word "quoted"'},policy:'auto'});assert.equal(auto.status,200);
+  const auto=await call('/vault/act',{action:'add',name:'vendor-portal',kind:'login',values:{username:'sam@example.test',password:'P@ss word "quoted"'},policy:'auto'});assert.equal(auto.status,200);
   const ownerOnly=await call('/vault/act',{action:'add',name:'bank',kind:'note',values:{text:'routing 123456789 account 9876543210'},policy:'owner'});assert.equal(ownerOnly.status,200);
   const xo=await call('/vault/act',{action:'add',name:'x',kind:'token',values:{value:'xxxxxxxx'}},{...headers,origin:'https://evil.example'});assert.equal(xo.status,403,'a cross-origin cookie request is refused');
   const viaAgent=await call('/vault/act',{action:'add',name:'twilio-auth',kind:'token',values:{value:'tw-secret-value-1234'},policy:'auto',notes:'x'},agent);

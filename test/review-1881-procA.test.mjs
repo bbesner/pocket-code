@@ -1,4 +1,4 @@
-// Casey's 1.88.1 review, group procA: side chat and Codex process lifecycles (F-2, F-4, F-12). Fake CLIs only.
+// The external 1.88.1 review, group procA: side chat and Codex process lifecycles (F-2, F-4, F-12). Fake CLIs only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

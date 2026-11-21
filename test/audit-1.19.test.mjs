@@ -26,7 +26,7 @@ test('cleanTitle keeps a short plain title and rejects errors and essays',()=>{
   assert.equal(cleanTitle("I appreciate you reaching out, but I need to clarify my role"),null);
   assert.equal(cleanTitle('Here is a title for your session'),null);
   assert.equal(cleanTitle('one two three four five six seven eight nine ten eleven twelve thirteen'),null);
-  assert.equal(cleanTitle('# Planning Phase: Email from Eric Wilson'),'Planning Phase: Email from Eric Wilson');
+  assert.equal(cleanTitle('# Planning Phase: Email from Sam Wilson'),'Planning Phase: Email from Sam Wilson');
   assert.equal(cleanTitle('**Title:** Warehouse **stock** report'),'Warehouse stock report');
   assert.equal(cleanTitle('- `pocket-code` release check'),'pocket-code release check');
   assert.equal(cleanTitle('Not logged in · Please run /login'),null);

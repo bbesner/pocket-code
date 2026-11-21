@@ -82,7 +82,7 @@ def test_unrelated_memory_left_out():
 
 def test_query_names_the_sender_not_a_system():
     setup()
-    q = E.memory_query("RE: Order 7000123 missing camera", '"Dana Whitfield" <greg@northwind.example>', "about order 7000123")
+    q = E.memory_query("RE: Order 7000123 missing camera", '"Dana Whitfield" <dana@northwind.example>', "about order 7000123")
     assert "Dana Whitfield" in q and "northwind" in q and "7000123" in q and "@" not in q, q
     q = E.memory_query("Your statement is ready", "Northwind Bank <no-reply@notify.northwindbank.com>")
     assert "Northwind Bank" not in q and "northwindbank" in q, q

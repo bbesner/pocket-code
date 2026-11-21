@@ -1,4 +1,4 @@
-// Casey's 1.88.1 batch, reader group: F-3, F-6, F-15, F-16, F-17, F-19. Each test drives the real daemon with the fake CLIs.
+// The external 1.88.1 batch, reader group: F-3, F-6, F-15, F-16, F-17, F-19. Each test drives the real daemon with the fake CLIs.
 // Transcript lines are synthetic, in the shapes Claude Code 2.1.293–2.1.312 writes (checked against real transcripts).
 // A line the CLI prints on stdout is appended to the runner's output file, which is the file the CLI's stdout is.
 import test from 'node:test';
@@ -17,7 +17,7 @@ const lines=f=>{try{return fs.readFileSync(f,'utf8').trim().split('\n').filter(B
 
 // One daemon per test on a temp HOME and data dir; start/stop restart it on the same data.
 async function fixture(t,port,env={}){
- const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-casey-reader-'));
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-review-reader-'));
  const home=path.join(dir,'home'),codexHome=path.join(dir,'codex-home');
  for(const d of [path.join(home,'pocket-uploads'),codexHome,path.join(dir,'sessions','test-workspace')])fs.mkdirSync(d,{recursive:true});
  const secret=randomUUID(),exp=Date.now()+3600000;
@@ -55,7 +55,7 @@ const userMsgs=async(f,id)=>(await f.call(`/session/${id}`)).body.messages.filte
 // F-3: the Codex Branch path awaits the fork and the first turn's start before it writes branchOf. A daemon restart
 // (pm2 restart is SIGTERM, which exits at once) while turn/start is out leaves a saved fork that runs with no lineage.
 test('F-3: a Codex branch whose daemon restarts before turn/start answers still names its parent',async t=>{
- const f=await fixture(t,19231,{POCKET_CODEX:'1',CODEX_BIN:path.join(repo,'test/casey-1881-slow-codex.mjs'),CASEY_SLOW_START_MS:'2500'});
+ const f=await fixture(t,19231,{POCKET_CODEX:'1',CODEX_BIN:path.join(repo,'test/review-1881-slow-codex.mjs'),REVIEW_SLOW_START_MS:'2500'});
  const parent=(await f.call('/new',{cwd:repo,provider:'codex',...msg('Plan the camera rollout')})).body.id;
  assert.match(parent,/^cx:/);
  assert.ok(await f.until(async()=>!(await f.call(`/session/${parent}`)).body?.active));
@@ -124,7 +124,7 @@ test('F-16: a background agent\'s request still waiting when a reply ends with a
 test('F-17: a steered message with an attachment reads back as its text with file chips, and the page drops its echo',async t=>{
  const f=await fixture(t,19235);
  const id=await conversation(f);
- const file=path.join(f.home,'pocket-uploads','casey-f17.txt');fs.writeFileSync(file,'attached');
+ const file=path.join(f.home,'pocket-uploads','review-f17.txt');fs.writeFileSync(file,'attached');
  assert.equal((await f.call(`/session/${id}/message`,msg('__SLOW__ check the logs'))).status,202);
  assert.ok(await f.until(async()=>(await f.state(id))?.kind==='running'));
  const s=await f.call(`/session/${id}/message`,msg('use this file',{attachments:[file]}));

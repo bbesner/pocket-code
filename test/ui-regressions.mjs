@@ -890,7 +890,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    }finally{rows[1].title=before;await page.evaluate(()=>refreshSessions());}
    await scan('tabs-reorder-desktop');await page.screenshot({path:path.join(out,'tabs-reorder-desktop.png')});
   });
-  await check('Row pin: one click pins and unpins without opening the conversation; Pin is the first option (1.94, Damon)',async()=>{
+  await check('Row pin: one click pins and unpins without opening the conversation; Pin is the first option (1.94, colleague request)',async()=>{
    await page.setViewport({width:1440,height:900});
    const a=rows[4].id,clay='rgb(217, 119, 87)';
    await openChat(rows[3].id);
@@ -1444,7 +1444,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('[data-tasks-badge]',e=>e.textContent),'1','the due task is done: the due reminder is what remains');
    // From a session: the Add task chip, the editor naming the session, the briefing on by default and kept with the task.
    await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#task-open')?.hidden===false);
-   // 1.50: the rail switch shows the due count on every view, here a conversation with the rail on Sessions (reported by Brad).
+   // 1.50: the rail switch shows the due count on every view, here a conversation with the rail on Sessions (reported by the owner).
    await page.waitForFunction(()=>document.querySelector('[data-rail-view="sessions"]')?.getAttribute('aria-pressed')==='true'&&document.querySelector('[data-tasks-badge]')?.textContent==='1');
    assert.equal(await page.$eval('[data-tasks-badge]',e=>e.hidden),false,'the Tasks count shows without opening the Tasks list');
    assert.equal(await page.$eval('#task-open',e=>e.textContent),'Add task');assert.equal(await page.$eval('#task-open',e=>Boolean(e.closest('#tbar'))),true,'Add task is a chip in the message toolbar');
@@ -1610,7 +1610,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.screenshot({path:path.join(out,'vault-rail-ask-desktop.png')});
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-ask'));
    await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
-   // 1.93 (Damon): the request is one plain sentence; Allow is the brand orange beside a matching Deny.
+   // 1.93 (colleague request): the request is one plain sentence; Allow is the brand orange beside a matching Deny.
    const ask=await page.evaluate(()=>{const c=document.querySelector('#vault-main .vault-request'),a=c.querySelector('.vault-allow'),p=document.createElement('i');p.style.color='var(--clay)';document.body.append(p);const clay=getComputedStyle(p).color;p.remove();
     return {text:c.querySelector('h3').textContent.replace(/\s+/g,' ').trim(),allow:a?.dataset.answer,allowText:a?.textContent,deny:c.querySelector('.vault-deny')?.dataset.answer,bg:getComputedStyle(a).backgroundColor,clay,h:a.getBoundingClientRect().height};});
    assert.equal(ask.text,'The agent in “Warehouse stock report” wants to use zeta-books for this command');
@@ -1701,7 +1701,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await clickControl(page,'[data-vault-home]');await page.waitForSelector('.vault-item');
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390');
    await scan('vault-list-mobile');await page.screenshot({path:path.join(out,'vault-list-mobile.png')});
-   // 1.93 (Damon): a secret an agent stores from a conversation is marked New, and the conversation gets a card that opens it.
+   // 1.93 (colleague request): a secret an agent stores from a conversation is marked New, and the conversation gets a card that opens it.
    await page.setViewport({width:1440,height:900});
    await page.evaluate(s=>fetch('/api/vault/agent-add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'staging-wp',kind:'login',values:{username:'ops',password:'wp-fixture-pass-5512'},...s})}),{session:rows[0].id,sessionTitle:rows[0].title});
    await page.goto(base+'/#/chat/'+rows[0].id);await page.waitForSelector('.file-card[data-card-vault]');
@@ -2823,9 +2823,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.$eval('aside.rail',e=>e.style.width='');
     await page.waitForFunction(()=>document.querySelector('[data-inbox-badge]')?.textContent==='1');
     await scan('rail-six-1440');
-    // 1.77.3 (Brad): every order of switching shows the entry's own list. Tasks → Projects left the task list where it was: the
+    // 1.77.3 (owner request): every order of switching shows the entry's own list. Tasks → Projects left the task list where it was: the
     // Tasks, Vault and Inbox lists carry .rail-projects for their styling, and once Projects had painted, its painter took any
-    // of them for its own list and did nothing. Chats → Projects worked, which is how Brad got there.
+    // of them for its own list and did nothing. Chats → Projects worked, which is how the owner got there.
     const railLists=()=>page.evaluate(()=>[...document.querySelectorAll('#rail > .session-panel, #rail > .rail-projects, #rail > .rail-documents')].map(e=>['session-panel','rail-documents','rail-tasks','rail-vault','rail-inbox'].find(c=>e.classList.contains(c))||'rail-board').map(c=>({'session-panel':'sessions','rail-board':'projects','rail-documents':'documents','rail-tasks':'tasks','rail-vault':'vault','rail-inbox':'inbox'})[c]).join('+')); // the project list is the .rail-projects root that is none of the other three
     const switchRail=async view=>{await clickControl(page,`[data-rail-view="${view}"]`);await page.waitForFunction(v=>document.querySelector(`[data-rail-view="${v}"]`)?.getAttribute('aria-pressed')==='true',{},view);
      try{await page.waitForFunction(v=>document.querySelectorAll('#rail > *').length===1&&(v==='sessions'?document.querySelector('#rail > .session-panel'):v==='projects'?document.querySelector('#rail > .rail-projects:not(.rail-tasks):not(.rail-vault):not(.rail-inbox) .project-item'):document.querySelector(`#rail > .rail-${v}`)),{timeout:3000},view);}catch{}

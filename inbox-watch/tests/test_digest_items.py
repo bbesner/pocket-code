@@ -212,7 +212,7 @@ def test_the_other_choices_on_a_look_ahead_item():
 
 
 def test_a_story_already_on_the_list_is_not_a_new_card():
-    # Brad, 2026-11-07: nothing already in the Inbox comes back in the morning brief as a new card.
+    # Owner request, 2026-11-07: nothing already in the Inbox comes back in the morning brief as a new card.
     store, _ = setup()
     pocket = Pocket()
     E.DELIVERIES = [pocket]

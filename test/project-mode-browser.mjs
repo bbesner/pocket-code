@@ -104,7 +104,7 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   await page.waitForFunction(()=>tb?.prefs.model==='default'&&tb.prefs.effort==='default');
   assert.deepEqual(await page.evaluate(()=>(({model,effort})=>({model,effort}))(JSON.parse(localStorage.getItem('pc-prefs-new')))),sticky,'Default here is not saved over the picks');
   assert.match(await page.$eval('#task-context',e=>e.textContent),/Start Conductor · Fable 5\.1 leads/);
-  // 1.106.1: the start shows as a chip beside the project chip, and Model and Effort name what it runs (Brad saw his
+  // 1.106.1: the start shows as a chip beside the project chip, and Model and Effort name what it runs (the owner saw his
   // server default, Opus 5.5, here and took the start for an ordinary one).
   assert.equal(await page.$eval('#new-mode',e=>e.hidden?'hidden':e.textContent),'Conductor');
   assert.equal(await page.evaluate(()=>document.getElementById('new-project').nextElementSibling.id),'new-mode','beside the project chip');
@@ -195,7 +195,7 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   await page.waitForSelector('#new-mode:not([hidden])');assert.match(await page.$eval('#c-model',e=>e.textContent),/Fable 5\.1/,'Start from the sheet is a Conductor start');
   await page.evaluate(()=>{localStorage.removeItem('pc-new-start');});
 
-  // 1.107.1 (Brad): the sidebar's Projects list is there on New too. Start from its ⋯ while New was open set the hash New
+  // 1.107.1 (owner request): the sidebar's Projects list is there on New too. Start from its ⋯ while New was open set the hash New
   // already had, nothing re-rendered, and the screen stayed a plain New with no project, no Conductor and no briefing.
   console.log('Project mode: Start from the sidebar while New is open');
   await page.evaluate(()=>{['pc-new-start','pc-draft-new','pc-new-briefing-new'].forEach(k=>localStorage.removeItem(k));localStorage.setItem('pc-rail-view',JSON.stringify('projects'));localStorage.setItem('pc-rail','"open"');});

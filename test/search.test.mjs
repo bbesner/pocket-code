@@ -19,7 +19,7 @@ test('MemStem transcript refs map to Pocket session ids only inside Pocket\'s ow
   assert.equal(sessionIdFromRef(`/h/.claude/projects/-home-user/${id}.jsonl`,roots),id);
   assert.equal(sessionIdFromRef(`/h/.codex/sessions/2026/10/06/rollout-2026-10-06T19-53-53-${cx}.jsonl`,roots),'cx:'+cx);
   assert.equal(sessionIdFromRef(`/h/.claude/projects/-home-user/${id}/subagents/agent-1.jsonl`,roots),null,'subagent transcripts are not sessions');
-  assert.equal(sessionIdFromRef(`/h/ari/codex-home/sessions/2026/10/06/rollout-x-${cx}.jsonl`,roots),null,'another Codex home is not Pocket\'s');
+  assert.equal(sessionIdFromRef(`/h/other/codex-home/sessions/2026/10/06/rollout-x-${cx}.jsonl`,roots),null,'another Codex home is not Pocket\'s');
   assert.equal(sessionIdFromRef('/etc/passwd',roots),null);assert.equal(sessionIdFromRef(undefined,roots),null);
 });
 
