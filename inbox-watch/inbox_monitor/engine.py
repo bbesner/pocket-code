@@ -790,7 +790,7 @@ class Archive:
         self.db.executescript(ARCHIVE_SCHEMA)
 
     def migrate(self) -> None:
-        """1.81: the column that marks the owner's own mail was named after one owner (`from_brad`); archives written before then
+        """1.81: the column that marks the owner's own mail was named after one owner; archives written before then
         are renamed in place when opened, keeping every row. Idempotent: a new archive, or one already renamed, is left alone.
         `from_brad` is a historical column name, kept here only so archives from existing installs still migrate."""
         have = {r["name"] for r in self.db.execute("pragma table_info(mail)")}
@@ -2964,7 +2964,7 @@ LEARNED_HEADERS = ("## Learned from ", "## From Inbox in Pocket")  # the second:
 LEARN_MAX_RULES = 30   # 15 before 1.103.2, 20 before 1.109
 LEARN_MAX_CHARS = 5000  # the most the learned section may take; it also has to fit beside the owner's rules in Pocket's rules box
 # (1800 before 1.103.2, which dropped the newest rules silently once a busy owner had taught it a few dozen things; 2400 in 1.103.2,
-# full on the first day for an owner with 168 lessons; 3400 before 1.109, when the rules box grew from 8,000 to 12,000 characters
+# full on the first day for an owner with many lessons; 3400 before 1.109, when the rules box grew from 8,000 to 12,000 characters
 # because an owner's own rules of about 5,000 characters left the learned section 80 characters to grow)
 LEARN_ASK_MARGIN = 200  # the judge is asked for this much less than the room, so a slightly long answer still fits
 LEARN_REBUILD_NOTE = """## One-time rebuild

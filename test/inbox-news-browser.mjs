@@ -75,7 +75,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
   await page.waitForFunction(()=>!document.querySelector('.inbox-news'));
   await until(()=>sentSince(before,/^New on this Inbox story/),'the news went as a message');
   const sent=sentSince(before,/^New on this Inbox story/);
-  assert.match(sent.text,/^New on this Inbox story since this conversation started \("Harbor gate: tech on site at 2 pm"\):\n\nUpdate, 2:14 PM EST: Harbor gate: tech on site at 2 pm\nMike is on site at 2 pm\. \[Kai\]\(msg:19b03\)\n/);
+  assert.match(sent.text,/^New on this Inbox story since this conversation started \("Harbor gate: tech on site at 2 pm"\):\n\nUpdate, 2:14 PM EST: Harbor gate: tech on site at 2 pm\nKai is on site at 2 pm\. \[Kai\]\(msg:19b03\)\n/);
   assert.equal(sent.text.match(/^Update, /gm).length,2,'both updates, oldest first');
   assert.match(sent.text,/Read what is new, check it against what we have so far, and tell me in a few lines what it changes\.$/);
   const entry=inboxStore.entries.find(e=>e.story==='harbor-gate-0123456789f0');

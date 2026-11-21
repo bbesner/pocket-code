@@ -13,7 +13,7 @@ const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID)_/.test(k)));
 
 test('automation labels scheduled runs by job name and leaves ordinary requests alone',()=>{
-  assert.deepEqual(automation('[cron:6bebd6e9-4c1a Nightly Backup Report — Daily 6:20am ET] Run the report'),{automated:true,title:'Nightly Backup Report — Daily 6:20am ET'});
+  assert.deepEqual(automation('[cron:0a1b2c3d-4e5f Nightly Report — Daily 6:00am] Run the report'),{automated:true,title:'Nightly Report — Daily 6:00am'});
   assert.equal(automation('OpenClaw runtime context for this turn: Treat this…').automated,true);
   assert.equal(automation('Review the cron schedule [cron:x y]').automated,false);
   assert.equal(automation('Fix the login page').automated,false);

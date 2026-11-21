@@ -30,7 +30,7 @@ test('cleanSummary keeps up to four plain lines and rejects refusals',()=>{
 });
 
 test('Codex turn ids (UUIDv7) give the turn time; other ids give none',()=>{
-  assert.equal(uuid7Time('01a11678-bcdb-7f20-a777-43dd5bbe9822'),new Date(parseInt('01a11678bcdb',16)).toISOString());
+  assert.equal(uuid7Time('01a0aaaa-bbbb-7ccc-8ddd-eeeeffff0004'),new Date(parseInt('01a0aaaabbbb',16)).toISOString());
   assert.equal(uuid7Time('11111111-1111-4111-8111-111111111111'),undefined);
   assert.equal(uuid7Time(undefined),undefined);
 });

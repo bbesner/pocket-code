@@ -468,7 +468,7 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
 test('InboxStore: digest items are checked on add, kept on reload, decided one at a time and reported as digest-item feedback',()=>{
   const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-11-07T13:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
-  const items=[{ref:'a317',section:'worth',title:'Robin website feedback and review',text:'Robin texted that business is up 25%. [Text](msg:1a1b398659576b53)',story:'robin-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low'},
+  const items=[{ref:'a317',section:'worth',title:'Robin website feedback and review',text:'Robin texted that business is up 25%. [Text](msg:19f0aa01b2c3d4f3)',story:'robin-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low'},
     {ref:'a296',section:'held',title:'Copperleaf Wireless Google Ads keywords',text:'Taylor asked for a keyword review.',story:'copperleaf-wireless-google-ads-keywords'},
     {ref:'t12',section:'tidied',title:'Harbor launch',text:'Resolved'}];
   const d=s.add({kind:'digest',title:'Morning email digest — Sat Nov 7',text:'## Worth knowing\n- Robin website feedback and review: business is up.\nIgnored since the last digest: 9 threads.',items,dedupe:'digest|2026-11-07'});
@@ -590,7 +590,7 @@ test('1.113.1: the conversation an entry started catches up — news after it st
   assert.equal(n.length,1);assert.deepEqual([n[0].id,n[0].story,n[0].news.length,n[0].news[0].kind,n[0].newsN],[a.id,false,1,'update',1]);
   const text=s.catchUpText(s.get(a.id),n[0],{fmt:()=>'2:14 PM'});
   assert.match(text,/^New on this Inbox story since this conversation started \("Harbor gate: tech on site"\):/);
-  assert.match(text,/Update, 2:14 PM: Harbor gate: tech on site\nMike is on site at 2 pm\. \[mail\]\(msg:19b03\)\nGmail: https:\/\/mail\.google\.com\//);
+  assert.match(text,/Update, 2:14 PM: Harbor gate: tech on site\nKai is on site at 2 pm\. \[mail\]\(msg:19b03\)\nGmail: https:\/\/mail\.google\.com\//);
   assert.doesNotMatch(text,/Earlier on this entry/,'only what is new, not the earlier text again');
   assert.match(s.catchUpText(s.get(a.id),n[0],{running:true}),/When you reach a good point/);
   assert.deepEqual(s.behind(s.get(a.id)).map(x=>x.session),['sess-aaaa-1111']);
