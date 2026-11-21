@@ -18,6 +18,7 @@ test('documents: names, kinds and titles',()=>{
   assert.equal(safeName('/x/y/Stock report (Oct).html'),'Stock_report_Oct_.html');assert.equal(safeName('../../etc/passwd'),null);assert.equal(safeName('.hidden.html'),'hidden.html');assert.equal(safeName('notes.exe'),null);
   assert.equal(kindOf('a.PDF'),'pdf');assert.equal(kindOf('a.csv'),'table');assert.equal(kindOf('a.xlsx'),'office');assert.equal(kindOf('a.sh'),null);
   assert.equal(titleFor('r.html','<html><head><title> Inventory &amp; stock \n review </title>'),'Inventory & stock review');
+  assert.equal(titleFor('r.html','<title>Escaping &amp;lt;b&amp;gt; &amp; &lt;i&gt;</title>'),'Escaping &lt;b&gt; & <i>','each entity is decoded once (CodeQL js/double-escaping)');
   assert.equal(titleFor('r.md','intro\n\n## The *plan*\n'),'The plan');assert.equal(titleFor('stock_report-2026.pdf',''),'stock report 2026');
 });
 

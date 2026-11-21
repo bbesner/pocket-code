@@ -33,7 +33,7 @@ export function safeName(name) {
 // Title: the HTML <title>, the first Markdown heading, else the file name without its extension.
 export function titleFor(file, text) {
   const kind = kindOf(file);
-  if (kind === 'html' && text) { const m = text.slice(0, 20000).match(/<title[^>]*>([\s\S]*?)<\/title>/i); if (m) { const t = m[1].replace(/\s+/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim(); if (t) return t.slice(0, LIMITS.title); } }
+  if (kind === 'html' && text) { const m = text.slice(0, 20000).match(/<title[^>]*>([\s\S]*?)<\/title>/i); if (m) { const t = m[1].replace(/\s+/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').trim(); /* &amp; last: "&amp;lt;" is the text "&lt;" */ if (t) return t.slice(0, LIMITS.title); } }
   if (kind === 'md' && text) { const m = text.slice(0, 20000).match(/^#{1,3}\s+(.+)$/m); if (m) return m[1].replace(/[*_`#]/g, '').trim().slice(0, LIMITS.title); }
   return path.basename(file, path.extname(file)).replace(/[_-]+/g, ' ').trim().slice(0, LIMITS.title) || file;
 }
