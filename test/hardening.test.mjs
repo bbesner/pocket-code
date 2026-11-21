@@ -195,6 +195,19 @@ test('PC-13: an upload is written 0600 in folders that are 0700, whatever the um
   assert.equal(fs.statSync(path.join(home,'pocket-uploads')).mode&0o777,0o700,'the uploads folder');
 });
 
+// CodeQL js/type-confusion-through-parameter-tampering: the pre-auth JSON parser hands these raw-body routes an array, whose length passed the check.
+test('CodeQL: the upload routes refuse a JSON body instead of failing on it',async t=>{
+  const s=await server(t,20501);
+  const owner=(await s.login()).cookie;
+  assert.equal((await s.fetch('/api/settings',{method:'POST',headers:{cookie:owner},body:{documents:true}})).status,200);
+  for(const p of ['/api/upload','/api/documents']){
+    const r=await s.fetch(p,{method:'POST',headers:{cookie:owner,'x-filename':'notes.txt'},body:[1,2,3]});
+    assert.equal(r.status,400,p);assert.match((await r.json()).error,/empty/i,p);
+  }
+  const ok=await fetch(s.url('/api/documents'),{method:'POST',headers:{cookie:owner,'x-filename':'notes.txt','content-type':'application/octet-stream'},body:'kept'});
+  assert.equal(ok.status,200,'a real upload still works');
+});
+
 test('PC-09: the installed and vendored dependencies are the fixed versions',()=>{
   const v=name=>JSON.parse(fs.readFileSync(path.join(repo,'node_modules',name,'package.json'),'utf8')).version.split('.').map(Number);
   const atLeast=(name,min)=>{const a=v(name);for(let i=0;i<3;i++)if(a[i]!==min[i])return assert.ok(a[i]>min[i],`${name} ${a.join('.')} is older than ${min.join('.')}`);};

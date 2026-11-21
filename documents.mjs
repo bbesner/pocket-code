@@ -125,7 +125,7 @@ export class DocumentStore {
   }
   addFromBuffer(name, buffer, opts = {}) {
     const safe = safeName(name); if (!safe) throw fail('That file type cannot be kept in Files.');
-    if (!buffer?.length) throw fail('The upload is empty.');
+    if (!Buffer.isBuffer(buffer) || !buffer.length) throw fail('The upload is empty.'); // 1.117: a JSON body arrives parsed (an array has a length too)
     this.check(opts);
     const file = this.uniqueFile(safe), at = iso(this.now()), dest = path.join(this.dir, file);
     fs.writeFileSync(dest, buffer, { mode: 0o600 });

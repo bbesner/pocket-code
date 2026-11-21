@@ -4125,7 +4125,7 @@ app.post('/api/session/:id/branch', requireAuth, validateApprovalMode, validateT
 app.post('/api/upload', requireAuth, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
   const raw = String(req.headers['x-filename'] || 'file.bin');
   const safe = path.basename(raw).replace(/[^\w.\-]+/g, '_').slice(-80) || 'file.bin';
-  if (!req.body?.length) return res.status(400).json({ error: 'empty upload' });
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'empty upload' }); // 1.117: a JSON body arrives parsed, not raw
   const dir = path.join(UPLOAD_DIR, new Date().toISOString().slice(0, 7));
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); // 1.117 (PC-13): the owner's alone, whatever the umask
   for (const d of [UPLOAD_DIR, dir]) try { fs.chmodSync(d, 0o700); } catch { }
