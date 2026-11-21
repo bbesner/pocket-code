@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
+import http from 'node:http';
 import {createHmac,randomUUID} from 'node:crypto';
 import {newKey} from '../vault.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -193,6 +194,25 @@ test('PC-13: an upload is written 0600 in folders that are 0700, whatever the um
   assert.equal(fs.statSync(dest).mode&0o777,0o600,'the file');
   assert.equal(fs.statSync(path.dirname(dest)).mode&0o777,0o700,'the month folder');
   assert.equal(fs.statSync(path.join(home,'pocket-uploads')).mode&0o777,0o700,'the uploads folder');
+});
+
+// GET /api/me learns the owner's public address (for links in email) from the request's Host or X-Forwarded-Host. Only a
+// signed-in request may set it: a stranger who names any host changes nothing. A link on another site that opens /api/me with
+// the owner's cookie cannot choose those headers, so it records only Pocket's own address.
+test('the public address is learned only from a signed-in request, never from a stranger\'s Host or X-Forwarded-Host',async t=>{
+  const s=await server(t,20581);
+  const saved=()=>{try{return JSON.parse(fs.readFileSync(path.join(s.dir,'data','pocket-settings.json'),'utf8')).publicUrl;}catch{return undefined;}};
+  const me=(headers)=>new Promise((resolve,reject)=>{const r=http.request({host:'127.0.0.1',port:s.port,path:'/api/me',headers},res=>{let b='';res.on('data',c=>b+=c);res.on('end',()=>resolve(JSON.parse(b)));});r.on('error',reject);r.end();});
+  assert.equal((await me({host:'evil.example','x-forwarded-host':'evil.example','x-forwarded-proto':'https','x-forwarded-for':'203.0.113.9'})).ok,false);
+  assert.equal((await me({host:'evil.example'})).ok,false);
+  assert.equal(saved(),undefined,'a signed-out request names no address');
+  const owner=(await s.login()).cookie;
+  assert.equal((await me({cookie:owner,host:'127.0.0.1:'+s.port})).ok,true);
+  assert.equal(saved(),undefined,'a request on the box itself is not a public address');
+  assert.equal((await me({cookie:owner,host:'pocket.example.com','x-forwarded-proto':'https','x-forwarded-for':'203.0.113.9'})).ok,true);
+  assert.equal(saved(),'https://pocket.example.com','the owner\'s own request through the proxy is');
+  assert.equal((await me({host:'evil.example','x-forwarded-host':'evil.example','x-forwarded-for':'203.0.113.9'})).ok,false);
+  assert.equal(saved(),'https://pocket.example.com','and a stranger cannot replace it');
 });
 
 // CodeQL js/type-confusion-through-parameter-tampering: the pre-auth JSON parser hands these raw-body routes an array, whose length passed the check.
