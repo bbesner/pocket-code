@@ -1,6 +1,6 @@
 // Coordination (1.99): named holds, so two conversations don't work the same shared thing at once. A hold is advisory:
 // one holder, a reason and an expiry. Agents check it because their instructions say to, and nothing stops a deploy; a
-// real lock such as `dad-deploy-locked` keeps doing the enforcing. It covers the whole job (build, verify, wait for the
+// real lock such as `deploy-locked` keeps doing the enforcing. It covers the whole job (build, verify, wait for the
 // owner), where a lock covers only the rollout step. The server proves who a conversation is from its runner token and
 // never takes a name from what an agent says; anything else counts as `Terminal session`, unverified.
 import fs from 'node:fs';
@@ -8,7 +8,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { shellArg } from './skills.mjs';
 
-export const SEEDS = ['dad-staging', 'dad-production', 'tpv-deploy', 'pocket-main'];
+export const SEEDS = ['pocket-main'];
 export const LIMITS = { ttlDefaultMs: 60 * 60_000, ttlMaxMs: 8 * 3600_000, ttlMinMs: 60_000, reason: 200, note: 300, recent: 30, recentMs: 7 * 86400_000, names: 200, waiters: 20, notices: 10, offerMs: 10 * 60_000, blockStaleMs: 30_000, waitMs: 8 * 3600_000 };
 const NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const fail = (message, status = 400, extra = {}) => Object.assign(new Error(message), { status, ...extra });
@@ -16,7 +16,7 @@ const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
 
 export function checkName(value) {
   const name = str(value, 80).toLowerCase();
-  if (!NAME.test(name)) throw fail('A hold name is letters, numbers, dots and dashes, such as dad-staging.');
+  if (!NAME.test(name)) throw fail('A hold name is letters, numbers, dots and dashes, such as shop-staging.');
   return name;
 }
 // 45m, 2h or a plain number of minutes.
@@ -37,7 +37,7 @@ function distance(a, b) {
   }
   return row[b.length];
 }
-// `staging` beside `dad-staging` would be two holds on one thing. One name inside the other at a word boundary, or a
+// `staging` beside `shop-staging` would be two holds on one thing. One name inside the other at a word boundary, or a
 // slip of a letter or two, counts as close.
 export function closeName(name, known) {
   const within = (a, b) => (`-${b}-`).includes(`-${a}-`) || b.startsWith(a) && a.length >= 4;

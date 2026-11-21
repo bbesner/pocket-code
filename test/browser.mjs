@@ -61,10 +61,10 @@ const secretRefusal=body=>{if(fixtureSettings.secretGuard===false||body.allowSec
 // 1.41: extraRequests are added to the snapshot's requests as they are (a request on an item that asks every time).
 const vaultFixture={passphrase:null,imported:null,extraRequests:[],key:null}; // 1.44: key is the fixture store's key, the recovery key the routes hand out
 const coordFixture={holds:[],recent:[],released:[],failNext:false,reset(holds){const ago=m=>Date.now()-m*60000-5000;this.released=[];this.failNext=false;
- this.holds=holds||[{name:'dad-staging',reason:'Building and verifying',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'DAD 1.168 build'},heldAt:ago(12),expiresAt:Date.now()+48*60000,ttlMs:3600000,waiters:[{id:'w1',kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',at:ago(4),block:false,title:'PayPal fix'}]},
-  {name:'tpv-deploy',reason:'Rolling out to the warehouse recorder from a terminal on the ops box, so wait for it to finish',holder:{kind:'terminal',session:null,title:''},heldAt:ago(185),expiresAt:Date.now()+295*60000,ttlMs:28800000,waiters:[]}];
+ this.holds=holds||[{name:'shop-staging',reason:'Building and verifying',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'Shop 1.168 build'},heldAt:ago(12),expiresAt:Date.now()+48*60000,ttlMs:3600000,waiters:[{id:'w1',kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',at:ago(4),block:false,title:'PayPal fix'}]},
+  {name:'site-deploy',reason:'Rolling out to the warehouse recorder from a terminal on the ops box, so wait for it to finish',holder:{kind:'terminal',session:null,title:''},heldAt:ago(185),expiresAt:Date.now()+295*60000,ttlMs:28800000,waiters:[]}];
  this.recent=[{name:'pocket-main',reason:'Release',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'Release 1.98'},heldAt:ago(90),endedAt:ago(40),event:'released',note:'Deployed and checked'},
-  {name:'dad-production',reason:'Rollout',holder:{kind:'terminal',session:null,title:''},heldAt:ago(300),endedAt:ago(120),event:'expired',note:''},
+  {name:'shop-production',reason:'Rollout',holder:{kind:'terminal',session:null,title:''},heldAt:ago(300),endedAt:ago(120),event:'expired',note:''},
   {name:'staging-db',reason:'Reset',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',title:'Database reset'},heldAt:ago(500),endedAt:ago(200),event:'owner',note:''}];}};
 coordFixture.reset();
 const resetVaultLock=()=>{Object.assign(fixtureSettings,{vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',vaultCanCreateKey:false,vaultNeedsKey:false});vaultFixture.passphrase=null;vaultFixture.imported=null;vaultFixture.extraRequests=[];};
