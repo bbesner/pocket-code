@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.118.0] — Unreleased · build 212
+## [1.118.0] — 2026-11-21 · build 212
 
 A security release, from a review of the public repository. It hardens sign-in, keeps share links
 and agent sharing under the owner's control, pins a Vault *Always allow* to what a command really
