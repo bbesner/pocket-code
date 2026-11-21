@@ -156,16 +156,16 @@ test('HTTP: tasks are off until Settings turns them on, the loopback token serve
   assert.match(logs,/task due task=[0-9a-f]{12} push=off hook=yes/);
   // The CLI: add, list, show, done, edit, remove, and a clear message when the feature is off.
   const cli=args=>new Promise(r=>execFile(process.execPath,[path.join(repo,'scripts/pocket-tasks.mjs'),...args],{cwd:dir,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data')}},(e,stdout,stderr)=>r({code:e?e.code:0,stdout,stderr})));
-  let out=await cli(['add','Call ENS about aisle 4','--due','2026-12-01T09:00','--session',S1,'--summary','Counting aisle 4.\nFourteen units short.']);
-  assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/^\[ \] Call ENS about aisle 4  \([0-9a-f]{12}\)  due /);assert.match(out.stdout,/Session: 1111/);assert.match(out.stdout,/Context: Counting aisle 4\.\n\s+Fourteen units short\./);assert.match(out.stdout,/by an agent/);
+  let out=await cli(['add','Call Litware about aisle 4','--due','2026-12-01T09:00','--session',S1,'--summary','Counting aisle 4.\nFourteen units short.']);
+  assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/^\[ \] Call Litware about aisle 4  \([0-9a-f]{12}\)  due /);assert.match(out.stdout,/Session: 1111/);assert.match(out.stdout,/Context: Counting aisle 4\.\n\s+Fourteen units short\./);assert.match(out.stdout,/by an agent/);
   const id=/\(([0-9a-f]{12})\)/.exec(out.stdout)[1];
-  out=await cli(['list']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/^\[ \] Overdue .*DUE/m);assert.match(out.stdout,/Call ENS/);assert.doesNotMatch(out.stdout,/^\[x\]/m);
+  out=await cli(['list']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/^\[ \] Overdue .*DUE/m);assert.match(out.stdout,/Call Litware/);assert.doesNotMatch(out.stdout,/^\[x\]/m);
   out=await cli(['list','--json']);assert.equal(JSON.parse(out.stdout).length,4);
-  out=await cli(['edit',id,'--clear-due','--text','Call ENS']);assert.match(out.stdout,/^\[ \] Call ENS  \(/);assert.doesNotMatch(out.stdout,/due /);
-  out=await cli(['done',id]);assert.match(out.stdout,/^\[x\] Call ENS/);assert.match(out.stdout,/finished/);
-  out=await cli(['list','--all']);assert.match(out.stdout,/\[x\] Call ENS/);
+  out=await cli(['edit',id,'--clear-due','--text','Call Litware']);assert.match(out.stdout,/^\[ \] Call Litware  \(/);assert.doesNotMatch(out.stdout,/due /);
+  out=await cli(['done',id]);assert.match(out.stdout,/^\[x\] Call Litware/);assert.match(out.stdout,/finished/);
+  out=await cli(['list','--all']);assert.match(out.stdout,/\[x\] Call Litware/);
   out=await cli(['show',id,'--json']);assert.equal(JSON.parse(out.stdout).done,true);
-  out=await cli(['remove',id]);assert.match(out.stdout,/^Removed: Call ENS/);
+  out=await cli(['remove',id]);assert.match(out.stdout,/^Removed: Call Litware/);
   out=await cli(['show',id]);assert.equal(out.code,5);
   out=await cli(['add']);assert.equal(out.code,1);assert.match(out.stderr,/needs the task text/);
   // 1.81 (#186): a relative --dir is resolved against the current directory instead of being refused.
