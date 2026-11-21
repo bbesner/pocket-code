@@ -35,14 +35,37 @@ Built in:
   across all addresses: after 30 wrong passwords in an hour, sign-ins are checked one at a time,
   1 second apart, the gap doubling every 20 more failures up to 10 seconds, and a try that would
   wait more than 20 seconds is told to try again later without being checked. A flood from many
-  addresses therefore slows to a crawl instead of guessing in parallel; while it lasts, the
-  owner's own sign-in can be turned away too (a signed-in browser is not affected).
+  addresses therefore slows to a crawl instead of guessing in parallel. A browser that has signed
+  in before skips that queue: each sign-in sets a "known device" cookie (`pc_device`; `HttpOnly`,
+  `SameSite=Lax`, `Secure` over HTTPS, sent only to `/api/login`, one year), signed with the
+  server secret, the sign-in generation and a keyed hash of the password. It does not sign
+  anything in by itself, it still counts against its address's 20 tries, and one that carries
+  five wrong passwords in an hour stops skipping the queue. So the owner can sign in during a
+  flood on any browser used before; a browser that never signed in can be turned away while the
+  flood lasts (a signed-in browser is not affected). Sign out everywhere or a new
+  `POCKET_PASSWORD` ends every known-device cookie.
 - An HMAC-signed, `HttpOnly`, `Secure`, `SameSite=Lax` session cookie with a 90-day expiry.
   Since 1.117, Settings has **Sign out** (this browser) and **Sign out everywhere**. Sign out
   everywhere, and a change of `POCKET_PASSWORD` noticed at the next start, move the instance to a
   new sign-in generation (kept in `auth-state.json` in the data directory, mode `0600`, holding a
   keyed hash of the password, never the password), and every cookie from an earlier generation
-  stops working. Cookies issued before 1.117 keep working until the first of those happens. With
+  stops working. A start that finds no usable `auth-state.json` in a data folder a daemon has
+  used before (the first start after upgrading to 1.117, or a deleted, unreadable or corrupt
+  file) begins a new generation: every browser signs in once after the upgrade, a password
+  changed in the same restart ends the old cookies, and deleting the file signs everyone out
+  rather than reviving an old cookie. "Used before" is read from the files every start leaves
+  in the data folder (`cli-token`, `cli-url`, `auth-state.json`); a folder with none of them is
+  a new install, which starts with the pre-1.117 cookie form until the first Sign out
+  everywhere. The limits: a data folder restored from a backup that holds an older
+  `auth-state.json` brings that generation back, and the cookies it signed work again until they
+  expire; removing all three files makes the folder look new, so cookies in the pre-1.117 form
+  (from before the upgrade, at most 90 days old) work again. Choose Sign out everywhere after a
+  restore. Anyone who can change the data folder runs as the service's user and can read
+  `POCKET_SECRET` and make a cookie anyway, so these limits give such a caller nothing new. Two
+  daemons sharing one data folder do not see each other's Sign out everywhere until they
+  restart (sharing a folder is not supported). Sign out also removes that browser's
+  push subscription, and Sign out everywhere removes every one, so a lost phone stops receiving
+  notification text; the owner turns notifications on again on the devices that stay. With
   Cloudflare Access and One sign-in in front, a signed-out browser is signed in again by Access
   without the password; to end those sessions too, revoke them in Cloudflare.
 - `Strict-Transport-Security: max-age=31536000` on responses to requests that reached the

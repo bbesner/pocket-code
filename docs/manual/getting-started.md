@@ -42,7 +42,9 @@ Open the HTTPS address. The sign-in screen asks for one thing, the **Password**,
   Assistant mode; 1.117), choose **Sign out everywhere**, or change the password.
 - After 20 sign-in attempts from one address within an hour, further attempts get **Too many
   attempts — wait an hour.** When many addresses fail at once, Pocket checks sign-ins one at a
-  time and may answer **Too many sign-in attempts right now. Try again in a minute.**
+  time and may answer **Too many sign-in attempts right now. Try again in a minute.** A browser
+  that has signed in before is let through that queue (it still has its own address's 20 tries),
+  so you can still sign in there while it lasts.
 - There is one login for the whole install. Pocket Code is built for one owner; anyone who can
   sign in can run commands on the server as the user Pocket runs as. Read the
   [security model](../../SECURITY.md#security-model) before you share access.
