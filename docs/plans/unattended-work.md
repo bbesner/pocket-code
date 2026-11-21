@@ -478,6 +478,7 @@ shortened timers through env vars, the way `POCKET_COORD_SWEEP_MS` is used today
 | Release | Contents |
 |---|---|
 | 1.117.0 | Part 1: origin, Pause all on every engine, the gate, limits, the Automation settings section (limits only), audit file. |
+| 1.118.0 | Not part of this plan: the security release took this number. |
 | 1.119.0 | Part 2: check-backs, `pocket-checkback`, the `automation` push kind, the Tasks group. |
 | 1.120.0 | Part 3: job keys, `/api/jobs/run`, `pocket-run`. |
 | Then | The first uses in 3.5, one at a time, each in its own repo with its own ledger entry. |

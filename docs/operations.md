@@ -358,11 +358,11 @@ Presets for an install are `POCKET_AUTOMATION_CHECKBACKS` and its siblings, for 
 (default 60000, minimum 100) sets how often Pocket looks for check-backs that are due. The tests also use
 `POCKET_TEST_CHECKBACK_CLOCK` and `POCKET_TEST_CHECKBACK_GAP`; leave both unset.
 
-Rolling back to 1.117 stops check-backs and loses nothing. 1.117 does not read `checkbacks.json`, the **Check-backs**
+Rolling back to 1.118 (or 1.117) stops check-backs and loses nothing. 1.118 does not read `checkbacks.json`, the **Check-backs**
 settings or **On Resume, run overdue check-backs**; it keeps them in `pocket-settings.json` and the file, so upgrading
 again finds them, and a waiting check-back is then run or marked missed by the catch-up window. Delete the
-`pocket-checkback` folders 1.119 installed under `~/.claude/skills/` and `$CODEX_HOME/skills/` (1.117 does not remove
-them, and their command no longer exists). 1.117 ignores the device choice **Check-backs and job results** and sends the
+`pocket-checkback` folders 1.119 installed under `~/.claude/skills/` and `$CODEX_HOME/skills/` (1.118 does not remove
+them, and their command no longer exists). 1.118 ignores the device choice **Check-backs and job results** and sends the
 limit notice with **Inbox alerts** again.
 
 Rolling back to 1.116 ignores the pause and arms held retries again at start. 1.116 keeps `paused` in
