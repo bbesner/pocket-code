@@ -7,10 +7,16 @@
 // trashed file at once (Delete forever, Empty trash), which takes its file, its thumbnails and its record. HTML is
 // served sandboxed, never under the app origin's authority.
 // 1.117 (PC-05): a share link's token is never stored, only its hash; the address is handed out once, when it is made.
+// 1.117 (PC-04): an agent (the CLI token) may keep and edit private files, and make a file less exposed, but a change that
+// exposes a file more (a link, a new or longer-lived link, a public address) waits for the owner's Allow, the way a Vault
+// request does: one request per document and change, answered once by the owner, and carried out only if the file's content
+// and its sharing are still what the owner was shown.
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { shellArg } from './skills.mjs';
+import { LIMITS as VAULT_LIMITS } from './vault.mjs';
+import { openChecked } from './thumbnails.mjs';
 
 export const KINDS = { '.html': 'html', '.htm': 'html', '.pdf': 'pdf', '.md': 'md', '.txt': 'txt', '.png': 'image', '.jpg': 'image', '.jpeg': 'image', '.gif': 'image', '.webp': 'image', '.csv': 'table', '.tsv': 'table', '.json': 'json', '.docx': 'office', '.xlsx': 'office', '.pptx': 'office', '.mp4': 'video' };
 export const MIME = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.pdf': 'application/pdf', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.csv': 'text/csv; charset=utf-8', '.tsv': 'text/tab-separated-values; charset=utf-8', '.json': 'application/json; charset=utf-8', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation', '.mp4': 'video/mp4' };
@@ -24,6 +30,11 @@ const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const SESSION_RE = /^(cx:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const hash = t => createHash('sha256').update(t).digest('hex');
 const SHARE_PATH_RE = /^\/share\/([A-Za-z0-9_-]{20,100})$/;
+// PC-04: a request waits for the Vault's request time (15 minutes) and a call waits on it for at most the Vault's wait.
+export const REQUEST_LIMITS = { ttlMs: VAULT_LIMITS.requestTtlMs, waitMax: VAULT_LIMITS.waitMax, waiting: 50 };
+const sameCaller = (a, b) => (a?.actor || 'terminal') === (b?.actor || 'terminal') && (a?.session || null) === (b?.session || null);
+// The change as one input to update(): exactly what the owner allowed, nothing the caller can add to.
+const changeInput = c => c.to === 'public' ? { visibility: 'public' } : c.reshare ? { action: 'reshare', expiresAt: c.expiresAt } : c.extend ? { expiresAt: c.expiresAt } : { visibility: 'link', expiresAt: c.expiresAt };
 export const kindOf = name => KINDS[path.extname(String(name)).toLowerCase()] || null;
 export const mimeOf = name => MIME[path.extname(String(name)).toLowerCase()] || 'application/octet-stream';
 // A file name that is safe on disk and in a URL: the base name, odd characters replaced, extension kept.
@@ -42,7 +53,7 @@ export function titleFor(file, text) {
 export function documentInstructions(cli, sessionId) {
   cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
   const sid = sessionId ? ` --session ${sessionId}` : '';
-  return `This Pocket Code keeps a Files library. When the user says files, my files, documents, my documents or docs, they mean this library (not a folder on the server or another drive, unless they name one); the pocket-files skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-files', 'SKILL.md')}\`) has the full procedure. When you produce a deliverable for the user to read (an HTML report or dashboard, a PDF, an image, a Markdown write-up, a CSV or spreadsheet), or the user asks to save something there, keep it with \`node ${cli} add <path>${sid} [--title "…"] [--project <id>]\` so it appears in Pocket's Files, linked to this session; link it to the directory's tracked project when there is one. Files are private unless the user asks to share; use \`node ${cli} share <id>\` for a link only when asked. Mention the file by its title in your reply, not by server path.`;
+  return `This Pocket Code keeps a Files library. When the user says files, my files, documents, my documents or docs, they mean this library (not a folder on the server or another drive, unless they name one); the pocket-files skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-files', 'SKILL.md')}\`) has the full procedure. When you produce a deliverable for the user to read (an HTML report or dashboard, a PDF, an image, a Markdown write-up, a CSV or spreadsheet), or the user asks to save something there, keep it with \`node ${cli} add <path>${sid} [--title "…"] [--project <id>]\` so it appears in Pocket's Files, linked to this session; link it to the directory's tracked project when there is one. Files are private unless the user asks to share; use \`node ${cli} share <id>\` for a link only when asked. Sharing or publishing asks the user to allow it in Pocket: if the command prints \`pending <id>\`, tell the user it is waiting for their Allow and continue with \`node ${cli} wait <id>\`. Mention the file by its title in your reply, not by server path.`;
 }
 
 export class DocumentStore {
@@ -52,6 +63,7 @@ export class DocumentStore {
     fs.mkdirSync(dir, { recursive: true });
     let d = {}; try { d = JSON.parse(fs.readFileSync(metaFile, 'utf8')); } catch { }
     this.documents = Array.isArray(d.documents) ? d.documents.filter(r => r && typeof r.id === 'string' && typeof r.file === 'string') : [];
+    this.requests = new Map(); // PC-04: id -> a request for the owner; memory only, so a restart drops it and changes nothing
     this.migrated = this.dropStoredLinks();
   }
   // PC-05: records written before 1.117 kept the share address (`share.url`, the token in plain text) beside its hash. The
@@ -172,6 +184,123 @@ export class DocumentStore {
     r.updated = at; r.updatedBy = actor; this.commit(this.replace(live, r));
     return { ...this.view(r), ...(token ? { token } : {}) };
   }
+  // ---------- PC-04: changes that expose a file more wait for the owner ----------
+  // The exposure part of an update(), normalised, when it would make the file more exposed than it is: to link or public, a
+  // new link (replacing one, or from public), or a link that lasts longer. Null when it exposes nothing more (to private, a
+  // shorter expiry, title or project only). Checks the input the way update() does, so a bad value is refused here too.
+  exposureChange(id, input = {}) {
+    const r = this.get(id); if (r.trashedAt) throw fail('This file is in the trash. Restore it first.', 409);
+    let expiry; // undefined: not given
+    if ('expiresAt' in input) { const e = input.expiresAt ? Date.parse(input.expiresAt) : NaN; if (input.expiresAt && Number.isNaN(e)) throw fail('That expiry is not a valid time.'); expiry = input.expiresAt ? iso(e) : null; }
+    if ('visibility' in input && input.visibility !== r.visibility) {
+      if (!VISIBILITIES.includes(input.visibility)) throw fail('Visibility must be private, link or public.');
+      if (input.visibility === 'private') return null;
+      return input.visibility === 'public' ? { to: 'public', expiresAt: null } : { to: 'link', expiresAt: expiry ?? null };
+    }
+    if (input.action === 'reshare') { if (r.visibility !== 'link') throw fail('Only a file shared by link has a share link.'); return { to: 'link', reshare: true, expiresAt: expiry !== undefined ? expiry : r.share?.expiresAt || null }; }
+    if (expiry !== undefined && r.visibility === 'link') {
+      const now = r.share?.expiresAt || null;
+      if (now && (expiry === null || Date.parse(expiry) > Date.parse(now))) return { to: 'link', extend: true, expiresAt: expiry };
+    }
+    return null;
+  }
+  // The file as it would be served, by content: opened once without following a link, inside the library, hashed from that
+  // descriptor. Taken when the request is raised and again when the owner allows it.
+  async fingerprint(r) {
+    if (r.trashedAt || r.missing) throw fail('That file is not in the library.', 409);
+    const root = fs.realpathSync(this.dir);
+    const file = openChecked(this.filePath(r), real => real.startsWith(root + path.sep));
+    try {
+      const h = createHash('sha256');
+      await new Promise((ok, no) => fs.createReadStream(null, { fd: file.fd, autoClose: false, start: 0 }).on('data', c => h.update(c)).on('error', no).on('end', ok));
+      return { sha256: h.digest('hex'), size: file.stat.size };
+    } finally { file.close(); }
+  }
+  // Why a request can no longer be carried out (the document went, or its sharing or name moved on), or null.
+  staleReason(row, r = this.documents.find(x => x.id === row.doc)) {
+    if (!r || r.trashedAt || r.missing) return 'The file was removed or is missing.';
+    if (r.file !== row.from.file) return 'The file was renamed.';
+    if (r.visibility !== row.from.visibility || (r.shareHash || null) !== row.from.shareHash || (r.share?.expiresAt || null) !== row.from.expiresAt) return 'The file’s sharing changed since the request was made.';
+    return null;
+  }
+  // A request for one document and one change. `source` is the path the agent kept the file from, when it has one.
+  async raiseRequest(id, change, { caller = null, session = null, sessionTitle = '', source = '' } = {}) {
+    this.expireRequests();
+    if ([...this.requests.values()].filter(x => !x.answer).length >= REQUEST_LIMITS.waiting) throw fail(`Up to ${REQUEST_LIMITS.waiting} requests can wait for the owner at once. Wait for an answer first.`, 429);
+    const before = this.get(id), fp = await this.fingerprint(before), r = this.get(id);
+    const now = this.now();
+    let rid = randomBytes(8).toString('hex'); while (this.requests.has(rid)) rid = randomBytes(8).toString('hex');
+    const row = { id: rid, doc: r.id, title: r.title, file: r.file, kind: r.kind, size: fp.size, sha256: fp.sha256, path: str(source, 1000) || r.source || path.join(this.dir, r.file),
+      from: { visibility: r.visibility, shareHash: r.shareHash || null, expiresAt: r.share?.expiresAt || null, file: r.file },
+      change: { to: change.to, expiresAt: change.expiresAt || null, ...(change.reshare ? { reshare: true } : {}), ...(change.extend ? { extend: true } : {}) },
+      url: change.to === 'public' ? '/files/' + encodeURIComponent(r.file) : null,
+      session, sessionTitle: str(sessionTitle, 200), by: caller?.actor || 'terminal', caller: { actor: caller?.actor || 'terminal', session: caller?.session || null },
+      created: iso(now), expiresAt: iso(now + REQUEST_LIMITS.ttlMs), answer: null, answering: false, token: null, collected: false, waiters: [] };
+    if (r !== before) throw fail('The file changed while Pocket was checking it; try again.', 409); // a commit replaces the record
+    this.requests.set(rid, row);
+    return row;
+  }
+  // What the owner's card and the agent see: never the share hash, the caller's details or an address.
+  requestView(row) { const { waiters, token, caller, sha256, answering, from, ...rest } = row; return { ...rest, fromVisibility: from.visibility, pending: !row.answer }; }
+  pendingRequests() { this.expireRequests(); return [...this.requests.values()].filter(r => !r.answer).map(r => this.requestView(r)); }
+  answeredRequests() { return [...this.requests.values()].filter(r => r.answer).map(r => ({ id: r.id, doc: r.doc, title: r.title, decision: r.answer.decision, at: r.answer.at })); }
+  settle(row, answer) { row.answer = { ...answer, at: iso(this.now()) }; row.answering = false; for (const w of row.waiters.splice(0)) w(row); return this.requestView(row); }
+  // The owner's answer (the server lets only the owner's cookie reach this). Deny changes nothing. Allow checks, at this
+  // moment, that the document, its name, its sharing and its content are what the request recorded, then makes exactly the
+  // recorded change; anything else ends the request as stale and changes nothing. A request is answered once.
+  async answerRequest(id, decision) {
+    this.expireRequests();
+    const row = this.requests.get(String(id)); if (!row) throw fail('That request does not exist or has expired.', 404);
+    if (row.answer || row.answering) throw fail('That request was already answered.', 409);
+    if (decision !== 'allow' && decision !== 'deny') throw fail('Answer allow or deny.');
+    if (decision === 'deny') return this.settle(row, { decision: 'deny' });
+    row.answering = true; // a second Allow (a double tap, the notification and the card) is refused while this one checks
+    let stale = this.staleReason(row);
+    if (!stale) {
+      let fp = null; try { fp = await this.fingerprint(this.get(row.doc)); } catch { stale = 'The file can no longer be read.'; }
+      if (fp && (fp.sha256 !== row.sha256 || fp.size !== row.size)) stale = 'The file’s content changed since the request was made.';
+      stale = stale || this.staleReason(row); // and nothing moved while it was being read
+    }
+    if (stale) { this.settle(row, { decision: 'stale', reason: stale }); throw fail(stale + ' Nothing was shared.', 409, { code: 'request_stale' }); }
+    let out; try { out = this.update(row.doc, changeInput(row.change), { actor: 'cli' }); } catch (e) { row.answering = false; throw e; }
+    row.token = out.token || null;
+    return { ...this.settle(row, { decision: 'allow' }), document: out.token ? (({ token, ...v }) => v)(out) : out };
+  }
+  // Resolves with the request once answered, or null when `ms` pass first.
+  waitRequest(id, ms) {
+    this.expireRequests();
+    const row = this.requests.get(String(id)); if (!row) throw fail('That request does not exist or has expired.', 404, { code: 'request_gone' });
+    if (row.answer || !ms) return Promise.resolve(row.answer ? row : null);
+    return new Promise(resolve => { const t = setTimeout(() => { row.waiters = row.waiters.filter(w => w !== done); resolve(null); }, ms); const done = () => { clearTimeout(t); resolve(row); }; row.waiters.push(done); });
+  }
+  // The raiser's continuation: only the caller that raised it (same actor and session), before and after the answer.
+  continuation(id, caller) {
+    this.expireRequests();
+    const row = this.requests.get(String(id)); if (!row) throw fail('That request does not exist or has expired.', 404, { code: 'request_gone' });
+    if (!sameCaller(row.caller, caller)) throw fail('That request was raised by another session.', 403, { code: 'request_mismatch' });
+    if (row.collected) throw fail('That request was already used.', 409, { code: 'request_used' });
+    return row;
+  }
+  // What the raiser learns, once: the document as it is now, and a new link's address. Refusals say why and that nothing changed.
+  collectRequest(id, caller) {
+    const row = this.continuation(id, caller);
+    if (!row.answer) return null;
+    const d = row.answer.decision;
+    if (d === 'deny') throw fail('The owner did not allow this. The file was not shared.', 403, { code: 'denied' });
+    if (d === 'expired') throw fail('The request expired before the owner answered. The file was not shared.', 403, { code: 'expired' });
+    if (d === 'stale') throw fail(`${row.answer.reason} Nothing was shared; ask again if it is still wanted.`, 409, { code: 'request_stale' });
+    row.collected = true; const token = row.token; row.token = null;
+    const r = this.documents.find(x => x.id === row.doc);
+    return { document: r ? this.view(r) : null, token, change: row.change, url: row.url };
+  }
+  // An unanswered request ends as expired after the Vault's request time; an answered one is forgotten that long after its
+  // answer, with any address nobody collected.
+  expireRequests(now = this.now()) {
+    for (const [id, row] of this.requests) {
+      if (!row.answer) { if (!row.answering && Date.parse(row.expiresAt) <= now) this.settle(row, { decision: 'expired' }); continue; } // kept a while so the agent learns it expired
+      if (Date.parse(row.answer.at) + REQUEST_LIMITS.ttlMs <= now) { row.token = null; this.requests.delete(id); }
+    }
+  }
   // Trash and restore move the file first, then the record (a bulk step installs each record and saves once at the end).
   trash(id, { save = true } = {}) {
     const live = this.get(id); if (live.trashedAt) return this.view(live);
@@ -251,22 +380,25 @@ export class DocumentStore {
   // One-time import of an older dashboard's dashboard-files-meta.json ({ name: { visibility, access?, updated } }).
   // public → public; private + the staff `access` value → link (tokens returned once); private → private. Files without a
   // record are adopted private by the scan. Names the metadata lists that are not in the folder are reported.
-  importMeta(meta) {
+  // PC-04: with `hold` (an agent's import), every file comes in private and the ones the metadata had shared are listed in
+  // `held` with what they were; the owner shares them, or the agent asks for each one.
+  importMeta(meta, { hold = false } = {}) {
     if (!meta || typeof meta !== 'object' || Array.isArray(meta)) throw fail('That is not a documents metadata file.');
-    const at = iso(this.now()), links = [], missing = [], counts = { public: 0, link: 0, private: 0, skipped: 0 }, next = [...this.documents];
+    const at = iso(this.now()), links = [], missing = [], held = [], counts = { public: 0, link: 0, private: 0, skipped: 0 }, next = [...this.documents];
     for (const [name, m] of Object.entries(meta)) {
       if (!m || typeof m !== 'object') continue;
       const file = path.basename(name);
       if (next.some(r => r.file === file)) { counts.skipped++; continue; }
       let st; try { st = fs.statSync(path.join(this.dir, file)); } catch { missing.push(file); continue; }
       if (!st.isFile() || !kindOf(file)) { missing.push(file); continue; }
-      const visibility = m.visibility === 'public' ? 'public' : m.access === 'techpro' ? 'link' : 'private';
+      const wanted = m.visibility === 'public' ? 'public' : m.access === 'techpro' ? 'link' : 'private', visibility = hold ? 'private' : wanted;
       const r = this.record(file, { addedBy: 'import', size: st.size, at: m.updated && !Number.isNaN(Date.parse(m.updated)) ? iso(Date.parse(m.updated)) : iso(st.mtimeMs), visibility }, next.length);
       next.push(r); counts[visibility]++;
+      if (wanted !== visibility) held.push({ id: r.id, file, wanted });
       if (visibility === 'link') links.push({ id: r.id, file, url: '/share/' + this.pendingToken }); // PC-05: in this answer only
     }
     this.commit(next);
     const before = this.documents.length; this.scan();
-    return { counts, links, missing, adopted: this.documents.length - before };
+    return { counts, links, missing, held, adopted: this.documents.length - before };
   }
 }
