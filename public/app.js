@@ -888,6 +888,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       <button class="opt" id="s-push-reminders" disabled aria-pressed="false"><span class="dot"></span><span>Due tasks and reminders<span class="sub">Once when each comes due. Tomorrow and Done on the notification answer without opening Pocket</span></span></button>
       <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">When an agent needs a secret, or wants to share or publish a file, and you have to allow it</span></span></button>
       <button class="opt" id="s-push-alerts" disabled aria-pressed="false"><span class="dot"></span><span>Inbox alerts<span class="sub">An alert from Inbox Watch or another job on the server; urgent, like a due reminder</span></span></button>
+      <button class="opt" id="s-push-automation" disabled aria-pressed="false"><span class="dot"></span><span>Check-backs and job results<span class="sub">When a check-back has checked back or was missed, and when a limit holds unattended work</span></span></button>
     </div>
     <button class="opt" id="s-badge" aria-pressed="false"><span class="dot"></span><span>Count on the app icon<span class="sub" id="s-badge-state">How many tasks and reminders are due, on the installed app's icon</span></span></button>
     <button class="opt" id="s-ahead" disabled aria-pressed="false"><span class="dot"></span><span>Notice a day before<span class="sub" id="s-ahead-state">Loading the reminder setting…</span></span></button>
@@ -1007,7 +1008,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   };
   // 1.50: push by kind and the icon count are this device's choices, kept with its subscription on the server.
   let pushSub = null, pushPrefs = null;
-  const PUSH_KINDS = ['turns', 'reminders', 'vault', 'alerts']; // 1.69: alerts
+  const PUSH_KINDS = ['turns', 'reminders', 'vault', 'alerts', 'automation']; // 1.69: alerts; 1.119: automation (always shown: it also carries the 1.117 limit notices)
   const paintPushKinds = () => {
     for (const k of PUSH_KINDS) { const b = sh.querySelector('#s-push-' + k); if (!b) continue; const on = Boolean(pushSub) && pushPrefs?.kinds?.[k] !== false; b.disabled = !pushSub; b.setAttribute('aria-pressed', String(on)); b.querySelector('.dot').classList.toggle('on', on); }
   };
@@ -1020,13 +1021,13 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     btn.setAttribute('aria-pressed', String(Boolean(sub)));
     btn.querySelector('.dot').classList.toggle('on', Boolean(sub));
     sh.querySelector('#s-push-state').textContent = !reg ? 'Unavailable. Reload the app or tap to retry.' : sub ? 'On. Notifications reach this device even when Pocket is closed; choose which below' : 'Off. Turn on for finished replies, due tasks and reminders, and Vault requests on this device';
-    if (sub) { try { pushPrefs = (await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) })).prefs; } catch { pushPrefs = { kinds: { turns: true, reminders: true, vault: true, alerts: true }, badge: true }; } }
+    if (sub) { try { pushPrefs = (await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) })).prefs; } catch { pushPrefs = { kinds: { turns: true, reminders: true, vault: true, alerts: true, automation: true }, badge: true }; } }
     if (sh.isConnected) paintPushKinds();
   };
   sh.querySelector('#s-push').onclick = async e => { await togglePush(e.currentTarget); await refreshPush(); };
   for (const k of PUSH_KINDS) sh.querySelector('#s-push-' + k).onclick = async e => {
     if (!pushSub) return; const btn = e.currentTarget, on = btn.getAttribute('aria-pressed') !== 'true'; btn.disabled = true;
-    try { pushPrefs = (await api('/push/prefs', { method: 'POST', body: JSON.stringify({ endpoint: pushSub.endpoint, kinds: { [k]: on } }), signal: AbortSignal.timeout(8000) })).prefs; toast(({ turns: 'Finished replies', reminders: 'Due tasks and reminders', vault: 'Vault requests', alerts: 'Inbox alerts' })[k] + (on ? ' on for this device' : ' off for this device')); }
+    try { pushPrefs = (await api('/push/prefs', { method: 'POST', body: JSON.stringify({ endpoint: pushSub.endpoint, kinds: { [k]: on } }), signal: AbortSignal.timeout(8000) })).prefs; toast(({ turns: 'Finished replies', reminders: 'Due tasks and reminders', vault: 'Vault requests', alerts: 'Inbox alerts', automation: 'Check-backs and job results' })[k] + (on ? ' on for this device' : ' off for this device')); }
     catch (err) { toast('Could not save: ' + (err.message || 'error')); }
     finally { if (sh.isConnected) paintPushKinds(); }
   };
@@ -1727,7 +1728,7 @@ function sessionRowHTML(s) {
     <button class="row" data-id="${esc(s.id)}">
       <span class="body"><span class="title">${esc(s.title)}</span>
       <span class="meta">${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${s.provider === 'codex' ? 'Codex' : s.provider === 'acp' ? 'OpenRouter' : 'Claude'}${s.branchOf ? ' · Branch' : ''}</span>${Automation.originOf(s) ? `<span class="origin-label">${esc(Automation.originOf(s))}</span>` : ''}
-      <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : background && !sessionsStale ? '<span class="ember dim" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
+      <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : background && !sessionsStale ? '<span class="ember dim" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}${typeof CheckBacks !== 'undefined' ? CheckBacks.rowClock(s) : ''}</span>
       <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
     </button>${complete ? `<button class="done-close" type="button" data-done-close="${esc(s.id)}" aria-label="Close ${esc(s.title)}: it is complete" title="Complete. Close conversation">${IC.tick}</button>` : ''}<button class="pin-toggle" type="button" data-pin-toggle="${esc(s.id)}" aria-pressed="${s.pinned ? 'true' : 'false'}" aria-label="${s.pinned ? 'Unpin' : 'Pin'} ${esc(s.title)}" title="${s.pinned ? 'Unpin' : 'Pin to the top'}">${IC.pin}</button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned conversation ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
   </div>`;
@@ -1802,7 +1803,7 @@ function bindSessionRows(container) {
   container.querySelectorAll('[data-id]').forEach(row => {
     row.onclick = () => { closeCurrentSheet?.(); location.hash = '#/chat/' + row.dataset.id; };
     const session = allSessions.find(s => s.id === row.dataset.id);
-    wireRowMenu(row, () => session, refreshSessions);
+    wireRowMenu(row, () => allSessions.find(s => s.id === row.dataset.id) || session, refreshSessions); // 1.119: a row kept across refreshes reads the current session
   });
   container.querySelectorAll('[data-pin-toggle]').forEach(b => b.onclick = () => {
     const session = allSessions.find(s => s.id === b.dataset.pinToggle);
@@ -1894,6 +1895,7 @@ function paintAssistantHome() {
     else { recent.removeAttribute('aria-label'); recent.setAttribute('aria-labelledby', 'home-recent-h'); recent.hidden = false; }
   }
 }
+const sessionListPainted = new WeakMap(); // 1.119: each list's HTML as last written
 function paintSessionPanels() {
   paintAssistantHome();
   paintWorkspaceFilters();
@@ -1910,8 +1912,11 @@ function paintSessionPanels() {
     if (pinDragging) return;                                   // a background refresh must not pull the row out from under the pointer
     const focus = el.contains(document.activeElement) ? document.activeElement?.dataset : null;
     const id = focus?.id, more = focus?.more, grip = focus?.grip, pin = focus?.pinToggle;
-    const list = filteredSessions();
-    el.innerHTML = reviewBarHTML(list) + groupedSessionsHTML(list); bindSessionRows(el);
+    const list = filteredSessions(), html = reviewBarHTML(list) + groupedSessionsHTML(list);
+    // 1.119: a refresh that changes nothing leaves the rows alone (a row's clock, its pin, the node under the pointer);
+    // a control a tap disabled is still reset by the repaint, as before.
+    if (sessionListPainted.get(el) === html && el.firstElementChild && !el.querySelector('button:disabled')) return;
+    el.innerHTML = html; sessionListPainted.set(el, html); bindSessionRows(el);
     if (id || more || grip || pin) el.querySelector(`[${grip ? 'data-grip' : pin ? 'data-pin-toggle' : more ? 'data-more' : 'data-id'}="${CSS.escape(grip || pin || more || id)}"]`)?.focus({preventScroll:true});
   });
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
@@ -1928,6 +1933,7 @@ function paintSessionPanels() {
   const quick = $('#session-switch');
   if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Conversations · status unavailable' : `Conversations · ${c.running} running${c.background ? ` · ${c.background} in background` : ''}${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
   if (typeof paintOpenSessions === 'function') paintOpenSessions(); // tabs show pins and follow the pinned order
+  if (typeof CheckBacks !== 'undefined') CheckBacks.onList(); // 1.119: the open conversation's check-back cards follow
 }
 // 1.19: send the last list's ETag; an unchanged list comes back as 304 with the server's check time in a
 // header, which proves a fresh authenticated check just as a full response does.
@@ -2514,6 +2520,7 @@ function paintChoices() {
   paintDone(msgs);
   if (typeof Handoff !== 'undefined') Handoff.paintHint(msgs); // 1.102: after the choices, which it joins when they show
   if (typeof InboxNews !== 'undefined') InboxNews.paint(msgs); // 1.113.1: the entry this conversation started from got more mail
+  if (typeof CheckBacks !== 'undefined') CheckBacks.paintChat(msgs); // 1.119: a check-back's card under the reply that set it
 }
 // Also run when the conversation list refreshes: background jobs, a question or a usage wait mean the conversation
 // is not finished, whatever the reply said.
@@ -3139,6 +3146,7 @@ async function renderChat(id, { away = false } = {}) {
 }
 
 function paintTranscript(id, s, msgs) {
+  if (typeof CheckBacks !== 'undefined') CheckBacks.fromSession(id, s); // 1.119: the cards paint with the choices below
   chatOffset = s.size || 0; chatTurnEvents = Number.isInteger(s.turnEvents) ? s.turnEvents : null; chatAttachKey = null; chatLastItem = null;
   chatTotal = s.total || s.messages.length; chatRendered = s.messages.length;
   fmarks = []; fidx = -1;

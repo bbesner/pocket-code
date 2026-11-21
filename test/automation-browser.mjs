@@ -17,19 +17,22 @@ const DAY=86400000;
 const ENV={POCKET_AUTOMATION_LONGEST_REPLY:'60'};
 export const automationFixture={
  paused:null,saved:{},posts:[],resumeInbox:null,
+ // 1.119: heldCheckbacks (the banner's count), resumeCheckbacks (Resume's { run, missed }) and checkbackSummary (set by
+ // test/checkback-browser.mjs: GET /api/automation's `checkbacks`).
+ heldCheckbacks:0,resumeCheckbacks:null,checkbackSummary:null,
  would:{replies:{claude:2,codex:1,openrouter:0},background:2,retries:1,checkbacks:0,inboxWatch:true},
- reset(){this.paused=null;this.saved={};this.posts=[];this.resumeInbox=null;},
+ reset(){this.paused=null;this.saved={};this.posts=[];this.resumeInbox=null;this.heldCheckbacks=0;this.resumeCheckbacks=null;this.would={...this.would,checkbacks:0};},
  value(group,key){return auto.groupValues(this.saved,group,ENV)[key];},
  me(){return this.paused?{at:this.paused.at}:null;},
  // GET /api/pause; banner() is the part /api/sessions carries (test/browser.mjs), as the server builds both
- banner(){return {paused:this.paused,held:this.paused?{retries:1,checkbacks:0}:{retries:0,checkbacks:0},ownMessages:this.value('pause','ownMessages'),confirm:this.value('pause','confirm')};},
+ banner(){return {paused:this.paused,held:this.paused?{retries:1,checkbacks:this.heldCheckbacks}:{retries:0,checkbacks:0},ownMessages:this.value('pause','ownMessages'),confirm:this.value('pause','confirm')};},
  pause(){const b=this.banner();return {paused:b.paused,would:this.would,held:b.held,ownMessages:b.ownMessages,confirm:b.confirm};},
  automation(){
   const now=Date.now(),d=auto.describe(this.saved,ENV);
   const days=Array.from({length:7},(_,i)=>({date:new Date(now-(6-i)*DAY).toISOString().slice(0,10),replies:[0,1,8,2,0,5,3][i],cost:[0,0.05,1.2,0.31,0,0.88,0.42][i],tokens:[0,12000,410000,90000,0,260000,120000][i]}));
   const n=auto.noticeFor({ok:false,reason:'plan_ceiling',engine:'claude',window:'weekly',used:83,ceiling:80});
   return {paused:this.paused,groups:d.groups,warnings:d.warnings,notices:[{reason:n.reason,engine:n.engine,at:new Date(now-2*3600000).toISOString(),text:n.text}],
-   usage:{today:{replies:3,cost:0.42,tokens:120000},days}};
+   usage:{today:{replies:3,cost:0.42,tokens:120000},days},checkbacks:this.checkbackSummary?.()||{on:this.value('checkbacks','checkbacks')===true,pending:0,running:0}};
  },
  // The server's own all-or-nothing check: a refused value saves nothing and names the allowed range.
  save(body){const r=auto.applySave(this.saved,body);if(r.error)return {status:r.status||400,body:{error:r.error}};this.saved=r.automation;return {status:200};},
@@ -39,7 +42,7 @@ export async function automationRoute(req,url,json){
  const f=automationFixture,body=async()=>{let raw='';for await(const c of req)raw+=c;return JSON.parse(raw||'{}');};
  if(url.pathname==='/api/pause'&&req.method==='GET'){json(f.pause());return true;}
  if(url.pathname==='/api/pause'&&req.method==='POST'){await body();f.posts.push('pause');f.paused=f.paused||{at:new Date().toISOString(),by:'owner'};json({ok:true,paused:f.paused,stopped:f.would});return true;}
- if(url.pathname==='/api/resume'&&req.method==='POST'){await body();f.posts.push('resume');f.paused=null;json({ok:true,paused:null,rearmed:1,inboxWatch:f.resumeInbox});return true;}
+ if(url.pathname==='/api/resume'&&req.method==='POST'){await body();f.posts.push('resume');f.paused=null;json({ok:true,paused:null,rearmed:1,inboxWatch:f.resumeInbox,...(f.resumeCheckbacks?{checkbacks:f.resumeCheckbacks}:{})});return true;}
  if(url.pathname==='/api/automation'){json(f.automation());return true;}
  if(url.pathname==='/api/automation/settings'){const b=await body();f.posts.push(b);const r=f.save(b);json(r.status===200?f.automation():r.body,r.status);return true;}
  return false;
@@ -92,8 +95,8 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
 
  // --- Settings → Automation renders the server's groups; a category in both modes ---
  await openAutomation();
- assert.deepEqual(await p.$$eval('[data-auto-group]',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits']);
- assert.deepEqual(await p.$$eval('[data-auto-group] > h3',e=>e.map(x=>x.textContent)),['Pause all','Limits on unattended work']);
+ assert.deepEqual(await p.$$eval('[data-auto-group]',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits','checkbacks']); // 1.119: Check-backs (test/checkback-browser.mjs)
+ assert.deepEqual(await p.$$eval('[data-auto-group] > h3',e=>e.map(x=>x.textContent)),['Pause all','Limits on unattended work','Check-backs']);
  assert.match(await p.$eval('#s-automation [data-pause-toggle]',e=>e.textContent),/^Pause allRunning normally\./);
  assert.equal(await p.$eval('[data-auto-advanced="limits"]',e=>e.open),false,'Advanced starts collapsed');
  assert.equal(await p.$eval(input('staleHours'),e=>e.checkVisibility()),false,'an advanced setting is under Advanced');
@@ -153,7 +156,7 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  await p.click('#listmore');await p.waitForSelector('.more-menu [data-pause-toggle]');
  await assertQuiet('the More menu, not paused');
  await p.click('.more-menu [data-pause-toggle]');await p.waitForSelector('.pause-sheet [data-pause-would]');
- assert.equal(await p.$eval('[data-pause-would]',e=>e.textContent),'This stops 3 replies running (2 Claude, 1 Codex), 2 background jobs, 1 usage-limit retry, Inbox Watch.');
+ assert.equal(await p.$eval('[data-pause-would]',e=>e.textContent),'This stops 3 replies running (2 Claude, 1 Codex), 2 background jobs, Inbox Watch. It holds 1 usage-limit retry.');
  assert.match(await p.$eval('.pause-sheet .sheet-help',e=>e.textContent),/^Your own messages still run\./);
  assert.equal(await p.evaluate(()=>document.activeElement?.dataset.pauseGo!==undefined),true,'Pause all has focus');
  await shot('confirm-1440-dark');await axeCheck(p,repo,'.pause-sheet');

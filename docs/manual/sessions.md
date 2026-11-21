@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.118.0
-sources: prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
+checked: 1.119.0
+sources: checkbacks.mjs, prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
 
@@ -157,7 +157,8 @@ Each row shows the title, the workspace (left out for the default or home folder
 for a branch, and the state, such as **Response ready**, **Complete**, **Didn't finish**, **Needs your answer**,
 **Needs approval**, **Queue paused** or **Waiting for usage reset**. When the newest reply was started by the queue, a
 usage-limit retry or a coordination wake rather than by you, a dim line under the agent says so (**Queued message**,
-**Continued after a usage limit** or **Woken by a hold**); see [Automation](automation.md#who-started-a-reply).
+**Continued after a usage limit**, **Woken by a hold** or **Started by a check-back**); see [Automation](automation.md#who-started-a-reply).
+While a [check-back](automation.md#check-backs) is waiting or running in a conversation, a small clock shows at the end of its row's state line. Its label (hover it, or use a screen reader) reads *Check-back at 2:30 PM*, *2 check-backs, next at 2:30 PM*, *2 check-backs, one running now, next at 2:30 PM*, or *Checking back now*. It goes when the check-back has run, been missed or been cancelled.
 
 ### Pin, rename, hide and mark reviewed
 

@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
+import {killStrays} from './stray-runners.mjs';
 import {VaultStore,parseKey,newKey,INTAKE} from '../vault.mjs';
 import {renderIntake,intakeBrand,intakeWhen,contrast} from '../intake-page.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -102,7 +103,7 @@ test('HTTP: the routes, the page and its headers, one use, limits, a locked Vaul
    if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=37;logs='';return start();}
    throw Error('Test server failed: '+logs);
   };
-  t.after(async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
   const page=async(p,{form,h={}}={})=>{const r=await fetch(`http://127.0.0.1:${port}${p}`,{method:form?'POST':'GET',redirect:'manual',headers:{...(form?{'content-type':'application/x-www-form-urlencoded'}:{}),...h},body:form?new URLSearchParams(form).toString():undefined});return {status:r.status,headers:r.headers,text:await r.text()};};
   await start();
@@ -179,7 +180,7 @@ test('HTTP: a locked Vault keeps the link open and says so; nothing is held outs
    if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=37;logs='';return start();}
    throw Error('Test server failed: '+logs);
   };
-  t.after(async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   const call=async(p,body)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:{...headers,origin:`http://127.0.0.1:${port}`},body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
   const page=async(p,form)=>{const r=await fetch(`http://127.0.0.1:${port}${p}`,{method:form?'POST':'GET',redirect:'manual',headers:form?{'content-type':'application/x-www-form-urlencoded'}:{},body:form?new URLSearchParams(form).toString():undefined});return {status:r.status,text:await r.text()};};
   await start();

@@ -1,6 +1,7 @@
 import {clickControl} from './ui-controls.mjs';
 import {runCoordinationRegressions} from './coordination-browser.mjs';
 import {automationFixture,automationRoute,pauseRefusal,runAutomationRegressions} from './automation-browser.mjs'; // 1.117
+import {checkbackFixture,checkbackRoute,runCheckbackRegressions} from './checkback-browser.mjs'; // 1.119
 // Deterministic frontend acceptance checks. This serves fixtures only: no real
 // sessions, credentials, CLI, or production service is involved.
 import http from 'node:http';
@@ -228,7 +229,8 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}
  if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;releases.push(decodeURIComponent(url.pathname));return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
  if(await automationRoute(req,url,json))return; // 1.117: /api/pause, /api/resume, /api/automation
- if(url.pathname==='/api/me')return json({ok:true,paused:automationFixture.me(),features:{automation:true,coordination:Boolean(fixtureSettings.coordination)&&!fixtureSettings.assistantMode,projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),inbox:Boolean(fixtureSettings.inbox),assistantMode:Boolean(fixtureSettings.assistantMode),assistantLocked:Boolean(fixtureSettings.assistantLocked),handoffAt:fixtureSettings.handoffAt||0,markAllReviewed:fixtureSettings.markAllReviewed!==false}});
+ if(await checkbackRoute(req,url,json,id=>rows.find(r=>r.id===id)?.title||''))return; // 1.119: /api/checkbacks*, and push prefs while a check subscribes
+ if(url.pathname==='/api/me')return json({ok:true,paused:automationFixture.me(),features:{automation:true,checkbacks:checkbackFixture.on(),coordination:Boolean(fixtureSettings.coordination)&&!fixtureSettings.assistantMode,projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),inbox:Boolean(fixtureSettings.inbox),assistantMode:Boolean(fixtureSettings.assistantMode),assistantLocked:Boolean(fixtureSettings.assistantLocked),handoffAt:fixtureSettings.handoffAt||0,markAllReviewed:fixtureSettings.markAllReviewed!==false}});
  // 1.99: Coordination's two calls, on a list the test resets.
  if(url.pathname==='/api/coordination')return json({now:Date.now(),seeds:[],holds:coordFixture.holds,recent:coordFixture.recent});
  if(url.pathname==='/api/coordination/owner-release'){let raw='';for await(const c of req)raw+=c;const {name}=JSON.parse(raw),hold=coordFixture.holds.find(h=>h.name===name);coordFixture.holds=coordFixture.holds.filter(h=>h!==hold);
@@ -250,7 +252,7 @@ const server=http.createServer(async(req,res)=>{
   if(stale)return json({error:'Fixture offline'},503);
   // Like the live server (1.19): an unchanged list answers 304 with the check time in a header.
   const coordHeld=fixtureSettings.coordination&&!fixtureSettings.assistantMode?coordFixture.holds.map(h=>({name:h.name,title:h.holder.title})):[];
-  const payload={sessions:[...rows].sort((a,b)=>pinKey(a)-pinKey(b)),warnings:[],home:'/workspaces/purchasing',...(coordHeld.length?{held:coordHeld}:{}),pause:automationFixture.banner()},checkedAt=Date.now(); // 1.117: pause, the banner's state
+  const payload={sessions:[...rows].sort((a,b)=>pinKey(a)-pinKey(b)).map(r=>checkbackFixture.row(r)),warnings:[],home:'/workspaces/purchasing',...(coordHeld.length?{held:coordHeld}:{}),pause:automationFixture.banner()},checkedAt=Date.now(); // 1.117: pause, the banner's state
   const etag='"'+createHash('sha1').update(JSON.stringify(payload)).digest('base64url')+'"';
   if(req.headers['if-none-match']===etag){uiModes.notModified=(uiModes.notModified||0)+1;res.writeHead(304,{etag,'x-pocket-checked-at':String(checkedAt)});res.end();return;}
   res.writeHead(200,{'content-type':'application/json',etag,'x-pocket-checked-at':String(checkedAt)});res.end(JSON.stringify({...payload,checkedAt}));return;
@@ -314,7 +316,7 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname.startsWith('/api/tasks')){ // 1.36
   if(!fixtureSettings.tasks)return json({error:'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'tasks_off'},404);
-  if(url.pathname==='/api/tasks')return json({...taskStore.snapshot(),push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail)});
+  if(url.pathname==='/api/tasks')return json({...taskStore.snapshot(),push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail),...checkbackFixture.tasks(id=>rows.find(r=>r.id===id)?.title||'')}); // 1.119: the Check-backs group
   if(url.pathname==='/api/tasks/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,task:taskStore.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.task?{task:e.task}:{})},e.status||400);}}
   if(url.pathname==='/api/tasks/summary'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');await new Promise(r=>setTimeout(r,uiModes.slowSummary?1500:50));return json(uiModes.noSummary?{summary:null,reason:'unavailable'}:{summary:'Reviewing the warehouse stock report for '+(rows.find(r=>r.id===b.session)?.title||'a session')+'.\nAisle 4 is still 14 units short after the recount.\nThe reorder list is drafted and waiting for a decision.',model:'haiku',provider:'claude'});}
   if(url.pathname==='/api/tasks/reset'){seedTasks();return json({ok:true});}
@@ -467,7 +469,7 @@ const server=http.createServer(async(req,res)=>{
  }
  const match=url.pathname.match(/^\/api\/session\/([^/]+)(\/message)?$/);
  if(match){const id=decodeURIComponent(match[1]),r=rows.find(x=>x.id===id);
-  if(!match[2]){if(uiModes.sessionDelay)await new Promise(r=>setTimeout(r,uiModes.sessionDelay));/* sessionDelay: a slow transcript read, so a check can see the view while it waits */const messages=messagesOf(id);return json({...r,...(sideFixture.lineage[id]||{}),projectMode:uiModes.projectMode?.[id]||null,active:r.state.kind==='running',ext:false,messages,total:messages.length});} // 1.106: projectMode
+  if(!match[2]){if(uiModes.sessionDelay)await new Promise(r=>setTimeout(r,uiModes.sessionDelay));/* sessionDelay: a slow transcript read, so a check can see the view while it waits */const messages=messagesOf(id);return json({...r,...(sideFixture.lineage[id]||{}),projectMode:uiModes.projectMode?.[id]||null,...checkbackFixture.session(id),active:r.state.kind==='running',ext:false,messages,total:messages.length});} // 1.106: projectMode
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   const held=secretRefusal(body);if(held)return json(held,422);
   const paused=pauseRefusal();if(paused)return json(paused,409); // 1.117: own messages Blocked while paused
@@ -495,6 +497,7 @@ try{
  if(process.env.POCKET_SLASH_ONLY){ /* POCKET_SLASH_ONLY=n: the / picker checks only, n times over, to shake out a flake */const {runSlashRegressions}=await import('./slash-browser.mjs');for(let k=0;k<Number(process.env.POCKET_SLASH_ONLY);k++){console.log('iteration',k);await runSlashRegressions({browser,base,rows,received,out});}throw Object.assign(Error('slash only'),{docsOnly:true});}
  if(process.env.POCKET_CLI_UPDATES_ONLY){const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');await runCliUpdateRegressions({browser,base,out});throw Object.assign(Error('CLI updates only'),{docsOnly:true});}
  if(process.env.POCKET_AUTOMATION_ONLY){await runAutomationRegressions({p,base,out,repo,rows,settings:fixtureSettings,scan});assert.deepEqual(errors,[]);if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,automationOnly:true,screenshots:out}));throw Object.assign(Error('automation only'),{docsOnly:true});}
+ if(process.env.POCKET_CHECKBACK_ONLY){await runCheckbackRegressions({p,base,out,repo,rows,conversations,settings:fixtureSettings,scan});assert.deepEqual(errors,[]);if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,checkbackOnly:true,screenshots:out}));throw Object.assign(Error('checkback only'),{docsOnly:true});}
  if(process.env.POCKET_COORD_ONLY){await runCoordinationRegressions({p,base,out,repo,rows,settings:fixtureSettings,coord:coordFixture,scan});if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,coordinationOnly:true,screenshots:out}));throw Object.assign(Error('coordination only'),{docsOnly:true});}
  if(process.env.POCKET_INBOX_NEWS_ONLY){const {runInboxNewsRegressions}=await import('./inbox-news-browser.mjs');await runInboxNewsRegressions({browser,base,rows,out,settings:fixtureSettings,received,inboxStore,inboxCaughtUp,inboxSplits,conversations});console.log(JSON.stringify({ok:true,inboxNewsOnly:true,screenshots:out}));throw Object.assign(Error('inbox news only'),{docsOnly:true});}
  if(process.env.POCKET_COMPLETE_ONLY){const {runCompleteRegressions}=await import('./complete-browser.mjs');await runCompleteRegressions({browser,base,rows,out,conversations,releases,settings:fixtureSettings});console.log(JSON.stringify({ok:true,completeOnly:true,screenshots:out}));throw Object.assign(Error('complete only'),{docsOnly:true});}
@@ -1057,6 +1060,7 @@ try{
  assert.deepEqual(errors,[]);
  await runCoordinationRegressions({p,base,out,repo,rows,settings:fixtureSettings,coord:coordFixture,scan});
  await runAutomationRegressions({p,base,out,repo,rows,settings:fixtureSettings,scan}); // 1.117
+ await runCheckbackRegressions({p,base,out,repo,rows,conversations,settings:fixtureSettings,scan}); // 1.119
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));

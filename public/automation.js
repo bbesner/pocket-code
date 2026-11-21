@@ -37,11 +37,23 @@ const Automation = (() => {
     return parts.length ? parts.join(', ') + '.' : '';
   }
   const ownLine = () => state.ownMessages === 'blocked' ? 'Your own messages wait until you resume.' : 'Your own messages still run.';
+  // The banner's held line: " 1 usage-limit retry is held.", " 3 check-backs are held.", " 1 usage-limit retry and 2 check-backs are held."
+  function heldLine(h) {
+    const r = h?.retries > 0 ? h.retries : 0, c = h?.checkbacks > 0 && window.pocketFeatures?.checkbacks ? h.checkbacks : 0;
+    if (!r && !c) return '';
+    const parts = [r && plural(r, 'usage-limit retry', 'usage-limit retries'), c && plural(c, 'check-back', 'check-backs')].filter(Boolean);
+    return ` ${parts.join(' and ')} ${r + c === 1 ? 'is' : 'are'} held.`;
+  }
+  // Resume's toast for check-backs: "2 overdue check-backs run now. 1 check-back was marked missed."
+  function resumedCheckbacks(cb) {
+    const run = cb?.run > 0 ? cb.run : 0, missed = cb?.missed > 0 ? cb.missed : 0;
+    return [run && `${plural(run, 'overdue check-back runs', 'overdue check-backs run')} now.`, missed && `${plural(missed, 'check-back was', 'check-backs were')} marked missed.`].filter(Boolean).join(' ');
+  }
 
   /* ---------- state ---------- */
   // What the page shows of the state. A refresh that leaves it the same touches nothing: no banner, header, control or
   // list repaint (the regular list refresh brings the list's `pause`, the return to the tab a /api/pause; see test/automation-browser.mjs).
-  const shown = () => JSON.stringify([state.paused?.at || null, state.ownMessages, state.held?.retries || 0, on()]);
+  const shown = () => JSON.stringify([state.paused?.at || null, state.ownMessages, state.held?.retries || 0, state.held?.checkbacks || 0, Boolean(window.pocketFeatures?.checkbacks), on()]);
   let lastShown = null;
   function apply(d) {
     if (!d || typeof d !== 'object') return;
@@ -101,7 +113,7 @@ const Automation = (() => {
       banner.querySelector('[data-resume]').onclick = e => resume(e.currentTarget);
       document.body.prepend(banner);
     }
-    const held = state.held?.retries > 0 ? ` ${plural(state.held.retries, 'usage-limit retry is', 'usage-limit retries are')} held.` : '';
+    const held = heldLine(state.held);
     const text = `Pocket is paused. ${ownLine()}${held}`;
     const p = banner.querySelector('.pause-text'); if (p.textContent !== text) p.textContent = text;
     const title = state.paused?.at ? 'Paused at ' + timeOf(state.paused.at) : '';
@@ -150,9 +162,12 @@ const Automation = (() => {
   function confirmSheet(d) {
     const scrim = document.createElement('div'); scrim.className = 'scrim';
     const sh = document.createElement('div'); sh.className = 'sheet pause-sheet';
-    const would = wouldText(d.would);
+    // What stops, then what is held (retries and check-backs wait for Resume; they don't stop), as the toast says it:
+    // "This stops 3 replies running (2 Claude, 1 Codex), 2 background jobs, Inbox Watch. It holds 1 usage-limit retry, 3 check-backs."
+    const w = d.would || {}, stops = wouldText({ replies: w.replies, background: w.background, inboxWatch: w.inboxWatch }), holds = wouldText({ retries: w.retries, checkbacks: w.checkbacks });
+    const would = [stops && 'This stops ' + stops, holds && (stops ? 'It holds ' : 'This holds ') + holds].filter(Boolean).join(' ');
     sh.innerHTML = `<h2>Pause all</h2>
-      <p class="pause-would" data-pause-would>${would ? 'This stops ' + esc(would) : 'Nothing is running or waiting right now. Pausing holds anything automatic that comes up.'}</p>
+      <p class="pause-would" data-pause-would>${would ? esc(would) : 'Nothing is running or waiting right now. Pausing holds anything automatic that comes up.'}</p>
       <p class="sheet-help">${esc(ownLine())} Anything automatic waits until you resume. Queued messages stay in their queue until you start them.</p>
       <div class="pause-actions"><button type="button" class="chip claude-stop" data-pause-go>${PAUSE_ICON}Pause all</button><button type="button" class="chip" data-pause-keep>Keep running</button></div>
       <p class="question-error" data-pause-error role="alert"></p>`;
@@ -191,7 +206,9 @@ const Automation = (() => {
       apply({ paused: null, held: null });
       // Pause all paused Inbox Watch, and its settings were changed while paused: they are left as they are, still paused.
       toast([r.rearmed > 0 ? `Resumed. ${plural(r.rearmed, 'held retry runs', 'held retries run')} again.` : 'Resumed.',
+        resumedCheckbacks(r.checkbacks), // 1.119
         r.inboxWatch === 'left_paused' && 'Inbox Watch was changed while paused and is still paused.'].filter(Boolean).join(' '));
+      if (typeof CheckBacks !== 'undefined') CheckBacks.refresh();
       poll(true); if (typeof refreshSessions === 'function') refreshSessions();
       // Focus would be lost with the banner; the message box or the page heading takes it.
       if (button?.closest('.pause-banner')) (document.querySelector('#box:not([readonly])') || document.querySelector('#first') || document.querySelector('header.bar h1'))?.focus?.({ preventScroll: true });
@@ -247,13 +264,23 @@ const Automation = (() => {
   }
   function groupHTML(g) {
     const rows = s => s.map(x => settingRowHTML(g, x)).join('');
-    const main = g.settings.filter(s => !s.advanced), adv = g.settings.filter(s => s.advanced);
-    return `<section class="automation-group" data-auto-group="${esc(g.key)}" aria-labelledby="auto-${esc(g.key)}-h">
+    // 1.119: a feature's group leads with its own switch (the setting named like the group); while it is off, the rest
+    // of the group reads as inactive (still editable, so it can be set up before it is turned on).
+    const sw = g.settings[0]?.key === g.key && g.settings[0].type === 'bool' ? g.settings[0] : null, off = sw && sw.value !== true;
+    const rest = sw ? g.settings.slice(1) : g.settings;
+    const main = rest.filter(s => !s.advanced), adv = rest.filter(s => s.advanced);
+    const body = `${rows(main)}
+      ${adv.length ? `<details class="settings-details automation-advanced" data-auto-advanced="${esc(g.key)}"${advancedOpen.has(g.key) ? ' open' : ''}><summary>Advanced</summary>${rows(adv)}</details>` : ''}`;
+    return `<section class="automation-group${off ? ' automation-group-off' : ''}" data-auto-group="${esc(g.key)}" aria-labelledby="auto-${esc(g.key)}-h">
       <h3 class="vault-set-head" id="auto-${esc(g.key)}-h">${esc(g.title)}</h3>
-      ${rows(main)}
-      ${adv.length ? `<details class="settings-details automation-advanced" data-auto-advanced="${esc(g.key)}"${advancedOpen.has(g.key) ? ' open' : ''}><summary>Advanced</summary>${rows(adv)}</details>` : ''}
+      ${sw ? settingRowHTML(g, sw) + `<div class="automation-dependent" data-auto-dependent="${esc(g.key)}">${off ? `<p class="title-note automation-inactive-note">These apply when ${esc(sw.label)} is on.</p>` : ''}${body}</div>` : body}
       <span class="vault-set-actions"><button type="button" class="chip" data-auto-reset="${esc(g.key)}">Reset to defaults</button></span>
-      <p class="title-note" data-auto-status="${esc(g.key)}" role="status"></p></section>`;
+      <p class="title-note" data-auto-status="${esc(g.key)}" role="status"></p>${g.key === 'checkbacks' ? waitingHTML() : ''}</section>`;
+  }
+  // 1.119: under Check-backs, how many wait and Cancel all; only while it is on and there are any.
+  function waitingHTML() {
+    const cb = data?.checkbacks, n = cb?.on ? cb.pending || 0 : 0;
+    return n > 0 ? `<div class="automation-waiting" data-checkbacks-waiting><span class="automation-waiting-count">${n} waiting</span><button type="button" class="chip" data-checkbacks-cancel-all aria-label="Cancel all ${n} waiting check-backs">Cancel all</button></div>` : '';
   }
   function usageHTML(u, notices) {
     const days = (u?.days || []).slice(-7).reverse(), t = u?.today || {}; // the server sends oldest first; the table reads newest first
@@ -275,6 +302,15 @@ const Automation = (() => {
     if (focusKey) body.querySelector(`[${focusAttr}="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   }
   const settingOf = (group, key) => data?.groups?.find(g => g.key === group)?.settings.find(s => s.key === key);
+  // 1.119: turning check-backs on or off here changes what the app shows at once (the list's clock, the cards, Tasks),
+  // without waiting for the next /api/me. The push toggle stays: it also carries the 1.117 limit notices.
+  function followCheckbacksSwitch() {
+    const now = settingOf('checkbacks', 'checkbacks')?.value === true;
+    if (!window.pocketFeatures || Boolean(window.pocketFeatures.checkbacks) === now) return;
+    window.pocketFeatures.checkbacks = now;
+    paint();
+    if (typeof refreshSessions === 'function') refreshSessions();
+  }
   async function save(group, payload, { key = '', control = null, done = '' } = {}) {
     const row = key ? host.querySelector(`[data-auto-group="${CSS.escape(group)}"] [data-auto-row="${CSS.escape(key)}"]`) : null;
     const errEl = row?.querySelector('.vault-field-error'), status = host.querySelector(`[data-auto-status="${CSS.escape(group)}"]`);
@@ -282,8 +318,9 @@ const Automation = (() => {
     try {
       data = await api('/automation/settings', { method: 'POST', body: JSON.stringify({ group, ...payload }) });
       apply({ paused: data.paused ?? state.paused });
+      if (group === 'checkbacks') followCheckbacksSwitch();
       paintSettings();
-      const st = host.querySelector(`[data-auto-status="${CSS.escape(group)}"]`); if (st) st.textContent = done || 'Saved.';
+      const st = host.querySelector(`[data-auto-status="${CSS.escape(group)}"]`); if (st) st.textContent = (typeof done === 'function' ? done() : done) || 'Saved.';
       return true;
     } catch (e) {
       const message = e.message || 'Could not save.';
@@ -321,7 +358,12 @@ const Automation = (() => {
       });
       const adv = sec.querySelector('[data-auto-advanced]'); if (adv) adv.ontoggle = () => adv.open ? advancedOpen.add(group) : advancedOpen.delete(group);
       const reset = sec.querySelector('[data-auto-reset]');
-      if (reset) reset.onclick = () => save(group, { reset: true }, { done: 'Back to the defaults.' });
+      // 1.119: Check-backs are Off by default, so a reset that turned them off says so (the waiting ones are kept, not run).
+      const cbOn = () => group === 'checkbacks' && settingOf('checkbacks', 'checkbacks')?.value === true;
+      if (reset) reset.onclick = () => { const wasOn = cbOn(); save(group, { reset: true }, { done: () => wasOn && !cbOn() ? 'Back to the defaults. Check-backs are off.' : 'Back to the defaults.' }); };
+      // 1.119: Cancel all, after "Cancel N check-backs?" (a sheet of its own that returns here, reloaded, either way).
+      const all = sec.querySelector('[data-checkbacks-cancel-all]');
+      if (all && typeof CheckBacks !== 'undefined') all.onclick = () => CheckBacks.confirmCancelAll(data?.checkbacks?.pending || 0);
     });
   }
   async function bindSettings(sh) {

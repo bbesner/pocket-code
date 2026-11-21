@@ -8,6 +8,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
+import {killStrays} from './stray-runners.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -27,7 +28,7 @@ async function daemon(t,{port,env={},setup=()=>{}}){
     if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&tries<4){port+=37;continue;}
     throw Error('Test server failed: '+logs);
   }
-  t.after(async()=>{if(child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}await sleep(200);fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200});});
+  t.after(async()=>{if(child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}await sleep(200);killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200});});
   const bearer={'content-type':'application/json',authorization:'Bearer '+fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim()};
   const call=async(p,body,h=cookie)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
   return {dir,call,bearer,logs:()=>logs};

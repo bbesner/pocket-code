@@ -9,6 +9,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import {spawn,execFileSync} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
+import {killStrays} from './stray-runners.mjs';
 import {SideChats} from '../sidechat.mjs';
 import {sessionState} from '../session-state.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -30,7 +31,7 @@ async function daemon(t,port,env={}){
   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
   throw Error('Test server failed: '+logs);
  };
- t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+ t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
  const call=async(p,extra={})=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{headers:{...headers,...extra}});const raw=Buffer.from(await r.arrayBuffer());let body=null;try{body=JSON.parse(raw.toString('utf8'))}catch{}return {status:r.status,body,raw,headers:r.headers};};
  await start();
  const seed=(lines,id=randomUUID())=>{fs.writeFileSync(path.join(dir,'sessions','test-workspace',id+'.jsonl'),lines.map(l=>JSON.stringify(l)).join('\n')+'\n');return id;};

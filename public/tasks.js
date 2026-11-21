@@ -67,11 +67,16 @@ async function renderTasks(view){
  paintTasksView();
  restoreViewPosition(view);
 }
+const tasksPainted=new WeakMap(); // 1.119: the list's HTML as last written
 function paintTasksView(){
  const main=$('#tasks-main');if(!main||!tasksSnap||!taskView)return;
- main.innerHTML=taskListHTML();
- bindTaskRows(main);
- main.querySelector('#tk-add')?.addEventListener('click',()=>taskEditor(null));
+ const html=taskListHTML();
+ if(tasksPainted.get(main)!==html||main.querySelector('button:disabled')){ // 1.119: a refresh that changes nothing leaves the rows alone
+  main.innerHTML=html;tasksPainted.set(main,html);
+  bindTaskRows(main);
+  if(typeof CheckBacks!=='undefined')CheckBacks.bindTasks(main);
+  main.querySelector('#tk-add')?.addEventListener('click',()=>taskEditor(null));
+ }
  paintTaskBadges();
  if(typeof paintOpenSessions==='function')paintOpenSessions();
 }
@@ -99,10 +104,11 @@ function openRows(){
 function taskListHTML(){
  const open=tasksSnap.tasks.filter(t=>!t.done),done=tasksSnap.tasks.filter(t=>t.done),rems=dueReminders(),due=dueTotal(),count=open.length+rems.length;
  const withProjects=typeof projectsOn==='function'&&projectsOn();
+ const checkbacks=typeof CheckBacks!=='undefined'?CheckBacks.tasksHTML(tasksSnap):''; // 1.119: read-only, between the to-dos and Done
  return `<div class="session-home-head"><h2>Tasks</h2><span class="project-head-actions"><button class="chip" id="tk-add">${IC.plus}Add task</button></span></div>
   ${count||done.length?`${count?`<section class="session-group project-group"><h2>To do <span>${count}${due?` · ${due} due`:''}</span></h2>${openRows().join('')}</section>`:'<p class="sheet-help project-empty">Nothing to do. Add a task here, or from a conversation with Add task.</p>'}
-   ${done.length?`<details class="session-group project-group settings-details"><summary><h2>Done <span>${done.length}</span></h2></summary>${done.map(taskRowHTML).join('')}</details>`:''}`
-  :`<p class="sheet-help project-empty">No tasks yet. Add one here, from a conversation's Add task chip, or by telling an agent "create a task to …". A task can carry a date and the context of the conversation it came from, and Start opens a new conversation with it.${withProjects?' Project reminders appear here too, when a project has one.':''}</p>`}`;
+   ${checkbacks}${done.length?`<details class="session-group project-group settings-details"><summary><h2>Done <span>${done.length}</span></h2></summary>${done.map(taskRowHTML).join('')}</details>`:''}`
+  :`<p class="sheet-help project-empty">No tasks yet. Add one here, from a conversation's Add task chip, or by telling an agent "create a task to …". A task can carry a date and the context of the conversation it came from, and Start opens a new conversation with it.${withProjects?' Project reminders appear here too, when a project has one.':''}</p>${checkbacks}`}`;
 }
 function bindTaskRows(root){
  root.querySelectorAll('[data-task-check]').forEach(b=>b.onclick=()=>{const t=taskById(b.dataset.taskCheck);if(t)taskAct({action:'update',task:t.id,expected_revision:t.revision,done:!t.done},t.done?'Task reopened':'Task done');});

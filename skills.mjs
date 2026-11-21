@@ -16,10 +16,11 @@ export const SKILLS = [
   { name: 'pocket-vault', feature: 'vault', cli: 'vault', manual: 'vault.md' }, // 1.39
   { name: 'pocket-inbox', feature: 'inbox', cli: 'inbox', manual: 'inbox-watch.md' }, // 1.69: Inbox Watch
   { name: 'pocket-coord', feature: 'coordination', cli: 'coord', manual: 'coordination.md' }, // 1.99
+  { name: 'pocket-checkback', feature: 'checkbacks', cli: 'checkback', manual: 'automation.md' }, // 1.119: only while check-backs are on
   // 1.59: Gmail, Calendar and Drive through each agent's own connectors (Settings → Connectors). Always on; one file per agent.
   { name: 'pocket-google', feature: null, files: { claude: 'SKILL.claude.md', codex: 'SKILL.codex.md' }, manual: 'google.md' },
 ];
-const BIN = { board: 'pocket-board', docs: 'pocket-docs', tasks: 'pocket-tasks', vault: 'pocket-vault', inbox: 'pocket-inbox', coord: 'pocket-coord' };
+const BIN = { board: 'pocket-board', docs: 'pocket-docs', tasks: 'pocket-tasks', vault: 'pocket-vault', inbox: 'pocket-inbox', coord: 'pocket-coord', checkback: 'pocket-checkback' };
 const SRC = path.join(import.meta.dirname, 'skills');
 
 // Claude Code's user skills folder always; Codex's only where Codex is installed for this user.

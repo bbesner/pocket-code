@@ -7,6 +7,7 @@ import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac} from 'node:crypto';
 import {StartStore,handoffInstructions} from '../starts.mjs';
+import {killStrays} from './stray-runners.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX|CLAUDE|OPENCODE)_/.test(k)));
@@ -32,8 +33,9 @@ test('HTTP: parent, double start, permission and folder',{timeout:60_000},async 
   const headers={'content-type':'application/json',cookie:'pc_auth='+exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex')};
   const child=spawn(process.execPath,['server.mjs'],{cwd:repo,stdio:['ignore','pipe','pipe'],env:{...cleanEnv(),HOME:home,PORT:String(port),POCKET_SKILLS:'0',POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_APPROVAL_MODE:'full',
     POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')}});
+  const exited=new Promise(r=>child.once('exit',r));
   let logs='';child.stdout.on('data',b=>logs+=b);child.stderr.on('data',b=>logs+=b);
-  t.after(()=>{child.kill('SIGKILL');fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{try{child.kill('SIGKILL');}catch{}await exited;killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   for(let i=0;;i++){try{if((await fetch(`http://127.0.0.1:${port}/api/health`)).ok)break;}catch{} if(i>200)throw Error('no server: '+logs);await sleep(30);}
   const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return{status:r.status,body:await r.json().catch(()=>null)};};
   const bearer={'content-type':'application/json',authorization:'Bearer '+fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim()};

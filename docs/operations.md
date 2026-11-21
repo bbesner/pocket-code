@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.117.0
-sources: cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs
+checked: 1.119.0
+sources: checkbacks.mjs, automation.mjs, cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # Operations, upgrades and recovery
 
@@ -266,8 +266,11 @@ Pocket-owned persistent state includes:
   at the next start; after a restore, use **Sign out everywhere**;
 - `automation-state.json` and `automation-audit.jsonl`, the day's counts and limit notices behind
   [Automation](manual/automation.md), and its append-only record (created with mode `0600`) of pauses, resumes, settings
-  changes and unattended replies. The audit never holds message text. Whether Pocket is paused, and the saved Automation settings, are in
+  changes, check-back events and unattended replies. The audit never holds message text. Whether Pocket is paused, and the saved Automation settings, are in
   `pocket-settings.json`;
+- `checkbacks.json` (1.119, mode `0600`, written by tmp file and rename), the check-backs: waiting and running ones
+  until they finish, finished ones for 30 days (at most 300). It is created when the first check-back is set and holds
+  each one's note, so treat it like `tasks.json`. Back it up with the data directory;
 - `cli-token` and `cli-url`, the loopback CLI token and address. They are rewritten at every
   start, so do not back them up or copy them to another instance.
 
@@ -342,6 +345,26 @@ lift it: the install comes back paused, with its queues still and any usage-limi
 marker carries `held: true`). Background jobs Pause all stopped stay stopped. The owner resumes from the banner or
 **Settings → Automation**. Do not edit the file to resume while Pocket runs.
 
+**Check-backs** (1.119, [Automation](manual/automation.md#check-backs)) are off until the owner turns them on in
+**Settings → Automation → Check-backs**. A pause holds every waiting check-back, and Resume lets them go or marks the
+overdue ones missed (**On Resume, run overdue check-backs**). A restart settles a check-back that was running: one whose
+reply had begun is recorded as cut off by the restart; one that had not begun is marked missed, and the owner gets one
+push. Nothing runs twice, because a check-back is saved as running before anything starts. After the daemon was down,
+waiting check-backs that are within the catch-up window (12 hours by default) run once, late, 15 seconds apart.
+
+Presets for an install are `POCKET_AUTOMATION_CHECKBACKS` and its siblings, for example
+`POCKET_AUTOMATION_CHECKBACKS=1` to start with the feature on and `POCKET_AUTOMATION_CHAIN_LIMIT=2`; the full list is in
+[Automation](manual/automation.md#presets-for-an-install). A value saved in Settings wins. `POCKET_CHECKBACK_TICK_MS`
+(default 60000, minimum 100) sets how often Pocket looks for check-backs that are due. The tests also use
+`POCKET_TEST_CHECKBACK_CLOCK` and `POCKET_TEST_CHECKBACK_GAP`; leave both unset.
+
+Rolling back to 1.118 (or 1.117) stops check-backs and loses nothing. 1.118 does not read `checkbacks.json`, the **Check-backs**
+settings or **On Resume, run overdue check-backs**; it keeps them in `pocket-settings.json` and the file, so upgrading
+again finds them, and a waiting check-back is then run or marked missed by the catch-up window. Delete the
+`pocket-checkback` folders 1.119 installed under `~/.claude/skills/` and `$CODEX_HOME/skills/` (1.118 does not remove
+them, and their command no longer exists). 1.118 ignores the device choice **Check-backs and job results** and sends the
+limit notice with **Inbox alerts** again.
+
 Rolling back to 1.116 ignores the pause and arms held retries again at start. 1.116 keeps `paused` in
 `pocket-settings.json` without reading it, so a later upgrade to 1.117 comes back paused: resume before rolling back, or
 resume after the upgrade. If Pause all had paused Inbox Watch, it stays paused under 1.116 until it is resumed in Inbox
@@ -393,7 +416,7 @@ Due items are checked every `POCKET_REMINDER_CHECK_MS` (default 60000, minimum 2
 a first check a few seconds after start. A task stays due until it is done or re-dated.
 
 **Push priority.** Due tasks, reminders, Vault requests and alerts (Inbox Watch, `pocket-notify`) go out with `Urgency: high`
-(1.50.2), so Android delivers them while the phone is idle; a finished turn goes at normal
+(1.50.2), so Android delivers them while the phone is idle; a finished turn, and a check-back's result or missed notice and the **Unattended work held** notice (kind `automation`, 1.119), go at normal
 priority and may wait until the phone wakes.
 
 **Push preferences.** Each device's choices (which kinds, the icon count) are kept with its

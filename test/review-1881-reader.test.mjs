@@ -9,6 +9,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
+import {killStrays} from './stray-runners.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -40,7 +41,7 @@ async function fixture(t,port,env={}){
  // What the CLI prints on stdout lands in the runner's output file; the daemon tails that file.
  const stdout=(id,o)=>{const d=path.join(dir,'data','turnlogs');const f=fs.readdirSync(d).find(n=>n.startsWith(id+'.')&&n.endsWith('.out.ndjson'));fs.appendFileSync(path.join(d,f),JSON.stringify(o)+'\n');};
  const killAll=()=>{for(const pid of new Set(calls().map(c=>c.pid))){try{process.kill(-pid,'SIGKILL')}catch{try{process.kill(pid,'SIGKILL')}catch{}}}};
- t.after(async()=>{await stop();killAll();await sleep(300);fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200});});
+ t.after(async()=>{await stop();killAll();await sleep(300);killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200});});
  await start();
  return {dir,home,start,stop,call,until,calls,state,line,stdout,transcriptFile,logs:()=>logs};
 }

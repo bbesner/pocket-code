@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
+import {killStrays} from './stray-runners.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|REVIEW)_/.test(k)));
@@ -37,7 +38,7 @@ async function fixture(t,port,env={}){
  const transcriptFile=id=>path.join(dir,'sessions','test-workspace',id+'.jsonl');
  const transcript=id=>{try{return fs.readFileSync(transcriptFile(id),'utf8')}catch{return ''}};
  const killAll=()=>{for(const pid of pids()){try{process.kill(-pid,'SIGKILL')}catch{try{process.kill(pid,'SIGKILL')}catch{}}}};
- t.after(async()=>{await stop();killAll();fs.rmSync(dir,{recursive:true,force:true});});
+ t.after(async()=>{await stop();killAll();killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
  fs.mkdirSync(path.join(dir,'sessions','test-workspace'),{recursive:true});
  await start();
  return {dir,turnlogs:path.join(dir,'data','turnlogs'),start,stop,call,calls,state,until,pids,transcript,transcriptFile,logs:()=>logs};

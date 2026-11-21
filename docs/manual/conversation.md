@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.117.0
-sources: choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
+checked: 1.119.0
+sources: checkbacks.mjs, choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
 
@@ -115,6 +115,10 @@ When a reply ends by asking you to choose between specific next steps, Pocket sh
   them; the X dismisses them for that reply on this browser.
 - Questions an agent asks while it is still working use the question form instead (see
   [Questions and approvals](approvals.md#answer-a-question)).
+
+### See a check-back (the check-back card)
+
+With **Check-backs** on ([Automation](automation.md#check-backs)), when you ask an agent to look again later ("check the page in 15 minutes") it sets a check-back and a small card appears under the reply that set it, one line (two on a narrow phone): *Will check back at 2:30 PM*, with **Cancel**. The card changes in place, with no reload, as the check-back moves on: *Checking back now*, then *Checked back 2:30 PM*, or *Missed: …* or *Cancelled*. While something holds it the card says what, after the time: *· held while Pocket is paused*, *· waiting for the conversation to finish*, *· waiting for a usage limit to reset*, *· held by a plan ceiling* or *· held by the daily limit*. Times are in your device's time zone; hover for the full date. Several check-backs set by one reply sit together under it, oldest first. The reply the check-back starts is a new reply in the same conversation, labelled **Started by a check-back**, and you get a push with its first line. **Cancel** on the card cancels a waiting or held check-back (*Check-back cancelled.*); one that is already running can be stopped as any reply is, with **Stop**, and the card then reads *Checked back 2:30 PM · stopped*.
 
 ### Close a finished conversation (the Complete card)
 
@@ -492,6 +496,7 @@ every message, branch and side chat question, so a held message is never recorde
 | Conversation history | The provider's own transcript (Claude Code's project files, Codex's session store). Pocket does not copy it. |
 | Uploaded attachments | `~/pocket-uploads/<year-month>/` |
 | Follow-up queue | `followup-queue.json` in `POCKET_DATA_DIR` |
+| Check-backs (the cards) | `checkbacks.json` in `POCKET_DATA_DIR` |
 | Worktree removals | `worktrees-removed.jsonl` in `POCKET_DATA_DIR`, one line each |
 | Delivery receipts (for Retry same message) | `delivery-receipts.json` in `POCKET_DATA_DIR`, kept a week, at most 2,000 |
 | Branch links (Branch of …) | `session-meta.json` in `POCKET_DATA_DIR` |
@@ -611,6 +616,7 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | "This conversation is being used in another app right now" | A terminal or code-server wrote a reply to this conversation in the last 45 seconds. | Wait for that reply to finish, then send again. |
 | "Queue is full (10 messages)." | The conversation already has 10 queued messages. | Run or remove some in **Queue**. |
 | Queue shows **Needs review** | Pocket could not confirm the item started (a crash or failed start). | Check the conversation; remove the row once you know whether it ran, then send again if needed. |
+| A check-back card says *Missed* or stays *held* | See [Check-backs](automation.md#troubleshooting): the card gives the reason. | Ask the agent to set another, or resume Pocket. |
 | Queued messages do not run | The last reply was stopped or failed, or Pocket restarted. | **Queue → Run next instruction**. |
 | No Complete card on a finished reply | The agent did not end with a `done` block, the reply also offers choices or ends with a question, background jobs are still running, the box has text, or the conversation was run outside Pocket. | Nothing is wrong; read the reply. Close the tab yourself when you are done. |
 | "This conversation is working again, so it stays open." | A queued message or a background job started after the reply. | Wait for it to finish. |
