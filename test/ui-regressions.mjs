@@ -1,4 +1,4 @@
-import {clickControl} from './ui-controls.mjs';
+import {clickControl,elementShot} from './ui-controls.mjs';
 // Browser regressions for the 1.7 audit. Uses the existing synthetic API server;
 // no real credentials, transcripts, providers or production processes are involved.
 import assert from 'node:assert/strict';
@@ -1463,7 +1463,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await clickControl(page,'[data-rail-view="tasks"]');await page.waitForSelector('#rail .rail-tasks .task-item');
    assert.deepEqual(await page.$$eval('#rail .rail-project-actions .chip',els=>els.map(e=>e.textContent.trim())),['Add task','All']);
    assert.equal(await page.$eval('#rail-filter-toggle',e=>e.hidden),true,'session filters hide with the task list');
-   await (await page.$('aside.rail')).screenshot({path:path.join(out,'rail-tasks.png')});
+   await elementShot(await page.$('aside.rail'),{path:path.join(out,'rail-tasks.png')});
    await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
    await clickControl(page,'#splitb');await page.waitForSelector('.sheet [data-v="tasks"]');await page.keyboard.press('Escape');
    // Settings → Projects, files, tasks & vault turns the feature off for the whole install.
@@ -2343,7 +2343,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await openChat(rows[4].id);await page.waitForFunction(()=>document.querySelector('#project-open')?.hidden===false);
    assert.equal(await page.$eval('#project-open',e=>e.textContent),'Add project','the conversation offers Add project (1.36 wording)');
    assert.equal(await page.$eval('#project-open',e=>Boolean(e.closest('#tbar'))),true,'1.35: Add to project is a chip in the message toolbar');
-   await (await page.$('#comp')).screenshot({path:path.join(out,'composer-project-chip.png')});
+   await elementShot(await page.$('#comp'),{path:path.join(out,'composer-project-chip.png')});
    await clickControl(page,'#project-open');await page.waitForSelector('.sheet [data-v="__new"]');await page.keyboard.press('Escape');
    await clickControl(page,'#chatmore');await page.waitForSelector('#so-project');await clickControl(page,'#so-project');
    await page.waitForSelector('.sheet [data-v="__new"]');
@@ -2533,9 +2533,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // 1.35: the panel says where the library opens; no setting decides behind an "All files" label.
    assert.deepEqual(await page.$$eval('#rail .rail-documents .rail-project-actions .chip',els=>els.map(e=>e.textContent.trim())),['Upload','Split','Tab']);
    assert.deepEqual(await page.$$eval('[data-open-library]',els=>els.map(e=>e.getAttribute('aria-label'))),['Open the file library in split view','Open the file library in a tab']);
-   await (await page.$('aside.rail')).screenshot({path:path.join(out,'rail-files-actions.png')});
+   await elementShot(await page.$('aside.rail'),{path:path.join(out,'rail-files-actions.png')});
    // 1.37.2: a split pane is a narrow frame on a desktop, so it keeps the grid of previews instead of falling back to the phone's list.
    await page.evaluate(()=>writeLocal('pc-documents-layout','grid'));
+   // 1.119: the Results panel kept from "Keep in Files" is still docked, not a sheet whose scrim would take the click.
+   assert.deepEqual(await page.evaluate(()=>({docked:Boolean(document.querySelector('.results-sheet.workspace-dock')),scrim:Boolean(document.querySelector('.scrim'))})),{docked:true,scrim:false},'nothing covers the rail before Split');
    await clickControl(page,'[data-open-library="beside"]');await page.waitForSelector('#panes iframe');assert.match(await page.$eval('#panes iframe',f=>f.getAttribute('src')),/#\/documents$/);
    {const gridPane=page.frames().find(f=>f.url().includes('#/documents'));await gridPane.waitForSelector('.doc-card');await gridPane.waitForFunction(()=>document.querySelector('.doc-thumb.loaded img'));
     const g=await gridPane.evaluate(()=>({w:innerWidth,cols:getComputedStyle(document.querySelector('.doc-grid')).gridTemplateColumns.split(' ').length,toggle:getComputedStyle(document.querySelector('.doc-layout')).display}));

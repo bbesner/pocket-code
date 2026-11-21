@@ -325,7 +325,7 @@ test('A chain: a check-back\'s reply may set one more up to the limit and not be
     await s.status(prev.id, 'running');
     const token = await s.tokenFor(id, x => x.includes(`What to check: ${prev.note}`));
     const text = s.cbPrompts().find(x => x.includes(`What to check: ${prev.note}`));
-    assert.match(text, new RegExp(`^\\[Pocket check-back · set at [^·]+ ${depth === 1 ? 'at your request' : 'by an earlier check-back'} · ${depth} of 3\\]\\nWhat to check: ${prev.note.replace(/[_]/g, '_')}\\nIt is now [^.]+\\. Do the check and reply briefly with the result\\. `));
+    assert.match(text, new RegExp(`^\\[Pocket check-back · set at [^·]+ ${depth === 1 ? 'at your request' : 'by an earlier check-back'} · ${depth} of 3\\]\\nWhat to check: ${prev.note.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\nIt is now [^.]+\\. Do the check and reply briefly with the result\\. `));
     if (depth < 3) {
       assert.match(text, /you may set one more check-back; say when\.$/);
       const next = await s.set(token, '+1m', `step ${depth + 1} __HANG__`);

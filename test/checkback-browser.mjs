@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
-import {clickControl} from './ui-controls.mjs';
+import {clickControl,elementShot} from './ui-controls.mjs';
 import {automationFixture} from './automation-browser.mjs';
 
 const HOUR=3600000;
@@ -68,7 +68,7 @@ const theme=(p,mode)=>p.evaluate(m=>PocketTheme.setPreference(m),mode);
 export async function runCheckbackRegressions({p,base,out,repo,rows,conversations,settings,scan}){
  const f=checkbackFixture,a=automationFixture;f.reset();a.reset();
  const shots=process.env.POCKET_CHECKBACK_SHOTS||'/tmp/unattended-1.119-shots';fs.mkdirSync(shots,{recursive:true});
- const shot=async(name,el)=>{await p.evaluate(()=>document.querySelector('#toast')?.classList.remove('show'));if(el){await el.evaluate(e=>e.scrollIntoView({block:'center'}));await el.screenshot({path:path.join(shots,name+'.png')});}else await p.screenshot({path:path.join(shots,name+'.png')});await p.screenshot({path:path.join(out,'checkback-'+name+'.png')});if(scan)await scan('checkback-'+name);}; // el: just that element
+ const shot=async(name,el)=>{await p.evaluate(()=>document.querySelector('#toast')?.classList.remove('show'));if(el){await el.evaluate(e=>e.scrollIntoView({block:'center'}));await elementShot(el,{path:path.join(shots,name+'.png')});}else await p.screenshot({path:path.join(shots,name+'.png')});await p.screenshot({path:path.join(out,'checkback-'+name+'.png')});if(scan)await scan('checkback-'+name);}; // el: just that element
  await p.goto(base+'/#/all');await p.waitForSelector('.session-home');
  const themeBefore=await p.evaluate(()=>PocketTheme.preference),tasksBefore=settings.tasks;
  await p.emulateTimezone('UTC');
@@ -246,8 +246,8 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  await p.waitForFunction(s=>/waiting for the conversation to finish$/.test(document.querySelector(s+' .checkback-text')?.textContent||''),{timeout:12000},cardOf('cb-late'));
 
  // --- The list row's clock: appears with a waiting check-back, labelled, and goes ---
- await p.goto(base+'/#/all');await p.waitForSelector(`[data-item="${host.id}"]`);
- await p.waitForSelector(`[data-item="${host.id}"] .checkback-clock`);
+ await p.goto(base+'/#/all');await p.waitForSelector(`.session-home [data-item="${host.id}"]`); // the list, not the rail row of the conversation just left
+ await p.waitForSelector(`.session-home [data-item="${host.id}"] .checkback-clock`);
  assert.equal(await p.$eval(`[data-item="${host.id}"] .checkback-clock`,e=>e.getAttribute('aria-label')),'Check-back at 2:30 PM');
  assert.equal(await p.$(`[data-item="${other.id}"] .checkback-clock`),null,'no clock without one');
  f.list.push({...cb('cb-other1',T2,'pending'),sessionId:other.id,dueAt:iso(todayAt(16,0)+24*HOUR)},{...cb('cb-other2',T2+1000,'pending'),sessionId:other.id,dueAt:due230});
@@ -284,7 +284,7 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
 
  // --- Pause all counts check-backs: the sheet, the toast, the banner, and Resume's toast ---
  a.would={...a.would,checkbacks:3};
- await p.goto(base+'/#/all');await p.waitForSelector('[data-item]');
+ await p.goto(base+'/#/all');await p.waitForSelector('.session-home [data-item]');await p.waitForSelector('#listmore'); // the rail rows of the page just left carry data-item too
  await p.click('#listmore');await p.waitForSelector('.more-menu [data-pause-toggle]');await p.click('.more-menu [data-pause-toggle]');await p.waitForSelector('.pause-sheet [data-pause-would]');
  assert.equal(await p.$eval('[data-pause-would]',e=>e.textContent),'This stops 3 replies running (2 Claude, 1 Codex), 2 background jobs, Inbox Watch. It holds 1 usage-limit retry, 3 check-backs.');
  await shot('pause-sheet-1440-dark');
@@ -363,7 +363,7 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
     const r=await p.$(`[data-item="${host.id}"]`);await shot(`row-${w}-${mode}`,r);
     await p.goto(base+'/#/tasks');await p.waitForSelector('.checkback-group');
     const g=await p.$('.checkback-group');await g.evaluate(e=>e.scrollIntoView({block:'start'}));await shot(`tasks-${w}-${mode}`);
-    a.would={...a.would,checkbacks:3};await p.goto(base+'/#/all');await p.waitForSelector('[data-item]');
+    a.would={...a.would,checkbacks:3};await p.goto(base+'/#/all');await p.waitForSelector('.session-home [data-item]');await p.waitForSelector('#listmore'); // Tasks rows carry data-item too
     await p.click('#listmore');await p.waitForSelector('.more-menu [data-pause-toggle]');await p.click('.more-menu [data-pause-toggle]');await p.waitForSelector('[data-pause-would]');
     await shot(`pause-sheet-${w}-${mode}`);await p.click('[data-pause-keep]');await p.waitForFunction(()=>!document.querySelector('.pause-sheet'));a.would={...a.would,checkbacks:0};
    }

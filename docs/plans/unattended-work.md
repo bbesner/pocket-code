@@ -480,7 +480,7 @@ shortened timers through env vars, the way `POCKET_COORD_SWEEP_MS` is used today
 | 1.117.0 | Part 1: origin, Pause all on every engine, the gate, limits, the Automation settings section (limits only), audit file. |
 | 1.118.0 | Not part of this plan: the security release took this number. |
 | 1.119.0 | Part 2: check-backs, `pocket-checkback`, the `automation` push kind, the Tasks group. |
-| 1.120.0 | Part 3: job keys, `/api/jobs/run`, `pocket-run`. |
+| Later | Part 3: job keys, `/api/jobs/run`, `pocket-run`. |
 | Then | The first uses in 3.5, one at a time, each in its own repo with its own ledger entry. |
 
 - **Process:** each release follows CONTRIBUTING.md (branch, PR, release check, tests, browser suite, a new
@@ -621,7 +621,7 @@ Pocket, built the same way as Projects, Tasks and Inbox Watch: optional, off by 
 rather than in front of them, and configurable with the same Reset-to-defaults pattern. Each gets its own spec
 before it's built.
 
-## Later phases (agreed, to be specced after 1.120)
+## Later phases (agreed, to be specced after job keys)
 
 1. **Recurring routines.** "Every weekday at 7:30, check overnight camera alerts and open tickets." They build
    on the gate, the limits and the check-back runner. Lessons from OpenMausBot:
