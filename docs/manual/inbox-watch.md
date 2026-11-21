@@ -208,7 +208,7 @@ schedule sheet decides which of them also push:
   pushes every alert on it. A critical alert ignores the cap and the repeat rule.
 - **Nothing, list only** pushes nothing, the digest included.
 
-Your rules can steer it ("Always push: emergency dispatch requests", "Never push: Field Nation"); they win, as
+Your rules can steer it ("Always push: emergency dispatch requests", "Never push: marketplace job offers"); they win, as
 everywhere. Quiet hours still hold everything but critical alerts.
 Digests and look-aheads are also saved to **Files** when Files is on.
 

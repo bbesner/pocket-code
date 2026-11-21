@@ -1407,7 +1407,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.goto(base+'/#/tasks');await page.waitForSelector('.task-item');
    const list=await page.evaluate(()=>({titles:[...document.querySelectorAll('.task-item .title')].map(e=>e.textContent),groups:[...document.querySelectorAll('.project-group h2')].map(h=>h.textContent.replace(/\s+/g,' ').trim()),due:document.querySelector('.task-item.due .due-label')?.textContent,tab:document.querySelector('.open-session.current a')?.textContent,badge:document.querySelector('[data-tasks-badge]')?.textContent,done:document.querySelector('details.project-group')?.open}));
    // 1.50: with Projects on, the open project reminders sit among the dated tasks, soonest first; the Tasks badge counts both.
-   assert.deepEqual(list.titles,['Send the aisle 4 recount to purchasing','Recount aisle 4 excluding Friday delivery','Chase the revised camera quote','Chase the revised quote','Read the TVT firmware notes','Book the forklift service'],'due first (task, then reminder), then dated by time, then undated, finished last');
+   assert.deepEqual(list.titles,['Send the aisle 4 recount to purchasing','Recount aisle 4 excluding Friday delivery','Chase the revised camera quote','Chase the revised quote','Read the Lumacam firmware notes','Book the forklift service'],'due first (task, then reminder), then dated by time, then undated, finished last');
    assert.deepEqual(list.groups,['To do 5 · 2 due','Done 1']);assert.match(list.due,/^Due /);assert.equal(list.tab,'Tasks','the list is a tab like a session');assert.equal(list.badge,'2','due tasks and reminders on the rail switch');assert.equal(list.done,false,'finished tasks start collapsed');
    const rem=await page.evaluate(()=>{const r=document.querySelector('.reminder-item');return {due:r.classList.contains('due'),facts:r.querySelector('.session-status').textContent,href:r.querySelector('a.row').getAttribute('href'),icon:r.querySelector('.task-check').getAttribute('aria-label'),projectsBadge:document.querySelector('[data-projects-badge]')?.hidden,tabMark:document.querySelector('.open-session.current .tab-state')?.getAttribute('aria-label')};});
    assert.equal(rem.due,true);assert.match(rem.facts,/^Due .*Warehouse stock report/);assert.match(rem.href,/^#\/projects\/warehouse-stock-report/);assert.match(rem.icon,/^Reminder options: Recount aisle 4/);
@@ -2297,14 +2297,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await clickControl(page,'[data-resume]');await page.waitForFunction(()=>document.querySelector('.project-status')?.textContent==='Active');
    c=await card();assert.deepEqual(c.reminders,[],'resuming does not restore them');assert.deepEqual(c.actions,['Start conversation','Edit','Remind me','Finish project']);
    // 1.49 Start session: a New session in the project's directory, briefed on the card and linked to the project when it starts.
-   await page.evaluate(async()=>{const act=b=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:'warehouse-stock-report',...b})});await act({action:'note',text:'MOM shows the Friday delivery twice.'});await act({action:'remind',at:new Date(Date.now()+86400000).toISOString(),text:'Revisit Warehouse stock report'});});
+   await page.evaluate(async()=>{const act=b=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:'warehouse-stock-report',...b})});await act({action:'note',text:'The stock ledger shows the Friday delivery twice.'});await act({action:'remind',at:new Date(Date.now()+86400000).toISOString(),text:'Revisit Warehouse stock report'});});
    await page.reload();await page.waitForSelector('.project-card [data-start]');
    await clickControl(page,'.project-card [data-start]');await page.waitForSelector('#first');await page.waitForFunction(()=>document.querySelector('#plist .row.sel')&&!document.querySelector('#new-project').hidden);
    const brief=await page.$eval('#first',e=>e.value);
    assert.match(brief,/^Pick up the project "Warehouse stock report" where it left off\.\n\nWhere we left off: Counts for aisles 1-3/);
    assert.match(brief,/\nNext step: Recount aisle 4 with the Friday delivery excluded/);
    assert.match(brief,/\nRemaining steps \(2 of 3 done\):\n- Post the inventory adjustment \(step [0-9a-f]{12}\)\n/);
-   assert.match(brief,/\nRecent notes:\n- .+: MOM shows the Friday delivery twice\.\n/);assert.match(brief,/\nReminders:\n- Revisit Warehouse stock report/);
+   assert.match(brief,/\nRecent notes:\n- .+: The stock ledger shows the Friday delivery twice\.\n/);assert.match(brief,/\nReminders:\n- Revisit Warehouse stock report/);
    assert.match(brief,new RegExp('Earlier conversations on this project, newest last:\\n- Warehouse stock report \\(Claude conversation '+rows[0].id+'\\)'));
    assert.match(brief,/\(Pocket project warehouse-stock-report; this conversation is linked to it\..*pocket-board update -p warehouse-stock-report/);
    assert.equal(await page.$eval('#plist .row.sel',e=>e.dataset.p),'/workspaces/warehouse','Start picks the project\'s directory');

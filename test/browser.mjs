@@ -84,7 +84,7 @@ const taskStore=new TaskStore(path.join(out,'tasks.json'));
 const seedTasks=()=>{taskStore.tasks.length=0;
  taskStore.act({action:'add',text:'Send the aisle 4 recount to purchasing',dueAt:new Date(now-3600000).toISOString(),session:rows[0].id,sessionTitle:rows[0].title,directory:rows[0].cwd,summary:'Recounting aisle 4 against the Friday delivery.\nAisles 1-3 reconcile; aisle 4 is 14 units short.\nThe recount sheet is in results.'});
  taskStore.act({action:'add',text:'Chase the revised camera quote',dueAt:new Date(now+3*86400000).toISOString()});
- taskStore.act({action:'add',text:'Read the TVT firmware notes'});
+ taskStore.act({action:'add',text:'Read the Lumacam firmware notes'});
  const d=taskStore.act({action:'add',text:'Book the forklift service'});taskStore.act({action:'update',task:d.id,done:true});};
 // 1.39: the vault is the real store on a scratch vault.enc under a test key: an API key that asks (one approved command),
 // a login agents may use that expires in 5 days, an owner-only note, a removed token, and one request waiting for the owner.
@@ -129,8 +129,8 @@ const actOnBoard=input=>{
  modeSide.set(p.id,m);return withMode(p);
 };
 const seedBoard=()=>{board.projects.length=0;modeSide.clear();
- const a=board.act({action:'track',name:'Warehouse stock report',summary:'Counts for aisles 1-3 are reconciled against MOM. Aisle 4 still shows 14 units unaccounted for.',next:'Recount aisle 4 with the Friday delivery excluded, then post the adjustment.',directory:'/workspaces/warehouse',link:'https://example.test/stock',session:rows[0].id});
- board.act({action:'task-add',project:a.id,text:'Reconcile aisles 1-3 against MOM'});const t=board.act({action:'task-add',project:a.id,text:'Recount aisle 4 excluding Friday delivery'}).tasks[1];
+ const a=board.act({action:'track',name:'Warehouse stock report',summary:'Counts for aisles 1-3 are reconciled against the stock ledger. Aisle 4 still shows 14 units unaccounted for.',next:'Recount aisle 4 with the Friday delivery excluded, then post the adjustment.',directory:'/workspaces/warehouse',link:'https://example.test/stock',session:rows[0].id});
+ board.act({action:'task-add',project:a.id,text:'Reconcile aisles 1-3 against the stock ledger'});const t=board.act({action:'task-add',project:a.id,text:'Recount aisle 4 excluding Friday delivery'}).tasks[1];
  board.act({action:'task-update',project:a.id,task:board.get(a.id).tasks[0].id,done:true});
  board.act({action:'remind',project:a.id,at:new Date(now-3600000).toISOString(),task:t.id});
  const b=board.act({action:'track',name:'Supplier inventory import',summary:'CSV mapping drafted for Litware and Proseware feeds.',next:'Run the dry import against staging and compare counts.',directory:'/workspaces/inventory',session:rows[2].id});
@@ -144,7 +144,7 @@ const inboxStore=new InboxStore(path.join(out,'inbox.json'));
 const inboxCaughtUp=[],inboxSplits=[]; // 1.113.1; 1.115
 const seedInbox=()=>{inboxStore.entries.length=0;inboxStore.sources={};
  const r=inboxStore.add({kind:'alert',title:'Birchwood alarm timer tests',text:'Ten missed tests since October 13. [Latest](msg:1a151dff1dfb590e)',story:'birchwood-late-alarm-test',source:'inbox-monitor',url:'/#/start/0123456789ac'},{actor:'cli'});inboxStore.act({action:'resolve',id:r.id});
- const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- Storefront payout deductions: the scheduled payout includes $267.48 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
+ const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- Storefront payout deductions: the scheduled payout includes $150.00 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
  inboxStore.add({kind:'alert',priority:'high',title:'Elmstead dispatch conflict',text:'Robin says the visit was supposed to be last night and asks that nobody be dispatched, while the 8:03 notice has Jordan on the way for 9–10. [Call transcript](msg:1a1540e0de10f879) · [Dispatch notice](msg:1a1540b3f8676388) Avery should reach Jordan before 9 a.m.',story:'elmstead-service-scheduling',source:'inbox-monitor',url:'/#/start/0123456789ab',gmail:'https://mail.google.com/mail/u/0/#all/1a1540b3f8676388',dedupe:'elmstead|1'},{actor:'cli'});
  inboxStore.seen('inbox-monitor');
  // 1.70: the watcher's profile, as inbox-monitor 0.3 sends it with its heartbeat; no owner settings yet
@@ -272,7 +272,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/inbox/digest-cards'){ // 1.95: a digest whose story is also an open alert, and two lines of its own
    const al=inboxStore.add({kind:'alert',title:'Gate controller offline',text:'The north gate stopped answering at 6:12.',story:'north-gate',source:'inbox-monitor'},{actor:'cli'});
    const d=inboxStore.add({kind:'digest',title:'Morning email digest — Sat Nov 7',text:'## Worth knowing\n- Payout deductions\nIgnored since the last digest: 12 threads.',source:'inbox-monitor',items:[
-    {ref:'a1',section:'worth',title:'Payout deductions',text:'The scheduled payout includes $267.48 in deductions.',story:'payout',url:'/#/start/0123456789ad'},
+    {ref:'a1',section:'worth',title:'Payout deductions',text:'The scheduled payout includes $150.00 in deductions.',story:'payout',url:'/#/start/0123456789ad'},
     {ref:'a2',section:'worth',title:'Vendor price list',text:'The new price list starts Monday.',story:'vendor-prices',url:'/#/start/0123456789ae'},
     {ref:'a3',section:'worth',title:'North gate',text:'The north gate stopped answering.',story:'north-gate',url:'/#/start/0123456789af'},
    ]},{actor:'cli'});

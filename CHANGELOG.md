@@ -1240,7 +1240,7 @@ Fixes for the problems found while writing the manual (#171–#187), the desktop
 
 ## [1.39.1] — 2026-10-12 · build 87
 
-- **Custom fields in the Vault.** Any item can carry named fields beside its kind's fixed ones: **Add field** in the editor takes a name (lowercase letters, digits and underscores, up to 32 characters) and a value, encrypted like the rest, shown masked with Show and Copy on the item sheet, and bound by agents as `name.field`. A new **Credentials** kind has no fixed fields at all, for things like a client ID and a client secret named the way the service names them. `pocket-vault put` takes several fields at once from a JSON object on standard input or in a file; `show` lists every field. Up to 20 custom fields per item; removing one is an edit, fixed fields stay. Requested by the owner, for UPS and Authorize.net.
+- **Custom fields in the Vault.** Any item can carry named fields beside its kind's fixed ones: **Add field** in the editor takes a name (lowercase letters, digits and underscores, up to 32 characters) and a value, encrypted like the rest, shown masked with Show and Copy on the item sheet, and bound by agents as `name.field`. A new **Credentials** kind has no fixed fields at all, for things like a client ID and a client secret named the way the service names them. `pocket-vault put` takes several fields at once from a JSON object on standard input or in a file; `show` lists every field. Up to 20 custom fields per item; removing one is an edit, fixed fields stay. Requested by the owner, for a shipping API and a payment gateway.
 
 ## [1.39.0] — 2026-10-12 · build 86
 

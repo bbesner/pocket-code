@@ -469,7 +469,7 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
   const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-11-07T13:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
   const items=[{ref:'a317',section:'worth',title:'Robin website feedback and review',text:'Robin texted that business is up 25%. [Text](msg:1a1b398659576b53)',story:'robin-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low'},
-    {ref:'a296',section:'held',title:'Wireless Experts Google Ads keywords',text:'Steve asked for a keyword review.',story:'wireless-experts-google-ads-keywords'},
+    {ref:'a296',section:'held',title:'Copperleaf Wireless Google Ads keywords',text:'Steve asked for a keyword review.',story:'copperleaf-wireless-google-ads-keywords'},
     {ref:'t12',section:'tidied',title:'Harbor launch',text:'Resolved'}];
   const d=s.add({kind:'digest',title:'Morning email digest — Sat Nov 7',text:'## Worth knowing\n- Robin website feedback and review: business is up.\nIgnored since the last digest: 9 threads.',items,dedupe:'digest|2026-11-07'});
   assert.equal(d.items.length,3);assert.deepEqual(d.items[0],{ref:'a317',section:'worth',title:'Robin website feedback and review',text:items[0].text,story:'robin-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low',state:'open',actedAt:null,ackedAt:null,note:'',lastAction:null,sessions:[]});
@@ -502,10 +502,10 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
   clock+=1000;s.act({action:'dismiss',id:d.id});assert.deepEqual(s.feedback().map(f=>f.id),[d.id,`${d.id}/a317`,`${d.id}/a296`]);
   assert.equal(s.ack([d.id,`${d.id}/a317`,`${d.id}/a296`]),3);assert.deepEqual(s.feedback(),[]);
   // 1.95 (owner request): a line whose story already has an open alert on the list is not a new card: it is 'listed', links to that entry, and takes no decision.
-  const open=s.add({kind:'alert',title:'Wireless Experts Google Ads keywords',story:'wireless-experts-google-ads-keywords',gmail:GMAIL});
+  const open=s.add({kind:'alert',title:'Copperleaf Wireless Google Ads keywords',story:'copperleaf-wireless-google-ads-keywords',gmail:GMAIL});
   const gone=s.add({kind:'alert',title:'Old one',story:'old-story'});s.act({action:'resolve',id:gone.id});
   const d2=s.add({kind:'digest',title:'Morning email digest — Sun Nov 8',text:'## Worth knowing\n- a\n- b',dedupe:'digest|2026-11-08',items:[
-    {ref:'a400',section:'worth',title:'Steve wants the keyword list',text:'Steve asked again.',story:'wireless-experts-google-ads-keywords'},
+    {ref:'a400',section:'worth',title:'Steve wants the keyword list',text:'Steve asked again.',story:'copperleaf-wireless-google-ads-keywords'},
     {ref:'a401',section:'held',title:'Same thread, other story',text:'x',story:'other',gmail:GMAIL},
     {ref:'a402',section:'worth',title:'Old story returns',text:'y',story:'old-story'},
     {ref:'a403',section:'worth',title:'Fresh',text:'z',story:'fresh'}]});

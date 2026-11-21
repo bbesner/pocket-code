@@ -88,7 +88,7 @@ test('HTTP: after the fourth turn the title is checked and rewritten; KEEP keeps
   const id=(await f.call('/new',{cwd:repo,text:'Review the warehouse stock levels before ordering',clientMessageId:randomUUID()})).body.id;
   assert.ok(await f.until(async()=>(await f.row(id))?.state?.kind==='finished'));
   assert.ok(await f.until(async()=>(await f.row(id))?.title==='Review the warehouse stock'),'first title from the opening request');
-  await f.turn(id,'Check the TVT models too');await f.turn(id,'And the Dahua ones');
+  await f.turn(id,'Check the Lumacam models too');await f.turn(id,'And the Kestrel ones');
   assert.equal(f.live().length,0,'three turns: no check yet');
   await f.turn(id,'Plan the pole survey for the Pines');
   assert.ok(await f.until(async()=>(await f.row(id))?.title==='Now Plan the pole'),'fourth turn: the title follows the session; got '+JSON.stringify((await f.row(id))?.title)+' '+f.logs().split('\n').filter(l=>/title/.test(l)).join(' / '));

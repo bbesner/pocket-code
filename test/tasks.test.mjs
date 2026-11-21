@@ -34,8 +34,8 @@ test('TaskStore: adding, ordering, due, done, editing, stale edits, removal and 
   assert.equal(done.done,true);assert.equal(done.doneAt,'2026-10-10T12:01:03Z');assert.equal(done.due,false,'a finished task is never due');assert.equal(done.revision,2);
   snap=s.snapshot();assert.equal(snap.tasks.at(-1).text,'Send the recount','finished tasks come last');assert.equal(snap.dueCount,0);
   const back=s.act({action:'update',task:past.id,done:false});assert.equal(back.done,false);assert.equal(back.doneAt,null);
-  const edited=s.act({action:'update',task:plain.id,text:'Read the TVT firmware notes',dueAt:'2026-10-11T09:00:00Z',summary:'Context'});
-  assert.deepEqual([edited.text,edited.dueAt,edited.summary],['Read the TVT firmware notes','2026-10-11T09:00:00Z','Context']);
+  const edited=s.act({action:'update',task:plain.id,text:'Read the Lumacam firmware notes',dueAt:'2026-10-11T09:00:00Z',summary:'Context'});
+  assert.deepEqual([edited.text,edited.dueAt,edited.summary],['Read the Lumacam firmware notes','2026-10-11T09:00:00Z','Context']);
   assert.equal(s.act({action:'update',task:plain.id,dueAt:null}).dueAt,null,'the date can be cleared');
   assert.equal(s.act({action:'update',task:plain.id,session:null}).session,null);
   const gone=s.act({action:'remove',task:newest.id});assert.equal(gone.removed,true);assert.throws(()=>s.get(newest.id),e=>e.status===404);
