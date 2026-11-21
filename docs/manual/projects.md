@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.118.0
+checked: 1.120.0
 sources: projects.mjs, project-mode.mjs, public/projects.js, scripts/pocket-board.mjs, scripts/owner-zone.mjs, skills/pocket-projects/SKILL.md
 -->
 # Projects
@@ -120,7 +120,7 @@ A reminder's **⋯** offers **Open project**, **Remind later** and **Dismiss**.
 **Start conversation** on the card (or **Start a conversation** in its options) opens a new conversation:
 
 - in the project's directory, when it has one;
-- with the agent (Claude, Codex or OpenRouter) that last worked on the project;
+- with the agent (Claude, Codex, OpenRouter or Antigravity) that last worked on the project;
 - with a briefing already written as the first message: where you left off, the next step, what it is waiting for, Done when and Works in, up to 20 open steps with their ids and checks, the last three notes, open reminders, the link, the last three linked conversations, and the `pocket-board` commands to keep the card current.
 
 Edit the briefing if you like, then send it. The conversation is linked to the project as it starts. The project's chip above the message shows which project it will join; click it and choose **Remove the link** to start without the project.
@@ -309,7 +309,7 @@ pocket-board update -p acme-hoa-camera-upgrade --summary "Installed and tested."
 | The **Conductor mode** switch is greyed out | This server offers neither top model (Fable for Claude Code, GPT Astra for Codex). | Make Fable available to Claude Code on this server (**Settings → Agents & instance → Claude models in the picker**, and the computer's Claude Code policy), or update Codex to a version that offers GPT Astra. |
 | No **Conductor mode** switch on the card | Pocket is in Assistant mode, where Conductor mode does not run. | Switch to Developer mode in **Settings → Appearance → Mode**, if the install allows it. |
 | **Started, but not linked to *project*:** after Start conversation | The conversation started, but the server could not link it, for example because the project already has 50 conversations. It runs without the project and its mode. | Unlink an old conversation from the card, then link this one with its **Add project** chip. |
-| No **Conductor** chip on New conversation, and the model chip shows your usual model | The project's Conductor mode is off, the chosen agent has no top model here, or it is OpenRouter. | Turn the mode on (the card's switch, or **Turn on Conductor mode** in its **⋯** options), or pick Claude Code or Codex. |
+| No **Conductor** chip on New conversation, and the model chip shows your usual model | The project's Conductor mode is off, the chosen agent has no top model here, or it is OpenRouter or Antigravity. | Turn the mode on (the card's switch, or **Turn on Conductor mode** in its **⋯** options), or pick Claude Code or Codex. |
 | A reminder arrives hours off | The time was given without an offset before the user's browser reported a zone, and `POCKET_TZ` (or the system zone) is not the user's. | Open Pocket in the user's browser once, set `POCKET_TZ` to the user's zone, or pass an offset. |
 | No reminder on any channel | Projects is off; reminders are announced only while it is on. | Turn on **Settings → Projects, files, tasks & vault → Projects**. |
 | No push for a due reminder | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications & voice** on the device. The card still shows the reminder as due. |

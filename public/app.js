@@ -878,7 +878,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       <p class="title-note" id="s-context-note" role="status">Loading the context setting…</p></div>
     <div class="title-settings model-offer trusted-actions" id="s-trusted" role="group" aria-labelledby="s-trusted-h" aria-describedby="s-trusted-lead">
       <p class="vault-set-head" id="s-trusted-h">Actions that run without asking</p>
-      <p class="title-note" id="s-trusted-lead">In Review actions, Claude Code, Codex and OpenRouter run the read-only actions listed here without an approval card. Everything else still asks.</p>
+      <p class="title-note" id="s-trusted-lead">In Review actions, every agent runs the read-only actions listed here without an approval card. Everything else still asks.</p>
       <ul class="trusted-list" id="s-trusted-list" aria-labelledby="s-trusted-h" aria-busy="true"></ul>
       <form class="trusted-add" id="s-trusted-form" novalidate>
         <label class="trusted-label" for="s-trusted-input">Add an action</label>
@@ -4002,7 +4002,13 @@ function openES() {
       scrollBottom();
     }
     else if (d.type === 'done') { dropLive(); closeES(); if (chatId) resyncChat(chatId); } // resync from canonical transcript
-    else if (d.type === 'idle') { dropLive(); closeES(); setComposer(false); Voice.onIdle(streamId); }
+    else if (d.type === 'idle') {
+      // No reply is running. If this screen still showed one, it ended between the read and this stream, and its
+      // end was never seen: read the conversation again so the reply shows.
+      const missed = composerWorking;
+      dropLive(); closeES(); setComposer(false); Voice.onIdle(streamId);
+      if (missed) resyncChat(streamId);
+    }
   };
   es.onerror = () => { if (chatId === streamId) setConnection('Connection interrupted. Reconnecting; your draft is kept.'); };
 }

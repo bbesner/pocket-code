@@ -34,9 +34,9 @@ for (let i = 0; ; i++) { try { if ((await fetch(base + '/api/health')).ok) break
 
 const browser = await puppeteer.launch({ executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/opt/google/chrome/chrome', headless: true, args: ['--no-sandbox', ...(cdp ? ['--remote-debugging-port=' + cdp] : [])] });
 const errors = [];
-let held = false;
+let held = false, page = null;
 try {
-  const page = await browser.newPage(); page.setDefaultTimeout(10000);
+  page = await browser.newPage(); page.setDefaultTimeout(10000);
   page.on('pageerror', e => errors.push(e.message));
   await page.setViewport({ width: vw, height: vh, isMobile: vw < 700, hasTouch: vw < 700 });
   const exp = String(Date.now() + 3600_000);
@@ -133,13 +133,22 @@ try {
   assert.equal(prompts.length, 3, 'three prompts reached agy: the start, the long one, and the message sent into it');
 
   console.log('Antigravity: the conversation list names the agent');
+  // The test's folder is under /tmp, and the list leaves such conversations out unless they are running or pinned.
+  assert.equal(await page.evaluate(id => fetch(`/api/session/${encodeURIComponent(id)}/pin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pinned: true }) }).then(r => r.status), id), 200);
   await page.goto(base + '/#/'); await page.waitForSelector('.row .meta');
   assert.ok((await page.$$eval('.row .meta', es => es.map(e => e.textContent))).some(t => /Antigravity/.test(t)), 'the row says Antigravity');
 
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ ok: true, antigravity: { agentRow: true, planModels: true, ownLevels: true, signedOutNote: true, checkAgain: true, approvalBanner: true, modelAndLevelApplied: true, steerNoQueue: true, listLabel: true } }));
 } catch (e) {
-  console.error('Page errors:', errors); console.error('Server log tail:', logs.slice(-2000)); throw e;
+  console.error('Page errors:', errors); console.error('Server log tail:', logs.slice(-2000));
+  // what was on screen and what the stand-in CLI recorded, so a failed wait says which side it stopped on
+  const shown = await page.evaluate(() => ({ hash: location.hash, msgs: document.querySelector('#msgs')?.innerText.slice(-600), approvals: document.querySelector('#approvals-open')?.innerText, delivery: document.querySelector('.delivery-status')?.textContent, stop: !!document.querySelector('#stopb'), view: document.querySelector('#app, main, body')?.innerText.slice(0, 400), rows: document.querySelectorAll('.row').length })).catch(err => String(err));
+  const stored = fs.existsSync(store) ? fs.readdirSync(store).filter(f => f.startsWith('session-')).map(f => { try { const s = JSON.parse(fs.readFileSync(path.join(store, f), 'utf8')); return { cwd: s.cwd, title: s.title, updatedAt: s.updatedAt, prompts: s.prompts, permission: s.permission, ranOn: s.ranOn, last: (s.updates || []).slice(-4).map(u => u.sessionUpdate + (u.status ? ':' + u.status : '') + (u.content?.text ? ' ' + u.content.text.slice(0, 60) : '')) }; } catch { return f; } }) : [];
+  const listed = await page.evaluate(() => fetch('/api/sessions').then(r => r.json()).then(j => ({ n: j.sessions?.length, ids: (j.sessions || []).map(x => x.id), warnings: j.warnings }))).catch(err => String(err));
+  console.error('The list now:', JSON.stringify(listed));
+  console.error('On screen:', JSON.stringify(shown)); console.error('Stand-in CLI:', JSON.stringify(stored));
+  throw e;
 } finally {
   if (!held) { await browser.close(); server.kill('SIGKILL'); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 }

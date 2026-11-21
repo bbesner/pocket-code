@@ -15,7 +15,9 @@
 //   · a background command: the prompt returns while the command still runs; its end, the model's last words and a
 //     usage_update come afterwards with no prompt open
 //
-// Env: FAKE_AGY_STORE (required, dir) · FAKE_AGY_SIGNED_OUT (a marker file: while it exists nobody is signed in)
+// Env: FAKE_AGY_STORE (required, dir) · FAKE_AGY_SIGNED_OUT (a marker file: while it exists nobody is signed in) ·
+// FAKE_AGY_HISTORY_DELAY_MS (a session/load that only reads the history answers this much later) ·
+// FAKE_AGY_LIST_DELAY_MS (session/list answers this much later, with the list as it was when asked)
 // Prompt markers, the same the Claude, Codex and OpenCode fakes take (test/engine-parity.test.mjs): __SLOW__ (1.5 s) ·
 // __HANG__ (waits to be stopped or steered) · __CHOICES__ / __DONE__ (ends with that block) · __QUESTION__ (asks "Which
 // color?" with Blue and Red) · __PLAN__ (a plan of two steps) · __EDIT__ (edits parity.txt, "old line" to "new line") ·
@@ -192,7 +194,8 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     case 'session/list': {
       let files = []; try { files = fs.readdirSync(STORE).filter(f => /^session-.*\.json$/.test(f)); } catch { }
       const sessions = files.map(f => { const sid = f.slice(8, -5), d = loadSess(sid) || {}; return { sessionId: sid, cwd: d.cwd || '/tmp', title: d.title || '', updatedAt: new Date(d.updatedAt || d.createdAt || 0).toISOString() }; });
-      return reply(m.id, { sessions });
+      const late = Number(process.env.FAKE_AGY_LIST_DELAY_MS) || 0;
+      return late ? void setTimeout(() => reply(m.id, { sessions }), late) : reply(m.id, { sessions });
     }
     case 'session/new': {
       if (signedOut()) return fail(m.id, 'Authentication required', -32000);
@@ -203,13 +206,18 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     }
     case 'session/load': {
       if (signedOut()) return fail(m.id, 'Authentication required', -32000);
-      const s = loadSess(p.sessionId); if (!s) return fail(m.id, 'unknown session');
-      for (const u of s.updates) update(p.sessionId, u);
-      // Reopened to carry on (Pocket's instructions come with it): noted. Reopened only to read the history: counted.
-      if (metaAppend(p) != null) { s.append = metaAppend(p); s.mcpServers = p.mcpServers || []; s.opened = 'load'; }
-      s.loads = (s.loads || 0) + 1; saveSess(p.sessionId, s); live.set(p.sessionId, s);
-      conf.delete(p.sessionId); // a session opened in this process starts on the CLI's own model again
-      return reply(m.id, { configOptions: configOptions(confOf(p.sessionId)) });
+      const load = () => {
+        const s = loadSess(p.sessionId); if (!s) return fail(m.id, 'unknown session');
+        for (const u of s.updates) update(p.sessionId, u);
+        // Reopened to carry on (Pocket's instructions come with it): noted. Reopened only to read the history: counted.
+        if (metaAppend(p) != null) { s.append = metaAppend(p); s.mcpServers = p.mcpServers || []; s.opened = 'load'; }
+        s.loads = (s.loads || 0) + 1; saveSess(p.sessionId, s); live.set(p.sessionId, s);
+        conf.delete(p.sessionId); // a session opened in this process starts on the CLI's own model again
+        return reply(m.id, { configOptions: configOptions(confOf(p.sessionId)) });
+      };
+      // a slow read of the history, so a test can have a reply end while it is being read
+      const wait = metaAppend(p) == null ? Number(process.env.FAKE_AGY_HISTORY_DELAY_MS) || 0 : 0;
+      return wait ? void setTimeout(load, wait) : load();
     }
     case 'session/set_config_option': {
       if (!loadSess(p.sessionId)) return fail(m.id, 'unknown session');

@@ -1,7 +1,8 @@
 {
- "version": "1.118.0",
- "assetV": 212,
+ "version": "1.120.0",
+ "assetV": 214,
  "notes": [
+  "Antigravity, a fourth agent, off until the person who runs Pocket turns it on. It runs Google's Antigravity command-line tool signed in with your own Google account, so replies use the Gemini models and the usage your Google AI plan includes instead of a per-token key. The model menu is what your plan lists, and each model offers its own thinking levels. Every Antigravity message is one you send: there is no queue, no automatic retry after a usage limit, and check-backs, jobs and Inbox Watch never start it. A message sent while it works goes into that reply. If nobody is signed in, New conversation names the command to run on the server. Set-up, and what Google says about third-party apps on consumer plans, are in the manual under Conversations.",
   "Sign out from Settings. Under Agents & instance (Accounts in Assistant mode), Sign out ends this browser's sign-in and turns off its notifications, and Sign out everywhere does the same on every browser and phone, for a lost phone or a shared computer. Changing the password and restarting Pocket now signs everyone out too. Everyone signs in once after this update. When many wrong passwords arrive from many places at once, Pocket checks sign-ins one at a time, and a browser you have signed in on before still gets through.",
   "An agent can no longer share or publish a file on its own. When it asks to make a link, make a file public, make a new link or keep a link open longer, a Requests card appears at the top of Files, and a notification, with Allow and Deny. Allow makes exactly that change, once, and only if the file has not changed since the agent asked. Deny, or no answer within 15 minutes, changes nothing.",
   "A share link's address is shown once. Pocket now keeps only a fingerprint of each link, so copy the address when you make it. Afterwards Files says a link is open and when it expires, with Make a new link and Revoke link. Links you already sent keep working, but Pocket cannot show them again.",
