@@ -99,8 +99,10 @@ routes, and only on a direct loopback connection: a request carrying a `cf-conne
 `x-forwarded-for` header, as one arriving through a tunnel or proxy does, is refused. It
 never replaces the login cookie anywhere else. Anyone who can read that file as the
 service's OS user can read and change those libraries, and so can the agents, which run
-as that user. On the Vault routes the token can only do what an agent may (see below); it
-never returns a value. Don't put the data directory on a shared path.
+as that user. On the Vault routes the token can do what an agent may (see below), and that
+includes a browser fill, which hands the value to the caller that asked for it: anything that
+holds the token can obtain any value an agent could have filled. Don't put the data directory
+on a shared path.
 
 **Reminder hook.** `POCKET_REMINDER_HOOK`, if set, is run through a shell when a project
 reminder or task comes due, with the item as JSON on standard input. It is a command from
@@ -118,8 +120,10 @@ folders it created (marked `.pocket-managed`). Set `POCKET_SKILLS=0` to stop it.
 
 ### Vault
 
-The Vault (1.39) keeps credentials so that agents can use them without the values reaching
-the model provider, transcripts, turn logs, Pocket's search, MemStem or backups. It is off
+The Vault (1.39) keeps credentials so that agents can use them, in normal use, without the values
+reaching the model provider, transcripts, turn logs, Pocket's search, MemStem or backups, and gives
+the owner a say over which command or which form gets a value. It is not a wall against an agent that
+sets out to get a value (see **What the Vault does not stop** below). It is off
 until the owner switches it on. Since 1.44, switching it on with no key and no store creates
 the key, saves it to the install's `.env` (mode `0600`) and shows a recovery key once.
 
@@ -165,7 +169,19 @@ when present) at start and deletes them from its own environment, so agent turns
 cannot inherit it. Since 1.73.3 the same is done for `POCKET_SMTP_URL` (its URL carries the mail password), `POCKET_SMTP_FROM`
 and `POCKET_ROUTER_KEY`; the daemon's own login, cookie and push secrets were never passed on.
 
-**What agents can do.** An agent has no way to read a value. It can list items (names,
+**What the Vault does not stop.** In normal use a value stays out of the agent's conversation, the
+transcript and the logs. It is not a wall against an agent that sets out to get one:
+
+- An item on *Free rein* can be obtained by any agent on the server: the agent chooses the command that
+  receives the value, and that command can hand it on in any form.
+- A value filled into a browser can be read back by the agent that asked for the fill, since that agent
+  drives the page.
+- A command you approve receives the real value and can do anything with it: print it encoded, write it
+  to a file, send it elsewhere.
+- So use *Free rein* only for low-value keys, and give high-value items *Ask once per command*, *Ask every
+  time* or *Only you*, and read what you approve.
+
+**What agents can do.** An agent can list items (names,
 kinds, URLs, tags, policy, expiry, last use; never values or the owner's notes), create a new
 item (an existing name is refused, so an agent cannot replace a credential), read its own
 session's history, and ask the daemon to run a command with values in that command's
@@ -220,9 +236,11 @@ and is replaced by the placeholder in everything the tool sends back. Values are
 fill tools only (1.73.5: `browser_type`, `browser_fill_form`, `type`, `fill`, or the list in
 `POCKET_VAULT_FILL_TOOLS`), never handed to `browser_evaluate` or put in an address; and once a
 value has been typed, the relay withholds images, audio and blobs from that server for the rest
-of its life, because a screenshot of the page cannot be scrubbed. A page the agent is
-driving can still read what was typed into it, so allow fills only on sites you trust with
-that login. The relay and the commands find the daemon through `<data dir>/cli-url` (1.43.1),
+of its life, because a screenshot of the page cannot be scrubbed. The relay is the agent's own
+tool, running as the same user, and the agent drives the page: the agent that asked for a fill
+can read the value back, and so can the page. The placeholder keeps the value out of the
+transcript in normal use; it does not keep it out of the agent's reach. Allow a fill as you would
+hand that login to the agent, and only on sites you trust with it. The relay and the commands find the daemon through `<data dir>/cli-url` (1.43.1),
 never an inherited `PORT`.
 
 **Record of use.** Every run, request, answer, owner view of a value, addition, change,
@@ -253,7 +271,9 @@ carry the item's name, the link's id and the field names). While the Vault is of
 **Limits.** These are real, and the same as for the password above:
 - Agents run as the same OS user as the daemon. An agent that goes looking can read `.env`,
   and with it the key and the store. The Vault keeps secrets out of prompts, transcripts,
-  memory, backups and the provider, and makes their use visible. It is not process isolation.
+  memory, backups and the provider in normal use, and makes their use visible. It is not process
+  isolation, and it is not a wall against an agent that sets out to get a value (see **What the
+  Vault does not stop**).
 - A command the daemon runs for an agent runs with the daemon's permissions, outside any
   sandbox the agent's CLI applies, and can do whatever the credential allows. Approve
   commands as you would approve giving that credential to the command.

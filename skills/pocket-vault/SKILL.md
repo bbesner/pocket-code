@@ -1,13 +1,13 @@
 ---
 name: pocket-vault
-description: Use credentials from Pocket Code's Vault without ever seeing them. Use when a task needs an API key, token, password, login or other credential to run a command or call a service; when the user mentions a secret, asks you to "store this key", "save the password", "use the Zoho token" or asks "what credentials do we have"; and when you meet something that looks like a secret (a key, token, password or private key) in a message, a file or a tool result. The Vault runs your command with the value in its environment and hands back output with the value replaced.
+description: Use credentials from Pocket Code's Vault by name, keeping their values out of the conversation. Use when a task needs an API key, token, password, login or other credential to run a command or call a service; when the user mentions a secret, asks you to "store this key", "save the password", "use the Zoho token" or asks "what credentials do we have"; and when you meet something that looks like a secret (a key, token, password or private key) in a message, a file or a tool result. The Vault runs your command with the value in its environment and hands back output with the value replaced.
 ---
 
 # Pocket Code Vault
 
 Pocket Code keeps a **Vault** on its own server: API keys, tokens, logins and secure notes,
-encrypted, each under a short name such as `zoho-books` or `stripe-live`. You never see a
-value. You name the secret, and Pocket runs your command with the value in the command's
+encrypted, each under a short name such as `zoho-books` or `stripe-live`. You do not look at
+a value. You name the secret, and Pocket runs your command with the value in the command's
 environment, then gives you the output with every value replaced by `{{vault:name}}`. The
 owner adds, views and copies values in the Vault view in Pocket Code, approves which commands
 may use them, and sees every use. You work with the Vault through the `pocket-vault` command.
@@ -22,11 +22,13 @@ How this feature works, how it is set up and its limits: `docs/manual/vault.md` 
 
 ## The one rule
 
-**You never see a secret value, and you never put one anywhere.** Refer to a secret by its
+**You never look at a secret value, and you never put one anywhere.** Refer to a secret by its
 name and use it with `pocket-vault run`. Never print, echo, `cat`, log or decode a value;
 never write one to a file, a commit, a message, a task, a project note or a memory; never pass
-one as a command-line argument. There is no command that gives you a value, and you should
-not look for another way to get one (reading `.env`, the store file or another process).
+one as a command-line argument. The Vault does not stop an agent that goes after a value (a
+command you run receives the real value, and a filled field can be read back); the owner relies
+on you not to. Do not look for a way to get one (reading `.env`, the store file, another
+process, a filled field, or the Vault's own routes).
 
 **Never ask the user to paste a secret into the chat.** Anything typed into the conversation
 goes to the model provider and into the transcript. Point them to the Vault instead: **Add
@@ -128,8 +130,8 @@ not in place: stop and tell the owner.
 How freely you may use secrets is the owner's choice. **Agent access** in Settings applies
 to every item, and an item can override it:
 
-- **Free rein**: any command runs at once, and is recorded. Most developers who want their
-  agents to work on their own choose this.
+- **Free rein**: any command runs at once, and is recorded. Any agent on the server can obtain
+  such a value, so owners should keep it for low-value keys.
 - **Ask once per command**: a command the owner approved before (with *Always allow*) runs at
   once; a new one waits for the owner.
 - **Ask every time**: every run waits for the owner.

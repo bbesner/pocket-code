@@ -11,7 +11,7 @@ than one thing at a time. Sessions run on your server, so closing the browser, l
 phone or restarting the app changes nothing. A session rail sorts what is running, what is
 waiting on you and what just finished. Saved prompts start recurring work in a tap. Agents
 answer with buttons, offer a to-do when work needs a later check, keep the reports they
-produce in Files, and use credentials from an encrypted Vault without ever seeing them.
+produce in Files, and use credentials from an encrypted Vault by name, keeping the values out of the conversation.
 At your desk it is tabs and four-way split view. On your phone it is the same workspace,
 installed as an app.
 
@@ -52,8 +52,9 @@ reports, dashboards and spreadsheets agents produce, rendered in place and share
 you ask. **Tasks** are to-dos with an optional date, linked to the session they came from;
 **Start** opens a new session with the task already written in, and a **start link** lets an agent or a job on the server hand Pocket a briefing that opens the same way. The **Vault** keeps API keys,
 tokens and logins encrypted on the server; agents use them by name, in commands or typed into
-a web page's login form, and never see the values. You decide how much they may do without
-asking, and every use is recorded. Lists keep up on their own: something an agent adds
+a web page's login form, while in normal use the values stay out of the conversation and the
+transcript. You decide how much they may do without asking, and every use is recorded. It is not
+a wall against an agent that sets out to get a value: see [SECURITY.md](SECURITY.md#vault). Lists keep up on their own: something an agent adds
 mid-turn shows up without a reload.
 
 <table>
@@ -69,7 +70,7 @@ mid-turn shows up without a reload.
 <td colspan="2" valign="top"><img src="docs/images/vault-desktop.png" alt="The Vault: a waiting request from an agent to run a command with the zoho-books secret, with Deny, Always allow and Allow once, above five secrets showing their kind, site and how much agents may do with each"></td>
 </tr>
 <tr>
-<td colspan="2" align="center"><b>Vault</b>: agents ask before they use a secret, and never see its value</td>
+<td colspan="2" align="center"><b>Vault</b>: agents use a secret by name, and ask before they use it</td>
 </tr>
 </table>
 
@@ -276,17 +277,20 @@ device, and when you open them, so an item an agent adds shows up without a relo
   - **Set up in one switch.** Turning it on creates the key, saves it to the install's
     `.env` and shows a **recovery key** to save once (1.44). Settings can download the
     recovery key again, rotate the key, or restore a lost one from the recovery key.
-  - **Used by name, never seen.** An agent runs `pocket-vault run --env TOKEN=zoho-books --
+  - **Used by name.** An agent runs `pocket-vault run --env TOKEN=zoho-books --
     <command>`: the command gets the value in its environment and the agent gets the output
-    with the value replaced. Values never appear in arguments, transcripts or MemStem.
+    with the value replaced, so in normal use values stay out of arguments, transcripts and
+    MemStem. The command receives the real value and can do anything with it, and an item on
+    Free rein can be obtained by any agent on the server: keep Free rein for low-value keys.
   - **You set how much agents may do.** **Agent access** is Free rein, Ask once per command
     (the default) or Ask every time; any item can be *Only you*. A request is answered from the
     push notification's Allow and Deny buttons, the Vault view, or a reply in the conversation,
     and every use is in the item's history.
-  - **Typed by Pocket (1.43).** Agents log into web pages without seeing the password: a
-    browser-tool call names `{{vault:name.field}}`, and Pocket's relay
+  - **Typed by Pocket (1.43).** Agents log into web pages without the password in the
+    conversation: a browser-tool call names `{{vault:name.field}}`, and Pocket's relay
     (`scripts/pocket-mcp-proxy.mjs`) types the value in on the way to the browser and removes
-    it from everything that comes back.
+    it from everything that comes back. The agent drives that page, so it can read a filled
+    value back.
   - **Secrets caught before they are sent (1.42).** A key or password pasted or typed into a
     message is held, with **Store in the Vault** putting `{{vault:name}}` in its place. The
     server refuses a secret-shaped message unless you choose to send it anyway (**Catch

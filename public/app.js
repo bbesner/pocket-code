@@ -1395,9 +1395,9 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const on = Boolean(srv.vault), ready = srv.vaultReady !== false, create = srv.vaultCanCreateKey === true, needsKey = srv.vaultNeedsKey === true;
     btn.disabled = !on && (needsKey || (!ready && !create)); btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
     sh.querySelector('#s-vault-state').textContent = needsKey ? "This Vault's key is missing on this server. Restore it from your recovery key."
-      : on ? 'On: keys and passwords agents use by name in commands without seeing them. Every use is recorded'
+      : on ? 'On: keys and passwords agents use by name, kept out of the conversation. Every use is recorded'
       : create ? "Off. Turning it on creates this install's encryption key; you'll be shown a recovery key to save."
-      : ready ? 'Off. Turn on to keep keys and passwords that agents use without seeing the value'
+      : ready ? 'Off. Turn on to keep keys and passwords that agents use by name, kept out of the conversation'
       : srv.vaultError && !/not set/i.test(srv.vaultError) ? 'Off. The Vault cannot be opened: ' + srv.vaultError
       : 'Off. Set POCKET_VAULT_KEY in .env (see the README) and restart to turn it on';
     sh.querySelector('#s-vault-restore-wrap').hidden = !needsKey;

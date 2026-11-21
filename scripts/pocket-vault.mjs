@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// pocket-vault: use the owner's stored credentials by name, without ever seeing them (1.39).
+// pocket-vault: use the owner's stored credentials by name, keeping the values out of the conversation (1.39).
 // Talks to the running Pocket Code server over loopback with the token it writes to <data dir>/cli-token.
 // Values never pass through this process: `run` asks the daemon to run the command with the values in
 // its environment, and prints the output with every value replaced by {{vault:name}}.

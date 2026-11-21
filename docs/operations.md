@@ -551,8 +551,8 @@ call again; the relay gives the daemon that long plus 15 seconds to answer (1.73
 string per placeholder, and starts the server without any of the daemon's own secrets (the same list `agentEnv` keeps
 from agent turns). A signal sent to the relay is passed to the server and followed by SIGKILL five seconds later. If the owner locks the Vault while a request is waiting, the run is told so
 (`pocket-vault` exits 3) and the fill is answered `423 vault_locked`; neither can be continued afterwards. The values pass through
-the relay and the browser tool, which run as the same OS user as the agent; the model and the transcript never see
-them. A Claude Code PreToolUse hook could rewrite the call too, but Claude Code records hook output in the transcript
+the relay and the browser tool, which run as the same OS user as the agent; in normal use the model and the
+transcript hold only the placeholder, but the agent drives the page and can read a filled value back. A Claude Code PreToolUse hook could rewrite the call too, but Claude Code records hook output in the transcript
 file, so the relay is the only clean path.
 
 **Intake links (1.110).** `/intake/<token>` is served without a login, like `/share/`, so an identity proxy in front of Pocket must let it through for an outside person to reach it; test it from outside in a private window before you send a link. The links live inside `vault.enc`, so a locked Vault answers every link with *Temporarily unavailable* and the link stays open. Branding comes from `POCKET_INTAKE_ORG`, `POCKET_INTAKE_ACCENT` and `POCKET_INTAKE_LOGO` (read at start). The daemon log names a filled link's item and field names, never a value or a token.

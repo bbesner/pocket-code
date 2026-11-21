@@ -4,7 +4,7 @@ sources: vault.mjs, intake-page.mjs, public/intake/intake.css, public/vault.js, 
 -->
 # Vault
 
-The Vault keeps API keys, tokens, logins and secure notes encrypted on the Pocket Code server, so agents can use them by name without ever seeing a value. An agent asks Pocket to run a command with a secret in its environment, and gets the output back with the value replaced by `{{vault:name}}`. The value never reaches the model, the transcript, Pocket's logs or the agent's memory. Use it whenever an agent needs a credential to do real work for you.
+The Vault keeps API keys, tokens, logins and secure notes encrypted on the Pocket Code server, so agents can use them by name. An agent asks Pocket to run a command with a secret in its environment, and gets the output back with the value replaced by `{{vault:name}}`. In normal use the value stays out of the agent's conversation, the transcript, Pocket's logs and the agent's memory, and you decide which commands and which forms get it. It is not a wall against an agent that sets out to get a value; see [Security model and limits](#security-model-and-limits) before you choose how freely agents may use a secret.
 
 ## Turn it on
 
@@ -99,7 +99,7 @@ Tap a secret to open its sheet. Each field shows as dots; **Show** fetches that 
 
 | Agent access | Behavior |
 |---|---|
-| **Free rein** | Agents use any secret by name without asking. Every use is still recorded. |
+| **Free rein** | Agents use any secret by name without asking. Every use is still recorded. Any agent on the server can obtain the value, so keep this for low-value keys. |
 | **Ask once per command** (default) | A command you approved before with **Always allow** runs at once; a new command needs your approval. |
 | **Ask every time** | Every use needs your approval. **Always allow** is not offered. |
 
@@ -188,7 +188,7 @@ The command leads its own process group. When it exits, times out or exceeds the
 
 ### Browser logins
 
-An agent driving a browser through the Playwright MCP tools can type a stored value into a page by writing `{{vault:name.field}}` as the text to type. Pocket's relay (`scripts/pocket-mcp-proxy.mjs`) asks the Vault for the value under the same Agent access rules and approval flow, types it into the tool call on its way to the browser, and replaces it with the placeholder in everything the browser tool sends back. The request shows in the Vault as "Fill into the playwright tool (browser_type)".
+An agent driving a browser through the Playwright MCP tools can type a stored value into a page by writing `{{vault:name.field}}` as the text to type. Pocket's relay (`scripts/pocket-mcp-proxy.mjs`) asks the Vault for the value under the same Agent access rules and approval flow, types it into the tool call on its way to the browser, and replaces it with the placeholder in everything the browser tool sends back. The request shows in the Vault as *… wants to fill name into a web page, and will be able to read what is filled*: the agent drives that page, so it can read the value back once it is typed. Allow a fill as you would hand that login to the agent.
 
 Set it up once by registering the browser tool through the relay, for example for Claude Code:
 
@@ -225,7 +225,14 @@ Each secret's sheet shows its last 20 events under **History**. The file records
 
 ### Security model and limits
 
-The Vault keeps secrets out of prompts, transcripts, memory, backups and the model provider, and makes every use visible. It is not process isolation:
+In normal use the Vault keeps secrets out of prompts, transcripts, memory, backups and the model provider, gives you a say over which command or form gets a value, and makes every use visible. It is not process isolation, and it is not a wall against an agent that sets out to get a value:
+
+- An item on **Free rein** can be obtained by any agent on the server: the agent chooses the command that receives the value, and that command can hand it on in any form.
+- A value filled into a browser can be read back by the agent that asked for the fill, since that agent drives the page.
+- A command you approve receives the real value and can do anything with it: print it encoded, write it to a file, send it elsewhere.
+- So use **Free rein** only for low-value keys, and give high-value secrets **Ask once per command**, **Ask every time** or **Only you**, and read what you approve.
+
+Also:
 
 - Agents run as the same operating-system user as Pocket. An agent that goes looking can read `.env` and the store.
 - A command run with a secret runs with the daemon's permissions, outside any sandbox the agent's CLI applies, and can do whatever the credential allows. Scrubbing cannot stop a command that writes a value to a file, spells it in a way the scrubber does not know, or sends it somewhere.
@@ -239,7 +246,7 @@ In the browser, Vault responses are never cached, changes are refused unless the
 
 Use the [pocket-vault skill](../../skills/pocket-vault/SKILL.md); Pocket installs it while the Vault is on, and the instructions Pocket gives each conversation name the exact command path. Run the CLI as `node <Pocket Code directory>/scripts/pocket-vault.mjs` (or `npx pocket-vault` from the Pocket Code directory).
 
-**The rule:** never see, print, echo, log, decode or write a value, never put one in a command's arguments, and never ask the user to paste a secret into the chat. Point them to **Store in the Vault** instead.
+**The rule:** never look at, print, echo, log, decode or write a value, never put one in a command's arguments, and never ask the user to paste a secret into the chat. Point them to **Store in the Vault** instead.
 
 ```text
 pocket-vault list [--kind k] [--tag t] [--json]       names, kinds, fields, policy, url, tags, expiry; never values

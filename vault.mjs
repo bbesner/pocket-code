@@ -1,9 +1,10 @@
-// The Vault (1.39): credentials agents use without seeing. One encrypted file in the data directory
+// The Vault (1.39): credentials agents use by name. One encrypted file in the data directory
 // (<data dir>/vault.enc, AES-256-GCM over the whole store under POCKET_VAULT_KEY) holds every item, its
 // policy and the commands the owner has approved for it; nothing about the store is readable on disk
-// without the key. The daemon decrypts it into memory at boot. Agents never receive a value: `pocket-vault
-// run` sends the daemon a command and the variables to bind, the daemon spawns the child itself with the
-// values in its environment, and the output comes back with every value scrubbed. Every release of a value,
+// without the key. The daemon decrypts it into memory at boot. `pocket-vault run` sends the daemon a command
+// and the variables to bind, the daemon spawns the child itself with the values in its environment, and the
+// output comes back with every value scrubbed. That keeps values out of the conversation in normal use; it does
+// not keep them from the command, or from an agent that asks for a browser fill (SECURITY.md, Vault). Every release of a value,
 // every request and answer, and every owner view is appended to vault-audit.jsonl, which never holds a value.
 // Design: docs/plans/1.39.0-vault.md.
 import fs from 'node:fs';
@@ -105,8 +106,8 @@ export function vaultInstructions(cli, sessionId) {
   const skill = shellArg(path.join(path.dirname(String(cli)), '..', 'skills', 'pocket-vault', 'SKILL.md'));
   cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
   return [
-    'This Pocket Code keeps a Vault of credentials (API keys, tokens, logins) that agents use by name and never see.',
-    `Run commands that need one with \`node ${cli} run --env VAR=<name>[.field] -- <command…>\`: Pocket runs the command with the value in that variable and returns the output with the value scrubbed. Values never appear in arguments, output, files, messages or your context; never print, echo, write down or ask for one.`,
+    'This Pocket Code keeps a Vault of credentials (API keys, tokens, logins) that agents use by name, without looking at the values.',
+    `Run commands that need one with \`node ${cli} run --env VAR=<name>[.field] -- <command…>\`: Pocket runs the command with the value in that variable and returns the output with the value scrubbed. Keep values out of arguments, output, files, messages and your context; never print, echo, write down or ask for one.`,
     'If the command answers `pending <id>`, the owner is being asked to allow it (a push with Allow and Deny went to their devices): say so in one line and end your reply offering "Allow <name> for this command" and "Deny <name>" as the choices; the owner answering either way, by the notification, the Vault view or that reply, settles the request, and you then continue with `wait <id>`. If it is refused, say so and stop; do not look for another way to the value.',
     'To type a stored value into a web page with the Playwright browser tools (a login form, say), put `{{vault:<name>.<field>}}` as the text to type or fill; Pocket fills in the real value on the way to the browser and removes it from what comes back. Never read a filled value back out of the page. Values go into typing and form-filling tools only, and once one has been typed, screenshots and other pictures from that browser are unavailable for the rest of the session (a value cannot be scrubbed out of a picture): use text snapshots.',
     `When you meet a secret in a file, a result or a message, store it at once with \`node ${cli} put <name> --kind <api_key|token|login|credentials|note> --stdin\` (or --from-file), tell the owner it was seen, and use the name from then on. \`list\` shows what exists. When someone outside (a customer, a vendor) has a credential the work needs, never ask for it by email, chat or phone: make a one-time link with \`node ${cli} request <name> --kind login --for "<who>" --note "<what it is>"\` and send that. A \`{{vault:name}}\` in a message is the owner handing you a stored secret by name.`,

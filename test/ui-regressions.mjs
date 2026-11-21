@@ -1982,7 +1982,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.$eval('#s-vault-access-note',e=>e.textContent),'Every use needs your approval, from the notification or in the conversation.');
     await page.select('#s-vault-access','free');for(let i=0;i<30&&settings.vaultAccess!=='free';i++)await pause(100);
     await page.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Agent access: Free rein');
-    assert.match(await page.$eval('#s-vault-access-note',e=>e.textContent),/^Agents use any secret by name without asking\. Values still never enter the conversation, and every use is recorded\.$/);
+    assert.match(await page.$eval('#s-vault-access-note',e=>e.textContent),/^Agents use any secret by name without asking, and every use is recorded\. Any agent on this server can obtain such a value, so keep it for low-value keys\.$/);
     await page.$eval('#s-vault-more',e=>e.scrollIntoView({block:'center'}));
     await scan('vault-settings-access');await page.screenshot({path:path.join(out,'vault-settings-access.png')});
     await page.select('#s-vault-access','every');for(let i=0;i<30&&settings.vaultAccess!=='every';i++)await pause(100);

@@ -113,7 +113,7 @@ are under **Settings → Features**, with **Automatic model choice**. While the 
 | **Files** | A library for the reports, PDFs, spreadsheets and pages agents produce, private until you share one | [Files](files.md) |
 | **Tasks** | To-dos with an optional date, linked to the conversation they came from | [Tasks](tasks.md) |
 | **Inbox Watch** | Reads your Gmail on a schedule and lists only what needs you, through the Gmail connector of Claude Code or Codex | [Inbox Watch](inbox-watch.md) |
-| **Vault** | API keys, tokens and logins, encrypted on the server, that agents use by name without seeing them. Turning it on creates the key and shows a recovery key to save once | [Vault](vault.md) |
+| **Vault** | API keys, tokens and logins, encrypted on the server, that agents use by name, kept out of the conversation in normal use. Turning it on creates the key and shows a recovery key to save once | [Vault](vault.md) |
 | **Voice** (beta) | Speak to a conversation and hear a short reply. Not a switch: install the speech engine with `bash scripts/voice-setup.sh` from the Pocket Code directory, then restart Pocket; the mic appears beside Send | [Voice](voice.md) |
 
 While a feature is on, Pocket installs its agent skill for Claude Code and Codex, so agents on the

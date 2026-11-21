@@ -480,7 +480,7 @@ const START_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-start.mjs');
 const startsClaimed = new Set(); // 1.96: handoffs whose /api/new is running, so a second tap in that window never makes a second conversation
 const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).json({ error: 'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'tasks_off' });
 // ---------- 1.39: the vault ----------
-// Credentials agents use by name and never see (vault.mjs): <data dir>/vault.enc, one AES-256-GCM blob under
+// Credentials agents use by name (vault.mjs): <data dir>/vault.enc, one AES-256-GCM blob under
 // POCKET_VAULT_KEY, decrypted into memory here; vault-audit.jsonl records every use and never a value. Off until
 // Settings turns it on, which needs the key. The same loopback token serves pocket-vault on /api/vault* only;
 // what each caller may do is decided per route (the owner's cookie, or an agent's token plus its runner token).
@@ -4731,7 +4731,7 @@ app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, 
   res.json({ ok: true });
 }).catch(next));
 // A run: the daemon binds the values, checks policy, asks the owner when it must, spawns the child itself and streams
-// scrubbed output back as JSON lines. The CLI never receives a value.
+// scrubbed output back as JSON lines. The CLI never receives a value; the command does.
 const vaultRuns = new Set();
 async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: existing }) {
   const c = vaultCaller(req);
@@ -4789,8 +4789,9 @@ app.post('/api/vault/run', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (re
 // 1.43: Typed by Pocket. pocket-mcp-proxy sits between an agent and a browser tool (Playwright MCP); when a tool call
 // names {{vault:name.field}}, it asks here for the values, under the same Agent access policy and approval flow as a
 // run (the "command" is pocket-fill <server> <tool> in the proxy's folder), types them into the tool call on its way to
-// the browser, and scrubs them from everything the tool sends back. The model and the transcript only ever hold the
-// placeholder. Answers {ok, values}, {pending, request} (the proxy retries with `request`) or {denied}.
+// the browser, and scrubs them from everything the tool sends back. In normal use the model and the transcript hold
+// only the placeholder; this route returns the values to its caller, so an agent holding the CLI token can obtain any
+// value it could have filled, and the agent driving the page can read a filled value back (SECURITY.md, Vault). Answers {ok, values}, {pending, request} (the proxy retries with `request`) or {denied}.
 app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, async (req, res) => {
   const c = vaultCaller(req), b = req.body || {};
   const name = v => /^[\w.-]{1,64}$/.test(String(v || '')) ? String(v) : null;
@@ -4808,7 +4809,7 @@ app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin,
       const need = vault.decide(bound, cmd);
       if (need.length) {
         reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor, tokenHash: c.tokenHash });
-        const devices = await pushRaw(...vaultPushText(reqRow, `to fill into ${tool}`), vaultPushOpts(reqRow));
+        const devices = await pushRaw(...vaultPushText(reqRow, `to fill into ${tool}, and will be able to read what is filled`), vaultPushOpts(reqRow));
         log(`vault fill request=${reqRow.id} items=${reqRow.itemNames.join(',')} tool=${tool} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
       }
     }
