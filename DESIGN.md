@@ -410,6 +410,16 @@ request already ended, is a bordered `--warn` line, never a toast. A secret a co
 stored gets a file card (`.vault-card`) with the kind icon in the thumbnail slot and "In the
 Vault" where Files says "In Files".
 
+**What Always allow checks (1.117).** Pinned Operate refinement: variance 2, motion 1, density unchanged; existing
+tokens and classes only. A run request gains, under the command, a dim **Runs** line with the program's full path in
+`.vault-path` mono (for a launcher, the program it starts). A note in body colour at 13.5px (`.vault-request-note`, no
+border) says what Pocket cannot check: inline code, a launcher option it does not know, a file checked only by size and
+dates, a script that is a pipe or folder. When *Always allow* is offered and the command names files, a borderless
+fieldset, **Files Always allow checks**, lists them as `.task-label` checkboxes (clay accent, 44px rows), ticked by
+default, with one dim line of help: untick a file the command writes. The bordered `--warn` notice for a changed command
+names the file that changed, in mono, instead of "the program or a file". Rendered checks: no horizontal overflow at 390
+and 1280; the detector reports only the app-shell baseline (flat type hierarchy).
+
 ## Appearance modes (1.38)
 
 Pinned Operate refinement: variance 3, motion 2, density 7. Preserve layouts, native type,
