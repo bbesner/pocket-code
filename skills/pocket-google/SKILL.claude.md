@@ -47,7 +47,7 @@ other one only when a connector is not connected, and say which account it reach
 
 **Find:** `search_threads` with Gmail search syntax, not a scroll through the inbox:
 `from:jane newer_than:7d`, `to:me is:unread -category:promotions`,
-`subject:"invoice" after:2026/10/01`, `has:attachment from:@acme.com`. It returns snippets
+`subject:"invoice" after:2026/10/01`, `has:attachment from:@example.com`. It returns snippets
 only; drafts are left out unless you add `in:draft`.
 
 **Read:** open the whole thread (`get_thread`) before you summarise or reply to it, not only

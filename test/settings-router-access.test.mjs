@@ -81,7 +81,7 @@ test('one sign-in from Settings: validated, on and off live, last sign-in report
   let a = (await s.call('/settings')).body.access;
   assert.equal(a.on, false); assert.equal(a.source, 'none');
   assert.equal(await me(tok('owner@example.test')), false, 'off: an Access token does nothing');
-  for (const bad of [{ team: 'Bad Team!', aud: 'a'.repeat(32), emails: 'x@y.co' }, { team: 'myteam', aud: 'short', emails: 'x@y.co' }, { team: 'myteam', aud: 'a'.repeat(32), emails: '' }, { team: 'myteam', aud: 'a'.repeat(32), emails: 'not-an-email' }])
+  for (const bad of [{ team: 'Bad Team!', aud: 'a'.repeat(32), emails: 'x@example.test' }, { team: 'myteam', aud: 'short', emails: 'x@example.test' }, { team: 'myteam', aud: 'a'.repeat(32), emails: '' }, { team: 'myteam', aud: 'a'.repeat(32), emails: 'not-an-email' }])
     assert.equal((await s.call('/settings', { access: bad })).status, 400, JSON.stringify(bad));
   a = (await s.call('/settings', { access: { team: 'MyTeam', aud: 'a'.repeat(32), emails: 'Owner@Example.test, second@example.test' } })).body.access;
   assert.equal(a.on, true); assert.equal(a.team, 'myteam'); assert.deepEqual(a.emails, ['owner@example.test', 'second@example.test']);
