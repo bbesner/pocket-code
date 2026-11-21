@@ -209,7 +209,8 @@ export class DocumentStore {
   async fingerprint(r) {
     if (r.trashedAt || r.missing) throw fail('That file is not in the library.', 409);
     const root = fs.realpathSync(this.dir);
-    const file = openChecked(this.filePath(r), real => real.startsWith(root + path.sep));
+    let file; try { file = openChecked(this.filePath(r), real => real.startsWith(root + path.sep)); }
+    catch { throw fail('That file is not a regular file inside the library, so it cannot be shared.', 409); }
     try {
       const h = createHash('sha256');
       await new Promise((ok, no) => fs.createReadStream(null, { fd: file.fd, autoClose: false, start: 0 }).on('data', c => h.update(c)).on('error', no).on('end', ok));

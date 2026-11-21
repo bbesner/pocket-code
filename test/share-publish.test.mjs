@@ -53,9 +53,7 @@ test('PC-05 store: a minted link is in the answer only; documents.json holds the
   assert.equal(s.list()[0].share.url,undefined);assert.equal(JSON.stringify(s.list()).includes(made.token),false,'nor in the listing');
   const again=s.update(a.id,{action:'reshare'});assert.equal(fs.readFileSync(meta,'utf8').includes(again.token),false);assert.equal(s.resolveShare(again.token).id,a.id);
   const b=s.addFromBuffer('direct.md',Buffer.from('# Direct'),{visibility:'link'});assert.match(b.token,/^[A-Za-z0-9_-]{40,}$/);assert.equal(fs.readFileSync(meta,'utf8').includes(b.token),false,'a record made as a link stores no token either');
-  fs.writeFileSync(path.join(docsDir,'staff.pdf'),'%PDF');
-  const imp=s.importMeta({'staff.pdf':{visibility:'private',access:'techpro'}});const tok=imp.links[0].url.slice('/share/'.length);
-  assert.equal(s.resolveShare(tok).file,'staff.pdf','the import hands the address out once');assert.equal(fs.readFileSync(meta,'utf8').includes(tok),false);
+  // An import's links: test/documents.test.mjs (the store test) checks their tokens are not on disk either.
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
@@ -134,7 +132,7 @@ test('PC-04 store: which changes expose a file more; Deny, timeout and a changed
   s.update(b.id,{visibility:'private'});
   // The file swapped for a symlink to something outside the library: nothing to fingerprint, nothing raised.
   const outside=path.join(dir,'secret.md');fs.writeFileSync(outside,'# secret');fs.rmSync(path.join(docsDir,'other.md'));fs.symlinkSync(outside,path.join(docsDir,'other.md'));
-  await assert.rejects(s.raiseRequest(b.id,{to:'public'},{caller:AGENT}));assert.equal(s.pendingRequests().length,0);
+  await assert.rejects(s.raiseRequest(b.id,{to:'public'},{caller:AGENT}),e=>e.status===409&&/not a regular file/.test(e.message));assert.equal(s.pendingRequests().length,0);
   // Allow: exactly the change; the address goes to the raiser once; never to another session; never twice.
   row=await s.raiseRequest(a.id,{to:'link',reshare:true,expiresAt:'2030-02-01T00:00:00Z'},{caller:AGENT});
   const two=await Promise.allSettled([s.answerRequest(row.id,'allow'),s.answerRequest(row.id,'allow')]);
