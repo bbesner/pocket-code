@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
+import {killStrays} from './stray-runners.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -29,7 +30,7 @@ async function daemon(t,port,env={}){
   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=37;logs='';return start();} // never talk to a foreign server
   throw Error('Test server failed: '+logs);
  };
- t.after(async()=>{for(const f of cleanup)try{f();}catch{}if(child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}await sleep(300);fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200});});
+ t.after(async()=>{for(const f of cleanup)try{f();}catch{}if(child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}await sleep(300);killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200});});
  await start();
  const call=async(p,body,method)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:method||(body?'POST':'GET'),headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>null)};};
  const until=async(fn,ms=6000)=>{const end=Date.now()+ms;while(Date.now()<end){if(await fn())return true;await sleep(100)}return false;};

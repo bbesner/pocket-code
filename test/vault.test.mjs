@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
+import {killStrays} from './stray-runners.mjs';
 import {VaultStore,parseKey,newKey,encryptStore,decryptStore,storeHeader,deriveKey,scrubber,needlesFor,makeScrubStream,runWithSecrets,vaultInstructions,LIMITS,EXPORT_FORMAT,pinCommand,pinKey,runPath} from '../vault.mjs';
 import {agentEnv} from '../environment.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -384,7 +385,7 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
    throw Error('Test server failed: '+logs);
   };
   const stop=async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}};
-  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{await stop();killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   const call=async(p,body,h=headers,method)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:method||(body?'POST':'GET'),headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({})),text:null};};
   // Streams: a run answers JSON lines; collect them all.
   const streamCall=async(p,body,h)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:'POST',headers:h,body:JSON.stringify(body)});if(!r.ok)return {status:r.status,events:[],body:await r.json().catch(()=>({}))};const text=await r.text();return {status:r.status,events:text.trim().split('\n').filter(Boolean).map(l=>JSON.parse(l))};};
@@ -600,7 +601,7 @@ test('HTTP: a lock while a run and a fill wait for the owner answers both at onc
    if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
    throw Error('Test server failed: '+logs);
   };
-  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
   const streamCall=async(p,body,h)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:'POST',headers:h,body:JSON.stringify(body)});if(!r.ok)return {status:r.status,events:[],body:await r.json().catch(()=>({}))};const text=await r.text();return {status:r.status,events:text.trim().split('\n').filter(Boolean).map(l=>JSON.parse(l))};};
   await start();
@@ -640,7 +641,7 @@ test('HTTP: a request continues only as what it is, by who raised it, and once; 
    if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
    throw Error('Test server failed: '+logs);
   };
-  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
   const streamCall=async(p,body,h)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:'POST',headers:h,body:JSON.stringify(body)});if(!r.ok)return {status:r.status,events:[],body:await r.json().catch(()=>({}))};const text=await r.text();return {status:r.status,events:text.trim().split('\n').filter(Boolean).map(l=>JSON.parse(l))};};
   const calls=()=>fs.existsSync(path.join(dir,'calls'))?fs.readFileSync(path.join(dir,'calls'),'utf8').trim().split('\n').map(JSON.parse):[];
@@ -835,7 +836,7 @@ test('HTTP in-place edit (1.44.2): the owner loads and saves a field; the token 
    if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=37;logs='';return start();}
    throw Error('Test server failed: '+logs);
   };
-  t.after(async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
   await start();
   assert.equal((await call('/settings',{vault:true})).status,200);

@@ -27,10 +27,16 @@ test('origins and their labels', () => {
 });
 
 test('the defaults are the spec tables, and the groups are data', () => {
-  assert.deepEqual(auto.GROUPS.map(g => g.key), ['pause', 'limits']);
-  assert.deepEqual(auto.groupValues({}, 'pause', {}), { ownMessages: 'run', inboxWatch: true, backgroundJobs: true, rearmRetries: true, confirm: true });
+  assert.deepEqual(auto.GROUPS.map(g => g.key), ['pause', 'limits', 'checkbacks']);
+  assert.deepEqual(auto.groupValues({}, 'pause', {}), { ownMessages: 'run', inboxWatch: true, backgroundJobs: true, rearmRetries: true, runOverdue: true, confirm: true });
   assert.deepEqual(auto.groupValues({}, 'limits', {}), { claudeWeekly: 80, claudeFiveHour: 90, codexWeekly: 80, codexFiveHour: 90, dailyReplies: 40, countOwnerWork: false,
     ceilingsHoldOwnerWork: false, openrouterDaily: 5, longestReply: 60, countWaiting: false, notice: 'push', staleHours: 6 });
+  // 1.119: the Check-backs table, off by default, the two engine switches on
+  assert.deepEqual(auto.groupValues({}, 'checkbacks', {}), { checkbacks: false, checkbackAccess: 'same', checkbackClaude: true, checkbackCodex: true, pushWhenMuted: true, showInTasks: true,
+    perConversation: 10, perInstall: 50, chainLimit: 5, furthestHours: 2160, soonestMin: 1, noteMax: 1000, catchUpHours: 12, busyWaitMin: 60, spacingSec: 15 });
+  const cbg = auto.GROUPS[2].settings;
+  assert.deepEqual(cbg.filter(s => s.advanced).map(s => s.key), ['busyWaitMin', 'spacingSec']);
+  assert.ok(!cbg.some(s => s.offAllowed), 'no check-back limit has No limit');
   const stale = auto.GROUPS[1].settings.find(s => s.key === 'staleHours');
   assert.equal(stale.advanced, true); assert.ok(!stale.offAllowed, 'the stale setting has no Off');
 });
@@ -38,12 +44,18 @@ test('the defaults are the spec tables, and the groups are data', () => {
 test('every setting saves a value in range, refuses one out of range by naming the range, and resets to its default', () => {
   const good = { ownMessages: 'blocked', inboxWatch: false, backgroundJobs: false, rearmRetries: false, confirm: false,
     claudeWeekly: 60, claudeFiveHour: 70, codexWeekly: 55, codexFiveHour: 65, dailyReplies: 1000, countOwnerWork: true, ceilingsHoldOwnerWork: true,
-    openrouterDaily: 0.5, longestReply: 480, countWaiting: true, notice: 'settings', staleHours: 24 };
+    openrouterDaily: 0.5, longestReply: 480, countWaiting: true, notice: 'settings', staleHours: 24, runOverdue: false,
+    checkbacks: true, checkbackAccess: 'review', checkbackClaude: false, checkbackCodex: false, pushWhenMuted: false, showInTasks: false,
+    perConversation: 50, perInstall: 500, chainLimit: 0, furthestHours: 8760, soonestMin: 60, noteMax: 4000, catchUpHours: 0, busyWaitMin: 480, spacingSec: 0 };
   const bad = { ownMessages: 'maybe', inboxWatch: 'yes', backgroundJobs: 'no', rearmRetries: 1, confirm: 'on',
     claudeWeekly: 9, claudeFiveHour: 101, codexWeekly: 50.5, codexFiveHour: 'lots', dailyReplies: 1001, countOwnerWork: 'off', ceilingsHoldOwnerWork: 0,
-    openrouterDaily: 0.49, longestReply: 4, countWaiting: 'true', notice: 'email', staleHours: 'off' };
+    openrouterDaily: 0.49, longestReply: 4, countWaiting: 'true', notice: 'email', staleHours: 'off', runOverdue: 'yes',
+    checkbacks: 1, checkbackAccess: 'full', checkbackClaude: 'on', checkbackCodex: 'no', pushWhenMuted: 0, showInTasks: 'false',
+    perConversation: 0, perInstall: 501, chainLimit: -1, furthestHours: 8761, soonestMin: 0, noteMax: 199, catchUpHours: 73, busyWaitMin: 4, spacingSec: 301 };
   const ranges = { claudeWeekly: /must be 10% to 100%, or No limit\.$/, claudeFiveHour: /10% to 100%, or No limit/, dailyReplies: /1 to 1,000, or No limit/,
-    openrouterDaily: /\$0\.50 to \$500, or No limit/, longestReply: /5 min to 480 min, or No limit/, staleHours: /1 h to 24 h\.$/, ownMessages: /'run' or 'blocked'/, inboxWatch: /On or Off/ };
+    openrouterDaily: /\$0\.50 to \$500, or No limit/, longestReply: /5 min to 480 min, or No limit/, staleHours: /1 h to 24 h\.$/, ownMessages: /'run' or 'blocked'/, inboxWatch: /On or Off/,
+    perConversation: /1 to 50\.$/, perInstall: /1 to 500\.$/, chainLimit: /0 to 20\.$/, furthestHours: /1 h to 8,760 h\.$/, soonestMin: /1 min to 60 min\.$/,
+    noteMax: /200 characters to 4,000 characters\.$/, catchUpHours: /0 h to 72 h\.$/, busyWaitMin: /5 min to 480 min\.$/, spacingSec: /0 s to 300 s\.$/ };
   let saved = {};
   for (const g of auto.GROUPS) for (const s of g.settings) {
     const ok = auto.applySave(saved, { group: g.key, values: { [s.key]: good[s.key] } });
@@ -104,7 +116,7 @@ test('an env preset sets the default for this install, and a saved value wins ov
 test('a saved value or preset for a key the schema does not have is ignored without an error', () => {
   const saved = { pause: { overdueCheckbacks: false, confirm: false }, jobs: { anything: 1 } };
   const env = { POCKET_AUTOMATION_OVERDUE_CHECKBACKS: '0', POCKET_AUTOMATION_NOT_A_SETTING: 'x' };
-  assert.deepEqual(auto.groupValues(saved, 'pause', env), { ownMessages: 'run', inboxWatch: true, backgroundJobs: true, rearmRetries: true, confirm: false });
+  assert.deepEqual(auto.groupValues(saved, 'pause', env), { ownMessages: 'run', inboxWatch: true, backgroundJobs: true, rearmRetries: true, runOverdue: true, confirm: false });
   const d = auto.describe(saved, env);
   assert.deepEqual(d.warnings, []);
   assert.ok(!d.groups[0].settings.some(s => s.key === 'overdueCheckbacks'));

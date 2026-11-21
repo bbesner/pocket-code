@@ -187,8 +187,8 @@ Rules:
 
 - At 2:30 the same conversation takes a turn, does the check and replies. The owner gets a push:
   "Checked back · Shop price pages: all three show $189."
-- If the check isn't settled (still the old price), the agent may set one more check-back, up to the chain
-  limit, and says so.
+- If the check isn't settled (still the old price), the agent may set one more check-back (one per check-back
+  reply, as built in 1.119), up to the chain limit, and says so.
 - The card in the chat updates in place: *Checked back 2:30 PM*, or *Missed: Pocket was down until 4:10 PM*,
   or *Cancelled*.
 
@@ -198,7 +198,7 @@ A new agent command, `pocket-checkback`, installed with the other Pocket skills 
 is on:
 
 ```
-pocket-checkback add --at "+15m" | "2026-11-22 09:00" | "fri 9am" --note "what to check and what done looks like"
+pocket-checkback add --at "+15m" | "+2h" | "+1d" | "2026-11-22 09:00" --note "what to check and what done looks like"
 pocket-checkback list           # this conversation's pending check-backs
 pocket-checkback cancel <id>
 ```
@@ -216,7 +216,9 @@ pocket-checkback cancel <id>
   the task offer when the work is this conversation's own follow-up. A task is still right when the owner has
   to do something themselves.
 - **Time:** parsed by the existing `parseWhen` (projects.mjs:73) in the owner's time zone, plus `+Nm`, `+Nh`
-  and `+Nd`. The time has to be between 1 minute and 90 days out.
+  and `+Nd`. The time has to be between 1 minute and 90 days out. Day names ("fri 9am") are not accepted
+  (as built in 1.119): the agent gives a date. The message's "1 of 6" counts the whole chain: the one the
+  owner asked for plus the chain limit of 5.
 
 ### 2.3 Storage and limits
 
@@ -255,7 +257,7 @@ install, it runs under Review actions.
   4. Start the turn through the engine's start function with `origin: 'checkback'` and this message:
 
      ```
-     [Pocket check-back · set at 2:14 PM at your request · 1 of 5]
+     [Pocket check-back · set at 2:14 PM at your request · 1 of 6]
      What to check: <note>
      It is now 2:30 PM. Do the check and reply briefly with the result. If it isn't settled yet you may set
      one more check-back; say when.
@@ -476,8 +478,9 @@ shortened timers through env vars, the way `POCKET_COORD_SWEEP_MS` is used today
 | Release | Contents |
 |---|---|
 | 1.117.0 | Part 1: origin, Pause all on every engine, the gate, limits, the Automation settings section (limits only), audit file. |
-| 1.118.0 | Part 2: check-backs, `pocket-checkback`, the `automation` push kind, the Tasks group. |
-| 1.119.0 | Part 3: job keys, `/api/jobs/run`, `pocket-run`. |
+| 1.118.0 | Not part of this plan: the security release took this number. |
+| 1.119.0 | Part 2: check-backs, `pocket-checkback`, the `automation` push kind, the Tasks group. |
+| Later | Part 3: job keys, `/api/jobs/run`, `pocket-run`. |
 | Then | The first uses in 3.5, one at a time, each in its own repo with its own ledger entry. |
 
 - **Process:** each release follows CONTRIBUTING.md (branch, PR, release check, tests, browser suite, a new
@@ -618,7 +621,7 @@ Pocket, built the same way as Projects, Tasks and Inbox Watch: optional, off by 
 rather than in front of them, and configurable with the same Reset-to-defaults pattern. Each gets its own spec
 before it's built.
 
-## Later phases (agreed, to be specced after 1.119)
+## Later phases (agreed, to be specced after job keys)
 
 1. **Recurring routines.** "Every weekday at 7:30, check overnight camera alerts and open tickets." They build
    on the gate, the limits and the check-back runner. Lessons from OpenMausBot:

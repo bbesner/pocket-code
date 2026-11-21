@@ -48,6 +48,16 @@ Automation (1.117) adds one more, and it is the one that is not a library:
     queued messages, retries and wakes only when the owner switches that on, so an install that changes
     nothing behaves as before, plus Pause all.
 
+Check-backs (1.119) are the first thing in Automation that starts a reply the owner did not tap Send on, and
+they are optional and off by default:
+
+12. Check-backs: have a conversation look again later. The owner says "check the page in 15 minutes and tell
+    me"; the agent sets one check-back in that conversation, a card shows it with Cancel, and at the time
+    Pocket starts the conversation's next reply and sends a push with the result. Only a reply the owner
+    started can set one, so no email, web page or script can schedule work for itself. It runs with the
+    permissions of the reply that set it, is held by Pause all and the limits, runs late only within a window the owner
+    sets and says how late, and is marked missed after that.
+
 **Two modes (1.60, 1.68.1):** the same server, sessions and libraries, two faces. Developer
 mode is the workbench above. Assistant mode is for people who never write code: it opens on
 "What would you like done?", shows what is waiting, picks the model and describes every step in
@@ -58,11 +68,13 @@ Assistant mode.
 - Bare essentials: sessions, chat, new session. A clean screen, simple navigation, and as
   much room as possible for the conversation. Projects, Files, Tasks, Inbox, Coordination and the Vault are
   off by default and sit beside sessions rather than in front of them.
-- Nothing starts a reply on its own. A start link, a handoff or an Inbox briefing waits for the owner to
-  tap Start. The only replies that begin without a tap are ones the owner already asked for: a queued
-  message, a usage-limit retry, a conversation woken for a hold it waited on. Every one records who started
-  it, shows it, can be held by the owner's limits, and stops at Pause all. A feature that starts work for
-  the owner must be optional, off by default and behind that same switch.
+- Nothing starts a reply on its own unless the owner set it up. A start link, a handoff or an Inbox briefing
+  waits for the owner to tap Start. The only replies that begin without a tap are ones the owner already
+  asked for: a queued message, a usage-limit retry, a conversation woken for a hold it waited on, and a
+  check-back the owner asked for. A check-back is the first of these that the owner must turn on
+  before it exists. Every one records who
+  started it, shows it, can be held by the owner's limits, and stops at Pause all. A feature that starts work
+  for the owner must be optional, off by default and behind that same switch.
 - Everything round-trips with the CLIs and editor extensions. No private history.
 - Reading matters more than composing. Assistant text renders as a full-width document,
   not chat bubbles.

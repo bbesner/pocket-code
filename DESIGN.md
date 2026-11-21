@@ -1279,3 +1279,54 @@ only colour on it; a refused value shows its reason under the field in `--err` a
 settings sit in a closed `.settings-details`. The origin of an automatic reply (“Started by job …”, “Queued message”) is a
 `--dim` line under the list row's meta (13px) and under the conversation header (13.5px, hairline below); your own
 replies have none.
+
+## Check-backs (1.119)
+
+Pinned Operate refinement (design-studio → impeccable): variance low, motion low, density medium-high; existing tokens,
+rows, chips, sheets and settings rows, no new colour, font or component style. Read: someone who asked an agent to look
+again later wants to see, in the conversation and in the list, that it is set and when, to cancel it in one tap, and to
+find out afterwards what became of it, without a notification having to do the explaining. Nothing here is an alarm.
+
+- **The card.** A small card in the conversation, under the reply that set it: the app's `--surface` with a `--line`
+  hairline and the reply buttons' 10px radius, sized to its content (not full width), not a bubble and not the Complete
+  card's wash. A 17px clock mark in `--dim`, the lead words (*Will check back at 2:30 PM*) in `--text` with tabular
+  figures, the rest of the line (*· held while Pocket is paused*) in `--dim`. It changes in place, never by reload, and
+  a refresh that changes nothing writes nothing to the page. One height whatever the state, so nothing below it moves:
+  52px on touch, 44px with a fine pointer. Up to two lines; more ends in an ellipsis, with the whole line in the
+  tooltip. On a phone (520px and narrower) the clock mark is dropped and the text is 14px, so the longest hold fits in
+  two lines inside the same 52px. Waiting: *Will check back at 2:30 PM* (another day: *Will check back Nov 22, 9:00 AM*)
+  with an ordinary **Cancel** chip. Held: the same line plus *· held while Pocket is paused*, *· waiting for the
+  conversation to finish*, *· held by a plan ceiling* or *· held by the daily limit*, **Cancel** stays. Running:
+  *Checking back now*, no button. Done: *Checked back 2:30 PM*, and for a reply that did not finish *· the reply didn't
+  finish*, *· stopped*, *· hit a usage limit* or *· cut off by a restart*. Missed: *Missed: <reason>*. Cancelled:
+  *Cancelled*. Times are in the device's zone, with the full date and zone in the tooltip. **Cancel** is 44px tall on
+  touch and 36px with a fine pointer. Cards sit 10px under the reply and 6px apart; several set by one reply stay
+  together, oldest first. No motion: the card repaints with the transcript, and an entrance would replay.
+- **The row clock.** A 14px clock mark in `--dim` at the end of the row's state line while a check-back is waiting or
+  running, with an accessible label that is also its tooltip (*Check-back at 2:30 PM*, *2 check-backs, next at 2:30 PM*,
+  *2 check-backs, one running now, next at 2:30 PM*, *Checking back now*). It sits inside the state line, so the row
+  doesn't resize. It is not a state colour: Pause all, Needs approval and Complete keep their meaning on the row.
+- **The Tasks group.** In Tasks, a **Check-backs** group sits between the to-dos and **Done**, in the list's own row
+  style: a `--dim` clock in the check's 44px slot, the note as the row's title, then one wrapping line of facts (the
+  time · the conversation · what holds it, or *Checking back now*), and **Cancel** where the options button would be
+  (44px tall), except while it runs. The row opens the conversation. It has no check button, no edit, no reminder
+  control: it is a read-only mirror of what the conversations set, not a to-do.
+- **Settings → Automation → Check-backs.** The settings vocabulary of 1.117: a group heading, the **Check-backs**
+  switch first, `.opt` switches, number rows with their unit and no **No limit** chip (none of these may be off), a choice
+  for **Permissions for a check-back**, **Advanced** in a closed disclosure and **Reset to defaults**. While the switch is
+  off the rest of the group reads as inactive: its labels and switch dots turn `--dim` under the note *These apply when
+  Check-backs is on.*, and it stays editable and keeps its values. Under it, past a `--line` rule, *N waiting* and a
+  **Cancel all** chip (44px) appear only while the switch is on and any are waiting. **Cancel all** asks first in a sheet
+  of its own that returns to Settings either way (*Cancel 3 check-backs?*, *They won't run. One that is running now
+  finishes.*, **Cancel all** / **Keep it as it is**). **On Resume, run overdue check-backs** is one more row in the
+  **Pause all** group.
+- **Pause all.** The confirmation sheet says what stops and, in a second sentence, what is held, in the toast's pattern
+  (*This stops 3 replies running (2 Claude, 1 Codex), 2 background jobs, Inbox Watch. It holds 1 usage-limit retry, 3
+  check-backs.*; only held things: *This holds 1 check-back.*); the toast after pausing separates them the same way (*Held
+  1 usage-limit retry, 3 check-backs.*), and the banner's held line includes them (*1 usage-limit retry and 3 check-backs are held.*). Resume's
+  toast says how many run now and how many were marked missed (*2 overdue check-backs run now. 1 check-back was marked
+  missed.*).
+- **Notifications.** **Check-backs and job results** is one more per-device switch beside the other push kinds. It shows
+  whether check-backs are on or off, because it also carries the 1.117 limit notice.
+- **Feature off.** None of the card, clock, Tasks group or *N waiting* line exists; only the settings group (so it can
+  be turned on), the Pause all row and the push switch remain.

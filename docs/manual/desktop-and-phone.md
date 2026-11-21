@@ -247,9 +247,9 @@ or off and choose what they get:
   this device**, then allow notifications when the browser asks. Notifications then reach the device
   even when Pocket is closed.
 - **Choose what this device gets**: **Finished replies**, **Due tasks and reminders**, **Vault
-  requests** (which include an agent's request to share or publish a file) and **Inbox alerts**.
-  Finished replies are sent at normal priority; the others are urgent, so an idle Android phone shows
-  them at once.
+  requests** (which include an agent's request to share or publish a file), **Inbox alerts** and
+  **Check-backs and job results**. Finished replies and check-back results are sent at normal priority;
+  the others are urgent, so an idle Android phone shows them at once.
 - **Signing out turns push off.** **Sign out** in Settings stops notifications on that browser, and
   **Sign out everywhere** on every device, so a lost phone stops showing them (1.118). After you sign in
   again, turn push on again on the devices you keep.

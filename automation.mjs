@@ -36,6 +36,8 @@ export const GROUPS = [
         help: 'Off leaves them running until one of them starts a reply. Pocket stops that reply, which ends the conversation\'s process and any other jobs in it.' },
       { key: 'rearmRetries', label: 'On Resume, re-arm held usage-limit retries', type: 'bool', default: true,
         help: 'Off: they stay held until you start them.' },
+      { key: 'runOverdue', label: 'On Resume, run overdue check-backs', type: 'bool', default: true, // 1.119
+        help: 'On: a check-back that fell due while paused runs if it is within the catch-up window. Off: it is marked missed.' },
       { key: 'confirm', label: 'Show what will stop before pausing', type: 'bool', default: true,
         help: 'Off: Pause all pauses on one tap.' },
     ],
@@ -60,6 +62,34 @@ export const GROUPS = [
         choices: [{ value: 'push', label: 'Push and Settings, once per reason per day' }, { value: 'settings', label: 'Settings only' }] },
       { key: 'staleHours', label: 'Treat a plan reading older than this as stale', type: 'number', default: 6, min: 1, max: 24, step: 1, unit: 'h', integer: true, advanced: true,
         help: 'A Claude reading this old does not hold work back; the reply that runs refreshes it.' },
+    ],
+  },
+  // 1.119: check-backs (Part 2). Off until the owner turns them on. The keys name the feature so the env presets
+  // (POCKET_AUTOMATION_<KEY>) don't clash with other groups'.
+  {
+    key: 'checkbacks', title: 'Check-backs', settings: [
+      { key: 'checkbacks', label: 'Check-backs', type: 'bool', default: false,
+        help: 'A conversation you ask to check back takes one more turn at the time you asked for. Off: none is set or run; pending ones are kept.' },
+      { key: 'checkbackAccess', label: 'Permissions for a check-back', type: 'choice', default: 'same',
+        choices: [{ value: 'same', label: 'Same as the reply that set it' }, { value: 'review', label: 'Always Review actions' }],
+        help: 'Where Full access is turned off for this server, a check-back runs under Review actions whatever this says.' },
+      { key: 'checkbackClaude', label: 'Check-backs in Claude Code conversations', type: 'bool', default: true },
+      { key: 'checkbackCodex', label: 'Check-backs in Codex conversations', type: 'bool', default: true,
+        help: 'Codex can set one only under Full access: under Review actions its sandbox cannot reach Pocket.' },
+      { key: 'pushWhenMuted', label: 'Push the result when the conversation is muted', type: 'bool', default: true },
+      { key: 'showInTasks', label: 'Show check-backs in the Tasks list', type: 'bool', default: true },
+      { key: 'perConversation', label: 'Pending check-backs per conversation', type: 'number', default: 10, min: 1, max: 50, step: 1, unit: '', integer: true },
+      { key: 'perInstall', label: 'Pending check-backs on this install', type: 'number', default: 50, min: 1, max: 500, step: 1, unit: '', integer: true },
+      { key: 'chainLimit', label: 'Chain limit (check-backs set by check-backs)', type: 'number', default: 5, min: 0, max: 20, step: 1, unit: '', integer: true,
+        help: '0: a check-back can\'t set another.' },
+      { key: 'furthestHours', label: 'Furthest ahead', type: 'number', default: 2160, min: 1, max: 8760, step: 1, unit: 'h', integer: true,
+        help: 'In hours: 2,160 h is 90 days, 8,760 h is 365 days.' },
+      { key: 'soonestMin', label: 'Soonest', type: 'number', default: 1, min: 1, max: 60, step: 1, unit: 'min', integer: true },
+      { key: 'noteMax', label: 'Note length', type: 'number', default: 1000, min: 200, max: 4000, step: 50, unit: 'characters', integer: true },
+      { key: 'catchUpHours', label: 'Catch-up window after Pocket was down', type: 'number', default: 12, min: 0, max: 72, step: 1, unit: 'h', integer: true,
+        help: 'A check-back this late or less runs once, late, and says how late; one later than this is marked missed. 0: never run late.' },
+      { key: 'busyWaitMin', label: 'Wait for a busy conversation before marking missed', type: 'number', default: 60, min: 5, max: 480, step: 5, unit: 'min', integer: true, advanced: true },
+      { key: 'spacingSec', label: 'Spacing between overdue check-backs', type: 'number', default: 15, min: 0, max: 300, step: 1, unit: 's', integer: true, advanced: true },
     ],
   },
 ];

@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
+import { killStrays } from './stray-runners.mjs';
 
 const repo = path.resolve(import.meta.dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -34,8 +35,9 @@ async function boot(t, port) {
     POCKET_RETRY_BUFFER_MS: '0', POCKET_TRUSTED_ACTIONS: 'Bash(echo PARITY_OK), Bash(echo CX_OK), Bash(echo ACP_OK)',
     FAKE_CODEX_MODELS: JSON.stringify([{ id: 'gpt-6-astra', displayName: 'GPT-6 Astra' }, { id: 'gpt-6-sol', displayName: 'GPT-6 Sol' }]), // Project mode needs a top model offered
   } });
+  const exited = new Promise(r => child.once('exit', r));
   let logs = ''; child.stdout.on('data', d => logs += d); child.stderr.on('data', d => logs += d);
-  t.after(() => { try { child.kill('SIGKILL'); } catch { } if (process.env.PARITY_LOG) fs.writeFileSync(process.env.PARITY_LOG, logs); fs.rmSync(dir, { recursive: true, force: true }); });
+  t.after(async () => { try { child.kill('SIGKILL'); } catch { } await exited; killStrays(path.join(dir, 'data')); if (process.env.PARITY_LOG) fs.writeFileSync(process.env.PARITY_LOG, logs); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });
   for (let i = 0; ; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) break; } catch { } if (i > 200) throw new Error('server did not start: ' + logs); await sleep(30); }
   const call = async (p, body, method) => { const r = await fetch(`http://127.0.0.1:${port}/api${p}`, { method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch { } return { status: r.status, body: j }; };
   const e = id => encodeURIComponent(id);
