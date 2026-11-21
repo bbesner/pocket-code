@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.116.0
+checked: 1.117.0
 sources: public/split.js, public/workspace.js, public/tips.js, public/sidechat.js, docs/session-focus.md
 -->
 # Desktop and phone
@@ -34,6 +34,9 @@ Its head holds:
   every view.
 - **Filters**, which folds the conversation filters away (the applied ones stay named, with **Clear
   filters**).
+- **More** (**⋯**, labelled *More: Pause all and automation*), which opens **Pause all** (it reads **Resume** while Pocket is
+  paused) and **Automation settings** ([Automation](automation.md#pause-all)). With **More** present, **Filters** shows as an icon
+  only; its name is still its label.
 - **App settings** (the cog) and **New conversation** (the **+**).
 
 Drag the divider beside the rail to resize it between 220 and 480 px, or focus the divider and press
@@ -134,7 +137,8 @@ vault). That window shows the one view, without the rail, tabs or panes.
 Below 900 px Pocket shows one thing at a time.
 
 - **Home** is the conversation list (in Assistant mode, the message box). Its header has the bell
-  (**Toggle notifications for this device**) and Settings; **Your conversations** has chips to the
+  (**Toggle notifications for this device**), **More** (**⋯**: **Pause all** and **Automation settings**, see
+  [Automation](automation.md#pause-all)) and Settings; **Your conversations** has chips to the
   Projects, Files, Tasks, Vault and Inbox libraries that are on, with their counts (**Tasks · 2 due**,
   **Vault · 1 waiting**, **Inbox · 3 new**), and **Refresh**. The round **+** starts
   a conversation.
@@ -197,7 +201,7 @@ Results, Queue, Git, split view and the cost line.
 
 | Keys | Where | Action |
 |---|---|---|
-| Ctrl/⌘ K | Anywhere with a message box or the conversation list | Find a conversation (**Switch conversation**) |
+| Ctrl/⌘ K | Anywhere with a message box or the conversation list | Find a conversation (**Switch conversation**, whose first row is **Pause all**, or **Resume** while paused) |
 | Ctrl/⌘ Shift L | Same | New conversation |
 | Alt [ / Alt ] | With a conversation or view open | Previous / next tab |
 | Alt Shift [ / Alt Shift ] | On a tab, or with a conversation or view open | Move the tab left / right |

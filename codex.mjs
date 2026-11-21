@@ -845,7 +845,7 @@ function writeSessionMeta(s) {
   if (!t || !s.threadId || s.exited) return;
   const meta = {
     threadId: s.threadId, cliBin:s.cliBin||null, pid: t.pid, keeperPid: t.keeperPid, key: t.key, bootId: BOOT_ID, pidStart: t.pidStart ?? null, keeperStart: t.keeperStart ?? null, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort, runnerToken: s.runnerToken || null,
-    turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode } : null,
+    turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode, ...originOf(turn) } : null, // 1.117: origin
     waitingForInput: Boolean(turn && (turn.questions?.list().length || turn.approvals?.list().length || turn.inputUnavailable || turn.approvalUnavailable)),
     waitingForApproval: Boolean(turn?.approvals?.list().length || turn?.approvalUnavailable),
   };
@@ -899,7 +899,7 @@ export function adoptCodexSessions(hooksFor) {
     codexSessions.set(s.threadId, s);
     live.add(m.key);
     if (m.turn) {
-      const turn = makeTurn(s, { text: m.turn.userText, executionMode: m.turn.executionMode, hooks: s.hooks, offset });
+      const turn = makeTurn(s, { text: m.turn.userText, executionMode: m.turn.executionMode, hooks: s.hooks, offset, ...originOf(m.turn) }); // 1.117: origin
       // A request the app-server sent before the restart was skipped above; the turn is
       // blocked on it until the user stops it. Say so instead of showing "Running".
       Object.assign(turn, { turnId: m.turn.turnId, startedAt: m.turn.startedAt || turn.startedAt, adopted: true,
@@ -986,13 +986,16 @@ export function closeCodexSession(s, why) {
 
 // A turn object wired to the session's connection. `autonomous` turns are ones Codex
 // started without a message from us.
-function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, autonomous = false, offset }) {
+// 1.117: what started a turn (automation.mjs): kept on the turn and in the session marker, so an adopted turn keeps it.
+const originOf = t => t?.origin ? { origin: t.origin, ...(t.originRef ? { originRef: t.originRef } : {}), rootOrigin: t.rootOrigin || 'owner' } : {};
+function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, autonomous = false, offset, origin, originRef, rootOrigin }) {
   const { emit, onFinish, onQuestion, onApproval, auditApproval } = hooks;
   const turn = {
     threadId: s.threadId, cwd: s.cwd, startedAt: Date.now(), userText: text, model, effort,
     events: [], subs: new Set(), queue: [], turnId: null, done: false, onFinish, executionMode, approvalMode: s.approvalMode, approvalItems: new Map(),
     conn: s.conn, session: s, autonomous, effectiveModel: model || s.model, effectiveEffort: effort || s.effort || null,
     baseline: descendantCpu(s.conn.pid).pids,
+    ...originOf({ origin, originRef, rootOrigin }), // 1.117
     offset: offset ?? (() => { try { return fs.statSync(s.conn.transport.files.out).size; } catch { return 0; } })(),
   };
   // events fan out to SSE subscribers exactly like the Claude side
@@ -1025,6 +1028,10 @@ function onSessionNotify(s, method, params) {
   if (!s.turn && method === 'turn/started' && s.threadId) { // Codex started a turn by itself
     makeTurn(s, { text: '', hooks: s.hooks, autonomous: true });
     log(`codex turn start (started by the agent) thread=${s.threadId}`);
+    onTurnNotify(s.turn, method, params); // its turn id first, so the daemon's hook can stop it (1.117: paused)
+    writeSessionMeta(s);
+    try { s.hooks?.onAutonomous?.(s.turn); } catch (e) { log(`onAutonomous threw thread=${s.threadId}: ${e.message}`); }
+    return;
   }
   if (s.turn) {
     onTurnNotify(s.turn, method, params);
@@ -1134,10 +1141,12 @@ async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, 
   return s;
 }
 
-export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, action = null, emit, onFinish, onQuestion, onApproval, auditApproval, onForked, launch = null }) {
+// `mayStart` (1.117): called just before the turn exists, after any wait to open the process; it throws to refuse (Pocket
+// was paused meanwhile). The process opened for it stays, idle, as after a finished reply.
+export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, action = null, emit, onFinish, onQuestion, onApproval, auditApproval, onAutonomous, onForked, launch = null, origin, originRef, rootOrigin, mayStart = null }) {
   const existing = threadId && codexTurns.get(threadId);
   if (existing) throw Object.assign(new Error('busy'), { code: 409 });
-  const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval };
+  const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval, onAutonomous };
   let s = threadId && codexSessions.get(threadId);
   // Permissions ride on thread/resume, so a change needs a fresh process (after the old
   // one has let go of the writer lock).
@@ -1150,7 +1159,8 @@ export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, eff
   if (!s) s = await openCodexSession({ threadId, forkFrom: threadId ? undefined : forkFrom, cwd, model, approvalMode, hooks, onForked, launch });
   s.hooks = hooks;
   if (codexTurns.get(s.threadId)) throw Object.assign(new Error('busy'), { code: 409 });
-  const turn = makeTurn(s, { text, model, effort, executionMode, hooks });
+  if (mayStart) { try { mayStart(); } catch (e) { if (!s.turn) scheduleIdle(s); throw e; } }
+  const turn = makeTurn(s, { text, model, effort, executionMode, hooks, origin, originRef, rootOrigin }); // 1.117: origin
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
 
   const input = [{ type: 'text', text: promptWithAttachments(text, attachments) }];

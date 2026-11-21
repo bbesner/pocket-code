@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.116.0
+checked: 1.117.0
 sources: choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -291,6 +291,7 @@ permissions.
   seen in another app (a terminal or code-server), and the panel says **Recent activity was seen elsewhere. Refresh after
   that reply finishes.**
 - Stopping a reply, or a reply that fails, pauses the queue. Use **Run next instruction** to continue.
+- **Pause all** ([Automation](automation.md#pause-all)) holds every queue too: nothing drains while Pocket is paused, and after **Resume** the rows stay paused until you start them with **Run next instruction**. You can still add to a queue while paused. A queued message that did run shows **Queued message** under the conversation's header.
 - A **Needs review** row blocks the rows behind it. Check the conversation to see whether it ran, then remove it.
 
 A conversation holds up to 10 queued messages. Every edit carries a revision number, so an edit made from a stale panel is

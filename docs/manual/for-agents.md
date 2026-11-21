@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.115.0
+checked: 1.117.0
 sources: skills.mjs, project-mode.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # For agents
@@ -28,6 +28,7 @@ The pages:
 | [Files](files.md) | The Files library and `pocket-docs` |
 | [Tasks](tasks.md) | To-dos and `pocket-tasks` |
 | [Coordination](coordination.md) | Holds on shared things and `pocket-coord` |
+| [Automation](automation.md) | Pause all and limits on unattended work |
 | [Inbox Watch](inbox-watch.md) | Mail alerts and `pocket-inbox` |
 | [Gmail, Calendar and Drive](google.md) | Google through each agent's connectors |
 | [Vault](vault.md) | Credentials used by name, and `pocket-vault` |
@@ -197,6 +198,8 @@ These come from Pocket's instructions and skills. Follow them in Pocket and outs
 - **Inbox decisions on request.** Record `resolve`, `not_useful` or `dismiss` on an Inbox entry only when the user asks. The one exception is merging a same-story duplicate into the entry the conversation started from (1.113). Split an entry (`pocket-inbox split`) only when the user says the new mail is a separate subject, and never merge a split entry back (1.115). See [Inbox Watch](inbox-watch.md).
 - **Suggested replies, not questions in disguise.** Use the `choices` block only for a real choice between specific next steps, as the last thing in the reply. Put a sources list above the question, not after the block.
 - **Done means done.** End with the `done` block only when nothing is left for the user or for you: no failure, no skipped step, no open question, no follow-up worth offering. The user closes the conversation on your word, often without reading the reply. When unsure, leave it out. See [the Complete card](conversation.md#the-complete-card).
+- **Pocket can be paused, and a follow-up may wait (1.117).** The owner has one switch, Pause all, that stops every reply and holds what runs without them: a queued follow-up, a usage-limit retry, a coordination wake. A limit they set can hold the same work. A message you queued, or a conversation woken for a hold you waited on, may therefore start later, or only when the owner resumes. Don't re-send it, don't look for another way to run it, and say so if the owner asks why nothing happened. See [Automation](automation.md).
+- **You can't pause, resume or change Automation settings.** Those routes take only the owner's own sign-in; the command token is refused. If a limit is in the way, tell the owner the path, **Settings → Automation**; never try to raise it yourself.
 - **Answer about Pocket from the manual.** Read the index and the feature page before the source.
 
 ## Troubleshooting

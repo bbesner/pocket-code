@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.111.0
+checked: 1.117.0
 sources: cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # Operations, upgrades and recovery
@@ -264,6 +264,10 @@ Pocket-owned persistent state includes:
   password (never the password). Sign out everywhere writes a new generation here. Restoring an
   older copy brings back the cookies of that generation, and deleting it signs every browser out
   at the next start; after a restore, use **Sign out everywhere**;
+- `automation-state.json` and `automation-audit.jsonl`, the day's counts and limit notices behind
+  [Automation](manual/automation.md), and its append-only record (created with mode `0600`) of pauses, resumes, settings
+  changes and unattended replies. The audit never holds message text. Whether Pocket is paused, and the saved Automation settings, are in
+  `pocket-settings.json`;
 - `cli-token` and `cli-url`, the loopback CLI token and address. They are rewritten at every
   start, so do not back them up or copy them to another instance.
 
@@ -330,6 +334,19 @@ already recorded as resolved are skipped. An input pipe that cannot be recovered
 produces an interrupted state; stop that turn, review completed work and start again.
 Never attach an old decision to a new process. [Action approvals](action-approvals.md)
 describes scope and audit behavior.
+
+## A paused install
+
+**Pause all** (1.117, [Automation](manual/automation.md#pause-all)) is saved in `pocket-settings.json`, so a restart does not
+lift it: the install comes back paused, with its queues still and any usage-limit retry still held (its `.retry.json`
+marker carries `held: true`). Background jobs Pause all stopped stay stopped. The owner resumes from the banner or
+**Settings → Automation**. Do not edit the file to resume while Pocket runs.
+
+Rolling back to 1.116 ignores the pause and arms held retries again at start. 1.116 keeps `paused` in
+`pocket-settings.json` without reading it, so a later upgrade to 1.117 comes back paused: resume before rolling back, or
+resume after the upgrade. If Pause all had paused Inbox Watch, it stays paused under 1.116 until it is resumed in Inbox
+Watch's settings. `POCKET_AUTOMATION_<NAME>` variables in
+`.env` preset the Automation defaults for an install; a value the owner saved wins.
 
 ## Delivery and queue recovery
 

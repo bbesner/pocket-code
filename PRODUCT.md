@@ -34,9 +34,19 @@ in Settings → Projects, files, tasks & vault, and a session works the same wit
    they may do without asking.
 9. Coordination: see which conversation holds staging or a deploy and who is waiting, so two
    conversations don't work the same shared thing at once. Holds are advice, not a lock.
-9. Inbox: read what the owner's inbox watcher (Inbox Watch) sent, answer it (resolved, not
+10. Inbox: read what the owner's inbox watcher (Inbox Watch) sent, answer it (resolved, not
    useful, dismiss) so the watcher learns, and set when it checks, which models judge and
    what it may skip, with what each day cost.
+
+Automation (1.117) adds one more, and it is the one that is not a library:
+
+11. Automation: stop everything with one switch, Pause all, which ends every running reply and holds
+    whatever starts without the owner (a queued follow-up, a usage-limit retry, a coordination wake,
+    an Inbox Watch check), while the owner's own messages still run; and set limits on that unattended
+    work (plan ceilings, a daily count, a spend cap, a longest reply) so it can't use up a plan.
+    Pause all is always there. The limits hold only work Pocket starts unattended, and reach the owner's
+    queued messages, retries and wakes only when the owner switches that on, so an install that changes
+    nothing behaves as before, plus Pause all.
 
 **Two modes (1.60, 1.68.1):** the same server, sessions and libraries, two faces. Developer
 mode is the workbench above. Assistant mode is for people who never write code: it opens on
@@ -48,6 +58,11 @@ Assistant mode.
 - Bare essentials: sessions, chat, new session. A clean screen, simple navigation, and as
   much room as possible for the conversation. Projects, Files, Tasks, Inbox, Coordination and the Vault are
   off by default and sit beside sessions rather than in front of them.
+- Nothing starts a reply on its own. A start link, a handoff or an Inbox briefing waits for the owner to
+  tap Start. The only replies that begin without a tap are ones the owner already asked for: a queued
+  message, a usage-limit retry, a conversation woken for a hold it waited on. Every one records who started
+  it, shows it, can be held by the owner's limits, and stops at Pause all. A feature that starts work for
+  the owner must be optional, off by default and behind that same switch.
 - Everything round-trips with the CLIs and editor extensions. No private history.
 - Reading matters more than composing. Assistant text renders as a full-width document,
   not chat bubbles.

@@ -51,11 +51,11 @@ function sizeMainForSplit(){
   // Hide in place: moving or recreating an iframe would lose its input and stream.
   const hide=i>=count;
   if(hide&&section.contains(document.activeElement))document.querySelector('#splitb,#box,#first')?.focus({preventScroll:true});
-  section.hidden=hide;section.previousElementSibling.hidden=hide;
+  if(section.hidden!==hide)section.hidden=hide;if(section.previousElementSibling.hidden!==hide)section.previousElementSibling.hidden=hide; // 1.117: a pass that changes nothing writes nothing
  });
- host.hidden=count===0;
- app.style.flexBasis=count?reserved+'px':'';
- app.style.minWidth=count?reserved+SPLIT_MIN+'px':'';
+ if(host.hidden!==(count===0))host.hidden=count===0;
+ const basis=count?reserved+'px':'',minW=count?reserved+SPLIT_MIN+'px':'';
+ if(app.style.flexBasis!==basis)app.style.flexBasis=basis;if(app.style.minWidth!==minW)app.style.minWidth=minW;
  const max=Math.max(SPLIT_MIN,available-count*SPLIT_GRIP-count*SPLIT_MIN);
  for(const section of sections.slice(0,count)){
   const pane=splitPanes.find(p=>p.key===section.dataset.key);
@@ -73,7 +73,7 @@ function sizeMainForSplit(){
   notice=document.createElement('p');notice.id='split-notice';notice.className='split-notice';notice.setAttribute('role','status');
   document.querySelector('.chatcol > header').after(notice);
  }
- if(notice){notice.hidden=!hidden||innerWidth<900;notice.textContent=hidden?`${hidden} ${hidden===1?'pane is':'panes are'} hidden at this width. Widen the window or hide the conversation list to restore split view.`:'';}
+ if(notice){const off=!hidden||innerWidth<900;if(notice.hidden!==off)notice.hidden=off;const words=hidden?`${hidden} ${hidden===1?'pane is':'panes are'} hidden at this width. Widen the window or hide the conversation list to restore split view.`:'';if(notice.textContent!==words)notice.textContent=words;}
  const railElement=document.querySelector('aside.rail');
  if(railElement!==observedSplitRail){
   splitRailObserver?.disconnect();observedSplitRail=railElement;

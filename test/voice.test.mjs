@@ -75,6 +75,17 @@ test('only short, specific phrases are local commands', () => {
   for (const [said, kind] of Object.entries(cases)) assert.equal(V.intent(said), kind, said);
 });
 
+// 1.117: Pause all by voice. In 1.116 "stop everything" was no command (it went to the agent as a message), so it joins
+// the pause phrases; "stop" and its short forms still stop only this conversation's reply.
+test('pause everything is Pause all; stop still stops only this reply', () => {
+  const cases = { 'Pause everything.': 'pauseAll', 'pause all': 'pauseAll', 'Pause it all please': 'pauseAll', 'pause pocket': 'pauseAll',
+    'pause all the replies': 'pauseAll', 'pause all replies': 'pauseAll', 'pause all work': 'pauseAll', 'pause all the work': 'pauseAll',
+    'pause all agents': 'pauseAll', 'pause all the agents': 'pauseAll', 'pause all conversations': 'pauseAll', 'pause all the conversations': 'pauseAll', 'Stop everything': 'pauseAll', 'Hey Pocket, pause everything': 'pauseAll',
+    'Stop.': 'stop', 'stop it': 'stop', 'stop working': 'stop',
+    'pause everything after the import finishes': null, 'pause the import': null, 'stop everything in the staging branch': null };
+  for (const [said, kind] of Object.entries(cases)) assert.equal(V.intent(said), kind, said);
+});
+
 test('voice service: not installed, custom engine, transcribe, speak, idle stop and failed start', async () => {
   const missing = new VoiceService({ home: fs.mkdtempSync(path.join(os.tmpdir(), 'pv-')) });
   assert.equal(missing.status().available, false);

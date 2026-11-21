@@ -56,7 +56,8 @@ async function boot(t, port) {
       for await (const c of r.body) { buf += Buffer.from(c).toString(); let i; while ((i = buf.indexOf('\n\n')) >= 0) { const line = buf.slice(0, i).split('\n').find(l => l.startsWith('data:')); buf = buf.slice(i + 2); if (!line) continue; let ev; try { ev = JSON.parse(line.slice(5)); } catch { continue; } evs.push(ev); if (stopOn(ev)) { clearTimeout(timer); ctrl.abort(); return resolve(evs); } } }
     }).catch(() => { clearTimeout(timer); resolve(evs); });
   });
-  return { port, dir, cwd, home, call, e, until, start, session, idle, prompts, sse, logs: () => logs };
+  const audit = () => { try { return fs.readFileSync(path.join(dir, 'data', 'automation-audit.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } }; // 1.117
+  return { port, dir, cwd, home, call, e, until, start, session, idle, prompts, sse, audit, logs: () => logs };
 }
 
 test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', { timeout: 240_000 }, async t => {
@@ -237,6 +238,30 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
       assert.equal(w.state.label, 'Waiting for usage reset'); assert.ok(w.state.retryAt > Date.now() - 60_000);
       await s.until(() => s.prompts(engine).some(c => /interrupted by an API rate limit/.test(c.text)), 20000, `${engine} to be resumed`);
       await s.idle(id);
+      // 1.117: the resumed reply is the retry's, with the root of the reply it continues (the owner's)
+      assert.equal((await s.session(id)).lastOrigin, 'retry', `${engine}: lastOrigin`);
+      const line = s.audit().find(x => x.action === 'reply' && x.sessionId === id && x.origin === 'retry');
+      assert.ok(line, `${engine}: the finished unattended reply is in the audit`); assert.equal(line.rootOrigin, 'owner'); assert.equal(line.engine, engine);
+    });
+
+    await t.test(`${engine}: origin travels from the start to the turn, the stream and lastOrigin (1.117)`, async () => {
+      const id = await s.start(engine, `parity origin ${engine} __SLOW__`);
+      const own = await s.sse(id, ev => ev.type === 'attach');
+      assert.equal(own.find(ev => ev.type === 'attach')?.origin, 'owner', `${engine}: the owner's reply`);
+      const q = await s.call(`/session/${s.e(id)}/message`, { text: `parity origin queued ${engine} __SLOW__`, mode: 'queue', approvalMode: 'full' });
+      assert.equal(q.status, 202); assert.equal(q.body.queued, true);
+      const drained = await s.until(async () => { const b = await s.session(id); return b?.state?.kind === 'running' && b.state.origin === 'queue' ? b : null; }, 15000, `${engine}: the queued reply to run`);
+      assert.ok(drained);
+      await s.until(async () => (await s.session(id))?.lastOrigin === 'queue', 5000, `${engine}: lastOrigin queue`);
+      const evs = await s.sse(id, ev => ev.type === 'attach');
+      assert.equal(evs.find(ev => ev.type === 'attach')?.origin, 'queue', `${engine}: the stream says who started it`);
+      await s.idle(id);
+      assert.equal((await s.session(id)).lastOrigin, 'queue');
+      assert.ok(s.prompts(engine).some(c => c.text?.includes(`parity origin queued ${engine}`)));
+      // the owner's next message clears it
+      assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: `parity origin owner ${engine}`, approvalMode: 'full' })).status, 202);
+      await s.idle(id);
+      assert.equal((await s.session(id)).lastOrigin, undefined, `${engine}: an owner turn is not labelled`);
     });
 
     await t.test(`${engine}: a trusted read-only command runs without an approval card`, async () => {
