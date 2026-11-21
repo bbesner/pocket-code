@@ -582,6 +582,43 @@ def test_codex_bot_check_is_a_503_and_claude_takes_over():
     assert any("using ClaudeConnector" in x for x in logs)
 
 
+def test_gmail_token_is_private_from_the_start():
+    """The OAuth token file is created 0600, whatever the umask, and an existing file is put back to 0600."""
+    try:
+        import googleapiclient  # noqa: F401
+    except ImportError:  # CI has no Google client; the helper needs none
+        fake = {"googleapiclient": {}, "googleapiclient.discovery": {"build": None}, "googleapiclient.errors": {"HttpError": Exception}}
+        for name, attrs in fake.items():
+            sys.modules.setdefault(name, type(sys)(name))
+            vars(sys.modules[name]).update(attrs)
+    from inbox_monitor.mail_gmail import write_private
+    seen = []
+    real_open = os.open
+
+    def watch_open(path, flags, mode=0o777, *a, **k):
+        seen.append(mode)
+        return real_open(path, flags, mode, *a, **k)
+
+    old = os.umask(0)
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            token = Path(d) / "token.json"
+            os.open = watch_open
+            try:
+                write_private(token, '{"refresh_token": "x"}')
+            finally:
+                os.open = real_open
+            assert seen == [0o600], seen
+            assert stat.S_IMODE(token.stat().st_mode) == 0o600
+            assert token.read_text() == '{"refresh_token": "x"}'
+            token.chmod(0o644)
+            write_private(token, "{}")
+            assert stat.S_IMODE(token.stat().st_mode) == 0o600
+            assert token.read_text() == "{}"
+    finally:
+        os.umask(old)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

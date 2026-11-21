@@ -10,6 +10,7 @@ Two ways in:
 """
 from __future__ import annotations
 
+import os
 import time
 import json
 from pathlib import Path
@@ -20,6 +21,15 @@ from googleapiclient.errors import HttpError  # noqa: F401  (re-exported for the
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 LABEL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]  # the Pocket Inbox label: create it, add and remove it on threads
 WRITE_GRANTS = {"https://www.googleapis.com/auth/gmail.modify", "https://mail.google.com/"}
+
+
+def write_private(path: Path, text: str) -> None:
+    """Write the Gmail token so it is 0600 from the moment it exists, never briefly readable under the umask. A file that is
+    already there is put back to 0600 too."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        os.fchmod(fd, 0o600)
+        f.write(text)
 
 
 def credentials(mail: dict, owner_email: str, scopes: list[str] | None = None):
@@ -44,7 +54,7 @@ def credentials(mail: dict, owner_email: str, scopes: list[str] | None = None):
         if not creds.valid:
             from google.auth.transport.requests import Request
             creds.refresh(Request())
-            token.write_text(creds.to_json())
+            write_private(token, creds.to_json())
         return creds
     raise ValueError(f"mail.auth must be service_account or oauth, not {auth!r}")
 
@@ -57,8 +67,7 @@ def oauth_consent(mail: dict, label: bool = True) -> Path:
     creds = flow.run_local_server(port=0, open_browser=False)
     token = Path(mail["oauth_token_file"])
     token.parent.mkdir(parents=True, exist_ok=True)
-    token.write_text(creds.to_json())
-    token.chmod(0o600)
+    write_private(token, creds.to_json())
     return token
 
 
