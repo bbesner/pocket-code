@@ -43,7 +43,7 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   assert.throws(()=>s.act({action:'add',name:'ph',kind:'token',values:{value:'{{vault:zeta-books}}'}}),/placeholder/);
   assert.throws(()=>s.act({action:'add',name:'k',kind:'card',values:{}}),/kind must be/);
   // 1.39.1: custom fields on any kind, and a credentials kind with only custom fields.
-  const authnet=s.act({action:'add',name:'authorize-net',kind:'login',values:{username:'login-id-123',password:'txn-key-secret-9876',signature_key:'sig-key-secret-abcdef'}});
+  const authnet=s.act({action:'add',name:'card-gateway',kind:'login',values:{username:'login-id-123',password:'txn-key-secret-9876',signature_key:'sig-key-secret-abcdef'}});
   assert.deepEqual(authnet.fields,['username','password','signature_key']);assert.deepEqual(authnet.custom,['signature_key']);
   const ups=s.act({action:'add',name:'ups-api',kind:'credentials',values:{client_id:'ups-client-id-1',client_secret:'ups-client-secret-2'}});
   assert.deepEqual(ups.fields,['client_id','client_secret']);assert.deepEqual(ups.custom,['client_id','client_secret']);
@@ -59,8 +59,8 @@ test('VaultStore: items, policies, recipes, requests, trash, audit; values never
   assert.throws(()=>s.act({action:'update',item:authnet.id,values:{'bad-name':'x'}}),/not a field name/);
   assert.equal(s.field(authnet.id,'signature_key'),'sig-key-secret-abcdef');
   assert.throws(()=>s.resolveBindings({U:'ups-api'}),/name one, for example ups-api\.client_id/);
-  assert.equal(s.resolveBindings({S:'authorize-net.signature_key'})[0].field,'signature_key');
-  assert.throws(()=>s.resolveBindings({S:'authorize-net.nope'}),/no field nope/);
+  assert.equal(s.resolveBindings({S:'card-gateway.signature_key'})[0].field,'signature_key');
+  assert.throws(()=>s.resolveBindings({S:'card-gateway.nope'}),/no field nope/);
   // Agents: create-only, nothing else.
   const fromAgent=s.act({action:'add',name:'twilio-auth',kind:'token',values:{value:'tw-secret-value-1234'},policy:'auto',notes:'ignored'},{actor:'agent',session:S1,sessionTitle:'Billing'});
   assert.equal(fromAgent.policy,'default','an agent cannot pick a policy');assert.equal('notes' in fromAgent,false,'agents never see notes');
@@ -783,38 +783,38 @@ test('scrubber (PC-02): hex in either case and the reversed value are scrubbed f
 test('in-place edit (1.44.2): the store changes one field, names it in the audit, and keeps the agent restriction',()=>{
   const dir=tmp(),file=path.join(dir,'vault.enc'),key=parseKey(newKey());
   const s=new VaultStore(file,{key});
-  const pasted='sinch-secret-30-characters-abc\nAuthorization: Basic c2luY2gta2V5OnNpbmNo';
-  const it=s.act({action:'add',name:'sinch-engage',kind:'api_key',values:{value:'sinch-key-1234567890',base_url:'https://au.app.api.sinch.com',api_secret:pasted}});
+  const pasted='smsgw-secret-30-characters-abc\nAuthorization: Basic c21zZ3cta2V5OnNtc2d3';
+  const it=s.act({action:'add',name:'sms-gateway',kind:'api_key',values:{value:'smsgw-key-1234567890',base_url:'https://api.sms.example.com',api_secret:pasted}});
   assert.deepEqual(it.fields,['value','base_url','api_secret']);
   assert.equal(s.field(it.id,'api_secret'),pasted,'Show returns the whole value, line break included');
   // Agents and terminals cannot replace or edit it, by update or by adding over the name.
   for(const actor of ['agent','terminal']){
     assert.throws(()=>s.act({action:'update',item:it.id,values:{api_secret:'x'}},{actor}),e=>e.status===403);
     assert.throws(()=>s.act({action:'update',item:it.id,removeFields:['api_secret']},{actor}),e=>e.status===403);
-    assert.throws(()=>s.act({action:'add',name:'sinch-engage',kind:'api_key',values:{value:'x'}},{actor}),/agents cannot replace it/);
+    assert.throws(()=>s.act({action:'add',name:'sms-gateway',kind:'api_key',values:{value:'x'}},{actor}),/agents cannot replace it/);
   }
   assert.equal(s.get(it.id).values.api_secret,pasted,'unchanged by the refused calls');
   // The owner trims one field; the others are untouched and the change survives a reopen.
   const rev=s.get(it.id).revision;
-  const out=s.act({action:'update',item:it.id,expected_revision:rev,values:{api_secret:'sinch-secret-30-characters-abc'}});
+  const out=s.act({action:'update',item:it.id,expected_revision:rev,values:{api_secret:'smsgw-secret-30-characters-abc'}});
   assert.equal(out.revision,rev+1);assert.equal('values' in out,false,'the answer carries no value');
   const again=new VaultStore(file,{key});
-  assert.deepEqual(again.get(it.id).values,{value:'sinch-key-1234567890',base_url:'https://au.app.api.sinch.com',api_secret:'sinch-secret-30-characters-abc'});
+  assert.deepEqual(again.get(it.id).values,{value:'smsgw-key-1234567890',base_url:'https://api.sms.example.com',api_secret:'smsgw-secret-30-characters-abc'});
   // A fixed field edits in place too; an empty value keeps it; a stale revision is refused.
-  s.act({action:'update',item:it.id,values:{value:'sinch-key-0987654321',api_secret:''}});
-  assert.equal(s.get(it.id).values.value,'sinch-key-0987654321');assert.equal(s.get(it.id).values.api_secret,'sinch-secret-30-characters-abc');
+  s.act({action:'update',item:it.id,values:{value:'smsgw-key-0987654321',api_secret:''}});
+  assert.equal(s.get(it.id).values.value,'smsgw-key-0987654321');assert.equal(s.get(it.id).values.api_secret,'smsgw-secret-30-characters-abc');
   assert.throws(()=>s.act({action:'update',item:it.id,expected_revision:rev,values:{value:'x'}}),e=>e.status===409&&e.item?.id===it.id);
   // Add and remove fields in the same store, without re-creating the item.
-  s.act({action:'update',item:it.id,values:{sender:'+15619228416'},removeFields:['base_url']});
+  s.act({action:'update',item:it.id,values:{sender:'+15555550100'},removeFields:['base_url']});
   assert.deepEqual(s.view(s.get(it.id)).fields,['value','api_secret','sender']);assert.equal(s.get(it.id).id,it.id);
   // The audit: each edit names the fields it changed, an untouched save names none, and no value appears anywhere.
-  s.act({action:'update',item:it.id,values:{value:'sinch-key-0987654321'},tags:['sms']});
+  s.act({action:'update',item:it.id,values:{value:'smsgw-key-0987654321'},tags:['sms']});
   const rows=s.auditRows({owner:true,item:it.id}).filter(r=>r.action==='update').reverse();
   assert.deepEqual(rows.map(r=>r.fields||[]),[['api_secret'],['value'],['base_url','sender'],[]]);
   assert.ok(rows.every(r=>r.by==='owner'));
   const audit=fs.readFileSync(path.join(dir,'vault-audit.jsonl'),'utf8');
-  for(const v of ['sinch-secret','sinch-key-','Authorization','+15619228416'])assert.equal(audit.includes(v),false,'no value in the audit: '+v);
-  assert.equal(fs.readFileSync(file).toString('latin1').includes('sinch-secret'),false,'the store stays encrypted');
+  for(const v of ['smsgw-secret','smsgw-key-','Authorization','+15555550100'])assert.equal(audit.includes(v),false,'no value in the audit: '+v);
+  assert.equal(fs.readFileSync(file).toString('latin1').includes('smsgw-secret'),false,'the store stays encrypted');
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
@@ -837,29 +837,29 @@ test('HTTP in-place edit (1.44.2): the owner loads and saves a field; the token 
   await start();
   assert.equal((await call('/settings',{vault:true})).status,200);
   const token=fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim(),bearer={'content-type':'application/json',authorization:'Bearer '+token};
-  const pasted='sinch-secret-30-characters-abc\nAuthorization: Basic c2luY2gta2V5OnNpbmNo';
-  const made=await call('/vault/act',{action:'add',name:'sinch-engage',kind:'api_key',values:{value:'sinch-key-1234567890',base_url:'https://au.app.api.sinch.com',api_secret:pasted}});
+  const pasted='smsgw-secret-30-characters-abc\nAuthorization: Basic c21zZ3cta2V5OnNtc2d3';
+  const made=await call('/vault/act',{action:'add',name:'sms-gateway',kind:'api_key',values:{value:'smsgw-key-1234567890',base_url:'https://api.sms.example.com',api_secret:pasted}});
   assert.equal(made.status,200);const id=made.body.item.id;
   // Show on each field of a multi-field API key returns that field's value to the owner.
-  for(const [f,v] of [['value','sinch-key-1234567890'],['base_url','https://au.app.api.sinch.com'],['api_secret',pasted]]){
+  for(const [f,v] of [['value','smsgw-key-1234567890'],['base_url','https://api.sms.example.com'],['api_secret',pasted]]){
     const r=await call('/vault/field',{item:id,field:f});assert.equal(r.status,200,f);assert.equal(r.body.value,v,f);
   }
   assert.equal((await call('/vault/field',{item:id,field:'api_secret'},bearer)).status,401,'no value for the token');
   // The token (a terminal, or an agent) cannot edit it, nor replace it by name.
   assert.equal((await call('/vault/act',{action:'update',item:id,values:{api_secret:'x'}},bearer)).status,403);
-  const replace=await call('/vault/act',{action:'add',name:'sinch-engage',kind:'api_key',values:{value:'x'}},bearer);
+  const replace=await call('/vault/act',{action:'add',name:'sms-gateway',kind:'api_key',values:{value:'x'}},bearer);
   assert.equal(replace.status,409);assert.match(replace.body.error,/agents cannot replace it/);
   // The owner saves the trimmed value; a cross-origin save is refused.
   assert.equal((await call('/vault/act',{action:'update',item:id,values:{api_secret:'x'}},{...headers,origin:'https://evil.example'})).status,403);
-  const saved=await call('/vault/act',{action:'update',item:id,expected_revision:made.body.item.revision,values:{api_secret:'sinch-secret-30-characters-abc'}});
-  assert.equal(saved.status,200);assert.equal(JSON.stringify(saved.body).includes('sinch-secret'),false,'the answer carries no value');
-  assert.equal((await call('/vault/field',{item:id,field:'api_secret'})).body.value,'sinch-secret-30-characters-abc');
-  assert.equal((await call('/vault/field',{item:id,field:'value'})).body.value,'sinch-key-1234567890','other fields untouched');
+  const saved=await call('/vault/act',{action:'update',item:id,expected_revision:made.body.item.revision,values:{api_secret:'smsgw-secret-30-characters-abc'}});
+  assert.equal(saved.status,200);assert.equal(JSON.stringify(saved.body).includes('smsgw-secret'),false,'the answer carries no value');
+  assert.equal((await call('/vault/field',{item:id,field:'api_secret'})).body.value,'smsgw-secret-30-characters-abc');
+  assert.equal((await call('/vault/field',{item:id,field:'value'})).body.value,'smsgw-key-1234567890','other fields untouched');
   const hist=await call('/vault/audit?item='+id);
   const update=hist.body.rows.find(r=>r.action==='update');assert.deepEqual(update.fields,['api_secret']);assert.equal(update.by,'owner');
   assert.ok(hist.body.rows.filter(r=>r.action==='owner-view').length>=4,'every load is recorded');
   const audit=fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8');
-  for(const v of ['sinch-secret','sinch-key-','Authorization'])assert.equal(audit.includes(v)||logs.includes(v),false,'no value in the audit or the log: '+v);
+  for(const v of ['smsgw-secret','smsgw-key-','Authorization'])assert.equal(audit.includes(v)||logs.includes(v),false,'no value in the audit or the log: '+v);
 });
 
 // 1.73.6: every change is computed on a copy, written, then installed; the passphrase salt and the key are taken up only once

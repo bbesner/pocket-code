@@ -34,7 +34,7 @@ test('detector: known key formats, private keys, URL passwords, cards and assign
 
 test('detector: ordinary text is left alone',()=>{
   for(const t of ['the password is required for login','set the token = true','export TOKEN=$GITHUB_TOKEN','password: <your password>','use {{vault:zeta-books}} for the call',
-    'commit 3f2a1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a fixed it','order 1234567812345670 shipped','call 555-201-0143','id 550e8400-e29b-41d4-a716-446655440000','the pass is open',
+    'commit 3f2a1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a fixed it','order 1234567812345670 shipped','call 201-555-0143','id 550e8400-e29b-41d4-a716-446655440000','the pass is open',
     'Xk9#mPq2Lw8vRt5zNb3yHc7d','api_key: ********','sk-short'])
     assert.deepEqual(kinds(t),[],t);
 });
