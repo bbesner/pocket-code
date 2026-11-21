@@ -4124,9 +4124,10 @@ app.post('/api/upload', requireAuth, express.raw({ type: () => true, limit: '30m
   const safe = path.basename(raw).replace(/[^\w.\-]+/g, '_').slice(-80) || 'file.bin';
   if (!req.body?.length) return res.status(400).json({ error: 'empty upload' });
   const dir = path.join(UPLOAD_DIR, new Date().toISOString().slice(0, 7));
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); // 1.117 (PC-13): the owner's alone, whatever the umask
+  for (const d of [UPLOAD_DIR, dir]) try { fs.chmodSync(d, 0o700); } catch { }
   const dest = path.join(dir, `${Date.now().toString(36)}-${safe}`);
-  fs.writeFileSync(dest, req.body);
+  fs.writeFileSync(dest, req.body, { mode: 0o600 });
   log(`upload ${dest} (${req.body.length} bytes)`);
   res.json({ path: dest, name: safe, size: req.body.length });
 });
@@ -4369,10 +4370,10 @@ function learnTimezone(tz) {
   try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return; }
   settings.ownerTimezone = tz; saveSettings(); log(`owner time zone: ${tz}`);
 }
-// ---------- 1.69: inbox routes ----------
 // 1.117 (PC-12): the browser reports its zone with a POST from Pocket's own page; GET /api/me?tz= used to store it, and a
 // link on another site could set it, since the cookie rides along on a top-level GET.
 app.post('/api/timezone', ownPageJson, requireAuth, (req, res) => { learnTimezone(req.body?.tz); res.json({ ok: true }); });
+// ---------- 1.69: inbox routes ----------
 // Inbox Watch: the owner's cookie or the loopback token (a direct loopback request only, as for Tasks and start links).
 // POST /api/inbox is the worker's one call: the entry, the push (kind alerts, urgent) and, when asked, the email.
 const inboxError = (res, e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) }); };

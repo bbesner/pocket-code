@@ -179,3 +179,17 @@ test('PC-12: GET /api/me no longer stores a time zone; the owner\'s page POSTs i
   assert.equal((await s.fetch('/api/timezone',{method:'POST',headers:{cookie:owner},body:{tz:'Europe/Berlin'}})).status,200);assert.equal(zone(),'Europe/Berlin');
   const app=await (await s.fetch('/app.js')).text();assert.doesNotMatch(app,/me\?tz=/,'the client no longer sends it on GET');assert.match(app,/api\('\/timezone'/);
 });
+
+test('PC-13: an upload is written 0600 in folders that are 0700, whatever the umask and an older folder\'s mode',async t=>{
+  const home=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-hard-home-'));t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
+  fs.mkdirSync(path.join(home,'pocket-uploads'),{mode:0o755});fs.chmodSync(path.join(home,'pocket-uploads'),0o755); // as an earlier release left it
+  const s=await server(t,20461,{HOME:home});
+  const owner=(await s.login()).cookie;
+  const r=await fetch(s.url('/api/upload'),{method:'POST',headers:{cookie:owner,'x-filename':'notes.txt','content-type':'application/octet-stream'},body:'private notes'});
+  assert.equal(r.status,200);const {path:dest}=await r.json();
+  assert.ok(dest.startsWith(path.join(home,'pocket-uploads')+path.sep),dest);
+  assert.equal(fs.readFileSync(dest,'utf8'),'private notes');
+  assert.equal(fs.statSync(dest).mode&0o777,0o600,'the file');
+  assert.equal(fs.statSync(path.dirname(dest)).mode&0o777,0o700,'the month folder');
+  assert.equal(fs.statSync(path.join(home,'pocket-uploads')).mode&0o777,0o700,'the uploads folder');
+});
