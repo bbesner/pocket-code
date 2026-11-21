@@ -53,7 +53,7 @@ function bindRadioGroup(group) {
  };
 }
 function paintSessionFilterSummaries(){
- const parts=[workspaceFilter?projShort(workspaceFilter):'',providerFilter==='codex'?'Codex':providerFilter==='claude'?'Claude':providerFilter==='acp'?'OpenRouter':'', ['new','pinned','hidden'].includes(sessionFilter)?({new:'New',pinned:'Pinned',hidden:'Hidden'}[sessionFilter]):''].filter(Boolean);
+ const parts=[workspaceFilter?projShort(workspaceFilter):'',providerFilter?window.PocketEngines.label(providerFilter):'', ['new','pinned','hidden'].includes(sessionFilter)?({new:'New',pinned:'Pinned',hidden:'Hidden'}[sessionFilter]):''].filter(Boolean);
  document.querySelectorAll('[data-filter-summary]').forEach(el=>{el.textContent=parts.length?' · '+parts.join(' · '):'';});
  document.querySelectorAll('[data-clear-more-filters]').forEach(el=>{el.hidden=!parts.length;});
 }
@@ -197,7 +197,7 @@ function paintWorkspaceDensity(){
  if(controls)controls.hidden=railFiltersCollapsed;
  const summary=document.getElementById('rail-filter-summary');
  if(summary){
-  const parts=[workspaceFilter?projShort(workspaceFilter):'',providerFilter==='codex'?'Codex':providerFilter==='claude'?'Claude':providerFilter==='acp'?'OpenRouter':'',sessionFilter!=='all'?({active:'Active',attention:'Attention',new:'New',pinned:'Pinned',hidden:'Hidden'}[sessionFilter]||sessionFilter):''].filter(Boolean);
+  const parts=[workspaceFilter?projShort(workspaceFilter):'',providerFilter?window.PocketEngines.label(providerFilter):'',sessionFilter!=='all'?({active:'Active',attention:'Attention',new:'New',pinned:'Pinned',hidden:'Hidden'}[sessionFilter]||sessionFilter):''].filter(Boolean);
   summary.hidden=!parts.length;summary.querySelector('span').textContent=parts.join(' · ');
   summary.querySelector('button').onclick=()=>{
    workspaceFilter='';providerFilter='';sessionFilter='all';
@@ -246,16 +246,16 @@ let workspaceFilter=readLocal('pc-workspace-filter',''), providerFilter=readLoca
 let hiddenSessions=readLocal('pc-hidden-sessions',{}), openSessions=readLocal('pc-open-sessions',[]);
 let tabDrag=null; // 1.112: the tab being dragged, {id, target, after}
 if(typeof workspaceFilter!=='string')workspaceFilter='';
-if(!['','claude','codex','acp'].includes(providerFilter))providerFilter='';
+if(!['','claude','codex','acp','antigravity'].includes(providerFilter))providerFilter='';
 if(!hiddenSessions||typeof hiddenSessions!=='object'||Array.isArray(hiddenSessions))hiddenSessions={};
-openSessions=Array.isArray(openSessions)?openSessions.filter(s=>s&&typeof s.id==='string'&&(/^(?:(?:cx:)?[0-9a-f-]{36}|acp:ses_[0-9A-Za-z-]{1,64})$/.test(s.id)||isViewId(s.id))&&typeof s.title==='string').slice(-12):[];
+openSessions=Array.isArray(openSessions)?openSessions.filter(s=>s&&typeof s.id==='string'&&(/^(?:(?:cx:|agy:)?[0-9a-f-]{36}|acp:ses_[0-9A-Za-z-]{1,64})$/.test(s.id)||isViewId(s.id))&&typeof s.title==='string').slice(-12):[];
 let dockKind=readLocal('pc-dock-kind',''),dockSurface=null;
 const hasDockRoom=()=>matchMedia('(min-width: 1280px)').matches;
 function isHiddenSession(s){return hiddenSessions[s.id]>=Math.max(s.mtimeMs||0,s.state?.at||0)&&!['running','background','observed','waiting','input'].includes(rowState(s).kind);}
 function workspaceFilterHTML(){
  const paths=[...new Set(allSessions.map(s=>s.cwd).filter(Boolean))].sort();
  if(workspaceFilter&&!paths.includes(workspaceFilter))paths.unshift(workspaceFilter);
- return `<div class="workspace-filters"><label>Workspace<select data-workspace-filter><option value="">All workspaces</option>${paths.map(p=>`<option value="${esc(p)}" ${workspaceFilter===p?'selected':''}>${esc(projShort(p))}</option>`).join('')}</select></label><label>Agent<select data-provider-filter><option value="">All agents</option><option value="claude" ${providerFilter==='claude'?'selected':''}>Claude</option><option value="codex" ${providerFilter==='codex'?'selected':''}>Codex</option>${allSessions.some(s=>s.provider==='acp')||providerFilter==='acp'?`<option value="acp" ${providerFilter==='acp'?'selected':''}>OpenRouter</option>`:''}</select></label></div>`;
+ return `<div class="workspace-filters"><label>Workspace<select data-workspace-filter><option value="">All workspaces</option>${paths.map(p=>`<option value="${esc(p)}" ${workspaceFilter===p?'selected':''}>${esc(projShort(p))}</option>`).join('')}</select></label><label>Agent<select data-provider-filter><option value="">All agents</option><option value="claude" ${providerFilter==='claude'?'selected':''}>Claude</option><option value="codex" ${providerFilter==='codex'?'selected':''}>Codex</option>${allSessions.some(s=>s.provider==='acp')||providerFilter==='acp'?`<option value="acp" ${providerFilter==='acp'?'selected':''}>OpenRouter</option>`:''}${allSessions.some(s=>s.provider==='antigravity')||providerFilter==='antigravity'?`<option value="antigravity" ${providerFilter==='antigravity'?'selected':''}>Antigravity</option>`:''}</select></label></div>`;
 }
 function paintWorkspaceFilters(){
  document.querySelectorAll('[data-workspace-filters]').forEach(el=>{
@@ -421,7 +421,7 @@ function workspaceMount(scrim,sh,kind){
  closeCurrentSheet?.();dockKind=kind;writeLocal('pc-dock-kind',kind);
  sh.classList.remove('sheet');sh.classList.add('workspace-dock');sh.setAttribute('role','complementary');sh.setAttribute('aria-label',kind==='git'?'Git workspace':kind==='queue'?'Queued instructions':kind==='side'?'Side chat':'Conversation results');
  const actions=document.createElement('nav');actions.className='dock-tabs';actions.setAttribute('aria-label','Workspace panel');
- actions.innerHTML=[['results','Results'],['queue','Queue'],['git','Git'],...(SideChat.available(chatId)?[['side','Side chat']]:[])].map(([key,label])=>`<button class="chip" data-dock="${key}" aria-pressed="${kind===key}">${label}</button>`).join('')+`<button class="icon" data-close-dock aria-label="Close workspace panel">${IC.x}</button>`;
+ actions.innerHTML=[['results','Results'],...(engineHas(providerOf(chatId),'unattended')?[['queue','Queue']]:[]),['git','Git'],...(SideChat.available(chatId)?[['side','Side chat']]:[])].map(([key,label])=>`<button class="chip" data-dock="${key}" aria-pressed="${kind===key}">${label}</button>`).join('')+`<button class="icon" data-close-dock aria-label="Close workspace panel">${IC.x}</button>`;
  sh.prepend(actions);document.querySelector('.split').append(sh);dockSurface=sh;
  if(typeof sizeMainForSplit==='function')sizeMainForSplit();
  actions.querySelectorAll('[data-dock]').forEach(b=>b.onclick=()=>openDock(b.dataset.dock,chatId));
@@ -430,7 +430,8 @@ function workspaceMount(scrim,sh,kind){
 }
 function openDock(kind,id){if(kind==='results')return openResults(id);if(kind==='queue')return openQueue(id);if(kind==='git')return openGit(id);if(kind==='side')return SideChat.open(id);}
 // 1.78: a side chat dock stays open across conversations only where one can run (Claude, not Codex).
-function restoreDock(){if(hasDockRoom()&&['results','queue','git'].includes(dockKind)||hasDockRoom()&&dockKind==='side'&&SideChat.available(chatId))openDock(dockKind,chatId);}
+function restoreDock(){if(dockKind==='queue'&&!engineHas(providerOf(chatId),'unattended'))return; // no queue on this agent
+ if(hasDockRoom()&&['results','queue','git'].includes(dockKind)||hasDockRoom()&&dockKind==='side'&&SideChat.available(chatId))openDock(dockKind,chatId);}
 async function openGit(id){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet git-sheet';
  sh.innerHTML='<h2 data-git-title>Git workspace</h2><label class="git-pick" data-git-pick hidden><span>Repository</span><select data-git-folder></select></label><p class="git-also" data-git-also hidden></p><p class="sheet-help">Current changes in this repository, including work from other conversations. Read only.</p><button class="chip" data-git-refresh>Refresh</button><div data-git-status role="status">Reading repository…</div><div data-git-files></div><section class="git-trees" data-git-trees aria-labelledby="git-trees-title" hidden><h3 id="git-trees-title">Worktrees</h3><p class="git-tree-progress" data-git-trees-progress></p><div data-git-trees-groups></div></section><div data-git-diff></div>';
@@ -532,7 +533,7 @@ document.addEventListener('keydown',e=>{
 const SKIP_PH='Answer above, or type here to skip the questions…';
 async function refreshQuestions(id){
  try{const d=await api('/session/'+encodeURIComponent(id)+'/questions');if(chatId!==id)return;const b=$('#questions-open');if(b){
-  const who=String(id).startsWith('cx:')?'Codex':String(id).startsWith('acp:')?'OpenRouter':'Claude',n=d.requests.reduce((t,r)=>t+(r.questions?.length||1),0);
+  const who=window.PocketEngines.label(window.PocketEngines.providerOf(id)),n=d.requests.reduce((t,r)=>t+(r.questions?.length||1),0);
   b.hidden=!d.requests.length&&!d.interrupted;
   // 1.76.1: typing instead of answering skips a blocking question (the server declines it), so the box says so
   const box=$('#box'),skip=!d.interrupted&&d.requests.some(r=>r.blocking!==false)&&sendModes.get(id)!=='queue';
@@ -787,9 +788,9 @@ function bindRailNavigation() {
 // 1.35: the collapsed setup names the model and reasoning level, so you see what will run without opening it.
 function agentSummary(){
  const model=tbLabel(modelList(),tb.prefs.model);
- // the ACP/OpenRouter engine has no reasoning-effort setting, so the summary omits it
- const effort=tb.provider==='acp'&&effortList().length<2?'':(tbLabel(effortList(),tb.prefs.effort)==='Default'?'default reasoning':tbLabel(effortList(),tb.prefs.effort)+' reasoning');
- return [tb.provider==='codex'?'Codex':tb.provider==='acp'?'OpenRouter':'Claude Code',model==='Default'?'':model,effort].filter(Boolean).join(' · ');
+ // an OpenRouter or Antigravity model with no reasoning-effort setting: the summary omits it
+ const effort=['acp','antigravity'].includes(tb.provider)&&effortList().length<2?'':(tbLabel(effortList(),tb.prefs.effort)==='Default'?'default reasoning':tbLabel(effortList(),tb.prefs.effort)+' reasoning');
+ return [tb.provider==='claude'?'Claude Code':window.PocketEngines.label(tb.provider),model==='Default'?'':model,effort].filter(Boolean).join(' · ');
 }
 function updateNewSummary() {
  const el=document.querySelector('#task-context');if(!el||!tb)return;

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.118.0
+checked: 1.120.0
 sources: skills.mjs, project-mode.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # For agents
@@ -145,7 +145,7 @@ Times the commands print use the owner's time zone (the zone their browser repor
 `pocket-start` stores a briefing and prints a link that opens **New conversation** with it typed in, in the workspace and with the agent you name. Nothing starts until the user taps Start.
 
 ```text
-pocket-start add --text "…" | --file <path|->  [--handoff] [--dir <workspace>] [--provider claude|codex|acp] [--title "…"] [--ttl-days N] [--json]
+pocket-start add --text "…" | --file <path|->  [--handoff] [--dir <workspace>] [--provider claude|codex|acp|antigravity] [--title "…"] [--ttl-days N] [--json]
 pocket-start show <id> [--json]
 ```
 
@@ -161,7 +161,7 @@ When the user asks to hand off, or a conversation has grown long and the next st
 
 - The briefing is all the new conversation knows. Say what was decided, what is left, which files matter and what not to redo.
 - `--dir` defaults to the folder you run the command in, so run it from the folder the work belongs in.
-- Pocket works out which conversation you are from your runner token. You cannot name a parent or choose permissions; a handoff never gets more permission than your conversation has. OpenRouter conversations have no runner token, so their handoffs have no parent and get Review actions.
+- Pocket works out which conversation you are from your runner token. You cannot name a parent or choose permissions; a handoff never gets more permission than your conversation has. OpenRouter conversations have no runner token, so their handoffs have no parent and get Review actions. A start for `antigravity` waits for the person to press **Start** like any other, and nothing starts one unattended.
 - Never put a secret in a briefing: it is refused. Name the Vault entry instead.
 
 ### Send the user a notification

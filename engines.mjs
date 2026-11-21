@@ -33,16 +33,18 @@
 //   connectors     the account's Gmail, Calendar and Drive connectors
 //   contextPolicy  1.92: Settings' context limit and subagent model reach this engine's processes (context-policy.mjs)
 //   projectMode    a project in Conductor mode runs this engine's conversations with a lead model and a playbook (project-mode.mjs)
+//   unattended     the queue, the usage-limit retry, coordination wakes, check-backs and jobs may start this engine's
+//                  replies. False where a person must send every message (automation.mjs unattendedGate, server.mjs)
 export const ENGINES = {
   claude: {
     id: 'claude', label: 'Claude', idPrefix: null, routed: true,
     foreign: /^(?:gpt-|codex(?:$|-)|o\d(?:$|-))/i,
-    features: { steer: true, sideChat: true, branch: true, planMode: false, autoModel: true, awaySummary: true, subagents: true, connectors: true, contextPolicy: true, projectMode: true },
+    features: { steer: true, sideChat: true, branch: true, planMode: false, autoModel: true, awaySummary: true, subagents: true, connectors: true, contextPolicy: true, projectMode: true, unattended: true },
   },
   codex: {
     id: 'codex', label: 'Codex', idPrefix: 'cx:', routed: true,
     foreign: /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[))/i,
-    features: { steer: true, sideChat: true, branch: true, planMode: true, autoModel: false, awaySummary: true, subagents: true, connectors: true, contextPolicy: true, projectMode: true },
+    features: { steer: true, sideChat: true, branch: true, planMode: true, autoModel: false, awaySummary: true, subagents: true, connectors: true, contextPolicy: true, projectMode: true, unattended: true },
   },
   // OpenRouter models through OpenCode over ACP (acp.mjs), opt-in per server (POCKET_ACP_ENABLE). Its models are
   // provider-prefixed OpenRouter slugs (openrouter/deepseek/deepseek-v4.1-flash-1017); a Claude- or GPT-looking id is a
@@ -51,12 +53,24 @@ export const ENGINES = {
   acp: {
     id: 'acp', label: 'OpenRouter', idPrefix: 'acp:', routed: true,
     foreign: /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[)|gpt-|codex(?:$|-)|o\d(?:$|-))/i,
-    features: { steer: false, sideChat: false, branch: false, planMode: true, autoModel: false, awaySummary: false, subagents: false, connectors: false, contextPolicy: false, projectMode: false },
+    features: { steer: false, sideChat: false, branch: false, planMode: true, autoModel: false, awaySummary: false, subagents: false, connectors: false, contextPolicy: false, projectMode: false, unattended: true },
+  },
+  // Google's Antigravity CLI over ACP (acp.mjs RUNTIMES.antigravity), signed in with the owner's own Google plan, opt-in
+  // per server (POCKET_AGY_ENABLE). Its models are the ones the account's plan lists (Gemini 4 Neon and others, read
+  // from the CLI), so only an OpenRouter slug (a/b) is an obvious mismatch. A message sent during a reply goes into it.
+  // unattended:false: Google does not support wrapping `agy` on consumer plans, so Pocket keeps it to messages a
+  // person sends (docs/manual/sessions.md).
+  antigravity: {
+    id: 'antigravity', label: 'Antigravity', idPrefix: 'agy:', routed: true,
+    foreign: /\//,
+    features: { steer: true, sideChat: false, branch: false, planMode: true, autoModel: false, awaySummary: false, subagents: false, connectors: false, contextPolicy: false, projectMode: false, unattended: false },
   },
 };
+// False where a person must send every message (features.unattended listed false).
+export const takesUnattended = engine => ENGINES[engine]?.features.unattended !== false;
 
 export const ENGINE_IDS = Object.keys(ENGINES);
-// Engines server.mjs can run a turn on (all three since 1.84; acp only where the server enables it).
+// Engines server.mjs can run a turn on (acp and antigravity only where the server enables them).
 export const routedEngineIds = () => ENGINE_IDS.filter(id => ENGINES[id].routed);
 
 // The engine that owns a session id, by its prefix. Unprefixed ids are Claude (the default) —
@@ -77,7 +91,8 @@ export function validateModelForEngine(engine, model) {
   const e = ENGINES[engine];
   const bad = typeof model !== 'string' || Boolean(e && e.foreign.test(model));
   if (bad) {
-    const err = new Error(`Choose a ${e ? e.label : 'valid'} model from the model menu, then send again.`);
+    const label = e ? e.label : 'valid';
+    const err = new Error(`Choose ${/^[AEIO]/.test(label) ? 'an' : 'a'} ${label} model from the model menu, then send again.`);
     err.status = 400; err.code = 400;
     throw err;
   }
