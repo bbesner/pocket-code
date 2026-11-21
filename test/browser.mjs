@@ -581,9 +581,12 @@ try{
  // Reading position survives reopening a long conversation.
  conversations.get(idle.id).push({role:'assistant',blocks:[{t:'text',text:Array.from({length:60},(_,i)=>'Paragraph '+i+' in a long report.').join('\n\n')}]});
  await p.goto(base+'/#/chat/'+idle.id);await p.waitForSelector('#box');
+ // #box is in the chat's frame before the transcript is painted; renderChat then scrolls to the end, so wait for the report.
+ await p.waitForFunction(()=>/Paragraph 59 in a long report/.test(document.querySelector('#msgs')?.textContent||''));
  await p.evaluate(()=>{const m=document.querySelector('#msgs').closest('main.scroll');m.scrollTop=180;rememberReading();});
  await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
- assert.ok(Math.abs(await p.$eval('#msgs',e=>e.closest('main.scroll').scrollTop)-180)<4);
+ await p.waitForFunction(()=>/Paragraph 59 in a long report/.test(document.querySelector('#msgs')?.textContent||''));
+ {const top=await p.$eval('#msgs',e=>e.closest('main.scroll').scrollTop);assert.ok(Math.abs(top-180)<4,`the reading position comes back: scrollTop ${top}, not 180`);}
  // Agent-produced Markdown must not execute code or create active form controls.
  const security=await p.evaluate(()=>{
   const div=document.createElement('div');div.innerHTML=md('<img src=x onerror="window.__pwned=1"><script>window.__pwned=1</script>\n\n[bad](javascript:alert(1))\n\n![bad](data:image/svg+xml;base64,AAAA)\n\n<input autofocus onfocus="window.__pwned=1">');

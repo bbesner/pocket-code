@@ -1689,7 +1689,7 @@ function sessionRowHTML(s) {
   const detail = running && state.startedAt ? `Started ${rel(state.startedAt)}`
     : background ? (state.background?.jobs?.[0]?.description ? `Background: ${state.background.jobs[0].description}` : 'Background work still running')
     : state.kind === 'observed' ? 'Recent transcript activity; run status unconfirmed'
-    : state.kind === 'waiting' && state.retryAt ? `Retry at ${new Date(state.retryAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`
+    : state.kind === 'waiting' && state.retryAt && !state.held ? `Retry at ${new Date(state.retryAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}` // 1.117: a retry Pause all holds has no time to run at
     : state.kind === 'news' && state.summary ? state.summary // 1.115: what came in on its Inbox story
     : complete && state.summary ? state.summary : `Updated ${rel(s.mtimeMs)}`; // 1.111: the agent's outcome line, until you have seen it
   return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}" data-item="${esc(s.id)}">
@@ -1926,7 +1926,7 @@ function followChatTitle() {
 function paintChatOrigin(s) {
   const el = $('#origin-line'); if (!el) return;
   const label = Automation.originOf(s);
-  el.hidden = !label; if (el.textContent !== label) el.textContent = label;
+  if (el.hidden !== !label) el.hidden = !label; if (el.textContent !== label) el.textContent = label; // unchanged: nothing written
 }
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
@@ -1962,13 +1962,14 @@ function paintRunConfirmation(){
   // 1.19: in the title bar (phones, collapsed header) the same states use short words; the tooltip keeps the detail.
   if(box.closest('header'))label=kind==='background'?'Background':{'No active run here':'Idle','Running on server':'Running','Activity seen. Run unconfirmed':'Activity seen','Status unconfirmed. Reconnecting…':'Unconfirmed','Checking server…':'Checking…'}[label]||label;
   if(name.textContent!==label)name.textContent=label;
-  box.dataset.state=kind;
+  if(box.dataset.state!==kind)box.dataset.state=kind; // 1.117: a tick with nothing new writes nothing
   const stampText=elapsed===null?'':(fresh?'Checked ':'Last check ')+checkAge(elapsed);if(stamp.textContent!==stampText)stamp.textContent=stampText;
-  box.title=sessionCheckedAt?'Server confirmation: '+new Date(sessionCheckedAt).toLocaleTimeString()+'. '+(state?.startedAt?'Started: '+new Date(state.startedAt).toLocaleTimeString()+'. ':'')+'Checks every 5 seconds. Running means the server owns an active reply; it does not guarantee continuous output.'+(state?.kind==='background'&&state.background?.jobs?.length?' Background: '+state.background.jobs.map(j=>j.description||j.kind).join('; ')+'.':''):'';
+  const title=sessionCheckedAt?'Server confirmation: '+new Date(sessionCheckedAt).toLocaleTimeString()+'. '+(state?.startedAt?'Started: '+new Date(state.startedAt).toLocaleTimeString()+'. ':'')+'Checks every 5 seconds. Running means the server owns an active reply; it does not guarantee continuous output.'+(state?.kind==='background'&&state.background?.jobs?.length?' Background: '+state.background.jobs.map(j=>j.description||j.kind).join('; ')+'.':''):'';
+  if(box.title!==title)box.title=title;
  }
  // 1.64: background work shows the dimmer ember in the title bar while the composer is free.
  const headerLamp=document.getElementById('hember'),inBackground=fresh&&state?.kind==='background'&&state.confirmed===true;
- if(headerLamp){headerLamp.hidden=!(fresh&&state?.kind==='running'&&state.confirmed===true)&&!inBackground;
+ if(headerLamp){const lampOff=!(fresh&&state?.kind==='running'&&state.confirmed===true)&&!inBackground;if(headerLamp.hidden!==lampOff)headerLamp.hidden=lampOff;
   if(!composerWorking){const dim=headerLamp.querySelector('.ember.dim');if(inBackground&&!dim)headerLamp.innerHTML='<span class="ember dim" aria-hidden="true"></span>';else if(!inBackground&&dim)headerLamp.innerHTML='';}}
  const workingLabel=document.getElementById('work-label');
  if(workingLabel){

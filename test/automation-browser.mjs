@@ -2,64 +2,35 @@
 // banner and Resume, a second device catching up, a blocked own message keeping its draft), Settings → Automation
 // rendered from the server's groups (save, range error, No limit and its warning, Reset to defaults, Advanced
 // collapsed, usage and notices) and the origin label on a list row and in the chat. Runs inside test/browser.mjs, or
-// alone with POCKET_AUTOMATION_ONLY=1. The synthetic responses follow the 1.117 server contract.
+// alone with POCKET_AUTOMATION_ONLY=1. The settings half is built from automation.mjs itself (see below); the same flows run
+// against the real server in test/automation-live-browser.mjs.
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 import {clickControl} from './ui-controls.mjs';
+import * as auto from '../automation.mjs';
 
 const DAY=86400000;
-// The groups as the server describes them (spec "Settings": the Pause all table and the Limits table, plus rule 3's
-// second owner-rooted switch). Values are the defaults; saved values are kept beside them.
-const GROUPS=[
- {key:'pause',title:'Pause all',settings:[
-  {key:'ownMessages',label:'Your own messages while paused',type:'choice',default:'run',choices:[{value:'run',label:'Run, with a banner'},{value:'blocked',label:'Blocked until you resume'}]},
-  {key:'pauseInboxWatch',label:'Pause all also pauses Inbox Watch',type:'bool',default:true},
-  {key:'rearmRetries',label:'On Resume, re-arm held usage-limit retries',help:'Off keeps them held until you start them.',type:'bool',default:true},
-  {key:'confirm',label:'Show what will stop before pausing',help:'Off pauses on one tap.',type:'bool',default:true}]},
- {key:'limits',title:'Limits on unattended work',settings:[
-  {key:'claudeWeekly',label:'Plan ceiling, weekly · Claude',type:'number',default:80,min:10,max:100,step:1,unit:'%',offAllowed:true},
-  {key:'codexWeekly',label:'Plan ceiling, weekly · Codex',type:'number',default:80,min:10,max:100,step:1,unit:'%',offAllowed:true},
-  {key:'claudeFiveHour',label:'Plan ceiling, 5-hour · Claude',type:'number',default:90,min:10,max:100,step:1,unit:'%',offAllowed:true},
-  {key:'codexFiveHour',label:'Plan ceiling, 5-hour · Codex',type:'number',default:90,min:10,max:100,step:1,unit:'%',offAllowed:true},
-  {key:'dailyReplies',label:'Unattended replies per day',help:'Check-back and job replies that start in one day.',type:'number',default:40,min:1,max:1000,step:1,unit:'',offAllowed:true},
-  {key:'countOwnerRooted',label:'Count queue drains, retries and coordination wakes toward the daily limit',type:'bool',default:false},
-  {key:'ceilingsOwnerRooted',label:'Plan ceilings also hold queued messages, retries and coordination wakes',type:'bool',default:false},
-  {key:'openrouterDaily',label:'OpenRouter spend per day',type:'number',default:5,min:0.5,max:500,step:0.5,unit:'$',offAllowed:true},
-  {key:'longestReply',label:'Longest unattended reply',help:'A reply still running at this is stopped, and you get a push.',type:'number',default:60,min:5,max:480,step:5,unit:'min',offAllowed:true},
-  {key:'countWaiting',label:'Count time waiting on an approval or question toward the longest reply',type:'bool',default:false},
-  {key:'notice',label:'Notice when a limit is reached',type:'choice',default:'push',choices:[{value:'push',label:'Push and Settings, once per reason per day'},{value:'settings',label:'Settings only'}]},
-  {key:'staleHours',label:'Treat a plan reading older than this as stale',type:'number',default:6,min:1,max:24,step:1,unit:'h',advanced:true}]}];
-
+// The settings, their effective values, the warnings, the range errors and the notice words come from automation.mjs,
+// the module the server builds GET /api/automation and POST /api/automation/settings from, so this fixture cannot drift
+// from the server. One env preset stands in for an install's own default (POCKET_AUTOMATION_LONGEST_REPLY).
+const ENV={POCKET_AUTOMATION_LONGEST_REPLY:'60'};
 export const automationFixture={
- paused:null,saved:{pause:{},limits:{}},ownMessages:null,posts:[],
+ paused:null,saved:{},posts:[],
  would:{replies:{claude:2,codex:1,openrouter:0},retries:1,checkbacks:0,inboxWatch:true},
- reset(){this.paused=null;this.saved={pause:{},limits:{}};this.posts=[];},
- value(group,key){const s=GROUPS.find(g=>g.key===group).settings.find(x=>x.key===key);return key in this.saved[group]?this.saved[group][key]:s.default;},
+ reset(){this.paused=null;this.saved={};this.posts=[];},
+ value(group,key){return auto.groupValues(this.saved,group,ENV)[key];},
  me(){return this.paused?{at:this.paused.at}:null;},
  pause(){return {paused:this.paused,would:this.would,held:this.paused?{retries:1,checkbacks:0}:{retries:0,checkbacks:0},ownMessages:this.value('pause','ownMessages'),confirm:this.value('pause','confirm')};},
  automation(){
-  const now=Date.now(),groups=GROUPS.map(g=>({key:g.key,title:g.title,settings:g.settings.map(s=>({...s,value:this.value(g.key,s.key),saved:s.key in this.saved[g.key],preset:s.key==='longestReply'}))}));
-  const warnings=groups.find(g=>g.key==='limits').settings.filter(s=>s.value==='off').map(s=>`No limit: ${s.label}. Unattended work can run until the plan's own limit.`);
-  const days=Array.from({length:7},(_,i)=>({date:new Date(now-i*DAY).toISOString().slice(0,10),replies:[3,5,0,2,8,1,0][i],cost:[0.42,0.88,0,0.31,1.2,0.05,0][i],tokens:[120000,260000,0,90000,410000,12000,0][i]}));
-  return {paused:this.paused,groups,warnings,notices:[{reason:'plan_ceiling',engine:'claude',at:new Date(now-2*3600000).toISOString(),text:'Claude weekly ceiling (80%) reached. Unattended Claude replies wait until the window resets.'}],
+  const now=Date.now(),d=auto.describe(this.saved,ENV);
+  const days=Array.from({length:7},(_,i)=>({date:new Date(now-(6-i)*DAY).toISOString().slice(0,10),replies:[0,1,8,2,0,5,3][i],cost:[0,0.05,1.2,0.31,0,0.88,0.42][i],tokens:[0,12000,410000,90000,0,260000,120000][i]}));
+  const n=auto.noticeFor({ok:false,reason:'plan_ceiling',engine:'claude',window:'weekly',used:83,ceiling:80});
+  return {paused:this.paused,groups:d.groups,warnings:d.warnings,notices:[{reason:n.reason,engine:n.engine,at:new Date(now-2*3600000).toISOString(),text:n.text}],
    usage:{today:{replies:3,cost:0.42,tokens:120000},days}};
  },
- // The server's all-or-nothing check: a refused value saves nothing and names the allowed range.
- save(body){
-  const g=GROUPS.find(x=>x.key===body.group);if(!g)return {status:400,body:{error:'Unknown settings group.'}};
-  if(body.reset){this.saved[g.key]={};return {status:200};}
-  const next={};
-  for(const [k,v] of Object.entries(body.values||{})){
-   const s=g.settings.find(x=>x.key===k);if(!s)return {status:400,body:{error:`Unknown setting: ${k}.`}};
-   const u=n=>s.unit==='$'?'$'+n:s.unit==='%'?n+'%':s.unit?n+' '+s.unit:String(n);
-   if(s.type==='number'){if(v==='off'&&s.offAllowed){next[k]='off';continue;}if(typeof v!=='number'||!Number.isFinite(v)||v<s.min||v>s.max)return {status:400,body:{error:`${s.label} must be from ${u(s.min)} to ${u(s.max)}${s.offAllowed?', or Off':''}.`}};}
-   if(s.type==='bool'&&typeof v!=='boolean')return {status:400,body:{error:`${s.label} is on or off.`}};
-   if(s.type==='choice'&&!s.choices.some(c=>c.value===v))return {status:400,body:{error:`${s.label}: choose one of the listed options.`}};
-   next[k]=v;
-  }
-  Object.assign(this.saved[g.key],next);return {status:200};
- },
+ // The server's own all-or-nothing check: a refused value saves nothing and names the allowed range.
+ save(body){const r=auto.applySave(this.saved,body);if(r.error)return {status:r.status||400,body:{error:r.error}};this.saved=r.automation;return {status:200};},
 };
 // Answers the 1.117 routes; false when the request is not one of them.
 export async function automationRoute(req,url,json){
@@ -86,6 +57,24 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  const openAutomation=async()=>{await clickControl(p,'#settings');await p.waitForSelector('.settings-sheet [data-settings-category="automation"]');await p.click('[data-settings-category="automation"]');await p.waitForSelector('[data-auto-group="limits"] [data-auto-key="claudeWeekly"]');};
  const input=key=>`[data-auto-key="${key}"]`;
  const setNumber=async(key,v)=>{await p.$eval(input(key),(e,v)=>{e.focus();e.value=String(v);e.dispatchEvent(new Event('change'));},v);};
+ // The pause check (on the regular list refresh and on return to the tab) with nothing changed: the list rows, the
+ // banner, the header and the Pause all controls stay the same nodes, nothing in the page is written, and the only
+ // request is GET /api/pause. The app's own 5-second list refresh is held still for the window, so only the check runs.
+ const quietRefresh=()=>p.evaluate(async()=>{
+  if(sessionFetch)await sessionFetch;
+  const realRefresh=window.refreshSessions,realFetch=window.fetch,urls=[];
+  window.refreshSessions=async()=>{};window.fetch=(u,...a)=>{urls.push(new URL(String(u),location.href).pathname);return realFetch(u,...a);};
+  const nodes=[...document.querySelectorAll('[data-item], [data-item] *, .pause-banner, .pause-banner *, header.bar, header.bar *, [data-pause-toggle], [data-pause-toggle] *')];
+  const records=[],mo=new MutationObserver(r=>records.push(...r));
+  mo.observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true});
+  try{for(let i=0;i<3;i++)await Automation.poll(true);await new Promise(r=>setTimeout(r,60));records.push(...mo.takeRecords());}
+  finally{mo.disconnect();window.fetch=realFetch;window.refreshSessions=realRefresh;}
+  const ticking=n=>(n.nodeType===1?n:n.parentElement)?.closest?.('[data-run-age]');   // a running row's age ticks on its own
+  return {nodes:nodes.length,kept:nodes.every(n=>n.isConnected),urls,
+   writes:records.filter(r=>!ticking(r.target)).map(r=>`${r.type} ${r.target.nodeName}${r.target.id?'#'+r.target.id:''}${r.attributeName?' @'+r.attributeName:''}`)};
+ });
+ const assertQuiet=async(where)=>{const q=await quietRefresh();assert.ok(q.nodes>0,where);assert.equal(q.kept,true,`${where}: the same nodes stay`);
+  assert.deepEqual(q.writes,[],`${where}: nothing written`);assert.deepEqual(q.urls,['/api/pause','/api/pause','/api/pause'],`${where}: one request per check, and no list or summary fetch`);};
  await p.setViewport({width:1440,height:900,isMobile:false,hasTouch:false});await home();
  const themeBefore=await p.evaluate(()=>PocketTheme.preference);await theme(p,'dark');
 
@@ -98,10 +87,11 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  assert.equal(await p.$eval(input('staleHours'),e=>e.checkVisibility()),false,'an advanced setting is under Advanced');
  assert.equal(await p.$eval(input('confirm'),e=>e.getAttribute('aria-pressed')),'true');
  assert.equal(await p.$eval(input('ownMessages'),e=>e.value),'run');
- assert.match(await p.$eval('[data-auto-row="longestReply"] .title-note',e=>e.textContent),/5 min to 480 min, or no limit\. Preset on this server\./);
+ assert.match(await p.$eval('[data-auto-row="longestReply"] .title-note',e=>e.textContent),/5 min to 480 min, or No limit\. Preset on this server\./);
  assert.equal(await p.$$eval('.automation-usage tbody tr',e=>e.length),7);
+ assert.deepEqual(await p.$$eval('.automation-usage tbody tr td:first-of-type',e=>e.map(x=>x.textContent)),['3','5','0','2','8','1','0'],'newest day first');
  assert.equal(await p.$eval('[data-auto-today]',e=>e.textContent),'Today: 3 replies · $0.42 · 120K tokens');
- assert.match(await p.$eval('.automation-notices li',e=>e.textContent),/Claude weekly ceiling \(80%\) reached/);
+ assert.match(await p.$eval('.automation-notices li',e=>e.textContent),/Claude Code weekly window is at 83%, over the 80% ceiling\./);
  assert.ok((await p.$$eval('#s-automation button, #s-automation .automation-input',e=>e.filter(x=>x.checkVisibility()).map(x=>x.getBoundingClientRect().height))).every(h=>h>=44),'44px controls');
  await shot('settings-1440-dark');await axeCheck(p,repo,'.settings-sheet');
  // Saves a value.
@@ -112,7 +102,7 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  // A value out of range: the server's message beside the field, the old value back, nothing saved.
  await setNumber('claudeWeekly',150);
  await p.waitForFunction(()=>document.querySelector('#auto-limits-claudeWeekly-err')?.textContent);
- assert.equal(await p.$eval('#auto-limits-claudeWeekly-err',e=>e.textContent),'Plan ceiling, weekly · Claude must be from 10% to 100%, or Off.');
+ assert.equal(await p.$eval('#auto-limits-claudeWeekly-err',e=>e.textContent),'Plan ceiling, weekly (Claude Code) must be 10% to 100%, or No limit.');
  assert.equal(await p.$eval(input('claudeWeekly'),e=>e.value),'70');assert.equal(await p.$eval(input('claudeWeekly'),e=>e.getAttribute('aria-invalid')),'true');
  assert.equal(f.saved.limits.claudeWeekly,70);
  await shot('settings-error-1440-dark');
@@ -121,17 +111,17 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  await p.click('[data-auto-off="dailyReplies"]');
  await p.waitForSelector('.automation-warning');
  assert.equal(f.saved.limits.dailyReplies,'off');
- assert.match(await p.$eval('.automation-warning',e=>e.textContent),/^No limit: Unattended replies per day\./);
+ assert.equal(await p.$eval('.automation-warning',e=>e.textContent),'Unattended replies per day has no limit.');
  assert.equal(await p.$eval(input('dailyReplies'),e=>e.disabled),true);assert.equal(await p.$eval('[data-auto-off="dailyReplies"]',e=>e.getAttribute('aria-pressed')),'true');
  await shot('settings-off-1440-dark');
  // A switch and a choice save too.
- await p.click(input('countOwnerRooted'));await p.waitForFunction(()=>document.querySelector('[data-auto-key="countOwnerRooted"]').getAttribute('aria-pressed')==='true');
- assert.equal(f.saved.limits.countOwnerRooted,true);
+ await p.click(input('countOwnerWork'));await p.waitForFunction(()=>document.querySelector('[data-auto-key="countOwnerWork"]').getAttribute('aria-pressed')==='true');
+ assert.equal(f.saved.limits.countOwnerWork,true);
  // Reset to defaults: every saved value in the group goes, and the warning with it.
  await p.click('[data-auto-reset="limits"]');
  await p.waitForFunction(()=>document.querySelector('[data-auto-status="limits"]')?.textContent==='Back to the defaults.');
- assert.deepEqual(f.saved.limits,{});assert.equal(await p.$eval(input('claudeWeekly'),e=>e.value),'80');assert.equal(await p.$('.automation-warning'),null);
- assert.equal(await p.$eval(input('countOwnerRooted'),e=>e.getAttribute('aria-pressed')),'false');
+ assert.equal(f.saved.limits,undefined);assert.equal(await p.$eval(input('claudeWeekly'),e=>e.value),'80');assert.equal(await p.$('.automation-warning'),null);
+ assert.equal(await p.$eval(input('countOwnerWork'),e=>e.getAttribute('aria-pressed')),'false');
  await p.keyboard.press('Escape');
 
  // --- Origin labels: a list row and the chat say who started the newest reply ---
@@ -143,9 +133,13 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  await p.goto(base+'/#/chat/'+retryRow.id);await p.waitForFunction(()=>document.querySelector('#origin-line')?.hidden===false);
  assert.equal(await p.$eval('#origin-line',e=>e.textContent),'Continued after a usage limit');
 
+ // --- A pause check with nothing changed touches nothing (the list, then with the More menu open) ---
+ await home();await p.waitForSelector('[data-item]');await assertQuiet('the list, not paused');
+
  // --- Pause all from the More menu: the confirmation lists what will stop; Keep running returns focus ---
  f.posts.length=0;await home();
  await p.click('#listmore');await p.waitForSelector('.more-menu [data-pause-toggle]');
+ await assertQuiet('the More menu, not paused');
  await p.click('.more-menu [data-pause-toggle]');await p.waitForSelector('.pause-sheet [data-pause-would]');
  assert.equal(await p.$eval('[data-pause-would]',e=>e.textContent),'This stops 3 replies running (2 Claude, 1 Codex), 1 usage-limit retry, Inbox Watch.');
  assert.match(await p.$eval('.pause-sheet .sheet-help',e=>e.textContent),/^Your own messages still run\./);
@@ -178,8 +172,13 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  // A second device paused it: this one catches up on its next check (return to the tab here).
  f.paused={at:new Date().toISOString(),by:'owner'};
  await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await p.waitForSelector('.pause-banner');
+ await p.waitForFunction(()=>/1 usage-limit retry is held/.test(document.querySelector('.pause-banner .pause-text')?.textContent||''));
+ await assertQuiet('a conversation with the banner, paused');
+ await p.keyboard.down('Control');await p.keyboard.press('k');await p.keyboard.up('Control');
+ await p.waitForSelector('.session-switcher [data-pause-toggle]');await p.waitForSelector('.session-switcher [data-item]');
+ await assertQuiet('the switcher, paused');await p.keyboard.press('Escape');await p.waitForFunction(()=>!document.querySelector('.session-switcher'));
  // Own messages Blocked: the banner says so, a send is refused with a clear message and the draft is kept.
- f.saved.pause.ownMessages='blocked';await p.evaluate(()=>Automation.poll(true));
+ f.saved={...f.saved,pause:{...f.saved.pause,ownMessages:'blocked'}};await p.evaluate(()=>Automation.poll(true));
  await p.waitForFunction(()=>/wait until you resume/.test(document.querySelector('.pause-banner .pause-text')?.textContent||''));
  await p.$eval('#box',e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));}); // an earlier check's draft may still be here
  await p.type('#box','Recount aisle 4 while paused');await p.click('#send');
@@ -189,11 +188,11 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  // Resume, and with the confirmation switched off Pause all acts on one tap.
  await p.click('.pause-banner [data-resume]');await p.waitForFunction(()=>!document.querySelector('.pause-banner'));
  await p.$eval('#discard-message',e=>e.click()).catch(()=>{});
- f.saved.pause={confirm:false};
+ f.saved={...f.saved,pause:{confirm:false}};
  await home();await p.click('#listmore');await p.waitForSelector('.more-menu [data-pause-toggle]');await p.click('.more-menu [data-pause-toggle]');
  await p.waitForSelector('.pause-banner');assert.equal(await p.$('.pause-sheet'),null,'no confirmation when it is off');
  await p.click('.pause-banner [data-resume]');await p.waitForFunction(()=>!document.querySelector('.pause-banner'));
- f.saved.pause={};
+ delete f.saved.pause;
 
  // --- The voice quick command opens the same confirmation ---
  await p.goto(base+'/#/chat/'+rows[4].id);await p.waitForSelector('#box');

@@ -27,7 +27,7 @@ Pausing twice is fine. Pause all can't be hidden or turned off: it is the emerge
 - **More** (the **⋯** button), at the top of the conversation list on a phone and in the rail beside **Filters**, **Settings** and **New** on a computer. The first row is **Pause all**. The next is **Automation settings**.
 - **Switch conversation** (Ctrl/⌘ K), the first row.
 - **Settings → Automation**, the first row.
-- By voice: "pause everything" (also "pause all", "pause pocket" and "stop everything") opens the same confirmation. The microphone stays off afterwards: you answer by tapping the sheet. See [Voice](voice.md).
+- By voice: "pause everything" opens the same confirmation. So do "pause it all", "pause all", "pause all replies", "pause all work", "pause all agents", "pause all conversations" (each of the last four also with "the", as in "pause all the work"), "pause pocket" and "stop everything". The microphone stays off afterwards: you answer by tapping the sheet. See [Voice](voice.md).
 
 While Pocket is paused every one of these reads **Resume**.
 
@@ -65,7 +65,6 @@ The pause is saved. After Pocket restarts it is still paused, and a retry that w
 | **Your own messages while paused** | **Run, with a banner** | **Run, with a banner** or **Blocked until you resume** |
 | **Pause all also pauses Inbox Watch** | On | On or Off |
 | **On Resume, re-arm held usage-limit retries** | On | On, or Off (they stay held until your next message) |
-| **On Resume, run overdue check-backs** | On | Saved now. It does nothing until check-backs arrive in a later release |
 | **Show what will stop before pausing** | On | On, or Off (pause on one tap) |
 
 **Reset to defaults** in the group puts these back.
@@ -120,7 +119,7 @@ Both are off by default. So today, with nothing switched on, the limits hold not
 
 ### No limit
 
-Every limit except the stale-reading age has a **No limit** button beside it. A limit set to No limit shows a warning at the top of the page, *… is Off: there is no limit.*, for as long as it stays off.
+Every limit except the stale-reading age has a **No limit** button beside it. A limit set to No limit shows a warning at the top of the page, for example *Unattended replies per day has no limit.*, for as long as it stays off.
 
 ### Stale readings
 
@@ -132,7 +131,7 @@ When a limit holds work, Pocket tells you once per reason per day, not once per 
 
 ### The usage table
 
-**Unattended replies** at the bottom of the page shows **Today** (replies, cost and tokens) and a **Last 7 days** table of **Day**, **Replies**, **Tokens** and **Cost**. It counts every finished reply Pocket started without you. Claude reports a cost per reply, which on a plan is what the same tokens would cost, not a charge. Codex reports tokens.
+**Unattended replies** at the bottom of the page shows **Today** (replies, cost and tokens) and a **Last 7 days** table of **Day**, **Replies**, **Tokens** and **Cost**, newest day first. It counts every finished reply Pocket started without you. Claude reports a cost per reply, which on a plan is what the same tokens would cost, not a charge. Codex reports tokens.
 
 ## The audit file
 
@@ -152,7 +151,7 @@ Restart Pocket after changing `.env`. A bad value is ignored and named in the pa
 | Variable (after `POCKET_AUTOMATION_`) | Sets |
 |---|---|
 | `OWN_MESSAGES` | `run` or `blocked` |
-| `INBOX_WATCH`, `REARM_RETRIES`, `OVERDUE_CHECKBACKS`, `CONFIRM`, `COUNT_OWNER_WORK`, `CEILINGS_HOLD_OWNER_WORK`, `COUNT_WAITING` | On or off (`1`/`0`, `yes`/`no`, `on`/`off`, `true`/`false`) |
+| `INBOX_WATCH`, `REARM_RETRIES`, `CONFIRM`, `COUNT_OWNER_WORK`, `CEILINGS_HOLD_OWNER_WORK`, `COUNT_WAITING` | On or off (`1`/`0`, `yes`/`no`, `on`/`off`, `true`/`false`) |
 | `CLAUDE_WEEKLY`, `CLAUDE_FIVE_HOUR`, `CODEX_WEEKLY`, `CODEX_FIVE_HOUR` | A percentage, or `off`. `CLAUDE_WEEKLY_CEILING` also works |
 | `WEEKLY_CEILING`, `FIVE_HOUR_CEILING` | Both engines at once; an engine's own name wins |
 | `DAILY_REPLIES`, `OPENROUTER_DAILY` (dollars), `LONGEST_REPLY` (minutes) | A number, or `off` |
@@ -184,7 +183,7 @@ See [For agents](for-agents.md).
 
 **A queued message didn't start.** Check for the banner. While paused the queue doesn't drain. After **Resume** it stays paused until you start it with **Run next instruction**. A plan ceiling can also hold it if you switched on **Plan ceilings also hold queued messages, retries and coordination wakes**.
 
-**A conversation says *Usage-limit retry held*.** Pause all held it, and **On Resume, re-arm held usage-limit retries** is off. Send a message to carry on.
+**A conversation says *Retry held* after you resumed.** Pause all held a usage-limit retry, and **On Resume, re-arm held usage-limit retries** is off. Send a message to carry on.
 
 **A limit is blocking work I want to run.** Raise it, or choose **No limit**, in **Settings → Automation**, or start the work yourself: your own messages and **Run next instruction** are not held.
 

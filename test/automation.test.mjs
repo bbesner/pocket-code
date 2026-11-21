@@ -28,7 +28,7 @@ test('origins and their labels', () => {
 
 test('the defaults are the spec tables, and the groups are data', () => {
   assert.deepEqual(auto.GROUPS.map(g => g.key), ['pause', 'limits']);
-  assert.deepEqual(auto.groupValues({}, 'pause', {}), { ownMessages: 'run', inboxWatch: true, rearmRetries: true, overdueCheckbacks: true, confirm: true });
+  assert.deepEqual(auto.groupValues({}, 'pause', {}), { ownMessages: 'run', inboxWatch: true, rearmRetries: true, confirm: true });
   assert.deepEqual(auto.groupValues({}, 'limits', {}), { claudeWeekly: 80, claudeFiveHour: 90, codexWeekly: 80, codexFiveHour: 90, dailyReplies: 40, countOwnerWork: false,
     ceilingsHoldOwnerWork: false, openrouterDaily: 5, longestReply: 60, countWaiting: false, notice: 'push', staleHours: 6 });
   const stale = auto.GROUPS[1].settings.find(s => s.key === 'staleHours');
@@ -36,14 +36,14 @@ test('the defaults are the spec tables, and the groups are data', () => {
 });
 
 test('every setting saves a value in range, refuses one out of range by naming the range, and resets to its default', () => {
-  const good = { ownMessages: 'blocked', inboxWatch: false, rearmRetries: false, overdueCheckbacks: false, confirm: false,
+  const good = { ownMessages: 'blocked', inboxWatch: false, rearmRetries: false, confirm: false,
     claudeWeekly: 60, claudeFiveHour: 70, codexWeekly: 55, codexFiveHour: 65, dailyReplies: 1000, countOwnerWork: true, ceilingsHoldOwnerWork: true,
     openrouterDaily: 0.5, longestReply: 480, countWaiting: true, notice: 'settings', staleHours: 24 };
-  const bad = { ownMessages: 'maybe', inboxWatch: 'yes', rearmRetries: 1, overdueCheckbacks: 'no', confirm: 'on',
+  const bad = { ownMessages: 'maybe', inboxWatch: 'yes', rearmRetries: 1, confirm: 'on',
     claudeWeekly: 9, claudeFiveHour: 101, codexWeekly: 50.5, codexFiveHour: 'lots', dailyReplies: 1001, countOwnerWork: 'off', ceilingsHoldOwnerWork: 0,
     openrouterDaily: 0.49, longestReply: 4, countWaiting: 'true', notice: 'email', staleHours: 'off' };
-  const ranges = { claudeWeekly: /10–100% or Off/, claudeFiveHour: /10–100% or Off/, dailyReplies: /1–1,000 or Off/, openrouterDaily: /\$0\.50–\$500 or Off/,
-    longestReply: /5–480 min or Off/, staleHours: /1–24 h\.$/, ownMessages: /'run' or 'blocked'/, inboxWatch: /On or Off/ };
+  const ranges = { claudeWeekly: /must be 10% to 100%, or No limit\.$/, claudeFiveHour: /10% to 100%, or No limit/, dailyReplies: /1 to 1,000, or No limit/,
+    openrouterDaily: /\$0\.50 to \$500, or No limit/, longestReply: /5 min to 480 min, or No limit/, staleHours: /1 h to 24 h\.$/, ownMessages: /'run' or 'blocked'/, inboxWatch: /On or Off/ };
   let saved = {};
   for (const g of auto.GROUPS) for (const s of g.settings) {
     const ok = auto.applySave(saved, { group: g.key, values: { [s.key]: good[s.key] } });
@@ -72,13 +72,14 @@ test('every setting saves a value in range, refuses one out of range by naming t
   assert.equal(auto.applySave({}, { group: 'limits', values: { dailyReplies: '12' } }).automation.limits.dailyReplies, 12);
 });
 
-test('Off is saved as off where the table allows it, and the page warns while a limit is Off', () => {
+test('No limit is saved as off where the table allows it, and the page warns while a limit has none', () => {
   for (const key of ['claudeWeekly', 'claudeFiveHour', 'codexWeekly', 'codexFiveHour', 'dailyReplies', 'openrouterDaily', 'longestReply']) {
     const r = auto.applySave({}, { group: 'limits', values: { [key]: 'off' } });
     assert.equal(r.automation.limits[key], 'off', key);
     const d = auto.describe(r.automation, {});
     assert.equal(d.groups[1].settings.find(s => s.key === key).value, 'off');
-    assert.ok(d.warnings.some(w => w.includes('is Off')), key);
+    assert.ok(d.warnings.some(w => w.endsWith(' has no limit.')), key);
+    assert.ok(!d.warnings.some(w => /\bOff\b/.test(w)), 'the warning says No limit, not Off');
   }
   assert.equal(auto.applySave({}, { group: 'limits', values: { staleHours: 'off' } }).status, 400);
   assert.deepEqual(auto.describe({}, {}).warnings, [], 'nothing Off, no warning');
@@ -98,6 +99,17 @@ test('an env preset sets the default for this install, and a saved value wins ov
   assert.deepEqual([cw.value, cw.saved, cw.preset, cw.default], [85, true, true, 80], 'saved wins over the preset');
   assert.deepEqual([xw.value, xw.saved, xw.preset], [60, false, true]);
   assert.ok(d.warnings.some(w => w.startsWith('POCKET_AUTOMATION_LONGEST_REPLY is ignored')), 'a bad preset is named');
+});
+
+test('a saved value or preset for a key the schema does not have is ignored without an error', () => {
+  const saved = { pause: { overdueCheckbacks: false, confirm: false }, jobs: { anything: 1 } };
+  const env = { POCKET_AUTOMATION_OVERDUE_CHECKBACKS: '0', POCKET_AUTOMATION_NOT_A_SETTING: 'x' };
+  assert.deepEqual(auto.groupValues(saved, 'pause', env), { ownMessages: 'run', inboxWatch: true, rearmRetries: true, confirm: false });
+  const d = auto.describe(saved, env);
+  assert.deepEqual(d.warnings, []);
+  assert.ok(!d.groups[0].settings.some(s => s.key === 'overdueCheckbacks'));
+  // a later save in the group keeps working with the old key still on disk
+  assert.ok(!auto.applySave(saved, { group: 'pause', values: { inboxWatch: false } }).error);
 });
 
 test('the gate: pause first, then the feature, then the plan ceiling, then the daily limit', () => {

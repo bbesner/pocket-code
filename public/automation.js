@@ -19,7 +19,9 @@ const Automation = (() => {
     if (origin === 'job') return ref ? `Started by job ${ref}` : 'Started by a job';
     return ORIGIN[origin] || '';
   }
-  const originOf = s => originLabel(s?.lastOrigin ?? s?.turn?.origin ?? s?.origin, s?.lastOriginRef ?? s?.turn?.originRef ?? s?.originRef);
+  // The server sends lastOrigin on list rows and the session (set when the turn starts, cleared by the owner's next one),
+  // and origin on a running non-owner reply's state (list rows, the session) or turn (the status route).
+  const originOf = s => originLabel(s?.lastOrigin ?? s?.state?.origin ?? s?.turn?.origin, s?.lastOriginRef ?? s?.state?.originRef ?? s?.turn?.originRef);
 
   // "3 replies running (2 Claude, 1 Codex), 1 usage-limit retry, Inbox Watch."
   function wouldText(w) {
@@ -35,6 +37,10 @@ const Automation = (() => {
   const ownLine = () => state.ownMessages === 'blocked' ? 'Your own messages wait until you resume.' : 'Your own messages still run.';
 
   /* ---------- state ---------- */
+  // What the page shows of the state. A refresh that leaves it the same touches nothing: no banner, header, control or
+  // list repaint (the regular list refresh and the return to the tab both bring a /api/pause; see test/automation-browser.mjs).
+  const shown = () => JSON.stringify([state.paused?.at || null, state.ownMessages, state.held?.retries || 0, on()]);
+  let lastShown = null;
   function apply(d) {
     if (!d || typeof d !== 'object') return;
     const was = isPaused();
@@ -42,15 +48,18 @@ const Automation = (() => {
     if (d.ownMessages) state.ownMessages = d.ownMessages;
     if (typeof d.confirm === 'boolean') state.confirm = d.confirm;
     if ('held' in d) state.held = d.held || null;
-    paint();
+    if (shown() !== lastShown) paint();
     if (was !== isPaused()) for (const fn of listeners) try { fn(); } catch { }
   }
   const listeners = [];
-  // /api/me on every route: paused or not, and whether this server has the feature. The full state follows.
+  // /api/me on every route: paused or not, and whether this server has the feature. The full state (held retries, own
+  // messages) follows with the next check, at once when /api/me shows a change, else on the regular 5-second cadence,
+  // so moving between views adds no request.
   function fromMe(me) {
     if (!on()) { state.paused = null; paint(); return; }
-    if (me && 'paused' in me) apply({ paused: me.paused });
-    poll(true);
+    const was = state.paused?.at || null;
+    if (me && 'paused' in me) apply({ paused: me.paused ? { ...state.paused, ...me.paused } : null });
+    poll((state.paused?.at || null) !== was);
   }
   // On the app's regular list refresh (every 5 s while visible) and on return to the tab, so a second device
   // shows the banner too. One request at a time; a failure leaves the last known state.
@@ -66,6 +75,7 @@ const Automation = (() => {
 
   /* ---------- the banner: calm and factual, across the top while paused ---------- */
   function paint() {
+    lastShown = shown();
     const show = on() && isPaused();
     document.documentElement.classList.toggle('pocket-paused', show);
     if (!show) { banner?.remove(); banner = null; paintControls(); return; }
@@ -78,15 +88,19 @@ const Automation = (() => {
     const held = state.held?.retries > 0 ? ` ${plural(state.held.retries, 'usage-limit retry is', 'usage-limit retries are')} held.` : '';
     const text = `Pocket is paused. ${ownLine()}${held}`;
     const p = banner.querySelector('.pause-text'); if (p.textContent !== text) p.textContent = text;
-    banner.title = state.paused?.at ? 'Paused at ' + timeOf(state.paused.at) : '';
+    const title = state.paused?.at ? 'Paused at ' + timeOf(state.paused.at) : '';
+    if (banner.title !== title) banner.title = title;
     paintControls();
   }
   // Every Pause all control reads Resume while paused.
+  const painted = new WeakMap();
   function paintControls() {
     document.querySelectorAll('[data-pause-toggle]').forEach(b => {
-      const html = controlHTML(b.dataset.pauseToggle);
-      if (b.innerHTML !== html) b.innerHTML = html;
-      b.setAttribute('aria-label', isPaused() ? 'Resume: Pocket is paused' : 'Pause all');
+      // Compared with the HTML last written, not b.innerHTML: the browser serializes the SVG differently, so that
+      // comparison never matched and every check rewrote the control.
+      const html = controlHTML(b.dataset.pauseToggle), label = isPaused() ? 'Resume: Pocket is paused' : 'Pause all';
+      if (painted.get(b) !== html) { if (b.innerHTML !== html) b.innerHTML = html; painted.set(b, html); }
+      if (b.getAttribute('aria-label') !== label) b.setAttribute('aria-label', label);
     });
   }
   function controlHTML(kind) {
@@ -140,8 +154,10 @@ const Automation = (() => {
     try {
       const r = await api('/pause', { method: 'POST', body: '{}' });
       apply({ paused: r.paused || { at: new Date().toISOString() } });
-      const stopped = wouldText({ ...r.stopped, inboxWatch: false });
-      toast(stopped ? 'Paused. Stopped ' + stopped.replace(/\.$/, '') + '.' : 'Paused.');
+      // Replies stop; retries and check-backs are held, not stopped: "Paused. Stopped 2 replies running (2 Claude). Held 1 usage-limit retry."
+      const s = r.stopped || {}, stopped = wouldText({ replies: s.replies });
+      const held = wouldText({ retries: s.retries, checkbacks: s.checkbacks });
+      toast(['Paused.', stopped && 'Stopped ' + stopped, held && 'Held ' + held].filter(Boolean).join(' '));
       poll(true); if (typeof refreshSessions === 'function') refreshSessions();
       return true;
     } catch (e) {
@@ -184,7 +200,7 @@ const Automation = (() => {
   let data = null, host = null;
   const advancedOpen = new Set();
   const unitText = (u, v) => u === '$' ? (Number.isInteger(Number(v)) ? '$' + v : money(v)) : u === '%' ? v + '%' : u === 'min' ? v + ' min' : u === 'h' ? v + ' h' : String(v);
-  const rangeText = s => s.type !== 'number' ? '' : `${unitText(s.unit, s.min)} to ${unitText(s.unit, s.max)}${s.offAllowed ? ', or no limit' : ''}.`;
+  const rangeText = s => s.type !== 'number' ? '' : `${unitText(s.unit, s.min)} to ${unitText(s.unit, s.max)}${s.offAllowed ? ', or No limit' : ''}.`;
   const money = n => n == null ? '—' : '$' + Number(n).toFixed(2);
   const tokens = n => n == null || !n ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(n);
   const dayName = d => { const t = new Date(d + 'T12:00:00'); return Number.isNaN(t.getTime()) ? d : t.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); };
@@ -219,7 +235,7 @@ const Automation = (() => {
       <p class="title-note" data-auto-status="${esc(g.key)}" role="status"></p></section>`;
   }
   function usageHTML(u, notices) {
-    const days = (u?.days || []).slice(0, 7), t = u?.today || {};
+    const days = (u?.days || []).slice(-7).reverse(), t = u?.today || {}; // the server sends oldest first; the table reads newest first
     return `<section class="automation-group automation-usage" aria-labelledby="auto-usage-h"><h3 class="vault-set-head" id="auto-usage-h">Unattended replies</h3>
       <p class="title-note" data-auto-today>Today: ${plural(t.replies || 0, 'reply', 'replies')}${t.cost != null ? ' · ' + money(t.cost) : ''}${t.tokens ? ' · ' + tokens(t.tokens) + ' tokens' : ''}</p>
       ${days.length ? `<table class="watch-usage"><caption class="title-note">Last 7 days. Claude reports a cost per reply, which on a plan is what the same tokens would cost; Codex reports tokens.</caption><thead><tr><th scope="col">Day</th><th scope="col">Replies</th><th scope="col">Tokens</th><th scope="col">Cost</th></tr></thead><tbody>

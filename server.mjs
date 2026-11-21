@@ -2595,7 +2595,7 @@ function stateFor(s) {
   const questions=turn?.questions?.list()||[];
   if(questions.length)return {kind:'input',label:questions.some(q=>q.blocking)?'Needs your answer':'Working · answer requested',confirmed:true,startedAt:turn.startedAt,queued:queue.length,questions:questions.length};
   // 1.117: a usage-limit retry Pause all held (or that Resume left held): it waits for Resume, or for the owner's next message
-  if(!turn&&heldRetries.has(s.id))return {kind:'waiting',label:pausedNow()?'Paused · usage-limit retry held':'Usage-limit retry held',held:true,retryAt:heldRetries.get(s.id).at,confirmed:true,...(queue.length?{queued:queue.length}:{})};
+  if(!turn&&heldRetries.has(s.id))return {kind:'waiting',label:'Retry held',held:true,retryAt:heldRetries.get(s.id).at,confirmed:true,...(queue.length?{queued:queue.length}:{})};
   const outcome=smeta[s.id]?.outcome;
   const quietSince=!cx && !ac && !turn && outcome && s.mtimeMs > outcome.at + 5000 && quietSinceOwned(s.id, s.mtimeMs);
   const state=sessionState({ turn: turn ? {...turn,queue} : null, external: ac ? false : cx ? codex.codexExtActive(codex.bareId(s.id)) : extActive(s.id),

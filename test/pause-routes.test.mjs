@@ -77,7 +77,7 @@ test('Pause all stops every engine, holds a usage-limit retry, keeps the queue s
   const marker = JSON.parse(fs.readFileSync(path.join(s.data, 'turnlogs', `${limited}.retry.json`), 'utf8'));
   assert.equal(marker.held, true); assert.equal(marker.rootOrigin, 'owner');
   const held = await s.session(limited);
-  assert.deepEqual([held.state.kind, held.state.label, held.state.held], ['waiting', 'Paused · usage-limit retry held', true]);
+  assert.deepEqual([held.state.kind, held.state.label, held.state.held], ['waiting', 'Retry held', true]);
   assert.deepEqual((await s.call('/pause')).body.held, { retries: 1, checkbacks: 0 });
   assert.equal((await s.call('/pause', {})).status, 200, 'pausing twice is fine');
   assert.equal((await s.call('/me')).body.paused.at, p.body.paused.at, 'the first pause time stands');
@@ -89,7 +89,7 @@ test('Pause all stops every engine, holds a usage-limit retry, keeps the queue s
   s = await boot(t, 18944, { dir: s.dir });
   const after = (await s.call('/pause')).body;
   assert.equal(after.paused.at, p.body.paused.at); assert.deepEqual(after.held, { retries: 1, checkbacks: 0 });
-  assert.equal((await s.session(limited)).state.label, 'Paused · usage-limit retry held');
+  assert.equal((await s.session(limited)).state.label, 'Retry held');
 
   // the owner's own message runs while paused
   const own = await s.start('claude', 'pause owner message');
@@ -143,7 +143,7 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   }
   assert.equal((await s.call('/automation', null, s.bearer())).status, 401);
   // every setting saves and is refused out of range (all or nothing)
-  const good = { pause: { ownMessages: 'blocked', inboxWatch: false, rearmRetries: false, overdueCheckbacks: false, confirm: false },
+  const good = { pause: { ownMessages: 'blocked', inboxWatch: false, rearmRetries: false, confirm: false },
     limits: { claudeWeekly: 70, claudeFiveHour: 'off', codexWeekly: 75, codexFiveHour: 95, dailyReplies: 2, countOwnerWork: true, ceilingsHoldOwnerWork: true, openrouterDaily: 12.5,
       longestReply: 30, countWaiting: true, notice: 'settings', staleHours: 12 } };
   for (const [group, values] of Object.entries(good)) {
@@ -152,9 +152,9 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
     for (const [k, v] of Object.entries(values)) { const x = r.body.groups.find(g => g.key === group).settings.find(y => y.key === k); assert.deepEqual([x.value, x.saved], [v, true], k); }
   }
   a = (await s.call('/automation')).body;
-  assert.ok(a.warnings.some(w => w.startsWith('Plan ceiling, 5-hour (Claude Code) is Off')));
+  assert.ok(a.warnings.some(w => w === 'Plan ceiling, 5-hour (Claude Code) has no limit.'));
   const bad = await s.call('/automation/settings', { group: 'limits', values: { dailyReplies: 9, longestReply: 2 } });
-  assert.equal(bad.status, 400); assert.match(bad.body.error, /Longest unattended reply must be 5–480 min or Off/);
+  assert.equal(bad.status, 400); assert.match(bad.body.error, /Longest unattended reply must be 5 min to 480 min, or No limit\./);
   assert.equal((await s.call('/automation')).body.groups[1].settings.find(x => x.key === 'dailyReplies').value, 2, 'nothing saved');
   for (const v of [0, 1001, 'many', 2.5]) assert.equal((await s.call('/automation/settings', { group: 'limits', values: { dailyReplies: v } })).status, 400, String(v));
   assert.equal((await s.call('/automation/settings', { group: 'limits', values: { dailyReplies: 3 } }, { 'sec-fetch-site': 'cross-site', cookie: '' })).status, 401);
@@ -162,7 +162,7 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   for (const group of ['pause', 'limits']) assert.equal((await s.call('/automation/settings', { group, reset: true })).status, 200);
   a = (await s.call('/automation')).body;
   assert.ok(a.groups.every(g => g.settings.every(x => !x.saved)));
-  assert.deepEqual(a.groups[0].settings.map(x => x.value), ['run', true, true, true, true]);
+  assert.deepEqual(a.groups[0].settings.map(x => x.value), ['run', true, true, true]);
   assert.equal(a.groups[1].settings.find(x => x.key === 'dailyReplies').value, 1, 'back to the preset');
   assert.equal(a.groups[1].settings.find(x => x.key === 'longestReply').value, 60);
   assert.ok(s.audit().some(x => x.action === 'settings' && x.group === 'limits' && x.reset === true));

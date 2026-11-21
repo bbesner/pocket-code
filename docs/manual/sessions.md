@@ -220,9 +220,9 @@ All of these change only when a reply runs. Each says *As of* a time; none is li
 When a Claude reply fails on a usage or rate limit, Pocket schedules the conversation to continue after
 the reset (plus `POCKET_RETRY_BUFFER_MS`, five minutes by default). The conversation shows **Waiting
 for usage reset** and *Rate limited — auto-resume at …*; a push says when it picks the task back up. While Pocket is
-paused ([Pause all](automation.md#pause-all)) the retry is held, not cancelled: the conversation reads **Paused ·
-usage-limit retry held**, and **Resume** arms it again. If **On Resume, re-arm held usage-limit retries** is off, it
-reads **Usage-limit retry held** and waits for your next message. A retry that does run is labelled **Continued after
+paused ([Pause all](automation.md#pause-all)) the retry is held, not cancelled: the conversation's header reads **Retry held**, the pause banner counts the held
+retries, and **Resume** arms it again. If **On Resume, re-arm held usage-limit retries** is off, it still reads **Retry held** and
+waits for your next message. A retry that does run is labelled **Continued after
 a usage limit** on the conversation's row and under its header.
 
 ### Models in the picker

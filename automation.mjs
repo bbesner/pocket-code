@@ -34,8 +34,6 @@ export const GROUPS = [
       { key: 'inboxWatch', label: 'Pause all also pauses Inbox Watch', type: 'bool', default: true },
       { key: 'rearmRetries', label: 'On Resume, re-arm held usage-limit retries', type: 'bool', default: true,
         help: 'Off: they stay held until you start them.' },
-      { key: 'overdueCheckbacks', label: 'On Resume, run overdue check-backs', type: 'bool', default: true,
-        help: 'On runs them within the catch-up window; Off marks them missed. Check-backs arrive in a later release.' },
       { key: 'confirm', label: 'Show what will stop before pausing', type: 'bool', default: true,
         help: 'Off: Pause all pauses on one tap.' },
     ],
@@ -68,12 +66,13 @@ const camelToEnv = k => k.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
 export const envNames = s => [camelToEnv(s.key), ...(s.env || [])].map(n => 'POCKET_AUTOMATION_' + n);
 
 const fmtNum = (s, v) => s.unit === '$' ? `$${Number(v).toFixed(2).replace(/\.00$/, '')}` : `${Number(v).toLocaleString('en-US')}${s.unit === '%' ? '%' : s.unit ? ' ' + s.unit : ''}`;
-// "10–100% or Off", "$0.50–$500 or Off", "5–480 min or Off", "1–24 h"
+// "10% to 100%, or No limit", "$0.50 to $500, or No limit", "5 min to 480 min, or No limit", "1 h to 24 h". The stored
+// and API value for a limit that is switched off stays 'off'; the words match the app's No limit button.
 export function rangeText(s) {
   if (s.type === 'bool') return 'On or Off';
   if (s.type === 'choice') return s.choices.map(c => `'${c.value}'`).join(' or ');
-  const lo = s.unit === '$' ? `$${s.min.toFixed(2)}` : String(s.min);
-  return `${lo}–${fmtNum(s, s.max)}${s.offAllowed ? ' or Off' : ''}`;
+  const lo = s.unit === '$' ? `$${s.min.toFixed(2)}` : fmtNum(s, s.min);
+  return `${lo} to ${fmtNum(s, s.max)}${s.offAllowed ? ', or No limit' : ''}`;
 }
 // One value checked against its setting: { value } (normalized) or { error } naming the allowed range.
 export function checkValue(s, v) {
@@ -149,7 +148,7 @@ export function describe(saved, env = process.env) {
       if (s.type === 'number') Object.assign(out, { min: s.min, max: s.max, step: s.step, unit: s.unit, offAllowed: Boolean(s.offAllowed) });
       if (s.type === 'choice') out.choices = s.choices.map(c => ({ ...c }));
       if (s.advanced) out.advanced = true;
-      if (value === 'off') warnings.push(`${s.label} is Off: there is no limit.`);
+      if (value === 'off') warnings.push(`${s.label} has no limit.`);
       return out;
     }),
   }));
