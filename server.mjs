@@ -60,7 +60,7 @@ import { StartStore, handoffInstructions, LIMITS as START_LIMITS } from './start
 import { conductorPlaybook, conductorHandoffAt, startOf, LEAD_EFFORT } from './project-mode.mjs';
 import {Thumbnailer,openChecked} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
-import { SideChats } from './sidechat.mjs';
+import { SideChats, sideNote, sideSinceText } from './sidechat.mjs';
 import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, prepareRun, exposedFolders, runPath, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
 import {renderIntake, intakeBrand, intakeThemeCSS, intakeWhen} from './intake-page.mjs';
 import { CliUpdates } from './cli-updates.mjs';
@@ -4418,6 +4418,62 @@ function sideSearch(id, requested) {
   return mode === 'full' || Boolean(matchTrusted(trustedRules(), 'WebSearch', {}));
 }
 const sideView = c => ({ side: c.id, parent: c.parentId, provider: c.provider, model: c.model, busy: c.busy, closed: c.closed, total: c.provider === 'codex' ? null : c.total, turns: c.turns });
+// 1.NEXT: the side chat is a copy taken at its first question, so by itself it never learns what the conversation
+// did next. Each question now goes with Pocket's own note (sidechat.mjs sideNote): what the conversation is doing now,
+// and what it has written since the side chat last looked. chat.seen marks how far the side chat has read: a byte
+// offset in a Claude transcript, a message count (and the last bubble's block count) in a Codex thread. Each reader
+// returns the new messages and a commit() that moves the mark, called only once the question is really sent.
+const SIDE_SINCE_BYTES = 8 * 1024 * 1024; // of new transcript read for one question; older lines are skipped
+const sideResultText = c => typeof c === 'string' ? c : Array.isArray(c) ? c.filter(b => b?.type === 'text').map(b => b.text).join('\n') : '';
+async function sideSinceClaude(chat) {
+  const { file, offset } = chat.seen, size = (await fsp.stat(file)).size;
+  if (size <= offset) return { msgs: [], commit: () => { chat.seen.offset = size; } }; // unchanged, or rewritten shorter
+  const start = Math.max(offset, size - SIDE_SINCE_BYTES), buf = Buffer.alloc(size - start);
+  const fh = await fsp.open(file, 'r');
+  let got; try { got = (await fh.read(buf, 0, buf.length, start)).bytesRead; } finally { await fh.close(); }
+  const end = buf.lastIndexOf(10, got - 1); // a line still being written waits for the next question
+  if (end < 0) return { msgs: [], commit: () => { } };
+  const lines = buf.subarray(0, end).toString('utf8').split('\n');
+  if (start > offset) lines.shift(); // the read began mid-line
+  const msgs = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let o; try { o = JSON.parse(line); } catch { continue; }
+    const m = normalizeLine(o);
+    if (m) { msgs.push(m); continue; }
+    if (o.type !== 'user' || o.isSidechain || !Array.isArray(o.message?.content)) continue;
+    for (const b of o.message.content) if (b?.type === 'tool_result') { const text = sideResultText(b.content).trim(); if (text) msgs.push({ role: 'result', text, err: Boolean(b.is_error) }); }
+  }
+  return { msgs, commit: () => { chat.seen.offset = start + end + 1; } };
+}
+async function sideMarkCodex(id) {
+  const r = await codex.readCodexThread(codex.bareId(id), 400);
+  return { total: r.total, blocks: r.msgs.at(-1)?.blocks?.length || 0 };
+}
+async function sideSinceCodex(chat) {
+  const r = await codex.readCodexThread(codex.bareId(chat.parentId), 400), mark = chat.seen;
+  const next = { total: r.total, blocks: r.msgs.at(-1)?.blocks?.length || 0 }, commit = () => { chat.seen = next; };
+  if (r.total < mark.total) return { msgs: [], commit }; // the thread was rolled back
+  const first = r.total - r.msgs.length, msgs = []; // first: the place in the whole thread of r.msgs[0]
+  const last = r.msgs[mark.total - 1 - first]; // the bubble the side chat saw last may have grown
+  if (last?.blocks && last.blocks.length > mark.blocks) msgs.push({ ...last, blocks: last.blocks.slice(mark.blocks) });
+  msgs.push(...r.msgs.slice(Math.max(0, mark.total - first)));
+  return { msgs, commit };
+}
+async function sideContext(chat) {
+  const id = chat.parentId, cx = isCx(id), first = !chat.turns;
+  let mtimeMs = 0; if (!cx && chat.seen?.file) { try { mtimeMs = fs.statSync(chat.seen.file).mtimeMs; } catch { } }
+  const state = stateFor({ id, mtimeMs }), turn = cx ? codex.codexTurns.get(codex.bareId(id)) : turns.get(id);
+  const startedBy = state.origin ? auto.originLabel(state.origin, state.originRef) : null;
+  let since = null, commit = () => { };
+  if (!first && chat.seen) {
+    try { const r = await (cx ? sideSinceCodex(chat) : sideSinceClaude(chat)); since = sideSinceText(r.msgs); commit = r.commit; }
+    catch (e) { log(`side chat could not read the conversation side=${chat.id}: ${e.message}`); }
+  }
+  const jobs = cx ? [] : backgroundJobs(id).map(t => ({ kind: /agent/.test(t?.task_type || '') ? 'agent' : 'job', description: String(t?.description || t?.subagent_type || '') }));
+  return { commit, note: sideNote({ first, state: { ...state, ...(startedBy ? { startedBy } : {}) }, paused: Boolean(pausedNow()),
+    approvals: turn?.approvals?.list() || [], questions: turn?.questions?.list() || [], queue: shownQueue(id), jobs, since }) };
+}
 app.post('/api/session/:id/side', requireAuth, ownerSendGate, secretGuard, async (req, res) => { // 1.117: Blocked refuses a side chat too
   if (!SIDE_ON) return res.status(404).json({ error: 'Side chat is switched off on this Pocket.' });
   const id = req.params.id;
@@ -4434,13 +4490,19 @@ app.post('/api/session/:id/side', requireAuth, ownerSendGate, secretGuard, async
       const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
       if (!meta) return res.status(409).json({ error: 'Send a message in the conversation first, so the side chat has something to start from.' });
       chat = await sideChats.openCodex({ parentId: id, threadId: codex.bareId(id), cwd: !meta.cwd || fs.existsSync(meta.cwd) ? meta.cwd || undefined : HOME });
+      chat.seen = await sideMarkCodex(id).catch(() => null); // 1.NEXT: null: later questions say the new steps could not be read
     } else if (!chat || chat.closed) {
       const file = await findSessionFile(id);
       if (!file) return res.status(409).json({ error: 'Send a message in the conversation first, so the side chat has something to start from.' });
       const meta = await sessionMeta(file, id);
+      const size = fs.statSync(file).size; // 1.NEXT: read before the copy is taken, so nothing written meanwhile is missed
       chat = sideChats.open({ parentId: id, cwd: meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME, model: sideModel(id), allowSearch: sideSearch(id, req.body?.approvalMode) });
+      chat.seen = { file, offset: size };
     }
-    sideChats.send(chat, text);
+    sideChats.ready(chat); // refused here, before the note is built, as send() would refuse it
+    const ctx = await sideContext(chat).catch(e => { log(`side chat note failed side=${chat.id}: ${e.message}`); return null; });
+    sideChats.send(chat, text, ctx?.note || null);
+    ctx?.commit();
     res.status(202).json({ ok: true, ...sideView(chat) });
   } catch (e) { res.status([400, 409, 410, 429, 502].includes(e.code) ? e.code : 500).json({ error: String(e.message) }); }
 });

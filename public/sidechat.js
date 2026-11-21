@@ -100,7 +100,7 @@ const SideChat = (() => {
     const sh = document.createElement('div'); sh.className = 'sheet side-sheet';
     sh.innerHTML = `<h2>Side chat</h2>
       <p class="sheet-help side-help">Ask about this conversation while it keeps going. Nothing here is saved or added to it, and the side chat can read but not change anything. <button type="button" class="text-link" data-side-branch>Need work done? Branch instead</button></p>
-      <div class="side-scroll"><p class="side-empty">Ask why something was decided, what a file does or where the work stands. Answers come from the conversation as it is when you ask the first question.</p><div class="msgs side-msgs" role="log" aria-label="Side chat messages"></div></div>
+      <div class="side-scroll"><p class="side-empty">Ask why something was decided, what a file does or where the work stands. Each answer takes in what the conversation has done up to that question.</p><div class="msgs side-msgs" role="log" aria-label="Side chat messages"></div></div>
       <div class="side-foot"><span class="turnmeta side-status" role="status"></span><button type="button" class="chip" data-side-new hidden>New side chat</button></div>
       <form class="composer side-compose"><textarea rows="1" aria-label="Ask in the side chat" placeholder="Ask about this conversation" enterkeyhint="send"></textarea><button class="primary side-send" type="submit">Ask</button></form>`;
     view = { parentId, sh, list: sh.querySelector('.side-msgs'), box: sh.querySelector('textarea'), send: sh.querySelector('.side-send'), status: sh.querySelector('.side-status'), busy: false, total: 0, model: null, ended: true, live: null, es: null, side: null };
