@@ -272,11 +272,42 @@ function vaultRequestHTML(r,where='main'){
  return `<section class="vault-request" data-request="${esc(r.id)}" aria-labelledby="${esc(hid)}">
   <h3 id="${esc(hid)}" tabindex="-1"><span class="vault-request-who">${esc(who)}</span> wants to ${fill?'fill':'use'} <span class="vault-name">${esc(names)}</span> ${fill?'into a web page, and will be able to read what is filled':'for this command'}</h3>
   ${missed?`<p class="vault-request-missed" role="status">${esc(vaultMissedLine(missed.why,missed.tap))} Answer it here.</p>`:''}
-  ${r.changed==='changed'?'<p class="vault-request-changed">You allowed this command always, but the program or a file it names has changed since. Check it before you allow it again.</p>':r.changed==='unpinned'?'<p class="vault-request-changed">You allowed this command always before Pocket checked what a command runs. Allow it once more to keep it.</p>':''}
+  ${vaultChangedHTML(r)}
   <code class="vault-cmd" tabindex="0" title="${esc(vaultCmd(r.argv))}">${esc(vaultCmd(r.argv))}</code>
-  <p class="vault-request-where">${r.cwd?`<span class="vault-path">${esc(projShort(r.cwd))}</span><span aria-hidden="true">·</span>`:''}<span>Asked ${esc(rel(vaultTime(r.created)))}</span></p>
+  ${fill?'':vaultRunsHTML(r)}<p class="vault-request-where">${r.cwd?`<span class="vault-path">${esc(projShort(r.cwd))}</span><span aria-hidden="true">·</span>`:''}<span>Asked ${esc(rel(vaultTime(r.created)))}</span></p>
+  ${fill?'':vaultPinHTML(r,hid)}
   <div class="approval-actions vault-request-actions"><button class="vault-answer vault-deny" data-answer="deny">Deny</button>${r.allowAlways===false?'':'<button class="chip vault-always" data-answer="always">Always allow</button>'}<button class="vault-answer vault-allow" data-answer="once">Allow once</button></div>
  </section>`;
+}
+// What Pocket checks for a run request: which program runs, what it cannot check, and the files Always allow pins. A file the
+// command writes (output, log, state) changes on every run, so the owner can untick it before Always allow; it is then left
+// unchecked and does not ask again.
+const vaultShortPath=(p,cwd)=>cwd&&p.startsWith(cwd.replace(/\/$/,'')+'/')?p.slice(cwd.replace(/\/$/,'').length+1):projShort(p);
+const VAULT_PIN_WHY={unreadable:p=>`Pocket cannot read ${p}, so it checks only its size and dates.`,large:p=>`${p} is too large to read on every run, so Pocket checks only its size and dates.`};
+const VAULT_PIN_KIND={folder:'a folder',pipe:'a pipe',socket:'a socket',device:'a device',other:'not a plain file'};
+function vaultChangedHTML(r){
+ if(r.changed==='unpinned')return '<p class="vault-request-changed">You allowed this command always before Pocket checked what a command runs. Allow it once more to keep it.</p>';
+ if(r.changed!=='changed')return '';
+ const files=Array.isArray(r.changedFiles)?r.changedFiles:[],prog=files.find(f=>f.how==='program');
+ const named=files.filter(f=>f.how!=='program').slice(0,3).map(f=>`<span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span>${f.how==='new'?' (new)':f.how==='gone'?' (gone)':''}`);
+ const more=files.filter(f=>f.how!=='program').length-named.length;
+ const what=[prog?`the program is now <span class="vault-path">${esc(prog.path)}</span>`:'',named.length?named.join(', ')+(more>0?` and ${more} more`:'')+(named.length+more>1?' have':' has')+' changed':''].filter(Boolean).join(', and ');
+ return `<p class="vault-request-changed">You allowed this command always, but ${what||'the program or a file it names has changed'} since. Check it before you allow it again.</p>`;
+}
+const vaultRunsHTML=r=>r.runs||r.program?`<p class="vault-request-where vault-request-runs"><span>Runs</span><span class="vault-path">${esc(r.runs||r.program)}</span></p>`:'';
+function vaultPinHTML(r,hid){
+ const files=Array.isArray(r.files)?r.files:[],notes=[];
+ if(r.inline)notes.push(`The command gives code inline (${esc(r.inline)}). Pocket matches its text and checks files it names plainly, but not everything it runs.`);
+ if(r.unknown)notes.push(`Pocket cannot tell what <span class="vault-path">${esc(r.unknown)}</span> starts, so only the command text and its first program are checked.`);
+ for(const f of files){
+  if(f.why)notes.push((VAULT_PIN_WHY[f.why]||VAULT_PIN_WHY.unreadable)(`<span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span>`));
+  else if(f.kind)notes.push(`<span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span> is ${esc(VAULT_PIN_KIND[f.kind]||'not a plain file')}, so its contents are not checked.${f.role==='script'?' Always allow is not offered for it.':''}`);
+ }
+ const data=new Set(Array.isArray(r.data)?r.data:[]),args=files.filter(f=>f.role==='argument'&&!f.kind);
+ const list=r.allowAlways===false||!args.length?'':`<fieldset class="vault-request-files" aria-describedby="${esc(hid)}-fh"><legend>Files Always allow checks</legend>
+   <p class="vault-request-files-help" id="${esc(hid)}-fh">Untick a file this command writes itself, such as an output or a log, or you will be asked on every run.</p>
+   ${args.map(f=>`<label class="task-label"><input type="checkbox" data-pin-file="${esc(f.path)}" ${data.has(f.path)?'':'checked'}><span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span></label>`).join('')}</fieldset>`;
+ return `${notes.map(n=>`<p class="vault-request-note">${n}</p>`).join('')}${list}`;
 }
 /* ---------- 1.110: intake links (Ask someone) ---------- */
 // The owner (or an agent, with pocket-vault request) sends someone outside a one-time link; what they type arrives as a new
@@ -396,7 +427,8 @@ function bindVaultRows(root){
   const r=vaultSnap?.requests.find(x=>x.id===card.dataset.request);if(!r)return;
   card.querySelectorAll('button').forEach(x=>x.disabled=true);
   const decision=b.dataset.answer;vaultMissed.delete(r.id);
-  const out=await vaultAct({action:'answer',request:r.id,decision},decision==='deny'?'Denied':decision==='always'?'Allowed. This command is remembered for '+vaultRequestNames(r):'Allowed once');
+  const data=decision==='always'?[...card.querySelectorAll('[data-pin-file]')].filter(x=>!x.checked).map(x=>x.dataset.pinFile):[];
+  const out=await vaultAct({action:'answer',request:r.id,decision,...(data.length?{data}:{})},decision==='deny'?'Denied':decision==='always'?'Allowed. This command is remembered for '+vaultRequestNames(r):'Allowed once');
   if(!out){if(card.isConnected)card.querySelectorAll('button').forEach(x=>x.disabled=false);return;}
   loadVault(true).then(repaintVault).catch(()=>{}); // recipes and last use come from the server
  }));
@@ -423,7 +455,7 @@ async function vaultCopy(text,btn,what){
 }
 function vaultHistoryLine(row){
  const by=row.by==='owner'?'by you':row.by==='terminal'?'from a terminal':'by an agent';
- const what={run:'Run '+by,fill:'Filled into a browser '+by,'run-denied':'Run refused, '+by.replace(/^by /,'asked by '),request:'Asked to run '+by,'request-answered':row.decision==='deny'?'Request denied by you':row.decision==='always'?'Always allowed by you':row.decision==='once'?'Allowed once by you':'Request answered by you',
+ const what={run:'Run '+by,fill:'Filled into a browser '+by,'run-denied':'Run refused, '+by.replace(/^by /,'asked by '),'run-stopped':'Run stopped: a file changed as it started, '+by.replace(/^by /,'asked by '),request:'Asked to run '+by,'request-answered':row.decision==='deny'?'Request denied by you':row.decision==='always'?'Always allowed by you':row.decision==='once'?'Allowed once by you':'Request answered by you',
   'owner-view':'Viewed by you',put:'Stored '+by,update:row.decision==='recipe-removed'?'Approved command removed '+by:'Changed '+(Array.isArray(row.fields)&&row.fields.length?row.fields.join(', ')+' ':'')+by,remove:'Removed '+by,restore:'Restored '+by,rotate:'Key rotated by you'}[row.action]||row.action;
  const parts=[what,row.session?(row.sessionTitle||(typeof sessionName==='function'?sessionName(row.session):'')):'',row.at?rel(vaultTime(row.at)):''].filter(Boolean);
  const cmd=row.argv&&row.argv.length?vaultCmd(row.argv):'';

@@ -715,7 +715,7 @@ test('HTTP (PC-02): an Always recipe holds what the command runs; a changed scri
   let [,r]=await allow(['sh','deploy.sh'],'always');assert.equal(out(r),'deployed with {{vault:deploy-key}}\n');
   r=await run(['sh','deploy.sh']);assert.equal(r.events.some(e=>e.t==='request'),false,'the unchanged script is not asked about');assert.equal(out(r),'deployed with {{vault:deploy-key}}\n');
   let recipe=(await call('/vault')).body.items[0].recipes[0];
-  assert.deepEqual(recipe.pin.files.map(f=>f.role),['program','argument']);assert.ok(path.isAbsolute(recipe.pin.program));assert.equal(recipe.pin.files[1].path,script);assert.match(recipe.pin.files[1].sha256,/^[0-9a-f]{64}$/);
+  assert.deepEqual(recipe.pin.files.map(f=>f.role),['program','script']);assert.ok(path.isAbsolute(recipe.pin.program));assert.equal(recipe.pin.files[1].path,script);assert.match(recipe.pin.files[1].sha256,/^[0-9a-f]{64}$/);
   // The agent rewrites the script to spell the value another way: a new request, saying it changed, and nothing runs.
   fs.writeFileSync(script,'touch ran\nprintf %s "$T" | od -An -tx1\n');
   r=await run(['sh','deploy.sh']);
@@ -751,7 +751,7 @@ test('HTTP (PC-02): an Always recipe holds what the command runs; a changed scri
   assert.doesNotMatch(logs,/TypeError|unhandled rejection/);
 });
 
-test('pinCommand (PC-02): the program, a #! interpreter and the one env names, file arguments and --flag=file; an unreadable file never matches',async()=>{
+test('pinCommand (PC-02): the program, a #! interpreter and the one env names, file arguments and --flag=file; an unreadable file compares by size and times',async()=>{
   const dir=tmp(),bin=path.join(dir,'bin');fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin,'node-ish'),'#!/bin/sh\n',{mode:0o755});
   fs.writeFileSync(path.join(dir,'tool.sh'),'#!/usr/bin/env -S node-ish --flag\n',{mode:0o755});
@@ -765,8 +765,10 @@ test('pinCommand (PC-02): the program, a #! interpreter and the one env names, f
   const p2=await pinCommand({argv:['./tool.sh','--config=conf.json','data.txt','-v','missing.txt',dir],cwd:dir},{PATH});assert.notEqual(pinKey(p2),pinKey(p),'the interpreter env finds is part of it');
   await assert.rejects(pinCommand({argv:['no-such-program-pc02'],cwd:dir},{PATH}),e=>e.status===400&&/not found on the Vault's PATH/.test(e.message));
   assert.equal(runPath('relative::/usr/bin:.:/bin'),'/usr/bin:/bin');
-  // A file that cannot be hashed (here: unreadable) leaves the pin without a key, and such a pin matches nothing, itself included.
-  if(process.getuid?.()!==0){fs.chmodSync(path.join(dir,'data.txt'),0);const u=await pinCommand({argv:['./tool.sh','data.txt'],cwd:dir},{PATH});assert.equal(pinKey(u),null);assert.equal(VaultStore.pinsMatch(u,u),false);}
+  // 1.117 (D-2): a file that cannot be hashed (here: unreadable) is recorded by its size and times, so the same file matches
+  // (an Allow once can run it) and a replaced one does not.
+  if(process.getuid?.()!==0){fs.chmodSync(path.join(dir,'data.txt'),0);const u=await pinCommand({argv:['./tool.sh','data.txt'],cwd:dir},{PATH});const f=u.files.find(x=>x.path===path.join(dir,'data.txt'));assert.equal(f.why,'unreadable');assert.equal(f.sha256,undefined);assert.equal(f.stamp.size,'1');assert.equal(VaultStore.pinsMatch(u,u),true);
+   fs.rmSync(path.join(dir,'data.txt'));fs.writeFileSync(path.join(dir,'data.txt'),'y',{mode:0});assert.equal(VaultStore.pinsMatch(u,await pinCommand({argv:['./tool.sh','data.txt'],cwd:dir},{PATH})),false,'a replacement of the same size is a new file');}
   assert.equal(VaultStore.pinsMatch(null,undefined),true,'a store caller that pins nothing matches only unpinned recipes');assert.equal(VaultStore.pinsMatch(undefined,p),false);assert.equal(VaultStore.pinsMatch(p,undefined),false);
   fs.rmSync(dir,{recursive:true,force:true});
 });

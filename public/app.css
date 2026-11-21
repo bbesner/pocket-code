@@ -1651,6 +1651,16 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-answer:disabled { opacity: .55; cursor: default; filter: none; }
 .vault-request-missed, .vault-request-changed, .vault-notice { margin: 0 0 10px; padding: 9px 12px; border: 1px solid var(--warn); border-radius: 10px; color: var(--text); font-size: 14px; line-height: 1.45; max-width: 64ch; }
 .vault-notice { margin: 0 18px 14px; }
+/* What Pocket checks for a run: the program line reuses .vault-request-where; a note says what it cannot check, and the
+   argument files Always allow pins are a short checklist the owner can untick for a file the command writes. */
+.vault-request .vault-request-runs { margin-top: 6px; }
+.vault-request-runs + .vault-request-where { margin-top: 2px; }
+.vault-request-note { margin: 8px 0 0; font-size: 13.5px; line-height: 1.45; color: var(--text); max-width: 64ch; overflow-wrap: anywhere; }
+.vault-request-files { margin: 10px 0 0; padding: 0; border: 0; min-width: 0; max-width: 64ch; }
+.vault-request-files legend { padding: 0; font-size: 13.5px; font-weight: 650; color: var(--text); }
+.vault-request-files-help { margin: 2px 0 0; font-size: 13px; line-height: 1.45; color: var(--dim); }
+.vault-request-files .task-label { padding: 6px 0; min-height: 44px; align-items: center; font-size: 14px; }
+.vault-request-files .task-label input { margin: 0; }
 .vault-notice:focus { outline: none; }
 /* Finding a secret: search and order over the list, a New mark for a day, and a short highlight on the row a link opened. */
 .vault-tools { padding-top: 0; }
