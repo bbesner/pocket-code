@@ -791,7 +791,8 @@ class Archive:
 
     def migrate(self) -> None:
         """1.81: the column that marks the owner's own mail was named after one owner (`from_brad`); archives written before then
-        are renamed in place when opened, keeping every row. Idempotent: a new archive, or one already renamed, is left alone."""
+        are renamed in place when opened, keeping every row. Idempotent: a new archive, or one already renamed, is left alone.
+        `from_brad` is a historical column name, kept here only so archives from existing installs still migrate."""
         have = {r["name"] for r in self.db.execute("pragma table_info(mail)")}
         if "from_brad" in have and "from_owner" not in have:
             try:
