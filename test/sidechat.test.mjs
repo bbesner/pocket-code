@@ -117,7 +117,7 @@ test('HTTP: a side chat answers from the conversation without touching it',async
   assert.match(logs,/side chat start side=/);assert.match(logs,/side chat close side=.* why=closed/);
 });
 
-// 1.NEXT: the side chat knows it is one, and each question carries Pocket's note on the conversation as it is now.
+// 1.121: the side chat knows it is one, and each question carries Pocket's note on the conversation as it is now.
 test('instructions: the side chat is an observer, for both engines',()=>{
   for(const p of [sidePrompt(false),sidePrompt(true),CODEX_SIDE_PROMPT,SIDE_PROMPT]){
     assert.match(p,/You are the side chat/);assert.match(p,/not the agent doing the work/);

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.120.0
+checked: 1.121.0
 sources: public/split.js, public/workspace.js, public/tips.js, public/sidechat.js, docs/session-focus.md
 -->
 # Desktop and phone

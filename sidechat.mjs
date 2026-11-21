@@ -3,7 +3,7 @@
 // whole conversation as context, writes nothing (the conversation is never touched, and no new session is saved) and
 // remembers its own turns only in memory. It reads but does not change anything, has no MCP servers, and ends when
 // closed, after a quiet spell, when the daemon restarts or when the sign-in changes.
-// 1.NEXT: it is told what it is (an observer, not the agent doing the work), and each question goes with Pocket's note
+// 1.121: it is told what it is (an observer, not the agent doing the work), and each question goes with Pocket's note
 // on the conversation as it is now, so the copy does not go stale (sideNote below; server.mjs sideContext).
 // - Claude: `claude -p --resume <id> --fork-session --no-session-persistence`, tools Read/Grep/Glob (and WebSearch when
 //   the conversation would search without asking), no hooks, a spending cap.
@@ -20,7 +20,7 @@ import { signalGroup } from './proctree.mjs';
 // added only when the conversation itself would search without asking (Full access, or the owner's trusted WebSearch rule).
 export const SIDE_TOOLS = ['Read', 'Grep', 'Glob'];
 export const SIDE_SEARCH_TOOL = 'WebSearch';
-// 1.NEXT: who the side chat is. It starts as a copy of the conversation, so it has a long history in which "I" was the
+// 1.121: who the side chat is. It starts as a copy of the conversation, so it has a long history in which "I" was the
 // agent doing the work; told only that it was "in a side chat", it went on speaking as that agent ("I'm running the
 // tests") and offering work it cannot do. The instructions now say what it is, how to speak of the conversation, what
 // it can and cannot do, and that each question comes with Pocket's note on the conversation as it is now (sideNote).
@@ -48,7 +48,7 @@ export const CODEX_SIDE_PROMPT = SIDE_WHO
 export const SIDE_BRIEF = 'You are the side chat, not the agent working in the conversation above. Speak of that agent as "it" or '
   + '"the conversation". You can look and answer; you cannot change anything or carry on its work.';
 
-// ---------- 1.NEXT: the note that goes with each question ----------
+// ---------- 1.121: the note that goes with each question ----------
 const clip = (s, n) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 const mins = ms => { const m = Math.round(ms / 60_000); return m < 1 ? 'under a minute' : m === 1 ? '1 minute' : m < 90 ? `${m} minutes` : `${(m / 60).toFixed(1)} hours`; };
 // The conversation's messages (the shape the conversation view draws, plus {role:'result'} for a tool's output) as
@@ -201,7 +201,7 @@ export class SideChats {
     if (chat.closed) throw Object.assign(new Error('This side chat has ended. Start a new one.'), { code: 410 });
     if (chat.busy) throw Object.assign(new Error('Wait for the answer, or stop it, before asking again.'), { code: 409 });
   }
-  // note (1.NEXT): Pocket's note on the conversation as it is now (sideNote). The model reads it in front of the
+  // note (1.121): Pocket's note on the conversation as it is now (sideNote). The model reads it in front of the
   // question; the panel shows only what the person typed.
   send(chat, text, note = null) {
     this.ready(chat);

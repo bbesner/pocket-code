@@ -29,7 +29,7 @@ if (process.argv.includes('--fork-session') && process.argv.includes('--no-sessi
     const o=JSON.parse(line);
     if(o.type==='control_request'&&o.request?.subtype==='interrupt'){out({type:'control_response',response:{subtype:'success',request_id:o.request_id,response:{}}});if(hanging){hanging=false;out({type:'result',subtype:'error_during_execution',is_error:true,total_cost_usd:0});}return;}
     if(o.type!=='user')return;
-    // 1.NEXT: each question arrives behind Pocket's note on the conversation; the answer echoes the question alone, and
+    // 1.121: each question arrives behind Pocket's note on the conversation; the answer echoes the question alone, and
     // the whole input is recorded for the tests.
     const full=o.message.content[0].text,text=full.split('</pocket-side-chat>\n\n').pop();n++;
     if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.side-input',JSON.stringify({parent,n,full})+'\n');

@@ -95,7 +95,7 @@ test('Codex: Branch forks a saved thread; side chat forks an unsaved, read-only 
  assert.equal(side.threadId,bare);assert.equal(side.ephemeral,true);assert.equal(side.sandbox,'read-only');assert.equal(side.approvalPolicy,'never');assert.equal(side.side,true);
  assert.deepEqual(side.config,{'features.apps':false,mcp_servers:{memstem:{enabled:false},'web-tools':{enabled:false}}},'MCP servers and apps off, nested tables untouched (1.89: the names Codex lists, in the nested form)');
  assert.notEqual(side.pid,forks[0].pid,'its own app-server, not the conversation\'s');
- // 1.NEXT: the question goes behind Pocket's note: what the side chat is, and the conversation as it is now.
+ // 1.121: the question goes behind Pocket's note: what the side chat is, and the conversation as it is now.
  const sideTurns=()=>lines(path.join(f.dir,'calls.codex')).filter(x=>x.threadId!==bare&&x.threadId!==child.slice(3)).map(x=>x.text);
  assert.equal(sideTurns().length,1);
  assert.ok(sideTurns()[0].startsWith('<pocket-side-chat>\nYou are the side chat, not the agent working in the conversation above.'));
