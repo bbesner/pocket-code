@@ -323,8 +323,17 @@ sheet.
 
 How it behaves:
 
-- It starts from the conversation as it is when you ask the first question, then remembers its own questions and answers.
-  **New side chat** starts over from the conversation as it is now.
+- It knows it is a side chat. It speaks about the conversation's agent as "it", reports what that agent did and is
+  doing, and says so when you ask for something it cannot do, such as an edit or a command.
+- It starts from a copy of the conversation taken at your first question and remembers its own questions and answers.
+  With every question Pocket also tells it how the conversation stands at that moment: whether it is working and for
+  how long, what it is waiting on (an approval, a question, a usage limit, Pause all), its background jobs, your
+  queued messages, and the messages and steps added since the last question, with a short piece of each step's
+  output. So "what is it doing now?" gets a current answer however long the side chat has been open. You do not see
+  this note in the panel. A long stretch of new work is trimmed to the most recent part.
+- A conversation running in another app (a terminal or an editor) is followed from its saved transcript: the side
+  chat sees its steps as they are written, but not whether it is waiting on you there.
+- **New side chat** starts over with a fresh copy of the conversation.
 - Claude's side chat can read files and search them. It searches the web only when the conversation would do that
   without asking: in Full access, or when you trust `WebSearch`
   ([Let read-only actions run without asking](approvals.md#let-read-only-actions-run-without-asking)). In Review

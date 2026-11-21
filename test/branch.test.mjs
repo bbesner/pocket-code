@@ -95,15 +95,29 @@ test('Codex: Branch forks a saved thread; side chat forks an unsaved, read-only 
  assert.equal(side.threadId,bare);assert.equal(side.ephemeral,true);assert.equal(side.sandbox,'read-only');assert.equal(side.approvalPolicy,'never');assert.equal(side.side,true);
  assert.deepEqual(side.config,{'features.apps':false,mcp_servers:{memstem:{enabled:false},'web-tools':{enabled:false}}},'MCP servers and apps off, nested tables untouched (1.89: the names Codex lists, in the nested form)');
  assert.notEqual(side.pid,forks[0].pid,'its own app-server, not the conversation\'s');
+ // 1.NEXT: the question goes behind Pocket's note: what the side chat is, and the conversation as it is now.
+ const sideTurns=()=>lines(path.join(f.dir,'calls.codex')).filter(x=>x.threadId!==bare&&x.threadId!==child.slice(3)).map(x=>x.text);
+ assert.equal(sideTurns().length,1);
+ assert.ok(sideTurns()[0].startsWith('<pocket-side-chat>\nYou are the side chat, not the agent working in the conversation above.'));
+ assert.match(sideTurns()[0],/The copy above was taken just now, so it is current\.\n<\/pocket-side-chat>\n\nWhy this order\?$/);
+ // The conversation takes another turn; the next side question is told about it, once. (The fake keeps no user
+ // messages in a thread's history, so the new reply is what shows.)
+ assert.equal((await f.call(`/session/${parent}/message`,msg('Now add the price list'))).status,202);
+ assert.ok(await f.until(()=>f.idle(parent)));
+ assert.equal((await f.call(`/session/${parent}/side`,{text:'What changed?',side:s.body.side})).status,202);
+ ev=await f.events(s.body.side,(e,all)=>all.filter(x=>x.type==='result').length===2);
+ assert.match(sideTurns()[1],/Since you last looked, oldest first:\nIt said: Codex test response\.\n<\/pocket-side-chat>\n\nWhat changed\?$/);
+ assert.doesNotMatch(sideTurns()[1],/You are the side chat|Plan the camera rollout/);
+ assert.doesNotMatch(f.logs(),/side chat note failed|could not read the conversation/);
  // A follow-up reuses it; Stop interrupts and keeps it.
  assert.equal((await f.call(`/session/${parent}/side`,{text:'Long one __HANG__',side:s.body.side})).status,202);
  await sleep(150);
  assert.equal((await f.call(`/side/${s.body.side}/stop`,{})).status,200);
- ev=await f.events(s.body.side,(e,all)=>all.filter(x=>x.type==='result').length===2);
- assert.equal(ev.filter(e=>e.type==='result')[1].error,'Stopped');
+ ev=await f.events(s.body.side,(e,all)=>all.filter(x=>x.type==='result').length===3);
+ assert.equal(ev.filter(e=>e.type==='result')[2].error,'Stopped');
  assert.equal(lines(path.join(f.dir,'calls.forks')).length,2,'one fork for the whole side chat');
  assert.equal((await f.call(`/side/${s.body.side}`,undefined,'DELETE')).status,200);
  assert.equal((await f.call(`/session/${parent}/side`)).body.chat,null);
  // Nothing was added to the parent conversation by either.
- assert.equal(lines(path.join(f.dir,'calls.codex')).filter(x=>x.threadId===bare).length,1,'the parent only ever ran its own first turn');
+ assert.equal(lines(path.join(f.dir,'calls.codex')).filter(x=>x.threadId===bare).length,2,'the parent only ever ran its own two turns');
 });
