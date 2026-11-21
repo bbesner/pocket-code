@@ -1,5 +1,5 @@
 // Session titles (1.19). A session whose only name is its opening request reads as a sentence in the
-// list ("there was a previous session running doing chunk 7 code review…"). Pocket asks a small model
+// list ("there was a previous session running doing step 7 code review…"). Pocket asks a small model
 // for a short title once, keeps it in session-meta.json beside names and pins, and never writes it to
 // a transcript. A rename always wins; clearing a rename falls back to this title.
 //

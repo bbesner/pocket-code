@@ -15,7 +15,7 @@ const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>
 
 test('MemStem transcript refs map to Pocket session ids only inside Pocket\'s own stores',()=>{
   const roots={projectsRoot:'/h/.claude/projects',codexSessionsRoot:'/h/.codex/sessions'};
-  const id='57292309-2ca2-4d91-aeaa-732ee83fe230',cx='01a112c7-9b28-7ff0-a6c5-f99ec55567da';
+  const id='a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',cx='01a0aaaa-bbbb-7ccc-8ddd-eeeeffff0002';
   assert.equal(sessionIdFromRef(`/h/.claude/projects/-home-user/${id}.jsonl`,roots),id);
   assert.equal(sessionIdFromRef(`/h/.codex/sessions/2026/10/06/rollout-2026-10-06T19-53-53-${cx}.jsonl`,roots),'cx:'+cx);
   assert.equal(sessionIdFromRef(`/h/.claude/projects/-home-user/${id}/subagents/agent-1.jsonl`,roots),null,'subagent transcripts are not sessions');

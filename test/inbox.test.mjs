@@ -122,7 +122,7 @@ test('InboxStore: dedupe within 24 hours, the state machine with restore, feedba
 test('InboxStore: unread takes an open back, and a session started from a start link is remembered on its entries',()=>{
   const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-10-22T16:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
-  const a=s.add({title:'PHP2 advisory',url:'/#/start/0123456789ab'}),b=s.add({title:'Churches images',url:'https://pocket.example/#/start/0123456789ab'});
+  const a=s.add({title:'Plugin advisory',url:'/#/start/0123456789ab'}),b=s.add({title:'Gallery images',url:'https://pocket.example/#/start/0123456789ab'});
   const c=s.add({title:'Digest',doc:'4897fe3220c8'}),d=s.add({title:'Other link',url:'/#/start/0123456789ac'});
   // unread: opened → new, seenAt kept; idempotent; a finished entry stays finished.
   s.act({action:'open',id:c.id});clock+=1000;let r=s.act({action:'unread',id:c.id});
@@ -468,8 +468,8 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
 test('InboxStore: digest items are checked on add, kept on reload, decided one at a time and reported as digest-item feedback',()=>{
   const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-11-07T13:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
-  const items=[{ref:'a317',section:'worth',title:'Robin website feedback and review',text:'Robin texted that business is up 25%. [Text](msg:1a1b398659576b53)',story:'robin-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low'},
-    {ref:'a296',section:'held',title:'Copperleaf Wireless Google Ads keywords',text:'Steve asked for a keyword review.',story:'copperleaf-wireless-google-ads-keywords'},
+  const items=[{ref:'a317',section:'worth',title:'Robin website feedback and review',text:'Robin texted that business is up 25%. [Text](msg:19f0aa01b2c3d4f3)',story:'robin-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low'},
+    {ref:'a296',section:'held',title:'Copperleaf Wireless Google Ads keywords',text:'Taylor asked for a keyword review.',story:'copperleaf-wireless-google-ads-keywords'},
     {ref:'t12',section:'tidied',title:'Harbor launch',text:'Resolved'}];
   const d=s.add({kind:'digest',title:'Morning email digest — Sat Nov 7',text:'## Worth knowing\n- Robin website feedback and review: business is up.\nIgnored since the last digest: 9 threads.',items,dedupe:'digest|2026-11-07'});
   assert.equal(d.items.length,3);assert.deepEqual(d.items[0],{ref:'a317',section:'worth',title:'Robin website feedback and review',text:items[0].text,story:'robin-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low',state:'open',actedAt:null,ackedAt:null,note:'',lastAction:null,sessions:[]});
@@ -489,7 +489,7 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
   clock+=1000;let r=s.act({action:'alert',id:d.id,item:'a317'});
   assert.deepEqual([r.state,r.seenAt,r.revision,r.items[0].state,r.items[0].actedAt,r.items[0].lastAction],['opened','2026-11-07T13:00:01Z',2,'alerted','2026-11-07T13:00:01Z','alert']);
   assert.equal(s.act({action:'alert',id:d.id,item:'a317'}).revision,2,'the same decision twice is one decision');
-  clock+=1000;r=s.act({action:'not_useful',id:d.id,item:'a296',note:'Steve texts me anyway'});assert.deepEqual([r.items[1].state,r.items[1].note],['not_useful','Steve texts me anyway']);
+  clock+=1000;r=s.act({action:'not_useful',id:d.id,item:'a296',note:'Taylor texts me anyway'});assert.deepEqual([r.items[1].state,r.items[1].note],['not_useful','Taylor texts me anyway']);
   assert.throws(()=>s.act({action:'open',id:d.id,item:'a317'}),e=>e.code==='bad_action');assert.throws(()=>s.act({action:'alert',id:d.id,item:'a999'}),e=>e.status===404&&e.code==='item_missing');
   let fb=s.feedback();
   assert.deepEqual(fb.map(f=>f.id),[`${d.id}/a296`,`${d.id}/a317`],'newest first, the entry itself undecided');
@@ -505,7 +505,7 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
   const open=s.add({kind:'alert',title:'Copperleaf Wireless Google Ads keywords',story:'copperleaf-wireless-google-ads-keywords',gmail:GMAIL});
   const gone=s.add({kind:'alert',title:'Old one',story:'old-story'});s.act({action:'resolve',id:gone.id});
   const d2=s.add({kind:'digest',title:'Morning email digest — Sun Nov 8',text:'## Worth knowing\n- a\n- b',dedupe:'digest|2026-11-08',items:[
-    {ref:'a400',section:'worth',title:'Steve wants the keyword list',text:'Steve asked again.',story:'copperleaf-wireless-google-ads-keywords'},
+    {ref:'a400',section:'worth',title:'Taylor wants the keyword list',text:'Taylor asked again.',story:'copperleaf-wireless-google-ads-keywords'},
     {ref:'a401',section:'held',title:'Same thread, other story',text:'x',story:'other',gmail:GMAIL},
     {ref:'a402',section:'worth',title:'Old story returns',text:'y',story:'old-story'},
     {ref:'a403',section:'worth',title:'Fresh',text:'z',story:'fresh'}]});
@@ -585,12 +585,12 @@ test('1.113.1: the conversation an entry started catches up — news after it st
   s.linkStart('bbbbbbbbbbb1','sess-aaaa-1111');
   assert.deepEqual(s.newsFor('sess-aaaa-1111'),[],'a new conversation has everything');
   // an update after it started: the conversation is behind by that one, with the text it will be sent
-  s.add({title:'Harbor gate: tech on site',text:'Mike is on site at 2 pm. [mail](msg:19b03)',story:'harbor-gate',gmail:G('19b0000000000003')});
+  s.add({title:'Harbor gate: tech on site',text:'Kai is on site at 2 pm. [mail](msg:19b03)',story:'harbor-gate',gmail:G('19b0000000000003')});
   let n=s.newsFor('sess-aaaa-1111');
   assert.equal(n.length,1);assert.deepEqual([n[0].id,n[0].story,n[0].news.length,n[0].news[0].kind,n[0].newsN],[a.id,false,1,'update',1]);
   const text=s.catchUpText(s.get(a.id),n[0],{fmt:()=>'2:14 PM'});
   assert.match(text,/^New on this Inbox story since this conversation started \("Harbor gate: tech on site"\):/);
-  assert.match(text,/Update, 2:14 PM: Harbor gate: tech on site\nMike is on site at 2 pm\. \[mail\]\(msg:19b03\)\nGmail: https:\/\/mail\.google\.com\//);
+  assert.match(text,/Update, 2:14 PM: Harbor gate: tech on site\nKai is on site at 2 pm\. \[mail\]\(msg:19b03\)\nGmail: https:\/\/mail\.google\.com\//);
   assert.doesNotMatch(text,/Earlier on this entry/,'only what is new, not the earlier text again');
   assert.match(s.catchUpText(s.get(a.id),n[0],{running:true}),/When you reach a good point/);
   assert.deepEqual(s.behind(s.get(a.id)).map(x=>x.session),['sess-aaaa-1111']);
@@ -638,7 +638,7 @@ test('1.115: a handed-off conversation gives its place on the entry to the one t
   const {s}=freshInbox(),G=t=>'https://mail.google.com/mail/u/0/#all/'+t;
   const a=s.add({title:'Harbor HOA gate down',text:'The gate controller is offline.',story:'harbor-gate',url:'/#/start/ccccccccccc1',gmail:G('19c0000000000001')});
   s.linkStart('ccccccccccc1','sess-aaaa-1111');
-  s.add({title:'Harbor gate: tech on site at 2 pm',text:'Mike is on site at 2 pm.',story:'harbor-gate',url:'/#/start/ccccccccccc2',gmail:G('19c0000000000001')});
+  s.add({title:'Harbor gate: tech on site at 2 pm',text:'Kai is on site at 2 pm.',story:'harbor-gate',url:'/#/start/ccccccccccc2',gmail:G('19c0000000000001')});
   assert.equal(s.newsFor('sess-aaaa-1111').length,1);
   // the hand-off ask: the conversation is told not to work the mail, and to put it first in the briefing
   const ask=s.catchUpText(s.get(a.id),s.newsFor('sess-aaaa-1111')[0],{handoff:true});
@@ -654,7 +654,7 @@ test('1.115: a handed-off conversation gives its place on the entry to the one t
   s.caughtUp({session:'sess-bbbb-2222'});
   s.linkHandoff('sess-bbbb-2222','sess-cccc-3333');
   assert.deepEqual(s.newsFor('sess-cccc-3333'),[],'the briefing carried it');
-  s.add({title:'Harbor gate: fixed',text:'Mike says it is fixed.',story:'harbor-gate',gmail:G('19c0000000000001')});
+  s.add({title:'Harbor gate: fixed',text:'Kai says it is fixed.',story:'harbor-gate',gmail:G('19c0000000000001')});
   assert.deepEqual([s.newsFor('sess-aaaa-1111').length,s.newsFor('sess-bbbb-2222').length,s.newsFor('sess-cccc-3333').length],[0,0,1],'later mail goes to the newest only');
   assert.deepEqual(s.behind(s.get(a.id)).map(x=>x.session),['sess-cccc-3333'],'and only it is steered');
   // twice, to itself or from a conversation no entry knows: nothing
@@ -703,7 +703,7 @@ test('1.115: a separate subject — the newest mail leaves the entry as its own,
   const late=s.add({title:'Harbor pool cameras: two models',text:'They prefer the turret model.',story:'harbor-gate',gmail:G('19d0000000000002')});
   assert.deepEqual([late.id,late.updated,s.get(a.id).title],[off.id,true,'Harbor HOA gate down']);
   // and mail on the old story's own thread still goes to the old entry
-  assert.equal(s.add({title:'Harbor gate: tech on site',text:'Mike is on site.',story:'harbor-gate',gmail:G('19d0000000000001')}).id,a.id);
+  assert.equal(s.add({title:'Harbor gate: tech on site',text:'Kai is on site.',story:'harbor-gate',gmail:G('19d0000000000001')}).id,a.id);
   // the two are never merged back, either way round
   assert.throws(()=>s.merge({id:off.id,into:a.id}),e=>e.code==='bad_merge'&&/split these two apart/.test(e.message));
   assert.throws(()=>s.merge({id:a.id,into:off.id}),e=>e.code==='bad_merge');

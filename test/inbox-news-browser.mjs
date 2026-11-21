@@ -45,7 +45,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
   await open(1440);await page.waitForSelector('.inbox-news');
   const c=await card();
   assert.equal(c.title,'New mail on this story');assert.match(c.when,/^ · \d{1,2}:\d\d\s[ap]m$/u);
-  assert.equal(c.sum,'Mike is on site at 2 pm.','what the mail says, not the conversation’s own title');
+  assert.equal(c.sum,'Kai is on site at 2 pm.','what the mail says, not the conversation’s own title');
   assert.deepEqual([c.afterReply,c.buttons,c.size],[true,['Bring it in','New conversation','Not now'],'']);
   assert.equal(await doneShown(),false,'a conversation with mail it has not read is not finished: no Complete card');
   const look=await page.$eval('.inbox-news',o=>{const probe=document.createElement('i');probe.style.color=getComputedStyle(document.documentElement).getPropertyValue('--clay').trim();document.body.append(probe);const clay=getComputedStyle(probe).color;probe.remove();
@@ -75,7 +75,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
   await page.waitForFunction(()=>!document.querySelector('.inbox-news'));
   await until(()=>sentSince(before,/^New on this Inbox story/),'the news went as a message');
   const sent=sentSince(before,/^New on this Inbox story/);
-  assert.match(sent.text,/^New on this Inbox story since this conversation started \("Harbor gate: tech on site at 2 pm"\):\n\nUpdate, 2:14 PM EST: Harbor gate: tech on site at 2 pm\nMike is on site at 2 pm\. \[Mike\]\(msg:19b03\)\n/);
+  assert.match(sent.text,/^New on this Inbox story since this conversation started \("Harbor gate: tech on site at 2 pm"\):\n\nUpdate, 2:14 PM EST: Harbor gate: tech on site at 2 pm\nKai is on site at 2 pm\. \[Kai\]\(msg:19b03\)\n/);
   assert.equal(sent.text.match(/^Update, /gm).length,2,'both updates, oldest first');
   assert.match(sent.text,/Read what is new, check it against what we have so far, and tell me in a few lines what it changes\.$/);
   const entry=inboxStore.entries.find(e=>e.story==='harbor-gate-0123456789f0');

@@ -52,6 +52,8 @@ regexes = [
   '''^c21zZ3ctZml4dHVyZQ$''',
   '''^sk-proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7cDe0fGh2$''',
   '''^Zq8vR2mX9pL4tY7wK3nB6cJ1hF5dG0sAe$''',
+  # base64 of a made-up fixture word; the line it sat on (older commits, around test line 1310) is gone from the tree, and this keeps a full-history scan clean
+  '''^c2luY2gtZml4dHVyZQ$''',
 ]
 
 [[rules]]

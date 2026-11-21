@@ -57,7 +57,7 @@ test('scanRollout: a warm resume, a window from task_started only, and no calls 
 
 test('findRolloutFile and rolloutState: locate a thread by id under the dated folders and read the tail', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-rollout-'));
-  const id = '01a112c0-4ffc-73c3-a556-01e12a376d90';
+  const id = '01a0aaaa-bbbb-7ccc-8ddd-eeeeffff0003';
   const day = path.join(dir, '2026', '10', '06'); fs.mkdirSync(day, { recursive: true });
   const file = path.join(day, `rollout-2026-10-06T19-45-55-${id}.jsonl`);
   fs.writeFileSync(file, [started(0, 486_400), ctx(0, 'gpt-6-astra'), count(5, 332_555, 330_752)].join('\n') + '\n');

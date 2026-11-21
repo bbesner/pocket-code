@@ -6,6 +6,10 @@ Please report security problems privately via GitHub: **Security → Report a
 vulnerability** on this repository. Don't open a public issue. You'll get an
 acknowledgment, and a fix or an explanation, as soon as it can be looked at.
 
+## Supported versions
+
+The latest release is supported; fixes go into the next release.
+
 ## Security model
 
 Pocket Code runs AI coding agents on your server as the user the service runs as. New
@@ -46,7 +50,8 @@ Built in:
   `POCKET_PASSWORD` ends every known-device cookie.
 - An HMAC-signed, `HttpOnly`, `Secure`, `SameSite=Lax` session cookie with a 90-day expiry.
   Since 1.117, Settings has **Sign out** (this browser) and **Sign out everywhere**. Sign out
-  everywhere, and a change of `POCKET_PASSWORD` noticed at the next start, move the instance to a
+  ends the sign-in in this browser only: a copy of the cookie taken earlier stays valid until
+  Sign out everywhere or until it expires. Sign out everywhere, and a change of `POCKET_PASSWORD` noticed at the next start, move the instance to a
   new sign-in generation (kept in `auth-state.json` in the data directory, mode `0600`, holding a
   keyed hash of the password, never the password), and every cookie from an earlier generation
   stops working. A start that finds no usable `auth-state.json` in a data folder a daemon has
