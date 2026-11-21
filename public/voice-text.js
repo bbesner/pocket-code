@@ -85,6 +85,7 @@ const VoiceText = (() => {
     ['status', /^(whats|what is) (it|he|she|claude|codex|the agent|the session|this session|the conversation|this conversation) (doing|working on|up to)( (right )?now)?$|^(status|progress|whats the status|what is the status|where are we|where are things|hows it going|how is it going|whats happening|what is happening)( (right )?now)?$/],
     ['readAll', /^read (me )?(it |that |the whole thing |everything )?(all|in full|the whole thing|everything|the whole reply|the full reply)$/],
     ['read', /^(read (it|that|me the (result|reply|answer|response|last message|last reply))|what did (it|you) say|repeat( that)?|say (that|it) again)$/],
+    ['pauseAll', /^(pause everything|pause it all|pause all|pause all (the )?(replies|work|agents|conversations)|pause pocket|stop everything)$/], // 1.117: opens Pause all's confirmation
     ['waiting', /^((is )?(there )?anything (waiting|pending) (on|for) me|whats waiting (on|for) me|what is waiting (on|for) me|what needs me|what needs my attention|anything need me|does anything need me)$/],
   ];
   function intent(transcript) {

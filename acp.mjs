@@ -238,7 +238,7 @@ export function ownedAcpTurn(sessionId) { return acpTurns.get(bareAcpId(sessionI
 
 // Build the Pocket turn object for an ACP session: emit→SSE subscribers, an ApprovalInbox fed by
 // request_permission, tracked in acpTurns. Mirrors codex.mjs makeTurn.
-function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks }) {
+function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks, origin, originRef, rootOrigin }) {
   const { emit, onFinish, onApproval, onQuestion, auditApproval } = hooks;
   const client = session.client;
   const turn = {
@@ -246,6 +246,7 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks 
     model, approvalMode: approvalMode === 'full' ? 'full' : 'review', events: [], subs: new Set(), done: false, turnId: randomUUID(),
     client, session, onFinish, text: '', thought: '', costStart: session.costTotal ?? null, costTotal: null, usage: null,
     executionMode: executionMode === 'plan' ? 'plan' : 'work', stopped: false, stopNote: null, lastActivityAt: Date.now(), context: null, asks: new Map(),
+    ...(origin ? { origin, ...(originRef ? { originRef } : {}), rootOrigin: rootOrigin || 'owner' } : {}), // 1.117: what started it (automation.mjs)
   };
   // The reply's text and thinking since the last tool line, shown as their own message when the next tool
   // line or the end of the turn arrives, so a turn reads in order: thinking, tools, text.
@@ -435,12 +436,13 @@ export async function probeAcpEfforts({ cmd, args, env, cwd }) {
 
 // Start (or continue/resume) a turn. hooks mirror startCodexTurn: {emit, onFinish, onApproval,
 // auditApproval}. Returns the turn; the reply streams through turn.emit / turn.approvals.
-export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images = [], model, effort, approvalMode, executionMode, costBaseline = null, cmd, args = [], env, instructionsFile = null, askKey = null, resume = false, hooks = {} }) {
+export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images = [], model, effort, approvalMode, executionMode, costBaseline = null, cmd, args = [], env, instructionsFile = null, askKey = null, resume = false, hooks = {}, origin, originRef, rootOrigin, mayStart = null }) {
   const bare = sessionId ? bareAcpId(sessionId) : null;
   let session = bare && acpSessions.get(bare);
   if (session && acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   if (!session) { session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume, instructionsFile, askKey }); session.costTotal = resume ? costBaseline : 0; }
-  const turn = makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks });
+  mayStart?.(); // 1.117: refused just before the turn exists (Pocket was paused meanwhile); the opened process idles out as usual
+  const turn = makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks, origin, originRef, rootOrigin }); // 1.117: origin
   turn.effort = effort && effort !== 'default' ? effort : null;
   wireTurnHandlers(turn);
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });

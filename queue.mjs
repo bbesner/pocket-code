@@ -52,6 +52,9 @@ export class FollowupQueue {
       const result=await action(row);
       this.save(this.rows.filter(x=>x.id!==row.id));return result;
     }catch(e){
+      // 1.117: refused before anything started (Pocket was paused in between): the row goes back to pending with its text,
+      // and its revision stays one ahead (dispatching bumped it), so an edit opened before must refresh first.
+      if(e?.keepPending){try{this.save(this.rows.map(x=>x.id===row.id?{...x,status:'pending'}:x));}catch{}throw e;}
       // 1.81: an action that knows it never started (notStarted) leaves its own reason; it still blocks the rows behind it.
       try{this.save(this.rows.map(x=>x.id===row.id?{...x,status:'uncertain',error:e?.notStarted?e.message:'Start was not confirmed. Review the conversation before removing this item and sending again.'}:x));}catch{}
       throw e;

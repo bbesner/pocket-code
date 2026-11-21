@@ -719,8 +719,8 @@ export class InboxStore {
     return this.watchView(key);
   }
   // Paused, as the owner set it (or the watcher last reported it): the list does not call a paused watcher silent.
-  paused() {
-    const key = this.watchSource(), w = this.watch[key]?.settings;
+  paused(src) {
+    const key = src ? source(src) : this.watchSource(), w = this.watch[key]?.settings;
     if (w && typeof w.paused === 'boolean') return w.paused;
     return Boolean(this.profiles[key]?.profile?.status?.paused);
   }

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.116.0
+checked: 1.117.0
 sources: voice.mjs, voice/, public/voice.js, public/voice-text.js, public/voice-worklet.js, scripts/voice-setup.sh
 -->
 # Voice mode (beta)
@@ -77,6 +77,7 @@ Short phrases are answered on your device, without the agent:
 | "read it", "what did it say", "repeat that" | Reads the latest reply at your **Spoken reply length** |
 | "read it all", "read me everything" | Reads the whole reply |
 | "what's waiting on me", "what needs me" | Approvals and questions here, and other conversations that need you |
+| "pause everything", "pause it all", "pause all", "pause all replies", "pause all work", "pause all agents", "pause all conversations" (each also with "the", as in "pause all the work"), "pause pocket", "stop everything" | Opens the [Pause all](automation.md#pause-all) confirmation, or pauses at once if you turned the confirmation off. You answer by tapping the sheet; the microphone stays off |
 | "be quiet", "stop talking", "enough" | Stops speaking and ends hands-free |
 | "mute", "voice off", "stop speaking" | Mutes voice on this device |
 | "unmute", "voice on" | Turns voice back on |

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.116.0
+checked: 1.117.0
 sources: docs/install.md, scripts/pocket-init.mjs, access.mjs, public/manifest.webmanifest, public/sw.js, public/workspace.js
 -->
 # Getting started
@@ -92,7 +92,7 @@ every device.
 | Workbench | Tabs, split view, **Results**, **Queue**, **Git**, changed files, filters, cost and timing | Hidden |
 | Steps | Each step in plain words, with the command or path beside it | Plain words only |
 | Files from replies | Kept in Files when **Keep files from replies** is on | Always kept (when Files is on) |
-| Settings | Every category | Appearance, Conversation, Accounts, Notifications & voice, Help & updates |
+| Settings | Every category | Appearance, Conversation, Accounts, Features, Automation, Notifications & voice, Help & updates |
 | Name | Pocket Code | Pocket Assistant |
 
 Use Developer mode if you write code or run coding agents. Use Assistant mode if Pocket is your

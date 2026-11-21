@@ -805,6 +805,8 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
   featuresLocked()
    ?['features','Features','Which parts of Pocket are on', [['','#s-features-lead']]]
    :['features','Features','Projects, Files, Tasks, Inbox Watch, Vault and automatic model choice', [['','#s-features-lead,#s-projects,#s-documents,#s-tasks,#s-inbox,#s-inbox-watch,#s-vault'],['','#s-router']]],
+  // 1.117: Pause all is never hidden, so Automation is a category in both modes (a row missing here would be hidden).
+  ['automation','Automation','Pause all, and limits on work that runs without you', [['','#s-automation']]],
   ['notifications','Notifications & voice','Sounds, alerts on this device, reminders by email and spoken replies', [['This device','#s-chime,#s-push,#s-push-kinds,#s-badge,#s-voice'],['This Pocket · all devices','#s-ahead,#s-email-wrap']]],
   ['help','Help & updates','Version and what’s new', [['','#s-about,#s-notes']]],
  ]:[
@@ -812,6 +814,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
   ['conversation','Conversation','Reading, conversation titles and summaries', [['This device','#s-tools,#s-plain,#s-times'],['This instance · all devices','#s-review-all,#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
   ['agents','Agents & instance','Accounts, connectors, plan usage, models, context and subagents, automatic model choice, actions that run without asking and sign-in', [['This instance · all devices','#s-environment,#s-connectors,#s-usage,#s-models,#s-context,#s-trusted,#s-router,#s-access,#s-signout']]],
   ['libraries','Projects, files, tasks & vault','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents,#s-autokeep,#s-tasks,#s-coordination,#s-inbox,#s-inbox-watch,#s-vault,#s-vault-more'],['This device','', '#s-projects-open,#s-files-button,#s-documents-open']]],
+  ['automation','Automation','Pause all, and limits on unattended work: plan ceilings, a daily count and the longest reply', [['This instance · all devices','#s-automation']]], // 1.117
   ['notifications','Notifications & voice','Chime, push, the icon count, email and spoken replies', [['This device','#s-chime,#s-push,#s-push-kinds,#s-badge,#s-voice'],['This instance · all devices','#s-ahead,#s-email-wrap']]],
   ['help','Help & updates','Keyboard shortcuts, version and feedback', [['','#s-keys,#s-about,#s-notes,#s-feedback']]],
  ];

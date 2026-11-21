@@ -2248,3 +2248,69 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .handoff-project { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13.5px; color: var(--dim); overflow-wrap: anywhere; }
 .handoff-project .chip { min-height: 44px; }
 .tip.wide { max-width: 360px; white-space: pre-line; }
+
+/* ---------- 1.117: Pause all, the paused banner, origin labels, Settings → Automation ----------
+   Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 7 in Settings. Existing tokens
+   only, no new colour, no animation. The banner is a notice, not a task: --raised over the page with a hairline, the
+   two-bar mark in --dim, 15px --text, Resume as a plain 44px chip. It sits in the flow above the frame, so the
+   header and the scroll area give up its height and the composer stays pinned to the bottom. */
+html.pocket-paused body { display: flex; flex-direction: column; }
+html.pocket-paused .frame { flex: 1 1 auto; height: auto; min-height: 0; }
+html.pocket-paused .frame header.bar { padding-top: 10px; } /* the banner takes the top safe area */
+.pause-banner { flex: none; display: flex; align-items: center; gap: 10px; padding: calc(6px + var(--sat)) 10px 6px 16px;
+  background: var(--raised); border-bottom: 1px solid var(--line); color: var(--text); }
+.pause-mark { display: grid; place-items: center; color: var(--dim); }
+.pause-mark .i { width: 18px; height: 18px; }
+.pause-text { flex: 1 1 auto; min-width: 0; max-width: 60ch; margin: 0; font-size: 15px; line-height: 1.4; text-wrap: pretty; }
+.pause-banner .pause-resume { flex: none; margin-left: auto; color: var(--text); background: var(--surface); font-size: 14px; font-weight: 600; padding-inline: 14px; }
+.pause-banner .pause-resume .i { width: 14px; height: 14px; }
+.pause-banner .pause-resume:hover { border-color: var(--dim); }
+@media (max-width: 420px) { .pause-mark { display: none; } .pause-banner { padding-left: 16px; } }
+/* Pause all / Resume as a row: the More menu, the switcher and the top of Settings → Automation. */
+.sheet .opt.pause-toggle .i { color: var(--dim); }
+.session-switcher > .pause-toggle { margin-bottom: 4px; }
+/* The rail's ⋯ joins Filters, Settings and New: Filters goes icon-only, as it does beside the rail switch, so its word
+   does not run under the ⋯ in a narrow rail. The word stays its accessible name. */
+.railhead:has(#railmore) .density-toggle { font-size: 0; gap: 0; padding-inline: 6px; }
+/* The confirmation reuses Stop all Claude replies' pair: Pause all in the error outline, Keep running plain. */
+.pause-would { margin: 4px 14px 0; font-size: 16px; line-height: 1.5; color: var(--text); text-wrap: pretty; }
+.pause-sheet > .sheet-help, .pause-sheet > .question-error { margin-inline: 14px; }
+.pause-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 14px; }
+.pause-actions .chip { min-height: 44px; padding-inline: 16px; font-size: 14px; }
+.pause-actions .chip .i { width: 15px; height: 15px; }
+/* Who started the newest reply, when it was not you: one --dim line in the row and under the conversation header. */
+.row .origin-label { display: block; margin-top: 3px; font-size: 13px; color: var(--dim); overflow-wrap: anywhere; }
+.origin-line { margin: 0; padding: 6px 16px; font-size: 13.5px; color: var(--dim); border-bottom: 1px solid var(--line); }
+.origin-line[hidden] { display: none; }
+/* Settings → Automation: the models block's head, notes and chips; one group per server group; a number limit is a
+   label, a field with its unit, and No limit beside it; the server's refusal sits under the field. */
+.automation-settings > .pause-toggle { margin: 0 0 4px; }
+.automation-body { display: flex; flex-direction: column; gap: 4px; }
+.automation-body > .title-note { margin-inline: 14px; }
+.automation-warning { color: var(--warn); }
+.automation-group { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 4px; border-top: 1px solid var(--line); }
+.automation-group > .vault-set-head { margin: 0 0 4px; font-size: 14px; }
+.automation-row { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; }
+.automation-row .opt.automation-bool { margin: 0 -14px; width: calc(100% + 28px); padding: 10px 14px; font-size: 15.5px; }
+.automation-number { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px 8px; }
+.automation-number > .title-note, .automation-number > .vault-field-error { grid-column: 1 / -1; }
+.automation-number > .vault-field-error:empty, .automation-row > .vault-field-error:empty { display: none; }
+.automation-label { font-size: 15px; color: var(--text); }
+.automation-input { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.automation-input:focus-within { outline: 2px solid var(--clay); outline-offset: 1px; }
+.automation-input input { width: 5.5em; min-height: 42px; border: 0; padding: 0; background: none; color: var(--text); font: inherit; font-size: 15px; font-variant-numeric: tabular-nums; text-align: right; }
+.automation-input input:focus-visible { outline: none; }
+.automation-input input:disabled { color: var(--dim); }
+.automation-input input::placeholder { color: var(--dim); }
+.automation-input:has(input[aria-invalid="true"]) { border-color: var(--err); }
+.automation-unit { font-size: 14px; color: var(--dim); }
+.automation-off { min-height: 44px; }
+.automation-off[aria-pressed="true"] { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.automation-advanced { margin-top: 4px; }
+.automation-group > .vault-set-actions { margin-top: 6px; }
+.automation-group > [data-auto-status]:empty { display: none; }
+.automation-usage .watch-usage caption { caption-side: bottom; text-align: left; padding-top: 6px; }
+.automation-notices { list-style: none; margin: 0; padding: 0; font-size: 14px; color: var(--text); }
+.automation-notices li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.automation-when { color: var(--dim); font-variant-numeric: tabular-nums; margin-right: 8px; }
+@media (max-width: 420px) { .automation-number { grid-template-columns: minmax(0, 1fr) auto; } .automation-number > .automation-label { grid-column: 1 / -1; } }
