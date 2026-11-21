@@ -181,7 +181,7 @@ function chooseBesideNow(loading=false){
    groups[2][1]=(boardSnap?.projects||[]).filter(p=>p.status!=='done').map(p=>['projects/'+p.id,p.name,p.next||p.summary||'Project']);
   }
   if(typeof tasksOn==='function'&&tasksOn())groups[0][1].push(['tasks','Tasks','To-dos, due first']); // 1.36
-  if(typeof vaultOn==='function'&&vaultOn())groups[0][1].push(['vault','Vault','Secrets agents use without seeing']); // 1.39
+  if(typeof vaultOn==='function'&&vaultOn())groups[0][1].push(['vault','Vault','Secrets agents use by name']); // 1.39
   if(typeof coordOn==='function'&&coordOn())groups[0][1].push(['coordination','Coordination','What conversations hold, and who is waiting']); // 1.99
   if(documentsOn()){
    groups[0][1].push(['documents','Files','The library of files from the work']);

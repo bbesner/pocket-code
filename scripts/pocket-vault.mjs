@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// pocket-vault: use the owner's stored credentials by name, without ever seeing them (1.39).
+// pocket-vault: use the owner's stored credentials by name, keeping the values out of the conversation (1.39).
 // Talks to the running Pocket Code server over loopback with the token it writes to <data dir>/cli-token.
 // Values never pass through this process: `run` asks the daemon to run the command with the values in
 // its environment, and prints the output with every value replaced by {{vault:name}}.
@@ -96,7 +96,7 @@ async function stream(p, body) {
   const handle = ev => {
     if (ev.t === 'out') process.stdout.write(ev.s);
     else if (ev.t === 'err') process.stderr.write(ev.s);
-    else if (ev.t === 'request') console.error(`Asking the owner to allow this command (request ${ev.id}, ${ev.items.join(', ')})…`);
+    else if (ev.t === 'request') console.error(`Asking the owner to allow this command (request ${ev.id}, ${ev.items.join(', ')})${ev.changed === 'changed' ? '. It was allowed always, but the program or a file it names has changed since' : ev.changed === 'unpinned' ? '. It was allowed always before Pocket checked what a command runs; the owner confirms it once' : ''}…`);
     else if (ev.t === 'pending') { console.error(`pending ${ev.id}\nThe owner has not answered yet. Say so, and continue with: pocket-vault wait ${ev.id}`); process.exit(4); }
     else if (ev.t === 'denied') { console.error(ev.message || 'The owner did not allow this command.'); process.exit(5); }
     else if (ev.t === 'exit') { if (ev.truncated) console.error('[output truncated at 1 MB]'); if (ev.timedOut) console.error('[the command was stopped at the timeout]'); process.exit(ev.code ?? (ev.signal ? 128 : 1)); }

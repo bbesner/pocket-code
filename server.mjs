@@ -61,7 +61,7 @@ import { conductorPlaybook, conductorHandoffAt, startOf, LEAD_EFFORT } from './p
 import {Thumbnailer,openChecked} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
 import { SideChats } from './sidechat.mjs';
-import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
+import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, pinCommand, runPath, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
 import {renderIntake, intakeBrand, intakeThemeCSS, intakeWhen} from './intake-page.mjs';
 import { CliUpdates } from './cli-updates.mjs';
 import { parseEnv } from './env-file.mjs';
@@ -480,7 +480,7 @@ const START_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-start.mjs');
 const startsClaimed = new Set(); // 1.96: handoffs whose /api/new is running, so a second tap in that window never makes a second conversation
 const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).json({ error: 'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'tasks_off' });
 // ---------- 1.39: the vault ----------
-// Credentials agents use by name and never see (vault.mjs): <data dir>/vault.enc, one AES-256-GCM blob under
+// Credentials agents use by name (vault.mjs): <data dir>/vault.enc, one AES-256-GCM blob under
 // POCKET_VAULT_KEY, decrypted into memory here; vault-audit.jsonl records every use and never a value. Off until
 // Settings turns it on, which needs the key. The same loopback token serves pocket-vault on /api/vault* only;
 // what each caller may do is decided per route (the owner's cookie, or an agent's token plus its runner token).
@@ -488,6 +488,9 @@ const VAULT_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-vault.mjs');
 // 1.40: a passphrase-mode store opens without the env key and starts locked; the owner unlocks it from Pocket.
 let vault = null, vaultError = '';
 const VAULT_FILE = path.join(DATA_DIR, 'vault.enc');
+// PC-02: the PATH a Vault run is resolved and started with, fixed at start (POCKET_VAULT_PATH, or the daemon's own PATH),
+// never the caller's; absolute folders only.
+const VAULT_PATH = runPath(process.env.POCKET_VAULT_PATH || process.env.PATH);
 const openVault = (keyRaw, oldRaw = '') => { const v = new VaultStore(VAULT_FILE, { key: keyRaw ? parseKey(keyRaw) : null, oldKeys: oldRaw ? [parseKey(oldRaw)] : [], log }); v.access = () => settings.vaultAccess; return v; }; // 1.41: Agent access
 try { vault = openVault(VAULT_KEY_RAW, VAULT_KEY_PREVIOUS); } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); }
 // 1.76.3: a rotation that stopped between its two .env saves left POCKET_VAULT_KEY holding a key the owner was never shown, with
@@ -4804,7 +4807,7 @@ app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, 
   res.json({ ok: true });
 }).catch(next));
 // A run: the daemon binds the values, checks policy, asks the owner when it must, spawns the child itself and streams
-// scrubbed output back as JSON lines. The CLI never receives a value.
+// scrubbed output back as JSON lines. The CLI never receives a value; the command does.
 const vaultRuns = new Set();
 async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: existing }) {
   const c = vaultCaller(req);
@@ -4820,11 +4823,12 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
       reqRow = vault.continuation(existing, { action: 'run', caller: c }); // 1.73.4: this caller's own run request, not yet used; anything else is refused before the wait
     } else {
       bound = vault.resolveBindings(env); cmd = { ...vault.checkCommand(argv, cwd), action: 'run' };
+      cmd.pin = await pinCommand(cmd, { PATH: VAULT_PATH }); // PC-02: what will run, by path and content; a recipe matches only this
       const need = vault.decide(bound, cmd);
       if (need.length) {
         reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor, tokenHash: c.tokenHash });
-        send({ t: 'request', id: reqRow.id, items: reqRow.itemNames });
-        const devices = await pushRaw(...vaultPushText(reqRow, `for: ${cmd.argv.join(' ').slice(0, 80)}`), vaultPushOpts(reqRow));
+        send({ t: 'request', id: reqRow.id, items: reqRow.itemNames, ...(reqRow.changed ? { changed: reqRow.changed } : {}) });
+        const devices = await pushRaw(...vaultPushText(reqRow, `${reqRow.changed === 'changed' ? '(changed since you allowed it) ' : ''}for: ${cmd.argv.join(' ').slice(0, 80)}`), vaultPushOpts(reqRow));
         log(`vault request=${reqRow.id} items=${reqRow.itemNames.join(',')} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
       }
     }
@@ -4837,14 +4841,16 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
       if (answered.answer.decision === 'locked') { send({ t: 'error', message: 'The Vault was locked before the owner answered. Ask the owner to unlock it in Pocket Code, then try again.', code: 'vault_locked' }); return end(); } // 1.73.3
     }
     if (vaultRuns.size >= VAULT_LIMITS.concurrent) { send({ t: 'error', message: 'Too many vault runs at once; try again in a moment.' }); return end(); } // 1.73.4: before the approval is used up
-    if (reqRow) ({ bound, cmd } = vault.claim(reqRow.id, { action: 'run', caller: c })); // 1.73.4: rebinds by item id, re-decides, marks the row used, all in one synchronous step
+    // 1.73.4: rebinds by item id, re-decides, marks the row used, all in one synchronous step. PC-02: with what the command
+    // runs now, which must be what the owner was asked about.
+    if (reqRow) { const pin = await pinCommand(reqRow, { PATH: VAULT_PATH }); ({ bound, cmd } = vault.claim(reqRow.id, { action: 'run', caller: c, pin })); }
     const secrets = vault.release(bound, cmd, { session: c.session, sessionTitle: c.sessionTitle, by: c.actor, request: reqRow?.id || null });
     const placeholders = {}; for (const b of bound) placeholders[b.item.values[b.field]] = b.item.name;
     send({ t: 'start' });
     const timeoutMs = Math.min(VAULT_LIMITS.timeoutMax, Math.max(1, Number(timeout) || VAULT_LIMITS.timeoutDefault)) * 1000;
     const key = {}; vaultRuns.add(key);
     try {
-      const r = await runWithSecrets({ argv: cmd.argv, cwd: cmd.cwd, env: agentEnv(process.env), secrets, placeholders, timeoutMs, signal: ac.signal, onOut: s => send({ t: 'out', s }), onErr: s => send({ t: 'err', s }) });
+      const r = await runWithSecrets({ argv: cmd.argv, file: cmd.pin.program, cwd: cmd.cwd, env: { ...agentEnv(process.env), PATH: VAULT_PATH }, secrets, placeholders, timeoutMs, signal: ac.signal, onOut: s => send({ t: 'out', s }), onErr: s => send({ t: 'err', s }) });
       if (r.error) send({ t: 'error', message: `Could not start the command: ${r.error}` });
       else send({ t: 'exit', code: r.code, signal: r.signal, truncated: r.truncated, timedOut: r.timedOut });
       log(`vault run argv=${JSON.stringify(cmd.argv.slice(0, 3))} by ${c.actor}${c.session ? ' session=' + c.session : ''} code=${r.code ?? r.signal ?? r.error}`);
@@ -4859,8 +4865,9 @@ app.post('/api/vault/run', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (re
 // 1.43: Typed by Pocket. pocket-mcp-proxy sits between an agent and a browser tool (Playwright MCP); when a tool call
 // names {{vault:name.field}}, it asks here for the values, under the same Agent access policy and approval flow as a
 // run (the "command" is pocket-fill <server> <tool> in the proxy's folder), types them into the tool call on its way to
-// the browser, and scrubs them from everything the tool sends back. The model and the transcript only ever hold the
-// placeholder. Answers {ok, values}, {pending, request} (the proxy retries with `request`) or {denied}.
+// the browser, and scrubs them from everything the tool sends back. In normal use the model and the transcript hold
+// only the placeholder; this route returns the values to its caller, so an agent holding the CLI token can obtain any
+// value it could have filled, and the agent driving the page can read a filled value back (SECURITY.md, Vault). Answers {ok, values}, {pending, request} (the proxy retries with `request`) or {denied}.
 app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, async (req, res) => {
   const c = vaultCaller(req), b = req.body || {};
   const name = v => /^[\w.-]{1,64}$/.test(String(v || '')) ? String(v) : null;
@@ -4878,7 +4885,7 @@ app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin,
       const need = vault.decide(bound, cmd);
       if (need.length) {
         reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor, tokenHash: c.tokenHash });
-        const devices = await pushRaw(...vaultPushText(reqRow, `to fill into ${tool}`), vaultPushOpts(reqRow));
+        const devices = await pushRaw(...vaultPushText(reqRow, `to fill into ${tool}, and will be able to read what is filled`), vaultPushOpts(reqRow));
         log(`vault fill request=${reqRow.id} items=${reqRow.itemNames.join(',')} tool=${tool} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
       }
     }

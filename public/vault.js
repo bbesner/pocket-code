@@ -1,4 +1,4 @@
-/* Vault (1.39): secrets agents use without seeing. Off until Settings → Projects, files, tasks & vault turns it on
+/* Vault (1.39): secrets agents use by name. Off until Settings → Projects, files, tasks & vault turns it on
    (window.pocketFeatures.vault), and it can only be turned on once POCKET_VAULT_KEY is set. One view, the list (#/vault,
    and #/vault/requests from a push; 1.93: #/vault/item/<name> and #/vault/request/<id> open the list at one secret or one request), which opens like Tasks: as a tab, beside a conversation, in a window of its own, or
    full-screen on the phone. The list never carries a value: a value is fetched one field at a time when the owner taps
@@ -29,7 +29,7 @@ const vaultFieldWord=(kind,f)=>!vaultFixedFields(kind).includes(f)?f:f==='value'
 const vaultKindIcon=kind=>VIC[kind==='api_key'||kind==='credentials'?'key':kind]||VIC.lock;
 // 1.41: Agent access is the install-wide dial (Settings → Vault); an item follows it ('default') or sets its own policy.
 // The server sends each item's effectivePolicy and policyWord; the fallbacks here only cover a snapshot without them.
-const VAULT_ACCESS=[['free','Free rein','Agents use any secret by name without asking. Values still never enter the conversation, and every use is recorded.'],
+const VAULT_ACCESS=[['free','Free rein','Agents use any secret by name without asking, and every use is recorded. Any agent on this server can obtain such a value, so keep it for low-value keys.'],
  ['once','Ask once per command','A new command needs your approval once; approved commands are remembered.'],
  ['every','Ask every time','Every use needs your approval, from the notification or in the conversation.']];
 const VAULT_ACCESS_POLICY={free:'auto',once:'ask',every:'every'};
@@ -199,7 +199,7 @@ async function renderVault(view){
  vaultView=view;vaultPainted='';vaultNotice='';if(typeof boardView!=='undefined')boardView=null;if(typeof docView!=='undefined')docView=null;if(typeof taskView!=='undefined')taskView=null;
  const col=`<header class="bar">
    ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the conversation list">${IC.panel}</button>`}
-   <h1><span class="one" id="vtitle">Vault</span><span class="tag" id="vtag">Secrets agents use without seeing</span></h1>
+   <h1><span class="one" id="vtitle">Vault</span><span class="tag" id="vtag">Secrets agents use by name</span></h1>
    ${SOLO?'':`<button class="icon" id="vwin" aria-label="Open in a new window" title="Open in a new window">${IC.external}</button>`}
    ${PANE||SOLO?'':`<button class="icon desk" id="splitb" aria-label="Split view">${IC.columns}</button>`}
    ${PANE?`<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>`:''}
@@ -270,8 +270,9 @@ function vaultRequestHTML(r,where='main'){
  const who=r.session?(title?`The agent in “${title}”`:'An agent'):'A terminal or code-server';
  const fill=Array.isArray(r.argv)&&r.argv[0]==='pocket-fill',names=vaultRequestNames(r),missed=vaultMissed.get(r.id);
  return `<section class="vault-request" data-request="${esc(r.id)}" aria-labelledby="${esc(hid)}">
-  <h3 id="${esc(hid)}" tabindex="-1"><span class="vault-request-who">${esc(who)}</span> wants to ${fill?'fill':'use'} <span class="vault-name">${esc(names)}</span> ${fill?'into a web page':'for this command'}</h3>
+  <h3 id="${esc(hid)}" tabindex="-1"><span class="vault-request-who">${esc(who)}</span> wants to ${fill?'fill':'use'} <span class="vault-name">${esc(names)}</span> ${fill?'into a web page, and will be able to read what is filled':'for this command'}</h3>
   ${missed?`<p class="vault-request-missed" role="status">${esc(vaultMissedLine(missed.why,missed.tap))} Answer it here.</p>`:''}
+  ${r.changed==='changed'?'<p class="vault-request-changed">You allowed this command always, but the program or a file it names has changed since. Check it before you allow it again.</p>':r.changed==='unpinned'?'<p class="vault-request-changed">You allowed this command always before Pocket checked what a command runs. Allow it once more to keep it.</p>':''}
   <code class="vault-cmd" tabindex="0" title="${esc(vaultCmd(r.argv))}">${esc(vaultCmd(r.argv))}</code>
   <p class="vault-request-where">${r.cwd?`<span class="vault-path">${esc(projShort(r.cwd))}</span><span aria-hidden="true">·</span>`:''}<span>Asked ${esc(rel(vaultTime(r.created)))}</span></p>
   <div class="approval-actions vault-request-actions"><button class="vault-answer vault-deny" data-answer="deny">Deny</button>${r.allowAlways===false?'':'<button class="chip vault-always" data-answer="always">Always allow</button>'}<button class="vault-answer vault-allow" data-answer="once">Allow once</button></div>
@@ -375,13 +376,13 @@ function vaultListHTML(){
  if(vaultSnap.ready===false)return `<div class="session-home-head vault-list-head"><h2>Vault</h2></div><p class="sheet-help project-empty">The Vault cannot be opened. Check that POCKET_VAULT_KEY in .env is the key it was saved with, then restart Pocket Code.</p>`;
  const reqs=vaultRequests(),items=vaultSnap.items,trash=vaultSnap.trash;
  return `<div class="session-home-head vault-list-head"><h2>Vault</h2><span class="project-head-actions"><button class="chip" id="vt-ask" title="Send someone a one-time link to type a secret into">${VIC.link}Ask someone</button><button class="chip" id="vt-add">${IC.plus}Add secret</button></span></div>
-  ${reqs.length?`<section class="session-group project-group vault-requests" id="vault-requests"><h2 tabindex="-1">Requests <span>${reqs.length} waiting</span></h2><p class="sheet-help vault-requests-help">An agent wants to run a command with a secret.${reqs.some(r=>r.allowAlways!==false)?' Always allow remembers this exact command and folder for that secret.':''}</p>${reqs.map(r=>vaultRequestHTML(r)).join('')}</section>`:''}
+  ${reqs.length?`<section class="session-group project-group vault-requests" id="vault-requests"><h2 tabindex="-1">Requests <span>${reqs.length} waiting</span></h2><p class="sheet-help vault-requests-help">An agent wants to run a command with a secret.${reqs.some(r=>r.allowAlways!==false)?' Always allow remembers this exact command and folder for that secret, and the content of the program and files it names: if any of them changes, you are asked again.':''}</p>${reqs.map(r=>vaultRequestHTML(r)).join('')}</section>`:''}
   ${vaultNotice?`<p class="vault-notice" role="status" tabindex="-1">${esc(vaultNotice)}</p>`:''}
   ${vaultIntakesHTML()}
   ${items.length?`<div class="documents-tools vault-tools"><div class="session-search">${IC.search}<input type="search" id="vault-query" placeholder="Search secrets" aria-label="Search secrets by name, kind, tag or website" value="${esc(vaultQuery)}" autocomplete="off" spellcheck="false" enterkeyhint="search"></div>
    <label class="voice-field vault-order">Order<select id="vault-order"><option value="new"${vaultOrder()==='new'?' selected':''}>Newest first</option><option value="name"${vaultOrder()==='name'?' selected':''}>A–Z</option></select></label></div>
    <section class="session-group project-group vault-secrets"><h2>Secrets <span data-vault-count>${items.length}</span></h2>${vaultSorted(items).map(vaultRowHTML).join('')}<p class="sheet-help project-empty" data-vault-none role="status" hidden></p></section>`
-   :'<p class="sheet-help project-empty">No secrets yet. Add one here, or from a conversation with Store in the Vault. Agents use them by name and never see the value.</p>'}
+   :'<p class="sheet-help project-empty">No secrets yet. Add one here, or from a conversation with Store in the Vault. Agents use them by name; in normal use the value stays out of the conversation.</p>'}
   ${trash.length?`<details class="session-group project-group settings-details"><summary><h2>Removed <span>${trash.length}</span></h2></summary><p class="sheet-help vault-requests-help">Kept for 30 days, then deleted. A removed name can't be reused until then.</p>${trash.map(vaultTrashRowHTML).join('')}</details>`:''}`;
 }
 function bindVaultRows(root){
@@ -550,7 +551,7 @@ function vaultEditor(t,{insert=null}={}){
  const kind=t?.kind||'api_key',expires=t?.expiresAt?(d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)(new Date(t.expiresAt)):'';
  const existing=t?(t.custom||[]):[];
  const customHead=k=>k==='credentials'?'Fields':'Custom fields';
- sh.innerHTML=`<h2>${t?'Edit secret':'Add to the Vault'}</h2>${t?`<p class="sheet-name vault-name">${esc(t.name)}</p>`:'<p class="sheet-help vault-editor-help">Stored encrypted on this server. Agents use it by name in commands and never see the value.</p>'}
+ sh.innerHTML=`<h2>${t?'Edit secret':'Add to the Vault'}</h2>${t?`<p class="sheet-name vault-name">${esc(t.name)}</p>`:'<p class="sheet-help vault-editor-help">Stored encrypted on this server. Agents use it by name in commands; in normal use the value stays out of the conversation.</p>'}
   <form class="project-form vault-form" autocomplete="off" novalidate>
    <label class="voice-field">Name<input type="text" name="name" required maxlength="64" pattern="[a-z0-9\\-]{1,64}" value="${esc(t?.name||'')}" placeholder="zoho-books" autocomplete="off" spellcheck="false" autocapitalize="none" autocorrect="off" aria-describedby="vault-name-hint" class="vault-name-input"></label>
    <p class="vault-hint" id="vault-name-hint">Lowercase letters, numbers and hyphens. Agents use this name.</p>
