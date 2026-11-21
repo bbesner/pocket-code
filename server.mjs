@@ -61,7 +61,7 @@ import { conductorPlaybook, conductorHandoffAt, startOf, LEAD_EFFORT } from './p
 import {Thumbnailer,openChecked} from './thumbnails.mjs';
 import './public/secret-detect.js'; // 1.42: defines globalThis.PocketSecrets, the detector the composer also runs
 import { SideChats } from './sidechat.mjs';
-import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, pinCommand, runPath, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
+import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithSecrets, prepareRun, exposedFolders, runPath, LIMITS as VAULT_LIMITS, ACCESS as VAULT_ACCESS} from './vault.mjs';
 import {renderIntake, intakeBrand, intakeThemeCSS, intakeWhen} from './intake-page.mjs';
 import { CliUpdates } from './cli-updates.mjs';
 import { parseEnv } from './env-file.mjs';
@@ -492,6 +492,15 @@ const VAULT_FILE = path.join(DATA_DIR, 'vault.enc');
 // PC-02: the PATH a Vault run is resolved and started with, fixed at start (POCKET_VAULT_PATH, or the daemon's own PATH),
 // never the caller's; absolute folders only.
 const VAULT_PATH = runPath(process.env.POCKET_VAULT_PATH || process.env.PATH);
+// 1.117 (D-4): a folder on that PATH the service's user can change lets an agent put a program there, and an approved script
+// that starts a program by name would run it. One warning per such folder, once, when the Vault is on (at start, or when
+// it is turned on).
+let vaultPathWarned = false;
+const VAULT_PATH_WHY = { writable: 'can be written by this user', parent: 'is inside a folder this user can write, so it can be replaced', missing: 'does not exist and this user can create it' };
+function warnVaultPath() {
+  if (vaultPathWarned) return; vaultPathWarned = true;
+  for (const { dir, why } of exposedFolders(VAULT_PATH)) log(`vault: warning: the Vault's PATH folder ${dir} ${VAULT_PATH_WHY[why]}; an agent could put a program there that an approved command starts. Set POCKET_VAULT_PATH to folders this user cannot change (docs/manual/vault.md, Choose the Vault's PATH).`);
+}
 const openVault = (keyRaw, oldRaw = '') => { const v = new VaultStore(VAULT_FILE, { key: keyRaw ? parseKey(keyRaw) : null, oldKeys: oldRaw ? [parseKey(oldRaw)] : [], log }); v.access = () => settings.vaultAccess; return v; }; // 1.41: Agent access
 try { vault = openVault(VAULT_KEY_RAW, VAULT_KEY_PREVIOUS); } catch (e) { vaultError = e.message; log(`vault: ${e.message}`); }
 // 1.76.3: a rotation that stopped between its two .env saves left POCKET_VAULT_KEY holding a key the owner was never shown, with
@@ -3917,6 +3926,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
   saveSettings();
   if (['projects', 'documents', 'tasks', 'inbox', 'coordination', 'assistantMode'].some(k => k in next) || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
+  if (vaultToggled && settings.vault) warnVaultPath();
   if ('contextPolicy' in next && JSON.stringify(readPolicy(next.contextPolicy)) !== JSON.stringify(readPolicy(prevContextPolicy))) { // 1.92
     log(`context policy: ${JSON.stringify(readPolicy(settings.contextPolicy))}`);
     restartIdleRunners('context policy changed');
@@ -4819,17 +4829,20 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
   const ac = new AbortController();
   res.on('close', () => { if (!res.writableEnded) ac.abort(); }); // the CLI went away: stop the child (a request's own close fires once its body is read)
   const end = () => { clearInterval(beat); try { res.end(); } catch { } };
+  let plan = null;
   try {
     let reqRow = null, bound, cmd;
     if (existing) {
       reqRow = vault.continuation(existing, { action: 'run', caller: c }); // 1.73.4: this caller's own run request, not yet used; anything else is refused before the wait
     } else {
       bound = vault.resolveBindings(env); cmd = { ...vault.checkCommand(argv, cwd), action: 'run' };
-      cmd.pin = await pinCommand(cmd, { PATH: VAULT_PATH }); // PC-02: what will run, by path and content; a recipe matches only this
+      plan = await prepareRun(cmd, { PATH: VAULT_PATH, forRun: true }); cmd.pin = plan.pin; // PC-02: what will run, by path and content; a recipe matches only this
+      bound = vault.rebind(bound); // 1.117 (D-4): the items as they are after the hashing, not as they were before it
       const need = vault.decide(bound, cmd);
       if (need.length) {
+        plan.close(); plan = null; // the run is prepared again after the owner answers
         reqRow = vault.request({ bound, cmd, need, env, session: c.session, sessionTitle: c.sessionTitle, by: c.actor, tokenHash: c.tokenHash });
-        send({ t: 'request', id: reqRow.id, items: reqRow.itemNames, ...(reqRow.changed ? { changed: reqRow.changed } : {}) });
+        send({ t: 'request', id: reqRow.id, items: reqRow.itemNames, ...(reqRow.changed ? { changed: reqRow.changed } : {}), ...(reqRow.changedFiles ? { changedFiles: reqRow.changedFiles.map(f => f.path).filter(Boolean).slice(0, 5) } : {}) });
         const devices = await pushRaw(...vaultPushText(reqRow, `${reqRow.changed === 'changed' ? '(changed since you allowed it) ' : ''}for: ${cmd.argv.join(' ').slice(0, 80)}`), vaultPushOpts(reqRow));
         log(`vault request=${reqRow.id} items=${reqRow.itemNames.join(',')} by ${c.actor}${c.session ? ' session=' + c.session : ''} push=${devices ?? 'off'}`);
       }
@@ -4845,14 +4858,20 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
     if (vaultRuns.size >= VAULT_LIMITS.concurrent) { send({ t: 'error', message: 'Too many vault runs at once; try again in a moment.' }); return end(); } // 1.73.4: before the approval is used up
     // 1.73.4: rebinds by item id, re-decides, marks the row used, all in one synchronous step. PC-02: with what the command
     // runs now, which must be what the owner was asked about.
-    if (reqRow) { const pin = await pinCommand(reqRow, { PATH: VAULT_PATH }); ({ bound, cmd } = vault.claim(reqRow.id, { action: 'run', caller: c, pin })); }
+    if (reqRow) { plan = await prepareRun(reqRow, { PATH: VAULT_PATH, forRun: true }); ({ bound, cmd } = vault.claim(reqRow.id, { action: 'run', caller: c, pin: plan.pin })); }
+    plan.verify(); // 1.117 (D-1): nothing changed since the hashing, checked before the record is written…
     const secrets = vault.release(bound, cmd, { session: c.session, sessionTitle: c.sessionTitle, by: c.actor, request: reqRow?.id || null });
     const placeholders = {}; for (const b of bound) placeholders[b.item.values[b.field]] = b.item.name;
-    send({ t: 'start' });
     const timeoutMs = Math.min(VAULT_LIMITS.timeoutMax, Math.max(1, Number(timeout) || VAULT_LIMITS.timeoutDefault)) * 1000;
     const key = {}; vaultRuns.add(key);
     try {
-      const r = await runWithSecrets({ argv: cmd.argv, file: cmd.pin.program, cwd: cmd.cwd, env: { ...agentEnv(process.env), PATH: VAULT_PATH }, secrets, placeholders, timeoutMs, signal: ac.signal, onOut: s => send({ t: 'out', s }), onErr: s => send({ t: 'err', s }) });
+      // …and again after it, with nothing between this check and the start: runWithSecrets spawns synchronously.
+      try { plan.verify(); }
+      catch (e) { vault.audit({ action: 'run-stopped', item: bound[0]?.item.id, name: bound.map(b => b.item.name).join(','), by: c.actor, session: c.session, sessionTitle: c.sessionTitle, argv: cmd.argv, cwd: cmd.cwd, request: reqRow?.id || null, decision: 'changed' }); throw e; }
+      const running = runWithSecrets({ argv: cmd.argv, plan, cwd: cmd.cwd, env: { ...agentEnv(process.env), PATH: VAULT_PATH }, secrets, placeholders, timeoutMs, signal: ac.signal, onOut: s => send({ t: 'out', s }), onErr: s => send({ t: 'err', s }) });
+      plan.close(); plan = null; // the child holds its own copies of the handles
+      send({ t: 'start' });
+      const r = await running;
       if (r.error) send({ t: 'error', message: `Could not start the command: ${r.error}` });
       else send({ t: 'exit', code: r.code, signal: r.signal, truncated: r.truncated, timedOut: r.timedOut });
       log(`vault run argv=${JSON.stringify(cmd.argv.slice(0, 3))} by ${c.actor}${c.session ? ' session=' + c.session : ''} code=${r.code ?? r.signal ?? r.error}`);
@@ -4860,7 +4879,7 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
   } catch (e) {
     if (!e.status) log(`vault run failed: ${e.stack || e.message}`);
     send({ t: 'error', message: e.message, ...(e.code ? { code: e.code } : {}) });
-  }
+  } finally { plan?.close(); }
   end();
 }
 app.post('/api/vault/run', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (req, res) => vaultRun(req, res, { ...(req.body || {}) }));
@@ -5568,7 +5587,7 @@ app.use((err, req, res, _next) => {
   if (res.headersSent) { try { res.end(); } catch { } return; }
   res.status(err?.status || 503).json({ error: err?.status ? err.message : 'Request failed. Please retry.' });
 });
-const server = app.listen(PORT, '127.0.0.1', () => log(`pocket-claude listening on 127.0.0.1:${server.address().port}`));
+const server = app.listen(PORT, '127.0.0.1', () => { log(`pocket-claude listening on 127.0.0.1:${server.address().port}`); if (settings.vault) warnVaultPath(); });
 // 1.91: keep the model lists current. Codex's list is read a few seconds after startup, so a turn that names an
 // older version runs the newest from the first reply. Anthropic's list is read a while after startup and then
 // daily; a newer Claude model joins the picker and replaces its family's older one. POCKET_CLAUDE_DISCOVERY=0 turns

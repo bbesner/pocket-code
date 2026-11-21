@@ -96,7 +96,7 @@ async function stream(p, body) {
   const handle = ev => {
     if (ev.t === 'out') process.stdout.write(ev.s);
     else if (ev.t === 'err') process.stderr.write(ev.s);
-    else if (ev.t === 'request') console.error(`Asking the owner to allow this command (request ${ev.id}, ${ev.items.join(', ')})${ev.changed === 'changed' ? '. It was allowed always, but the program or a file it names has changed since' : ev.changed === 'unpinned' ? '. It was allowed always before Pocket checked what a command runs; the owner confirms it once' : ''}…`);
+    else if (ev.t === 'request') console.error(`Asking the owner to allow this command (request ${ev.id}, ${ev.items.join(', ')})${ev.changed === 'changed' ? `. It was allowed always, but ${ev.changedFiles?.length ? ev.changedFiles.join(', ') + (ev.changedFiles.length > 1 ? ' have' : ' has') : 'the program or a file it names has'} changed since` : ev.changed === 'unpinned' ? '. It was allowed always before Pocket checked what a command runs; the owner confirms it once' : ''}…`);
     else if (ev.t === 'pending') { console.error(`pending ${ev.id}\nThe owner has not answered yet. Say so, and continue with: pocket-vault wait ${ev.id}`); process.exit(4); }
     else if (ev.t === 'denied') { console.error(ev.message || 'The owner did not allow this command.'); process.exit(5); }
     else if (ev.t === 'exit') { if (ev.truncated) console.error('[output truncated at 1 MB]'); if (ev.timedOut) console.error('[the command was stopped at the timeout]'); process.exit(ev.code ?? (ev.signal ? 128 : 1)); }
