@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.119.0
+checked: 1.120.0
 sources: skills.mjs, tasks.mjs, checkbacks.mjs, project-mode.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-checkback.mjs, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # For agents
@@ -81,7 +81,7 @@ Pocket adds a set of plain-language lines to your instructions when it starts yo
 | Conductor mode | The conversation is in a project's [Conductor mode](projects.md#conductor-mode) (started, handed off or linked there after the switch went on, and not started Solo); Claude Code and Codex. Ends at the next reply when the mode is switched off, the project is finished or the conversation is unlinked | You are the lead: plan, hand the work to subagents and judge what comes back. Before handing out work, record what done means and a pass/fail check per step on the card (`update --done-when`, `task add --check`), and ask every decision you need in one message. Pick each subagent's model and effort by the step; start one only for parallel work or work that would fill your context. Check every result yourself, have a fresh reviewer on your own model check the whole change, work freely only in the card's directory and **Works in** places, keep the card current, and end with a report for someone who did not watch. |
 | Files | **Files** is on | "Files", "my files", "documents", "my documents" and "docs" mean Pocket's Files library. Keep deliverables for the user to read (HTML report, PDF, image, Markdown, CSV or spreadsheet) with `add`, linked to this conversation. Files are private; share only when asked. Sharing or publishing waits for the user's Allow: on `pending <id>`, say so and run `wait <id>`. Mention a file by its title, not its server path. |
 | Tasks | **Tasks** is on | Create a task only when the user asks or accepts your offer. Before finishing each reply, check whether the work needs the user to come back later; if so and nothing covers it, offer a task once (as a suggested reply when those are on). Give `--due` only for a time the user named or agreed. |
-| Check-backs | **Check-backs** is on in **Settings → Automation**, and its switch for this engine (Claude Code; Codex). Never in OpenRouter | This Pocket can check back. Set one only when the user asked in this conversation or accepted your offer; then run `add --at … --note …`, say when, and end the reply. When a later look would help and the user didn't ask, offer it once as a suggested reply that names when. A task is still right when the user has to act. In Codex: only under Full access. With check-backs on, the Tasks line also says to offer a check-back rather than a task when the follow-up is this conversation looking again. |
+| Check-backs | **Check-backs** is on in **Settings → Automation**, and its switch for this engine (Claude Code; Codex). Never in OpenRouter or Antigravity | This Pocket can check back. Set one only when the user asked in this conversation or accepted your offer; then run `add --at … --note …`, say when, and end the reply. When a later look would help and the user didn't ask, offer it once as a suggested reply that names when. A task is still right when the user has to act. In Codex: only under Full access. With check-backs on, the Tasks line also says to offer a check-back rather than a task when the follow-up is this conversation looking again. |
 | Inbox Watch | **Inbox Watch** is on | `list`, `show` and `act`; record a decision (`act`) only when the user asks. In a conversation started from an alert, `merge` folds a same-story duplicate into it unasked (1.113). `split` makes the latest mail an entry of its own, only when the user says it is a separate subject (1.115). Which alerts push is the `push` setting, changed only when asked. |
 | Vault | The Vault is on and its store loaded (a locked Vault counts) | Use secrets by name with `pocket-vault run`; never print, write or ask for a value; on `pending`, say so and offer Allow and Deny; on refusal, stop; store any secret you meet with `put`; ask someone outside for a credential with a one-time `request` link, never by email, chat or phone; `{{vault:name.field}}` in browser fill tools; a `{{vault:name}}` in a message is the user handing you a stored secret. |
 | Google | Always | Use this agent's Gmail, Google Calendar and Google Drive connectors from **Settings → Agents & instance → Connectors**; check once whose account it is; write every email as a draft and show it first; send when the user says so and never refuse a send they ask for; ask before sending calendar invitations to other people. |
@@ -148,7 +148,7 @@ Times the commands print use the owner's time zone (the zone their browser repor
 `pocket-start` stores a briefing and prints a link that opens **New conversation** with it typed in, in the workspace and with the agent you name. Nothing starts until the user taps Start.
 
 ```text
-pocket-start add --text "…" | --file <path|->  [--handoff] [--dir <workspace>] [--provider claude|codex|acp] [--title "…"] [--ttl-days N] [--json]
+pocket-start add --text "…" | --file <path|->  [--handoff] [--dir <workspace>] [--provider claude|codex|acp|antigravity] [--title "…"] [--ttl-days N] [--json]
 pocket-start show <id> [--json]
 ```
 
@@ -164,7 +164,7 @@ When the user asks to hand off, or a conversation has grown long and the next st
 
 - The briefing is all the new conversation knows. Say what was decided, what is left, which files matter and what not to redo.
 - `--dir` defaults to the folder you run the command in, so run it from the folder the work belongs in.
-- Pocket works out which conversation you are from your runner token. You cannot name a parent or choose permissions; a handoff never gets more permission than your conversation has. OpenRouter conversations have no runner token, so their handoffs have no parent and get Review actions.
+- Pocket works out which conversation you are from your runner token. You cannot name a parent or choose permissions; a handoff never gets more permission than your conversation has. OpenRouter conversations have no runner token, so their handoffs have no parent and get Review actions. A start for `antigravity` waits for the person to press **Start** like any other, and nothing starts one unattended.
 - Never put a secret in a briefing: it is refused. Name the Vault entry instead.
 
 ### Send the user a notification

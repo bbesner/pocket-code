@@ -1,10 +1,10 @@
 <!-- manual
-checked: 1.119.0
+checked: 1.120.0
 sources: checkbacks.mjs, choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
 
-A conversation is one Claude Code, Codex or OpenRouter session opened in Pocket Code: the replies, the message box under them, and the
+A conversation is one Claude Code, Codex, OpenRouter or Antigravity session opened in Pocket Code: the replies, the message box under them, and the
 panels around them for results, changed files, Git, the follow-up queue, side chats and subagents. This page covers
 everything you do inside one conversation, from sending a message to steering a reply that is still running. It is always
 on. Starting, finding and organizing conversations is in [Conversations (sessions)](sessions.md); questions from the
@@ -21,7 +21,7 @@ Type in the message box at the bottom and press the send button.
 - Your draft is saved on this browser as you type, per conversation, so it survives a reload, a closed tab or a phone that
   killed the app in the background. Drafts are not shared with your other devices.
 - The chips above the box set the next reply: model, reasoning effort, permissions (**Review actions** or **Full access**,
-  see [Questions and approvals](approvals.md#choose-review-actions-or-full-access)) and, on Codex and OpenRouter, **Work normally**
+  see [Questions and approvals](approvals.md#choose-review-actions-or-full-access)) and, on Codex, OpenRouter and Antigravity, **Work normally**
   or **Plan first**. These choices are remembered per conversation on this browser.
 - When delivery cannot be confirmed (the network dropped mid-send), the message stays on the device and the box shows
   **Retry same message**, **Review conversation** and **Discard retry**. Retry resends with the same request id, so the
@@ -77,6 +77,7 @@ The list has three groups:
   | `/context` | Shows what is filling the context window |
 
 - **OpenRouter** conversations list OpenCode's own commands and skills.
+- **Antigravity** conversations list the Antigravity CLI's own commands.
 
 - **Pocket**: actions Pocket runs itself. Nothing is sent to the agent.
 
@@ -260,6 +261,9 @@ snippet. Older-message search needs at least two characters and returns up to 50
 
 While the agent works, the message box shows two buttons, **Steer now** and **After this reply**. OpenRouter
 conversations cannot be steered, so there the buttons are hidden and a message sent during a reply waits for it to end.
+[Antigravity](sessions.md#antigravity-google-models-on-your-google-plan) conversations have no queue (a person
+sends each message), so there the buttons are hidden too, a message sent during a reply goes into it, and the header has
+no **Queue**.
 
 - **Steer now** (the default in Developer mode) sends your message into the reply that is running. The agent sees it at
   its next step. It does not start a separate reply and does not change the running reply's model or permissions. If the

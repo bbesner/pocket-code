@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.119.0
+checked: 1.120.0
 sources: automation.mjs, checkbacks.mjs, public/automation.js, scripts/pocket-checkback.mjs, skills/pocket-checkback/SKILL.md, server.mjs, queue.mjs, codex.mjs, acp.mjs, sidechat.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
 -->
 # Automation: Pause all, check-backs and limits on unattended work
@@ -12,7 +12,7 @@ Pause all is always available. Check-backs are off until you turn them on. Nothi
 
 ### What it does
 
-- **Stops** every running reply, on Claude Code, Codex and OpenRouter, side chats included. It stops them the way **Stop** does ([Stop a reply](conversation.md#stop-a-reply)): work already done stays done.
+- **Stops** every running reply, on Claude Code, Codex, OpenRouter and Antigravity, side chats included. It stops them the way **Stop** does ([Stop a reply](conversation.md#stop-a-reply)): work already done stays done.
 - **Stops background jobs** in Claude conversations that show **Working in background** (a build or a watcher the agent left running), the way **Stop background jobs** does. The reply the agent would start when a job finishes never comes. If you turn off **Pause all also stops background jobs**, the jobs keep running until one of them starts a reply. Pocket stops that reply, which ends that conversation's process and any other jobs in it. A job started by a reply that is still running ends with that reply, as with **Stop**, whichever way the switch is set; the count includes it.
 - **Stops a reply the agent starts by itself** while paused (Claude after a background job, Codex after a background terminal) as soon as it begins, with no notification. Pocket doesn't stop Codex's background terminals themselves; it doesn't track them.
 - **Holds** every pending usage-limit retry. The retry is kept, not cancelled. A reply that hits a usage limit while paused has its retry held at once, and its notification says *The retry is held until you resume* (or *send a message to carry on* when **On Resume, re-arm held usage-limit retries** is off).
@@ -101,6 +101,9 @@ Pocket judges a reply by who asked for the work in the first place. Work that ca
 
 - **Count queue drains, retries and coordination wakes toward the daily limit**
 - **Plan ceilings also hold queued messages, retries and coordination wakes**
+
+Antigravity needs no limit here: nothing starts one of its replies but a message you send
+([Antigravity](sessions.md#antigravity-google-models-on-your-google-plan)).
 
 Both are off by default. So with nothing switched on, the limits hold only check-backs. The first also decides whether that work counts toward **OpenRouter spend per day**.
 

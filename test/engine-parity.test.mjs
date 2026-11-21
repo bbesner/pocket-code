@@ -386,6 +386,30 @@ test('engine parity: the same checklist on Claude Code, Codex, OpenRouter and An
       await s.idle(a);
     });
 
+    // 1.119: a check-back is a reply nobody sent. Claude Code and Codex set one from a reply the owner started; OpenRouter
+    // has none yet; Antigravity never will (a person sends each of its messages), and the refusal says so by name.
+    await t.test(`${engine}: a check-back is ${['claude', 'codex'].includes(engine) ? 'set by a reply the owner started' : 'refused, by name'}`, async () => {
+      assert.equal((await s.call('/automation/settings', { group: 'checkbacks', values: { checkbacks: true, spacingSec: 0 } })).status, 200);
+      try {
+        const bearer = { 'content-type': 'application/json', authorization: 'Bearer ' + fs.readFileSync(path.join(s.dir, 'data', 'cli-token'), 'utf8').trim() };
+        const id = await s.start(engine, `checkback asker ${engine} __HANG__`);
+        const tok = await s.until(() => s.prompts(engine).find(c => c.text.startsWith(`checkback asker ${engine}`))?.runnerToken, 8000, 'the runner token');
+        const r = await fetch(`http://127.0.0.1:${s.port}/api/checkbacks/agent/add`, { method: 'POST', headers: { ...bearer, 'x-pocket-runner': tok }, body: JSON.stringify({ at: '+1h', note: `Parity ${engine}` }) });
+        const body = await r.json();
+        if (['claude', 'codex'].includes(engine)) {
+          assert.equal(r.status, 201, JSON.stringify(body)); assert.equal(body.checkback.engine, engine); assert.equal(body.checkback.sessionId, id);
+          assert.equal((await s.call('/checkbacks/cancel', { id: body.checkback.id })).status, 200, 'the owner cancels it');
+        } else {
+          assert.equal(r.status, 400, JSON.stringify(body)); assert.equal(body.code, 'engine_unsupported'); assert.match(body.error, new RegExp(features[engine].label));
+          if (attended) assert.match(body.error, /a person sends each message/);
+          assert.ok(!(await s.call('/checkbacks')).body.checkbacks?.some(c => c.sessionId === id), 'none was kept');
+        }
+        assert.equal((await s.call(`/session/${s.e(id)}/stop`, {})).status, 200); await s.idle(id);
+      } finally {
+        assert.equal((await s.call('/automation/settings', { group: 'checkbacks', values: { checkbacks: false } })).status, 200);
+      }
+    });
+
     await t.test(`${engine}: the Git panel, Results and Search answer`, async () => {
       if (!fs.existsSync(path.join(s.cwd, '.git'))) spawnSync('git', ['init', '-q', s.cwd]);
       const id = await s.start(engine, `parity panels ${engine}`);

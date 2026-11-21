@@ -123,7 +123,8 @@ test('a reply from start to history: approval card, the list row, and how agy wa
   const cmds = (await s.call('/commands?provider=antigravity')).body.commands.map(c => c.name);
   assert.ok(cmds.includes('goal') && !cmds.includes('schedule'), JSON.stringify(cmds));
   assert.deepEqual((await s.call(`/session/${e}/agents`)).body, { running: 0, agents: [] });
-  assert.equal((await s.call('/session/' + encodeURIComponent('agy:ses_nope'))).status, 404);
+  assert.equal((await s.call('/session/' + encodeURIComponent('agy:0b9c2a44-6a51-4c0e-9d6e-3f1a1d7c9e10'))).status, 404, 'a conversation agy does not have');
+  assert.equal((await s.call('/session/' + encodeURIComponent('agy:ses_nope'))).status, 400, 'not an Antigravity id');
 });
 
 test('a background command keeps the reply open until it ends; Pause all counts and stops an Antigravity reply', async t => {
@@ -141,4 +142,36 @@ test('a background command keeps the reply open until it ends; Pause all counts 
   const stopped = await s.idle(hang);
   assert.equal(stopped.state.kind, 'stopped');
   assert.match(s.logs(), new RegExp(`stop requested \\(Pause all\\) session=${hang}`));
+});
+
+test('a reply that ends while its conversation is being read: the read says it ended, with the reply in it', async t => {
+  // The app reads the conversation again right after a message goes into a running reply. That read asks the CLI for
+  // the history, which takes a moment; a reply that ended meanwhile used to come back as still running, with the
+  // history cut before it, and the app then showed neither the reply nor that it was over.
+  const s = await server(t, 18865, { FAKE_AGY_HISTORY_DELAY_MS: '2500' });
+  const start = await s.call('/new', { provider: 'antigravity', cwd: repo, text: 'a look __SLOW__ __NOASK__' });
+  assert.equal(start.status, 202, JSON.stringify(start.body));
+  const id = start.body.id;
+  const read = await s.session(id); // begun while the reply runs (1.5 s); the history takes 2.5 s
+  assert.equal(read.active, false, 'the reply ended during the read, and the read says so');
+  assert.ok(read.messages.some(m => m.role === 'assistant' && /ran it; heard: a look/.test(m.text || '')), 'the reply is in what was read: ' + JSON.stringify(read.messages.map(m => [m.role, (m.text || '').slice(0, 40)])));
+  assert.equal(read.messages.filter(m => m.role === 'user').length, 1, 'your message shows once');
+  // and what is kept for the next read is the whole conversation
+  const again = await s.session(id);
+  assert.equal(again.active, false); assert.equal(again.messages.length, read.messages.length);
+});
+
+test('a list read that began before a conversation did is not kept as the current list', async t => {
+  // The list is asked of the CLI and kept for 15 seconds. A read on its way when a conversation begins answers
+  // without it; kept as current, the list went without the new conversation until the 15 seconds were up.
+  const s = await server(t, 18867, { FAKE_AGY_LIST_DELAY_MS: '2000' });
+  const early = s.call('/sessions'); // asks the CLI now; the answer (nothing yet) comes in two seconds
+  await sleep(700);
+  const start = await s.call('/new', { provider: 'antigravity', cwd: repo, text: 'quick one __NOASK__' });
+  assert.equal(start.status, 202, JSON.stringify(start.body));
+  const id = start.body.id;
+  await early;
+  await s.idle(id);
+  const list = (await s.call('/sessions')).body.sessions;
+  assert.ok(list.some(x => x.id === id), 'the next read of the list has the conversation: ' + JSON.stringify(list.map(x => x.id)));
 });
