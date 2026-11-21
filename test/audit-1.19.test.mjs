@@ -20,7 +20,7 @@ test('automation labels scheduled runs by job name and leaves ordinary requests 
 });
 
 test('cleanTitle keeps a short plain title and rejects errors and essays',()=>{
-  assert.equal(cleanTitle('"Chunk 7 code review for the camera NVR."'),'Chunk 7 code review for the camera NVR');
+  assert.equal(cleanTitle('"Step 7 code review for the parking app."'),'Step 7 code review for the parking app');
   assert.equal(cleanTitle('Title: Warehouse stock report\n\nextra'),'Warehouse stock report');
   assert.equal(cleanTitle("I don't have access to:\n\n- Google Meet\n- Email"),null,'an answer is not a title');
   assert.equal(cleanTitle("I appreciate you reaching out, but I need to clarify my role"),null);
@@ -111,7 +111,7 @@ test('HTTP: generated titles, automated runs, 304 session lists, gzip and failur
 
 test('Codex names that are just the opening request count as untitled (1.19.1)',async()=>{
   const {promptOnlyName}=await import('../codex.mjs');
-  const ask='there was a previous session running doing chunk 7 code review for acme vision nvr. I need you to continue';
+  const ask='there was a previous session running doing step 7 code review for the acme parking app. I need you to continue';
   assert.equal(promptOnlyName({name:ask,preview:ask}),true);
   assert.equal(promptOnlyName({name:ask.slice(0,60),preview:ask}),true,'a clipped copy of the request');
   assert.equal(promptOnlyName({name:'x'.repeat(81),preview:''}),true,'a sentence-length name');
