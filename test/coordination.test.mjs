@@ -27,7 +27,7 @@ test('close names catch two names for one thing, and leave different things alon
   assert.equal(closeName('dad-stagin',SEEDS),'dad-staging');
   assert.equal(closeName('dad-production-2',SEEDS),'dad-production');
   assert.equal(closeName('tpv-deplo',SEEDS),'tpv-deploy');
-  for(const name of ['sck-live','tpv-cloud','memstem','dad'.padEnd(3)])assert.equal(closeName(name,['pocket-main','tpv-deploy','dad-production2']),name==='dad'?'dad-production2':null);
+  for(const name of ['shop-live','tpv-cloud','memstem','dad'.padEnd(3)])assert.equal(closeName(name,['pocket-main','tpv-deploy','dad-production2']),name==='dad'?'dad-production2':null);
 });
 
 test('one holder: a clash names them, the same conversation renews, and a reason is required',t=>{
@@ -49,8 +49,8 @@ test('close-name refusal, and --new records the name for next time',t=>{
   s.hold('staging',{reason:'x',isNew:true,holder:A});s.release('staging',{by:A});
   assert.ok(s.state.names.includes('staging'));
   s.hold('staging',{reason:'y',holder:B});
-  s.hold('sck-live',{reason:'z',holder:B});
-  assert.throws(()=>s.hold('sck-livee',{reason:'x',holder:A}),e=>e.code==='close_name','a live hold counts as a known name');
+  s.hold('shop-live',{reason:'z',holder:B});
+  assert.throws(()=>s.hold('shop-livee',{reason:'x',holder:A}),e=>e.code==='close_name','a live hold counts as a known name');
 });
 
 test('who may release: the holder, or anyone for a terminal hold; the owner always',t=>{

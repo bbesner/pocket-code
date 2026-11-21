@@ -15,8 +15,8 @@ const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-starts-'));
 test('StartStore: text, directory, agent and lifetime rules; ids; expiry; the cap; persistence',()=>{
   const dir=tmp(),file=path.join(dir,'starts.json');let clock=Date.parse('2026-10-17T12:00:00Z');
   const s=new StartStore(file,{now:()=>clock});
-  const a=s.add({text:'  Reply to Suzanne about the Polo Club camera.  ',directory:'/home/u/work/',provider:'claude',title:'Email: Polo Club'},{actor:'cli'});
-  assert.match(a.id,/^[0-9a-f]{12}$/);assert.equal(a.text,'Reply to Suzanne about the Polo Club camera.');assert.equal(a.directory,'/home/u/work');
+  const a=s.add({text:'  Reply to Dana about the Harbor Point camera.  ',directory:'/home/u/work/',provider:'claude',title:'Email: Harbor Point'},{actor:'cli'});
+  assert.match(a.id,/^[0-9a-f]{12}$/);assert.equal(a.text,'Reply to Dana about the Harbor Point camera.');assert.equal(a.directory,'/home/u/work');
   assert.equal(a.provider,'claude');assert.equal(a.by,'cli');assert.equal(a.createdAt,'2026-10-17T12:00:00Z');assert.equal(a.expiresAt,'2026-10-24T12:00:00Z','7 days by default');
   assert.throws(()=>s.add({text:'  '}),/briefing text/);assert.throws(()=>s.add({text:'x',directory:'rel/path'}),/full path/);
   assert.throws(()=>s.add({text:'x',provider:'gemini'}),/claude or codex/);assert.throws(()=>s.add({text:'x',ttlDays:0}),/1 to 30/);assert.throws(()=>s.add({text:'x',ttlDays:31}),/1 to 30/);
@@ -52,7 +52,7 @@ test('HTTP: the token and the cookie write and read over loopback, the tunnel an
   await start();
   const token=fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim();
   const bearer={'content-type':'application/json',authorization:'Bearer '+token};
-  const made=await call('/start',{text:'Email alert: Polo Club camera.\nReply to Suzanne.',directory:'/home/u',provider:'claude',title:'Email: Polo Club'},bearer);
+  const made=await call('/start',{text:'Email alert: Harbor Point camera.\nReply to Dana.',directory:'/home/u',provider:'claude',title:'Email: Harbor Point'},bearer);
   assert.equal(made.status,200);assert.match(made.body.id,/^[0-9a-f]{12}$/);assert.equal(made.body.path,'/#/start/'+made.body.id);
   assert.equal(made.body.url,'https://pocket.example.test/#/start/'+made.body.id,'the public address makes the link');
   const byCookie=await call('/start',{text:'From the UI'});assert.equal(byCookie.status,200,'the owner can write too');
@@ -60,8 +60,8 @@ test('HTTP: the token and the cookie write and read over loopback, the tunnel an
   assert.equal((await call('/start',{text:'x'},{'content-type':'application/json'})).status,401,'signed out cannot write');
   assert.equal((await call('/start',{text:''},bearer)).status,400,'an empty briefing is refused');
   assert.equal((await call('/start',{text:'x',directory:'rel'},bearer)).status,400);
-  const got=await call('/start/'+made.body.id);assert.equal(got.status,200);assert.equal(got.body.text,'Email alert: Polo Club camera.\nReply to Suzanne.');
-  assert.equal(got.body.directory,'/home/u');assert.equal(got.body.provider,'claude');assert.equal(got.body.title,'Email: Polo Club');assert.equal(got.body.by,'cli');
+  const got=await call('/start/'+made.body.id);assert.equal(got.status,200);assert.equal(got.body.text,'Email alert: Harbor Point camera.\nReply to Dana.');
+  assert.equal(got.body.directory,'/home/u');assert.equal(got.body.provider,'claude');assert.equal(got.body.title,'Email: Harbor Point');assert.equal(got.body.by,'cli');
   assert.equal((await call('/start/'+made.body.id,null,bearer)).status,200,'the loopback token reads a briefing (the CLI\'s show)');
   assert.equal((await call('/start/'+made.body.id,null,{...bearer,'cf-connecting-ip':'203.0.113.5'})).status,401,'not through the tunnel');
   assert.equal((await call('/start/'+made.body.id,null,{})).status,401,'signed out cannot read');

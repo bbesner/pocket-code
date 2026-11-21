@@ -9,7 +9,7 @@
 //     not a separate bucket the way Claude's `cache_read_input_tokens` is. The context in use
 //     is the input alone; input plus cached counts nearly the whole context twice.
 //   - Codex reports no cache lifetime. OpenAI's published guidance is five to ten minutes;
-//     measured over 45,660 consecutive calls in 2,234 rollouts on brads-server (2026-10-14),
+//     measured over 45,660 consecutive calls in 2,234 rollouts on one production server (2026-10-14),
 //     every return after an idle gap of 60 to 120 minutes still read from cache (21 of 21),
 //     and every return after 150 minutes or more started cold (12 of 15, the rest partial).
 //     Pocket uses two hours and the panel says it is measured, not published.

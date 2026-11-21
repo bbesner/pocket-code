@@ -133,7 +133,7 @@ switch (cmd) {
     out(i, card(i)); break;
   }
   case 'run': {
-    if (!command.length) die('run needs the command after --: pocket-vault run --env TOKEN=zoho-books -- node sync.mjs');
+    if (!command.length) die('run needs the command after --: pocket-vault run --env TOKEN=zeta-books -- node sync.mjs');
     if (!opts.env.length) die('run needs at least one --env VAR=<name>[.field]');
     const bind = {};
     for (const e of opts.env) { const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/.exec(e); if (!m) die(`--env needs VAR=<name>[.field], got ${e}`); bind[m[1]] = m[2]; }
@@ -146,7 +146,7 @@ switch (cmd) {
     break;
   }
   case 'put': {
-    const name = rest[0]; if (!name) die('put needs a name: pocket-vault put zoho-books --kind api_key --stdin');
+    const name = rest[0]; if (!name) die('put needs a name: pocket-vault put zeta-books --kind api_key --stdin');
     const kind = opts.kind; if (!kind) die('put needs --kind api_key, token, login, credentials or note');
     const fields = { api_key: ['value'], token: ['value'], login: ['username', 'password'], credentials: [], note: ['text'] }[kind]; if (!fields) die('--kind must be api_key, token, login, credentials or note');
     const values = {};

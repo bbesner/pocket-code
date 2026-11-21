@@ -432,7 +432,7 @@ const Voice = (() => {
   let baselined = false;
   const alertMode = () => (status?.available && !isMuted() && ALERT_CHOICES.some(([v]) => v === prefs().alerts)) ? prefs().alerts : 'off';
   function replacesChime() { return alertMode() !== 'off'; }
-  // Cross-tab dedupe: two Pocket tabs (or Mission Control plus standalone) say each event once.
+  // Cross-tab dedupe: two Pocket tabs (or a dashboard wrapper plus standalone) say each event once.
   function claim(key) {
     let m = {}; try { m = JSON.parse(localStorage.getItem('pc-voice-alerted') || '{}'); } catch { }
     if (m[key]) return false;
@@ -526,7 +526,7 @@ const Voice = (() => {
         <p class="sub">Says when any conversation finishes or needs you, while Pocket is open, in place of the chime. Muted conversations stay quiet.</p>
         <label class="voice-field">Hands-free: wait for my reply<select id="s-voice-wait">${WAIT_CHOICES.map(([v, l]) => `<option value="${v}"${Number(p.replyWait) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="voice-field">Voice<select id="s-voice-voice"></select></label>
-        <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, TechPro, Zoho" value="${esc(p.vocab)}"></label>
+        <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, Northwind, Contoso" value="${esc(p.vocab)}"></label>
         <button class="chip" id="s-voice-test" type="button">Play a sample</button>
         <p class="sub">Tap the mic to send one message; it sends when you pause. Hold it for push-to-talk. Tap the headset for a hands-free conversation: each reply is spoken and the mic listens for your answer, until you end it or stay quiet. In hands-free, Pocket reads your instruction back and sends it only after you say “send it” or tap Send. Announcements never turn on the mic. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers; “mute” and “unmute” switch spoken output on this device. Speech is processed on your Pocket server.</p>
         <p class="sub">Voice is in beta and still improving. Report problems under Bugs &amp; feature requests.</p>

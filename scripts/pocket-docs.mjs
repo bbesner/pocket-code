@@ -10,7 +10,7 @@
 //                                                        by link it makes a fresh link, and the old one stops working
 //   pocket-docs set <id> [--title "…"] [--project <id>] [--visibility private|link|public]
 //   pocket-docs trash <id> | restore <id>
-//   pocket-docs import <dashboard-files-meta.json>       one-time import of Mission Control's documents metadata
+//   pocket-docs import <dashboard-files-meta.json>       one-time import of an older dashboard's documents metadata
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides;
 // POCKET_PUBLIC_URL (e.g. https://claude.example.com) makes printed share URLs absolute.
 import fs from 'node:fs';

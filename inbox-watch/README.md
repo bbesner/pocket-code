@@ -167,8 +167,8 @@ on demand (and with the digest and look-aheads).
 
 **What it reads (`[mail] scope`, also a Pocket setting; 1.100).** By default the watcher fetches every thread but spam, trash
 and drafts, so mail the owner's Gmail filters archive or file away is judged too. `scope = "inbox"` reads only threads in the
-Gmail inbox; `scope = "inbox_labels"` with `scope_labels = ["Clients", "Ultra/Ask first"]` adds threads under those labels (as
-`{in:inbox label:clients label:ultra-ask-first}` on a search; by label id on the Gmail API's history reads). The bound applies
+Gmail inbox; `scope = "inbox_labels"` with `scope_labels = ["Clients", "Team/Ask first"]` adds threads under those labels (as
+`{in:inbox label:clients label:team-ask-first}` on a search; by label id on the Gmail API's history reads). The bound applies
 to the per-check fetch, the first-run baseline, the rebaseline and the blind-mailbox probe; research and archive searches, and
 a thread the owner labels Pocket Inbox, are not bounded. The owner's replies stay in: the per-check read adds `in:sent` and drops
 a new email the owner started (on Codex's search, which does not give a thread's length, a sent email is read). The heartbeat carries the owner's label names (`options.labels`,

@@ -47,7 +47,7 @@ test('DocumentStore: adopt, add, share, revoke, trash, restore, purge and import
   const r=s.restore(a.id);assert.equal(r.trashedAt,null);assert.equal(r.file,'Weekly_summary.md');assert.ok(fs.existsSync(path.join(docsDir,'Weekly_summary.md')));
   s.trash(b.id);assert.deepEqual(s.purge(Date.parse('2026-11-10T00:00:00Z')),[b.id]);assert.equal(fs.existsSync(path.join(docsDir,'.trash',b.id+'-Weekly_summary-2.md')),false);
   const reloaded=new DocumentStore(docsDir,path.join(dir,'documents.json'),{now:()=>clock});assert.equal(reloaded.documents.length,3);assert.equal(reloaded.get(a.id).title,'Week 41');
-  // import of Mission Control's metadata: public stays public, staff becomes a link, private stays private; unknown names are reported
+  // import of an older dashboard's metadata: public stays public, staff becomes a link, private stays private; unknown names are reported
   fs.writeFileSync(path.join(docsDir,'pub.html'),'<title>Public one</title>');fs.writeFileSync(path.join(docsDir,'staff.pdf'),'%PDF');fs.writeFileSync(path.join(docsDir,'priv.png'),'x');fs.writeFileSync(path.join(docsDir,'extra.md'),'# Extra');
   const imp=reloaded.importMeta({'pub.html':{visibility:'public',updated:'2026-09-01T00:00:00Z'},'staff.pdf':{visibility:'private',access:'techpro'},'priv.png':{visibility:'private'},'gone.html':{visibility:'public'},'dropped.html':{visibility:'public'}});
   assert.deepEqual(imp.counts,{public:1,link:1,private:1,skipped:1});assert.deepEqual(imp.missing,['gone.html']);assert.equal(imp.links.length,1);assert.equal(imp.links[0].file,'staff.pdf');assert.equal(imp.adopted,1,'extra.md adopted from the folder');
@@ -175,7 +175,7 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   const empty=await call('/api/documents/trash/empty',{});assert.deepEqual(empty.body,{done:[tmpB.id],failed:[]});assert.equal((await call('/api/documents')).body.trash.length,0);
   assert.match(logs,/documents trash emptied: 1 deleted/);
   assert.equal((await call('/api/documents?project=warehouse-stock-report')).body.documents.length,2);assert.equal((await call('/api/documents?q=quarterly')).body.documents.length,2);
-  // Import of Mission Control's metadata.
+  // Import of an older dashboard's metadata.
   fs.writeFileSync(path.join(docsDir,'old-public.html'),'<title>Old public</title>');fs.writeFileSync(path.join(docsDir,'old-staff.html'),'<title>Old staff</title>');
   const imp=await call('/api/documents/import',{'old-public.html':{visibility:'public'},'old-staff.html':{visibility:'private',access:'techpro'},'dashboard.html':{visibility:'private'},'nothere.pdf':{visibility:'public'}},bearer);
   assert.deepEqual(imp.body.counts,{public:1,link:1,private:0,skipped:1});assert.deepEqual(imp.body.missing,['nothere.pdf']);assert.equal((await raw('/files/old-public.html')).status,200);assert.equal((await raw(imp.body.links[0].url)).status,200);

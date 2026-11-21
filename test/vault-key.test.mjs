@@ -40,7 +40,7 @@ test('HTTP: the Vault creates its key on first switch-on, survives a restart, ro
   assert.equal(fs.statSync(envFile).mode&0o777,0o600);assert.ok(fs.existsSync(path.join(dir,'data','vault.enc')),'an empty store is written');
   assert.equal((await call('/settings')).body.recoveryKey,undefined,'only in that one answer');
   assert.equal(logs.includes(created),false,'the key never reaches the log');
-  assert.equal((await call('/vault/act',{action:'add',name:'zoho-books',kind:'api_key',values:{value:'zoho-secret-123456'}})).status,200);
+  assert.equal((await call('/vault/act',{action:'add',name:'zeta-books',kind:'api_key',values:{value:'zeta-secret-123456'}})).status,200);
   // The owner can take a copy; the CLI token cannot.
   const token=fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim();
   assert.equal((await call('/vault/recovery-key',{},{'content-type':'application/json',authorization:'Bearer '+token})).status,401);
@@ -48,12 +48,12 @@ test('HTTP: the Vault creates its key on first switch-on, survives a restart, ro
   // A restart opens it from .env, with no manual step.
   await stop();await start();
   st=(await call('/settings')).body;assert.equal(st.vault,true);assert.equal(st.vaultReady,true);assert.equal(st.vaultCanCreateKey,false);
-  assert.equal((await call('/vault')).body.items[0].name,'zoho-books');
+  assert.equal((await call('/vault')).body.items[0].name,'zeta-books');
   // Rotation saves the new key itself and leaves no previous key behind; the store opens only with the new one.
   const rot=await call('/vault/rotate',{});assert.equal(rot.status,200);assert.equal(rot.body.saved,true);
   env=fs.readFileSync(envFile,'utf8');assert.equal(keyLine(env),rot.body.key);assert.doesNotMatch(env,/POCKET_VAULT_KEY_PREVIOUS/);
   const buf=fs.readFileSync(path.join(dir,'data','vault.enc'));assert.throws(()=>decryptStore([parseKey(created)],buf),/cannot be opened/);
-  assert.equal(decryptStore([parseKey(rot.body.key)],buf).items[0].name,'zoho-books');
+  assert.equal(decryptStore([parseKey(rot.body.key)],buf).items[0].name,'zeta-books');
   // 1.73.6: a rotation whose store write fails changes nothing: .env keeps the key the store is under, the recovery key is that key,
   // and the next ordinary save is still under it.
   fs.chmodSync(path.join(dir,'data'),0o500);
@@ -85,7 +85,7 @@ test('HTTP: the Vault creates its key on first switch-on, survives a restart, ro
   for(let i=0;i<7;i++)assert.equal((await call('/vault/restore-key',{key:'nonsense'})).status,400,'this session had two wrong keys; nine is still under the limit');
   const back=await call('/vault/restore-key',{key:`POCKET_VAULT_KEY=${old}`});assert.equal(back.status,200,JSON.stringify(back.body));
   assert.equal(keyLine(fs.readFileSync(envFile,'utf8')),old,'saved again');
-  assert.equal((await call('/settings',{vault:true})).body.vault,true);assert.equal((await call('/vault')).body.items[0].name,'zoho-books','everything is back');
+  assert.equal((await call('/settings',{vault:true})).body.vault,true);assert.equal((await call('/vault')).body.items[0].name,'zeta-books','everything is back');
   assert.equal((await call('/vault/restore-key',{key:old})).status,409,'nothing to restore now');
   const audit=fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8');
   for(const a of ['key-created','recovery-key-view','rotate','key-restored'])assert.match(audit,new RegExp(`"action":"${a}"`));
@@ -114,10 +114,10 @@ test('HTTP: a Vault key set in the process environment is not rotated',async t=>
   const call=async(p,body)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
   await start();
   assert.equal((await call('/settings',{vault:true})).body.vault,true);
-  assert.equal((await call('/vault/act',{action:'add',name:'zoho-books',kind:'api_key',values:{value:'zoho-secret-123456'}})).status,200);
+  assert.equal((await call('/vault/act',{action:'add',name:'zeta-books',kind:'api_key',values:{value:'zeta-secret-123456'}})).status,200);
   const rot=await call('/vault/rotate',{});assert.equal(rot.status,409);assert.equal(rot.body.code,'vault_key_preset');assert.match(rot.body.error,/environment/);
   assert.doesNotMatch(fs.readFileSync(envFile,'utf8'),/POCKET_VAULT_KEY/,'.env was not written');
-  assert.equal(decryptStore([parseKey(key)],fs.readFileSync(path.join(dir,'data','vault.enc'))).items[0].name,'zoho-books','the store is still under the environment key');
+  assert.equal(decryptStore([parseKey(key)],fs.readFileSync(path.join(dir,'data','vault.enc'))).items[0].name,'zeta-books','the store is still under the environment key');
   assert.equal((await call('/vault/recovery-key',{})).body.key,key);
 });
 // 1.73.8: the key and the store were written, then the key-created audit row failed: the owner got a 500 and no key, though

@@ -113,9 +113,9 @@ def test_scope_settings():
     assert "scope" not in BASE, "no [mail] table, no setting"
     b = S.from_config({}, {"model": "sonnet"}, (22, 8), 8, {}, mail={"provider": "connector"})
     assert b["scope"] == {"mode": "all", "labels": []}
-    b = S.from_config({}, {"model": "sonnet"}, (22, 8), 8, {}, mail={"scope": "inbox_labels", "scope_labels": ["Clients", " Ultra/Ask first ", "Clients", 7]})
-    assert b["scope"] == {"mode": "inbox_labels", "labels": ["Clients", "Ultra/Ask first"]}
-    assert S.normalize({"scope": {"mode": "inbox"}}, b)["scope"] == {"mode": "inbox", "labels": ["Clients", "Ultra/Ask first"]}
+    b = S.from_config({}, {"model": "sonnet"}, (22, 8), 8, {}, mail={"scope": "inbox_labels", "scope_labels": ["Clients", " Team/Ask first ", "Clients", 7]})
+    assert b["scope"] == {"mode": "inbox_labels", "labels": ["Clients", "Team/Ask first"]}
+    assert S.normalize({"scope": {"mode": "inbox"}}, b)["scope"] == {"mode": "inbox", "labels": ["Clients", "Team/Ask first"]}
     assert S.normalize({"scope": {"mode": "archive", "labels": "x"}}, b)["scope"] == b["scope"], "bad values keep the defaults"
     assert S.normalize({"scope": "inbox", "scope_labels": ["A"]}, b)["scope"] == {"mode": "inbox", "labels": ["A"]}, "the TOML form"
     assert S.normalize({"scope": {"mode": "inbox_labels", "labels": [f"L{i}" for i in range(30)]}}, b)["scope"]["labels"] == [f"L{i}" for i in range(20)]
@@ -126,7 +126,7 @@ def test_scope_settings():
     assert S.scope_query({"mode": "inbox_labels", "labels": []}) == "in:inbox"
     assert S.scope_query({"mode": "all"}, sent=True) == "" and S.scope_query({"mode": "inbox"}, sent=True) == "{in:inbox in:sent}"
     assert S.scope_query({"mode": "inbox_labels", "labels": ["Clients"]}, sent=True) == "{in:inbox in:sent label:Clients}"
-    assert S.scope_query({"mode": "inbox_labels", "labels": ["Clients", "Ultra/Ask first", "Meeting Notes"]}) == "{in:inbox label:Clients label:Ultra-Ask-first label:Meeting-Notes}"
+    assert S.scope_query({"mode": "inbox_labels", "labels": ["Clients", "Team/Ask first", "Meeting Notes"]}) == "{in:inbox label:Clients label:Team-Ask-first label:Meeting-Notes}"
     assert S.options("claude", [])["scopeModes"] == ["all", "inbox", "inbox_labels"]
 
 

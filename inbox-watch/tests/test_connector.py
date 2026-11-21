@@ -238,15 +238,15 @@ def test_the_scope_reaches_every_fetch():
     assert searches(b)[-1]["query"] == "newer_than:2d in:inbox", searches(b)[-1]["query"]
     m.search_ids("from:pat@vendor.example", 10)
     assert "in:inbox" not in searches(b)[-1]["query"], "an archive or research search is not the scope's business"
-    m = b.mail(scope={"mode": "inbox_labels", "labels": ["Clients", "Ultra/Ask first"]})
+    m = b.mail(scope={"mode": "inbox_labels", "labels": ["Clients", "Team/Ask first"]})
     m.baseline_threads("newer_than:1d")
-    assert searches(b)[-1]["query"] == "newer_than:1d {in:inbox label:Clients label:Ultra-Ask-first}", searches(b)[-1]["query"]
+    assert searches(b)[-1]["query"] == "newer_than:1d {in:inbox label:Clients label:Team-Ask-first}", searches(b)[-1]["query"]
     b.data["threads"] = []
     b.data["date_blind"] = True
     b.save()
     m.changed_threads(f"t:{now - 300}")
     probe = searches(b)[-1]["query"]
-    assert probe.startswith("newer_than:1d ") and probe.endswith(" {in:inbox label:Clients label:Ultra-Ask-first}"), probe
+    assert probe.startswith("newer_than:1d ") and probe.endswith(" {in:inbox label:Clients label:Team-Ask-first}"), probe
     assert b.mail().scope == "" and "in:inbox" not in (b.mail().baseline_threads() or searches(b)[-1]["query"])
 
 
@@ -320,9 +320,9 @@ def test_gmail_history_keeps_the_owners_replies_inside_a_scope():
 def test_list_labels_names_the_owners_labels():
     """1.100: the scope picker's label list, from the Claude transport; Gmail's own labels (INBOX) are left out, names sorted."""
     b = Box()
-    b.data["labels"] = {"Ultra/Ask first": "Label_174", "Clients": "Label_2"}
+    b.data["labels"] = {"Team/Ask first": "Label_174", "Clients": "Label_2"}
     b.save()
-    assert b.mail().list_labels() == ["Clients", "Ultra/Ask first"]
+    assert b.mail().list_labels() == ["Clients", "Team/Ask first"]
 
 
 def test_paging_stops_at_mail_already_seen():

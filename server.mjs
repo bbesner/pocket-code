@@ -367,7 +367,7 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 // threw) must cost that request, never the daemon: a crash drops every open stream and
 // the in-memory approval/question inboxes of every live turn.
 process.on('unhandledRejection', e => log(`unhandled rejection: ${e?.stack || e}`));
-// Origins allowed to embed the app (Mission Control). Space-separated; default = same origin.
+// Origins allowed to embed the app (an operations dashboard). Space-separated; default = same origin.
 const FRAME_ANCESTORS = (process.env.POCKET_FRAME_ANCESTORS || '').split(/\s+/).filter(Boolean);
 
 // ---------- web push (turn-completion notifications) ----------
@@ -3509,7 +3509,7 @@ app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validate
   if(!anyId(id))return res.status(400).json({error:'Invalid conversation'});
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'empty message' });
-  vaultAnswerFromMessage(id, text); // 1.41: "Allow zoho-books for this command" answers that session's pending Vault request
+  vaultAnswerFromMessage(id, text); // 1.41: "Allow zeta-books for this command" answers that session's pending Vault request
   const mode=req.body.mode || 'auto';
   if(!['auto','steer','queue'].includes(mode))return res.status(400).json({error:'Invalid delivery mode'});
   if(mode==='steer'&&!ownedTurn(id))return res.status(409).json({error:'The reply has ended. Review the conversation, then send a new message.'});
@@ -4281,7 +4281,7 @@ app.post('/api/board/act', requireBoardAuth, boardOn, (req, res) => {
     res.set('Cache-Control', 'private, no-store').json({ ok: true, project });
   } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.project ? { project: e.project } : {}) }); }
 });
-// One-time import of a Mission Control board snapshot; projects already here are left alone.
+// One-time import of an older dashboard's board snapshot; projects already here are left alone.
 app.post('/api/board/import', requireBoardAuth, boardOn, (req, res) => {
   try {
     const r = board.importSnapshot(req.body, { actor: req.boardActor || 'ui' });
@@ -4646,8 +4646,8 @@ function vaultCaller(req) {
   return { actor: 'terminal', session: null, sessionTitle: '', tokenHash: null };
 }
 const sessionName = id => { const m = smeta[id]; return (m && typeof m.name === 'string' && m.name) || ''; };
-// 1.41: the owner can answer a pending request in the conversation that raised it: "Allow zoho-books for this command",
-// "Always allow zoho-books for this command", "Deny zoho-books" (the suggested replies agents offer), or a bare "Allow"/"Deny"
+// 1.41: the owner can answer a pending request in the conversation that raised it: "Allow zeta-books for this command",
+// "Always allow zeta-books for this command", "Deny zeta-books" (the suggested replies agents offer), or a bare "Allow"/"Deny"
 // when that session has exactly one pending request. Only the owner's own messages (cookie) reach here; the message is
 // still delivered, so the agent sees the answer and continues with `pocket-vault wait`.
 function vaultAnswerFromMessage(sessionId, text) {

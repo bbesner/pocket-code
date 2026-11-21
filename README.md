@@ -67,7 +67,7 @@ mid-turn shows up without a reload.
 <td align="center"><b>Files</b>: what the work produced, private until shared</td>
 </tr>
 <tr>
-<td colspan="2" valign="top"><img src="docs/images/vault-desktop.png" alt="The Vault: a waiting request from an agent to run a command with the zoho-books secret, with Deny, Always allow and Allow once, above five secrets showing their kind, site and how much agents may do with each"></td>
+<td colspan="2" valign="top"><img src="docs/images/vault-desktop.png" alt="The Vault: a waiting request from an agent to run a command with the zeta-books secret, with Deny, Always allow and Allow once, above five secrets showing their kind, site and how much agents may do with each"></td>
 </tr>
 <tr>
 <td colspan="2" align="center"><b>Vault</b>: agents use a secret by name, and ask before they use it</td>
@@ -277,7 +277,7 @@ device, and when you open them, so an item an agent adds shows up without a relo
   - **Set up in one switch.** Turning it on creates the key, saves it to the install's
     `.env` and shows a **recovery key** to save once (1.44). Settings can download the
     recovery key again, rotate the key, or restore a lost one from the recovery key.
-  - **Used by name.** An agent runs `pocket-vault run --env TOKEN=zoho-books --
+  - **Used by name.** An agent runs `pocket-vault run --env TOKEN=zeta-books --
     <command>`: the command gets the value in its environment and the agent gets the output
     with the value replaced, so in normal use values stay out of arguments, transcripts and
     MemStem. The command receives the real value and can do anything with it, and an item on

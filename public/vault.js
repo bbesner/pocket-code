@@ -553,7 +553,7 @@ function vaultEditor(t,{insert=null}={}){
  const customHead=k=>k==='credentials'?'Fields':'Custom fields';
  sh.innerHTML=`<h2>${t?'Edit secret':'Add to the Vault'}</h2>${t?`<p class="sheet-name vault-name">${esc(t.name)}</p>`:'<p class="sheet-help vault-editor-help">Stored encrypted on this server. Agents use it by name in commands; in normal use the value stays out of the conversation.</p>'}
   <form class="project-form vault-form" autocomplete="off" novalidate>
-   <label class="voice-field">Name<input type="text" name="name" required maxlength="64" pattern="[a-z0-9\\-]{1,64}" value="${esc(t?.name||'')}" placeholder="zoho-books" autocomplete="off" spellcheck="false" autocapitalize="none" autocorrect="off" aria-describedby="vault-name-hint" class="vault-name-input"></label>
+   <label class="voice-field">Name<input type="text" name="name" required maxlength="64" pattern="[a-z0-9\\-]{1,64}" value="${esc(t?.name||'')}" placeholder="zeta-books" autocomplete="off" spellcheck="false" autocapitalize="none" autocorrect="off" aria-describedby="vault-name-hint" class="vault-name-input"></label>
    <p class="vault-hint" id="vault-name-hint">Lowercase letters, numbers and hyphens. Agents use this name.</p>
    <label class="voice-field">Kind<select name="kind" aria-describedby="${t?'vault-kind-hint':'vault-kind-sub'}" ${t?'disabled':''}>${VAULT_KINDS.map(([v,l])=>`<option value="${v}" ${v===kind?'selected':''}>${l}</option>`).join('')}</select></label>
    ${t?'<p class="vault-hint" id="vault-kind-hint">The kind is fixed. For a different kind, add a new secret.</p>':`<p class="vault-hint" id="vault-kind-sub" data-kind-sub>${esc(VAULT_KIND_SUB[kind]||'')}</p>`}
@@ -566,7 +566,7 @@ function vaultEditor(t,{insert=null}={}){
    </div>
    ${t?'<p class="vault-hint">Show loads a saved value so you can change it. A value left empty stays as it is.</p>':''}
    <label class="voice-field">Website (optional)<input type="text" inputmode="url" name="url" value="${esc(t?.url||'')}" placeholder="https://" autocomplete="off" spellcheck="false" autocapitalize="none"></label>
-   <label class="voice-field">Tags (optional)<input type="text" name="tags" value="${esc((t?.tags||[]).join(', '))}" placeholder="billing, zoho" autocomplete="off" autocapitalize="none" aria-describedby="vault-tags-hint"></label>
+   <label class="voice-field">Tags (optional)<input type="text" name="tags" value="${esc((t?.tags||[]).join(', '))}" placeholder="billing, zeta" autocomplete="off" autocapitalize="none" aria-describedby="vault-tags-hint"></label>
    <p class="vault-hint" id="vault-tags-hint">Separate tags with commas.</p>
    <label class="voice-field">Notes (optional)<textarea name="notes" rows="3" maxlength="2000" placeholder="Where it came from, what it's for">${esc(t?.notes||'')}</textarea></label>
    <label class="voice-field">Who can use it<select name="policy" aria-describedby="vault-policy-hint">${vaultPolicyChoices().map(([v,l])=>`<option value="${v}" ${v===(t?.policy||'default')?'selected':''}>${esc(l)}</option>`).join('')}</select></label>

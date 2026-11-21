@@ -90,7 +90,7 @@ test('HTTP: after the fourth turn the title is checked and rewritten; KEEP keeps
   assert.ok(await f.until(async()=>(await f.row(id))?.title==='Review the warehouse stock'),'first title from the opening request');
   await f.turn(id,'Check the TVT models too');await f.turn(id,'And the Dahua ones');
   assert.equal(f.live().length,0,'three turns: no check yet');
-  await f.turn(id,'Plan the pole survey for the Oaks');
+  await f.turn(id,'Plan the pole survey for the Pines');
   assert.ok(await f.until(async()=>(await f.row(id))?.title==='Now Plan the pole'),'fourth turn: the title follows the session; got '+JSON.stringify((await f.row(id))?.title)+' '+f.logs().split('\n').filter(l=>/title/.test(l)).join(' / '));
   assert.equal(f.live().length,1);assert.match(f.live()[0],/^Review the warehouse stock => Owner: Review the warehouse stock levels before ordering \| Agent: Test response\./,'the whole session and the current title');
   const m=f.meta()[id];assert.equal(m.autoTitle,'Now Plan the pole');assert.equal(m.autoTitleLive,true);assert.deepEqual(m.titleHistory,['Review the warehouse stock']);assert.equal(m.liveTitleMsgs,8);
@@ -123,8 +123,8 @@ test('HTTP: Codex as the helper checks titles too; an updated title outranks the
   const aiId=randomUUID(),liveId=randomUUID();
   const f=await fixture(t,18722,{POCKET_CODEX:'1',__meta:{[liveId]:{autoTitle:'Pole survey, then invoicing',autoTitleLive:true},[aiId]:{autoTitle:'Pocket first title'}}});
   const line=(id,o)=>JSON.stringify({...o,cwd:repo,sessionId:id,timestamp:new Date().toISOString()});
-  for(const id of [aiId,liveId])fs.writeFileSync(path.join(f.seedDir,id+'.jsonl'),[line(id,{type:'user',message:{role:'user',content:'Survey the poles at the Oaks'}}),line(id,{type:'ai-title',aiTitle:'Oaks pole survey'})].join('\n')+'\n');
-  assert.equal((await f.row(aiId)).title,'Oaks pole survey','Claude Code\'s own title ahead of a first title');
+  for(const id of [aiId,liveId])fs.writeFileSync(path.join(f.seedDir,id+'.jsonl'),[line(id,{type:'user',message:{role:'user',content:'Survey the poles at the Pines'}}),line(id,{type:'ai-title',aiTitle:'Pines pole survey'})].join('\n')+'\n');
+  assert.equal((await f.row(aiId)).title,'Pines pole survey','Claude Code\'s own title ahead of a first title');
   assert.equal((await f.row(liveId)).title,'Pole survey, then invoicing','an updated title ahead of Claude Code\'s own');
   assert.equal((await f.call(`/session/${liveId}/rename`,{name:'Renamed'})).status,200);assert.equal((await f.row(liveId)).title,'Renamed');
   assert.equal((await f.call('/settings',{titleProvider:'codex'})).body.titles.liveUsing,'codex');

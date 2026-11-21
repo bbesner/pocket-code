@@ -796,7 +796,7 @@ model, effort, permission, mode and alert settings. Attachment access stays besi
 the input, and attached files, upload/delivery problems and active-turn controls
 remain visible. Preferences persist per browser without rebuilding the conversation.
 
-Mission Control hides its masthead only after its verified Pocket iframe reports
+The dashboard wrapper hides its masthead only after its verified Pocket iframe reports
 an active session with a restore control. Expanding the session restores the parent
 navigation. Old clients and non-chat views retain the parent's own restore button.
 Messages contain only visibility state; both sides check origin and source window.

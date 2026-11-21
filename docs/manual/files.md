@@ -192,7 +192,7 @@ The file you `add` must be inside the home directory of the user Pocket runs as 
 | `set <id> [--title "…"] [--project <id>] [--visibility private\|link\|public]` | Changes the title, project or visibility, and prints the file with its share address. `--project` must be the id of an existing project (`pocket-board status --all` lists them); an empty `--project ""` removes the project. Setting `link` prints the new address. |
 | `trash <id>` | Moves the file to the trash (restorable for 30 days). Only when the user asks. |
 | `restore <id>` | Brings a file back from the trash, as private. |
-| `import <dashboard-files-meta.json>` | One-time import of the older Mission Control dashboard's file metadata for files already in the library's folder. |
+| `import <dashboard-files-meta.json>` | One-time import of an older dashboard's file metadata for files already in the library's folder. |
 | `help` | The usage summary. |
 
 There is no delete command. If the user wants a file gone for good, trash it and tell them **Delete forever** or **Empty trash** is in the library's Trash.

@@ -51,7 +51,7 @@ const fixtureOffer=saved=>resolveOffer({saved:Array.isArray(saved)?saved:null,en
 const fixtureClaudeModels=()=>({...fixtureOffer(fixtureSettings.offeredClaudeModels),env:null,saved:Array.isArray(fixtureSettings.offeredClaudeModels),
  policy:{dir:'/etc/claude-code',files:['/etc/claude-code/managed-settings.json'],limits:true,error:null},pocketDefault:{configured:null,used:null,label:'Test agent'}});
 // 1.56: actions that run without asking. The fixture server's POCKET_TRUSTED_ACTIONS names one rule and skips one.
-const fixtureTrustedEnv=['Bash(techpro-lookup:*)'];
+const fixtureTrustedEnv=['Bash(acme-lookup:*)'];
 const fixtureTrusted=()=>{const saved=Array.isArray(fixtureSettings.trustedActions);return {rules:saved?fixtureSettings.trustedActions:fixtureTrustedEnv,source:saved?'settings':'env',saved,env:fixtureTrustedEnv,envIgnored:[{rule:'Edit',error:'Edit changes files, so it always asks.'}]};};
 // 1.50: the fixture server has mail set up (so Settings shows the address field) and records test messages.
 const fixtureEmail=()=>({configured:true,from:'pocket@example.test',to:fixtureSettings.notifyEmail||'',on:Boolean(fixtureSettings.notifyEmail),hook:false,error:null,base:'http://localhost'});
@@ -62,7 +62,7 @@ const secretRefusal=body=>{if(fixtureSettings.secretGuard===false||body.allowSec
 const vaultFixture={passphrase:null,imported:null,extraRequests:[],key:null}; // 1.44: key is the fixture store's key, the recovery key the routes hand out
 const coordFixture={holds:[],recent:[],released:[],failNext:false,reset(holds){const ago=m=>Date.now()-m*60000-5000;this.released=[];this.failNext=false;
  this.holds=holds||[{name:'dad-staging',reason:'Building and verifying',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'DAD 1.168 build'},heldAt:ago(12),expiresAt:Date.now()+48*60000,ttlMs:3600000,waiters:[{id:'w1',kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',at:ago(4),block:false,title:'PayPal fix'}]},
-  {name:'tpv-deploy',reason:'Rolling out to the Oaks recorder from a terminal on the ops box, so wait for it to finish',holder:{kind:'terminal',session:null,title:''},heldAt:ago(185),expiresAt:Date.now()+295*60000,ttlMs:28800000,waiters:[]}];
+  {name:'tpv-deploy',reason:'Rolling out to the warehouse recorder from a terminal on the ops box, so wait for it to finish',holder:{kind:'terminal',session:null,title:''},heldAt:ago(185),expiresAt:Date.now()+295*60000,ttlMs:28800000,waiters:[]}];
  this.recent=[{name:'pocket-main',reason:'Release',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'Release 1.98'},heldAt:ago(90),endedAt:ago(40),event:'released',note:'Deployed and checked'},
   {name:'dad-production',reason:'Rollout',holder:{kind:'terminal',session:null,title:''},heldAt:ago(300),endedAt:ago(120),event:'expired',note:''},
   {name:'staging-db',reason:'Reset',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',title:'Database reset'},heldAt:ago(500),endedAt:ago(200),event:'owner',note:''}];}};
@@ -89,20 +89,20 @@ const seedTasks=()=>{taskStore.tasks.length=0;
 // 1.39: the vault is the real store on a scratch vault.enc under a test key: an API key that asks (one approved command),
 // a login agents may use that expires in 5 days, an owner-only note, a removed token, and one request waiting for the owner.
 // 1.39.1: Credentials with two custom fields, and an API key that carries one custom field beside its key.
-// 1.41: zoho-books and acme-oauth follow the Vault default (Agent access); square-hooks sets its own (asks once per command).
+// 1.41: zeta-books and acme-oauth follow the Vault default (Agent access); square-hooks sets its own (asks once per command).
 const vaultDir=path.join(out,'vault');let vaultStore=null;
 const seedVault=()=>{fs.rmSync(vaultDir,{recursive:true,force:true});fs.mkdirSync(vaultDir,{recursive:true});
  vaultFixture.key=newKey();vaultStore=new VaultStore(path.join(vaultDir,'vault.enc'),{key:parseKey(vaultFixture.key)});vaultStore.access=()=>fixtureSettings.vaultAccess||'once';
  // 1.93: the items were added an hour apart, ten days ago, so Newest first has one order; square-hooks is the newest.
  let added=now-10*86400000;const act=vaultStore.act.bind(vaultStore);vaultStore.now=()=>added;vaultStore.act=(...a)=>{const r=act(...a);if(a[0]?.action==='add')added+=3600000;return r;};
- vaultStore.act({action:'add',name:'zoho-books',kind:'api_key',values:{value:'zk-fixture-secret-7731'},url:'https://books.zoho.com',tags:['billing']});
+ vaultStore.act({action:'add',name:'zeta-books',kind:'api_key',values:{value:'zk-fixture-secret-7731'},url:'https://books.example.com',tags:['billing']});
  vaultStore.act({action:'add',name:'vendor-portal',kind:'login',values:{username:'ops@example.test',password:'portal-fixture-pass'},url:'https://portal.example.test',policy:'auto',expiresAt:new Date(now+5*86400000).toISOString()});
  vaultStore.act({action:'add',name:'bank-recovery',kind:'note',values:{text:'recovery codes fixture'},policy:'owner'});
  vaultStore.act({action:'add',name:'acme-oauth',kind:'credentials',values:{client_id:'acme-client-fixture',client_secret:'acme-secret-fixture-4410'},url:'https://auth.acme.test'});
  vaultStore.act({action:'add',name:'square-hooks',kind:'api_key',values:{value:'sq-fixture-key-2208',signature_key:'sq-signature-fixture-6631'},policy:'ask'});
  const old=vaultStore.act({action:'add',name:'old-twilio',kind:'token',values:{value:'tw-fixture-old'}});vaultStore.act({action:'remove',item:old.id});
  vaultStore.act=act;vaultStore.now=Date.now;
- const ask=argv=>{const env={TOKEN:'zoho-books'},bound=vaultStore.resolveBindings(env),cmd=vaultStore.checkCommand(argv,vaultDir);return vaultStore.request({bound,cmd,need:vaultStore.decide(bound,cmd),env,session:rows[0].id,sessionTitle:rows[0].title});};
+ const ask=argv=>{const env={TOKEN:'zeta-books'},bound=vaultStore.resolveBindings(env),cmd=vaultStore.checkCommand(argv,vaultDir);return vaultStore.request({bound,cmd,need:vaultStore.decide(bound,cmd),env,session:rows[0].id,sessionTitle:rows[0].title});};
  vaultStore.answer(ask(['node','sync-invoices.mjs']).id,'always');
  ask(['node','export-ledger.mjs','--month','2026-09']);};
 seedVault();
@@ -210,7 +210,7 @@ const server=http.createServer(async(req,res)=>{
   const rel=url.pathname.slice('/mission-control/'.length),file=path.join(process.env.MISSION_CONTROL_REPO,'web',rel);
   if(!file.startsWith(path.join(process.env.MISSION_CONTROL_REPO,'web')+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}
   let body=fs.readFileSync(file);
-  if(rel.endsWith('.html'))body=Buffer.from(body.toString().replaceAll('https://claude.bbesner.com','http://localhost:'+server.address().port).replaceAll('href="/','href="/mission-control/').replaceAll('src="/','src="/mission-control/'));
+  if(rel.endsWith('.html'))body=Buffer.from(body.toString().replace(/https:\/\/claude\.[a-z0-9.-]+\.[a-z]{2,}/g,'http://localhost:'+server.address().port).replaceAll('href="/','href="/mission-control/').replaceAll('src="/','src="/mission-control/'));
   res.writeHead(200,{'content-type':rel.endsWith('.js')?'text/javascript':rel.endsWith('.css')?'text/css':'text/html'});res.end(body);return;
  }
  if(url.pathname==='/api/upload'){
@@ -337,7 +337,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/vault/lock'){if(!pass)return json({error:'The Vault is opened by the server key; there is nothing to lock.'},400);fixtureSettings.vaultLocked=true;return json({ok:true});}
   if(url.pathname==='/api/vault/export'){const b=await body();if(!longEnough(b.passphrase)||b.confirm!==b.passphrase)return json({error:'Use a passphrase of at least 12 characters, typed the same twice.'},400);
    res.writeHead(200,{'content-type':'application/octet-stream','content-disposition':'attachment; filename="pocket-vault-export-2026-10-12.pvault"'});res.end(Buffer.from('PVAULT fixture bytes'));return;}
-  if(url.pathname==='/api/vault/import'){const b=await body();if(b.passphrase!=='import-fixture-pass')return json({error:'Wrong passphrase, or not a Pocket Code Vault export.'},400);vaultFixture.imported=Buffer.from(String(b.data||''),'base64').toString();return json({ok:true,added:2,skipped:['zoho-books']});}
+  if(url.pathname==='/api/vault/import'){const b=await body();if(b.passphrase!=='import-fixture-pass')return json({error:'Wrong passphrase, or not a Pocket Code Vault export.'},400);vaultFixture.imported=Buffer.from(String(b.data||''),'base64').toString();return json({ok:true,added:2,skipped:['zeta-books']});}
   if(url.pathname==='/api/vault'){const snap=vaultStore.snapshot({owner:true});return json({...snap,requests:[...snap.requests,...vaultFixture.extraRequests],push:{enabled:false}});}
   // The whole body goes to the real store, so values (fixed and custom) and removeFields reach it unchanged.
   if(url.pathname==='/api/vault/agent-add'){const b=await body();try{return json({ok:true,item:vaultStore.act({action:'add',name:b.name,kind:b.kind,values:b.values},{actor:'agent',session:b.session,sessionTitle:b.sessionTitle})});}catch(e){return fail(e);}} // 1.93: an agent's pocket-vault put from a conversation
@@ -946,16 +946,16 @@ try{
   await f.evaluate(id=>location.hash='#/chat/'+id,idle.id);await f.waitForSelector('#box');
   await f.evaluate(()=>{document.querySelector('#box').value='Fold regression draft';saveDraft(chatId,'Fold regression draft');window.originalComposer=document.querySelector('#box');});
   assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('clipboard-read')),true);
-  // Voice mode inside the wrapper: Mission Control must delegate the microphone and screen wake lock to the frame.
-  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('microphone')),true,'Mission Control grants Pocket the microphone');
-  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('screen-wake-lock')),true,'Mission Control grants screen wake lock');
+  // Voice mode inside the wrapper: the dashboard must delegate the microphone and screen wake lock to the frame.
+  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('microphone')),true,'the dashboard grants Pocket the microphone');
+  assert.equal(await f.evaluate(()=>document.featurePolicy.allowsFeature('screen-wake-lock')),true,'the dashboard grants screen wake lock');
   {
    await f.waitForSelector('#micb:not([hidden])');const heard=voiceLog.transcribe.length;
    const b=await (await f.$('#micb')).boundingBox();await p.mouse.move(b.x+b.width/2,b.y+b.height/2);await p.mouse.down();
    await f.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='true');
    await new Promise(r=>setTimeout(r,900));await p.mouse.up();
    await f.waitForFunction(()=>/Added to your draft/.test(document.querySelector('#voice-strip').textContent));
-   assert.equal(voiceLog.transcribe.length,heard+1,'speech recorded inside Mission Control reached the server');
+   assert.equal(voiceLog.transcribe.length,heard+1,'speech recorded inside the dashboard reached the server');
    await f.evaluate(()=>{document.querySelector('#box').value='Fold regression draft';saveDraft(chatId,'Fold regression draft');});
   }
   for(const [width,height] of [[390,844],[691,650],[840,650],[1000,700],[390,844]]){
@@ -975,7 +975,7 @@ try{
   await p.waitForFunction(()=>document.querySelector('.masthead').hidden);
   await new Promise(r=>setTimeout(r,100));
   const after=await f.$eval('main.scroll',e=>e.clientHeight);assert.ok(after-before>80,'collapsing both headers returns reading space');
-  assert.equal(await p.$eval('.masthead',e=>e.hidden),true,'whole Mission Control header yields to the session control');
+  assert.equal(await p.$eval('.masthead',e=>e.hidden),true,'whole dashboard header yields to the session control');
   assert.ok(await f.$eval('header #run-confirmation',e=>e.getClientRects().length)>0,'status remains in the header');
   await f.click('#composer-toggle');
   const focused=await f.$eval('main.scroll',e=>e.clientHeight);

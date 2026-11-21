@@ -16,9 +16,9 @@ const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>
 test('MemStem transcript refs map to Pocket session ids only inside Pocket\'s own stores',()=>{
   const roots={projectsRoot:'/h/.claude/projects',codexSessionsRoot:'/h/.codex/sessions'};
   const id='57292309-2ca2-4d91-aeaa-732ee83fe230',cx='01a112c7-9b28-7ff0-a6c5-f99ec55567da';
-  assert.equal(sessionIdFromRef(`/h/.claude/projects/-home-ubuntu/${id}.jsonl`,roots),id);
+  assert.equal(sessionIdFromRef(`/h/.claude/projects/-home-user/${id}.jsonl`,roots),id);
   assert.equal(sessionIdFromRef(`/h/.codex/sessions/2026/10/06/rollout-2026-10-06T19-53-53-${cx}.jsonl`,roots),'cx:'+cx);
-  assert.equal(sessionIdFromRef(`/h/.claude/projects/-home-ubuntu/${id}/subagents/agent-1.jsonl`,roots),null,'subagent transcripts are not sessions');
+  assert.equal(sessionIdFromRef(`/h/.claude/projects/-home-user/${id}/subagents/agent-1.jsonl`,roots),null,'subagent transcripts are not sessions');
   assert.equal(sessionIdFromRef(`/h/ari/codex-home/sessions/2026/10/06/rollout-x-${cx}.jsonl`,roots),null,'another Codex home is not Pocket\'s');
   assert.equal(sessionIdFromRef('/etc/passwd',roots),null);assert.equal(sessionIdFromRef(undefined,roots),null);
 });
