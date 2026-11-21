@@ -1539,7 +1539,7 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
    notification kinds use; a model this computer's Claude Code policy blocks keeps its row, with a dashed ring and
    the reason in place of its description, so a missing picker entry is explained rather than hidden. No new colour. */
 .model-offer { gap: 4px; padding: 10px 0 12px; }
-.model-offer > .vault-set-head, .model-offer > .title-note, .model-offer > .vault-set-actions { margin-left: 14px; margin-right: 14px; }
+.model-offer > .vault-set-head, .model-offer > .title-note, .model-offer > .vault-set-actions, .model-offer > .vault-field-error { margin-left: 14px; margin-right: 14px; }
 .model-offer > .vault-set-head { margin-bottom: 2px; }
 .model-offer .chip[hidden] { display: none; }
 .model-offer-list { display: flex; flex-direction: column; }

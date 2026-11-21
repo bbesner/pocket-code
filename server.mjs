@@ -817,8 +817,25 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
 }
 
 // ---------- auth ----------
+// 1.117 (PC-06): a sign-in generation, kept in <data dir>/auth-state.json (0600) with a keyed mark of the password, is mixed
+// into every cookie's signature. "Sign out everywhere" raises it, and so does a start with a different POCKET_PASSWORD, and
+// every cookie signed before stops working. Generation 0 signs the expiry alone, as before 1.117, so cookies from before the
+// upgrade keep working until the first such change. A state file that exists but cannot be read starts a generation no
+// earlier cookie carries, rather than falling back to 0.
+const AUTH_STATE_FILE = path.join(DATA_DIR, 'auth-state.json');
+const passwordMark = () => createHmac('sha256', SECRET).update('pocket-password\0' + PASSWORD).digest('hex');
+const authState = (() => {
+  let raw = null; try { raw = fs.readFileSync(AUTH_STATE_FILE, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') raw = ''; }
+  if (raw === null) return { generation: 0, password: '' };
+  try { const s = JSON.parse(raw); if (Number.isSafeInteger(s.generation) && s.generation >= 0) return { generation: s.generation, password: typeof s.password === 'string' ? s.password : '' }; } catch { }
+  log(`${AUTH_STATE_FILE} could not be read; every browser signs in again`);
+  return { generation: Date.now(), password: passwordMark() };
+})();
+const saveAuthState = () => atomicWrite(AUTH_STATE_FILE, authState);
+if (authState.password && authState.password !== passwordMark()) { authState.generation++; log('POCKET_PASSWORD changed since the last start: every browser signs in again'); }
+authState.password = passwordMark(); saveAuthState();
 function sign(exp) {
-  return createHmac('sha256', SECRET).update(String(exp)).digest('hex');
+  return createHmac('sha256', SECRET).update(authState.generation ? `${exp}.${authState.generation}` : String(exp)).digest('hex');
 }
 function makeCookie(ms = 90 * 24 * 3600 * 1000) {
   const exp = Date.now() + ms;
@@ -2473,6 +2490,23 @@ app.post('/api/login', async (req, res) => {
   loginFailed(ip);
   log(`login FAIL from ${ip}`);
   res.status(403).json({ error: 'wrong password' });
+});
+// 1.117 (PC-06): sign out this browser, or every browser. Only from Pocket's own page: JSON, not cross-site, and an Origin
+// (when one is sent) naming this host, as for the CLI updates and stop-all controls. Behind Cloudflare Access with One
+// sign-in on, the next visit through Access signs in again; remove the person in Access to keep them out.
+const ownPageJson = (req, res, next) => {
+  const origin = req.get('origin');
+  if (req.get('sec-fetch-site') === 'cross-site' || (origin && origin !== `https://${req.get('host')}` && origin !== `http://${req.get('host')}`)) return res.status(403).json({ error: 'Open this control from Pocket Code.' });
+  if (!req.is('application/json')) return res.status(415).json({ error: 'Expected JSON.' });
+  next();
+};
+const clearAuthCookie = res => res.setHeader('Set-Cookie', 'pc_auth=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0');
+app.post('/api/logout', ownPageJson, (_req, res) => { res.setHeader('Cache-Control', 'no-store'); clearAuthCookie(res); res.json({ ok: true }); });
+app.post('/api/logout/everywhere', ownPageJson, requireAuth, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  authState.generation++;
+  try { saveAuthState(); } catch (e) { authState.generation--; log(`sign out everywhere failed: ${e.message}`); return res.status(500).json({ error: 'Pocket could not save the change, so nobody was signed out. Try again.' }); }
+  clearAuthCookie(res); log('signed out everywhere: every browser signs in again'); res.json({ ok: true });
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.

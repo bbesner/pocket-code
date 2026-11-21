@@ -859,6 +859,11 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
         <p class="vault-field-error" id="s-access-error" role="alert"></p>
         <span class="vault-set-actions"><button class="chip" type="submit" id="s-access-save" disabled>Save</button><button class="chip" type="button" id="s-access-off" hidden>Turn off</button><button class="chip" type="button" id="s-access-reset" hidden>Use the server's values</button></span>
       </form></div>
+    <div class="title-settings model-offer" id="s-signout" role="group" aria-labelledby="s-signout-h" aria-describedby="s-signout-lead">
+      <p class="vault-set-head" id="s-signout-h">Sign out</p>
+      <p class="title-note" id="s-signout-lead">Sign out everywhere ends the sign-in on every browser and phone, this one included. Use it for a lost phone or a shared computer.</p>
+      <p class="vault-field-error" id="s-signout-error" role="alert"></p>
+      <span class="vault-set-actions"><button class="chip" type="button" id="s-signout-here">Sign out</button><button class="chip" type="button" id="s-signout-all">Sign out everywhere</button></span></div>
     <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-conversation tabs</span></span></button>
     <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a reply finishes on screen</span></span></button>
     <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse steps<span class="sub">Fold each run of steps behind a one-line summary</span></span></button>
@@ -1187,6 +1192,14 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   sh.querySelector('#s-access-form').onsubmit = e => { e.preventDefault(); saveAccess({ team: sh.querySelector('#s-access-team').value, aud: sh.querySelector('#s-access-aud').value, emails: sh.querySelector('#s-access-emails').value }, 'One sign-in saved'); };
   sh.querySelector('#s-access-off').onclick = () => confirmSheet('Turn off one sign-in?', 'Pocket asks for its own password again after Cloudflare Access. Browsers already signed in stay signed in for up to a day.', 'Turn off', () => saveAccess({ enabled: false }, 'One sign-in is off'));
   sh.querySelector('#s-access-reset').onclick = () => saveAccess(null, 'Using the server\'s values');
+  // 1.117: sign out this browser, or every browser (the server ends every earlier cookie); either way the sign-in page follows.
+  const signOut = async everywhere => {
+    const err = sh.querySelector('#s-signout-error'); err.textContent = '';
+    try { await api(everywhere ? '/logout/everywhere' : '/logout', { method: 'POST', body: '{}' }); closeCurrentSheet?.(); renderLogin(); }
+    catch (e2) { if (e2.message !== 'login' && sh.isConnected) err.textContent = e2.message || 'Could not sign out'; }
+  };
+  sh.querySelector('#s-signout-here').onclick = () => signOut(false);
+  sh.querySelector('#s-signout-all').onclick = () => confirmSheet('Sign out everywhere?', 'Every browser and phone signed in to Pocket, this one included, has to sign in again. Conversations and replies in progress carry on.', 'Sign out everywhere', () => signOut(true));
   sh.querySelector('#s-models-list').onclick = e => {
     const btn = e.target.closest('[data-offer-model]'), cm = srv?.claudeModels; if (!btn || !cm) return;
     const m = cm.models.find(x => x.id === btn.dataset.offerModel); if (!m) return;
