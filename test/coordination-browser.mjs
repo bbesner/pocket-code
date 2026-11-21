@@ -28,14 +28,14 @@ export async function runCoordinationRegressions({p,base,out,repo,rows,settings,
  await p.screenshot({path:path.join(out,'coordination-empty-1440.png')});await scan('coordination-empty-1440');
  // Held: one line above the list, which opens the view.
  coord.reset();await home();await p.waitForFunction(()=>!document.querySelector('[data-session-held]').hidden);
- assert.equal(await p.$eval('[data-session-held]',e=>e.textContent),'dad-staging held by "DAD 1.168 build" and 1 more');
+ assert.equal(await p.$eval('[data-session-held]',e=>e.textContent),'shop-staging held by "Shop 1.168 build" and 1 more');
  await p.screenshot({path:path.join(out,'coordination-line-1440.png')});await scan('coordination-line-1440');
  await clickControl(p,'[data-session-held]');await p.waitForSelector('#coord-main [data-hold]');
- assert.deepEqual(await p.$$eval('[data-hold]',e=>e.map(x=>x.dataset.hold)),['dad-staging','tpv-deploy']);
- assert.equal(await p.$eval('[data-hold="dad-staging"] .coord-time',e=>e.textContent),'12m');
- assert.equal(await p.$eval('[data-hold="dad-staging"] .coord-wait',e=>e.textContent),'1 waiting: "PayPal fix"');
- assert.match(await p.$eval('[data-hold="dad-staging"] .coord-who a',e=>e.getAttribute('href')),/^#\/chat\//);
- assert.equal(await p.$eval('[data-hold="tpv-deploy"] .coord-who',e=>e.textContent),'Terminal session');assert.equal(await p.$('[data-hold="tpv-deploy"] .coord-who a'),null);
+ assert.deepEqual(await p.$$eval('[data-hold]',e=>e.map(x=>x.dataset.hold)),['shop-staging','site-deploy']);
+ assert.equal(await p.$eval('[data-hold="shop-staging"] .coord-time',e=>e.textContent),'12m');
+ assert.equal(await p.$eval('[data-hold="shop-staging"] .coord-wait',e=>e.textContent),'1 waiting: "PayPal fix"');
+ assert.match(await p.$eval('[data-hold="shop-staging"] .coord-who a',e=>e.getAttribute('href')),/^#\/chat\//);
+ assert.equal(await p.$eval('[data-hold="site-deploy"] .coord-who',e=>e.textContent),'Terminal session');assert.equal(await p.$('[data-hold="site-deploy"] .coord-who a'),null);
  assert.deepEqual(await p.$$eval('[data-past] .coord-why',e=>e.map(x=>x.textContent)),['Released: Deployed and checked','Expired','Released by you']);
  assert.equal(await p.$eval('#ktitle',e=>e.textContent),'Coordination');
  await p.screenshot({path:path.join(out,'coordination-1440.png')});await scan('coordination-1440');await axeCheck(p,repo,'#coord-main');
@@ -48,11 +48,11 @@ export async function runCoordinationRegressions({p,base,out,repo,rows,settings,
  assert.ok((await p.$$eval('.coord-release',e=>e.map(x=>x.getBoundingClientRect().height))).every(h=>h>=44),'Release is 44px on a phone');
  assert.equal(await p.$eval('#coord-main',e=>e.scrollWidth<=e.clientWidth),true);
  // One tap releases: the row leaves Held now, lands in Recent, and the toast says the holder hears about it.
- await clickControl(p,'[data-coord-release="dad-staging"]');await p.waitForFunction(()=>!document.querySelector('[data-hold="dad-staging"]'));
- assert.deepEqual(coord.released,['dad-staging']);assert.ok(await p.$('[data-past="dad-staging"]'));
- assert.match(await p.$eval('#toast',e=>e.textContent),/Released dad-staging\. Its conversation is told when it next runs\. Woke "PayPal fix"\./);
+ await clickControl(p,'[data-coord-release="shop-staging"]');await p.waitForFunction(()=>!document.querySelector('[data-hold="shop-staging"]'));
+ assert.deepEqual(coord.released,['shop-staging']);assert.ok(await p.$('[data-past="shop-staging"]'));
+ assert.match(await p.$eval('#toast',e=>e.textContent),/Released shop-staging\. Its conversation is told when it next runs\. Woke "PayPal fix"\./);
  // A hold someone else ended first: the message shows and the list catches up.
- coord.failNext=true;await clickControl(p,'[data-coord-release="tpv-deploy"]');await p.waitForFunction(()=>!document.querySelector('[data-hold="tpv-deploy"]'));
+ coord.failNext=true;await clickControl(p,'[data-coord-release="site-deploy"]');await p.waitForFunction(()=>!document.querySelector('[data-hold="site-deploy"]'));
  await p.waitForFunction(()=>/already free/.test(document.querySelector('#toast')?.textContent||''));
  // Assistant mode: no row, no chip, no line, no view, whatever the setting says.
  const assistant=settings.assistantMode;settings.assistantMode=true;coord.reset();

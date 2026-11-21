@@ -22,11 +22,11 @@ test('ProjectStore: tracking, editing, stale edits, steps, reminders and finishi
   assert.equal(s.act({action:'track',name:'Warehouse stock report'}).id,'warehouse-stock-report-2','a repeated name gets a distinct id');
   assert.throws(()=>s.act({action:'track',name:' '}),/name/);assert.throws(()=>s.act({action:'track',name:'x',link:'ftp://no'}),/http/);assert.throws(()=>s.act({action:'track',name:'x',directory:'rel'}),/full path/);
   assert.throws(()=>s.act({action:'update',project:a.id,expected_revision:7,next:'x'}),e=>e.status===409&&e.project.revision===1,'a stale edit is refused with the current card');
-  clock+=60000;const b=s.act({action:'update',project:a.id,expected_revision:1,next:'Order from ENS',waitingFor:'Quote'});
-  assert.equal(b.revision,2);assert.equal(b.next,'Order from ENS');assert.equal(b.verified,'2026-10-09T12:01:00Z','an update verifies the card');
+  clock+=60000;const b=s.act({action:'update',project:a.id,expected_revision:1,next:'Order from Litware',waitingFor:'Quote'});
+  assert.equal(b.revision,2);assert.equal(b.next,'Order from Litware');assert.equal(b.verified,'2026-10-09T12:01:00Z','an update verifies the card');
   const t=s.act({action:'task-add',project:a.id,text:'Count aisle 4'}).tasks[0];assert.equal(t.done,false);
   const r1=s.act({action:'remind',project:a.id,at:'2026-10-10T09:00:00Z',task:t.id}).reminders[0];assert.equal(r1.label,'Count aisle 4');assert.equal(r1.task,t.id);
-  const withNote=s.act({action:'note',project:a.id,text:'Spoke to ENS'});assert.equal(withNote.verified,'2026-10-09T12:01:00Z','a note does not verify');assert.equal(withNote.history.at(-1).detail,'Spoke to ENS');
+  const withNote=s.act({action:'note',project:a.id,text:'Spoke to Litware'});assert.equal(withNote.verified,'2026-10-09T12:01:00Z','a note does not verify');assert.equal(withNote.history.at(-1).detail,'Spoke to Litware');
   const r2=s.act({action:'remind',project:a.id,at:'2026-10-11T09:00:00Z',task:t.id}).reminders;assert.equal(r2.length,1);assert.notEqual(r2[0].id,r1.id,'a new reminder on the same step replaces the open one');
   s.act({action:'remind',project:a.id,at:'2026-10-12T09:00:00Z',text:'Check in'});assert.equal(s.view(s.get(a.id)).reminders.length,2,'one per project plus one per step');
   const done=s.act({action:'task-update',project:a.id,task:t.id,done:true});assert.equal(done.tasks[0].done,true);assert.equal(done.reminders.length,1,'finishing a step stops its reminder');

@@ -367,18 +367,18 @@ def test_a_thread_taken_in_by_another_entry_loses_the_label_and_stays():
 def test_a_merged_entry_joins_its_story():
     """1.113: feedback for an entry merged in Pocket links its threads to the story it went into and closes its own story."""
     store, g, p = setup()
-    for key, tid in (("addison-outage", A), ("addison-storm", B)):
+    for key, tid in (("bellwood-outage", A), ("bellwood-storm", B)):
         store.db.execute("insert into issues(issue_key,status,priority,title) values(?, 'open', 'high', ?)", (key, key))
         store.link(key, tid)
-    p.feedback = lambda: [{"id": "e2", "action": "dismissed", "story": "addison-storm", "title": "Addison Reserve storm outage",
-                           "mergedInto": "e1", "intoStory": "addison-outage", "at": E.iso()}]
+    p.feedback = lambda: [{"id": "e2", "action": "dismissed", "story": "bellwood-storm", "title": "Bellwood Estates storm outage",
+                           "mergedInto": "e1", "intoStory": "bellwood-outage", "at": E.iso()}]
     acked = []
     p.ack = acked.extend
     E.apply_feedback(store)
     assert acked == ["e2"]
-    assert store.keys_for_threads([B]) == {"addison-outage", "addison-storm"}
-    assert store.story("addison-storm")["status"] == "resolved" and store.story("addison-outage")["status"] == "open"
-    assert any("Merged in Pocket" in e["fact"] for e in store.events("addison-outage"))
+    assert store.keys_for_threads([B]) == {"bellwood-outage", "bellwood-storm"}
+    assert store.story("bellwood-storm")["status"] == "resolved" and store.story("bellwood-outage")["status"] == "open"
+    assert any("Merged in Pocket" in e["fact"] for e in store.events("bellwood-outage"))
 
 
 def test_a_split_entry_gets_a_story_of_its_own():

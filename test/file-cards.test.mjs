@@ -45,7 +45,7 @@ const waitIdle = async (s, id) => { for (let i = 0; i < 100; i++) { const r = (a
 test('a reply\'s file: inline view for readable files, a PDF picture or 404, and auto-keep once per file', async t => {
   const s = await server(t, 18678, {});
   const work = fs.mkdtempSync(path.join(os.homedir(), 'pocket-cards-test-')); t.after(() => fs.rmSync(work, { recursive: true, force: true }));
-  const html = path.join(work, 'page.html'), doc = path.join(work, 'Village-deck.pptx');
+  const html = path.join(work, 'page.html'), doc = path.join(work, 'Fairview-deck.pptx');
   fs.writeFileSync(html, '<h1>Hi</h1><script>danger()</script>'); fs.writeFileSync(doc, 'not really a deck');
   await s.call('/settings', { documents: true, autoKeepFiles: true });
   assert.equal((await s.call('/settings')).body.autoKeepActive, true);

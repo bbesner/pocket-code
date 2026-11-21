@@ -519,7 +519,7 @@ SAME_SENDER_THREADS = 3
 
 
 def sender_domain(sender: str) -> str | None:
-    """Registered domain of an outside sender (notification.capitalone.com -> capitalone.com); None for freemail and our own."""
+    """Registered domain of an outside sender (alerts.mail.example.com -> example.com); None for freemail and our own."""
     m = re.search(r"@([A-Za-z0-9.-]+)", sender or "")
     if not m:
         return None
@@ -992,7 +992,7 @@ IDENT_MAX, IDENT_COMMON, IDENT_REPORT = 30, 12, 15
 
 
 def identifiers(text: str) -> list[str]:
-    """Codes that name a specific thing: P40-137T, IP12-034, S7564, INV-011558, 7644799. Not dates, times, sizes or words."""
+    """Codes that name a specific thing: P12-345T, IP01-002, S1234, INV-000123, 1234567. Not dates, times, sizes or words."""
     seen, out = set(), []
     text = re.sub(r"https?://\S+|\S*%[0-9A-Fa-f]{2}\S*|\S+@\S+", " ", text or "")  # links and addresses are not identifiers
     text = re.sub(r"\b\d{1,2}-(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*-\d{2,4}\b", " ", text, flags=re.I)

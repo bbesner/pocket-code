@@ -379,8 +379,8 @@ export class DocumentStore {
     return r;
   }
   // One-time import of an older dashboard's dashboard-files-meta.json ({ name: { visibility, access?, updated } }).
-  // public → public; private + the staff `access` value → link (tokens returned once); private → private. Files without a
-  // record are adopted private by the scan. Names the metadata lists that are not in the folder are reported.
+  // public → public; private with an `access` value (the old format used one value, for staff) → link (tokens returned
+  // once); private with `access` null or absent → private. Files without a record are adopted private by the scan. Names the metadata lists that are not in the folder are reported.
   // PC-04: with `hold` (an agent's import), every file comes in private and the ones the metadata had shared are listed in
   // `held` with what they were; the owner shares them, or the agent asks for each one.
   importMeta(meta, { hold = false } = {}) {
@@ -392,7 +392,7 @@ export class DocumentStore {
       if (next.some(r => r.file === file)) { counts.skipped++; continue; }
       let st; try { st = fs.statSync(path.join(this.dir, file)); } catch { missing.push(file); continue; }
       if (!st.isFile() || !kindOf(file)) { missing.push(file); continue; }
-      const wanted = m.visibility === 'public' ? 'public' : m.access === 'techpro' ? 'link' : 'private', visibility = hold ? 'private' : wanted;
+      const wanted = m.visibility === 'public' ? 'public' : m.access ? 'link' : 'private', visibility = hold ? 'private' : wanted;
       const r = this.record(file, { addedBy: 'import', size: st.size, at: m.updated && !Number.isNaN(Date.parse(m.updated)) ? iso(Date.parse(m.updated)) : iso(st.mtimeMs), visibility }, next.length);
       next.push(r); counts[visibility]++;
       if (wanted !== visibility) held.push({ id: r.id, file, wanted });

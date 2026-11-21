@@ -24,11 +24,11 @@ test('MemStem transcript refs map to Pocket session ids only inside Pocket\'s ow
 });
 
 test('bestSnippet picks the passage with the most query words and says who wrote it',()=>{
-  const md='---\ntitle: x\n---\n\n**User:** please check the camera firmware\n\n**Assistant:** The Avigilon H6A cameras run firmware 5.2. The quote for Trump Towers is ready.\n\n**User:** thanks';
-  assert.deepEqual(bestSnippet(md,'Avigilon quote Trump'),{role:'assistant',text:'The Avigilon H6A cameras run firmware 5.2. The quote for Trump Towers is ready.'});
+  const md='---\ntitle: x\n---\n\n**User:** please check the camera firmware\n\n**Assistant:** The Lumacam L6A cameras run firmware 5.2. The quote for Sunridge Towers is ready.\n\n**User:** thanks';
+  assert.deepEqual(bestSnippet(md,'Lumacam quote Sunridge'),{role:'assistant',text:'The Lumacam L6A cameras run firmware 5.2. The quote for Sunridge Towers is ready.'});
   assert.equal(bestSnippet(md,'firmware').role,'user','the earliest best passage wins ties');
   assert.equal(bestSnippet(md,'reranker'),null,'no word in the text: the session matched by meaning');
-  assert.deepEqual(queryTerms('a  Trump-Towers, quote!'),['trump-towers','quote']);
+  assert.deepEqual(queryTerms('a  Sunridge-Towers, quote!'),['sunridge-towers','quote']);
   assert.equal(cleanMemstemSnippet('**User:** hello **Assistant:** hi'),'hello hi');
   const long='**Assistant:** '+'word '.repeat(200)+'needle '+'word '.repeat(200);
   const s=bestSnippet(long,'needle');assert.ok(s.text.startsWith('…')&&s.text.endsWith('…')&&s.text.includes('needle')&&s.text.length<260);
@@ -61,23 +61,23 @@ test('HTTP: MemStem-backed search maps hits to sessions, takes snippets from the
   await new Promise(r=>ms.listen(0,'127.0.0.1',r));
   t.after(()=>{ms.close();fs.rmSync(vault,{recursive:true,force:true});});
   const f=await fixture(t,18741,{POCKET_MEMSTEM_URL:`http://127.0.0.1:${ms.address().port}/`});
-  const a=f.seed([{type:'user',message:{role:'user',content:'Review the Avigilon quote for Trump Towers'}},{type:'assistant',message:{role:'assistant',content:[{type:'text',text:'The quote is ready.'}]}}]);
+  const a=f.seed([{type:'user',message:{role:'user',content:'Review the Lumacam quote for Sunridge Towers'}},{type:'assistant',message:{role:'assistant',content:[{type:'text',text:'The quote is ready.'}]}}]);
   const b=f.seed([{type:'user',message:{role:'user',content:'Plan the camera layout for the north lot'}}]);
-  fs.writeFileSync(path.join(vault,'sessions',a+'.md'),'---\ntitle: x\n---\n\n**User:** Review the Avigilon quote for Trump Towers\n\n**Assistant:** The quote is ready.\n');
+  fs.writeFileSync(path.join(vault,'sessions',a+'.md'),'---\ntitle: x\n---\n\n**User:** Review the Lumacam quote for Sunridge Towers\n\n**Assistant:** The quote is ready.\n');
   fs.writeFileSync(path.join(vault,'sessions',b+'.md'),'**User:** Plan the camera layout for the north lot\n');
   const ref=id=>path.join(f.ws,id+'.jsonl');
   ms.hits=[
-    {type:'session',path:`sessions/${a}.md`,snippet:'**User:** Review the Avigilon quote',frontmatter:{provenance:{ref:ref(a)}}},
+    {type:'session',path:`sessions/${a}.md`,snippet:'**User:** Review the Lumacam quote',frontmatter:{provenance:{ref:ref(a)}}},
     {type:'session',path:`sessions/${a}.md`,frontmatter:{provenance:{ref:ref(a)}}},                                   // a repeat of the same session
     {type:'session',path:'../../etc/passwd',snippet:'**User:** Plan the camera layout for the north lot',frontmatter:{provenance:{ref:ref(b)}}}, // unsafe vault path: use MemStem's snippet
     {type:'session',path:'sessions/other.md',frontmatter:{provenance:{ref:'/somewhere/else.jsonl'}}},
   ];
-  const r=await f.call('/search?q='+encodeURIComponent('Avigilon quote'));
+  const r=await f.call('/search?q='+encodeURIComponent('Lumacam quote'));
   assert.equal(r.status,200);assert.equal(r.body.backend,'memstem');
-  assert.deepEqual(queries.at(-1),{query:'Avigilon quote',limit:30,types:['session']});
+  assert.deepEqual(queries.at(-1),{query:'Lumacam quote',limit:30,types:['session']});
   assert.deepEqual(r.body.results.map(x=>x.id),[a,b],'MemStem order, one row per session, foreign transcripts dropped');
-  assert.equal(r.body.results[0].role,'user');assert.match(r.body.results[0].snippet,/Avigilon quote for Trump Towers/);assert.equal(r.body.results[0].related,false);
-  assert.equal(r.body.results[0].title,'Review the Avigilon quote for Trump Towers');
+  assert.equal(r.body.results[0].role,'user');assert.match(r.body.results[0].snippet,/Lumacam quote for Sunridge Towers/);assert.equal(r.body.results[0].related,false);
+  assert.equal(r.body.results[0].title,'Review the Lumacam quote for Sunridge Towers');
   assert.equal(r.body.results[1].related,true,'no word matched: shown as related');assert.equal(r.body.results[1].snippet,'Plan the camera layout for the north lot');
   assert.equal((await f.call('/search?q=ab')).status,400);
   assert.equal((await fetch(`http://127.0.0.1:18741/api/search?q=abc`)).status,401);
@@ -103,7 +103,7 @@ test('HTTP: without MemStem, Pocket finds an exact phrase in recent conversation
 test('HTTP: MemStem snippets never follow a link out of the vault or open a FIFO; an oversized answer falls back',async t=>{
   const vault=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-'));fs.mkdirSync(path.join(vault,'sessions'));
   const outside=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'pocket-outside-')),'secret.md');
-  fs.writeFileSync(outside,'**User:** Avigilon quote OUTSIDE-THE-VAULT text\n');
+  fs.writeFileSync(outside,'**User:** Lumacam quote OUTSIDE-THE-VAULT text\n');
   let ms;
   ms=http.createServer(async(req,res)=>{
     if(req.url==='/health'){res.end(JSON.stringify({status:'ok',vault}));return;}
@@ -114,18 +114,18 @@ test('HTTP: MemStem snippets never follow a link out of the vault or open a FIFO
   await new Promise(r=>ms.listen(0,'127.0.0.1',r));
   t.after(()=>{ms.close();fs.rmSync(vault,{recursive:true,force:true});fs.rmSync(path.dirname(outside),{recursive:true,force:true});});
   const f=await fixture(t,18791,{POCKET_MEMSTEM_URL:`http://127.0.0.1:${ms.address().port}`});
-  const a=f.seed([{type:'user',message:{role:'user',content:'Review the Avigilon quote'}}]);
-  const b=f.seed([{type:'user',message:{role:'user',content:'Avigilon quote, second pass'}}]);
+  const a=f.seed([{type:'user',message:{role:'user',content:'Review the Lumacam quote'}}]);
+  const b=f.seed([{type:'user',message:{role:'user',content:'Lumacam quote, second pass'}}]);
   fs.symlinkSync(outside,path.join(vault,'sessions',a+'.md'));
   execFileSync('mkfifo',[path.join(vault,'sessions',b+'.md')]);
   const ref=id=>path.join(f.ws,id+'.jsonl');
   ms.hits=[{type:'session',path:`sessions/${a}.md`,snippet:'from memstem a',frontmatter:{provenance:{ref:ref(a)}}},{type:'session',path:`sessions/${b}.md`,snippet:'from memstem b',frontmatter:{provenance:{ref:ref(b)}}}];
-  const r=await Promise.race([f.call('/search?q='+encodeURIComponent('Avigilon quote')),sleep(5000).then(()=>({timedOut:true}))]);
+  const r=await Promise.race([f.call('/search?q='+encodeURIComponent('Lumacam quote')),sleep(5000).then(()=>({timedOut:true}))]);
   assert.ok(!r.timedOut,'the search answered (a FIFO is not opened)');
   assert.equal(r.body.backend,'memstem');
   assert.doesNotMatch(JSON.stringify(r.body),/OUTSIDE-THE-VAULT/,'a link out of the vault is not read');
   assert.deepEqual(r.body.results.map(x=>x.snippet),['from memstem a','from memstem b']);
   ms.huge=true;
-  const big=await f.call('/search?q='+encodeURIComponent('Avigilon quote'));
+  const big=await f.call('/search?q='+encodeURIComponent('Lumacam quote'));
   assert.equal(big.body.backend,'pocket');assert.match(f.logs(),/memstem search failed, using Pocket's own: answer larger than/);
 });

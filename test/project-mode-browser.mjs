@@ -59,25 +59,25 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   assert.equal(await page.$eval('#pe-done-help',e=>e.textContent),'What finished looks like, as something that can be checked.');
   assert.equal(await page.$eval('#pe-works-help',e=>e.textContent),"Folders and web addresses the lead may change without asking. The project's directory is always included.");
   assert.equal(await page.$eval('#pe-done',e=>e.maxLength),600);
-  await page.type('#pe-done','Aisle 4 matches MOM and the adjustment is posted.');
+  await page.type('#pe-done','Aisle 4 matches the stock ledger and the adjustment is posted.');
   await page.type('#pe-works','/workspaces/warehouse-tools\n\n  https://staging.example.test/stock  \n');
   await axe('.project-editor');await shot('edit-form-1440');
   await clickControl(page,'.project-editor button.primary');await page.waitForFunction(()=>!document.querySelector('.project-editor'));
-  const saved=lastAct();assert.equal(saved.action,'update');assert.equal(saved.doneWhen,'Aisle 4 matches MOM and the adjustment is posted.');
+  const saved=lastAct();assert.equal(saved.action,'update');assert.equal(saved.doneWhen,'Aisle 4 matches the stock ledger and the adjustment is posted.');
   assert.deepEqual(saved.worksIn,['/workspaces/warehouse-tools','https://staging.example.test/stock'],'one place per line, trimmed, blanks dropped');
   await page.waitForFunction(()=>document.querySelectorAll('.project-works .ledger').length===2);
-  assert.match(await page.$eval('.project-card',e=>e.textContent),/Aisle 4 matches MOM and the adjustment is posted\./);
+  assert.match(await page.$eval('.project-card',e=>e.textContent),/Aisle 4 matches the stock ledger and the adjustment is posted\./);
   assert.equal(await page.$eval('.project-works a.ledger',a=>a.getAttribute('href')),'https://staging.example.test/stock');
 
   console.log('Project mode: a step\'s Passes when shows and saves');
   const step=await page.evaluate(id=>projectById(id).tasks.find(t=>!t.done).id,WAREHOUSE);
   await clickControl(page,`[data-task-more="${step}"]`);await page.waitForSelector('.sheet [data-edit]');await clickControl(page,'.sheet [data-edit]');
-  await page.waitForSelector('#step-check');await page.type('#step-check','The recount sheet totals match MOM');
+  await page.waitForSelector('#step-check');await page.type('#step-check','The recount sheet totals match the stock ledger');
   await axe('.sheet');await clickControl(page,'.sheet button.primary');
   await page.waitForSelector('.task-pass');
-  assert.deepEqual((({action,task,check,text})=>({action,task,check,text}))(lastAct()),{action:'task-update',task:step,check:'The recount sheet totals match MOM',text:'Recount aisle 4 excluding Friday delivery'});
-  assert.equal(await page.$eval('.task-pass',e=>e.textContent),'Passes when: The recount sheet totals match MOM');
-  assert.match(await page.evaluate(id=>projectBriefing(projectById(id)),WAREHOUSE),/Done when: Aisle 4 matches MOM[^\n]*\nWorks in: \/workspaces\/warehouse-tools, https:\/\/staging\.example\.test\/stock[\s\S]*- Recount aisle 4 excluding Friday delivery \(step [a-z0-9]+; passes when: The recount sheet totals match MOM\)[\s\S]*--done-when[\s\S]*task add "…" --check/);
+  assert.deepEqual((({action,task,check,text})=>({action,task,check,text}))(lastAct()),{action:'task-update',task:step,check:'The recount sheet totals match the stock ledger',text:'Recount aisle 4 excluding Friday delivery'});
+  assert.equal(await page.$eval('.task-pass',e=>e.textContent),'Passes when: The recount sheet totals match the stock ledger');
+  assert.match(await page.evaluate(id=>projectBriefing(projectById(id)),WAREHOUSE),/Done when: Aisle 4 matches the stock ledger[^\n]*\nWorks in: \/workspaces\/warehouse-tools, https:\/\/staging\.example\.test\/stock[\s\S]*- Recount aisle 4 excluding Friday delivery \(step [a-z0-9]+; passes when: The recount sheet totals match the stock ledger\)[\s\S]*--done-when[\s\S]*task add "…" --check/);
   await axe('.project-card');await noOverflow('card on 1440');await shot('card-on-1440',true);
 
   console.log('Project mode: the card at 360, 390 and 768');

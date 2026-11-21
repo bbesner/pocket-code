@@ -60,7 +60,7 @@ test('spoken alerts: who finished, a one-line summary, and what needs you', () =
   const reply = '**Done.** Updated the reorder report: 42 products are below their reorder level. See the CSV.';
   assert.equal(V.alertText({ title: 'Warehouse inventory', kind: 'finished', reply }, 'summary'), 'The Warehouse inventory conversation finished. Updated the reorder report: 42 products are below their reorder level.');
   assert.equal(V.alertText({ title: 'Warehouse inventory', kind: 'finished', reply }, 'name'), 'The Warehouse inventory conversation finished.');
-  assert.equal(V.alertText({ title: 'DAD bug 41 session', kind: 'input', approvals: 1 }, 'summary'), 'The DAD bug 41 session needs your approval.');
+  assert.equal(V.alertText({ title: 'Shop bug 41 session', kind: 'input', approvals: 1 }, 'summary'), 'The Shop bug 41 session needs your approval.');
   assert.equal(V.alertText({ title: 'Footer refresh', kind: 'input' }, 'name'), 'The Footer refresh conversation has a question for you.');
   assert.equal(V.alertText({ title: 'Nightly import', kind: 'failed' }, 'summary'), 'The Nightly import conversation stopped with an error.');
   assert.equal(V.shortTitle('Review `/home/u/projects/x/src/very/long/path.py` and then fix the remaining flaky tests in CI'), 'Review path.py and then fix the remaining flaky…');

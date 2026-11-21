@@ -61,10 +61,10 @@ const secretRefusal=body=>{if(fixtureSettings.secretGuard===false||body.allowSec
 // 1.41: extraRequests are added to the snapshot's requests as they are (a request on an item that asks every time).
 const vaultFixture={passphrase:null,imported:null,extraRequests:[],key:null}; // 1.44: key is the fixture store's key, the recovery key the routes hand out
 const coordFixture={holds:[],recent:[],released:[],failNext:false,reset(holds){const ago=m=>Date.now()-m*60000-5000;this.released=[];this.failNext=false;
- this.holds=holds||[{name:'dad-staging',reason:'Building and verifying',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'DAD 1.168 build'},heldAt:ago(12),expiresAt:Date.now()+48*60000,ttlMs:3600000,waiters:[{id:'w1',kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',at:ago(4),block:false,title:'PayPal fix'}]},
-  {name:'tpv-deploy',reason:'Rolling out to the warehouse recorder from a terminal on the ops box, so wait for it to finish',holder:{kind:'terminal',session:null,title:''},heldAt:ago(185),expiresAt:Date.now()+295*60000,ttlMs:28800000,waiters:[]}];
+ this.holds=holds||[{name:'shop-staging',reason:'Building and verifying',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'Shop 1.168 build'},heldAt:ago(12),expiresAt:Date.now()+48*60000,ttlMs:3600000,waiters:[{id:'w1',kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',at:ago(4),block:false,title:'PayPal fix'}]},
+  {name:'site-deploy',reason:'Rolling out to the warehouse recorder from a terminal on the ops box, so wait for it to finish',holder:{kind:'terminal',session:null,title:''},heldAt:ago(185),expiresAt:Date.now()+295*60000,ttlMs:28800000,waiters:[]}];
  this.recent=[{name:'pocket-main',reason:'Release',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000aa',title:'Release 1.98'},heldAt:ago(90),endedAt:ago(40),event:'released',note:'Deployed and checked'},
-  {name:'dad-production',reason:'Rollout',holder:{kind:'terminal',session:null,title:''},heldAt:ago(300),endedAt:ago(120),event:'expired',note:''},
+  {name:'shop-production',reason:'Rollout',holder:{kind:'terminal',session:null,title:''},heldAt:ago(300),endedAt:ago(120),event:'expired',note:''},
   {name:'staging-db',reason:'Reset',holder:{kind:'conversation',session:'f00d0000-0000-4000-8000-0000000000ab',title:'Database reset'},heldAt:ago(500),endedAt:ago(200),event:'owner',note:''}];}};
 coordFixture.reset();
 const resetVaultLock=()=>{Object.assign(fixtureSettings,{vaultMode:'key',vaultLocked:false,vaultAutoLockMinutes:0,vaultAccess:'once',vaultCanCreateKey:false,vaultNeedsKey:false});vaultFixture.passphrase=null;vaultFixture.imported=null;vaultFixture.extraRequests=[];};
@@ -84,7 +84,7 @@ const taskStore=new TaskStore(path.join(out,'tasks.json'));
 const seedTasks=()=>{taskStore.tasks.length=0;
  taskStore.act({action:'add',text:'Send the aisle 4 recount to purchasing',dueAt:new Date(now-3600000).toISOString(),session:rows[0].id,sessionTitle:rows[0].title,directory:rows[0].cwd,summary:'Recounting aisle 4 against the Friday delivery.\nAisles 1-3 reconcile; aisle 4 is 14 units short.\nThe recount sheet is in results.'});
  taskStore.act({action:'add',text:'Chase the revised camera quote',dueAt:new Date(now+3*86400000).toISOString()});
- taskStore.act({action:'add',text:'Read the TVT firmware notes'});
+ taskStore.act({action:'add',text:'Read the Lumacam firmware notes'});
  const d=taskStore.act({action:'add',text:'Book the forklift service'});taskStore.act({action:'update',task:d.id,done:true});};
 // 1.39: the vault is the real store on a scratch vault.enc under a test key: an API key that asks (one approved command),
 // a login agents may use that expires in 5 days, an owner-only note, a removed token, and one request waiting for the owner.
@@ -129,11 +129,11 @@ const actOnBoard=input=>{
  modeSide.set(p.id,m);return withMode(p);
 };
 const seedBoard=()=>{board.projects.length=0;modeSide.clear();
- const a=board.act({action:'track',name:'Warehouse stock report',summary:'Counts for aisles 1-3 are reconciled against MOM. Aisle 4 still shows 14 units unaccounted for.',next:'Recount aisle 4 with the Friday delivery excluded, then post the adjustment.',directory:'/workspaces/warehouse',link:'https://example.test/stock',session:rows[0].id});
- board.act({action:'task-add',project:a.id,text:'Reconcile aisles 1-3 against MOM'});const t=board.act({action:'task-add',project:a.id,text:'Recount aisle 4 excluding Friday delivery'}).tasks[1];
+ const a=board.act({action:'track',name:'Warehouse stock report',summary:'Counts for aisles 1-3 are reconciled against the stock ledger. Aisle 4 still shows 14 units unaccounted for.',next:'Recount aisle 4 with the Friday delivery excluded, then post the adjustment.',directory:'/workspaces/warehouse',link:'https://example.test/stock',session:rows[0].id});
+ board.act({action:'task-add',project:a.id,text:'Reconcile aisles 1-3 against the stock ledger'});const t=board.act({action:'task-add',project:a.id,text:'Recount aisle 4 excluding Friday delivery'}).tasks[1];
  board.act({action:'task-update',project:a.id,task:board.get(a.id).tasks[0].id,done:true});
  board.act({action:'remind',project:a.id,at:new Date(now-3600000).toISOString(),task:t.id});
- const b=board.act({action:'track',name:'Supplier inventory import',summary:'CSV mapping drafted for ENS and Centro feeds.',next:'Run the dry import against staging and compare counts.',directory:'/workspaces/inventory',session:rows[2].id});
+ const b=board.act({action:'track',name:'Supplier inventory import',summary:'CSV mapping drafted for Litware and Proseware feeds.',next:'Run the dry import against staging and compare counts.',directory:'/workspaces/inventory',session:rows[2].id});
  board.act({action:'task-add',project:b.id,text:'Dry run on staging'});
  const c=board.act({action:'track',name:'Camera ordering review',summary:'Vendor quotes collected; waiting on the revised pricing.',next:'Compare the revised quote and decide.'});
  board.act({action:'update',project:c.id,status:'waiting',waitingFor:'Revised vendor quote'});board.act({action:'remind',project:c.id,at:new Date(now+5*86400000).toISOString(),text:'Chase the revised quote'});
@@ -143,9 +143,9 @@ const seedBoard=()=>{board.projects.length=0;modeSide.clear();
 const inboxStore=new InboxStore(path.join(out,'inbox.json'));
 const inboxCaughtUp=[],inboxSplits=[]; // 1.113.1; 1.115
 const seedInbox=()=>{inboxStore.entries.length=0;inboxStore.sources={};
- const r=inboxStore.add({kind:'alert',title:'Lakeview alarm timer tests',text:'Ten missed tests since October 13. [Latest](msg:1a151dff1dfb590e)',story:'lakeview-late-alarm-test',source:'inbox-monitor',url:'/#/start/0123456789ac'},{actor:'cli'});inboxStore.act({action:'resolve',id:r.id});
- const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- Storefront payout deductions: the scheduled payout includes $267.48 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
- inboxStore.add({kind:'alert',priority:'high',title:'Oakridge dispatch conflict',text:'Robin says the visit was supposed to be last night and asks that nobody be dispatched, while the 8:03 notice has Jordan on the way for 9–10. [Call transcript](msg:1a1540e0de10f879) · [Dispatch notice](msg:1a1540b3f8676388) Avery should reach Jordan before 9 a.m.',story:'oakridge-service-scheduling',source:'inbox-monitor',url:'/#/start/0123456789ab',gmail:'https://mail.google.com/mail/u/0/#all/1a1540b3f8676388',dedupe:'oakridge|1'},{actor:'cli'});
+ const r=inboxStore.add({kind:'alert',title:'Birchwood alarm timer tests',text:'Ten missed tests since October 13. [Latest](msg:1a151dff1dfb590e)',story:'birchwood-late-alarm-test',source:'inbox-monitor',url:'/#/start/0123456789ac'},{actor:'cli'});inboxStore.act({action:'resolve',id:r.id});
+ const d=inboxStore.add({kind:'digest',title:'Morning email digest — Mon Oct 19',text:'## Worth knowing\n- Storefront payout deductions: the scheduled payout includes $150.00 in deductions.\nIgnored since the last digest: 142 threads.',source:'inbox-monitor',doc:'4897fe3220c8',dedupe:'digest|2026-10-19'},{actor:'cli'});inboxStore.act({action:'open',id:d.id});
+ inboxStore.add({kind:'alert',priority:'high',title:'Elmstead dispatch conflict',text:'Robin says the visit was supposed to be last night and asks that nobody be dispatched, while the 8:03 notice has Jordan on the way for 9–10. [Call transcript](msg:1a1540e0de10f879) · [Dispatch notice](msg:1a1540b3f8676388) Avery should reach Jordan before 9 a.m.',story:'elmstead-service-scheduling',source:'inbox-monitor',url:'/#/start/0123456789ab',gmail:'https://mail.google.com/mail/u/0/#all/1a1540b3f8676388',dedupe:'elmstead|1'},{actor:'cli'});
  inboxStore.seen('inbox-monitor');
  // 1.70: the watcher's profile, as inbox-monitor 0.3 sends it with its heartbeat; no owner settings yet
  inboxStore.profiles={};inboxStore.watch={};
@@ -255,8 +255,8 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname.endsWith('/pin')){let raw='';for await(const c of req)raw+=c;const r=rows.find(x=>x.id===decodeURIComponent(url.pathname.split('/').at(-2)));if(r){if(JSON.parse(raw||'{}').pinned)r.pinned=true;else{delete r.pinned;delete r.pinOrder;}}return json({ok:true,pinned:Boolean(r?.pinned)});}
  if(url.pathname==='/api/pins/order'){let raw='';for await(const c of req)raw+=c;const ids=JSON.parse(raw||'{}').ids||[];pinOrders.push(ids);ids.forEach((id,i)=>{const r=rows.find(x=>x.id===id);if(r?.pinned)r.pinOrder=i;});return json({ok:true,order:ids});}
- if(/^\/api\/start\/f00d[0-9a-f]{8}$/.test(url.pathname)){const id=url.pathname.slice(11),h=uiModes.handoffs?.[id];return h?json({ok:true,id,kind:'handoff',title:'Finish the Oakridge schedule',text:'Pick up the Oakridge schedule from the last draft. The dispatch list is done; the on-call rota for next week is not.',directory:'/workspaces/warehouse',provider:'claude',approvalMode:'review',...h}):json({error:'missing'},404);} // 1.96 handoff cards
- if(url.pathname.startsWith('/api/start/'))return /^\/api\/start\/[0-9a-f]{12}$/.test(url.pathname)?json({ok:true,id:url.pathname.slice(11),text:'Oakridge: Robin asks that nobody be dispatched. Reach Jordan before 9 a.m.',directory:uiModes.startDirectory||'/workspaces/warehouse',provider:'claude'}):json({error:'missing'},404); // 1.57 start links; 1.77 the Inbox briefing; 1.81 startDirectory: a link to another folder
+ if(/^\/api\/start\/f00d[0-9a-f]{8}$/.test(url.pathname)){const id=url.pathname.slice(11),h=uiModes.handoffs?.[id];return h?json({ok:true,id,kind:'handoff',title:'Finish the Elmstead schedule',text:'Pick up the Elmstead schedule from the last draft. The dispatch list is done; the on-call rota for next week is not.',directory:'/workspaces/warehouse',provider:'claude',approvalMode:'review',...h}):json({error:'missing'},404);} // 1.96 handoff cards
+ if(url.pathname.startsWith('/api/start/'))return /^\/api\/start\/[0-9a-f]{12}$/.test(url.pathname)?json({ok:true,id:url.pathname.slice(11),text:'Elmstead: Robin asks that nobody be dispatched. Reach Jordan before 9 a.m.',directory:uiModes.startDirectory||'/workspaces/warehouse',provider:'claude'}):json({error:'missing'},404); // 1.57 start links; 1.77 the Inbox briefing; 1.81 startDirectory: a link to another folder
  if(url.pathname==='/api/projects')return json(uiModes.lockedWorkspace?{projects:['/workspaces/warehouse'],defaultCwd:'/workspaces/warehouse',locked:true}:{projects:['/workspaces/warehouse','/workspaces/products'],...(uiModes.defaultCwd&&{defaultCwd:uiModes.defaultCwd})}); // 1.55: lockedWorkspace = one folder, nothing to choose; 1.81 defaultCwd: POCKET_DEFAULT_CWD
  if(url.pathname==='/api/commands')return json({commands:[{name:'inventory-report',label:'Inventory report',desc:'Review on-hand and incoming stock.',invocation:url.searchParams.get('provider')==='codex'?'Use the $inventory-report skill.':'Use the /inventory-report skill.'},{name:'product-listing',label:'Product listing',desc:'Prepare a new product listing.'}],...(url.searchParams.get('provider')==='codex'?{}:{available:['context','compact','init','recap','code-review']})});
  if(url.pathname==='/api/claude/models')return json(Array.isArray(fixtureSettings.offeredClaudeModels)?{models:fixtureOffer(fixtureSettings.offeredClaudeModels).models.filter(m=>m.offered).map(({id,label,sub})=>({id,label,sub})),defaultLabel:'Test agent',limited:true}:{models:[{id:'test',label:'Test agent'},{id:'claude-opus-5-5[1m]',label:'Opus 5.5'}],defaultLabel:'Test agent'});
@@ -272,7 +272,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/inbox/digest-cards'){ // 1.95: a digest whose story is also an open alert, and two lines of its own
    const al=inboxStore.add({kind:'alert',title:'Gate controller offline',text:'The north gate stopped answering at 6:12.',story:'north-gate',source:'inbox-monitor'},{actor:'cli'});
    const d=inboxStore.add({kind:'digest',title:'Morning email digest — Sat Nov 7',text:'## Worth knowing\n- Payout deductions\nIgnored since the last digest: 12 threads.',source:'inbox-monitor',items:[
-    {ref:'a1',section:'worth',title:'Payout deductions',text:'The scheduled payout includes $267.48 in deductions.',story:'payout',url:'/#/start/0123456789ad'},
+    {ref:'a1',section:'worth',title:'Payout deductions',text:'The scheduled payout includes $150.00 in deductions.',story:'payout',url:'/#/start/0123456789ad'},
     {ref:'a2',section:'worth',title:'Vendor price list',text:'The new price list starts Monday.',story:'vendor-prices',url:'/#/start/0123456789ae'},
     {ref:'a3',section:'worth',title:'North gate',text:'The north gate stopped answering.',story:'north-gate',url:'/#/start/0123456789af'},
    ]},{actor:'cli'});

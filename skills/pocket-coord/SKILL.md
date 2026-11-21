@@ -5,7 +5,7 @@ description: Claim shared things in Pocket Code so two conversations don't work 
 
 # Pocket Code holds
 
-A hold is a named claim such as `dad-staging`: one holder, a reason and an expiry. The user sees every hold in
+A hold is a named claim such as `shop-staging`: one holder, a reason and an expiry. The user sees every hold in
 Coordination. **A hold is advice.** It stops nothing, so a real deploy lock keeps applying and you keep obeying it. A hold
 is still worth having because it covers the whole job (build, verify, wait for the user), where a lock covers only the
 rollout step.
@@ -24,13 +24,13 @@ How this feature works, how it is set up and its limits: `docs/manual/coordinati
 pocket-coord hold <name> --reason "…" [--ttl 45m]
 ```
 
-Claim the thing, not the task: `dad-staging`, not `paypal-fix`. Usual names are `dad-staging`, `dad-production`,
-`tpv-deploy` and `pocket-main`. `pocket-coord list` shows them and what is held now.
+Claim the thing, not the task: `shop-staging`, not `paypal-fix`. Pocket starts knowing only `pocket-main`
+and learns each name the first time it is held. `pocket-coord list` shows what is held now and names used lately.
 
 - Write the reason for someone who finds it later: `Building and verifying 1.168`.
 - A hold lasts 60 minutes unless `--ttl` says otherwise, 8 hours at most. It renews while this conversation is running.
 - Holding the same name again renews it.
-- A name close to an existing one is refused, so `staging` and `dad-staging` don't become two holds. Use the existing name.
+- A name close to an existing one is refused, so `staging` and `shop-staging` don't become two holds. Use the existing name.
   Pass `--new` only if it really is a different thing.
 
 ## If it is held
