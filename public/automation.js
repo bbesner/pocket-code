@@ -320,7 +320,7 @@ const Automation = (() => {
       apply({ paused: data.paused ?? state.paused });
       if (group === 'checkbacks') followCheckbacksSwitch();
       paintSettings();
-      const st = host.querySelector(`[data-auto-status="${CSS.escape(group)}"]`); if (st) st.textContent = done || 'Saved.';
+      const st = host.querySelector(`[data-auto-status="${CSS.escape(group)}"]`); if (st) st.textContent = (typeof done === 'function' ? done() : done) || 'Saved.';
       return true;
     } catch (e) {
       const message = e.message || 'Could not save.';
@@ -358,7 +358,9 @@ const Automation = (() => {
       });
       const adv = sec.querySelector('[data-auto-advanced]'); if (adv) adv.ontoggle = () => adv.open ? advancedOpen.add(group) : advancedOpen.delete(group);
       const reset = sec.querySelector('[data-auto-reset]');
-      if (reset) reset.onclick = () => save(group, { reset: true }, { done: 'Back to the defaults.' });
+      // 1.119: Check-backs are Off by default, so a reset that turned them off says so (the waiting ones are kept, not run).
+      const cbOn = () => group === 'checkbacks' && settingOf('checkbacks', 'checkbacks')?.value === true;
+      if (reset) reset.onclick = () => { const wasOn = cbOn(); save(group, { reset: true }, { done: () => wasOn && !cbOn() ? 'Back to the defaults. Check-backs are off.' : 'Back to the defaults.' }); };
       // 1.119: Cancel all, after "Cancel N check-backs?" (a sheet of its own that returns here, reloaded, either way).
       const all = sec.querySelector('[data-checkbacks-cancel-all]');
       if (all && typeof CheckBacks !== 'undefined') all.onclick = () => CheckBacks.confirmCancelAll(data?.checkbacks?.pending || 0);

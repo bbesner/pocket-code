@@ -172,7 +172,7 @@ off until the owner turns it on in **Settings → Automation → Check-backs**. 
   another conversation's check-back or change a setting.
 - **What an injected instruction could do.** If text an agent reads (a web page, a file, a mail) tells it to set a
   check-back during a reply the owner started, the agent could set one. That is deferred work with that reply's own
-  power, not new power. The note is text the agent wrote and may repeat what it read. The later reply is no more powerful than the one
+  power, not new power. The note is text the agent wrote and may repeat what it read. Pocket saves it on one line (each run of spaces and line breaks becomes one space), so it can't add lines that look like Pocket's own to the check-back's opening message. The later reply is no more powerful than the one
   that set it: it has the same permission mode, lowered to Review actions when the owner chose **Always Review actions**
   or the server disallows Full access, and under Review actions every action still asks the owner. It is bounded by
   the count limits, the time range, the chain limit, the daily and plan limits and the longest-reply limit, it is held
@@ -247,10 +247,11 @@ that does not exist. A hostile page can no longer picture another local file or 
 from the box; the price is that a page's remote images, web fonts and scripted charts are left out
 of its picture.
 
-**CLI token.** The `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-coord` and `pocket-vault` commands
-use a bearer token that the daemon writes to `cli-token` in the data directory (mode `0600`)
-and replaces at every start. It is accepted only on the Projects, Files, Tasks and Vault
-routes, and only on a direct loopback connection: a request carrying a `cf-connecting-ip`,
+**CLI token.** The `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-coord`, `pocket-vault` and
+`pocket-checkback` commands use a bearer token that the daemon writes to `cli-token` in the data directory
+(mode `0600`) and replaces at every start. It is accepted only on the Projects, Files, Tasks and Vault
+routes and, together with a conversation's runner token, on the check-back agent routes
+(`/api/checkbacks/agent/*`), and only on a direct loopback connection: a request carrying a `cf-connecting-ip`,
 `x-forwarded-for`, `forwarded` or `x-real-ip` header, as one arriving through a tunnel or proxy
 does, is refused. It
 never replaces the login cookie anywhere else. Anyone who can read that file as the

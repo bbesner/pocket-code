@@ -1719,7 +1719,14 @@ async function testStartGap(id) {
   if (!fs.existsSync(TEST_START_GAP)) return;
   log(`test start gap session=${id}`); await new Promise(r => setTimeout(r, 1500));
 }
+// 1.119: a retry between its timer and its turn (the timer and marker are gone, the turn not yet registered) is still
+// waiting for the usage reset, so a check-back doesn't take the conversation in that window (usageWaiting). Read nowhere else.
+const retriesFiring = new Set();
 async function fireRetry(m) {
+  retriesFiring.add(m.sessionId);
+  try { return await fireRetryNow(m); } finally { retriesFiring.delete(m.sessionId); }
+}
+async function fireRetryNow(m) {
   if (claudeLogin.active && engineForSessionId(m.sessionId) === 'claude') return armRetry({...m,at:Date.now()+15_000});
   // 1.117: the unattended gate. Pause all holds the retry; a plan ceiling or the daily limit tries it again at the reset
   // or the next tick, whichever is later. A reply already running is left to the check below, as before.
@@ -6156,7 +6163,7 @@ async function checkbackPass() {
 }
 // A usage-limit retry waiting for its reset (or held by Pause all) is the owner's work in progress: a check-back starting would
 // cancel it (startTurn's cancelRetry), so the conversation counts as busy.
-const usageWaiting = id => retryTimers.has(id) || heldRetries.has(id);
+const usageWaiting = id => retryTimers.has(id) || heldRetries.has(id) || retriesFiring.has(id);
 const conversationBusy = id => Boolean(ownedTurn(id)) || usageWaiting(id) || (isCx(id) ? codex.codexExtActive(codex.bareId(id)) : isAcpId(id) ? false : extActive(id) || busyElsewhere(id));
 // The hold for a busy conversation: 'usage_reset' when all it is doing is waiting for a usage limit to reset.
 const busyReason = id => !ownedTurn(id) && usageWaiting(id) ? 'usage_reset' : 'busy';
@@ -6318,23 +6325,28 @@ app.post('/api/checkbacks/agent/add', requireBoardAuth, checkbacksGate, async (r
   const who = checkbackCaller(req); if (who.error) return cbRefuse(res, who);
   const set = checkbackSetter(who); if (set.error) return cbRefuse(res, set);
   const v = checkbackSettings(), b = req.body || {}, now = cbNow();
-  const note = typeof b.note === 'string' ? b.note.trim() : '';
+  const note = typeof b.note === 'string' ? b.note.replace(/\s+/g, ' ').trim() : ''; // one line: a note can't add lines to the opening message
   if (!note) return cbRefuse(res, cbFail(400, 'note_required', 'Say what to check and what done looks like: --note "…".'));
   if (note.length > v.noteMax) return cbRefuse(res, cbFail(400, 'note_too_long', `The note is ${note.length.toLocaleString('en-US')} characters; keep it to ${v.noteMax.toLocaleString('en-US')}.`));
   let dueAt;
   try { dueAt = parseCheckbackWhen(b.at, { now, zone: ownerZone() }); } catch (e) { return cbRefuse(res, cbFail(400, 'bad_time', e.message)); }
   const range = checkbackRangeError(dueAt, { now, soonestMin: v.soonestMin, furthestHours: v.furthestHours });
   if (range) return cbRefuse(res, cbFail(400, 'out_of_range', range));
-  const waiting = checkbacks.waiting(), mine = waiting.filter(c => c.sessionId === who.sessionId).length;
-  if (mine >= v.perConversation) return cbRefuse(res, cbFail(409, 'conversation_limit', `This conversation already has ${mine} pending check-back${mine === 1 ? '' : 's'}, the most it may have. Cancel one first, or tell the owner.`));
-  if (waiting.length >= v.perInstall) return cbRefuse(res, cbFail(409, 'install_limit', `This Pocket already has ${waiting.length} pending check-backs, the most it may have. Tell the owner.`));
+  // the pending limits, checked again after the await below (the limit that filled names its own code)
+  const overLimit = () => {
+    const waiting = checkbacks.waiting(), mine = waiting.filter(c => c.sessionId === who.sessionId).length;
+    if (mine >= v.perConversation) return cbFail(409, 'conversation_limit', `This conversation already has ${mine} pending check-back${mine === 1 ? '' : 's'}, the most it may have. Cancel one first, or tell the owner.`);
+    if (waiting.length >= v.perInstall) return cbFail(409, 'install_limit', `This Pocket already has ${waiting.length} pending check-backs, the most it may have. Tell the owner.`);
+    return null;
+  };
+  const full = overLimit(); if (full) return cbRefuse(res, full);
   const turn = set.turn, paused = Boolean(pausedNow());
   const run = { approvalMode: turn.approvalMode === 'full' ? 'full' : 'review', model: turn.model || null, effort: turn.effort || null, executionMode: turn.executionMode === 'plan' ? 'plan' : 'work' };
   const title = await checkbackTitle(who.sessionId).catch(() => '');
   // re-checked after the await: the reply may have ended, or the limits filled, while the title was read
   if (ownedTurn(who.sessionId) !== turn) return cbRefuse(res, cbFail(409, 'no_reply', 'The reply ended before the check-back was saved. Set it from inside a reply the owner started.'));
   if (turn.origin === 'checkback') { const again = checkbackSetter(who); if (again.error) return cbRefuse(res, again); } // its one follow-up, set by a second call meanwhile
-  if (checkbacks.waiting().filter(c => c.sessionId === who.sessionId).length >= v.perConversation || checkbacks.waiting().length >= v.perInstall) return cbRefuse(res, cbFail(409, 'conversation_limit', 'The pending check-backs reached their limit. Cancel one first, or tell the owner.'));
+  const filled = overLimit(); if (filled) return cbRefuse(res, filled);
   const c = checkbacks.add({ sessionId: who.sessionId, engine: who.engine, note, dueAt, chainDepth: set.depth, run,
     createdByTurn: { startedAt: cbIso(turn.startedAt || now), origin: turn.origin, ...(turn.originRef ? { originRef: turn.originRef } : {}) },
     ...(paused ? { status: 'held', held: { reason: 'paused', since: cbIso(now) } } : {}) });

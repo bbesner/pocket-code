@@ -155,10 +155,13 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  assert.equal(await p.$eval('[data-auto-key="perConversation"]',e=>e.value),'12');assert.equal(a.saved.checkbacks.perConversation,12);
  await shot('settings-error-1440-dark');
  await p.click('[data-auto-reset="checkbacks"]');
- await p.waitForFunction(()=>document.querySelector('[data-auto-status="checkbacks"]')?.textContent==='Back to the defaults.');
+ await p.waitForFunction(()=>document.querySelector('[data-auto-status="checkbacks"]')?.textContent==='Back to the defaults. Check-backs are off.');
  assert.equal(a.saved.checkbacks,undefined,'Reset clears the group');
  assert.equal(await p.$eval('[data-auto-key="checkbacks"]',e=>e.getAttribute('aria-pressed')),'false','Reset turns the switch back off (its default)');
  await p.waitForFunction(()=>window.pocketFeatures.checkbacks===false);
+ // already off: the plain words
+ await p.click('[data-auto-reset="checkbacks"]');
+ await p.waitForFunction(()=>document.querySelector('[data-auto-status="checkbacks"]')?.textContent==='Back to the defaults.');
  await p.keyboard.press('Escape');await turnOn(true);
 
  // --- The card under the reply that set it, every state, with the exact words ---

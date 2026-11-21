@@ -184,7 +184,7 @@ You ask in the conversation: "check back in 15 minutes", "look again after the d
 - **a reply you started**: a message you sent, or **Run next instruction**; or
 - **a check-back's own reply**, while the chain is under the **Chain limit** (5 by default). It may set **one** follow-up: a second is refused with *This check-back reply already set its one follow-up (at 2:45 PM). Cancel it first to change the time.* The first check-back is 1 of 6, and each follow-up counts one more, so a chain is at most 6 replies. The message the agent gets says whether it may set another. A reply you started has no such limit, only the pending limits below.
 
-A reply that started any other way is refused: from the queue, a usage-limit retry, a coordination wake, or the agent itself after a background job. So is a command run outside a Pocket conversation (a terminal, code-server), and a side chat. The reason is that something you did not write can reach an agent: an emailed alert, a web page it read, a file. Only a reply you started may carry your request, so none of those can set one from that reply. The rule is judged when the command runs, by the reply running at that moment: a command a refused reply left running in the background is refused then, but accepted if it tries again while a later reply you started is running ([Security](../../SECURITY.md#check-backs-1118)). The agent is told to offer a reply button instead, and your tap starts a reply that may set it.
+A reply that started any other way is refused: from the queue, a usage-limit retry, a coordination wake, or the agent itself after a background job. So is a command run outside a Pocket conversation (a terminal, code-server), and a side chat. The reason is that something you did not write can reach an agent: an emailed alert, a web page it read, a file. Only a reply you started may carry your request, so none of those can set one from that reply. The rule is judged when the command runs, by the reply running at that moment: a command a refused reply left running in the background is refused then, but accepted if it tries again while a later reply you started is running ([Security](../../SECURITY.md#check-backs-1119)). The agent is told to offer a reply button instead, and your tap starts a reply that may set it.
 
 **Time.** `+15m`, `+2h` or `+1d` (also `+15 min`, `+2 hours`), or a date and time such as `2026-11-22 09:00` in your time zone, or a time with an offset. Day names ("Friday 9am") are not read: the agent turns them into a date. A check-back can be set from **Soonest** (1 minute) to **Furthest ahead** (90 days) away; outside that range it is refused with a message naming the range.
 
@@ -242,7 +242,7 @@ Pocket sends one push for everything a pass marks missed: *Check-back missed · 
 
 ### Settings
 
-**Settings → Automation → Check-backs**. All apply to the whole install. **Reset to defaults** in the group puts these back. With **Check-backs** off, the rest of the group is dimmed, under the note *These apply when Check-backs is on.* It keeps its values and can still be changed. A value outside its range is refused with a message that names the range, and the old value stays. Check-backs have no **No limit** buttons.
+**Settings → Automation → Check-backs**. All apply to the whole install. **Reset to defaults** in the group puts these back. **Check-backs** is Off by default, so when it was on the reset turns it off and says so: *Back to the defaults. Check-backs are off.* The waiting ones are kept and don't run until you turn it on again. With **Check-backs** off, the rest of the group is dimmed, under the note *These apply when Check-backs is on.* It keeps its values and can still be changed. A value outside its range is refused with a message that names the range, and the old value stays. Check-backs have no **No limit** buttons.
 
 | Setting | Default | Range |
 |---|---|---|
@@ -278,7 +278,7 @@ Check-backs add lines with `"action":"checkback"` and an `event`:
 |---|---|---|
 | `set` | `dueAt`, and `held` when set while paused | An agent set one |
 | `cancelled` | `by` (`owner` or `agent`) | It was cancelled |
-| `held` | `reason` (`paused`, `busy`, `plan_ceiling` or `daily_limit`) | Something held it. Once per reason per check-back |
+| `held` | `reason` (`paused`, `busy`, `usage_reset`, `plan_ceiling` or `daily_limit`) | Something held it. Once per reason per check-back |
 | `started` | `approvalMode`, `lateMs` | Its reply began |
 | `finished` | `outcome` (`ok`, `failed`, `stopped`, `limit` or `interrupted`) | Its reply ended |
 | `missed` | `reason` (`restarted`, `late`, `busy`, `paused`, `gone` or `failed`) | It was marked missed |
@@ -339,7 +339,7 @@ See [For agents](for-agents.md).
 
 **The agent says it cannot set one.** The refusal names the reason. Check-backs are off, or off for that engine (**Settings → Automation → Check-backs**). The reply that is asking was not started by you, for example a queued message or a reply the agent began after a background job; send the request as a message. The chain limit is reached. Codex is under **Review actions**: choose Full access for that conversation. The conversation is in OpenRouter, which is not supported. A limit is reached (10 waiting in the conversation, 50 on the install), or the time is less than a minute or more than 90 days away. The command is run from a terminal and not from a Pocket conversation.
 
-**A check-back didn't run at its time.** Look at the card. Held: Pocket is paused (the banner says), the conversation has a reply running, or a plan ceiling or the daily limit is reached (**Limits reached today** in this page). Check-backs run when the next minute's pass finds them due, so one can start up to a minute late with no note.
+**A check-back didn't run at its time.** Look at the card. Held: Pocket is paused (the banner says), the conversation has a reply running or is waiting for a usage limit to reset, or a plan ceiling or the daily limit is reached (**Limits reached today** in this page). Check-backs run when the next minute's pass finds them due, so one can start up to a minute late with no note.
 
 **No push arrived.** The reply may not have finished: a stopped one, or one that hit a usage limit, sends no *Checked back* push. Check that the device has **Push to this device** and **Check-backs and job results** on in **Settings → Notifications & voice**. If the conversation is muted, check **Push the result when the conversation is muted**. A check-back that was missed sends its own push, under the same switches.
 
