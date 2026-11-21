@@ -256,19 +256,49 @@ own messages in that session count. Under Review actions the owner also approves
 is why asking is the default. Calls from a terminal or code-server session on the host follow
 the same rules and are recorded as `terminal`.
 
-**What an Always allow trusts.** A recipe holds the command's text (program, arguments, folder) and what it runs:
-the program found on the Vault's own `PATH` (`POCKET_VAULT_PATH`, or the daemon's `PATH` at start, absolute folders
-only; never the caller's), the interpreter named on its `#!` line (and the program `#!/usr/bin/env` finds), and every
-argument that names an existing regular file, each by absolute path and SHA-256 of its content. A run matches a recipe
-only while all of that is unchanged, and the daemon starts the program it checked, by its full path. A changed script, a
-program of the same name placed earlier on that `PATH`, or a changed interpreter raises a new request that says so, and
-nothing runs. A request carries the same check: a run the owner allowed is refused if what it would run changed between
-the request and the run. Recipes saved before this check have no content recorded and ask once more; *Always allow* then
-records it. The check does not reach files a script reads or sources itself, modules or libraries an interpreter loads,
-`package.json` scripts behind `npm run`, a `Makefile`, or a folder given as an argument, and a file replaced in the
-instant between the check and the start is not caught. An agent that can write those can still change what an approved
-command does. For a credential that matters, use *Ask every time*, or allow always only commands whose whole behaviour
-is in the files they name, kept where the agent cannot write.
+**What an Always allow trusts.** A recipe holds the command's text (program, arguments, folder) and what it runs: the
+program found on the Vault's own `PATH` (`POCKET_VAULT_PATH`, or the daemon's `PATH` at start, absolute folders only;
+never the caller's); the interpreter named on its `#!` line (and the program `#!/usr/bin/env` finds); the program a
+known launcher starts (`env`, `timeout`, `nice`, `nohup`, `stdbuf`, `ionice`, `setsid`, `taskset`, `chrt`, `time`,
+`xargs`, `sudo`, `doas`), found on that `PATH` and passed to the launcher by full path; the script a known interpreter
+runs; every argument that names an existing regular file, including the value of a `--flag=file` argument; and, in code
+given inline, each word that names an existing file. Each file is recorded by absolute path and the SHA-256 of its
+content. A file Pocket cannot read, or one over 512 MB, is recorded by its size, modification time and change time
+instead (the change time cannot be set back by an ordinary user, so a replacement with the same size and dates still
+differs). A run matches a recipe only while all of that is unchanged; otherwise the request names what changed, and
+nothing runs. The owner can mark an argument file as data the command writes itself (an output, log or state file) when
+choosing *Always allow*; its content is then not compared.
+
+**What runs is what was checked (1.117).** Every pinned file is opened once and hashed from that open file. On Linux, a
+native program is started from that same open file (`/proc/self/fd/N`), so a file renamed or rewritten after the check
+does not run; a setuid or setgid program is started by path. A shell script (one handed to `sh`, `dash`, `bash`, `ash`,
+`ksh` or `mksh`, or a program whose `#!` line names one) runs from a private, read-only copy of the bytes that were
+hashed, unless the script uses its own path (`$0`, `BASH_SOURCE`) or a launcher that cannot pass an open file (`sudo`,
+`doas`, `xargs`) comes first. Everything else, including a script run by `node`, `python3` or another interpreter, is
+read again in the same step just before the start, after the Vault's bookkeeping; a difference stops the run and the
+history records *Run stopped*. What is left is the moment between the start and the moment such an interpreter opens its
+script by path: an agent that swaps the file at exactly that moment can still win. In a test that swapped an approved
+script at every delay from 0 to 20 ms after the request, 15 tries each, `sh job.sh` and `./job.sh` never ran the swapped
+content (before this change about half of the tries did); `node job.js`, swapped at delays from 0 to 80 ms, still ran it
+in about a quarter of the tries, all in a band around 10 to 40 ms.
+
+**What it does not check.** Files a script reads or sources itself (`. ./lib.sh`, `require('./lib')`), modules and
+libraries an interpreter or program loads, `package.json` scripts behind `npm run`, a `Makefile`, and programs a script
+starts by name (those are looked up on the Vault's `PATH`, which is why Pocket logs a start-up warning for every folder on
+it this user can write to, or create or replace); a folder, pipe or device given as an argument (a script that is not a
+regular file is never allowed always, so it asks every time); code given inline beyond the files it names plainly (the request says so); what follows a launcher option
+Pocket does not know, such as `env -S`, `env PATH=…`, `sudo -i` or `sudo -s` (the request says Pocket cannot tell what
+it starts); and a process of the same user that changes a running command through `/proc` or a debugger. On systems
+without `/proc` every file is only checked again before the start. Agents run as the same user as Pocket, so none of
+this is a wall: it stops a tricked agent from quietly changing what an approved command runs. For a credential that
+matters, use *Ask every time*, set `POCKET_VAULT_PATH` to folders this user cannot write, and allow always only commands
+whose whole behaviour sits in files the agent cannot write.
+
+**Recipes saved before 1.117.** A recipe with no content recorded asks once more, saying it was allowed before Pocket
+checked what a command runs; *Always allow* keeps the same entry and records the content. A recipe recorded by the first
+form of this check (program, interpreter and named files) still runs while what it recorded is unchanged and nothing new
+needs recording; if this check now records more (the program a launcher starts, a file that could not be read), it asks
+once in the same way.
 
 **Requests are bound (1.73.4).** A pending request belongs to the kind of use it was raised for (a
 command run, or a browser fill) and to the session that raised it: `pocket-vault wait` or the relay's

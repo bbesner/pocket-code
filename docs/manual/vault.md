@@ -110,12 +110,36 @@ Each secret can override the default with **Change who can use it** on its sheet
 When a command needs your approval, Pocket files a **request** and tells you three ways. Any one of them answers it:
 
 - **Push notification.** "Allow *name*?", with which conversation wants it and the command, and **Allow** and **Deny** buttons. **Allow** on the notification allows once; it never saves the command. Tapping the notification itself does not answer: it opens the Vault at that request. If an **Allow** or **Deny** from the notification cannot be recorded (the device was signed out, the Vault was locked, the device was offline, or the request had already ended), Pocket opens the request and says why, so you can answer it there. Turn these on per device in **Settings → Notifications & voice → Vault requests**.
-- **The Vault view.** Each request is one sentence, such as *The agent in "Staging site" wants to use staging-wp for this command*, with the exact command, the folder and when it asked. **Allow once** is the orange button; **Deny** sits beside it, and **Always allow** between them when the secret allows it. A request that was already answered, expired or ended when the Vault locked says so when its notification is opened.
+- **The Vault view.** Each request is one sentence, such as *The agent in "Staging site" wants to use staging-wp for this command*, with the exact command, **Runs** and the full path of the program that will run (for `env node sync.mjs`, the `node` that `env` starts), the folder and when it asked. A note under it says when Pocket cannot check everything the command runs (see **What Always allow checks** below). **Allow once** is the orange button; **Deny** sits beside it, and **Always allow** between them when the secret allows it. A request that was already answered, expired or ended when the Vault locked says so when its notification is opened.
 - **The conversation.** The agent ends its reply with suggested replies such as *Allow billing-api for this command* and *Deny billing-api*. Tap one or type it. Pocket also accepts *Always allow billing-api for this command*, *approve*, *don't allow*, and a bare *Allow* or *Deny* when that conversation has exactly one request waiting. Only your own messages in the conversation that raised the request count, and the message is still delivered to the agent.
 
-**Always allow** saves the exact command (program, every argument and the folder) for that secret, under **Approved commands** on its sheet, where you can remove it. A changed argument is a new command and asks again. It also saves what the command runs: the program Pocket finds for it, the interpreter its `#!` line names, and every argument that is an existing file (a script handed to `sh`, `node` or `python3`), each by its content (a file Pocket cannot read, or one over 512 MB, cannot be recorded, so such a command asks every time). If any of them changes, the next run asks again and the request says *the program or a file it names has changed since*; nothing runs until you answer. A request expires after 15 minutes.
+**Always allow** saves the exact command (program, every argument and the folder) for that secret, under **Approved commands** on its sheet, where you can remove it. A changed argument is a new command and asks again. A request expires after 15 minutes.
 
-Commands you allowed always before this check existed have nothing to compare against, so each asks once more the next time it runs, saying it was allowed before Pocket checked what a command runs. **Always allow** on that request keeps the same entry and records the content; **Allow once** runs it without recording, so it asks again next time.
+#### What Always allow checks
+
+**Always allow** also saves what the command runs, each file by its content:
+
+- the program Pocket finds for it, and the interpreter its `#!` line names;
+- the program a launcher starts: `env`, `timeout`, `nice`, `nohup`, `stdbuf`, `ionice`, `setsid`, `taskset`, `chrt`, `time`, `xargs`, `sudo` and `doas` are looked through, so `timeout 60 node sync.mjs` records `node` and `sync.mjs`;
+- the script an interpreter runs (`sh deploy.sh`, `node sync.mjs`, `python3 fetch.py`) and every argument that is an existing file;
+- in code given inline (`sh -c '…'`, `bash -c`, `node -e`, `python3 -c`, `perl -e`), the words that name an existing file, such as `deploy.sh` in `sh -c 'sh deploy.sh'`.
+
+If any of them changes, the next run asks again and the request names the file that changed (or the new program, when another one of the same name is found first); nothing runs until you answer.
+
+The request also says what Pocket cannot check:
+
+- **Code given inline.** Pocket matches its text and the files it names plainly, but not what that code builds or fetches at run time.
+- **A launcher option Pocket does not know**, such as `env -S`, `env PATH=…`, `sudo -i` or `sudo -s`. Pocket cannot tell what it starts, so only the command text and the launcher are checked.
+- **A file Pocket cannot read, or one over 512 MB.** Pocket checks only its size and dates. Replacing it with a file of the same size and dates is still noticed, because the change date cannot be set back, but a change made by root or with the system clock moved is not.
+- **A script that is not a plain file**, such as a pipe, a device or a folder (`python3 app/` runs `app/__main__.py`). There is no content to compare, so **Always allow** is not offered and every run asks.
+
+A folder, pipe or device given as an ordinary argument is not checked at all, and the request does not list it.
+
+**Files the command writes.** When the command writes a file it names (an output, a log, a state file), that file changes on every run and would ask every time. The request lists the files **Always allow** will check, each ticked; untick the ones the command writes before you tap **Always allow**. An unticked file is not checked on later runs, and a later **Always allow** of the same command keeps it unticked. Untick only files the command writes, never a script or a file whose content decides what the command does.
+
+**What runs is what was checked.** Pocket reads every file once, checks it, and on Linux starts a native program from that very file, and runs a shell script (`sh`, `bash`, `dash`, `ash`, `ksh`, `mksh`) from a private copy of what was checked. Anything else, such as a script `node` or `python3` runs, is read again just before the start; if it changed, the run stops (the history says **Run stopped: a file changed as it started**) and the agent can run it again, which asks you. A file swapped in the few milliseconds after the start, before `node` or `python3` opens it, is still not caught.
+
+Commands you allowed always before 1.117 ask once more the next time they run, saying they were allowed before Pocket checked what a command runs. **Always allow** on that request keeps the same entry and records the content; **Allow once** runs it without recording, so it asks again next time. A command allowed always with an earlier test build of this check keeps running while nothing it recorded has changed; if this check now records more (the program a launcher starts, a file that could not be read), it asks once in the same way.
 
 ### Protect the Vault with a passphrase
 
@@ -167,7 +191,7 @@ The daemon reads `POCKET_VAULT_KEY` at start and removes it from its own environ
 When an agent runs `pocket-vault run --env TOKEN=billing-api -- node sync.mjs`:
 
 1. Pocket resolves each binding to a secret and field, and checks the policy. If approval is needed it files a request and waits up to 90 seconds (`--wait`, at most 300).
-2. Pocket finds the program on its own `PATH` (`POCKET_VAULT_PATH`, or the `PATH` Pocket started with; empty and relative entries are dropped, so the agent's folder is never searched), checks the program and the files the command names against an approved command (see **Always allow** above), and starts it by its full path, in the given folder, with the values set as environment variables. The command gets the daemon's environment (minus Pocket's own secrets) with that `PATH`, plus the bound variables, not the agent's shell environment. It has no terminal and no standard input.
+2. Pocket finds the program on its own `PATH` (`POCKET_VAULT_PATH`, or the `PATH` Pocket started with; empty and relative entries are dropped, so the agent's folder is never searched), checks the program and the files the command names against an approved command (see **What Always allow checks** above), and starts what it checked (see **What runs is what was checked**), in the given folder, with the values set as environment variables. The command gets the daemon's environment (minus Pocket's own secrets) with that `PATH`, plus the bound variables, not the agent's shell environment. It has no terminal and no standard input.
 3. Output streams back with every value replaced by `{{vault:name}}`, including its base64, base64url, URL-encoded, JSON-escaped, hex and reversed forms, and the value inside longer base64 text such as an HTTP Basic login header (values of 6 characters or more). Values shorter than 4 characters are not scrubbed. Scrubbing catches accidents; a command written to reveal a value can always spell it some other way, which is why what may run is decided by your approval, not by the scrubber.
 4. The run is recorded in the history before any value is released. If the record cannot be written, nothing is released.
 
@@ -221,7 +245,23 @@ Each secret's sheet shows its last 20 events under **History**. The file records
 | `POCKET_VAULT_KEY` | `.env` | The server key. Pocket writes it; set it by hand only when there is no `.env` to write. |
 | `POCKET_VAULT_FILL_TOOLS` | Relay's environment | Tools the relay may type a value into. |
 | `POCKET_VAULT_FILL_WAIT` | Relay's environment | Seconds a fill waits for approval. Default 90. |
-| `POCKET_VAULT_PATH` | `.env` | The `PATH` Vault runs are found and started with. Default: the `PATH` Pocket started with. Absolute folders only. Folders the service's user cannot write to (`/usr/local/bin:/usr/bin:/bin`) are the safest choice; a program added to a writable folder earlier on the list is caught by the content check, not prevented. |
+| `POCKET_VAULT_PATH` | `.env` | The `PATH` Vault runs are found and started with. Default: the `PATH` Pocket started with. Absolute folders only. See **Choose the Vault's PATH** below. |
+
+### Choose the Vault's PATH
+
+A program an approved command names directly is checked by content. A program a script starts by name (`curl` inside `deploy.sh`) is not: it is looked up on the Vault's `PATH` when the script runs. If an agent can write to a folder on that `PATH`, it can put its own `curl` there, and an approved script will run it with the secret. So when the Vault is on, Pocket checks each folder on its `PATH` at start and logs one warning for each folder this user can write to, or could create or replace through a writable folder above it:
+
+```
+vault: warning: the Vault's PATH folder /home/you/.local/bin can be written by this user; an agent could put a program there that an approved command starts. Set POCKET_VAULT_PATH to folders this user cannot change (docs/manual/vault.md, Choose the Vault's PATH).
+```
+
+To clear it, set `POCKET_VAULT_PATH` in `.env` to folders this user cannot change, then restart Pocket Code:
+
+```
+POCKET_VAULT_PATH=/usr/local/bin:/usr/bin:/bin
+```
+
+If a command needs a program from a folder you own (a Node install under your home folder, say), give the command its full path instead (`pocket-vault run … -- /home/you/.nvm/versions/node/v22/bin/node sync.mjs`), or install the program somewhere this user cannot write.
 
 ### Security model and limits
 
@@ -236,7 +276,7 @@ Also:
 
 - Agents run as the same operating-system user as Pocket. An agent that goes looking can read `.env` and the store.
 - A command run with a secret runs with the daemon's permissions, outside any sandbox the agent's CLI applies, and can do whatever the credential allows. Scrubbing cannot stop a command that writes a value to a file, spells it in a way the scrubber does not know, or sends it somewhere.
-- **Always allow** trusts the program and the files named on the command line as they were when you allowed it. It does not see files a script reads or sources itself (`. ./lib.sh`, `source .env`), modules and libraries an interpreter loads, `package.json` scripts behind `npm run`, a `Makefile` behind `make`, or a folder passed as an argument. An agent that can change any of those can change what an approved command does without a new request. Allow always only commands whose whole behaviour sits in the files they name, or use **Ask every time** for that secret. A file swapped in the instant between the check and the start is also not caught.
+- **Always allow** trusts the program and the files named on the command line as they were when you allowed it. It does not see files a script reads or sources itself (`. ./lib.sh`, `source .env`), modules and libraries an interpreter loads, programs a script starts by name, `package.json` scripts behind `npm run`, a `Makefile` behind `make`, what is inside a folder passed as an argument, or a file you unticked as one the command writes. An agent that can change any of those can change what an approved command does without a new request. Allow always only commands whose whole behaviour sits in the files they name, kept where the agent cannot write, or use **Ask every time** for that secret. A script that `node`, `python3` or a similar interpreter runs can still be swapped in the few milliseconds between the start and the moment the interpreter opens it, and a process of the same user can change a running command through `/proc`. The check stops a tricked agent from quietly changing what an approved command runs; it is not a wall against an agent that sets out to get a value.
 - Under **Free rein**, any command can use a secret without your approval; only the record of use shows it. Under Full access the Vault's request is the only check on a run, which is why asking is the default. Under Review actions you also approve the agent's `pocket-vault run` call itself.
 - Calls from a terminal or code-server on the server carry no session identity. They follow the same rules, are recorded as "from a terminal", and share one identity, so any such process can continue a request another terminal process raised.
 
@@ -276,7 +316,7 @@ pocket-vault run --env TOKEN=billing-api -- sh -c 'curl -sS -H "Authorization: B
 pocket-vault run --env PORTAL_USER=vendor-portal.username --env PORTAL_PASS=vendor-portal.password -- python3 fetch.py
 ```
 
-Keep commands stable: an approved command is an exact match on program, arguments and folder, and on the content of the program, its `#!` interpreter and every file named in the arguments. Editing an approved script, or putting another program of the same name on Pocket's `PATH`, sends the next run back to the owner, and the request says it changed. `--cwd` defaults to your current directory.
+Keep commands stable: an approved command is an exact match on program, arguments and folder, and on the content of the program, its `#!` interpreter, the program a launcher such as `env` or `timeout` starts, and every file named in the arguments or plainly in inline code. Editing an approved script, or putting another program of the same name on Pocket's `PATH`, sends the next run back to the owner, and the request names what changed. Prefer a script file to inline code (`sh deploy.sh` over `sh -c '…'`): the owner is told inline code cannot be fully checked. If the command writes a file it names, say so when you ask, so the owner can untick it. `--cwd` defaults to your current directory.
 
 **Storing a secret you meet.** When a secret appears in a message, file or tool result, store it at once with `put` (the value from `--stdin`, `--from-file` or `--from-env`, never the command line), use its name from then on, and tell the user in one or two sentences that it was seen in the conversation and may need rotating. Write the name as a Markdown link to `/#/vault/item/<name>` so it opens the secret; the conversation also shows a card for it. `put` is create-only: an existing name (including a removed one) is refused, and agents cannot change, rotate or remove a secret. A new secret follows the Vault default policy.
 
@@ -303,8 +343,11 @@ Keep commands stable: an approved command is an exact match on program, argument
 | An agent's run answers `pending` and nothing arrives on the phone | Push is off on that device, or **Vault requests** is off for it | Answer in the Vault view or the conversation; turn on push in **Settings → Notifications & voice**. |
 | `pocket-vault wait` says the request does not exist or has expired | More than 15 minutes passed, or Pocket restarted | Run the command again to file a new request. |
 | "That request was raised by another session" or "already used" | A request belongs to one conversation and serves one continuation | Run the command again from the conversation that needs it. |
-| "… changed since the owner was asked; ask again" | The secret, a field or a policy changed after the approval, or the program or a file the command names changed between the request and the run | Run the command again. |
-| A command you allowed always asks again, saying the program or a file it names changed | The script, a file named in its arguments, its interpreter, or the program found on Pocket's `PATH` is different from when you allowed it | Check what changed, then answer. **Always allow** records the new content. |
+| "… changed since the owner was asked; ask again" | The secret, a field or a policy changed after the approval, or the file the message names changed between the request and the run | Run the command again. |
+| "… changed just before the command started; nothing ran" (history: **Run stopped**) | The file it names changed in the moment before the start | Check that file, then run the command again. |
+| A command you allowed always asks again, naming a file that changed | The script, a file named in its arguments, its interpreter, the program a launcher starts, or the program found on Pocket's `PATH` is different from when you allowed it | Check what changed, then answer. **Always allow** records the new content. |
+| A command you allowed always asks on every run | It names a file it writes itself (an output, a log), so that file is different each time | On the next request, untick that file before **Always allow**. |
+| The log says "vault: warning: the Vault's PATH folder … can be written by this user" (or "can be replaced", "can create it") | A folder on the Vault's `PATH` can be changed by the user Pocket runs as | Set `POCKET_VAULT_PATH` (see **Choose the Vault's PATH**) and restart. |
 | "… was not found on the Vault's PATH" | The program is not in any folder on `POCKET_VAULT_PATH` (or Pocket's own `PATH`) | Give the program's full path, or add its folder to `POCKET_VAULT_PATH` and restart. |
 | "Too many vault runs at once" | Eight runs are in progress | Try again in a moment. |
 | Output ends with `[output truncated at 1 MB]` or `[the command was stopped at the timeout]` | The run hit a limit | Reduce output, or pass `--timeout`. |
