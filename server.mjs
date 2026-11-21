@@ -5070,8 +5070,19 @@ function intakeCount(key, max, windowMs) {
 }
 const intakeOver = (key, max) => { const rec = intakeHits.get(key); return Boolean(rec && rec.resetAt > Date.now() && rec.n >= max); };
 const INTAKE_LIMIT = { get: [60, 600_000], post: [15, 600_000], miss: [20, 3600_000], missAll: [300, 3600_000] };
-function intakeMiss(ip) { intakeCount('miss:' + ip, ...INTAKE_LIMIT.miss); intakeCount('miss:*', ...INTAKE_LIMIT.missAll); }
-const intakeBlocked = ip => intakeOver('miss:' + ip, INTAKE_LIMIT.miss[0]) || intakeOver('miss:*', INTAKE_LIMIT.missAll[0]);
+// 1.117 (PC-08): the per-address counts apply only to an address Pocket knows: the caller's cf-connecting-ip when it can be
+// trusted (clientAddress), or the socket's own address when the request came through no proxy. A tunnelled caller Pocket
+// cannot place (every one of them is the tunnel's 127.0.0.1) is not counted per address, so a stranger's wrong links no
+// longer close the page for everyone. The instance-wide count of wrong links never refuses anything: past 300 an hour, each
+// wrong link is answered after INTAKE_SLOW_MS. A right link is never turned away by someone else's wrong ones.
+const INTAKE_SLOW_MS = 1500;
+async function intakeAddress(req) {
+  const ip = await clientAddress(req);
+  if (ip === req.socket.remoteAddress && (req.get('cf-connecting-ip') || req.get('x-forwarded-for'))) return null;
+  return addressKey(ip);
+}
+async function intakeMiss(ip) { if (ip) intakeCount('miss:' + ip, ...INTAKE_LIMIT.miss); if (intakeCount('miss:*', ...INTAKE_LIMIT.missAll)) await new Promise(r => setTimeout(r, INTAKE_SLOW_MS)); }
+const intakeBusy = (ip, kind) => Boolean(ip) && (intakeCount(kind + ':' + ip, ...INTAKE_LIMIT[kind]) || intakeOver('miss:' + ip, INTAKE_LIMIT.miss[0]));
 function sendIntake(res, status, html) {
   res.status(status).set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, max-age=0', Pragma: 'no-cache', 'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet',
     'Referrer-Policy': 'same-origin', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': INTAKE_CSP, 'Cross-Origin-Opener-Policy': 'same-origin', ...(status === 503 ? { 'Retry-After': '1800' } : {}) }).send(html);
@@ -5090,26 +5101,26 @@ app.get('/intake/logo', (_req, res) => {
 });
 app.get('/intake/done', (_req, res) => sendIntake(res, 200, intakePage('received')));
 app.get('/intake/:token', async (req, res) => {
-  const ip = await clientAddress(req);
-  if (intakeCount('get:' + ip, ...INTAKE_LIMIT.get) || intakeBlocked(ip)) return sendIntake(res, 429, intakePage('busy'));
+  const ip = await intakeAddress(req); // 1.117 (PC-08): null for a tunnelled caller Pocket cannot place
+  if (intakeBusy(ip, 'get')) return sendIntake(res, 429, intakePage('busy'));
   if (!settings.vault || !vault || vault.locked) { intakeLockedPush(); return sendIntake(res, 503, intakePage('unavailable')); }
   const hit = vault.resolveIntake(req.params.token);
-  if (!hit) { intakeMiss(ip); return sendIntake(res, 404, intakePage('inactive')); }
+  if (!hit) { await intakeMiss(ip); return sendIntake(res, 404, intakePage('inactive')); }
   if (hit.state !== 'pending') return sendIntake(res, 404, intakePage('inactive'));
   sendIntake(res, 200, intakePage('form', { r: hit.intake, token: req.params.token, expires: intakeWhen(hit.intake.expiresAt, ownerZone()) }));
 });
 // The form posts urlencoded; the parser is this route's alone, and a body it refuses (too large, too many fields) is answered as a form error.
 const intakeForm = express.urlencoded({ extended: false, limit: '1mb', parameterLimit: 40 });
 app.post('/intake/:token', (req, res, next) => intakeForm(req, res, err => { if (err) { req.intakeParseError = err; req.body = {}; } next(); }), async (req, res) => {
-  const ip = await clientAddress(req), token = req.params.token;
-  if (intakeCount('post:' + ip, ...INTAKE_LIMIT.post) || intakeBlocked(ip)) return sendIntake(res, 429, intakePage('busy'));
+  const ip = await intakeAddress(req), token = req.params.token;
+  if (intakeBusy(ip, 'post')) return sendIntake(res, 429, intakePage('busy'));
   // A cross-site post is refused. The page's referrer policy is same-origin, so browsers send Origin here; a privacy setting
   // can still turn it into "null", and then Sec-Fetch-Site decides. The link's form nonce is the real guard either way.
   const origin = req.get('origin'), site = req.get('sec-fetch-site'); let host = null; try { host = origin && origin !== 'null' ? new URL(origin).host : null; } catch { host = ''; }
   if ((host !== null && host !== req.get('host')) || (site && site !== 'same-origin' && site !== 'none')) { log('vault intake: a post from another origin was refused'); return sendIntake(res, 403, intakePage('inactive')); }
   if (!settings.vault || !vault || vault.locked) { intakeLockedPush(); return sendIntake(res, 503, intakePage('unavailable', { nothingSaved: true })); }
   const hit = vault.resolveIntake(token);
-  if (!hit) { intakeMiss(ip); return sendIntake(res, 404, intakePage('inactive')); }
+  if (!hit) { await intakeMiss(ip); return sendIntake(res, 404, intakePage('inactive')); }
   if (hit.state !== 'pending') return sendIntake(res, 404, intakePage('inactive'));
   const r = hit.intake, form = (status, error, errorField = '') => sendIntake(res, status, intakePage('form', { r, token, expires: intakeWhen(r.expiresAt, ownerZone()), error, errorField }));
   if (req.intakeParseError) return form(req.intakeParseError.status === 413 ? 413 : 400, 'That was more than this form can take.');

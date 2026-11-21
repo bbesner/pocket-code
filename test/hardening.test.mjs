@@ -1,5 +1,5 @@
 // 1.117 security hardening (the 2026-11-21 authentication review), checked against the real daemon with the fake CLIs.
-// PC-06 sign-out and revocation; PC-07 the login limit across addresses.
+// PC-06 sign-out and revocation; PC-07 the login limit across addresses; PC-08 intake limits.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
+import {newKey} from '../vault.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -116,4 +117,28 @@ test('PC-07: past a budget across all addresses, wrong passwords are checked one
   assert.ok(Date.now()-t0<=1500,'after at most one gap: '+(Date.now()-t0)+' ms');
   const page=await fetch(s.url('/app.js')).then(r=>r.text());
   assert.match(page,/e\.code === 'busy'/,'the sign-in page tells a busy answer from the hour limit');
+});
+
+test('PC-08: wrong intake links from tunnelled callers never close a right link; past the instance cap they are only slowed',async t=>{
+  const s=await server(t,20301,{POCKET_VAULT_KEY:newKey()});
+  const owner=(await s.login()).cookie,json={cookie:owner};
+  assert.equal((await s.fetch('/api/settings',{method:'POST',headers:json,body:{vault:true}})).status,200);
+  const made=await s.fetch('/api/vault/intake',{method:'POST',headers:json,body:{action:'create',name:'pat-token',kind:'token'}});
+  assert.equal(made.status,200);const link=(await made.json()).path;
+  // Through a tunnel without POCKET_TRUSTED_PROXY or Access, every caller arrives as 127.0.0.1 and names any address it likes.
+  const tunnel=i=>({'cf-connecting-ip':`198.51.100.${i%250+1}`,'x-forwarded-for':`198.51.100.${i%250+1}`});
+  const get=(p,h={})=>fetch(s.url(p),{headers:h,redirect:'manual'}).then(r=>r.status);
+  const miss=i=>get('/intake/'+String(i).padStart(43,'q'),tunnel(i));
+  const first=[];for(let i=0;i<25;i++)first.push(await miss(i));
+  assert.deepEqual(first,Array(25).fill(404),'twenty-five wrong links through the tunnel are each just not found');
+  assert.equal(await get(link,tunnel(999)),200,'the client\'s right link still opens');
+  for(let b=0;b<6;b++)await Promise.all(Array.from({length:50},(_,i)=>miss(1000+b*50+i)));
+  let t0=Date.now();assert.equal(await miss(5000),404,'past the instance-wide cap a wrong link is still answered');
+  assert.ok(Date.now()-t0>=1400,'but slowly: '+(Date.now()-t0)+' ms');
+  t0=Date.now();assert.equal(await get(link,tunnel(7)),200,'and a right link is not turned away');
+  assert.ok(Date.now()-t0<1000,'nor slowed: '+(Date.now()-t0)+' ms');
+  // A caller Pocket can place (here a direct loopback request with no proxy headers) still has its own limit.
+  const direct=[];for(let i=0;i<20;i++)direct.push(await get('/intake/'+String(i).padStart(43,'d')));
+  assert.equal(await get(link),429,'after its own twenty wrong links a placed caller waits');
+  assert.equal(await get(link,tunnel(8)),200,'which does not touch anyone else');
 });
