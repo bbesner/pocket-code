@@ -137,6 +137,8 @@ Each variable takes a path; an empty value turns that tool off. Without a tool f
 
 Since 1.89 the tool reads a private copy of the file as Pocket opened and checked it, never the file by its name, and an image's format is read from the file's first bytes and must be PNG, JPEG, GIF or WebP. A JPEG or WebP saved under a `.png` name still gets its picture. Any other file, such as a `.png` that holds SVG or PostScript, gets no picture; the card shows the kind's name and the daemon log says `thumbnail failed … not a PNG, JPEG, GIF or WebP picture`.
 
+Since 1.117 an HTML file's picture is drawn with its scripts off and the network shut: Chrome cannot look up any host, and the page cannot load another local file. A report's own text, inline styles and `data:` images appear; its remote images, web fonts and charts drawn by script do not. Opening the file shows everything as before.
+
 ### Limits
 
 | Limit | Value |

@@ -30,7 +30,26 @@ Built in:
   uses up the 20 tries locks the owner's password page for the hour too (a signed-in browser
   is not affected). Set `POCKET_TRUSTED_PROXY=1` only when nothing but that proxy can reach the
   port: with it, anything that reaches the port directly can again choose its own address.
+  Since 1.117 an IPv6 address is counted by its /64 (one home or server network), so stepping
+  through addresses in one block no longer buys fresh tries. The instance also keeps one budget
+  across all addresses: after 30 wrong passwords in an hour, sign-ins are checked one at a time,
+  1 second apart, the gap doubling every 20 more failures up to 10 seconds, and a try that would
+  wait more than 20 seconds is told to try again later without being checked. A flood from many
+  addresses therefore slows to a crawl instead of guessing in parallel; while it lasts, the
+  owner's own sign-in can be turned away too (a signed-in browser is not affected).
 - An HMAC-signed, `HttpOnly`, `Secure`, `SameSite=Lax` session cookie with a 90-day expiry.
+  Since 1.117, Settings has **Sign out** (this browser) and **Sign out everywhere**. Sign out
+  everywhere, and a change of `POCKET_PASSWORD` noticed at the next start, move the instance to a
+  new sign-in generation (kept in `auth-state.json` in the data directory, mode `0600`, holding a
+  keyed hash of the password, never the password), and every cookie from an earlier generation
+  stops working. Cookies issued before 1.117 keep working until the first of those happens. With
+  Cloudflare Access and One sign-in in front, a signed-out browser is signed in again by Access
+  without the password; to end those sessions too, revoke them in Cloudflare.
+- `Strict-Transport-Security: max-age=31536000` on responses to requests that reached the
+  tunnel or proxy over HTTPS (`X-Forwarded-Proto` or Cloudflare's `CF-Visitor`), since 1.117.
+- `/api/health` tells a caller that is neither signed in nor a direct loopback connection only
+  `{"ok":true}` (since 1.117); the running counts and uptime are for the owner and the box itself.
+- Uploads are written mode `0600` in folders that are `0700` (since 1.117), whatever the umask.
 - A Content-Security-Policy on every response: same-origin scripts, styles and
   connections only, no remote images (so Markdown written by an agent cannot load an
   image from, and leak text to, an outside host), and `frame-ancestors 'self'` plus
@@ -48,7 +67,7 @@ Recommended:
 - An identity layer in front (for example Cloudflare Access) for a second factor.
 - Running as a user whose access you're comfortable handing to an agent.
 
-Changing `POCKET_SECRET` signs everyone out.
+Changing `POCKET_SECRET` or `POCKET_PASSWORD` signs everyone out (the password since 1.117).
 
 ## Projects, Files, Tasks and the Vault
 
@@ -91,6 +110,12 @@ Since 1.89 an image's format is read from the file's first bytes and must be PNG
 WebP; ImageMagick is told that coder (`png:`, `jpeg:`, `gif:`, `webp:`), so a `.png` holding
 PostScript or SVG gets no picture instead of reaching Ghostscript or the SVG reader (which can
 read other local files into the picture). A JPEG or WebP saved as `.png` is pictured as what it is. You can also restrict ImageMagick's coders in its `policy.xml`.
+Since 1.117 an HTML file is pictured inside a sandboxed frame (no scripts, forms or plugins) under a
+policy that allows only inline styles and `data:` images and fonts, from a folder holding nothing
+else, and Chrome runs with every host name unresolvable and every network request sent to a proxy
+that does not exist. A hostile page can no longer picture another local file or reach a server
+from the box; the price is that a page's remote images, web fonts and scripted charts are left out
+of its picture.
 
 **CLI token.** The `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-coord` and `pocket-vault` commands
 use a bearer token that the daemon writes to `cli-token` in the data directory (mode `0600`)

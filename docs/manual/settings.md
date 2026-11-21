@@ -29,7 +29,7 @@ Both modes show six categories, and Assistant mode has fewer controls:
 |---|---|---|
 | [Appearance](#appearance) | Everything | Everything |
 | [Conversation](#conversation) | Reading, titles and summaries | **Collapse steps** and **Show message times** |
-| [Agents & instance](#agents--instance) | Everything | Replaced by **Accounts**: **Accounts & instance** and **Connectors** only |
+| [Agents & instance](#agents--instance) | Everything | Replaced by **Accounts**: **Accounts & instance**, **Connectors** and **Sign out** only |
 | [Projects, files, tasks & vault](#projects-files-tasks--vault) | Everything | Replaced by [Features](#features-assistant-mode): the five switches and **Automatic model choice** |
 | [Notifications & voice](#notifications--voice) | Everything | Everything |
 | [Help & updates](#help--updates) | Shortcuts, version, what's new, feedback | Version and what's new |
@@ -86,6 +86,7 @@ Everything here applies to the whole install.
 | **Actions that run without asking** | Read-only actions Claude Code, Codex and OpenRouter run without an approval card in **Review actions** (Codex and OpenRouter since 1.87, for commands). Type a rule (`Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`) and press **Add**; **Remove** takes one off. Edit and Write always ask; Codex is not covered. **Use the server's list** goes back to `POCKET_TRUSTED_ACTIONS` |
 | **Automatic model choice** | In Assistant mode, sends a request typed from scratch to a small decision model that picks one of four levels; see below. Assistant mode shows only its switch, under **Features** |
 | **One sign-in** | Lets a Cloudflare Access sign-in replace Pocket's password; see below |
+| **Sign out** | 1.117. **Sign out** signs this browser out. **Sign out everywhere** asks first, then signs out every browser and phone, this one included; conversations and replies in progress carry on. Changing `POCKET_PASSWORD` and restarting does the same. With **One sign-in** on, a signed-out browser is let back in by Cloudflare Access, so revoke Access sessions in Cloudflare as well |
 
 **Defaults.** The picker offers every Claude model, or the list in `POCKET_CLAUDE_MODELS`. No
 action runs without asking, unless `POCKET_TRUSTED_ACTIONS` lists some. A list saved in Settings

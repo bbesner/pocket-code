@@ -169,7 +169,11 @@ keeps the password page closed for an hour for you too, though a browser already
 not affected. On a Cloudflare Tunnel install without Access, with the port bound to `127.0.0.1`,
 set `POCKET_TRUSTED_PROXY=1` so each caller counts on its own. Tailscale Serve, Caddy and nginx
 do not set `cf-connecting-ip` (they pass on whatever the client sent), so leave the setting off
-behind them.
+behind them. Since 1.117 an IPv6 caller counts by its /64, and past 30 wrong passwords an hour
+across all callers, sign-ins are checked one at a time with a growing pause (see SECURITY.md).
+
+An uptime monitor that checks `/api/health` through the tunnel gets `{"ok":true}` and nothing
+more (1.117); the counts are shown only on the box itself or to a signed-in browser.
 
 ## macOS notes
 

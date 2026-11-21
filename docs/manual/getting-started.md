@@ -37,9 +37,12 @@ Open the HTTPS address. The sign-in screen asks for one thing, the **Password**,
 - The password is `POCKET_PASSWORD` in the `.env` file in the Pocket Code directory. On a terminal
   `pocket-init` prints it once; run by an agent, it leaves it in `.env` for you to read with
   `grep '^POCKET_PASSWORD=' ~/pocket-code/.env`.
-- A successful sign-in keeps that browser signed in for 90 days.
+- A successful sign-in keeps that browser signed in for 90 days, until you sign it out in
+  [Settings → Agents & instance → Sign out](settings.md#agents--instance) (**Accounts** in
+  Assistant mode; 1.117), choose **Sign out everywhere**, or change the password.
 - After 20 sign-in attempts from one address within an hour, further attempts get **Too many
-  attempts — wait an hour.**
+  attempts — wait an hour.** When many addresses fail at once, Pocket checks sign-ins one at a
+  time and may answer **Too many sign-in attempts right now. Try again in a minute.**
 - There is one login for the whole install. Pocket Code is built for one owner; anyone who can
   sign in can run commands on the server as the user Pocket runs as. Read the
   [security model](../../SECURITY.md#security-model) before you share access.
