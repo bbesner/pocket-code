@@ -1239,3 +1239,22 @@ carries an `--ok` tick button (44px, 36px with a fine pointer, like the pin) tha
 closing toast carries **Undo** as a clay text button with a 44px target; a toast with an action sits above the message
 box (190px) because it stays ten seconds. Rendered 1440px and 390px screenshots in light and dark, axe scans and the
 impeccable detector reviewed: no finding on the new elements.
+
+## Pause all and Automation (1.117)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 7 in Settings; existing tokens,
+rows, sheets and chips, no new colour. Read: someone away from the desk wants everything automatic to stop at once and
+to see, every time they look, that it is still stopped. The banner is a fact, not an alarm: `.pause-banner` is a
+`--raised` strip with a hairline under it, in the flow above the app (the page becomes a flex column, so the message
+box stays at the bottom and nothing jumps), a `--dim` pause mark (hidden under 420px), one 15px `--text` line capped at
+60ch, and **Resume** as an ordinary chip on the right. No `--warn`, no motion, no dismiss: it goes when Pocket resumes.
+**Pause all** is an `.opt` row with the pause icon in the list header's and rail's ⋯ menu, the switcher and Settings →
+Automation; it reads **Resume** while paused and can't be hidden. Its confirmation is an ordinary sheet: what will stop
+in one plain sentence, what keeps running in `--dim`, then **Pause all** as the existing stop chip and **Keep running**.
+Settings → Automation reuses the settings vocabulary: an uppercase group heading, `.opt` switches, a select in a
+`.voice-field`, and number rows (`.automation-number`) with the input and its unit in one hairline box and a **No limit**
+chip beside it. A limit that is off turns that chip `--warn` and puts one `--warn` line at the top of the panel, the
+only colour on it; a refused value shows its reason under the field in `--err` and the old value comes back. Advanced
+settings sit in a closed `.settings-details`. The origin of an automatic reply (“Started by job …”, “Queued message”) is a
+`--dim` line under the list row's meta (13px) and under the conversation header (13.5px, hairline below); your own
+replies have none.

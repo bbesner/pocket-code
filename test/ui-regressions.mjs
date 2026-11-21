@@ -87,7 +87,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   });
   await check('Settings usable when service worker fails; explicit notification fallback',async()=>{
    await clickControl(page,'#settings');await page.waitForSelector('#s-usage',{timeout:1000});
-   assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),6);
+   assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),7); // 1.117 adds Automation
    assert.equal(await page.$eval('#s-notes',e=>e.open),false);
    await clickControl(page,'#s-chime');assert.equal(await page.$eval('#s-chime',e=>e.getAttribute('aria-pressed')),'false');
    await page.waitForFunction(()=>document.querySelector('#s-push-state').textContent.includes('Unavailable'));
@@ -2692,7 +2692,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.$eval('#box',b=>b.placeholder),'Reply…');
     await scan('assistant-chat-390');
     await page.goto(base+'/#/');await page.waitForSelector('.assistant-home');await clickControl(page,'#settings');await page.waitForSelector('.settings-index');
-    assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','features','notifications','help']); // 1.81 (#175): Features joins Accounts
+    assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','features','automation','notifications','help']); // 1.81 (#175): Features joins Accounts
     assert.equal(await shown('#s-models'),false,'the model list is not offered');assert.equal(await shown('#s-trusted'),false);
     await page.keyboard.press('Escape');
     await page.goto(base+'/#/all');await page.waitForSelector('.session-home');
@@ -2751,7 +2751,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     Object.assign(settings,{assistantLocked:true,projects:true,documents:false,tasks:true,inbox:false,vault:false});
     for(const [w,h] of [[390,844],[1440,900]]){
      await page.setViewport({width:w,height:h});await page.goto(base+'/#/');await open();
-     assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','features','notifications','help']);
+     assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','features','automation','notifications','help']);
      assert.equal(await page.$eval('[data-settings-category=features] .sub',e=>e.textContent),'Which parts of Pocket are on');
      await features();
      assert.deepEqual(await page.$$eval('[data-settings-panel=features] > *',es=>es.map(e=>e.id)),['s-features-lead'],'nothing but the line');

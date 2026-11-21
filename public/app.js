@@ -885,6 +885,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings"><label class="voice-field">Model for titles and summaries<select id="s-title-model" disabled>
       <option value="auto">Automatic: Claude first, then Codex</option><option value="claude">Claude · Haiku</option><option value="codex">Codex · GPT-6-Luna</option></select></label>
       <p class="title-note" id="s-title-note" role="status"></p></div>
+    ${Automation.settingsHTML()}
     ${assistantMode() ? `<div class="title-settings model-offer" id="s-features-lead"><p class="title-note" id="s-features-note" role="status">${featuresLocked() ? '' : 'Switch on what you want to use. Each one adds its own place beside your conversations.'}</p></div>` : ''}
     <h2 class="settings-group">Tools</h2>
     <button class="opt" id="s-projects" disabled aria-pressed="false"><span class="dot"></span><span>Projects<span class="sub" id="s-projects-state">Loading the projects setting…</span></span></button>
@@ -940,6 +941,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   bindAccentControls(sh);
   sh.querySelector('#s-theme').onchange = e => PocketTheme.setPreference(e.target.value);
   Voice.bindSettings(sh);
+  Automation.bindSettings(sh); // 1.117
   sh.querySelector('#s-environment').onclick = openEnvironment;
   sh.querySelector('#s-connectors').onclick = () => openConnectors();
   sh.querySelector('#s-usage').onclick = openUsagePanel;
@@ -1693,7 +1695,7 @@ function sessionRowHTML(s) {
   return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}" data-item="${esc(s.id)}">
     <button class="row" data-id="${esc(s.id)}">
       <span class="body"><span class="title">${esc(s.title)}</span>
-      <span class="meta">${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${s.provider === 'codex' ? 'Codex' : s.provider === 'acp' ? 'OpenRouter' : 'Claude'}${s.branchOf ? ' · Branch' : ''}</span>
+      <span class="meta">${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${s.provider === 'codex' ? 'Codex' : s.provider === 'acp' ? 'OpenRouter' : 'Claude'}${s.branchOf ? ' · Branch' : ''}</span>${Automation.originOf(s) ? `<span class="origin-label">${esc(Automation.originOf(s))}</span>` : ''}
       <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : background && !sessionsStale ? '<span class="ember dim" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
       <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
     </button>${complete ? `<button class="done-close" type="button" data-done-close="${esc(s.id)}" aria-label="Close ${esc(s.title)}: it is complete" title="Complete. Close conversation">${IC.tick}</button>` : ''}<button class="pin-toggle" type="button" data-pin-toggle="${esc(s.id)}" aria-pressed="${s.pinned ? 'true' : 'false'}" aria-label="${s.pinned ? 'Unpin' : 'Pin'} ${esc(s.title)}" title="${s.pinned ? 'Unpin' : 'Pin to the top'}">${IC.pin}</button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned conversation ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
@@ -1914,16 +1916,24 @@ async function fetchSessionList() {
 function followChatTitle() {
   if (!chatId) return;
   const row = allSessions.find(s => s.id === chatId);
+  if (row) paintChatOrigin(row);
   if (!row?.title || row.title === chatTitle) return;
   chatTitle = row.title;
   const t = $('#ctitle'); if (t) { t.textContent = row.title; t.title = row.title; }
+}
+// 1.117: a conversation whose newest reply was started by the queue, a retry, a hold, a check-back or a job says so
+// under its header, in the same words as its list row. Owner replies have no line.
+function paintChatOrigin(s) {
+  const el = $('#origin-line'); if (!el) return;
+  const label = Automation.originOf(s);
+  el.hidden = !label; if (el.textContent !== label) el.textContent = label;
 }
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
   sessionFetch = (async () => {
     try { const d = await fetchSessionList(); allSessions = d.sessions; coordHeld = d.held || []; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;serverSkew = d.checkedAt - Date.now();sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
-    finally { sessionFetch = null; paintSessionPanels(); followChatTitle(); if (!sessionsStale) Voice.onSessions(allSessions); }
+    finally { sessionFetch = null; paintSessionPanels(); followChatTitle(); if (!sessionsStale) Voice.onSessions(allSessions); Automation.poll(); } // 1.117: a second device sees Pause all too
   })();
   return sessionFetch;
 }
@@ -2089,12 +2099,13 @@ async function renderList() {
   Voice.onLeave();
   app.innerHTML = `<header class="bar">${assistantMode() ? `<button class="icon" id="back" aria-label="Back">${IC.back}</button><h1>Conversations</h1>` : '<h1>Pocket Code</h1>'}
     <button class="icon bell" id="bell" aria-label="Toggle notifications for this device">${IC.bellOff}</button>
-    <button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
+    ${Automation.on() ? `<button class="icon bell" id="listmore" aria-label="More: Pause all and automation" aria-haspopup="dialog">${IC.more}</button>` : ''}<button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
     <main class="scroll session-home"><div class="session-home-head"><h2>Your conversations</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}${inboxOn() ? '<a class="chip" href="#/inbox" data-inbox-home>Inbox</a>' : ''}${coordOn() ? '<a class="chip" href="#/coordination" data-coord-home>Coordination</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New conversation">${IC.plus}</button>`;
   $('#new').onclick = () => openFreshNew(assistantMode() ? '#/' : '#/new');
   if (assistantMode()) $('#back').onclick = () => { location.hash = '#/'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
+  if ($('#listmore')) $('#listmore').onclick = Automation.moreMenu; // 1.117
   pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
   $('#bell').onclick = () => togglePush($('#bell'));
   bindSessionPanel(app); if (projectsOn()) loadBoard().then(paintProjectBadges).catch(() => { }); if (tasksOn()) loadTasks().then(paintTaskBadges).catch(() => { }); if (vaultOn()) loadVault().then(paintVaultBadges).catch(() => { }); if (inboxOn()) loadInbox().then(paintInboxBadges).catch(() => { }); await refreshSessions();
@@ -2103,8 +2114,8 @@ async function renderList() {
 function openSessionSwitcher() {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet session-switcher';
-  sh.innerHTML = `<h2>Switch conversation</h2>${sessionPanelHTML(true)}`;
-  mountSheet(scrim, sh); bindSessionPanel(sh); refreshSessions();
+  sh.innerHTML = `<h2>Switch conversation</h2>${Automation.toggleHTML('switcher')}${sessionPanelHTML(true)}`; // 1.117: Pause all / Resume
+  mountSheet(scrim, sh); bindSessionPanel(sh); Automation.bindToggles(sh); refreshSessions();
 }
 // Refresh state without rebuilding the conversation or discarding its draft.
 setInterval(() => { if (document.visibilityState === 'visible' && !document.querySelector('.login')) refreshSessions(); }, 5000);
@@ -2918,7 +2929,7 @@ function withShell(colHtml) { // desktop: session rail + resize grip beside the 
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open conversations"></nav>${colHtml}</div></div>`;
   return `<div class="split">
     <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to files':inputId==='tasks-main'?'Skip to tasks':inputId==='vault-main'?'Skip to the vault':inputId==='inbox-main'?'Skip to the inbox':'Skip to message'}</a>
-      <div class="railhead">${railSwitchHTML()}<div class="rail-actions"><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse conversation filters">Filters ${IC.up1}</button><button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New conversation">${IC.plus}</button></div></div>
+      <div class="railhead">${railSwitchHTML()}<div class="rail-actions"><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse conversation filters">Filters ${IC.up1}</button>${Automation.on() ? `<button class="icon" id="railmore" aria-label="More: Pause all and automation" aria-haspopup="dialog">${IC.more}</button>` : ''}<button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New conversation">${IC.plus}</button></div></div>
       <div id="rail"></div>
     </aside>
     <div class="rail-resize-region" role="region" aria-label="Conversation list layout"><div class="railgrip" id="grip" role="separator" tabindex="0" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="${railW()}" aria-label="Resize conversation list"></div></div>
@@ -2938,6 +2949,7 @@ function wireShell() {
     writeLocal('pc-rail-view', b.dataset.railView); document.querySelectorAll('[data-rail-view]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); paintRail(); });
   bindRailNavigation();
   $('#railsettings').onclick=settingsSheet;
+  const railMore = $('#railmore'); if (railMore) railMore.onclick = Automation.moreMenu; // 1.117
   $('#railnew').onclick = () => openFreshNew();
   const grip = $('#grip'), rail = document.querySelector('aside.rail');
   grip.onkeydown = e => { if (!['ArrowLeft','ArrowRight'].includes(e.key)) return; e.preventDefault(); const w = Math.min(480, Math.max(220, railW() + (e.key === 'ArrowRight' ? 20 : -20))); rail.style.width = w + 'px'; localStorage.setItem('pc-railw', String(w)); grip.setAttribute('aria-valuenow', String(w)); };
@@ -3008,7 +3020,7 @@ async function renderChat(id, { away = false } = {}) {
       <button class="icon" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj chat-statebar run-confirmation">${IC.up1}</button>
       ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
     </header>
-    <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><p class="lineage" id="lineage" hidden></p><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
+    <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><p class="lineage" id="lineage" hidden></p><p class="origin-line" id="origin-line" hidden></p><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
     <button id="agents-open" class="agents-open" aria-haspopup="dialog" hidden></button>
     <div class="question-banner" id="questions-open" hidden>${String(id).startsWith('cx:') ? 'Codex' : String(id).startsWith('acp:') ? 'OpenRouter' : 'Claude'} has a question</div>
     <div class="question-banner" id="approvals-open" hidden>Waiting for your OK · Review</div>
@@ -3055,6 +3067,7 @@ async function renderChat(id, { away = false } = {}) {
   const gitButton = $('#git-open'); if (gitButton) gitButton.hidden = s.repo === false; // 1.20.1: no Git control outside a repository
   paintChatProject(s); // 1.29: the linked project, or Add project
   Branch.paintLineage(s); // 1.79: Branch of …, and this conversation's branches
+  paintChatOrigin(s); // 1.117: who started the newest reply, when it was not you
   if (PANE) paneSay('route', { id, title: s.title }); else if (!SOLO) rememberOpenSession({...s,id}); // a solo window is not a tab of the main one
   chatTitle = s.title; chatPinned = Boolean(s.pinned);
   const h1 = $('#ctitle').closest('h1');
@@ -3796,6 +3809,7 @@ async function submitPending(id) {
     const rejected = e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain';
     pending.rejected = rejected;
     pending.error = e.code === 'delivery_uncertain' ? e.message
+      : e.status === 409 && e.body?.paused ? Automation.refused() // 1.117: own messages blocked while paused; Retry sends it after Resume
       : rejected ? `Not sent: ${e.message}` : 'Delivery not confirmed. Your message is saved. Retry checks the same request.';
     try { saveOutbox(id, pending); } catch { }
     ghost.forEach(n => n.remove());
@@ -4358,6 +4372,7 @@ async function renderNew({ home = false, slot = '' } = {}) {
       if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NK, null);
       if (e.code === 'start_used') { clearDraft(NK); localStorage.removeItem(SK); localStorage.removeItem(BK); if (slot) forgetNewSlot(slot); location.hash = '#/chat/' + e.body.id; return false; } // 1.96: another tap or device started it
       if (e.code === 'secret_detected') holdSecretStart(newPending?.payload.text || text, e.body?.matches || []);
+      else if (e.status === 409 && e.body?.paused) { hint(Automation.refused()); toast('Pocket is paused.', { action: 'Resume', onAction: () => Automation.resume() }); } // 1.117: the draft stays in the box
       else toast(e.message || 'Delivery not confirmed. Retry the same request.');
       return false;
     } finally { const start = $('#start'); if (start) { start.disabled = false; paintNewDelivery(); } }
@@ -4376,7 +4391,7 @@ async function route() {
   rememberViewNavigation(location.hash || '#/');
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { const me = await api('/me?tz=' + encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || '')); window.pocketFeatures = me.features || {}; applyAssistantMode(); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } loadSecretGuard(); } // 1.20.1: 200 {ok:false} when signed out
+  try { const me = await api('/me?tz=' + encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || '')); window.pocketFeatures = me.features || {}; applyAssistantMode(); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } loadSecretGuard(); Automation.fromMe(me); } // 1.20.1: 200 {ok:false} when signed out
   catch (e) { // 401 rendered the login; anything else (offline, deploy restart) gets a retry view
     if (e.message !== 'login') renderUnreachable(e);
     reportWorkspaceChrome(); return;

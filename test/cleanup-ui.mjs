@@ -17,9 +17,9 @@ export async function runCleanupRegressions({browser,base,rows,out}) {
  await fetch(base+'/api/documents/reset',{method:'POST'});await fetch(base+'/api/board/reset',{method:'POST'});
  for(const width of [390,768,1440]){
   await page.setViewport({width,height:900});await fresh('#/','#settings');
-  await check('Settings visible initial focus and six-category index at '+width,async()=>{
+  await check('Settings visible initial focus and seven-category index at '+width,async()=>{
    await page.click('#settings');assert.equal(await page.evaluate(()=>document.activeElement.className),'sheet-close icon');
-   assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),6);
+   assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),7); // 1.117 adds Automation
    assert.equal(await page.$eval('.settings-sheet',e=>e.scrollHeight<=e.clientHeight+1),true,'index fits without scrolling');
    await scan('settings-'+width);
   });

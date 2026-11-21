@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.116.0
+checked: 1.117.0
 sources: context-policy.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
@@ -23,7 +23,7 @@ index. Sub-pages such as **Accounts & instance**, **Connectors** and **Plan usag
 Settings**, which returns to the same category and scroll position. Escape or Close leaves
 Settings.
 
-Both modes show six categories, and Assistant mode has fewer controls:
+Both modes show seven categories, and Assistant mode has fewer controls:
 
 | Category | Developer mode | Assistant mode |
 |---|---|---|
@@ -31,6 +31,7 @@ Both modes show six categories, and Assistant mode has fewer controls:
 | [Conversation](#conversation) | Reading, titles and summaries | **Collapse steps** and **Show message times** |
 | [Agents & instance](#agents--instance) | Everything | Replaced by **Accounts**: **Accounts & instance** and **Connectors** only |
 | [Projects, files, tasks & vault](#projects-files-tasks--vault) | Everything | Replaced by [Features](#features-assistant-mode): the five switches and **Automatic model choice** |
+| [Automation](#automation) | Everything | Everything |
 | [Notifications & voice](#notifications--voice) | Everything | Everything |
 | [Help & updates](#help--updates) | Shortcuts, version, what's new, feedback | Version and what's new |
 
@@ -78,7 +79,7 @@ Everything here applies to the whole install.
 
 | Control | What it does |
 |---|---|
-| **Accounts & instance** | Opens a page with the Claude Code and Codex accounts, plan and sign-in method. Under Claude Code, **Switch account** (or **Sign in**) changes the server's Claude login through a sign-in link and a pasted code. Idle conversations move to the new login at once; one with a background job still running keeps the earlier login until the job ends. A message sent there waits and sends by itself on the new account when the job finishes; **Stop background jobs and send now** ends the job and sends it at once. **Stop all Claude replies** stops every running Claude reply after a second tap on **Stop replies**; the page shows how many are active. Codex sign-in is managed on the server |
+| **Accounts & instance** | Opens a page with the Claude Code and Codex accounts, plan and sign-in method. Under Claude Code, **Switch account** (or **Sign in**) changes the server's Claude login through a sign-in link and a pasted code. Idle conversations move to the new login at once; one with a background job still running keeps the earlier login until the job ends. A message sent there waits and sends by itself on the new account when the job finishes; **Stop background jobs and send now** ends the job and sends it at once. **Stop all Claude replies** stops every running Claude reply after a second tap on **Stop replies**; the page shows how many are active. To stop every engine and hold everything automatic, use [Pause all](automation.md#pause-all). Codex sign-in is managed on the server |
 | **Connectors** | Shows whether each agent can reach Gmail, Google Calendar and Google Drive through its own account (claude.ai connectors for Claude Code, ChatGPT apps for Codex), with **Connect**, **Reconnect**, **Manage on claude.ai** or **chatgpt.com**, and **Refresh status** |
 | **Plan usage** | The 5-hour and weekly limits and extra-usage status, for Claude Code and for Codex when it is installed. Updates only when a reply runs |
 | **Claude models in the picker** | Tap a model to offer it, or stop offering it, in the model menu on every device. At least one stays on. A model blocked by this computer's Claude Code managed settings is marked and cannot be turned on. **Use the server's list** forgets the choice |
@@ -170,6 +171,19 @@ Developer mode, which means removing `locked` from `.env` and restarting. A libr
 shows *Files is off. Ask the person who runs this install to turn it on.* in place of the pointer to
 Settings, with no **Open Settings** button.
 
+## Automation
+
+The same in both modes, and everything here applies to the whole install (**This instance · all devices**). The category reads *Pause all, and limits on unattended work: plan ceilings, a daily count and the longest reply* (in Assistant mode, *Pause all, and limits on work that runs without you*). [Automation](automation.md) explains each setting.
+
+| Control | What it does | Default | Stored |
+|---|---|---|---|
+| **Pause all** / **Resume** | The first row. Stops every running reply and holds everything automatic; reads **Resume** while Pocket is paused. It is also in the **More** (**⋯**) menu beside the conversation list and in **Switch conversation** (Ctrl/⌘ K). It can't be hidden or turned off | Running normally | Server (`paused`) |
+| **Pause all** group | **Your own messages while paused**, **Pause all also pauses Inbox Watch**, **On Resume, re-arm held usage-limit retries**, **On Resume, run overdue check-backs** and **Show what will stop before pausing** | Own messages run; the others On | Server (`automation`) |
+| **Limits on unattended work** group | The plan ceilings (weekly and 5-hour, for Claude Code and Codex), **Unattended replies per day**, **OpenRouter spend per day (unattended)**, **Longest unattended reply**, the two switches that extend limits to work you asked for, **Notice when a limit is reached**, and under **Advanced** the stale-reading age. A **No limit** button sits beside each number | 80%, 90%, 40 a day, $5 a day, 60 min | Server (`automation`) |
+| **Unattended replies** | **Today** and **Last 7 days**: replies, tokens and cost, and **Limits reached today** | | Server (`automation-state.json`) |
+
+Each group has **Reset to defaults**. A value is checked when it is saved: out of range, it is refused with a message that names the range. While any limit is set to No limit, a warning shows at the top of the page. A change applies to the next start, never to a reply already running.
+
 ## Notifications & voice
 
 | Control | What it does | Default | Stored |
@@ -179,7 +193,7 @@ Settings, with no **Open Settings** button.
 | **Finished replies** | Push when a conversation finishes a reply, unless the conversation is muted or open in a browser, or you stopped the reply | On when push is turned on | Server, per device |
 | **Due tasks and reminders** | Push once when each comes due; **Tomorrow** and **Done** on the notification answer without opening Pocket | On when push is turned on | Server, per device |
 | **Vault requests** | Push when an agent needs a secret you have to allow, with **Allow** and **Deny** | On when push is turned on | Server, per device |
-| **Inbox alerts** | Push for an alert from Inbox Watch or another job on the server. Which Inbox Watch alerts push is chosen in its schedule sheet ([Push notifications](inbox-watch.md#push-notifications)) | On when push is turned on | Server, per device |
+| **Inbox alerts** | Push for an alert from Inbox Watch or another job on the server, and the **Unattended work held** notice when an [Automation limit](automation.md#one-notice-per-reason-per-day) holds work. Which Inbox Watch alerts push is chosen in its schedule sheet ([Push notifications](inbox-watch.md#push-notifications)) | On when push is turned on | Server, per device |
 | **Count on the app icon** | How many tasks and reminders are due, on the installed app's icon. Disabled in browsers without app-badge support | On | This browser, and with its push subscription |
 | **Voice (beta)** | Voice preferences for this device; see below | | This browser |
 | **Notice a day before** | A second notice 24 hours before a dated task or reminder comes due, the same way as the due one | Off | Server |
@@ -282,7 +296,8 @@ defaults to the Pocket Code directory:
 
 | File | What it holds |
 |---|---|
-| `pocket-settings.json` | Every **Server** setting above, plus two values Pocket learns: your browser's time zone and the public address you sign in through |
+| `pocket-settings.json` | Every **Server** setting above, including whether Pocket is paused and the values you saved under Automation, plus two values Pocket learns: your browser's time zone and the public address you sign in through |
+| `automation-state.json`, `automation-audit.jsonl` | The day's counts and limit notices, and a line for each pause, resume, settings change and unattended reply (never message text) |
 | `push-subs.json` | One entry per device with push on, with its choice of kinds and icon count. A subscription the push service reports as gone is removed |
 | `router-key` | The key saved under **Automatic model choice** (mode `0600`) |
 | `mutes.json`, `session-meta.json` | Per-conversation mutes, and pins and names (not part of Settings, the same on every device) |
@@ -310,6 +325,7 @@ opens Settings. The rule for each pair:
 | **Email due tasks and reminders to** | `POCKET_SMTP_URL`, `POCKET_SMTP_FROM`, `POCKET_PUBLIC_URL` | The field is disabled without `POCKET_SMTP_URL` |
 | **Vault** | `POCKET_VAULT_KEY` | Created by the switch; set by hand only when there is no `.env` |
 | **Voice (beta)** | `POCKET_VOICE=off` | Turns voice off on the server |
+| **Automation** | `POCKET_AUTOMATION_<NAME>`, for example `POCKET_AUTOMATION_WEEKLY_CEILING=60` | Settings, for each value saved there; the variable presets the default for the install. The names are in [Automation](automation.md#presets-for-an-install) |
 
 A change to `.env` takes effect after a restart from the Pocket Code directory
 (`pm2 restart ecosystem.config.cjs`). The other variables are in the README's
@@ -321,6 +337,8 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
   (password or one sign-in); the loopback token the agent commands use is not accepted there. Tell the user the exact path to
   change, for example **Settings → Notifications & voice → Notice a day before**, rather than
   trying to change it.
+- Pause, Resume and the **Automation** settings are the owner's too, and no agent can use them: the routes take only the
+  owner's sign-in. Don't try to raise a limit or lift a pause. Tell the user to open **Settings → Automation**.
 - Do not edit `pocket-settings.json` while Pocket runs. The daemon reads it at start and rewrites
   the whole file on the next save, so a hand edit is lost.
 - When a feature command answers that the feature is off, pass on the message, which names

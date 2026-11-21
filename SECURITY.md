@@ -50,6 +50,29 @@ Recommended:
 
 Changing `POCKET_SECRET` signs everyone out.
 
+## Pause all and Automation (1.117)
+
+**Pause all** stops every running reply and holds everything Pocket starts without the owner. Its limits
+(**Settings → Automation**) hold unattended work back from using up a plan.
+
+- **Owner only.** `GET` and `POST /api/pause`, `POST /api/resume`, `GET /api/automation` and
+  `POST /api/automation/settings` take the owner's sign-in only (the session cookie, or the one sign-in
+  through Cloudflare Access). The CLI token is refused (401), so no agent or script on the host can lift a
+  pause or raise its own limits. The two `POST` pause routes also need a JSON body and refuse a cross-site
+  request. Settings are checked on the server and saved all or nothing.
+- **Agents can't change the limits, and an agent running as the same OS user could edit
+  `pocket-settings.json` by hand.** As with the CLI token and `.env`, the boundary is the routes, not the file:
+  an agent with write access to the data directory can already do far more. Keep the data directory
+  private, as above.
+- **The audit file holds no message text.** `automation-audit.jsonl` (created with mode `0600`, append-only)
+  records pauses, resumes, settings changes, limit notices and each finished unattended reply: its origin,
+  engine, model, duration, cost or tokens and outcome. A conversation's text, an Inbox entry and a note
+  never go in it.
+- **Pause is not a sandbox.** It stops the replies Pocket owns. It doesn't stop a background job an agent
+  started itself, and it doesn't revoke approvals or credentials.
+- **Origins are set by the server.** Who started a reply (the owner, the queue, a retry, a coordination wake)
+  is decided inside Pocket and never read from a request body, so a message can't claim to be the owner's.
+
 ## Projects, Files, Tasks and the Vault
 
 These libraries are off until the owner switches them on in Settings. Turning one on adds

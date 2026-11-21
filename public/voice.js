@@ -355,6 +355,14 @@ const Voice = (() => {
       if (!md) return speak('There’s no reply to read yet.');
       return speak(kind === 'readAll' ? VoiceText.full(md) : VoiceText.reply(md, replyLength()));
     }
+    // 1.117: "pause everything" opens the same confirmation as the menu (or pauses at once when that is switched off).
+    // The mic stays off afterwards: the answer is a tap on the sheet.
+    if (kind === 'pauseAll') {
+      if (typeof Automation === 'undefined' || !Automation.on()) return speak('Pause all isn’t available on this server.');
+      const r = await Automation.pauseAll();
+      const line = { confirm: 'Check what will stop on the screen, then tap Pause all.', paused: 'Pocket is paused. Resume is at the top of the screen.', already: 'Pocket is already paused.' }[r] || 'I couldn’t pause it.';
+      return speakOut(line, { listenAfter: false });
+    }
     if (kind === 'waiting') {
       const here = [!document.getElementById('approvals-open')?.hidden && 'this conversation needs an approval', !document.getElementById('questions-open')?.hidden && 'this conversation has a question'].filter(Boolean);
       const others = (allSessions || []).filter(s => s.id !== id && needsAttention(s)).map(s => s.title || 'an untitled conversation').slice(0, 4);
@@ -528,7 +536,7 @@ const Voice = (() => {
         <label class="voice-field">Voice<select id="s-voice-voice"></select></label>
         <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, TechPro, Zoho" value="${esc(p.vocab)}"></label>
         <button class="chip" id="s-voice-test" type="button">Play a sample</button>
-        <p class="sub">Tap the mic to send one message; it sends when you pause. Hold it for push-to-talk. Tap the headset for a hands-free conversation: each reply is spoken and the mic listens for your answer, until you end it or stay quiet. In hands-free, Pocket reads your instruction back and sends it only after you say “send it” or tap Send. Announcements never turn on the mic. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers; “mute” and “unmute” switch spoken output on this device. Speech is processed on your Pocket server.</p>
+        <p class="sub">Tap the mic to send one message; it sends when you pause. Hold it for push-to-talk. Tap the headset for a hands-free conversation: each reply is spoken and the mic listens for your answer, until you end it or stay quiet. In hands-free, Pocket reads your instruction back and sends it only after you say “send it” or tap Send. Announcements never turn on the mic. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers, and “pause everything” for Pause all; “mute” and “unmute” switch spoken output on this device. Speech is processed on your Pocket server.</p>
         <p class="sub">Voice is in beta and still improving. Report problems under Bugs &amp; feature requests.</p>
       </div></details>`;
   }
