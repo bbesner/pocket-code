@@ -24,8 +24,9 @@ function mergeDoc(d){
  (d.trashedAt?docsSnap.trash:docsSnap.documents).unshift(d);
  docsSnap.documents.sort((a,b)=>Date.parse(b.added)-Date.parse(a.added));
 }
+// 1.117 (PC-05): a new link's token goes back to the caller (the share sheet shows it once), never into the snapshot.
 async function docAct(id,body,done){
- try{const d=await api('/documents/'+encodeURIComponent(id),{method:'POST',body:JSON.stringify(body)});mergeDoc(d);if(done)toast(done);paintDocumentsView();paintRailDocuments();if(typeof paintProjectsView==='function')paintProjectsView();return d;}
+ try{const d=await api('/documents/'+encodeURIComponent(id),{method:'POST',body:JSON.stringify(body)});const {token,...kept}=d;mergeDoc(kept);if(done)toast(done);paintDocumentsView();paintRailDocuments();if(typeof paintProjectsView==='function')paintProjectsView();return d;}
  catch(e){toast(e.message||'Could not update the file');return null;}
 }
 // 1.45: several files at once (trash, restore, delete) and Empty trash; owner only on the server.
@@ -46,7 +47,9 @@ const KIND_GROUPS=[['html','HTML reports'],['pdf','PDFs'],['image','Images'],['t
 const visWord={private:'Private',link:'Link',public:'Public'};
 const visLong={private:'Private',link:'Anyone with the link',public:'Public'};
 const docRawUrl=(d,download)=>'/api/documents/'+encodeURIComponent(d.id)+'/raw'+(download?'?download=1':'');
-const docShareUrl=d=>d.visibility==='public'&&d.url?location.origin+d.url:d.visibility==='link'&&d.share?.url?location.origin+d.share.url:'';
+// 1.117 (PC-05): only a public file has an address to copy later. A link's address is shown once, when it is made: the
+// server keeps a hash of it, so the library can say a link exists and when it expires, and offer a new one.
+const docShareUrl=d=>d.visibility==='public'&&d.url?location.origin+d.url:'';
 const docAppUrl=d=>location.origin+'/#/documents/'+d.id; // the in-app address: needs the Pocket login
 const fmtSize=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B';
 const docViewTitle=id=>id==='documents'?'Files':docById(id.slice(10))?.title||'File';
@@ -287,28 +290,35 @@ function documentOptions(id){
  sh.querySelector('[data-trash]')?.addEventListener('click',()=>{close();confirmSheet('Remove this file?',`It moves to the trash for ${docsSnap?.limits?.trashDays||30} days and any share or public link stops working. Restore it from the library's Trash.`,'Remove',async()=>{const r=await docAct(id,{action:'trash'},'Moved to the trash');if(r&&docView==='documents/'+id)location.hash=viewHref('documents');});});
  mountSheet(scrim,sh);
 }
-function shareSheet(id){
+// 1.117 (PC-05): `fresh` is the token of a link this device has just made; its address is shown this once, with Copy. A link
+// made earlier shows only that it is open and when it expires, with Make a new link (the old one stops) and Revoke link.
+function shareSheet(id,fresh){
  const d=docById(id);if(!d)return;
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet share-sheet';
- const url=docShareUrl(d)||docAppUrl(d);
+ const link=d.visibility==='link',made=link&&fresh?location.origin+'/share/'+fresh:'';
+ const url=link?made:docShareUrl(d)||docAppUrl(d);
  const expires=d.share?.expiresAt?new Date(d.share.expiresAt).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'}):'';
- const note=d.visibility==='private'?'This address opens the file in Pocket Code after signing in. Choose Anyone with the link or Public to give it to someone else.':d.visibility==='link'?(expires?'Expires '+expires+'.':'No expiry.')+' A new link stops the old one working.':'A fixed address by file name. Anyone who has it can open the file.';
+ const until=expires?'Expires '+expires+'.':'No expiry.';
+ const note=d.visibility==='private'?'This address opens the file in Pocket Code after signing in. Choose Anyone with the link or Public to give it to someone else.'
+  :link?(made?`${until} Copy it now: Pocket keeps only a fingerprint of the link, so it can’t show it again. A new link stops this one working.`
+   :`A link to this file is open. ${until} Pocket keeps only a fingerprint of it, so it can’t show the address again. If you no longer have it, make a new link; the old one stops working.`)
+  :'A fixed address by file name. Anyone who has it can open the file.';
  sh.innerHTML=`<h2>Share</h2><p class="sheet-name">${esc(d.title)}</p>
   <div role="radiogroup" aria-label="Who can open it">
   <button class="opt ${d.visibility==='private'?'sel':''}" role="radio" aria-checked="${d.visibility==='private'}" data-v="private"><span class="dot"></span><span>Private<span class="sub">Only after signing in to Pocket Code</span></span></button>
-  <button class="opt ${d.visibility==='link'?'sel':''}" role="radio" aria-checked="${d.visibility==='link'}" data-v="link"><span class="dot"></span><span>Anyone with the link<span class="sub">An unguessable address; you can set an expiry or make a new link</span></span></button>
+  <button class="opt ${link?'sel':''}" role="radio" aria-checked="${link}" data-v="link"><span class="dot"></span><span>Anyone with the link<span class="sub">An unguessable address, shown once; you can set an expiry or make a new link</span></span></button>
   <button class="opt ${d.visibility==='public'?'sel':''}" role="radio" aria-checked="${d.visibility==='public'}" data-v="public"><span class="dot"></span><span>Public<span class="sub">At a fixed address by file name, for anyone</span></span></button>
   </div>
-  <div class="share-url"><input readonly value="${esc(url)}" aria-label="${d.visibility==='private'?'Address in Pocket Code':'Share URL'}" id="share-url"><button class="chip" data-copy-share>${IC.copy}Copy</button></div>
-  ${d.visibility==='link'?`<div class="share-controls"><label class="voice-field">Expires<select id="share-expiry"><option value="">Never</option><option value="7">In 7 days</option><option value="30">In 30 days</option></select></label><button class="chip" data-reshare>${IC.link}New link</button></div>`:''}
-  <p class="sheet-help share-note">${esc(note)}</p>`;
+  ${url?`<div class="share-url"><input readonly value="${esc(url)}" aria-label="${d.visibility==='private'?'Address in Pocket Code':'Share URL'}" id="share-url"><button class="chip" data-copy-share>${IC.copy}Copy</button></div>`:''}
+  ${link?`<div class="share-controls"><label class="voice-field">Expires<select id="share-expiry"><option value="">Never</option><option value="7">In 7 days</option><option value="30">In 30 days</option></select></label><button class="chip" data-reshare>${IC.link}Make a new link</button><button class="chip" data-revoke>${IC.x}Revoke link</button></div>`:''}
+  <p class="sheet-help share-note" role="status">${esc(note)}</p>`;
  const close=()=>closeCurrentSheet?.();
  bindRadioGroup(sh.querySelector('[role="radiogroup"]'));
- sh.querySelectorAll('[data-v]').forEach(b=>b.onclick=async()=>{if(b.dataset.v===d.visibility)return;close();const r=await docAct(id,{visibility:b.dataset.v},b.dataset.v==='private'?'Private now; links no longer work':b.dataset.v==='link'?'Link made':'Public now');if(r&&r.visibility!=='private')shareSheet(id);});
- const input=sh.querySelector('#share-url');input.onfocus=()=>input.select();
- sh.querySelector('[data-copy-share]').onclick=e=>copyLink(url,e.currentTarget);
- const expiry=sh.querySelector('#share-expiry');if(expiry){expiry.value=d.share?.expiresAt?(Math.abs(Date.parse(d.share.expiresAt)-Date.now()-7*86400000)<86400000?'7':'30'):'';expiry.onchange=async()=>{close();await docAct(id,{expiresAt:expiry.value?new Date(Date.now()+Number(expiry.value)*86400000).toISOString():null},'Expiry set');shareSheet(id);};}
- sh.querySelector('[data-reshare]')?.addEventListener('click',async()=>{close();await docAct(id,{action:'reshare'},'New link made; the old one no longer works');shareSheet(id);});
+ sh.querySelectorAll('[data-v]').forEach(b=>b.onclick=async()=>{if(b.dataset.v===d.visibility)return;close();const r=await docAct(id,{visibility:b.dataset.v},b.dataset.v==='private'?'Private now; links no longer work':b.dataset.v==='link'?'Link made. Copy it now: it is shown once':'Public now');if(r&&r.visibility!=='private')shareSheet(id,r.token);});
+ const input=sh.querySelector('#share-url');if(input){input.onfocus=()=>input.select();sh.querySelector('[data-copy-share]').onclick=e=>copyLink(url,e.currentTarget);}
+ const expiry=sh.querySelector('#share-expiry');if(expiry){expiry.value=d.share?.expiresAt?(Math.abs(Date.parse(d.share.expiresAt)-Date.now()-7*86400000)<86400000?'7':'30'):'';expiry.onchange=async()=>{close();await docAct(id,{expiresAt:expiry.value?new Date(Date.now()+Number(expiry.value)*86400000).toISOString():null},'Expiry set');shareSheet(id,fresh);};}
+ sh.querySelector('[data-reshare]')?.addEventListener('click',async()=>{close();const r=await docAct(id,{action:'reshare'},'New link made; the old one no longer works');if(r)shareSheet(id,r.token);});
+ sh.querySelector('[data-revoke]')?.addEventListener('click',async()=>{close();await docAct(id,{visibility:'private'},'Link revoked; it no longer works');});
  mountSheet(scrim,sh);
 }
 function docProjectSheet(id){

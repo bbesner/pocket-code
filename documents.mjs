@@ -6,6 +6,7 @@
 // Removing a document moves it to .trash for 30 days, then purges it; since 1.45 the owner can also delete a
 // trashed file at once (Delete forever, Empty trash), which takes its file, its thumbnails and its record. HTML is
 // served sandboxed, never under the app origin's authority.
+// 1.117 (PC-05): a share link's token is never stored, only its hash; the address is handed out once, when it is made.
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
@@ -22,7 +23,7 @@ const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
 const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const SESSION_RE = /^(cx:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const hash = t => createHash('sha256').update(t).digest('hex');
-
+const SHARE_PATH_RE = /^\/share\/([A-Za-z0-9_-]{20,100})$/;
 export const kindOf = name => KINDS[path.extname(String(name)).toLowerCase()] || null;
 export const mimeOf = name => MIME[path.extname(String(name)).toLowerCase()] || 'application/octet-stream';
 // A file name that is safe on disk and in a URL: the base name, odd characters replaced, extension kept.
@@ -51,6 +52,20 @@ export class DocumentStore {
     fs.mkdirSync(dir, { recursive: true });
     let d = {}; try { d = JSON.parse(fs.readFileSync(metaFile, 'utf8')); } catch { }
     this.documents = Array.isArray(d.documents) ? d.documents.filter(r => r && typeof r.id === 'string' && typeof r.file === 'string') : [];
+    this.migrated = this.dropStoredLinks();
+  }
+  // PC-05: records written before 1.117 kept the share address (`share.url`, the token in plain text) beside its hash. The
+  // address goes and the hash stays, so links already handed out keep working; a record with an address and no hash gets the
+  // hash of the address's token first. The file is written back at once so the tokens leave the disk. Returns how many changed.
+  dropStoredLinks() {
+    let n = 0;
+    this.documents = this.documents.map(r => {
+      if (!r.share || typeof r.share !== 'object' || !('url' in r.share)) return r;
+      const { url, ...share } = r.share, m = typeof url === 'string' ? SHARE_PATH_RE.exec(url) : null;
+      n++; return { ...r, share, shareHash: r.shareHash || (m ? hash(m[1]) : null) };
+    });
+    if (n) { try { this.save(); } catch (e) { this.migrateError = e.message; } }
+    return n;
   }
   // 1.73.6: a change is computed on a copy of the record, written, and installed only once the file holds it; the checks
   // come before any file is copied, so a refused add leaves nothing in the folder for the scan to adopt.
@@ -60,10 +75,11 @@ export class DocumentStore {
   get(id) { const r = this.documents.find(x => x.id === id); if (!r) throw fail('That file does not exist.', 404); return r; }
   trashDir() { return path.join(this.dir, '.trash'); }
   filePath(r) { return r.trashedAt ? path.join(this.trashDir(), r.id + '-' + r.file) : path.join(this.dir, r.file); }
-  // The record as the UI and CLI see it: a share URL only for link/public, never the token hash.
+  // The record as the UI and CLI see it: the public address for a public file; for a link only that it exists and when it
+  // expires (PC-05: the address itself is in the answer that made it, and nowhere after). Never the token hash.
   view(r) {
     const { shareHash, ...rest } = r;
-    return { ...rest, share: r.share ? { expiresAt: r.share.expiresAt, url: r.share.url } : null, url: r.visibility === 'public' ? '/files/' + encodeURIComponent(r.file) : null, inline: INLINE_KINDS.has(r.kind) && (r.kind !== 'html' || r.size <= LIMITS.inlineHtml) };
+    return { ...rest, share: r.share ? { expiresAt: r.share.expiresAt || null } : null, url: r.visibility === 'public' ? '/files/' + encodeURIComponent(r.file) : null, inline: INLINE_KINDS.has(r.kind) && (r.kind !== 'html' || r.size <= LIMITS.inlineHtml) };
   }
   uniqueFile(name, except = null) {
     let file = name, n = 2; const ext = path.extname(name), stem = name.slice(0, name.length - ext.length);
@@ -131,9 +147,10 @@ export class DocumentStore {
     fs.writeFileSync(dest, buffer, { mode: 0o600 });
     return this.keep(dest, this.record(file, { ...opts, size: buffer.length, at }));
   }
+  // PC-05: only the hash is kept; the caller hands the token out once.
   mintShare(r, expiresAt) {
     const token = randomBytes(32).toString('base64url');
-    r.shareHash = hash(token); r.share = { expiresAt: expiresAt || null, url: '/share/' + token };
+    r.shareHash = hash(token); r.share = { expiresAt: expiresAt || null };
     return token;
   }
   update(id, input, { actor = 'ui' } = {}) {
@@ -246,7 +263,7 @@ export class DocumentStore {
       const visibility = m.visibility === 'public' ? 'public' : m.access === 'techpro' ? 'link' : 'private';
       const r = this.record(file, { addedBy: 'import', size: st.size, at: m.updated && !Number.isNaN(Date.parse(m.updated)) ? iso(Date.parse(m.updated)) : iso(st.mtimeMs), visibility }, next.length);
       next.push(r); counts[visibility]++;
-      if (visibility === 'link') links.push({ id: r.id, file, url: r.share.url });
+      if (visibility === 'link') links.push({ id: r.id, file, url: '/share/' + this.pendingToken }); // PC-05: in this answer only
     }
     this.commit(next);
     const before = this.documents.length; this.scan();

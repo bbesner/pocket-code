@@ -2453,6 +2453,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const shareUrl=await page.$eval('#share-url',e=>e.value);assert.match(shareUrl,new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'/share/[A-Za-z0-9_-]{40,}$'));
    const shared=await page.goto(shareUrl);assert.equal(shared.status(),200);assert.match(shared.headers()['content-security-policy'],/frame-ancestors 'none'/);
    await back();await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet [data-reshare]');
+   // 1.117 (PC-05): a link made earlier is not shown again; the sheet says it is open, with Make a new link and Revoke link.
+   assert.equal(await page.$('.share-sheet #share-url'),null,'an existing link is not shown again');assert.ok(await page.$('.share-sheet [data-revoke]'),'Revoke link is offered');
+   assert.equal(await page.$('.doc-tools [data-copy-link]'),null,'no Copy link for a link the library cannot show');
    await clickControl(page,'.share-sheet [data-reshare]');await page.waitForSelector('.share-sheet #share-url');const shareUrl2=await page.$eval('#share-url',e=>e.value);assert.notEqual(shareUrl2,shareUrl);
    assert.equal((await page.goto(shareUrl)).status(),404,'the old link no longer works');await back();
    await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await clickControl(page,'.share-sheet [data-v="public"]');await page.waitForFunction(()=>/\/files\//.test(document.querySelector('#share-url')?.value||''));

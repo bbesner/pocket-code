@@ -34,7 +34,7 @@ test('DocumentStore: adopt, add, share, revoke, trash, restore, purge and import
   const b=s.addFromPath(src,{addedBy:'cli'});assert.equal(b.file,'Weekly_summary-2.md','a name clash gets a suffix');
   assert.throws(()=>s.addFromPath(path.join(dir,'nope.md')),/ENOENT/);assert.throws(()=>s.addFromBuffer('run.sh',Buffer.from('x')),/cannot be kept/);assert.throws(()=>s.addFromBuffer('a.txt',Buffer.alloc(0)),/empty/);
   const up=s.addFromBuffer('photo.PNG',Buffer.from([1,2,3]),{addedBy:'ui'});assert.equal(up.kind,'image');assert.equal(up.size,3);
-  const shared=s.update(a.id,{visibility:'link'});assert.match(shared.token,/^[A-Za-z0-9_-]{40,}$/);assert.equal(shared.share.url,'/share/'+shared.token);assert.equal(s.resolveShare(shared.token).id,a.id);
+  const shared=s.update(a.id,{visibility:'link'});assert.match(shared.token,/^[A-Za-z0-9_-]{40,}$/);assert.deepEqual(shared.share,{expiresAt:null},'1.117 (PC-05): the address is in this answer only');assert.equal(s.resolveShare(shared.token).id,a.id);
   assert.equal(s.resolveShare('short'),null);assert.equal(s.resolveShare(shared.token+'x'),null);
   const again=s.update(a.id,{action:'reshare'});assert.notEqual(again.token,shared.token);assert.equal(s.resolveShare(shared.token),null,'reshare revokes the old link');assert.equal(s.resolveShare(again.token).id,a.id);
   s.update(a.id,{expiresAt:'2026-10-10T12:00:00Z'});assert.equal(s.resolveShare(again.token).id,a.id);clock=Date.parse('2026-10-10T12:00:01Z');assert.equal(s.resolveShare(again.token),null,'expired');clock=Date.parse('2026-10-09T13:00:00Z');
@@ -190,11 +190,12 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   const url=/\/share\/([A-Za-z0-9_-]+)/.exec(out.stdout)[1];assert.equal((await raw('/share/'+url)).status,200);
   // 1.81 (#179): show and set print the link already made; share on a shared file says the old link stopped working; a project
   // id that names no project is refused; --expires takes any number of days.
-  out=await cli(['show',memoId]);assert.match(out.stdout,new RegExp(`Share URL: https://pocket\\.example\\.test/share/${url}  expires `));
-  out=await cli(['set',memoId,'--title','Memo to staff']);assert.match(out.stdout,new RegExp(`Share URL: https://pocket\\.example\\.test/share/${url}`));
+  // 1.117 (PC-05): show and set say a link is open and when it expires; the address was printed once, by share.
+  out=await cli(['show',memoId]);assert.match(out.stdout,/Shared by link \(expires [^)]+\)\. Pocket cannot show the address again/);assert.doesNotMatch(out.stdout,new RegExp(url));
+  out=await cli(['set',memoId,'--title','Memo to staff']);assert.match(out.stdout,/Shared by link/);assert.doesNotMatch(out.stdout,new RegExp(url));
   out=await cli(['share',memoId,'--expires','45d']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/\nThe previous link no longer works\.$/m);
   const url2=/\/share\/([A-Za-z0-9_-]+)/.exec(out.stdout)[1];assert.notEqual(url2,url);assert.equal((await raw('/share/'+url)).status,404);
-  assert.match((await cli(['show',memoId])).stdout,new RegExp(`/share/${url2}  expires `));
+  assert.doesNotMatch((await cli(['show',memoId])).stdout,new RegExp(url2));assert.doesNotMatch(fs.readFileSync(path.join(dir,'data','documents.json'),'utf8'),new RegExp(url2),'the token is not on disk');
   out=await cli(['share',memoId,'--expires','0d']);assert.equal(out.code,1);assert.match(out.stderr,/number of days, like 7d or 30d, or none/);
   out=await cli(['set',memoId,'--project','warehouse-stok-report']);assert.equal(out.code,1);assert.match(out.stderr,/no project with the id warehouse-stok-report/);
   out=await cli(['add','memo.txt','--project','nope']);assert.equal(out.code,1);assert.match(out.stderr,/no project with the id nope/);

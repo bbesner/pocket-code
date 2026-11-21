@@ -5,9 +5,9 @@
 //
 //   pocket-docs add <path> [--title "…"] [--project <id>] [--session <id>] [--visibility private|link|public]
 //   pocket-docs list [--project <id>] [--q text] [--json]
-//   pocket-docs show <id> [--json]
-//   pocket-docs share <id> [--expires <n>d|none]        make it link-visible and print the URL; on a file already shared
-//                                                        by link it makes a fresh link, and the old one stops working
+//   pocket-docs show <id> [--json]                      a shared link's address is not shown: Pocket keeps only its hash
+//   pocket-docs share <id> [--expires <n>d|none]        make it link-visible and print the URL (once); on a file already
+//                                                        shared by link it makes a fresh link, and the old one stops working
 //   pocket-docs set <id> [--title "…"] [--project <id>] [--visibility private|link|public]
 //   pocket-docs trash <id> | restore <id>
 //   pocket-docs import <dashboard-files-meta.json>       one-time import of an older dashboard's documents metadata
@@ -58,10 +58,10 @@ function card(d, token) {
   const out = [line(d)];
   if (d.session) out.push(`  Session: ${d.session}`);
   if (d.visibility === 'public') out.push(`  Public URL: ${abs(d.url)}`);
-  // 1.81 (#179): the link already made, from the record; the hint sent agents to `share`, which replaces it and breaks the
-  // link the user already gave out. A record without one (none is known) says so before anyone runs share.
-  const link = token ? '/share/' + token : d.share?.url;
-  if (d.visibility === 'link') out.push(`  Share URL: ${link ? abs(link) : `(not recorded; pocket-docs share ${d.id} makes a new link and any old one stops working)`}${d.share?.expiresAt ? `  expires ${when(d.share.expiresAt)}` : ''}`);
+  // 1.117 (PC-05): Pocket keeps only a hash of a share link, so the address is printed only by the command that made it.
+  // Later the card says a link exists and when it expires; `share` would make a new one and break the one already given out.
+  const expires = d.share?.expiresAt ? `expires ${when(d.share.expiresAt)}` : 'no expiry';
+  if (d.visibility === 'link') out.push(token ? `  Share URL: ${abs('/share/' + token)}  (${expires}; shown this once, Pocket keeps only a fingerprint of it)` : `  Shared by link (${expires}). Pocket cannot show the address again; ask the user for the one they were given. pocket-docs share ${d.id} makes a new link and the old one stops working.`);
   return out.join('\n');
 }
 const out = (data, text) => console.log(opts.json ? JSON.stringify(data, null, 1) : text);
@@ -90,7 +90,7 @@ switch (cmd) {
     const body = d.visibility === 'link' ? { action: 'reshare' } : { visibility: 'link' };
     const e = expiresFrom(opts.expires); if (opts.expires) body.expiresAt = e;
     const u = await call('/api/documents/' + encodeURIComponent(d.id), body);
-    out(u, `Share URL: ${abs('/share/' + u.token)}${u.share?.expiresAt ? `  (expires ${when(u.share.expiresAt)})` : ''}${body.action === 'reshare' ? '\nThe previous link no longer works.' : ''}`); break;
+    out(u, `Share URL: ${abs('/share/' + u.token)}${u.share?.expiresAt ? `  (expires ${when(u.share.expiresAt)})` : ''}\nThis address is shown once: Pocket keeps only a fingerprint of it.${body.action === 'reshare' ? '\nThe previous link no longer works.' : ''}`); break;
   }
   case 'set': {
     if (!rest[0]) die('set needs a file id');

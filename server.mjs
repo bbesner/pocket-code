@@ -440,6 +440,7 @@ const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 // the board serves pocket-docs on /api/documents* only.
 const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'documents');
 const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
+if (docs.migrated) log(docs.migrateError ? `documents: ${docs.migrated} share address(es) could not be removed from documents.json yet: ${docs.migrateError}` : `documents: removed ${docs.migrated} stored share address(es) from documents.json; their links keep working`); // 1.117 (PC-05)
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 // 1.61: pictures for file cards in a conversation (PDF pages and images only), cached under the data directory.
 const artifactThumbs = new Thumbnailer({ dir: path.join(DATA_DIR, 'artifact-thumbs'), filePath: r => r.file }, { log });
