@@ -1,6 +1,7 @@
 // 1.117 security hardening (the 2026-11-21 authentication review), checked against the real daemon with the fake CLIs.
 // PC-06 sign-out and revocation; PC-07 the login limit across addresses; PC-08 intake limits; PC-10 /api/health;
-// PC-11 HSTS; PC-12 the time zone by POST; PC-13 upload modes.
+// PC-11 HSTS; PC-12 the time zone by POST; PC-13 upload modes;
+// PC-09 the fixed dependency versions.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -192,4 +193,12 @@ test('PC-13: an upload is written 0600 in folders that are 0700, whatever the um
   assert.equal(fs.statSync(dest).mode&0o777,0o600,'the file');
   assert.equal(fs.statSync(path.dirname(dest)).mode&0o777,0o700,'the month folder');
   assert.equal(fs.statSync(path.join(home,'pocket-uploads')).mode&0o777,0o700,'the uploads folder');
+});
+
+test('PC-09: the installed and vendored dependencies are the fixed versions',()=>{
+  const v=name=>JSON.parse(fs.readFileSync(path.join(repo,'node_modules',name,'package.json'),'utf8')).version.split('.').map(Number);
+  const atLeast=(name,min)=>{const a=v(name);for(let i=0;i<3;i++)if(a[i]!==min[i])return assert.ok(a[i]>min[i],`${name} ${a.join('.')} is older than ${min.join('.')}`);};
+  atLeast('body-parser',[1,20,9]);atLeast('dompurify',[3,4,18]);atLeast('nodemailer',[10,6,1]);atLeast('proxy-addr',[2,0,8]);atLeast('qs',[6,16,2]);
+  const vendored=fs.readFileSync(path.join(repo,'public/vendor/purify.js'),'utf8').match(/DOMPurify (\d+\.\d+\.\d+)/)?.[1];
+  assert.equal(vendored,v('dompurify').join('.'),'public/vendor/purify.js is the installed DOMPurify (npm run vendor)');
 });
