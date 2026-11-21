@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.117.0
+checked: 1.118.0
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
