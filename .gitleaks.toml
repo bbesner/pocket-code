@@ -32,7 +32,7 @@ regexes = ['''^Zx9_ab12cd34$''', '''^sk-proj-abcDEF1234567890abcdefXYZ$''']
 [[rules.allowlists]]
 description = "Vault tests: fake item values"
 condition = "AND"
-paths = ['''(^|/)test/vault\.test\.mjs$''']
+paths = ['''(^|/)test/vault(-pin)?\.test\.mjs$''']
 regexes = ['''^sk-live-hunter2-0123456789abcdef$''', '''^txn-key-secret-9876$''', '''^sk-live-rotated-9876543210abcdef$''', '''^smsgw-secret-30-characters-abc$''']
 
 [[rules.allowlists]]
