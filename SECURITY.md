@@ -77,7 +77,14 @@ the following.
 **File visibility.** Each file in Files is one of three kinds, and new files are private.
 - *Private*: opened only behind Pocket's login.
 - *Link*: opened at `/share/<token>` by anyone who has the address. The token is
-  unguessable, only a hash of it is stored, and the link can carry an expiry.
+  unguessable and the link can carry an expiry. Since 1.117 only a hash of the token is
+  kept: the address is handed out once, in the answer that made it, and neither the
+  library nor `documents.json` can show it again. A lost address is replaced with a new
+  link, which stops the old one. A `documents.json` written before 1.117 also held each
+  address in plain text; the first start of 1.117 removes those (keeping each hash, or making
+  it from the address when it was missing) and writes the file back, so links already handed
+  out keep working. Copies of the old file in backups still hold the addresses: revoke or
+  replace a link if a backup may have been read.
 - *Public*: opened at `/files/<name>` by anyone, with no token.
 
 Link and public files are served **without a login**. Switch Files off and both stop
@@ -128,6 +135,24 @@ as that user. On the Vault routes the token can do what an agent may (see below)
 includes a browser fill, which hands the value to the caller that asked for it: anything that
 holds the token can obtain any value an agent could have filled. Don't put the data directory
 on a shared path.
+
+**Agents and sharing (1.117).** Text an agent reads can try to trick it, so the token cannot make a
+file more exposed on its own. With the token an agent can keep files, edit their title, project and
+conversation, and make a file private or its link shorter-lived. Anything that exposes a file more
+(private to link or public, link to public, a new or replacement share link, a later expiry or none,
+including `pocket-docs add --visibility` and `pocket-docs import`) becomes a request for the owner:
+the call answers `pending <id>` and the file stays as it was. The owner gets a push and a card in
+Files naming the file, its path, kind and size, and the exact change, with **Allow** and **Deny**.
+The answer route accepts only the owner's cookie (or Access sign-in) from Pocket's own origin, never
+the token. **Allow** first checks that the file, its name, its sharing and its content (a SHA-256 of
+the file, read without following links) are what the card showed, then makes exactly that change;
+otherwise it changes nothing and the request ends. **Deny**, or no answer within 15 minutes, changes
+nothing. A request covers one file and one change and is answered once; the agent that raised it
+collects the result once (a new link's address included), and a later change raises a new request.
+There is no "always allow". Requests live in memory, so a restart drops them unanswered. This guards
+the API: an agent running as the service's user can still edit `documents.json` or a published file
+directly, or read `.env`, so choosing the user Pocket runs as (above) still matters. Files
+dropped into the library's folder come in private, as before.
 
 **Reminder hook.** `POCKET_REMINDER_HOOK`, if set, is run through a shell when a project
 reminder or task comes due, with the item as JSON on standard input. It is a command from
