@@ -863,6 +863,36 @@ function loginFailed(ip) {
   const now = Date.now(), rec = loginAttempts.get(ip);
   if (loginAttempts.size > 5000) for (const [k, v] of loginAttempts) if (v.resetAt < now) loginAttempts.delete(k);
   if (!rec || rec.resetAt < now) loginAttempts.set(ip, { n: 1, resetAt: now + 3600_000 }); else rec.n++;
+  if (loginGlobal.resetAt < now) Object.assign(loginGlobal, { n: 1, resetAt: now + 3600_000 }); else loginGlobal.n++;
+}
+// 1.117 (PC-07): a budget across all addresses, so a guesser with many addresses (an IPv6 range, a botnet) is slowed too.
+// The first 30 wrong passwords in an hour cost nothing. Past that, passwords are checked one at a time with a gap between
+// checks that starts at POCKET_LOGIN_BACKOFF_MS (1 s) and doubles every 20 more wrong ones, up to ten times that; a
+// request waits for its turn, and one that would wait more than twenty gaps is answered 429 `busy` at once, unchecked.
+// Nothing here closes the page for an hour: once the guessing stops, the owner's password is checked within one gap, and
+// a signed-in browser never comes here. Right passwords take a turn but never count.
+const LOGIN_BACKOFF_MS = Math.max(1, msSetting('POCKET_LOGIN_BACKOFF_MS', 1000));
+const LOGIN_GLOBAL = { free: 30, step: 20, capMs: 10 * LOGIN_BACKOFF_MS, maxWaitMs: 20 * LOGIN_BACKOFF_MS };
+const loginGlobal = { n: 0, resetAt: 0, nextAt: 0 };
+function loginTurn() { // ms this attempt waits before its check, or -1: the queue is too long
+  const now = Date.now();
+  if (loginGlobal.resetAt < now) Object.assign(loginGlobal, { n: 0, resetAt: 0 });
+  const excess = loginGlobal.n - LOGIN_GLOBAL.free;
+  if (excess < 0) return 0;
+  const at = Math.max(now, loginGlobal.nextAt);
+  if (at - now > LOGIN_GLOBAL.maxWaitMs) return -1;
+  loginGlobal.nextAt = at + Math.min(LOGIN_GLOBAL.capMs, LOGIN_BACKOFF_MS * 2 ** Math.floor(excess / LOGIN_GLOBAL.step));
+  return at - now;
+}
+// 1.117 (PC-07): the key an address counts under. An IPv6 caller can use any address of its /64 (usually the whole of one
+// home or server), so it counts as the /64; an IPv4-mapped address counts as the IPv4 one.
+function addressKey(ip) {
+  const a = String(ip || '?').split('%')[0].replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, '');
+  if (!a.includes(':')) return a;
+  const [head, tail] = a.split('::'), part = s => s ? s.split(':') : [];
+  const width = g => g.includes('.') ? 2 : 1, h = part(head), t = part(tail);
+  const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.reduce((n, g) => n + width(g), 0))).fill('0'), ...t];
+  return groups.slice(0, 4).map(g => (parseInt(g, 16) || 0).toString(16)).join(':') + '::/64';
 }
 // 1.89 (S-6): the address the login and Vault attempt limits count against. cf-connecting-ip is Cloudflare's, but any
 // caller that reaches the port can type it, so a new value on each try never ran out of tries. It counts only when the
@@ -2479,15 +2509,18 @@ app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index
 }));
 
 app.post('/api/login', async (req, res) => {
-  const ip = await clientAddress(req); // 1.89 (S-6)
-  if (rateLimited(ip)) return res.status(429).json({ error: 'too many attempts' });
+  const ip = await clientAddress(req), key = addressKey(ip); // 1.89 (S-6); 1.117 an IPv6 /64 counts once
+  if (rateLimited(key)) return res.status(429).json({ error: 'too many attempts' });
+  const wait = loginTurn(); // 1.117 (PC-07)
+  if (wait < 0) return res.status(429).set('Retry-After', String(Math.ceil(LOGIN_GLOBAL.maxWaitMs / 1000))).json({ error: 'too many sign-in attempts right now', code: 'busy' });
+  if (wait) await new Promise(r => setTimeout(r, wait));
   const given = String(req.body?.password || '');
   const digest = s => createHash('sha256').update(s, 'utf8').digest();
   if (timingSafeEqual(digest(PASSWORD), digest(given))) {
     res.setHeader('Set-Cookie', `pc_auth=${makeCookie()}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${90 * 24 * 3600}`);
     return res.json({ ok: true });
   }
-  loginFailed(ip);
+  loginFailed(key);
   log(`login FAIL from ${ip}`);
   res.status(403).json({ error: 'wrong password' });
 });

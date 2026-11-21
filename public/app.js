@@ -704,7 +704,7 @@ function renderLogin() {
     try {
       await api('/login', { method: 'POST', body: JSON.stringify({ password: $('#pw').value }) });
       route();
-    } catch (e) { $('#lerr').textContent = e.status === 429 ? 'Too many attempts — wait an hour.' : 'Wrong password.'; }
+    } catch (e) { $('#lerr').textContent = e.code === 'busy' ? 'Too many sign-in attempts right now. Try again in a minute.' : e.status === 429 ? 'Too many attempts — wait an hour.' : 'Wrong password.'; }
   };
   $('#go').onclick = go;
   $('#pw').onkeydown = e => { if (e.key === 'Enter') go(); };

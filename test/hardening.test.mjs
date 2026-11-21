@@ -1,5 +1,5 @@
 // 1.117 security hardening (the 2026-11-21 authentication review), checked against the real daemon with the fake CLIs.
-// PC-06 sign-out and revocation.
+// PC-06 sign-out and revocation; PC-07 the login limit across addresses.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -83,4 +83,37 @@ test('PC-06: a changed POCKET_PASSWORD signs every browser out at the next start
   assert.equal(await s.me(after),false,'an unreadable state file does not fall back to accepting older cookies');
   assert.equal(await s.me(legacyCookie(s.secret)),false);
   assert.equal(await s.me((await s.login('a-new-password')).cookie),true);
+});
+
+test('PC-07: an IPv6 caller counts as its /64; another /64 and IPv4-mapped addresses count as expected',async t=>{
+  const s=await server(t,20221,{POCKET_TRUSTED_PROXY:'1',POCKET_LOGIN_BACKOFF_MS:'20'});
+  const wrong=ip=>s.login('wrong',{'cf-connecting-ip':ip}).then(r=>r.status);
+  const got=[];for(let i=1;i<=21;i++)got.push(await wrong(`2001:db8:1:2:${i.toString(16)}::${i}`));
+  assert.deepEqual(got,[...Array(20).fill(403),429],'twenty wrong passwords from one /64, each from a new address, then the limit');
+  assert.equal(await wrong('2001:db8:1:2::ffff'),429,'the compressed form of the same /64');
+  assert.equal(await wrong('2001:db8:1:3::1'),403,'the next /64 has its own count');
+  const v4=[];for(let i=0;i<20;i++)v4.push(await wrong(i%2?'::ffff:203.0.113.9':'203.0.113.9'));
+  assert.equal(await wrong('203.0.113.9'),429,'an IPv4-mapped address counts with its IPv4 one: '+v4.join(','));
+});
+
+test('PC-07: past a budget across all addresses, wrong passwords are checked one at a time; a flood is turned away at once; the owner still gets in and a signed-in browser is untouched',async t=>{
+  const s=await server(t,20261,{POCKET_TRUSTED_PROXY:'1',POCKET_LOGIN_BACKOFF_MS:'100'});
+  const signedIn=(await s.login()).cookie;
+  const wrong=i=>s.login('wrong '+i,{'cf-connecting-ip':`198.51.${100+Math.floor(i/200)}.${i%200+1}`});
+  let t0=Date.now();const free=[];for(let i=0;i<30;i++)free.push((await wrong(i)).status);
+  assert.deepEqual(free,Array(30).fill(403),'thirty wrong passwords from thirty addresses, nothing slowed');
+  assert.ok(Date.now()-t0<3000,'the free budget is not slowed: '+(Date.now()-t0)+' ms');
+  t0=Date.now();const flood=await Promise.all(Array.from({length:60},(_,i)=>wrong(100+i).then(r=>({status:r.status,ms:Date.now()-t0}))));
+  const checked=flood.filter(r=>r.status===403),busy=flood.filter(r=>r.status===429);
+  assert.equal(checked.length+busy.length,60,'every request is answered 403 or 429: '+flood.map(r=>r.status).join(','));
+  assert.ok(busy.length>=30,`most of sixty parallel guesses are turned away unchecked (${busy.length} were)`);
+  assert.ok(checked.length<=25,`only about twenty are checked (${checked.length} were)`);
+  assert.ok(Math.max(...checked.map(r=>r.ms))>=1500,'and those were checked one gap apart: the last after '+Math.max(...checked.map(r=>r.ms))+' ms');
+  assert.ok(Math.max(...busy.map(r=>r.ms))<1000,'turned-away guesses are answered at once');
+  assert.equal(await s.me(signedIn),true,'a signed-in browser is untouched');
+  t0=Date.now();const owner=await s.login('test-only',{'cf-connecting-ip':'192.0.2.50'});
+  assert.equal(owner.status,200,'the owner\'s right password works once the flood has been answered');
+  assert.ok(Date.now()-t0<=1500,'after at most one gap: '+(Date.now()-t0)+' ms');
+  const page=await fetch(s.url('/app.js')).then(r=>r.text());
+  assert.match(page,/e\.code === 'busy'/,'the sign-in page tells a busy answer from the hour limit');
 });
