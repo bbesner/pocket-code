@@ -2,7 +2,9 @@
 // Pause stops running replies on all three engines, holds a usage-limit retry, keeps the queue and coordination wakes
 // from starting anything, lets the owner's own messages run (or refuses them when Blocked), and survives a restart. The
 // settings route saves, refuses out of range, resets, beats an env preset, and refuses the CLI token. The gate's
-// own cases (ceilings, the 41st reply, one notice a day) are unit-tested in test/automation.test.mjs.
+// own cases (ceilings, the 41st reply, one notice a day) are unit-tested in test/automation.test.mjs. A Pause that lands
+// after a start's gate passed is opened on purpose: FAKE_CODEX_SLOW_RESUME and FAKE_ACP_SLOW_LOAD slow a reopen in the
+// fakes, and POCKET_TEST_START_GAP holds a Claude queue or retry start for 1.5 s after its gate (server.mjs).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -272,6 +274,16 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   assert.ok(s.audit().some(x => x.action === 'resume' && x.inboxWatch === 'left_paused'));
   assert.equal((await s.call('/inbox/watch')).body.settings.paused, true, 'Resume leaves a pause the owner set alone');
   assert.equal((await s.call('/inbox/watch', { settings: null })).status, 200);
+  // the owner's change while paused set it running again: Resume does not say it was left paused
+  pz = await s.call('/pause', {});
+  assert.equal(pz.body.stopped.inboxWatch, true);
+  const running = { ...(await s.call('/inbox/watch')).body.settings, paused: false };
+  assert.equal((await s.call('/inbox/watch', { settings: running })).status, 200);
+  rz = await s.call('/resume', {});
+  assert.equal(rz.status, 200); assert.equal(rz.body.inboxWatch, null, 'Inbox Watch is running, so nothing was left paused');
+  assert.equal(s.audit().filter(x => x.action === 'resume').at(-1).inboxWatch, undefined, 'nor does the audit line say so');
+  assert.equal((await s.call('/inbox/watch')).body.settings.paused, false);
+  assert.equal((await s.call('/inbox/watch', { settings: null })).status, 200);
   assert.equal((await s.call('/automation/settings', { group: 'pause', values: { inboxWatch: false } })).status, 200);
   assert.equal((await s.call('/pause')).body.would.inboxWatch, false, 'the owner can keep Inbox Watch out of Pause all');
 
@@ -318,7 +330,7 @@ test('Background jobs and replies the agent starts: Pause all stops them on Clau
   assert.deepEqual(push.for(bg), [], 'and nothing was pushed');
   assert.equal((await s.call('/resume', {})).status, 200);
 
-  // Off: the job keeps running, and the reply it starts is stopped at once. It is nobody's queue row, so lastOrigin clears.
+  // Off: the job keeps running until it starts a reply, and that reply is stopped at once (its process ends with it). It is nobody's queue row, so lastOrigin clears.
   assert.equal((await s.call('/automation/settings', { group: 'pause', values: { backgroundJobs: false } })).status, 200);
   const host = await s.start('claude', 'bg host __SLOW__');
   assert.equal((await s.call(`/session/${s.e(host)}/message`, { text: 'bg queued __BG__', mode: 'queue', approvalMode: 'full' })).status, 202);
@@ -510,23 +522,121 @@ test('A message the owner sent while background jobs held the earlier Claude log
   await s.until(async () => (await s.call('/claude/login')).body.status === 'waiting', 5000, 'the sign-in to wait for its code');
   assert.equal((await s.call('/claude/login/code', { id: login.id, code: 'test-code#test-state' })).status, 200);
   await s.until(async () => (await s.call('/claude/login')).body.status === 'success', 5000, 'the sign-in');
-  for (const [id, text] of [[a, 'after jobs a'], [b, 'after jobs b']]) {
+  for (const [id, text] of [[a, 'after jobs a'], [a, 'after jobs a2'], [b, 'after jobs b']]) {
     const r = await s.call(`/session/${s.e(id)}/message`, { text, approvalMode: 'full' });
     assert.equal(r.status, 202); assert.equal(r.body.afterJobs, true, 'held for the jobs');
   }
   assert.equal((await s.call('/automation/settings', { group: 'pause', values: { backgroundJobs: false } })).status, 200);
   assert.equal((await s.call('/pause', {})).status, 200);
-  // a job ends (the CLI says so in its output): the message held for it starts, paused or not, as the owner's own
+  // a job ends (the CLI says so in its output): the message held for it starts, paused or not, as the owner's own; the
+  // second one held for the same jobs starts when the first one's reply ends (finalizeTurn), as the owner's own too
   const jobEnds = id => { const d = path.join(s.data, 'turnlogs'); fs.appendFileSync(path.join(d, fs.readdirSync(d).find(f => f.startsWith(id) && f.endsWith('.out.ndjson'))), JSON.stringify({ type: 'system', subtype: 'background_tasks_changed', tasks: [] }) + '\n'); };
   jobEnds(a);
   await s.until(() => s.prompts('claude').includes('after jobs a'), 15000, 'the held message to start while paused');
-  await s.idle(a);
+  await s.until(() => s.prompts('claude').includes('after jobs a2'), 15000, 'the second held message to start after the first, while paused');
+  await s.idle(a); await sleep(300);
   assert.deepEqual((await s.queue(a)).items, []);
   assert.ok(!s.smeta()[a]?.lastOrigin, 'started as the owner\'s, not the queue\'s');
-  // Blocked: it stays held
+  // Blocked: it stays held, and Resume starts it (its jobs have ended)
   assert.equal((await s.call('/automation/settings', { group: 'pause', values: { ownMessages: 'blocked' } })).status, 200);
   jobEnds(b); await sleep(1500);
   assert.ok(!s.prompts('claude').includes('after jobs b'), 'Blocked: it does not start');
   assert.deepEqual((await s.queue(b)).items.map(i => [i.text, i.status]), [['after jobs b', 'pending']]);
   assert.equal((await s.call('/resume', {})).status, 200);
+  await s.until(() => s.prompts('claude').includes('after jobs b'), 10000, 'the message kept while Blocked to start on Resume');
+  await s.idle(b); await sleep(300);
+  assert.deepEqual((await s.queue(b)).items, []);
+  assert.equal(s.prompts('claude').filter(x => x === 'after jobs b').length, 1, 'once');
+});
+
+const outFile = (s, id) => { const d = path.join(s.data, 'turnlogs'); return path.join(d, fs.readdirSync(d).find(f => f.startsWith(id) && f.endsWith('.out.ndjson'))); };
+
+test('Paused: a background agent\'s permission request that turns into a reply the agent started is stopped, with no push', { timeout: 60_000 }, async t => {
+  const { s, push } = await bootWithPush(t, 18953);
+  assert.equal((await s.call('/pause', {})).status, 200);
+  const id = await s.start('claude', 'stand-in __BG_ASK__', { approvalMode: 'review' }); // the owner's own message runs while paused
+  await s.until(() => s.logs().includes(`turn start (a background job asked for permission) session=${id}`), 10000, 'the stand-in turn');
+  await s.until(() => push.for(id).length, 5000, 'the request\'s push');
+  const before = push.for(id);
+  assert.deepEqual(before, ['Open Pocket Code to review the pending action.']);
+  // the agent itself starts replying while the request waits (another job of its finished, say)
+  fs.appendFileSync(outFile(s, id), [{ type: 'system', subtype: 'init', session_id: id },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Another job finished; carrying on.' }] } },
+    { type: 'result', subtype: 'success', result: 'done', duration_ms: 10 }].map(o => JSON.stringify(o) + '\n').join(''));
+  await s.until(() => s.logs().includes(`stop requested (paused; the agent started a reply) session=${id}`), 8000, 'the reply to be stopped');
+  await s.idle(id); await sleep(800);
+  assert.deepEqual(push.for(id), before, 'no push for the stopped reply');
+  assert.ok(!s.smeta()[id]?.lastOrigin);
+  assert.equal(s.audit().filter(x => x.action === 'reply').length, 0, 'the agent\'s reply is not counted as a finished unattended reply');
+});
+
+test('Paused after the gate passed on Claude: a queued message stays pending and a retry is held; each runs once after Resume', { timeout: 120_000 }, async t => {
+  const gap = path.join(tmpDir(), 'start-gap');
+  const s = await boot(t, 18954, { env: { POCKET_TEST_START_GAP: gap } }); // while `gap` exists, a queue or retry start waits 1.5 s after its gate
+  const gatePassed = (origin, id) => !s.logs().includes(`unattended start held (paused) origin=${origin} session=${id}`);
+
+  // a queued message: the gate passes as the reply before it ends, Pause all lands before startTurn
+  const q = await s.start('claude', 'gap host __SLOW__');
+  assert.equal((await s.call(`/session/${s.e(q)}/message`, { text: 'gap queued', mode: 'queue', approvalMode: 'full' })).status, 202);
+  fs.writeFileSync(gap, '');
+  await s.until(() => s.logs().includes(`test start gap session=${q}`), 15000, 'the queued message to pass its gate');
+  assert.equal((await s.call('/pause', {})).status, 200);
+  await sleep(2500);
+  assert.ok(gatePassed('queue', q), 'Pause all landed after the gate');
+  assert.ok(!s.prompts('claude').includes('gap queued'), 'the queued message did not start');
+  assert.deepEqual((await s.queue(q)).items.map(i => [i.text, i.status]), [['gap queued', 'pending']]);
+  assert.equal((await s.session(q)).state.label, 'Queue paused');
+  assert.match(s.logs(), new RegExp(`queue start held \\(paused\\) session=${q}`));
+  fs.unlinkSync(gap);
+  assert.equal((await s.call('/resume', {})).status, 200);
+  const item = (await s.queue(q)).items[0];
+  assert.equal((await s.call(`/session/${s.e(q)}/queue/start`, { itemId: item.id })).status, 200);
+  await s.until(() => s.prompts('claude').includes('gap queued'), 10000, 'the row started after Resume');
+  await s.idle(q); await sleep(500);
+  assert.equal(s.prompts('claude').filter(x => x === 'gap queued').length, 1, 'once');
+  assert.deepEqual((await s.queue(q)).items, []);
+
+  // a usage-limit retry: its timer and marker are gone by then, so the refusal must hold it again
+  const lim = await s.start('claude', 'gap limit __LIMIT__');
+  await s.until(async () => (await s.session(lim))?.state?.label === 'Waiting for usage reset', 10000, 'the retry to be armed');
+  fs.writeFileSync(gap, '');
+  await s.until(() => s.logs().includes(`test start gap session=${lim}`), 20000, 'the retry to pass its gate');
+  assert.equal((await s.call('/pause', {})).status, 200);
+  await sleep(2500);
+  assert.ok(gatePassed('retry', lim), 'Pause all landed after the gate');
+  assert.ok(!s.prompts('claude').some(x => RETRIED.test(x)), 'the retry did not start');
+  const st = (await s.session(lim)).state;
+  assert.deepEqual([st.label, st.held], ['Retry held', true]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(s.data, 'turnlogs', `${lim}.retry.json`), 'utf8')).held, true, 'its marker is back, held');
+  assert.deepEqual((await s.call('/pause')).body.held, { retries: 1, checkbacks: 0 });
+  fs.unlinkSync(gap);
+  assert.equal((await s.call('/resume', {})).body.rearmed, 1);
+  await s.until(() => s.prompts('claude').some(x => RETRIED.test(x)), 15000, 'the retry after Resume');
+  await s.idle(lim); await sleep(500);
+  assert.equal(s.prompts('claude').filter(x => RETRIED.test(x)).length, 1, 'once');
+});
+
+test('Paused after the gate passed on OpenRouter (a retry reopening its conversation after a restart): held, and runs once after Resume', { timeout: 120_000 }, async t => {
+  const dir = tmpDir(), slow = path.join(tmpDir(), 'slow-load'), env = { FAKE_ACP_SLOW_LOAD: slow };
+  let s = await boot(t, 18955, { dir, env });
+  const lim = await s.start('acp', 'acp gap limit __LIMIT__');
+  await s.until(async () => (await s.session(lim))?.state?.label === 'Waiting for usage reset', 10000, 'the retry to be armed');
+  // a restart closes the OpenCode process, so the retry reopens it; while `slow` exists the reopen answers 1.5 s late
+  await s.stop();
+  fs.writeFileSync(slow, '');
+  s = await boot(t, 18956, { dir, env });
+  const loads = () => { try { return fs.readFileSync(slow + '.loads', 'utf8').trim().split('\n').filter(Boolean); } catch { return []; } };
+  await s.until(() => loads().length, 20000, 'the retry to reopen the conversation');
+  assert.equal((await s.call('/pause', {})).status, 200);
+  await sleep(2500);
+  assert.ok(!s.logs().includes(`unattended start held (paused) origin=retry session=${lim}`), 'Pause all landed after the gate');
+  assert.ok(!s.prompts('acp').some(x => RETRIED.test(x)), 'the retry did not start');
+  assert.match(s.logs(), new RegExp(`auto-resume held \\(paused\\) session=${lim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  const st = (await s.session(lim)).state;
+  assert.deepEqual([st.label, st.held], ['Retry held', true]);
+  fs.unlinkSync(slow);
+  assert.equal((await s.call('/resume', {})).body.rearmed, 1);
+  await s.until(() => s.prompts('acp').some(x => RETRIED.test(x)), 15000, 'the retry after Resume');
+  await s.idle(lim); await sleep(500);
+  assert.equal(s.prompts('acp').filter(x => RETRIED.test(x)).length, 1, 'once');
 });

@@ -6,7 +6,8 @@
 //
 // Env flags: POCKET_ACP_STORE (required, dir) · FAKE_ACP_NO_LOADSESSION (advertise loadSession:false)
 // · FAKE_ACP_ELICIT (ask an elicitation/create instead of permission) · FAKE_ACP_NO_ASK (skip permission)
-// · FAKE_ACP_DELAY_MS (how long the tool "runs")
+// · FAKE_ACP_DELAY_MS (how long the tool "runs") · FAKE_ACP_SLOW_LOAD (a marker file: while it exists, session/load answers
+// 1.5 s late, a slow reopen, and each such load is noted in <marker>.loads)
 // Prompt markers, the same the Claude and Codex fakes take: __SLOW__ (the tool runs 1.5 s), __HANG__ (never answers until
 // cancelled), __CHOICES__ (ends with a ```choices block), __QUESTION__ (asks through Pocket's ask tool, the MCP server
 // Pocket names in OPENCODE_CONFIG_CONTENT, and answers with what you chose). Each prompt records what reached it: the
@@ -188,7 +189,10 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       for (const u of s.updates) notify('session/update', { sessionId: m.params.sessionId, update: u });
       // like OpenCode, a session opened in this process starts on the runtime's default model again
       conf.set(m.params.sessionId, { model: 'opencode/big-pickle', effort: null });
-      return reply(m.id, { configOptions: configOptions(confOf(m.params.sessionId)) });
+      const loaded = () => reply(m.id, { configOptions: configOptions(confOf(m.params.sessionId)) });
+      const slow = process.env.FAKE_ACP_SLOW_LOAD;
+      if (slow && fs.existsSync(slow)) { fs.appendFileSync(slow + '.loads', m.params.sessionId + '\n'); return void setTimeout(loaded, 1500); }
+      return loaded();
     }
     case 'session/prompt': return void handlePrompt(m.id, m.params || {});
     default: return fail(m.id, 'method not found: ' + m.method);

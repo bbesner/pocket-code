@@ -1930,10 +1930,11 @@ function paintChatOrigin(s) {
 }
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
+  const askedAt = performance.now(); // 1.117: a list asked for before this device's Pause or Resume was answered keeps its old pause out
   sessionFetch = (async () => {
     try { const d = await fetchSessionList(); allSessions = d.sessions; coordHeld = d.held || []; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; sessionsPause = d.pause || null; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;serverSkew = d.checkedAt - Date.now();sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
-    finally { sessionFetch = null; paintSessionPanels(); followChatTitle(); if (!sessionsStale) Voice.onSessions(allSessions); if (!sessionsStale && sessionsPause) Automation.fromList(sessionsPause); else Automation.poll(); } // 1.117: a second device sees Pause all too, from the list itself
+    finally { sessionFetch = null; paintSessionPanels(); followChatTitle(); if (!sessionsStale) Voice.onSessions(allSessions); if (!sessionsStale && sessionsPause) Automation.fromList(sessionsPause, askedAt); else Automation.poll(); } // 1.117: a second device sees Pause all too, from the list itself
   })();
   return sessionFetch;
 }

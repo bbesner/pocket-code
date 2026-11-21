@@ -182,9 +182,12 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  // Resume from the banner: it goes, and the server was told. Inbox Watch was changed while paused, so the toast says it
  // is still paused.
  f.resumeInbox='left_paused';
+ const askedBeforeResume=await p.evaluate(()=>performance.now());
  await p.click('.pause-banner [data-resume]');await p.waitForFunction(()=>!document.querySelector('.pause-banner'));
  assert.deepEqual(f.posts,['pause','resume']);assert.equal(f.paused,null);
  await p.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Resumed. 1 held retry runs again. Inbox Watch was changed while paused and is still paused.');
+ // A list refresh asked for before Resume was answered still says paused: it is not applied, so the banner does not flicker back.
+ assert.equal(await p.evaluate(async t=>{await Automation.fromList({paused:{at:new Date().toISOString(),by:'owner'},held:{retries:1,checkbacks:0},ownMessages:'run',confirm:true},t);return Boolean(document.querySelector('.pause-banner'));},askedBeforeResume),false,'a list asked for before Resume leaves the banner gone');
  await shot('resume-inbox-1440-dark');f.resumeInbox=null;
  // A second device paused it: this one catches up on its next check (return to the tab here).
  f.paused={at:new Date().toISOString(),by:'owner'};

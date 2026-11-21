@@ -33,7 +33,7 @@ export const GROUPS = [
         choices: [{ value: 'run', label: 'Run, with a banner' }, { value: 'blocked', label: 'Blocked until you resume' }] },
       { key: 'inboxWatch', label: 'Pause all also pauses Inbox Watch', type: 'bool', default: true },
       { key: 'backgroundJobs', label: 'Pause all also stops background jobs', type: 'bool', default: true,
-        help: 'Off leaves them running; the reply they would start is stopped.' },
+        help: 'Off leaves them running until one of them starts a reply. Pocket stops that reply, which ends the conversation\'s process and any other jobs in it.' },
       { key: 'rearmRetries', label: 'On Resume, re-arm held usage-limit retries', type: 'bool', default: true,
         help: 'Off: they stay held until you start them.' },
       { key: 'confirm', label: 'Show what will stop before pausing', type: 'bool', default: true,

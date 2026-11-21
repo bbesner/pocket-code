@@ -1580,6 +1580,13 @@ function scheduleRetry(sessionId, turn, resetAt) {
   if (pausedNow()) holdRetry(m); else armRetry(m);
   log(`rate limited session=${sessionId} — ${heldRetries.has(sessionId) ? 'auto-resume held (paused)' : `auto-resume at ${fmtOwnerTime(resetAt)}`} (attempt ${m.attempt})`);
 }
+// Tests only (1.117): while the file POCKET_TEST_START_GAP names exists, a Claude retry or queue start waits 1.5 s after its
+// gate, as a slow disk would, so a test can pause in that window. Unset (everywhere but the tests), nothing waits.
+const TEST_START_GAP = process.env.POCKET_TEST_START_GAP || '';
+async function testStartGap(id) {
+  if (!fs.existsSync(TEST_START_GAP)) return;
+  log(`test start gap session=${id}`); await new Promise(r => setTimeout(r, 1500));
+}
 async function fireRetry(m) {
   if (claudeLogin.active && engineForSessionId(m.sessionId) === 'claude') return armRetry({...m,at:Date.now()+15_000});
   // 1.117: the unattended gate. Pause all holds the retry; a plan ceiling or the daily limit tries it again at the reset
@@ -1611,6 +1618,7 @@ async function fireRetry(m) {
     } catch (e) { if (e.paused) return holdRetry(m); log(`auto-resume failed session=${id}: ${e.message}`); } // 1.117: paused after the gate
     return;
   }
+  if (TEST_START_GAP) await testStartGap(m.sessionId);
   const file = await findSessionFile(m.sessionId);
   try { // the user (or code-server) may have moved the session along during the wait
     if (file && (await fsp.stat(file)).mtimeMs > m.createdAt + 15_000) {
@@ -1699,7 +1707,10 @@ function handleTurnLine(turn, line) {
   if (o.type === 'system' && o.subtype === 'init' && typeof o.model === 'string' && o.model) turn.effectiveModel = o.model;
   else if (o.type === 'assistant' && !o.parent_tool_use_id && typeof o.message?.model === 'string' && o.message.model && o.message.model !== '<synthetic>') turn.effectiveModel = o.message.model;
   // 1.89 (F-19): a background subagent's own output (parent_tool_use_id set) is not the agent replying; the stand-in stays one.
-  if (turn.controlOnly && ['assistant', 'stream_event', 'result'].includes(o.type) && !o.parent_tool_use_id) turn.controlOnly = false; // the agent is replying: a real turn now
+  if (turn.controlOnly && ['assistant', 'stream_event', 'result'].includes(o.type) && !o.parent_tool_use_id) { // the agent is replying: a real turn now
+    turn.controlOnly = false;
+    if (turn.autonomous && pausedNow()) { noteStart(turn.sessionId, null); stopPausedAgentReply(turn); } // 1.117: paused, as in handleRunnerLine
+  }
   if(o.type==='control_request'){
     // 1.82: the asking subagent's name, and the request itself so a reply that ends while it waits can carry it over.
     const agent=o.request?.subtype==='can_use_tool'?askingAgent(turn,o.request.tool_use_id):null;
@@ -1931,16 +1942,23 @@ function handleRunnerLine(r, line, lineOffset) {
     turn = beginTurn(r, { autonomous: true, offset: lineOffset, controlOnly: control });
     log(control ? `turn start (a background job asked for permission) session=${r.sessionId} pid=${r.pid}` : `turn start (started by the agent) session=${r.sessionId} pid=${r.pid}`);
     // 1.117: a reply the agent started is nobody's queue or retry (the list stops naming one), and while Pocket is paused it
-    // is unattended work like any other: stopped at once, with no push. A permission request keeps its stand-in turn.
+    // is unattended work like any other: stopped at once, with no push. A permission request keeps its stand-in turn until
+    // the agent starts replying in it; then it is stopped the same way (handleTurnLine).
     if (!control) {
       noteStart(r.sessionId, null);
-      if (pausedNow()) { turn.stopped = true; signalTurn(turn); log(`stop requested (paused; the agent started a reply) session=${r.sessionId}`); }
+      if (pausedNow()) stopPausedAgentReply(turn);
     }
     // Viewers in transcript-mirror mode resync on `done` and attach to this live turn.
     for (const t of tailers.get(r.sessionId) || []) { try { t.res.write('data: {"type":"done"}\n\n'); t.res.end(); } catch { } }
   }
   handleTurnLine(turn, line);
   maybeEndControlTurn(turn);
+}
+// 1.117: a reply the agent started while Pocket is paused, stopped as Pause all stops a reply (finalizeTurn pushes nothing
+// for a stopped reply). Stopping it ends the conversation's process, with any background jobs still in it.
+function stopPausedAgentReply(turn) {
+  turn.stopped = true; signalTurn(turn);
+  log(`stop requested (paused; the agent started a reply) session=${turn.sessionId}`);
 }
 // A control-only turn with nothing waiting any more is over: the conversation goes back to Working in background.
 function maybeEndControlTurn(turn) {
@@ -3364,7 +3382,7 @@ const ENGINE_OPS = {
     cwd: async id => { const file = await findSessionFile(id); return turns.get(id)?.cwd || (file ? (await sessionMeta(file, id))?.cwd : null); },
     foldersFile: id => findSessionFile(id),
     transcript: async (id, limit) => { const file = await findSessionFile(id); if (!file) throw Object.assign(new Error('Conversation not found'), { status: 404 }); return readTranscript(file, limit); },
-    startQueued: async (id, cwd, row, { replaceStale, from } = {}) => { const file = await findSessionFile(id), meta = file ? await sessionMeta(file, id) : null; return startTurn({ sessionId: id, cwd: cwd || meta?.cwd || HOME, text: row.text, resume: true, ...turnOpts(row), replaceStale, from }); },
+    startQueued: async (id, cwd, row, { replaceStale, from } = {}) => { if (TEST_START_GAP) await testStartGap(id); const file = await findSessionFile(id), meta = file ? await sessionMeta(file, id) : null; return startTurn({ sessionId: id, cwd: cwd || meta?.cwd || HOME, text: row.text, resume: true, ...turnOpts(row), replaceStale, from }); },
   },
   codex: {
     turn: id => codex.codexTurns.get(codex.bareId(id)),
@@ -5602,19 +5620,20 @@ function pauseAll() {
   return stopped;
 }
 // Returns what was re-armed, and what became of an Inbox Watch that Pause all paused: 'resumed', 'left_paused' (the owner
-// changed its settings while paused, so they are left as they are), or null when Pause all did not pause it.
+// changed its settings while paused and it is still paused; they are left as they are), or null (Pause all did not pause
+// it, or the owner's change already resumed it).
 function resumeAll() {
   const was = pausedNow();
   let inboxWatch = null;
   if (was?.inboxWatch) {
-    inboxWatch = 'left_paused';
     try {
       const w = was.inboxWatch, cur = inboxStore.watchView(w.source);
       if (cur.revision === w.revision) { inboxStore.setWatch(w.source, w.wasNull ? null : { ...(cur.settings || {}), paused: false }, { actor: 'ui' }); inboxRunner.kick?.(); inboxWatch = 'resumed'; }
-      else log('resume: Inbox Watch settings changed while paused; left as they are');
-    } catch (e) { log(`resume: Inbox Watch not resumed: ${e.message}`); }
+      else { inboxWatch = inboxStore.paused(w.source) ? 'left_paused' : null; log(`resume: Inbox Watch settings changed while paused; left as they are${inboxWatch ? ', paused' : ', running'}`); }
+    } catch (e) { inboxWatch = 'left_paused'; log(`resume: Inbox Watch not resumed: ${e.message}`); }
   }
   delete settings.paused; saveSettings();
+  if (was) resumeAfterJobs(); // a message the owner sent while background jobs held the login, kept while Blocked
   let rearmed = 0;
   if (autoValues('pause').rearmRetries) for (const m of [...heldRetries.values()]) { rearmRetry(m); rearmed++; }
   if (was) autoAudit({ action: 'resume', rearmed, ...(inboxWatch ? { inboxWatch } : {}), pausedFor: Date.now() - Date.parse(was.at) || 0 });

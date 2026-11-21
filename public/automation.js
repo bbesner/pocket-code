@@ -65,13 +65,17 @@ const Automation = (() => {
   }
   // The app's regular list refresh (every 5 s while visible) carries the banner's state (/api/sessions `pause`), so a second
   // device shows the banner too without a request of its own. A server without it (older) is asked as before.
-  function fromList(p) {
+  // `askedAt` (performance.now() when the list was asked for): a list asked for before this device's last Pause or Resume
+  // was answered may carry the state from before it, so it is not applied (the banner would flicker back for a moment).
+  function fromList(p, askedAt) {
     if (!p || typeof p !== 'object' || !('paused' in p)) return poll();
-    if (!on()) return Promise.resolve();
+    if (!on() || askedBefore(askedAt)) return Promise.resolve();
     lastPoll = Date.now();
     apply(p);
     return Promise.resolve();
   }
+  let answeredAt = 0; // performance.now() when this device's last Pause or Resume was answered
+  const askedBefore = askedAt => Number.isFinite(askedAt) && askedAt < answeredAt;
   // GET /api/pause: on return to the tab, at once when /api/me shows a change, and for the confirmation (pauseAll).
   // One request at a time; a failure leaves the last known state.
   function poll(force = false) {
@@ -79,7 +83,8 @@ const Automation = (() => {
     if (polling) return polling;
     if (!force && Date.now() - lastPoll < 4500) return Promise.resolve();
     lastPoll = Date.now();
-    polling = api('/pause').then(apply, () => { }).finally(() => { polling = null; });
+    const askedAt = performance.now();
+    polling = api('/pause').then(d => { if (!askedBefore(askedAt)) apply(d); }, () => { }).finally(() => { polling = null; });
     return polling;
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(true); });
@@ -164,6 +169,7 @@ const Automation = (() => {
   async function doPause(errorEl = null) {
     try {
       const r = await api('/pause', { method: 'POST', body: '{}' });
+      answeredAt = performance.now();
       apply({ paused: r.paused || { at: new Date().toISOString() } });
       // Replies and background jobs stop; retries and check-backs are held, not stopped:
       // "Paused. Stopped 2 replies running (2 Claude), 1 background job. Held 1 usage-limit retry."
@@ -181,6 +187,7 @@ const Automation = (() => {
     if (button) button.disabled = true;
     try {
       const r = await api('/resume', { method: 'POST', body: '{}' });
+      answeredAt = performance.now();
       apply({ paused: null, held: null });
       // Pause all paused Inbox Watch, and its settings were changed while paused: they are left as they are, still paused.
       toast([r.rearmed > 0 ? `Resumed. ${plural(r.rearmed, 'held retry runs', 'held retries run')} again.` : 'Resumed.',
