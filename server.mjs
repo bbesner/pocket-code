@@ -556,12 +556,13 @@ fs.writeFileSync(CLI_TOKEN_FILE, cliToken + '\n', { mode: 0o600 }); fs.chmodSync
 const CLI_URL_FILE = path.join(DATA_DIR, 'cli-url');
 fs.writeFileSync(CLI_URL_FILE, `http://127.0.0.1:${PORT}\n`, { mode: 0o600 }); fs.chmodSync(CLI_URL_FILE, 0o600);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+// A request made on this box straight to the port: a loopback socket and no proxy header (a tunnel or proxy adds one).
+const directLoopback = req => LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
 // Cookie, or the loopback CLI token: mounted only on /api/board* and /api/documents*.
 async function requireBoardAuth(req, res, next) {
   if (checkCookie(getCookie(req, 'pc_auth'))) return next();
   const m = /^Bearer ([0-9a-f]{64})$/.exec(req.get('authorization') || '');
-  const direct = LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
-  if (m && direct && timingSafeEqual(Buffer.from(m[1]), Buffer.from(cliToken))) { req.boardActor = 'cli'; return next(); }
+  if (m && directLoopback(req) && timingSafeEqual(Buffer.from(m[1]), Buffer.from(cliToken))) { req.boardActor = 'cli'; return next(); }
   if (await accessSignIn(req, res)) return next(); // 1.63
   res.status(401).json({ error: 'unauthorized' });
 }
@@ -2483,9 +2484,13 @@ for (const verb of ['get', 'post', 'patch', 'delete']) {
   app[verb] = (p, ...hs) => hs.length ? orig(p, ...hs.map(h => typeof h !== 'function' || h.length >= 4 ? h
     : (req, res, next) => { try { const r = h(req, res, next); if (r && typeof r.catch === 'function') r.catch(next); } catch (e) { next(e); } })) : orig(p);
 }
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
+  // 1.117 (PC-11): HSTS when the request reached the tunnel or proxy over HTTPS (it says so in X-Forwarded-Proto, or
+  // Cloudflare's CF-Visitor). A browser only honours it over HTTPS, so plain loopback HTTP never gets it. No includeSubDomains:
+  // other names under the owner's domain are not Pocket's to decide.
+  if ((req.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase() === 'https' || /"scheme"\s*:\s*"https"/.test(req.get('cf-visitor') || '')) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   // No inline scripts, no third-party hosts: everything the app needs is same-origin.
   // img-src 'self' also stops agent-written Markdown from loading a remote image (a
   // prompt-injected turn could otherwise exfiltrate text through an image URL).
@@ -5227,9 +5232,14 @@ app.get('/api/file', requireAuth, (req, res) => {
   res.sendFile(real);
 });
 
-app.get('/api/health', (_req, res) => res.json({
-  ok: true, active: turns.size + codex.codexTurns.size, codexActive: codex.codexTurns.size, processes: runners.size, codexProcesses: codex.codexSessions.size, uptime: process.uptime(),
-}));
+// 1.117 (PC-10): the counts (what is running, for how long) go to the signed-in owner and to a request made on this box
+// straight to the port (pocket-init, deploy scripts: curl localhost:3610/api/health). Anyone else, a caller through the
+// tunnel included, learns only that Pocket answers.
+app.get('/api/health', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!directLoopback(req) && !checkCookie(getCookie(req, 'pc_auth'))) return res.json({ ok: true });
+  res.json({ ok: true, active: turns.size + codex.codexTurns.size, codexActive: codex.codexTurns.size, processes: runners.size, codexProcesses: codex.codexSessions.size, uptime: process.uptime() });
+});
 
 // model picker options — Claude's from CLAUDE_MODELS, Codex's straight from its app-server
 app.get('/api/claude/models', requireAuth, (_req, res) => { const offer = claudeOffer(); res.json({

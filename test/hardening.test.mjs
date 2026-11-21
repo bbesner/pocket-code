@@ -1,5 +1,6 @@
 // 1.117 security hardening (the 2026-11-21 authentication review), checked against the real daemon with the fake CLIs.
-// PC-06 sign-out and revocation; PC-07 the login limit across addresses; PC-08 intake limits.
+// PC-06 sign-out and revocation; PC-07 the login limit across addresses; PC-08 intake limits; PC-10 /api/health;
+// PC-11 HSTS; PC-12 the time zone by POST; PC-13 upload modes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -141,4 +142,27 @@ test('PC-08: wrong intake links from tunnelled callers never close a right link;
   const direct=[];for(let i=0;i<20;i++)direct.push(await get('/intake/'+String(i).padStart(43,'d')));
   assert.equal(await get(link),429,'after its own twenty wrong links a placed caller waits');
   assert.equal(await get(link,tunnel(8)),200,'which does not touch anyone else');
+});
+
+test('PC-10: /api/health tells a stranger only that Pocket answers; the counts are for the owner and for this box',async t=>{
+  const s=await server(t,20341);
+  const health=async h=>(await s.fetch('/api/health',{headers:h})).json();
+  for(const h of [{'x-forwarded-for':'203.0.113.7'},{'cf-connecting-ip':'203.0.113.7'},{'cf-connecting-ip':'203.0.113.7','x-forwarded-for':'203.0.113.7'}])
+    assert.deepEqual(await health(h),{ok:true},'a caller through a proxy, signed out: '+JSON.stringify(h));
+  const direct=await health({});assert.equal(direct.ok,true);assert.equal(direct.active,0,'a direct loopback request (deploy scripts, pocket-init) gets the counts');
+  assert.equal(typeof direct.uptime,'number');
+  const owner=(await s.login()).cookie;
+  const signedIn=await health({cookie:owner,'cf-connecting-ip':'203.0.113.7'});assert.equal(signedIn.active,0,'the signed-in owner through the tunnel gets them too');
+  assert.equal((await s.fetch('/api/health',{headers:{'x-forwarded-for':'203.0.113.7'}})).headers.get('cache-control'),'no-store');
+});
+
+test('PC-11: Strict-Transport-Security only when the request reached the proxy over HTTPS',async t=>{
+  const s=await server(t,20381);
+  const hsts=async h=>(await s.fetch('/api/health',{headers:h})).headers.get('strict-transport-security');
+  assert.equal(await hsts({}),null,'plain loopback HTTP');
+  assert.equal(await hsts({'x-forwarded-proto':'http'}),null);
+  assert.equal(await hsts({'x-forwarded-proto':'https'}),'max-age=31536000');
+  assert.equal(await hsts({'x-forwarded-proto':'https, http'}),'max-age=31536000','the first proxy\'s scheme counts');
+  assert.equal(await hsts({'cf-visitor':'{"scheme":"https"}'}),'max-age=31536000','Cloudflare\'s CF-Visitor');
+  assert.equal((await s.fetch('/',{headers:{'x-forwarded-proto':'https'}})).headers.get('strict-transport-security'),'max-age=31536000','the app shell too');
 });
