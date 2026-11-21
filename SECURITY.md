@@ -170,7 +170,7 @@ kinds, URLs, tags, policy, expiry, last use; never values or the owner's notes),
 item (an existing name is refused, so an agent cannot replace a credential), read its own
 session's history, and ask the daemon to run a command with values in that command's
 environment. The daemon starts the command itself, passes values only in the environment,
-never in arguments, and returns the output with each value and its base64 and URL-encoded
+never in arguments, and returns the output with each value and its base64, URL-encoded, hex and reversed
 forms replaced by `{{vault:name}}`, including a value carried inside longer base64 such as an HTTP
 Basic header (1.82.1; values of 6 characters or more). The command leads its own process group (1.73.7): when it
 exits, times out, passes the output cap or is stopped, everything still in that group is ended, so a
@@ -180,7 +180,7 @@ policy or recipes, answering requests and rotating the key need the owner's logi
 
 **What runs.** **Agent access** in Settings (1.41) sets the default, and each item can
 override it. *Ask once per command*, the default, runs a command only if it exactly matches a
-recipe the owner saved with *Always allow*; otherwise the owner is asked and the request
+recipe the owner saved with *Always allow* (what a recipe holds is below); otherwise the owner is asked and the request
 expires after 15 minutes; an answer stays good for 15 minutes after it is given (1.82.1). *Ask every time* asks for every run and offers no *Always allow*.
 *Free rein* runs any command without asking (every use is still recorded). *Only you* refuses
 agents. The owner answers from the Vault view, from the push notification's **Allow** and
@@ -189,6 +189,20 @@ own messages in that session count. Under Review actions the owner also approves
 `pocket-vault run` call itself; under Full access the Vault's request is the only check, which
 is why asking is the default. Calls from a terminal or code-server session on the host follow
 the same rules and are recorded as `terminal`.
+
+**What an Always allow trusts.** A recipe holds the command's text (program, arguments, folder) and what it runs:
+the program found on the Vault's own `PATH` (`POCKET_VAULT_PATH`, or the daemon's `PATH` at start, absolute folders
+only; never the caller's), the interpreter named on its `#!` line (and the program `#!/usr/bin/env` finds), and every
+argument that names an existing regular file, each by absolute path and SHA-256 of its content. A run matches a recipe
+only while all of that is unchanged, and the daemon starts the program it checked, by its full path. A changed script, a
+program of the same name placed earlier on that `PATH`, or a changed interpreter raises a new request that says so, and
+nothing runs. A request carries the same check: a run the owner allowed is refused if what it would run changed between
+the request and the run. Recipes saved before this check have no content recorded and ask once more; *Always allow* then
+records it. The check does not reach files a script reads or sources itself, modules or libraries an interpreter loads,
+`package.json` scripts behind `npm run`, a `Makefile`, or a folder given as an argument, and a file replaced in the
+instant between the check and the start is not caught. An agent that can write those can still change what an approved
+command does. For a credential that matters, use *Ask every time*, or allow always only commands whose whole behaviour
+is in the files they name, kept where the agent cannot write.
 
 **Requests are bound (1.73.4).** A pending request belongs to the kind of use it was raised for (a
 command run, or a browser fill) and to the session that raised it: `pocket-vault wait` or the relay's
@@ -244,7 +258,8 @@ carry the item's name, the link's id and the field names). While the Vault is of
   sandbox the agent's CLI applies, and can do whatever the credential allows. Approve
   commands as you would approve giving that credential to the command.
 - Output scrubbing reduces accidental exposure. It cannot stop a command that writes the value
-  to a file, encodes it some other way, or sends it off the box.
+  to a file, encodes it some other way, or sends it off the box. What may run with a value is
+  decided by the owner's approval and the recipe's content check, not by the scrubber.
 - A secret pasted into a conversation, or one an agent read in a file before storing it, has
   already reached the provider and the transcript. Storing it protects later turns, not that
   one; rotate it. The secret guard catches common shapes of key, token and password, not every

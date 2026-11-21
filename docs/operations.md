@@ -503,10 +503,13 @@ forgotten passphrase; an export (below) is the owner's own backup.
 passphrase typed for it, holding every live item with its values; an import adds items whose
 names are new and skips the rest. Both are owner-only, cookie routes, and recorded.
 
-**Runs.** `pocket-vault run` asks the daemon to start the command. The daemon starts it with
-the filtered agent environment plus the bound values, no terminal, output piped back through
-a filter that replaces each value (and its base64 and URL-encoded forms) with
-`{{vault:name}}`. Output is capped at 1 MB and a run is stopped after 10 minutes by default.
+**Runs.** `pocket-vault run` asks the daemon to start the command. The daemon finds the program on
+`POCKET_VAULT_PATH` (default: its own `PATH` at start; absolute folders only), records the SHA-256 of
+the program, its `#!` interpreter and every file named in the arguments, and starts the program by its
+full path with the filtered agent environment (that `PATH`) plus the bound values, no terminal, output
+piped back through a filter that replaces each value (and its base64, URL-encoded, hex and reversed
+forms) with `{{vault:name}}`. An *Always allow* recipe matches only while those hashes are unchanged;
+a recipe saved before they were recorded asks once more. Output is capped at 1 MB and a run is stopped after 10 minutes by default.
 Since 1.73.7 the command leads its own process group, and its exit, the timeout, the cap or a
 stop ends everything still in it (TERM, then KILL after five seconds); the run finishes within
 about two seconds of the command's exit. A command that starts a background service expecting
@@ -523,7 +526,7 @@ answers; only its **Allow** or **Deny** action does. When the service worker's a
 `?missed=<why>` so the card says the answer did not go through, and the daemon logs
 `vault answer request=<id> refused <status>`. The owner's snapshot also lists answered requests
 (id, names, decision, time) for their 15 minutes, so an opened notification can say what happened. A request is answered
-once and expires after 15 minutes. A pending request lives in the daemon's memory only (a restart drops it; the agent is told the request no longer exists); the recipes an answer of *Always allow* saves are kept inside `vault.enc`. A request records what it is for (`action`: `run` or `fill`) and who raised it (1.73.4); a continuation (`POST /api/vault/wait`, or `/api/vault/release` with `request`) is refused with 409 `request_mismatch` for the other kind of use, 403 `request_mismatch` from another session, 409 `request_used` once it has been used, and 409 `request_stale` when an item or a policy changed since the answer. Recipes carry the action; older ones are read from their command.
+once and expires after 15 minutes. A pending request lives in the daemon's memory only (a restart drops it; the agent is told the request no longer exists); the recipes an answer of *Always allow* saves are kept inside `vault.enc`. A request records what it is for (`action`: `run` or `fill`) and who raised it (1.73.4); a continuation (`POST /api/vault/wait`, or `/api/vault/release` with `request`) is refused with 409 `request_mismatch` for the other kind of use, 403 `request_mismatch` from another session, 409 `request_used` once it has been used, and 409 `request_stale` when an item or a policy changed since the answer, or the program or a file the command names changed since the request. Recipes carry the action; older ones are read from their command.
 
 **Typed by Pocket (1.43).** `scripts/pocket-mcp-proxy.mjs [--name <server>] -- <MCP server command…>` is a
 stdio MCP relay. Wrap a browser tool with it so agents can fill `{{vault:name.field}}` into web forms:

@@ -91,7 +91,10 @@ pocket-vault run --env SSH_KEY=deploy-key.text -- sh -c 'umask 077; f=$(mktemp);
   process lists, approvals and the record of use.
 - **Keep commands stable.** An approved command is saved as an exact match (the program, its
   arguments and the working directory); a changed argument is a new command and asks the
-  owner again. Put what varies in a script or a file the command reads.
+  owner again. It also records the content of the program, its `#!` interpreter and every file
+  named in the arguments: editing an approved script asks the owner again, and the request says
+  the script changed. Pocket finds the program on its own `PATH`, not yours; give a full path
+  for a program outside it. Put what varies in a data file the command reads, not in the script.
 - **The command runs with the server's permissions**, outside your own sandbox, and can do
   whatever the credential allows. Run only what the task needs.
 - `{{vault:name}}` in the output means the command printed the value. Do not try to recover
