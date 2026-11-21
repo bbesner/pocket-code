@@ -66,7 +66,7 @@ pocket-coord list [--json]
 | 4 | The command couldn't sign in to Pocket |
 | 5 | Coordination is off |
 
-- **Names** are lowercase letters, numbers, dots, dashes and underscores, up to 64 characters. Pocket starts with one known name, `pocket-main`, and learns the rest the first time each is held (`shop-staging`, `site-deploy` and so on); a learned name stays known. `pocket-coord list` shows the starting name, what is held now and names used lately. A name close to an existing one is refused unless the agent passes `--new`, so `staging` and `shop-staging` don't become two holds.
+- **Names** are lowercase letters, numbers, dots, dashes and underscores, up to 64 characters. Pocket starts with one known name, `pocket-main`, and learns the rest the first time each is held (`shop-staging`, `site-deploy` and so on); a learned name stays known. `pocket-coord list` shows what is held now, names used lately, and the name known from the start. A name close to an existing one is refused unless the agent passes `--new`, so `staging` and `shop-staging` don't become two holds.
 - **Holding again** renews a hold you already have.
 - **A terminal session** can hold, and shows as `Terminal session`, unverified. It can't be woken, so it waits with `--block`, in its own shell. It can't release a conversation's hold, and any session can release a terminal session's hold.
 

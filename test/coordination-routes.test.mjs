@@ -73,6 +73,9 @@ test('coordination routes and CLI', { timeout: 90_000 }, async t => {
   assert.equal(list.body.held.find(h => h.name === 'shop-staging').name, 'shop-staging');
   const shown = (await cli(['list', '--json'])).out;
   assert.equal(JSON.parse(shown).holds.find(h => h.name === 'shop-staging').holder.session, a);
+  const text = (await cli(['list'])).out;
+  assert.match(text, /^shop-staging is held by/m);
+  assert.match(text, /^Known from the start: pocket-main\. Other names are learned the first time each is held\.$/m);
 
   // A terminal cannot let go of a proven hold or be woken.
   const refused = await cli(['release', 'shop-staging']);

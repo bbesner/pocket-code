@@ -98,7 +98,7 @@ switch (cmd) {
       if (h.waiters.length) console.log('  Waiting: ' + h.waiters.map(w => w.session ? `"${w.title || 'a conversation'}"` : 'a terminal session').join(', '));
     }
     for (const r of d.recent.slice(0, 5)) console.log(`Lately: ${r.name} ${ENDED[r.event] || r.event} ${age(d.now - r.endedAt)} ago${r.note ? `: ${r.note}` : ''}`);
-    console.log('Usual names: ' + d.seeds.join(', '));
+    if (d.seeds.length) console.log(`Known from the start: ${d.seeds.join(', ')}. Other names are learned the first time each is held.`);
     break;
   }
   default: die(`Unknown command: ${cmd}. Run pocket-coord help.`);
