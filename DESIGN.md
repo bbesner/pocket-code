@@ -415,7 +415,7 @@ tokens and classes only. A run request gains, under the command, a dim **Runs** 
 `.vault-path` mono (for a launcher, the program it starts). A note in body colour at 13.5px (`.vault-request-note`, no
 border) says what Pocket cannot check: inline code, a launcher option it does not know, a file checked only by size and
 dates, a script that is a pipe or folder. When *Always allow* is offered and the command names files, a borderless
-fieldset, **Files Always allow checks**, lists them as `.task-label` checkboxes (clay accent, 44px rows), ticked by
+fieldset, **Files that Always allow checks**, lists them as `.task-label` checkboxes (clay accent, 44px rows), ticked by
 default, with one dim line of help: untick a file the command writes. The bordered `--warn` notice for a changed command
 names the file that changed, in mono, instead of "the program or a file". Rendered checks: no horizontal overflow at 390
 and 1280; the detector reports only the app-shell baseline (flat type hierarchy).

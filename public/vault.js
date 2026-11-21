@@ -304,7 +304,7 @@ function vaultPinHTML(r,hid){
   else if(f.kind)notes.push(`<span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span> is ${esc(VAULT_PIN_KIND[f.kind]||'not a plain file')}, so its contents are not checked.${f.role==='script'?' Always allow is not offered for it.':''}`);
  }
  const data=new Set(Array.isArray(r.data)?r.data:[]),args=files.filter(f=>f.role==='argument'&&!f.kind);
- const list=r.allowAlways===false||!args.length?'':`<fieldset class="vault-request-files" aria-describedby="${esc(hid)}-fh"><legend>Files Always allow checks</legend>
+ const list=r.allowAlways===false||!args.length?'':`<fieldset class="vault-request-files" aria-describedby="${esc(hid)}-fh"><legend>Files that Always allow checks</legend>
    <p class="vault-request-files-help" id="${esc(hid)}-fh">Untick a file this command writes itself, such as an output or a log, or you will be asked on every run.</p>
    ${args.map(f=>`<label class="task-label"><input type="checkbox" data-pin-file="${esc(f.path)}" ${data.has(f.path)?'':'checked'}><span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span></label>`).join('')}</fieldset>`;
  return `${notes.map(n=>`<p class="vault-request-note">${n}</p>`).join('')}${list}`;
