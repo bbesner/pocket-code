@@ -252,5 +252,6 @@ pocket-docs set 9c1e5b7d4e8f --visibility private
 | Pocket does not show a link you made earlier | Pocket keeps only a hash of a share link's address, so it shows it once, when it is made (since 1.117). | Use the address you copied or sent, or **Make a new link** (the old one stops working). |
 | An agent says its share is `pending` | Sharing or publishing waits for your **Allow**. | Answer the card at the top of Files, or the notification. |
 | **Allow** says the file changed | The file's content, name or sharing changed after the agent asked, so nothing was shared. | Ask the agent to ask again if you still want it shared. |
+| A share request is refused: *That file is not a regular file inside the library* | The stored file was replaced by a link or something other than a plain file, so Pocket will not share it. | Put the real file back in the library's folder, or keep it again with `pocket-docs add`. |
 | `pocket-docs` prints `/share/…` without a host | `POCKET_PUBLIC_URL` is not set. | Set it in `.env`, or put your Pocket address in front. |
 | `No CLI token at …`, `not reachable`, exit 4 | The same causes as for `pocket-board`. | See [Projects troubleshooting](projects.md#troubleshooting). |

@@ -260,7 +260,8 @@ device, and when you open them, so an item an agent adds shows up without a relo
   work directly. See [Conductor mode](docs/manual/projects.md#conductor-mode).
 - **Files** keeps the reports, dashboards and spreadsheets that came out of the work, in a
   grid or a list. HTML renders sandboxed; PDFs, images, Markdown and CSV render in place.
-  Files are private until you share one by link or publicly; removed files wait 30 days
+  Files are private until you share one by link or publicly; a link's address is shown once,
+  when you make it, and an agent's share or publish waits for your Allow; removed files wait 30 days
   in the trash, and **Select** removes several at once; **Delete forever** and **Empty trash**
   free the space now. Keep a file from a session's Results, upload one, or let agents keep
   deliverables. See [Files](docs/manual/files.md).
@@ -477,7 +478,7 @@ another program (1.43.1). Each works only while its feature is on. Run them as
 | Command | Common use |
 |---|---|
 | `pocket-board` | `track --requested --name "…" --summary "…" --next "…"`, `update` (with `--mode conductor\|off`, `--done-when "…"`, `--works-in "a,b"` for Conductor mode, 1.106), `task add\|done` (`--check "…"` gives a step its pass/fail check), `remind --at "YYYY-MM-DDTHH:MM"`, `dismiss`, `note`, `status [--all]`, `scheduled`, `context`, `import`, `link-session <id>`, `unlink-session <id>`, `task edit\|reopen` |
-| `pocket-docs` | `add <path> [--title] [--project] [--session] [--visibility]`, `list [--q]`, `show <id>`, `share <id> [--expires 7d\|30d\|none]`, `set <id> --visibility private\|link\|public`, `trash <id>`, `restore <id>` |
+| `pocket-docs` | `add <path> [--title] [--project] [--session] [--visibility]`, `list [--q]`, `show <id>`, `share <id> [--expires 7d\|30d\|none]`, `set <id> --visibility private\|link\|public`, `wait <request id>`, `trash <id>`, `restore <id>`. Sharing or publishing waits for your Allow; exits 6 while it waits and 7 when it is denied |
 | `pocket-coord` | `hold <name> --reason "…" [--ttl] [--new]`, `wait <name> [--block --timeout]`, `release <name> [--note]`, `list [--json]` |
 | `pocket-tasks` | `add "…" [--due] [--session <id>] [--summary "…"] [--dir]`, `list [--all]`, `show <id>`, `done <id>`, `reopen <id>`, `edit <id> [--clear-due]`, `remove <id>` |
 | `pocket-notify` | `--title "…" --body "…" [--url /#/start/<id> or another Pocket path] [--tag <key>] [--email]` (1.65.0): a push to every device that wants alerts, and an email to the notification address with `--email`; pair it with `pocket-start` so the alert opens a briefed New session |
@@ -607,8 +608,9 @@ can enable or disallow Full access. These modes are execution controls, not empl
 accounts or an isolation boundary. Changing the mode affects subsequent turns;
 steering does not change permissions on an already-running turn.
 
-The app binds to loopback, uses a signed secure cookie and login rate limiting, and
-sends a same-origin Content Security Policy. Allow embedding origins explicitly with
+The app binds to loopback, uses a signed secure cookie, login rate limiting and **Sign out
+everywhere**, and sends a same-origin Content Security Policy. A reverse proxy in front must send
+`X-Forwarded-For` (see [docs/install.md](docs/install.md)), or every caller looks local. Allow embedding origins explicitly with
 `POCKET_FRAME_ANCESTORS`. Keep `.env`, private state and transcripts out of version control.
 Use an additional identity layer in front when appropriate for your installation.
 Read the [security model](SECURITY.md) and [approval/recovery behavior](docs/action-approvals.md).

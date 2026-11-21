@@ -214,7 +214,8 @@ calls than 5, 15 minutes 31% fewer, 30 minutes 44% fewer, for the same mail.
 
 Reusing a Google sign-in another app already holds (an assistant connected to the same Gmail) works too: write an
 `authorized_user` token file (`client_id`, `client_secret`, `refresh_token`, `token_uri`, and the `scopes` it was granted)
-and point `oauth_token_file` at it. The watcher renews it with those scopes and only ever reads.
+and point `oauth_token_file` at it. The watcher renews it with those scopes and only ever reads. The token file holds a
+refresh token: `gmail-auth` and every renewal write it mode `0600` (and put an existing file back to `0600`).
 
 `touch STOP` beside the config pauses everything. `--dry-run` evaluates without sending. `notify --subject … --text …`
 sends one alert through the same channel from any other job; with `--urgency emergency|outage|money|security|waiting|deadline`

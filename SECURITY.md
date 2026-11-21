@@ -373,8 +373,12 @@ the name each one will fill is reserved until it ends. The page shows the link's
 the fields, never another item, name or value. It is sent `no-store`, `noindex`, with `Referrer-Policy: same-origin`,
 `X-Frame-Options: DENY` and a CSP of `default-src 'none'` with same-origin script, style and form action only; the page
 has no inline code. A post needs the link's own form nonce, and a post another site makes is refused by `Origin` or
-`Sec-Fetch-Site`. Each address (by the rules above for `cf-connecting-ip`) gets 60 page loads and 15 posts per ten
-minutes and 20 unknown tokens an hour, and the install 300 unknown tokens an hour. Opening a link does not use it, so a
+`Sec-Fetch-Site`. The per-address limits apply only to an address Pocket can place (since 1.117): a `cf-connecting-ip` it
+trusts (by the rules above), or the connection's own address when the request came through no proxy, an IPv6 address
+counted by its /64. Such an address gets 60 page loads and 15 posts per ten minutes and 20 unknown tokens an hour. A
+caller behind a tunnel or proxy that Pocket cannot place is not counted per address, so a stranger's wrong links cannot
+close the page for the person a link was sent to. Across the install, past 300 unknown tokens an hour each further one is
+answered after 1.5 seconds; nothing is refused for it, and a right link is not slowed. Opening a link does not use it, so a
 mail scanner that follows it changes nothing. A post is parsed in memory and stored in the same write that marks the
 link used; nothing typed is written back into a page, a log line, the audit record, a push or an agent's output (they
 carry the item's name, the link's id and the field names). While the Vault is off or locked the page answers 503

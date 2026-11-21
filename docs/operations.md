@@ -260,6 +260,10 @@ Pocket-owned persistent state includes:
   neither holds a readable value, and `vault.enc` is useless without its key;
 - the documents folder (`POCKET_DOCUMENTS_DIR`, default `documents/`), holding the stored
   files, a `.trash/` folder of removed files, and a `.thumbs/` cache of preview pictures;
+- `auth-state.json` (mode `0600`, since 1.117), the sign-in generation and a keyed hash of the
+  password (never the password). Sign out everywhere writes a new generation here. Restoring an
+  older copy brings back the cookies of that generation, and deleting it signs every browser out
+  at the next start; after a restore, use **Sign out everywhere**;
 - `cli-token` and `cli-url`, the loopback CLI token and address. They are rewritten at every
   start, so do not back them up or copy them to another instance.
 
@@ -419,6 +423,14 @@ sessions together, after which every unlock and key restore waits out the hour a
 `vault: 50 wrong passphrases or keys within the hour across all sessions`. See `docs/install.md`
 and `SECURITY.md`.
 
+Since 1.117 an IPv6 caller counts by its /64, and the login also keeps one budget across all
+addresses: past 30 wrong passwords in an hour, sign-ins are checked one at a time with a pause that
+starts at 1 second and grows to 10, and a try that would wait more than 20 seconds is told to try
+again in a minute (`busy`). A browser that signed in before carries a known-device cookie
+(`pc_device`) and skips that queue. Vault intake links count per address only for an address Pocket
+can place, and past 300 unknown links an hour across the install each further one is answered after
+1.5 seconds.
+
 **Trash.** Removing a file moves it to `.trash/` in the documents folder. The daemon
 purges files trashed more than 30 days ago, checking a minute after start and then every six
 hours. Restore a file before then from the Files library, or free the space now with
@@ -505,11 +517,15 @@ names are new and skips the rest. Both are owner-only, cookie routes, and record
 
 **Runs.** `pocket-vault run` asks the daemon to start the command. The daemon finds the program on
 `POCKET_VAULT_PATH` (default: its own `PATH` at start; absolute folders only), records the SHA-256 of
-the program, its `#!` interpreter and every file named in the arguments, and starts the program by its
-full path with the filtered agent environment (that `PATH`) plus the bound values, no terminal, output
+the program, its `#!` interpreter, the program a known launcher (`env`, `timeout`, `sudo` and others)
+starts, the script a known interpreter runs and every file named in the arguments, and starts what it
+checked with the filtered agent environment (that `PATH`) plus the bound values, no terminal, output
 piped back through a filter that replaces each value (and its base64, URL-encoded, hex and reversed
-forms) with `{{vault:name}}`. An *Always allow* recipe matches only while those hashes are unchanged;
-a recipe saved before they were recorded asks once more. Output is capped at 1 MB and a run is stopped after 10 minutes by default.
+forms) with `{{vault:name}}`. On Linux a native program is started from the file it hashed
+(`/proc/self/fd`) and a shell script from a private copy of what was hashed; anything else is hashed
+again just before the start (since 1.117). An *Always allow* recipe matches only while those hashes are
+unchanged; a recipe saved before they were recorded asks once more. At start, with the Vault on, the
+log warns about each folder on that `PATH` this user can write to, create or replace. Output is capped at 1 MB and a run is stopped after 10 minutes by default.
 Since 1.73.7 the command leads its own process group, and its exit, the timeout, the cap or a
 stop ends everything still in it (TERM, then KILL after five seconds); the run finishes within
 about two seconds of the command's exit. A command that starts a background service expecting

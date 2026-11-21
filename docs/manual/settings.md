@@ -286,6 +286,7 @@ defaults to the Pocket Code directory:
 | `pocket-settings.json` | Every **Server** setting above, plus two values Pocket learns: your browser's time zone and the public address you sign in through |
 | `push-subs.json` | One entry per device with push on, with its choice of kinds and icon count. A subscription the push service reports as gone is removed |
 | `router-key` | The key saved under **Automatic model choice** (mode `0600`) |
+| `auth-state.json` | The sign-in generation that **Sign out everywhere** moves on, and a keyed hash of the password (mode `0600`, 1.117). Never the password itself |
 | `mutes.json`, `session-meta.json` | Per-conversation mutes, and pins and names (not part of Settings, the same on every device) |
 
 The Vault's key is saved in `.env` in the Pocket Code directory, not in the data directory.

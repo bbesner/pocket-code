@@ -235,7 +235,7 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | **Approval connection interrupted** or **Question interrupted** | Pocket restarted and cannot reach the agent process's input. | **Stop interrupted reply**, review, send a new message. |
 | "This question was already answered differently." | Another device answered first. | Refresh the conversation. |
 | A listed action still shows a card | The command was chained, piped, redirected, prefixed with `VAR=value`, called by path, or Codex is running; or the reply is in Full access (no cards at all). | See the matching rules in [Action approvals](../action-approvals.md#actions-that-run-without-asking). |
-| No notification for a question or approval | The conversation is muted, **Finished replies** is off on that device, or push is not set up. | Check the **Alerts** chip and **Settings → Notifications & voice**. |
+| No notification for a question or approval | The conversation is muted, **Finished replies** is off on that device, push is not set up, or that device was signed out (**Sign out** and **Sign out everywhere** turn push off). | Check the **Alerts** chip and **Settings → Notifications & voice**, and turn **Push to this device** on again after signing in. |
 
 Deeper reference, including restart handling and rollback: [Action approvals](../action-approvals.md) and
 [Operations](../operations.md#restarted-questions-and-approvals).

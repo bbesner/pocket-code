@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.115.0
+checked: 1.116.0
 sources: choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -278,6 +278,7 @@ permissions.
 |---|---|
 | After the current reply | Waiting; runs when the running reply finishes successfully. |
 | Paused | Waiting, with no reply running. Use **Run next instruction**. |
+| After the background jobs | Waiting for background jobs the last Claude reply left running; it sends by itself when they finish. The panel names the jobs, and the button reads **Stop background jobs and run it**. |
 | Editing · paused | Someone opened it for editing. It will not run until saved or cancelled. |
 | Starting… | Being handed to the agent. |
 | Needs review | The start could not be confirmed, or the message could not start (the row says why). Everything behind it waits. |
@@ -287,7 +288,8 @@ permissions.
   unsaved text.
 - **Remove** deletes a row. A row that is starting cannot be removed.
 - **Run next instruction** appears when the first row is waiting and nothing is running. It is disabled while activity is
-  seen in another app (a terminal or code-server).
+  seen in another app (a terminal or code-server), and the panel says **Recent activity was seen elsewhere. Refresh after
+  that reply finishes.**
 - Stopping a reply, or a reply that fails, pauses the queue. Use **Run next instruction** to continue.
 - A **Needs review** row blocks the rows behind it. Check the conversation to see whether it ran, then remove it.
 

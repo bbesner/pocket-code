@@ -77,7 +77,7 @@ optional [memory integration](#memory-integration-optional) or emailing alerts (
 To watch another mailbox, read Gmail through Google's API (an OAuth client or a Workspace service account), use a
 different judge (OpenClaw, the Claude API) or deliver to Telegram or email as well, install the watcher by hand. The
 steps, every config key and the systemd timer are in [`inbox-watch/README.md`](../../inbox-watch/README.md) and
-`inbox-watch/examples/config.example.toml`. The `inbox-watch/bin/inbox-monitor` command uses the first `python3` on `PATH` that is 3.11 or newer, or the one named
+`inbox-watch/examples/config.example.toml`. With an OAuth client, the token file `gmail-auth` writes is mode `0600` from the start, and stays so when the watcher renews it. The `inbox-watch/bin/inbox-monitor` command uses the first `python3` on `PATH` that is 3.11 or newer, or the one named
 in `INBOX_MONITOR_PYTHON`. Turn on Inbox Watch in Pocket so its Inbox receives what that watcher sends.
 
 Pocket never manages a mailbox someone else set up. If a watcher is already reporting to this Pocket (it sends its
