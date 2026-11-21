@@ -119,3 +119,55 @@ test('HTTP: /thumb needs the login, says which kinds it can picture, serves the 
   assert.ok(fs.existsSync(path.join(docsDir,'.thumbs')));
   const again=await (await fetch(base+'/api/documents',{headers:auth})).json();assert.equal(again.documents.length,2,'the .thumbs folder is not adopted as documents');
 });
+// 1.117 (PC-03): Chrome rendered an HTML document as a file:// page with script and network on, so a document from outside
+// (an email attachment, a downloaded page) could frame another local file into its picture or make requests from the server.
+// Real Chrome and ImageMagick: each hostile document paints red and tries to show a green local file, or to reach a local
+// HTTP server that answers green; the picture's centre must stay red and the server must hear nothing.
+const realChrome=findTools().chrome;
+const realConvert=(()=>{for(const d of String(process.env.PATH||'').split(path.delimiter)){const p=path.join(d,'convert');if(fs.existsSync(p))return p;}return null;})();
+test('PC-03 REAL: a hostile HTML document cannot picture another local file, run script or reach the network',{skip:(!realChrome&&'Chrome is not installed')||(!realConvert&&'ImageMagick convert is not installed'),timeout:180_000},async()=>{
+  const {execFileSync}=await import('node:child_process');const http=await import('node:http');
+  const dir=tmp();const docsDir=path.join(dir,'docs'),secret=path.join(dir,'elsewhere');fs.mkdirSync(docsDir);fs.mkdirSync(secret);
+  const GREEN='<!doctype html><style>html,body{margin:0;height:100%;background:#00ff00}</style><p>marker</p>';
+  fs.writeFileSync(path.join(secret,'marker.html'),GREEN);fs.writeFileSync(path.join(secret,'marker.css'),'html,body{background:#00ff00 !important}');
+  execFileSync(realConvert,['-size','64x64','xc:#00ff00',path.join(secret,'marker.png')]);
+  const hits=[];const srv=http.createServer((req,res)=>{hits.push(req.url);res.setHeader('content-type',req.url.includes('css')?'text/css':'text/html');res.end(req.url.includes('css')?'html,body{background:#00ff00 !important}':GREEN);});
+  await new Promise(r=>srv.listen(0,'127.0.0.1',r));const port=srv.address().port;
+  const full='position:fixed;left:0;top:0;width:100%;height:100%;border:0';
+  const red=body=>`<!doctype html><html><head>${body.head||''}</head><body style="margin:0;height:100vh;background:#ff0000">${body.body||''}</body></html>`;
+  const f=n=>'file://'+path.join(secret,n),h=n=>`http://127.0.0.1:${port}/${n}`;
+  const cases={
+    'iframe-file':red({body:`<iframe src="${f('marker.html')}" style="${full}"></iframe>`}),
+    'object-file':red({body:`<object data="${f('marker.html')}" style="${full}"></object>`}),
+    'img-file':red({body:`<img src="${f('marker.png')}" style="${full}">`}),
+    'css-file':red({head:`<link rel="stylesheet" href="${f('marker.css')}">`}),
+    'refresh-file':red({head:`<meta http-equiv="refresh" content="0;url=${f('marker.html')}">`}),
+    'script':red({body:`<script>document.body.style.background='#00ff00'</script>`}),
+    'net-img':red({body:`<img src="${h('img')}" style="${full}"><img src="http://localhost:${port}/named">`}),
+    'net-css':red({head:`<link rel="stylesheet" href="${h('css')}">`}),
+    'net-frame':red({body:`<iframe src="${h('frame')}" style="${full}"></iframe>`}),
+    'net-refresh':red({head:`<meta http-equiv="refresh" content="0;url=${h('refresh')}">`}),
+  };
+  for(const [name,html] of Object.entries(cases))fs.writeFileSync(path.join(docsDir,name+'.html'),html);
+  // The control: an ordinary report with inline styles and a data: image is still pictured as it looks.
+  fs.writeFileSync(path.join(docsDir,'control.html'),'<!doctype html><title>Report</title><style>body{margin:0;height:100vh;background:#0000ff}</style><img alt="" src="data:image/png;base64,'+PNG.toString('base64')+'"><p>Quarterly</p>');
+  const store=new DocumentStore(docsDir,path.join(dir,'documents.json'));store.scan();const by=n=>store.documents.find(d=>d.file===n);
+  const logs=[];const t=new Thumbnailer(store,{tools:{chrome:realChrome,pdftoppm:null,convert:null},timeoutMs:30000,log:m=>logs.push(m)});
+  const centre=file=>execFileSync(realConvert,['png:'+file,'-format','%[fx:int(255*p{240,150}.r)],%[fx:int(255*p{240,150}.g)],%[fx:int(255*p{240,150}.b)]','info:'],{encoding:'utf8'}).split(',').map(Number);
+  try{
+    const control=await t.get(by('control.html'));assert.ok(control,'the control is pictured: '+logs.join('; '));
+    const [cr,cg,cb]=centre(control.path);assert.ok(cb>200&&cr<60&&cg<60,'the control keeps its own colour: '+[cr,cg,cb]);
+    const leaked=[];
+    for(const name of Object.keys(cases)){
+      const pic=await t.get(by(name+'.html'));assert.ok(pic,name+' is pictured: '+logs.join('; '));
+      const [r,g,b]=centre(pic.path);if(g>200&&r<60&&b<60)leaked.push(`${name}=${r},${g},${b}`); // a blocked frame may show Chrome's grey placeholder; green is the leak
+    }
+    assert.deepEqual(leaked,[],'no hostile document shows the green local file or server page in its picture');
+    assert.deepEqual(hits,[],'no request reached the local server');
+    // The network switch holds on its own, without the page's policy: a bare page of ours asking by address and by name.
+    const work=fs.mkdtempSync(path.join(dir,'work-')),bare=path.join(work,'bare.html');
+    fs.writeFileSync(bare,`<img src="${h('direct')}"><img src="http://localhost:${port}/direct-named"><link rel="stylesheet" href="${h('direct-css')}">`);
+    assert.ok(await t.withChrome(work,'file://'+bare),'the bare page is pictured');
+    assert.deepEqual(hits,[],'Chrome itself reaches nothing, by address or by name');
+  }finally{srv.close();fs.rmSync(dir,{recursive:true,force:true});}
+});

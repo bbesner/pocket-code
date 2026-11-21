@@ -124,7 +124,7 @@ export class Thumbnailer {
       await pipeline(fs.createReadStream(null, { fd: file.fd, autoClose: false, start: 0 }), fs.createWriteStream(src, { mode: 0o600 }));
       file.close();
       let out = null;
-      if (r.kind === 'html') out = await this.withChrome(work, 'file://' + src);
+      if (r.kind === 'html') out = await this.withChrome(work, await this.htmlPage(work, src));
       else if (r.kind === 'pdf') out = await this.withPdftoppm(work, src);
       else if (r.kind === 'image') {
         const coder = await imageCoder(src); if (!coder) throw new Error('the file is not a PNG, JPEG, GIF or WebP picture');
@@ -141,11 +141,32 @@ export class Thumbnailer {
       return null;
     } finally { file.close(); await fsp.rm(work, { recursive: true, force: true }); }
   }
+  // 1.117 (PC-03): no network at all. Every host name fails to resolve, and every request, an IP address or loopback
+  // included, is sent to a proxy whose own name does not resolve, so the page can neither reach the internet, this box's
+  // other services nor the cloud metadata address, nor tell anyone it was rendered. (Script is off in the document's own
+  // frame, see htmlPage; Chrome's --blink-settings=scriptEnabled=false would also stop --screenshot itself.)
   async withChrome(work, url) {
     const out = path.join(work, 'shot.png'), profile = path.join(work, 'profile');
     await run(this.tools.chrome, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--disable-extensions', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-sync', '--mute-audio', '--user-data-dir=' + profile,
+      '--host-resolver-rules=MAP * ~NOTFOUND', '--proxy-server=http://pocket-thumbnail-offline.invalid:9', '--proxy-bypass-list=<-loopback>',
       `--window-size=${THUMB.width * 2},${THUMB.height * 2}`, '--force-device-scale-factor=0.5', '--virtual-time-budget=4000', '--screenshot=' + out, url], { timeout: this.timeoutMs, cwd: work });
     return fs.existsSync(out) ? out : null;
+  }
+  // 1.117 (PC-03): an HTML document is pictured inside a page of ours, never opened as a file:// page itself (which could
+  // frame, embed or redirect to any other local file, and the picture would show it). The document goes into a sandboxed
+  // srcdoc frame: an opaque origin with no script, no top navigation and nothing from file://. The outer page's policy, which
+  // the frame inherits and which is also put at the top of the document, allows only inline styles and data: images and
+  // fonts, and no frame may navigate anywhere (a meta refresh in the document goes nowhere). The document's own remote
+  // images and fonts are not loaded, so its picture can differ from the page in a browser.
+  async htmlPage(work, src) {
+    const csp = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-src 'none'; child-src 'none'; form-action 'none'";
+    const meta = `<meta http-equiv="Content-Security-Policy" content="${csp}">`;
+    const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const page = path.join(work, 'view', path.basename(src));
+    await fsp.mkdir(path.dirname(page), { mode: 0o700 });
+    await fsp.writeFile(page, `<!doctype html><meta charset="utf-8">${meta}<style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style>`
+      + `<iframe sandbox srcdoc="${attr(meta + await fsp.readFile(src, 'utf8'))}"></iframe>`, { mode: 0o600 });
+    return 'file://' + page;
   }
   async withPdftoppm(work, file) {
     const prefix = path.join(work, 'page');
