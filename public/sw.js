@@ -48,7 +48,7 @@ const openUrl = url => clients.matchAll({ type: 'window', includeUncontrolled: t
   return clients.openWindow(url);
 });
 // Allow answers once (never Always allow from a lock screen); Deny denies. If the answer does not land, Pocket opens at
-// that request and says why (1.93, Damon): signed out, the Vault locked, already answered or expired, or offline.
+// that request and says why (1.93, colleague request): signed out, the Vault locked, already answered or expired, or offline.
 const missedWhy = status => status === 401 || status === 403 ? 'signin' : status === 423 ? 'locked' : status === 404 || status === 409 ? 'gone' : 'error';
 const answerVault = (request, action, url) => {
   const missed = why => openUrl('/#/vault/request/' + encodeURIComponent(request) + '?missed=' + why + '&tap=' + (action === 'allow' ? 'allow' : 'deny'));

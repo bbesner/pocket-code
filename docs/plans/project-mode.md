@@ -1,6 +1,6 @@
 # Project mode (conductor): plan
 
-**Prepared:** November 15, 2026 · **Status:** draft for Brad's review, no code yet · **Built against:** Pocket Code 1.105.1
+**Prepared:** November 15, 2026 · **Status:** draft for the owner's review, no code yet · **Built against:** Pocket Code 1.105.1
 
 ## What it is
 
@@ -15,7 +15,7 @@ work itself, with no lead.
 
 ## Where the ideas come from
 
-Brad's proposal (November 15), plus the AI LABS video "Fable 5.2 Is Insane... Only If You Use It
+The owner's proposal (November 15), plus the AI LABS video "Fable 5.2 Is Insane... Only If You Use It
 Anthropic's Way" (16 min), which summarizes a Claude Code team talk, an Anthropic model guide and
 Anthropic's Fable guide. The video is a second-hand summary. Its numbers and the text blocks it mentions
 are **not yet checked against Anthropic's own pages**; step 0 of the build does that.
@@ -161,7 +161,7 @@ the four-week baseline in the context-policy spec:
 Tests alongside each step: store and flag validation, mode resolution per engine, instruction injection
 only for linked conversations, handoff inheritance, and the browser check for the Start sheet.
 
-## Open questions for Brad
+## Open questions for the owner
 
 1. **Default for a new project:** off until you switch it on (the plan), or on for every new project?
 2. **Start conversation:** Conductor preselected with Solo one tap away (the plan), or ask each time?
@@ -169,7 +169,7 @@ only for linked conversations, handoff inheritance, and the browser check for th
 4. **Works in:** information for the lead only at first (the plan), or wire it into automatic approvals
    in the first version?
 
-**Answered 2026-11-15 (Brad: "Build it with those defaults"):** the plan's default on all four.
+**Answered 2026-11-15 (the owner: "Build it with those defaults"):** the plan's default on all four.
 
 ## As built (1.106.0)
 

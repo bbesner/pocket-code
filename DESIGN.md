@@ -75,7 +75,7 @@ When the reply ends with suggested replies, the line gives way to one more butto
 the `.choice` shape in a quiet outline (`--line` border, `--dim` text, no fill, the hand icon), so it reads as a way
 out rather than another answer, and the recommended reply stays the one filled button.
 
-## A pin on every conversation row (1.94, Damon)
+## A pin on every conversation row (1.94, colleague request)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 8; existing tokens and the
 existing pin icon, no new colour. Read: someone who organizes by pinning should pin or unpin in one click, without the
@@ -395,7 +395,7 @@ key requirement in words with the generation command in mono, and shows a rotate
 Rendered checks: no horizontal overflow at 390 for the list, an item sheet and a request;
 axe clean on each; the detector reports only the app-shell baseline.
 
-**Finding and answering (1.93, Damon).** Pinned Operate refinement: variance 2, motion 2,
+**Finding and answering (1.93, colleague request).** Pinned Operate refinement: variance 2, motion 2,
 density 6; existing tokens only. The list sorts **Newest first** (an **Order** select beside
 **Search secrets** offers A–Z), reusing the Files toolbar (`.documents-tools`,
 `.session-search`, `.voice-field`). A secret under a day old carries a small clay-outline
@@ -1212,7 +1212,7 @@ above the secrets in the session-row voice, its waiting state in `--text` semibo
 
 ## Complete card (1.111, made unmistakable in 1.112)
 
-1.112 (Brad: "it isn't obvious enough"; the hairline card on the reply's own surface read as one more line of the reply).
+1.112 (the owner: "it isn't obvious enough"; the hairline card on the reply's own surface read as one more line of the reply).
 Pinned Operate refinement: variance 2, motion 1, density 5; existing tokens, no new colour. The card now wears the
 finished colour that the tab dot, the list row and the push already use: an 11% `--ok` wash over `--surface` (17% on
 hover) with a 1px edge of `--ok` mixed 55% into `--line`; the tick sits in a 32px filled `--ok` badge with the tick in

@@ -122,7 +122,7 @@ def test_both_ways():
 
 
 def test_folded_thread_follows_its_entry():
-    # 2026-10-28: Brad labelled two copies of Justin's reply (his and the "Sent to Ari only" one); the judge folded the second
+    # 2026-10-28: the owner labelled two copies of a contact's reply (his and the "Sent to the assistant only" one); the judge folded the second
     # into the first's alert, the entry linked only the first, and when it was finished the second kept the label for good,
     # never on the list.
     store, g, p = setup()
@@ -342,7 +342,7 @@ def test_finished_starred_thread_stays_in_the_inbox():
 
 
 def test_a_thread_taken_in_by_another_entry_loses_the_label_and_stays():
-    """1.113 (Brad, 2026-11-19): one thread per story carries the label. When an entry takes in another thread (an update on
+    """1.113 (owner request, 2026-11-19): one thread per story carries the label. When an entry takes in another thread (an update on
     its story, or a duplicate merged into it), that thread loses the label and stays in the inbox. A thread the owner labels
     by hand is judged as before, even when an entry took it in."""
     store, g, p = setup()
@@ -430,7 +430,7 @@ def test_the_briefing_asks_for_the_opening_check():
     a = store.db.execute("select * from alerts").fetchone()
     text = E.briefing_for(store, a, None)
     assert "opening check" in text and "pocket-inbox merge" in text and "--session" in text
-    # 1.113.2 (Brad, 2026-11-20): the check feeds the opening reply; the reply leads with the email itself
+    # 1.113.2 (owner request, 2026-11-20): the check feeds the opening reply; the reply leads with the email itself
     said, added, stands = (text.index("What the email says, first"), text.index("What the check added"),
                            text.index("Where it stands"))
     assert said < added < stands
@@ -491,7 +491,7 @@ class PromoArchive:
 
     def thread(self, tid, until):
         return [{"thread_id": tid, "message_id": "m" + tid[-1], "subject": "Keeping your data secure", "sender": "Ads <ads@example.com>",
-                 "recipients": "ari@example.com", "labels": json.dumps(["CATEGORY_PROMOTIONS", "INBOX", "L1"]), "from_owner": 0,
+                 "recipients": "assistant@example.com", "labels": json.dumps(["CATEGORY_PROMOTIONS", "INBOX", "L1"]), "from_owner": 0,
                  "body": "A webinar.", "ts": 0, "addressed": None}]
 
     def related(self, *a, **k):
@@ -499,7 +499,7 @@ class PromoArchive:
 
 
 def test_promotional_mail_labelled_in_gmail():
-    # 2026-11-19: a Gmail filter labels mail sent only to Ari; promotional mail it caught was dropped before the judge and
+    # 2026-11-19: a Gmail filter labels mail sent only to the assistant; promotional mail it caught was dropped before the judge and
     # kept the Pocket Inbox label for weeks, never on the list. A hand label now outranks Promotions; a filter's comes off.
     store, g, p = setup()
     E.label_sync(store, g, bring_in=True, dry_run=False)  # first sync

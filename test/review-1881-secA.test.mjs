@@ -1,4 +1,4 @@
-// Casey's 1.88.1 security report, group secA: S-1 (Codex side chat MCP names), S-2 (Claude side chat WebSearch),
+// The external 1.88.1 security report, group secA: S-1 (Codex side chat MCP names), S-2 (Claude side chat WebSearch),
 // S-3 (/api/notify network-path links and the service worker's click handler). Fake CLIs only; no model is called.
 import test from 'node:test';
 import assert from 'node:assert/strict';

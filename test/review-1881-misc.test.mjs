@@ -1,4 +1,4 @@
-// Casey's 1.88.1 batch, group misc (F-1, F-7, F-13, F-18, F-20, F-21, F-22): one test per item.
+// The external 1.88.1 batch, group misc (F-1, F-7, F-13, F-18, F-20, F-21, F-22): one test per item.
 // A REAL item's test fails on 1.88.1 and passes once fixed; a NOT-A-FAULT item's test passes and names the guard.
 // F-21 is a speed claim: its browser measurement runs only with POCKET_PERF=1 and reports numbers, not a verdict.
 import test from 'node:test';
@@ -64,7 +64,7 @@ test('F-7 paste: a pasted image that is not PNG, JPEG, WebP or GIF is not named 
 });
 
 test('F-13 delivery note: kept while the reply works in background (not finished, 1.64) and replaced by the next send',()=>{
- // The fact Casey reports: the note clears only on finished, failed, stopped or ended (public/app.js:1718).
+ // The fact the reviewer reports: the note clears only on finished, failed, stopped or ended (public/app.js:1718).
  const clearOn=JSON.parse(appJs.match(/if\(current\?\.state\?\.confirmed&&(\[[^\]]+\])\.includes\(current\.state\.kind\)/)[1].replace(/'/g,'"'));
  assert.deepEqual(clearOn,['finished','failed','stopped','ended']);
  // Background means the reply is still working: the CLI starts a turn by itself when the job ends (session-state.mjs:1-4, server.mjs:1633),
@@ -120,7 +120,7 @@ test('F-22 list: a conversation titled by a 200 KB first prompt is listed under 
 
 // F-21 measures in Chrome; it starts the real daemon with one long conversation and opens and closes one sheet.
 test('F-21 sheet open/close timing with and without app.inert (numbers only; POCKET_PERF=1)',{skip:!process.env.POCKET_PERF&&'set POCKET_PERF=1 to run the Chrome measurement',timeout:600_000},async t=>{
- const {measureSheets}=await import('./casey-1881-sheet-perf.mjs');
+ const {measureSheets}=await import('./review-1881-sheet-perf.mjs');
  const f=await daemon(t,19931);
  const id=randomUUID(),turns=Number(process.env.POCKET_PERF_TURNS||150),lines=[];
  for(let i=0;i<turns;i++){lines.push(userLine(`Question ${i}: what changed in the stock report for aisle ${i%12}?`,repo,id));

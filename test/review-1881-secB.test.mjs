@@ -1,4 +1,4 @@
-// Casey's 1.88.1 security report, items S-4, S-5 and S-6, checked against the real daemon with the fake CLIs.
+// The external 1.88.1 security report, items S-4, S-5 and S-6, checked against the real daemon with the fake CLIs.
 // S-4: the artifact route checks a file's real path once, and the thumbnail queue reopens it by path later.
 // S-5: thumbnails hand `file[0]` to ImageMagick with no decoder prefix, so the content picks the coder, not the extension.
 // S-6: the login and Vault attempt limits are keyed on `cf-connecting-ip` whoever sends it.

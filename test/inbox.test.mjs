@@ -198,7 +198,7 @@ test('InboxStore: Inbox Watch settings, the watcher\'s profile, revisions and pa
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
-test('InboxStore: a look-ahead has cards too, in its own order, one status with the digest and the alert (Brad)',()=>{
+test('InboxStore: a look-ahead has cards too, in its own order, one status with the digest and the alert (owner request)',()=>{
   const {s}=freshInbox();const GM='https://mail.google.com/mail/u/0/#all/18f0aa01b2c3d4e5';
   const card=(ref,story,extra={})=>({ref,section:'ahead',title:'Item '+ref,text:'Bullet '+ref,story,...extra});
   const item=(id,ref)=>s.get(id).items.find(i=>i.ref===ref);
@@ -221,7 +221,7 @@ test('InboxStore: a look-ahead has cards too, in its own order, one status with 
   s.add({kind:'alert',title:'Gate',story:'gate'});assert.deepEqual(s.get(la2.id).items.map(i=>i.ref),['c2.1','c2.2']);assert.equal(item(la2.id,'c2.2').section,'listed');
 });
 
-test('InboxStore: one status per item, between a digest card and its alert (Brad)',()=>{
+test('InboxStore: one status per item, between a digest card and its alert (owner request)',()=>{
   const {s}=freshInbox();const GM='https://mail.google.com/mail/u/0/#all/18f0aa01b2c3d4e5',START='/#/start/0123456789ab';
   const digest=(day,items)=>s.add({kind:'digest',title:'Digest '+day,text:'x',dedupe:'digest|'+day,items});
   const line=(ref,story,extra={})=>({ref,section:'worth',title:'Line '+ref,text:'t',story,...extra});
@@ -501,7 +501,7 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
   assert.deepEqual(s.feedback().map(f=>[f.id,f.action]),[[`${d.id}/a317`,'restore'],[`${d.id}/a296`,'not_useful']]);
   clock+=1000;s.act({action:'dismiss',id:d.id});assert.deepEqual(s.feedback().map(f=>f.id),[d.id,`${d.id}/a317`,`${d.id}/a296`]);
   assert.equal(s.ack([d.id,`${d.id}/a317`,`${d.id}/a296`]),3);assert.deepEqual(s.feedback(),[]);
-  // 1.95 (Brad): a line whose story already has an open alert on the list is not a new card: it is 'listed', links to that entry, and takes no decision.
+  // 1.95 (owner request): a line whose story already has an open alert on the list is not a new card: it is 'listed', links to that entry, and takes no decision.
   const open=s.add({kind:'alert',title:'Wireless Experts Google Ads keywords',story:'wireless-experts-google-ads-keywords',gmail:GMAIL});
   const gone=s.add({kind:'alert',title:'Old one',story:'old-story'});s.act({action:'resolve',id:gone.id});
   const d2=s.add({kind:'digest',title:'Morning email digest — Sun Nov 8',text:'## Worth knowing\n- a\n- b',dedupe:'digest|2026-11-08',items:[

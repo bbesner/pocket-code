@@ -396,7 +396,7 @@ in step, both ways, at every check:
 - One thread per entry carries the label (1.113). When an entry takes in another thread, through a later alert on its
   story or a duplicate merged into it, that thread loses the label and stays in your inbox. Label it again yourself and
   it is judged like any other.
-- Label two threads about the same thing (your copy of a reply and the copy sent to Ari only, say) and the check may
+- Label two threads about the same thing (your copy of a reply and the copy sent to the assistant only, say) and the check may
   put both on your list as one entry. The second thread keeps its label while that entry is open and loses it when you
   finish it, like the first.
 - An entry the tidy pass took off and you restored stays on your list until you finish it; the tidy leaves it alone.

@@ -108,7 +108,7 @@ With the Playwright browser tools, never type a password yourself. Put the place
 the text goes, and Pocket types the real value on its way to the browser:
 
 ```
-browser_type      text: {{vault:ovrc-brad.password}}
+browser_type      text: {{vault:ovrc-admin.password}}
 browser_fill_form value: {{vault:ups-developer-account.username}}
 ```
 

@@ -205,7 +205,7 @@ def searches(b):
 
 
 def test_time_bounds_reach_the_connector_as_dates():
-    """Since 2026-10-27 the claude.ai connector answers `after:<seconds>` with nothing and no error (Damon, 2026-10-28)."""
+    """Since 2026-10-27 the claude.ai connector answers `after:<seconds>` with nothing and no error (reported by a colleague, 2026-10-28)."""
     import datetime as dt
     b = Box()
     now = int(time.time())

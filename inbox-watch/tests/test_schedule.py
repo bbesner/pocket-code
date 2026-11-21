@@ -109,7 +109,7 @@ def test_first_pass_settings():
 
 
 def test_scope_settings():
-    # 1.100 (Damon and Brad): what the watcher reads. The TOML gives the default; Pocket's {mode, labels} wins; bad parts keep the default.
+    # 1.100 (colleague and owner request): what the watcher reads. The TOML gives the default; Pocket's {mode, labels} wins; bad parts keep the default.
     assert "scope" not in BASE, "no [mail] table, no setting"
     b = S.from_config({}, {"model": "sonnet"}, (22, 8), 8, {}, mail={"provider": "connector"})
     assert b["scope"] == {"mode": "all", "labels": []}

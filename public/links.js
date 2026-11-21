@@ -2,7 +2,7 @@
    Open files and links): as a tab, beside the conversation in a split pane, or in a new browser window. A Pocket
    address (#/documents/…, #/projects/…, a session) opens that view; a share or public link to one of your own
    files opens the file; an image or file served by this Pocket shows in a small link view (#/link/<address>). A
-   download stays a download, and a link to an outside website is left to the browser, as before (1.54.1: Brad —
+   download stays a download, and a link to an outside website is left to the browser, as before (1.54.1: the owner —
    "I really only meant for links that are to our own internal documents"). */
 let linkView=null;
 const linkLabels=new Map(); // address → the text it was clicked by, for the tab title (this window only)
