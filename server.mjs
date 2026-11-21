@@ -1604,7 +1604,7 @@ const claudeLogin = new ClaudeLogin({
 process.on('exit', () => claudeLogin.dispose());
 for (const signal of ['SIGINT','SIGTERM']) process.once(signal, () => { claudeLogin.dispose(); process.exit(0); });
 const TURNLOG_DIR = path.join(DATA_DIR, 'turnlogs');
-fs.mkdirSync(TURNLOG_DIR, { recursive: true });
+fs.mkdirSync(TURNLOG_DIR, { recursive: true, mode: 0o700 }); try { fs.chmodSync(TURNLOG_DIR, 0o700); } catch { } // the owner's alone, whatever the umask; also a folder an earlier version made
 // 1.73.2: input pipes live outside the data directory (pipes.mjs); pre-1.73.2 runners keep theirs in turnlogs/.
 const PIPES = pipeDirs(DATA_DIR), PIPE_DIR = PIPES.claude;
 const turnFiles = id => ({
@@ -1676,12 +1676,12 @@ function holdRetry(m) {
   clearTimeout(retryTimers.get(m.sessionId)); retryTimers.delete(m.sessionId);
   const held = { ...m, held: true };
   heldRetries.set(m.sessionId, held);
-  try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(held)); } catch { }
+  try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(held), { mode: 0o600 }); } catch { }
   log(`auto-resume held (paused) session=${m.sessionId}`);
 }
 function rearmRetry(m) {
   const { held, ...rest } = m;
-  try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(rest)); } catch { }
+  try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(rest), { mode: 0o600 }); } catch { }
   armRetry(rest);
 }
 function scheduleRetry(sessionId, turn, resetAt) {
@@ -1690,7 +1690,7 @@ function scheduleRetry(sessionId, turn, resetAt) {
     model: turn.model || turn.requestedModel || null, effort: turn.effort || null, approvalMode:turn.approvalMode, attempt: (turn.retryAttempt || 0) + 1, fork: turn.runner?.fork || null,
     rootOrigin: auto.normRoot(turn.rootOrigin), ...(turn.originRef ? { originRef: turn.originRef } : {}), // 1.117: a retry carries the root of the turn it retries
   };
-  try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m)); } catch { }
+  try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m), { mode: 0o600 }); } catch { }
   if (pausedNow()) holdRetry(m); else armRetry(m);
   log(`rate limited session=${sessionId} — ${heldRetries.has(sessionId) ? 'auto-resume held (paused)' : `auto-resume at ${fmtOwnerTime(resetAt)}`} (attempt ${m.attempt})`);
 }
@@ -1712,7 +1712,7 @@ async function fireRetry(m) {
       if (g.reason === 'paused') return holdRetry(m);
       // the marker takes the new time too, so the conversation shows when it will try again
       const next = { ...m, at: Math.max(Number(g.until) || 0, Date.now() + AUTOMATION_TICK_MS) };
-      try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(next)); } catch { }
+      try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(next), { mode: 0o600 }); } catch { }
       log(`auto-resume re-armed (${g.reason}) session=${m.sessionId} — next try at ${fmtOwnerTime(next.at)}`);
       return armRetry(next);
     }
