@@ -1,5 +1,6 @@
 import {clickControl} from './ui-controls.mjs';
 import {runCoordinationRegressions} from './coordination-browser.mjs';
+import {automationFixture,automationRoute,pauseRefusal,runAutomationRegressions} from './automation-browser.mjs'; // 1.117
 // Deterministic frontend acceptance checks. This serves fixtures only: no real
 // sessions, credentials, CLI, or production service is involved.
 import http from 'node:http';
@@ -226,7 +227,8 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/voice/transcribe'){const chunks=[];for await(const c of req)chunks.push(c);voiceLog.transcribe.push({bytes:Buffer.concat(chunks).length,vocabulary:req.headers['x-vocabulary']||''});return json({text:uiModes.voiceText});}
  if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}
  if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;releases.push(decodeURIComponent(url.pathname));return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
- if(url.pathname==='/api/me')return json({ok:true,features:{coordination:Boolean(fixtureSettings.coordination)&&!fixtureSettings.assistantMode,projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),inbox:Boolean(fixtureSettings.inbox),assistantMode:Boolean(fixtureSettings.assistantMode),assistantLocked:Boolean(fixtureSettings.assistantLocked),handoffAt:fixtureSettings.handoffAt||0,markAllReviewed:fixtureSettings.markAllReviewed!==false}});
+ if(await automationRoute(req,url,json))return; // 1.117: /api/pause, /api/resume, /api/automation
+ if(url.pathname==='/api/me')return json({ok:true,paused:automationFixture.me(),features:{automation:true,coordination:Boolean(fixtureSettings.coordination)&&!fixtureSettings.assistantMode,projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),inbox:Boolean(fixtureSettings.inbox),assistantMode:Boolean(fixtureSettings.assistantMode),assistantLocked:Boolean(fixtureSettings.assistantLocked),handoffAt:fixtureSettings.handoffAt||0,markAllReviewed:fixtureSettings.markAllReviewed!==false}});
  // 1.99: Coordination's two calls, on a list the test resets.
  if(url.pathname==='/api/coordination')return json({now:Date.now(),seeds:[],holds:coordFixture.holds,recent:coordFixture.recent});
  if(url.pathname==='/api/coordination/owner-release'){let raw='';for await(const c of req)raw+=c;const {name}=JSON.parse(raw),hold=coordFixture.holds.find(h=>h.name===name);coordFixture.holds=coordFixture.holds.filter(h=>h!==hold);
@@ -248,7 +250,7 @@ const server=http.createServer(async(req,res)=>{
   if(stale)return json({error:'Fixture offline'},503);
   // Like the live server (1.19): an unchanged list answers 304 with the check time in a header.
   const coordHeld=fixtureSettings.coordination&&!fixtureSettings.assistantMode?coordFixture.holds.map(h=>({name:h.name,title:h.holder.title})):[];
-  const payload={sessions:[...rows].sort((a,b)=>pinKey(a)-pinKey(b)),warnings:[],home:'/workspaces/purchasing',...(coordHeld.length?{held:coordHeld}:{})},checkedAt=Date.now();
+  const payload={sessions:[...rows].sort((a,b)=>pinKey(a)-pinKey(b)),warnings:[],home:'/workspaces/purchasing',...(coordHeld.length?{held:coordHeld}:{}),pause:automationFixture.banner()},checkedAt=Date.now(); // 1.117: pause, the banner's state
   const etag='"'+createHash('sha1').update(JSON.stringify(payload)).digest('base64url')+'"';
   if(req.headers['if-none-match']===etag){uiModes.notModified=(uiModes.notModified||0)+1;res.writeHead(304,{etag,'x-pocket-checked-at':String(checkedAt)});res.end();return;}
   res.writeHead(200,{'content-type':'application/json',etag,'x-pocket-checked-at':String(checkedAt)});res.end(JSON.stringify({...payload,checkedAt}));return;
@@ -415,6 +417,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/new'){
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   const held=secretRefusal(body);if(held)return json(held,422);
+  const paused=pauseRefusal();if(paused)return json(paused,409); // 1.117: own messages Blocked while paused
   if(body.start?.startsWith('f00d')){const h=uiModes.handoffs[body.start];if(h.startedSession)return json({error:'This handoff has already started.',code:'start_used',id:h.startedSession},409);dispatches++;h.startedSession=rows[1].id;h.startedTitle=rows[1].title;return json({id:rows[1].id},202);} // 1.96: a handoff starts once
   // 1.106: projectLinkError: the conversation starts but is not linked (the project's conversation limit), as the server says.
   if(body.project&&uiModes.projectLinkError){dispatches++;return json({id:rows.find(r=>r.state.kind==='finished').id,projectLinkError:uiModes.projectLinkError},202);}
@@ -463,6 +466,7 @@ const server=http.createServer(async(req,res)=>{
   if(!match[2]){if(uiModes.sessionDelay)await new Promise(r=>setTimeout(r,uiModes.sessionDelay));/* sessionDelay: a slow transcript read, so a check can see the view while it waits */const messages=messagesOf(id);return json({...r,...(sideFixture.lineage[id]||{}),projectMode:uiModes.projectMode?.[id]||null,active:r.state.kind==='running',ext:false,messages,total:messages.length});} // 1.106: projectMode
   let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);received.push(body);
   const held=secretRefusal(body);if(held)return json(held,422);
+  const paused=pauseRefusal();if(paused)return json(paused,409); // 1.117: own messages Blocked while paused
   if(body.text.includes('__STALE__')){dispatches++;return json({ok:true,queued:true,afterJobs:true,jobs:[{id:'bg1',description:'test-suite results'}],itemId:'held-1'},202);} // 1.89.2: held for the jobs (accepted, so a dispatch)
   if(!receipts.has(body.clientMessageId)){dispatches++;receipts.set(body.clientMessageId,{ok:true});conversations.get(id).push({role:'user',text:body.text});}
   if(failNext){req.socket.destroy();return;}
@@ -486,6 +490,7 @@ const scan=async label=>{
 try{
  if(process.env.POCKET_SLASH_ONLY){ /* POCKET_SLASH_ONLY=n: the / picker checks only, n times over, to shake out a flake */const {runSlashRegressions}=await import('./slash-browser.mjs');for(let k=0;k<Number(process.env.POCKET_SLASH_ONLY);k++){console.log('iteration',k);await runSlashRegressions({browser,base,rows,received,out});}throw Object.assign(Error('slash only'),{docsOnly:true});}
  if(process.env.POCKET_CLI_UPDATES_ONLY){const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');await runCliUpdateRegressions({browser,base,out});throw Object.assign(Error('CLI updates only'),{docsOnly:true});}
+ if(process.env.POCKET_AUTOMATION_ONLY){await runAutomationRegressions({p,base,out,repo,rows,settings:fixtureSettings,scan});assert.deepEqual(errors,[]);if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,automationOnly:true,screenshots:out}));throw Object.assign(Error('automation only'),{docsOnly:true});}
  if(process.env.POCKET_COORD_ONLY){await runCoordinationRegressions({p,base,out,repo,rows,settings:fixtureSettings,coord:coordFixture,scan});if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,coordinationOnly:true,screenshots:out}));throw Object.assign(Error('coordination only'),{docsOnly:true});}
  if(process.env.POCKET_INBOX_NEWS_ONLY){const {runInboxNewsRegressions}=await import('./inbox-news-browser.mjs');await runInboxNewsRegressions({browser,base,rows,out,settings:fixtureSettings,received,inboxStore,inboxCaughtUp,inboxSplits,conversations});console.log(JSON.stringify({ok:true,inboxNewsOnly:true,screenshots:out}));throw Object.assign(Error('inbox news only'),{docsOnly:true});}
  if(process.env.POCKET_COMPLETE_ONLY){const {runCompleteRegressions}=await import('./complete-browser.mjs');await runCompleteRegressions({browser,base,rows,out,conversations,releases,settings:fixtureSettings});console.log(JSON.stringify({ok:true,completeOnly:true,screenshots:out}));throw Object.assign(Error('complete only'),{docsOnly:true});}
@@ -576,9 +581,12 @@ try{
  // Reading position survives reopening a long conversation.
  conversations.get(idle.id).push({role:'assistant',blocks:[{t:'text',text:Array.from({length:60},(_,i)=>'Paragraph '+i+' in a long report.').join('\n\n')}]});
  await p.goto(base+'/#/chat/'+idle.id);await p.waitForSelector('#box');
+ // #box is in the chat's frame before the transcript is painted; renderChat then scrolls to the end, so wait for the report.
+ await p.waitForFunction(()=>/Paragraph 59 in a long report/.test(document.querySelector('#msgs')?.textContent||''));
  await p.evaluate(()=>{const m=document.querySelector('#msgs').closest('main.scroll');m.scrollTop=180;rememberReading();});
  await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
- assert.ok(Math.abs(await p.$eval('#msgs',e=>e.closest('main.scroll').scrollTop)-180)<4);
+ await p.waitForFunction(()=>/Paragraph 59 in a long report/.test(document.querySelector('#msgs')?.textContent||''));
+ {const top=await p.$eval('#msgs',e=>e.closest('main.scroll').scrollTop);assert.ok(Math.abs(top-180)<4,`the reading position comes back: scrollTop ${top}, not 180`);}
  // Agent-produced Markdown must not execute code or create active form controls.
  const security=await p.evaluate(()=>{
   const div=document.createElement('div');div.innerHTML=md('<img src=x onerror="window.__pwned=1"><script>window.__pwned=1</script>\n\n[bad](javascript:alert(1))\n\n![bad](data:image/svg+xml;base64,AAAA)\n\n<input autofocus onfocus="window.__pwned=1">');
@@ -1044,6 +1052,8 @@ try{
  await runProjectModeRegressions({browser,base,rows,out,repo,settings:fixtureSettings,modes:uiModes,boardActs,conversations});
  assert.deepEqual(errors,[]);
  await runCoordinationRegressions({p,base,out,repo,rows,settings:fixtureSettings,coord:coordFixture,scan});
+ await runAutomationRegressions({p,base,out,repo,rows,settings:fixtureSettings,scan}); // 1.117
+ assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));
 }catch(e){if(e.docsOnly){}else{console.error('Page errors:',errors);console.error('Page URL:',p.url());throw e;}}finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}

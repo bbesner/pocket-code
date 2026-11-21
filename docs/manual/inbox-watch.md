@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.115.0
+checked: 1.117.0
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -318,7 +318,7 @@ the Inbox Watch switch while it is on; in Assistant mode **Settings → Features
 the watcher picks it up within a minute, and the line says *Your last change reaches the watcher within a minute*
 until it has. **Use the config file's settings** hands control back to `config.toml`.
 
-- **Pause Inbox Watch**: no checks, digests or look-aheads until you turn it off.
+- **Pause Inbox Watch**: no checks, digests or look-aheads until you turn it off. **Pause all** ([Automation](automation.md#pause-all)) pauses Inbox Watch the same way, so its model calls stop too, unless you turned off **Pause all also pauses Inbox Watch**. **Resume** turns it back on only if Pause all paused it and you have not changed these settings since; a pause you set yourself stays. **Check now** still asks for a check at once.
 - **What it reads** (1.100): which mail the watcher looks at. **Everything** is every thread but spam, trash and drafts, so mail
   your Gmail filters archive or file away is judged too (the behaviour before 1.100). **Inbox only** reads what is in your Gmail
   inbox. **Inbox and these labels** adds the Gmail labels you pick from the chips (your labels appear once the watcher has read

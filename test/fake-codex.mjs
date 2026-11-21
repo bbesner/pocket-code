@@ -50,6 +50,7 @@ const reply=(id,result)=>send({jsonrpc:'2.0',id,result});
 const fail=(id,message)=>send({jsonrpc:'2.0',id,error:{code:-32600,message}});
 // 1.86: this fake's own requests to Pocket (a question), answered by id
 const asked=new Map();let askSeq=0;
+const interrupted=new Set(); // turn ids Pocket interrupted (an __AUTOTURN__ turn then never completes on its own)
 // 1.87 parity markers: __PLAN__ (a plan update), __EDIT__ (a file change with its diff, saved to the thread),
 // __LIMIT__ (a usage limit with its plan window full until 2 s from now), __CMDAPPROVAL__ (asks to run `echo CX_OK`);
 // every reply reports token usage; thread/compact/start and review/start run their own turns.
@@ -71,10 +72,15 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       if(process.env.FAKE_CODEX_CLOSE_STDIN){fs.closeSync(0);setInterval(()=>{},1000);}
       reply(m.id,{});return;
     case 'thread/start':{const id=randomUUID();takeLock(id);if(p.cwd)fs.writeFileSync(path.join(root,id+'.cwd'),p.cwd);return reply(m.id,{thread:{id},model:'gpt-test',reasoningEffort:null});} // 1.86: remembers its folder for thread/read
-    case 'thread/resume':
+    case 'thread/resume':{
       if(!takeLock(p.threadId))return fail(m.id,`thread ${p.threadId} already has an active writer`);
       if(calls)fs.appendFileSync(calls+'.resumes',JSON.stringify({threadId:p.threadId,cwd:p.cwd||null})+'\n');
-      return reply(m.id,{model:'gpt-test',reasoningEffort:null,cwd:p.cwd||process.cwd()});
+      // 1.117: FAKE_CODEX_SLOW_RESUME names a marker file; while it exists, a resume answers 1.5 s late (a slow reopen)
+      const slow=process.env.FAKE_CODEX_SLOW_RESUME&&fs.existsSync(process.env.FAKE_CODEX_SLOW_RESUME);
+      const answer=()=>reply(m.id,{model:'gpt-test',reasoningEffort:null,cwd:p.cwd||process.cwd()});
+      if(slow)setTimeout(answer,1500);else answer();
+      return;
+    }
     case 'turn/start':{
       const text=p.input?.[0]?.text||'',turnId=randomUUID();
       fs.appendFileSync(calls+'.codex',JSON.stringify({threadId:p.threadId,pid:process.pid,text,model:p.model,effort:p.effort??null,collaborationModel:p.collaborationMode?.settings?.model,runnerToken:process.env.POCKET_RUNNER_TOKEN})+'\n');
@@ -115,6 +121,9 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       if(text.includes('__LIMIT__')){fs.writeFileSync(limitFile,String(Date.now()+2000));const error={message:"You've hit your usage limit.",codexErrorInfo:'usageLimitExceeded'};setTimeout(()=>{notify('error',{threadId:p.threadId,turnId,willRetry:false,error});notify('turn/completed',{turn:{id:turnId,status:'failed',error}});},150);return;}
       if(text.includes('__CMDAPPROVAL__')){askPocket('item/commandExecution/requestApproval',{threadId:p.threadId,turnId,itemId:randomUUID(),command:"/bin/bash -lc 'echo CX_OK'",cwd:process.cwd()}).then(r=>{fs.appendFileSync(calls+'.cxapprovals',JSON.stringify({decision:r?.decision})+'\n');finish('Codex ran it: '+(r?.decision||'none'));});return;}
       if(text.includes('__QUESTION__')){askPocket('item/tool/requestUserInput',{threadId:p.threadId,turnId,questions:[{id:'q-color',header:'Color',question:'Which color?',options:[{label:'Blue',description:'Cool'},{label:'Red',description:'Warm'}]}]}).then(r=>finish('Codex heard '+JSON.stringify(r?.answers||{})));return;}
+      // 1.117 __AUTOTURN__: the reply ends, then Codex starts a turn by itself (as when a background terminal finishes)
+      // POCKET_TEST_AUTOTURN_MS later, which writes a message and completes 300 ms on unless interrupted first.
+      if(text.includes('__AUTOTURN__')){setTimeout(()=>finish('Started a background terminal.'),200);setTimeout(()=>{const auto=randomUUID();notify('turn/started',{turn:{id:auto}});setTimeout(()=>{if(interrupted.has(auto))return;fs.appendFileSync(calls+'.autoturns',auto+'\n');notify('item/completed',{item:{type:'agentMessage',id:randomUUID(),text:'The background terminal finished.'}});notify('turn/completed',{turn:{id:auto,status:'completed'}});},300);},200+Number(process.env.POCKET_TEST_AUTOTURN_MS||600));return;}
       setTimeout(()=>finish(text.includes('__DONE__')?'The release is out and the tests pass.\n\n```done\nReleased 2.4.1; tests pass\n```':text.includes('__CHOICES__')?'Tests pass. Should I merge and deploy?\n\n```choices\nMerge and deploy\nNot yet\n```':'Codex test response.'),text.includes('__SLOW__')?1500:/__(CHOICES|DONE|PLAN|COST)__/.test(text)?800:200);
       return;
     }
@@ -125,7 +134,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       if(!p.ephemeral){takeLock(id);let items=[];try{items=JSON.parse(fs.readFileSync(path.join(root,p.threadId+'.items.json'),'utf8'));}catch{}fs.writeFileSync(path.join(root,id+'.items.json'),JSON.stringify(items));}
       return reply(m.id,{thread:{id,ephemeral:Boolean(p.ephemeral)},model:'gpt-test',reasoningEffort:null,cwd:p.cwd||process.cwd()});
     }
-    case 'turn/interrupt':reply(m.id,{});return notify('turn/completed',{turn:{id:p.turnId,status:'interrupted'}});
+    case 'turn/interrupt':interrupted.add(p.turnId);reply(m.id,{});return notify('turn/completed',{turn:{id:p.turnId,status:'interrupted'}});
     case 'thread/items/list':{
       let data=[];try{data=JSON.parse(fs.readFileSync(path.join(root,p.threadId+'.items.json'),'utf8'));}catch{}
       // Pages like the real app-server: newest first on request, `limit` rows; every call is recorded.

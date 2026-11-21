@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.116.0
+checked: 1.117.0
 sources: prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
 -->
 # Conversations (sessions)
@@ -155,7 +155,9 @@ until you answer, then back (see [Questions and approvals](approvals.md#what-hap
 
 Each row shows the title, the workspace (left out for the default or home folder), the agent, *Branch*
 for a branch, and the state, such as **Response ready**, **Complete**, **Didn't finish**, **Needs your answer**,
-**Needs approval**, **Queue paused** or **Waiting for usage reset**.
+**Needs approval**, **Queue paused** or **Waiting for usage reset**. When the newest reply was started by the queue, a
+usage-limit retry or a coordination wake rather than by you, a dim line under the agent says so (**Queued message**,
+**Continued after a usage limit** or **Woken by a hold**); see [Automation](automation.md#who-started-a-reply).
 
 ### Pin, rename, hide and mark reviewed
 
@@ -217,7 +219,11 @@ All of these change only when a reply runs. Each says *As of* a time; none is li
 
 When a Claude reply fails on a usage or rate limit, Pocket schedules the conversation to continue after
 the reset (plus `POCKET_RETRY_BUFFER_MS`, five minutes by default). The conversation shows **Waiting
-for usage reset** and *Rate limited — auto-resume at …*; a push says when it picks the task back up.
+for usage reset** and *Rate limited — auto-resume at …*; a push says when it picks the task back up. While Pocket is
+paused ([Pause all](automation.md#pause-all)) the retry is held, not cancelled: the conversation's header reads **Retry held**, the pause banner counts the held
+retries, and **Resume** arms it again. If **On Resume, re-arm held usage-limit retries** is off, it still reads **Retry held** and
+waits for your next message. A retry that does run is labelled **Continued after
+a usage limit** on the conversation's row and under its header.
 
 ### Models in the picker
 

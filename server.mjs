@@ -65,6 +65,7 @@ import {VaultStore, parseKey, newKey as newVaultKey, vaultInstructions, runWithS
 import {renderIntake, intakeBrand, intakeThemeCSS, intakeWhen} from './intake-page.mjs';
 import { CliUpdates } from './cli-updates.mjs';
 import { parseEnv } from './env-file.mjs';
+import * as auto from './automation.mjs'; // 1.117: unattended work (`automation` is the titles helper above)
 
 // ---------- config ----------
 const HOME = os.homedir();
@@ -574,6 +575,64 @@ if (mailer.configured) log(`mail: ${mailer.describe()}`);
 const emailOn = () => mailer.configured && looksLikeEmail(settings.notifyEmail);
 // 1.77.6: where people see times. The zone the owner's browser reports (learnTimezone), else POCKET_TZ, else the box's.
 const ownerZone = () => settings.ownerTimezone || process.env.POCKET_TZ || '';
+// ---------- 1.117: unattended work (automation.mjs; docs/plans/unattended-work.md Part 1) ----------
+// settings.paused = { at, by } is the install-wide Pause all; settings.automation holds only the values the owner saved
+// (the effective value is the saved one, else POCKET_AUTOMATION_<KEY>, else the default). The day's counts and notices
+// live in automation-state.json; pause, resume, settings changes and finished unattended replies go to
+// automation-audit.jsonl, never with message text. Every unattended start passes gateUnattended; owner sends never do.
+const AUTO_AUDIT_FILE = path.join(DATA_DIR, 'automation-audit.jsonl');
+const autoState = new auto.AutomationState(path.join(DATA_DIR, 'automation-state.json'), { zone: () => ownerZone() });
+const autoAudit = entry => auto.appendAudit(AUTO_AUDIT_FILE, entry);
+const autoValues = group => auto.groupValues(settings.automation, group);
+const pausedNow = () => settings.paused && typeof settings.paused === 'object' && settings.paused.at ? settings.paused : null;
+const ownMessagesBlocked = () => Boolean(pausedNow()) && autoValues('pause').ownMessages === 'blocked';
+const AUTOMATION_TICK_MS = msSetting('POCKET_AUTOMATION_TICK_MS', 60_000);
+const OWNER_START = Object.freeze({ origin: 'owner', rootOrigin: 'owner' });
+const fmtOwnerWhen = ms => { const o = { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }; try { return new Date(ms).toLocaleString('en-US', { ...o, timeZone: ownerZone() || undefined }); } catch { return new Date(ms).toLocaleString('en-US', o); } };
+// The origin fields of a start, from trusted callers only (never a request body).
+const startOrigin = o => { const origin = auto.normOrigin(o?.origin); return origin === 'owner' ? { ...OWNER_START } : { origin, ...(o.originRef ? { originRef: String(o.originRef) } : {}), rootOrigin: auto.normRoot(o.rootOrigin) }; };
+// May this unattended start go ahead? Codex is read live only when a Codex ceiling applies, so an install with nothing
+// switched on makes no extra call; Claude's reading is the last one a reply reported (stale readings pass).
+async function gateUnattended(info) {
+  const lim = autoValues('limits'), root = auto.normRoot(info.rootOrigin), apply = auto.limitsApply(root, lim), paused = Boolean(pausedNow());
+  const codexReading = !paused && apply.ceilings && info.engine === 'codex' && CODEX_ON && (lim.codexWeekly !== 'off' || lim.codexFiveHour !== 'off')
+    ? await codex.codexRateLimits().catch(() => null) : null;
+  const r = auto.unattendedGate({ ...info, rootOrigin: root }, {
+    paused, ownBlocked: ownMessagesBlocked(), features: { checkback: false, job: false }, limits: lim,
+    claude: apply.ceilings ? usage.accountSummary() : null, codex: codexReading, counts: autoState.counts(), nextDay: autoState.nextDay(), now: Date.now(),
+  });
+  if (!r.ok) { log(`unattended start held (${r.reason}${r.limit ? ` ${r.limit}` : ''}${r.window ? ` ${r.engine} ${r.window}` : ''}) origin=${info.origin} session=${info.sessionId}`); autoNotice(r); }
+  return r;
+}
+// Once per reason per day: in Settings → Automation, and by push unless the owner chose Settings only.
+function autoNotice(r) {
+  const n = auto.noticeFor(r, fmtOwnerWhen);
+  if (!n || !autoState.noticeOnce(n)) return;
+  autoAudit({ action: 'limit', reason: n.reason, ...(r.engine ? { engine: r.engine } : {}), ...(r.window ? { window: r.window } : {}), ...(r.limit ? { limit: r.limit } : {}) });
+  if (autoValues('limits').notice === 'push') pushRaw('Unattended work held', n.text, { tag: 'automation:' + n.key, url: '/', kind: 'alerts' }).catch(e => log(`automation push: ${e.message}`));
+}
+// A start that went ahead: the conversation's lastOrigin (cleared again by the owner's next start) and the day's count.
+function noteStart(id, o) { // null: the agent started it, or the owner did
+  if (!id) return;
+  if (!o || o.origin === 'owner' || !o.origin) { if (smeta[id]?.lastOrigin) setSmeta(id, { lastOrigin: null, lastOriginRef: null }); return; }
+  setSmeta(id, { lastOrigin: o.origin, lastOriginRef: o.originRef || null });
+  autoState.recordStart({ rootOrigin: o.rootOrigin });
+}
+// A finished unattended reply: the day's totals and one audit line. Returns the label the push leads with (null for owner).
+function noteFinish(id, turn, { cost, tokens, durationMs, outcome }) {
+  if (!turn?.origin || turn.origin === 'owner') return null;
+  const engine = engineForSessionId(id), rootOrigin = auto.normRoot(turn.rootOrigin);
+  autoState.recordFinish({ rootOrigin, engine, cost, tokens });
+  autoAudit({ action: 'reply', origin: turn.origin, ...(turn.originRef ? { originRef: turn.originRef } : {}), rootOrigin, engine, sessionId: id,
+    model: turn.effectiveModel || turn.model || null, durationMs: Number.isFinite(durationMs) ? durationMs : Date.now() - (turn.startedAt || Date.now()),
+    ...(Number.isFinite(cost) ? { cost } : {}), ...(Number.isFinite(tokens) ? { tokens } : {}), outcome });
+  return auto.originLabel(turn.origin, turn.originRef);
+}
+const withOriginLabel = (label, body) => label ? `${label} · ${body}` : body;
+// The turn's origin as the chat reads it (owner when it says nothing).
+const originView = t => ({ origin: t?.origin || 'owner', ...(t?.originRef ? { originRef: t.originRef } : {}) });
+// What the list and the chat say about the newest turn when the owner did not start it (nothing when the owner did).
+const lastOriginOf = id => smeta[id]?.lastOrigin ? { lastOrigin: smeta[id].lastOrigin, ...(smeta[id].lastOriginRef ? { lastOriginRef: smeta[id].lastOriginRef } : {}) } : {};
 const publicBase = () => (process.env.POCKET_PUBLIC_URL || settings.publicUrl || '').replace(/\/$/, '');
 const LOOPBACK_HOSTS = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 function learnPublicUrl(req) { // the owner's own address, from a signed-in request that came through the tunnel or proxy
@@ -1488,37 +1547,78 @@ function detectRateLimit(text) {
 function cancelRetry(sessionId) {
   const t = retryTimers.get(sessionId);
   if (t) { clearTimeout(t); retryTimers.delete(sessionId); }
+  heldRetries.delete(sessionId); // 1.117
   try { fs.unlinkSync(turnFiles(sessionId).retry); } catch { }
 }
 function armRetry(m) {
   clearTimeout(retryTimers.get(m.sessionId));
+  heldRetries.delete(m.sessionId); // 1.117
   retryTimers.set(m.sessionId, setTimeout(() => fireRetry(m), Math.max(5_000, m.at - Date.now())));
+}
+// 1.117: Pause all holds a pending retry: the timer is cleared and the marker stays, with held: true, so a restart keeps
+// it held. Resume re-arms it (unless the owner turned that off; then the conversation's Start runs it).
+const heldRetries = new Map(); // sessionId -> marker
+function holdRetry(m) {
+  clearTimeout(retryTimers.get(m.sessionId)); retryTimers.delete(m.sessionId);
+  const held = { ...m, held: true };
+  heldRetries.set(m.sessionId, held);
+  try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(held)); } catch { }
+  log(`auto-resume held (paused) session=${m.sessionId}`);
+}
+function rearmRetry(m) {
+  const { held, ...rest } = m;
+  try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(rest)); } catch { }
+  armRetry(rest);
 }
 function scheduleRetry(sessionId, turn, resetAt) {
   const m = {
     sessionId, cwd: turn.cwd, at: resetAt, createdAt: Date.now(), userText: turn.userText,
     model: turn.model || turn.requestedModel || null, effort: turn.effort || null, approvalMode:turn.approvalMode, attempt: (turn.retryAttempt || 0) + 1, fork: turn.runner?.fork || null,
+    rootOrigin: auto.normRoot(turn.rootOrigin), ...(turn.originRef ? { originRef: turn.originRef } : {}), // 1.117: a retry carries the root of the turn it retries
   };
   try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m)); } catch { }
-  armRetry(m);
-  log(`rate limited session=${sessionId} — auto-resume at ${fmtOwnerTime(resetAt)} (attempt ${m.attempt})`);
+  if (pausedNow()) holdRetry(m); else armRetry(m);
+  log(`rate limited session=${sessionId} — ${heldRetries.has(sessionId) ? 'auto-resume held (paused)' : `auto-resume at ${fmtOwnerTime(resetAt)}`} (attempt ${m.attempt})`);
+}
+// Tests only (1.117): while the file POCKET_TEST_START_GAP names exists, a Claude retry or queue start waits 1.5 s after its
+// gate, as a slow disk would, so a test can pause in that window. Unset (everywhere but the tests), nothing waits.
+const TEST_START_GAP = process.env.POCKET_TEST_START_GAP || '';
+async function testStartGap(id) {
+  if (!fs.existsSync(TEST_START_GAP)) return;
+  log(`test start gap session=${id}`); await new Promise(r => setTimeout(r, 1500));
 }
 async function fireRetry(m) {
   if (claudeLogin.active && engineForSessionId(m.sessionId) === 'claude') return armRetry({...m,at:Date.now()+15_000});
+  // 1.117: the unattended gate. Pause all holds the retry; a plan ceiling or the daily limit tries it again at the reset
+  // or the next tick, whichever is later. A reply already running is left to the check below, as before.
+  const o = { origin: 'retry', ...(m.originRef ? { originRef: m.originRef } : {}), rootOrigin: auto.normRoot(m.rootOrigin) };
+  if (!ownedTurn(m.sessionId)) {
+    const g = await gateUnattended({ ...o, engine: engineForSessionId(m.sessionId), sessionId: m.sessionId });
+    if (retryTimers.has(m.sessionId) && !g.ok) {
+      if (g.reason === 'paused') return holdRetry(m);
+      // the marker takes the new time too, so the conversation shows when it will try again
+      const next = { ...m, at: Math.max(Number(g.until) || 0, Date.now() + AUTOMATION_TICK_MS) };
+      try { fs.writeFileSync(turnFiles(m.sessionId).retry, JSON.stringify(next)); } catch { }
+      log(`auto-resume re-armed (${g.reason}) session=${m.sessionId} — next try at ${fmtOwnerTime(next.at)}`);
+      return armRetry(next);
+    }
+    if (!retryTimers.has(m.sessionId)) return; // cancelled (a reply started, or Pause all held it) while the gate read
+  }
   retryTimers.delete(m.sessionId);
   try { fs.unlinkSync(turnFiles(m.sessionId).retry); } catch { }
   if (ownedTurn(m.sessionId)) return log(`retry skipped (turn already running) session=${m.sessionId}`);
   if (engineForSessionId(m.sessionId) !== 'claude') { // 1.87: Codex and OpenRouter pick up again the same way
     const id = m.sessionId, body = { model: m.model, effort: m.effort, approvalMode: m.approvalMode };
     try {
-      const t = isCx(id) ? await startCodexFromApi({ id, threadId: codex.bareId(id), cwd: m.cwd, text: RETRY_PROMPT, body })
-        : await startAcpFromApi({ id, sessionId: acp.bareAcpId(id), cwd: m.cwd, text: RETRY_PROMPT, body, resume: true });
+      const t = isCx(id) ? await startCodexFromApi({ id, threadId: codex.bareId(id), cwd: m.cwd, text: RETRY_PROMPT, body, from: o })
+        : await startAcpFromApi({ id, sessionId: acp.bareAcpId(id), cwd: m.cwd, text: RETRY_PROMPT, body, resume: true, from: o });
       if (t) t.retryAttempt = m.attempt; // three resumes at most, as on Claude
       log(`auto-resume after usage limit session=${id} attempt=${m.attempt}`);
       pushNotify(id, smeta[id]?.name || `${ENGINES[engineForSessionId(id)].label} conversation`, 'Usage limit reset. Picking the task back up').catch(() => { });
-    } catch (e) { log(`auto-resume failed session=${id}: ${e.message}`); }
+    } catch (e) { if (e.paused) return holdRetry(m); log(`auto-resume failed session=${id}: ${e.message}`); } // 1.117: paused after the gate
     return;
   }
+  if (TEST_START_GAP) await testStartGap(m.sessionId);
   const file = await findSessionFile(m.sessionId);
   try { // the user (or code-server) may have moved the session along during the wait
     if (file && (await fsp.stat(file)).mtimeMs > m.createdAt + 15_000) {
@@ -1526,13 +1626,13 @@ async function fireRetry(m) {
     }
   } catch { }
   try {
-    const opts = { sessionId: m.sessionId, cwd: m.cwd, model: m.model, effort: m.effort, approvalMode:approvalMode(m.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS), retryAttempt: m.attempt };
+    const opts = { sessionId: m.sessionId, cwd: m.cwd, model: m.model, effort: m.effort, approvalMode:approvalMode(m.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS), retryAttempt: m.attempt, from: o };
     if (file) startTurn({ ...opts, resume: true, text: RETRY_PROMPT });
     else startTurn({ ...opts, resume: false, fork: m.fork || undefined, text: m.userText }); // limit hit before the transcript existed (1.79: a branch forks again)
     log(`auto-resume after rate limit session=${m.sessionId} attempt=${m.attempt}`);
     const meta = file ? await sessionMeta(file, m.sessionId).catch(() => null) : null;
     pushNotify(m.sessionId, meta?.title || 'Claude conversation', 'Usage limit reset. Picking the task back up');
-  } catch (e) { log(`auto-resume failed session=${m.sessionId}: ${e.message}`); }
+  } catch (e) { if (e.paused) return holdRetry(m); log(`auto-resume failed session=${m.sessionId}: ${e.message}`); } // 1.117: paused after the gate
 }
 
 function broadcast(turn, ev) {
@@ -1603,8 +1703,14 @@ function handleTurnLine(turn, line) {
   if (usageEvent) broadcast(turn, { type: 'usage', kind: usageEvent.kind });
   // 1.28: the turn's first request shows whether it resumed from a warm cache or wrote it again
   if (o.type === 'assistant' && !o.parent_tool_use_id && o.message?.usage && o.message.model !== '<synthetic>' && turn.cacheFirst === undefined) turn.cacheFirst = turnCacheSummary(o.message.usage);
+  // 1.117: the model this reply really ran on (the audit line records it; a conversation on the default has turn.model null)
+  if (o.type === 'system' && o.subtype === 'init' && typeof o.model === 'string' && o.model) turn.effectiveModel = o.model;
+  else if (o.type === 'assistant' && !o.parent_tool_use_id && typeof o.message?.model === 'string' && o.message.model && o.message.model !== '<synthetic>') turn.effectiveModel = o.message.model;
   // 1.89 (F-19): a background subagent's own output (parent_tool_use_id set) is not the agent replying; the stand-in stays one.
-  if (turn.controlOnly && ['assistant', 'stream_event', 'result'].includes(o.type) && !o.parent_tool_use_id) turn.controlOnly = false; // the agent is replying: a real turn now
+  if (turn.controlOnly && ['assistant', 'stream_event', 'result'].includes(o.type) && !o.parent_tool_use_id) { // the agent is replying: a real turn now
+    turn.controlOnly = false;
+    if (turn.autonomous && pausedNow()) { noteStart(turn.sessionId, null); stopPausedAgentReply(turn); } // 1.117: paused, as in handleRunnerLine
+  }
   if(o.type==='control_request'){
     // 1.82: the asking subagent's name, and the request itself so a reply that ends while it waits can carry it over.
     const agent=o.request?.subtype==='can_use_tool'?askingAgent(turn,o.request.tool_use_id):null;
@@ -1704,7 +1810,7 @@ function writeRunnerMeta(r, { strict = false } = {}) {
     sessionId: r.sessionId, cliBin:r.cliBin||null, pid: r.pid, keeperPid: r.keeperPid, key: r.key, cwd: r.cwd, startedAt: r.startedAt,
     procStart: r.procStart || null, bootId: BOOT_ID, closing: Boolean(r.closing), outOffset: Number.isFinite(r.doneOffset) ? r.doneOffset : null,
     model: r.model, effort: r.effort, approvalMode: r.approvalMode, runnerToken: r.runnerToken || null, policyKey: r.policyKey || '',
-    turn: t ? { startedAt: t.startedAt, userText: t.userText, offset: t.offset, autonomous: Boolean(t.autonomous) } : null,
+    turn: t ? { startedAt: t.startedAt, userText: t.userText, offset: t.offset, autonomous: Boolean(t.autonomous), ...(t.origin ? { origin: t.origin, originRef: t.originRef || null, rootOrigin: t.rootOrigin || 'owner' } : {}) } : null, // 1.117: origin
     bgTasks: r.bgTasks, accountStale: Boolean(r.accountStale), spent: Number.isFinite(r.spent) ? r.spent : null,
     waitingForInput: Boolean(t && (t.questions?.list().length || t.approvals?.list().length || t.inputUnavailable || t.approvalUnavailable)),
     waitingForApproval: Boolean(t?.approvals?.list().length || t?.approvalUnavailable),
@@ -1787,12 +1893,13 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
 // controlOnly (1.82): a stand-in for a reply, opened to hold a permission request or question that arrived while no
 // reply was running (a background subagent asked). It ends as soon as nothing is waiting; output turns it into a reply.
 // 1.89 (F-8): `into` is a reply that waited for its process (waitingTurn); it keeps its events, viewers and inboxes.
-function beginTurn(r, { userText = '', retryAttempt, autonomous = false, offset, controlOnly = false, into = null }) {
+function beginTurn(r, { userText = '', retryAttempt, autonomous = false, offset, controlOnly = false, into = null, from = null }) {
   let size = r.tailOffset; try { size = fs.statSync(r.files.out).size; } catch { }
   const turn = Object.assign(into || { events: [], subs: new Set(), queue: [], rawRequests: new Map(), startedAt: Date.now() }, {
     sessionId: r.sessionId, runner: r, pid: r.pid, stdin: r.writer, cwd: r.cwd,
     userText, model: r.model, effort: r.effort, retryAttempt, approvalMode: r.approvalMode,
     files: r.files, offset: offset ?? size, autonomous, controlOnly, baseline: descendantCpu(r.pid).pids,
+    ...(from ? { origin: from.origin, originRef: from.originRef || undefined, rootOrigin: from.rootOrigin } : {}), // 1.117: what started it
   });
   if (!into) attachClaudeQuestions(turn, r.sessionId);
   clearTimeout(r.idleTimer);
@@ -1834,11 +1941,24 @@ function handleRunnerLine(r, line, lineOffset) {
     if (!wakes || r.exited || (r.closing && turns.has(r.sessionId))) return;
     turn = beginTurn(r, { autonomous: true, offset: lineOffset, controlOnly: control });
     log(control ? `turn start (a background job asked for permission) session=${r.sessionId} pid=${r.pid}` : `turn start (started by the agent) session=${r.sessionId} pid=${r.pid}`);
+    // 1.117: a reply the agent started is nobody's queue or retry (the list stops naming one), and while Pocket is paused it
+    // is unattended work like any other: stopped at once, with no push. A permission request keeps its stand-in turn until
+    // the agent starts replying in it; then it is stopped the same way (handleTurnLine).
+    if (!control) {
+      noteStart(r.sessionId, null);
+      if (pausedNow()) stopPausedAgentReply(turn);
+    }
     // Viewers in transcript-mirror mode resync on `done` and attach to this live turn.
     for (const t of tailers.get(r.sessionId) || []) { try { t.res.write('data: {"type":"done"}\n\n'); t.res.end(); } catch { } }
   }
   handleTurnLine(turn, line);
   maybeEndControlTurn(turn);
+}
+// 1.117: a reply the agent started while Pocket is paused, stopped as Pause all stops a reply (finalizeTurn pushes nothing
+// for a stopped reply). Stopping it ends the conversation's process, with any background jobs still in it.
+function stopPausedAgentReply(turn) {
+  turn.stopped = true; signalTurn(turn);
+  log(`stop requested (paused; the agent started a reply) session=${turn.sessionId}`);
 }
 // A control-only turn with nothing waiting any more is over: the conversation goes back to Working in background.
 function maybeEndControlTurn(turn) {
@@ -2062,6 +2182,8 @@ async function finalizeTurn(sessionId, turn, code) {
     }
   }
   const settled = recordOutcome(sessionId, turn, [...turn.events].reverse().find(e => e.type === 'result'), retryAt);
+  const lastResult = [...turn.events].reverse().find(e => e.type === 'result');
+  const originLabel = noteFinish(sessionId, turn, { cost: lastResult?.cost, durationMs: lastResult?.duration_ms, outcome: turn.stopped ? 'stopped' : retryAt ? 'limit' : lastResult?.ok ? 'ok' : 'error' }); // 1.117
   retitler.request(sessionId); // 1.29.1: does the title still fit?
   const watching = turn.subs.size > 0;
   broadcast(turn, { type: 'done' });
@@ -2074,16 +2196,23 @@ async function finalizeTurn(sessionId, turn, code) {
   // 1.89.2: not while background jobs hold the process on the earlier login (it drains when they finish). A message held
   // for them starts even after a failed reply: that reply ran on the earlier login (its usage limit, say), the message won't.
   const head = followups.list(sessionId)[0];
-  if (!turn.stopped && head?.status === 'pending' && !staleJobs(sessionId).length && (head.afterJobs || [...turn.events].reverse().find(e=>e.type==='result')?.ok)) {
+  // 1.117: not while paused (the row stays, shown as paused, and this reply's push goes out below), except a message the
+  // owner sent while background jobs held the process on the earlier login: that is the owner's own work (ownAfterJobs).
+  const mayDrain = !pausedNow() || (ownAfterJobs(head) && !ownMessagesBlocked());
+  if (!turn.stopped && mayDrain && head?.status === 'pending' && !staleJobs(sessionId).length && (head.afterJobs || [...turn.events].reverse().find(e=>e.type==='result')?.ok)) {
     // 1.89 (F-16): a background agent's request still waiting moves into the reply the queued message starts on the same
     // process (its answer goes to that process); with no such reply it gets its stand-in turn as below.
-    runNextFollowup(sessionId, turn.cwd).then(next => {
+    // 1.117: when nothing started (a limit or Pause all held the row), this reply's own push goes out as usual.
+    runNextFollowup(sessionId, turn.cwd, { by: ownAfterJobs(head) ? 'owner' : 'queue' }).then(next => {
+      if (!next) return void finished();
       if (!carry.length) return;
-      if (next && next.runner === r && r.turn === next && !next.finalized) { for (const o of carry) handleTurnLine(next, JSON.stringify(o)); log(`${carry.length} request(s) carried into the queued reply session=${sessionId}`); }
+      if (next.runner === r && r.turn === next && !next.finalized) { for (const o of carry) handleTurnLine(next, JSON.stringify(o)); log(`${carry.length} request(s) carried into the queued reply session=${sessionId}`); }
       else carryRequests(r, carry);
     }, e => { log(`queue start failed session=${sessionId}: ${e.message}`); carryRequests(r, carry); });
     return;
   }
+  finished();
+  function finished() {
   if (!turn.stopped) autoKeepTurnFiles(sessionId, turn.startedAt || 0);
   carryRequests(r, carry);
   // 1.64: a reply that leaves background jobs running is not done. The CLI starts a turn by itself when
@@ -2092,7 +2221,7 @@ async function finalizeTurn(sessionId, turn, code) {
   else if (!watching && !turn.stopped && !settled) {
     const result = turn.events.find(e => e.type === 'result');
     // 1.59: plain words; the cost and time stay after "Ready" for the owner who wants them.
-    const body = retryAt ? `Usage limit reached. Picks up again at ${fmtOwnerTime(retryAt)}`
+    const body = retryAt ? limitPushText('Usage limit reached', sessionId, retryAt)
       : !result ? 'Stopped'
         : !result.ok ? 'Something went wrong. Tap to see what happened'
           : completePush(sessionId) ? completePush(sessionId) // 1.111
@@ -2100,11 +2229,20 @@ async function finalizeTurn(sessionId, turn, code) {
           : `Ready${result.cost != null ? ` · $${result.cost.toFixed(2)}` : ''}${result.duration_ms ? ` · ${Math.round(result.duration_ms / 1000)}s` : ''}`;
     findSessionFile(sessionId)
       .then(f => f ? sessionMeta(f, sessionId) : null)
-      .then(m => pushNotify(sessionId, m?.title || 'Claude conversation', body))
+      .then(m => pushNotify(sessionId, m?.title || 'Claude conversation', withOriginLabel(originLabel, body))) // 1.117: names a non-owner origin
       .catch(() => { });
+  }
   }
   } finally { turn.finalizeResolve?.(); }
 }
+// 1.117: the push for a reply that hit a usage limit. While paused its retry is held, so it does not say when it picks up.
+function limitPushText(lead, id, at) {
+  if (!heldRetries.has(id)) return `${lead}. Picks up again at ${fmtOwnerTime(at)}`;
+  return autoValues('pause').rearmRetries ? `${lead}. The retry is held until you resume` : `${lead}. The retry is held; send a message to carry on`;
+}
+// 1.117: a message the owner sent while background jobs held the conversation on the earlier Claude login (queued with
+// afterJobs and no origin): the owner's own work, so it starts while paused unless own messages are Blocked.
+const ownAfterJobs = row => Boolean(row?.afterJobs && !row.origin);
 
 // 1.61: after a reply, keep the files it handed over (named in its text since the turn started) in Files, once each.
 const AUTO_KEEP_RE = /\.(pdf|docx|pptx|xlsx|csv|html?|md|png|jpe?g|gif|webp)$/i;
@@ -2161,7 +2299,9 @@ function steerTurn(turn, text) {
   return true;
 }
 
-function startTurn({ sessionId, cwd, text, resume, fork, model, effort, attachments, retryAttempt,approvalMode:requestedMode, replaceStale = false }) {
+function startTurn({ sessionId, cwd, text, resume, fork, model, effort, attachments, retryAttempt,approvalMode:requestedMode, replaceStale = false, from }) {
+  from = startOrigin(from); // 1.117: owner unless a trusted caller (retry, queue, coordination) says otherwise
+  refuseIfPaused(from); // 1.117: paused after the gate passed (no await from here to beginTurn)
   if (claudeLogin.active) throw Object.assign(new Error('Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.'), {code:409});
   if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   cancelRetry(sessionId); // a manually-started turn supersedes any pending auto-resume
@@ -2204,8 +2344,9 @@ function startTurn({ sessionId, cwd, text, resume, fork, model, effort, attachme
   // so a second message steers into it or queues as usual.
   const waitFor = !r && old && !old.exited ? old : null;
   if (!r && !waitFor) r = spawnRunner({ sessionId, cwd, resume, fork: resume ? undefined : fork, model, effort, mode });
-  const turn = waitFor ? waitingTurn({ sessionId, cwd, text, attachments, retryAttempt, resume, fork: resume ? undefined : fork, model, effort, mode }, waitFor)
-    : beginTurn(r, { userText: text, retryAttempt });
+  const turn = waitFor ? waitingTurn({ sessionId, cwd, text, attachments, retryAttempt, resume, fork: resume ? undefined : fork, model, effort, mode, from }, waitFor)
+    : beginTurn(r, { userText: text, retryAttempt, from });
+  noteStart(sessionId, from); stampReplyLimit(turn); // 1.117
   if (modelFallback) { turn.modelFallback = { ...modelFallback, message: fallbackText(modelFallback) }; broadcast(turn, { type: 'note', text: turn.modelFallback.message }); }
   if (waitFor) { log(`turn start session=${sessionId} process=new (once pid=${waitFor.pid} has exited) cwd=${cwd}`); return turn; }
   try { r.writer.write(userJSON(promptText(text, attachments))); } catch { }
@@ -2232,7 +2373,7 @@ function startAfterJobs(id, cwd) {
     const head = followups.list(id)[0];
     if (!head?.afterJobs || head.status !== 'pending' || ownedTurn(id) || staleJobs(id).length) return;
     log(`background jobs on the earlier Claude login are done; starting the message held for them session=${id}`);
-    runNextFollowup(id, cwd).catch(e => log(`queue start failed session=${id}: ${e.message}`));
+    runNextFollowup(id, cwd, { by: ownAfterJobs(head) ? 'owner' : 'queue' }).catch(e => log(`queue start failed session=${id}: ${e.message}`)); // 1.117: the owner's own message
   }, AFTER_JOBS_GRACE_MS).unref();
 }
 // After a restart: a held message whose process ended while Pocket was down starts now; one still held waits for its jobs.
@@ -2245,11 +2386,12 @@ function resumeAfterJobs() {
 // 1.89 (F-8): a reply waiting for the conversation's closing process to exit. It is in `turns` (viewers attach, a second
 // message steers into it: the text waits in `held` and follows the prompt), and Stop ends it before any process starts.
 // When the old process has gone, or the close's steps have run out, the new one is spawned and the reply moves onto it.
-function waitingTurn({ sessionId, cwd, text, attachments, retryAttempt, resume, fork, model, effort, mode }, old) {
+function waitingTurn({ sessionId, cwd, text, attachments, retryAttempt, resume, fork, model, effort, mode, from = null }, old) {
   const held = [];
   const turn = {
     sessionId, runner: null, pending: true, pid: null, events: [], subs: new Set(), queue: [], rawRequests: new Map(), cwd,
     startedAt: Date.now(), userText: text, model, effort, retryAttempt, approvalMode: mode, files: {}, offset: 0, autonomous: false, controlOnly: false, baseline: new Set(),
+    ...(from ? { origin: from.origin, originRef: from.originRef || undefined, rootOrigin: from.rootOrigin } : {}), // 1.117
     stdin: { destroyed: false, writableEnded: false, write: s => { held.push(s); return true; } },
   };
   attachClaudeQuestions(turn, sessionId);
@@ -2258,7 +2400,7 @@ function waitingTurn({ sessionId, cwd, text, attachments, retryAttempt, resume, 
   // so a restart in the wait runs it as the next message (resumeHeldReplies) instead of dropping it; the route has already
   // answered 202. It leaves the queue when the reply starts, is stopped, or fails to start.
   let row = null;
-  try { row = followups.hold(sessionId, { text, cwd, attachments, model, effort, approvalMode: mode }); }
+  try { row = followups.hold(sessionId, { text, cwd, attachments, model, effort, approvalMode: mode, ...(from && from.origin !== 'owner' ? { origin: from.origin, originRef: from.originRef, rootOrigin: from.rootOrigin } : {}) }); } // 1.117: a restart runs it with its origin
   catch (e) { log(`waiting reply not saved to the queue session=${sessionId}: ${e.message}`); }
   const unhold = () => { if (!row) return; try { followups.discard(row.id); } catch (e) { log(`held reply not removed from the queue session=${sessionId}: ${e.message}`); } row = null; };
   turn.cancel = () => {
@@ -2277,7 +2419,7 @@ function waitingTurn({ sessionId, cwd, text, attachments, retryAttempt, resume, 
     try {
       if (!old.exited) log(`session process still running after SIGKILL session=${sessionId} pid=${old.pid}; starting its replacement anyway`);
       r = spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode });
-      beginTurn(r, { userText: text, retryAttempt, into: turn });
+      beginTurn(r, { userText: text, retryAttempt, into: turn, from });
       try { r.writer.write(userJSON(promptText(text, attachments))); for (const s of held) r.writer.write(s); } catch { }
       log(`turn start session=${sessionId} process=new pid=${r.pid} cwd=${cwd} (the closing process has exited)`);
     } catch (e) {
@@ -2302,7 +2444,7 @@ function resumeHeldReplies() {
       if (stopped.some(pidAlive) && Date.now() < until) return void setTimeout(go, 200);
       if (ownedTurn(id)) return; // a reply is running after all; the queue drains when it ends
       log(`starting the reply that was waiting when Pocket stopped session=${id}`);
-      runNextFollowup(id, head.cwd && fs.existsSync(head.cwd) ? head.cwd : undefined).catch(e => log(`held reply start failed session=${id}: ${e.message}`));
+      runNextFollowup(id, head.cwd && fs.existsSync(head.cwd) ? head.cwd : undefined, { by: 'held' }).catch(e => log(`held reply start failed session=${id}: ${e.message}`));
     };
     go();
   }
@@ -2369,7 +2511,7 @@ function adoptOrphans() {
         r.doneOffset = r.tailOffset;
         runners.set(m.sessionId, r);
         if (m.turn) {
-          const turn = beginTurn(r, { userText: m.turn.userText, autonomous: m.turn.autonomous, offset: r.tailOffset });
+          const turn = beginTurn(r, { userText: m.turn.userText, autonomous: m.turn.autonomous, offset: r.tailOffset, from: m.turn.origin ? startOrigin(m.turn) : null }); // 1.117: keeps its origin
           turn.startedAt = m.turn.startedAt || turn.startedAt;
           // With the pipe back, pending requests are denied and the turn carries on; only a
           // process we can no longer write to is left waiting on an answer that can't come.
@@ -2408,7 +2550,10 @@ function adoptOrphans() {
       }
     } else if (f.endsWith('.retry.json')) { // pending rate-limit resume survives restarts
       let m; try { m = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { try { fs.unlinkSync(full); } catch { } continue; }
-      if (m.sessionId && m.at) { armRetry(m); log(`re-armed auto-resume session=${m.sessionId} at ${fmtOwnerTime(m.at)}`); }
+      // 1.117: one Pause all held stays held (a restart does not resume it); one pending while paused is held now
+      if (m.sessionId && m.at && m.held) { heldRetries.set(m.sessionId, m); log(`auto-resume still held session=${m.sessionId}`); }
+      else if (m.sessionId && m.at && pausedNow()) holdRetry(m);
+      else if (m.sessionId && m.at) { armRetry(m); log(`re-armed auto-resume session=${m.sessionId} at ${fmtOwnerTime(m.at)}`); }
       else { try { fs.unlinkSync(full); } catch { } }
     }
   }
@@ -2477,7 +2622,7 @@ app.post('/api/login', async (req, res) => {
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
 // 1.73.3: signed out, the reply names only the mode (the sign-in page says Pocket Assistant or Pocket Code); which modules are on is for the owner.
-app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) { learnPublicUrl(req); learnTimezone(req.query.tz); } return res.json({ ok, features: ok ? { coordination: coordLive(), projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked, handoffAt: handoffAt(), markAllReviewed: settings.markAllReviewed !== false } : { assistantMode: assistantOn() } }); });
+app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) { learnPublicUrl(req); learnTimezone(req.query.tz); } return res.json({ ok, features: ok ? { coordination: coordLive(), projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked, handoffAt: handoffAt(), markAllReviewed: settings.markAllReviewed !== false, automation: true } : { assistantMode: assistantOn() }, ...(ok ? { paused: pausedNow() ? { at: pausedNow().at } : null } : {}) }); }); // 1.117: automation, paused
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -2496,12 +2641,14 @@ function stateFor(s) {
   if(turn?.inputUnavailable)return {kind:'input',label:'Question interrupted · review needed',confirmed:true,questions:1,queued:queue.length};
   const questions=turn?.questions?.list()||[];
   if(questions.length)return {kind:'input',label:questions.some(q=>q.blocking)?'Needs your answer':'Working · answer requested',confirmed:true,startedAt:turn.startedAt,queued:queue.length,questions:questions.length};
+  // 1.117: a usage-limit retry Pause all held (or that Resume left held): it waits for Resume, or for the owner's next message
+  if(!turn&&heldRetries.has(s.id))return {kind:'waiting',label:'Retry held',held:true,retryAt:heldRetries.get(s.id).at,confirmed:true,...(queue.length?{queued:queue.length}:{})};
   const outcome=smeta[s.id]?.outcome;
   const quietSince=!cx && !ac && !turn && outcome && s.mtimeMs > outcome.at + 5000 && quietSinceOwned(s.id, s.mtimeMs);
   const state=sessionState({ turn: turn ? {...turn,queue} : null, external: ac ? false : cx ? codex.codexExtActive(codex.bareId(s.id)) : extActive(s.id),
     retryAt, outcome, mtimeMs:s.mtimeMs, background: cx || ac ? [] : backgroundJobs(s.id), quietSince });
   if(queue.length&&!turn && state.kind!=='failed')return {kind:'waiting',label:queue[0].status==='uncertain'?'Queue needs review':'Queue paused',queued:queue.length,confirmed:true};
-  return {...state,...(queue.length?{queued:queue.length}:{})};
+  return {...state,...(queue.length?{queued:queue.length}:{}),...(state.kind==='running'&&turn?.origin&&turn.origin!=='owner'?{origin:turn.origin,...(turn.originRef?{originRef:turn.originRef}:{})}:{})}; // 1.117: who started the running reply
 }
 // 1.111: the push for a reply that ended with a Complete card: the word, then the agent's outcome line.
 const completePush = id => { const o = smeta[id]?.outcome; return o?.done ? (o.summary ? `Complete · ${o.summary}` : 'Complete') : null; };
@@ -2596,11 +2743,13 @@ app.get('/api/sessions', requireAuth, async (req, res) => {
     for (const s of sessions) if (smeta[s.id]?.seen) s.seenAt = smeta[s.id].seen; // shared across devices
     for (const s of sessions) if (s.pinned && Number.isFinite(smeta[s.id]?.pinOrder)) s.pinOrder = smeta[s.id].pinOrder;
     for (const s of sessions) if (smeta[s.id]?.branchOf) s.branchOf = smeta[s.id].branchOf; // 1.79: the row says Branch
+    for (const s of sessions) Object.assign(s, lastOriginOf(s.id)); // 1.117: the newest turn was not the owner's
     for (const s of sessions) delete s.prompt;
     // 1.19: the list rarely changes between 5 s polls. A matching If-None-Match gets 304 with the
     // check time in a header, which still counts as a fresh server confirmation for the client.
     const held = coordLive() ? coord.state.holds.map(h => ({ name: h.name, title: coordHolderTitle(h.holder) })) : []; // 1.99: the line above the list
-    const payload = { sessions, warnings: sessions.warnings, home: DEFAULT_CWD || HOME, ...(held.length ? { held } : {}) }; // 1.20.1: rows omit the workspace when it is this one
+    const payload = { sessions, warnings: sessions.warnings, home: DEFAULT_CWD || HOME, ...(held.length ? { held } : {}), // 1.20.1: rows omit the workspace when it is this one
+      pause: pauseBanner() }; // 1.117: what the Pause banner shows, so the app reads it with the list instead of a request of its own
     // 1.89: serialised once per poll, and an unchanged list reuses the tag it was hashed to. The list itself is still
     // built each poll: row states follow live turns, queues and the clock, and no one signal says the list changed.
     const json = JSON.stringify(payload);
@@ -2656,7 +2805,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       title: smeta[id]?.name || (row && !row.untitled ? row.title : '') || turn?.userText?.slice(0, 120) || messages.find(m => m.role === 'user')?.text.slice(0, 120) || 'New conversation',
       cwd, state: stateFor({ id, mtimeMs: row?.mtimeMs || 0 }), active: Boolean(turn),
       turnEvents: turn ? 1 : null, // the history above ends with this reply's message; its stream replays from the event after it
-      muted: mutes.has(id), pinned: isPinned(id), repo: await conversationRepo(id, cwd), messages, total: messages.length, ...lineage(id), projectMode: null, // OpenRouter has no Project mode
+      muted: mutes.has(id), pinned: isPinned(id), repo: await conversationRepo(id, cwd), messages, total: messages.length, ...lineage(id), ...lastOriginOf(id), projectMode: null, // OpenRouter has no Project mode
     });
   }
   if (isCx(req.params.id)) {
@@ -2679,7 +2828,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid), turnEvents: turn?.events.length ?? null,
       locked: !turn && !codex.codexSessions.has(tid) && codex.threadLocked(tid), // Pocket's own open session holds the lock too
       muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: await conversationRepo(req.params.id, meta?.cwd || turn?.cwd),
-      messages, total, ...lineage(req.params.id), projectMode: projectModeView(req.params.id),
+      messages, total, ...lineage(req.params.id), ...lastOriginOf(req.params.id), projectMode: projectModeView(req.params.id),
     });
   }
   const file = await findSessionFile(req.params.id);
@@ -2688,7 +2837,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
     if (turn) { // brand-new session: transcript file not written yet
       return res.json({
         id: req.params.id, title: titleOf(req.params.id) || turn.userText?.slice(0, 120) || 'New conversation', cwd: turn.cwd, repo: isGitWorkspace(turn.cwd),
-        state: stateFor({ id: req.params.id }), active: true, messages: turn.userText ? [{ role: 'user', text: turn.userText }] : [], ...lineage(req.params.id), projectMode: projectModeView(req.params.id),
+        state: stateFor({ id: req.params.id }), active: true, messages: turn.userText ? [{ role: 'user', text: turn.userText }] : [], ...lineage(req.params.id), ...lastOriginOf(req.params.id), projectMode: projectModeView(req.params.id),
       });
     }
     return res.status(404).json({ error: 'not found' });
@@ -2698,7 +2847,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
   const messages = withPendingUser(msgs, turns.get(req.params.id));
   // turnEvents: what the live stream has already broadcast for the running turn. The
   // transcript above covers it, so a fresh stream connection asks to start after it.
-  sendJson(req, res, { ...finishTitle(meta), state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: await conversationRepo(req.params.id, meta.cwd), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null, ...lineage(req.params.id), projectMode: projectModeView(req.params.id) });
+  sendJson(req, res, { ...finishTitle(meta), state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: await conversationRepo(req.params.id, meta.cwd), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null, ...lineage(req.params.id), ...lastOriginOf(req.params.id), projectMode: projectModeView(req.params.id) });
 });
 
 // Extract references from assistant messages on demand; no second document store.
@@ -3170,36 +3319,56 @@ async function codexTurnFinished(id, turn, ev) {
     const resetAt = Math.min(at && at > Date.now() ? at : (detectRateLimit(ev.error || 'usage limit')?.resetAt || Date.now() + 3600_000), Date.now() + RETRY_MAX_DELAY_MS) + (at ? RETRY_BUFFER_MS : 0);
     scheduleRetry(id, turn, resetAt);
     recordOutcome(id, turn, ev, resetAt);
-    if (!mutes.has(id)) pushNotify(id, smeta[id]?.name || 'Codex conversation', `Usage limit reached. Picks up again at ${fmtOwnerTime(resetAt)}`).catch(() => { });
+    const label = noteFinish(id, turn, { tokens: ev.tokens, durationMs: ev.duration_ms, outcome: 'limit' }); // 1.117
+    if (!mutes.has(id)) pushNotify(id, smeta[id]?.name || 'Codex conversation', withOriginLabel(label, limitPushText('Usage limit reached', id, resetAt))).catch(() => { });
     return;
   }
   const settled = recordOutcome(id, turn, ev);
+  const originLabel = noteFinish(id, turn, { tokens: ev.tokens, durationMs: ev.duration_ms, outcome: turn.stopped ? 'stopped' : ev.ok ? 'ok' : 'error' }); // 1.117
   retitler.request(id); // 1.29.1
   if (!turn.stopped) autoKeepTurnFiles(id, turn.startedAt || 0);
-  if (!turn.stopped && ev.ok && followups.list(id)[0]?.status === 'pending') {
+  if (!turn.stopped && !pausedNow() && ev.ok && followups.list(id)[0]?.status === 'pending') { // 1.117: paused, the queue waits and the reply's push goes out
     // Let the previous app-server release its writer lock before resuming.
     await new Promise(resolve=>setTimeout(resolve,600));
     if(ownedTurn(id))return;
-    await runNextFollowup(id, turn.cwd).catch(e => log(`codex queue start failed thread=${id}: ${e.message}`));
-    return;
+    const next = await runNextFollowup(id, turn.cwd).catch(e => { log(`codex queue start failed thread=${id}: ${e.message}`); return false; });
+    if (next !== null) return; // 1.117: null, nothing started (a limit or Pause all held it): this reply's push goes out below
   }
   if (!watching && !turn.stopped && !settled && !mutes.has(id)) {
     const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
     // 1.87: the same body Claude's pushes have (the reply's time; tokens where Claude shows its cost)
     const body = !ev.ok ? 'Something went wrong. Tap to see what happened' : completePush(id) ? completePush(id) : assistantOn() ? 'Ready' : `Ready${Number.isFinite(ev.tokens) && ev.tokens > 0 ? ` · ${ev.tokens >= 1e3 ? Math.round(ev.tokens / 1e3) + 'k' : ev.tokens} tokens` : ''}${ev.duration_ms ? ` · ${Math.round(ev.duration_ms / 1000)}s` : ''}`;
-    pushNotify(id, meta?.title || 'Codex conversation', body).catch(() => {});
+    pushNotify(id, meta?.title || 'Codex conversation', withOriginLabel(originLabel, body)).catch(() => {});
   }
 }
-async function runNextFollowup(id, cwd, { replaceStale = false } = {}) {
+// 1.117: `by` says who is starting the head row. 'owner' is the queue's Start button (attended, no gate); 'queue' is a drain
+// after a reply, 'coordination' a coordination wake, 'held' a reply that was waiting when Pocket restarted. Everything but
+// the owner's Start passes the unattended gate first; a refused row stays pending (shown as paused) and null is returned.
+function rowStart(row, by) {
+  if (by === 'owner' || !row) return { ...OWNER_START };
+  const origin = by === 'held' ? auto.normOrigin(row.origin) : row.origin === 'coordination' ? 'coordination' : 'queue';
+  return origin === 'owner' ? { ...OWNER_START } : { origin, ...(row.originRef ? { originRef: row.originRef } : {}), rootOrigin: auto.normRoot(row.rootOrigin) };
+}
+async function runNextFollowup(id, cwd, { replaceStale = false, by = 'queue' } = {}) {
   // 1.89.2: background jobs hold this conversation on the earlier Claude login. Say so and leave the queue as it is (starting
   // would refuse, and the row would read "not confirmed"); Stop background jobs and run it passes replaceStale.
   const jobs = replaceStale ? [] : staleJobs(id);
   if (jobs.length) throw Object.assign(staleLoginRefusal(jobs), { status: 409 });
+  const head = followups.list(id)[0];
+  if (!head || head.status !== 'pending') return null;
+  const from = rowStart(head, by);
+  if (from.origin !== 'owner' || by === 'held') {
+    const g = await gateUnattended({ ...from, engine: engineForSessionId(id), sessionId: id });
+    if (!g.ok) return null;
+    if (followups.list(id)[0]?.id !== head.id || ownedTurn(id)) return null; // the queue changed, or a reply started, while the gate read
+  } else if (ownMessagesBlocked()) return null; // 1.117: the owner's own row (Start, or a message held for background jobs) while Blocked
+  // 1.117: Pocket paused after the gate passed: the start is refused where the turn would come into existence and the row
+  // goes back to pending (queue.mjs), so null, as for a refusal at the gate.
   return followups.dispatch(id, async row => {
     // 1.81: queued with Full access before it was turned off: it never starts, and the row says why (not "not confirmed").
     if (row.approvalMode === 'full' && !ALLOW_FULL_ACCESS) throw Object.assign(new Error('Full access is turned off on this server; send it again with Review actions.'), { status: 403, notStarted: true });
-    return engineOf(id).startQueued(id, cwd, row, { replaceStale });
-  });
+    return engineOf(id).startQueued(id, cwd, row, { replaceStale, from });
+  }).catch(e => { if (e?.paused) { log(`queue start held (paused) session=${id}`); return null; } throw e; });
 }
 // ---------- 1.86: the engine adapter ----------
 // What a feature needs from the engine behind a conversation, one entry per engine. Features call engineOf(id).x(...)
@@ -3213,7 +3382,7 @@ const ENGINE_OPS = {
     cwd: async id => { const file = await findSessionFile(id); return turns.get(id)?.cwd || (file ? (await sessionMeta(file, id))?.cwd : null); },
     foldersFile: id => findSessionFile(id),
     transcript: async (id, limit) => { const file = await findSessionFile(id); if (!file) throw Object.assign(new Error('Conversation not found'), { status: 404 }); return readTranscript(file, limit); },
-    startQueued: async (id, cwd, row, { replaceStale } = {}) => { const file = await findSessionFile(id), meta = file ? await sessionMeta(file, id) : null; return startTurn({ sessionId: id, cwd: cwd || meta?.cwd || HOME, text: row.text, resume: true, ...turnOpts(row), replaceStale }); },
+    startQueued: async (id, cwd, row, { replaceStale, from } = {}) => { if (TEST_START_GAP) await testStartGap(id); const file = await findSessionFile(id), meta = file ? await sessionMeta(file, id) : null; return startTurn({ sessionId: id, cwd: cwd || meta?.cwd || HOME, text: row.text, resume: true, ...turnOpts(row), replaceStale, from }); },
   },
   codex: {
     turn: id => codex.codexTurns.get(codex.bareId(id)),
@@ -3221,14 +3390,14 @@ const ENGINE_OPS = {
     cwd: async id => codex.codexTurns.get(codex.bareId(id))?.cwd || (await codex.codexThreadMeta(codex.bareId(id)))?.cwd,
     foldersFile: id => findRolloutFile(codex.bareId(id)),
     transcript: (id, limit) => codex.readCodexThread(codex.bareId(id), limit),
-    startQueued: (id, cwd, row) => startCodexFromApi({ id, threadId: codex.bareId(id), cwd, text: row.text, body: row }),
+    startQueued: (id, cwd, row, { from } = {}) => startCodexFromApi({ id, threadId: codex.bareId(id), cwd, text: row.text, body: row, from }),
   },
   acp: {
     turn: id => acp.ownedAcpTurn(id),
     exists: async id => { if (!ACP_ON) return false; if (acp.acpSessions.has(acp.bareAcpId(id)) || acpListCache.rows.some(r => r.id === id)) return true; acpListCache.at = 0; await refreshAcpList(); return acpListCache.rows.some(r => r.id === id); },
     cwd: async id => acp.ownedAcpTurn(id)?.cwd || acp.acpSessions.get(acp.bareAcpId(id))?.cwd || acpListCache.rows.find(r => r.id === id)?.cwd || null,
     transcript: async id => { const msgs = await acpMessages(id); return { msgs, total: msgs.length }; },
-    startQueued: (id, cwd, row) => startAcpFromApi({ id, sessionId: acp.bareAcpId(id), cwd, text: row.text, body: row, resume: true }),
+    startQueued: (id, cwd, row, { from } = {}) => startAcpFromApi({ id, sessionId: acp.bareAcpId(id), cwd, text: row.text, body: row, resume: true, from }),
   },
 };
 const engineOf = id => ENGINE_OPS[engineForSessionId(id)];
@@ -3261,11 +3430,11 @@ app.patch('/api/session/:id/queue/:item',requireAuth,(req,res)=>{
 app.delete('/api/session/:id/queue/:item',requireAuth,(req,res)=>{
   try {followups.remove(req.params.id,req.params.item,req.body.revision);res.json({ok:true});}catch(e){queueError(res,e);}
 });
-app.post('/api/session/:id/queue/start',requireAuth,async(req,res)=>{
+app.post('/api/session/:id/queue/start',requireAuth,ownerSendGate,async(req,res)=>{
   const id=req.params.id;if(!anyId(id))return res.status(400).json({error:'Invalid conversation'});
   if(ownedTurn(id)|| (isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)))return res.status(409).json({error:'A reply is running or activity was seen elsewhere. Wait before starting queued work.'});
   if(followups.list(id)[0]?.id!==req.body.itemId)return res.status(409).json({error:'The queue changed. Refresh before starting the next message.'});
-  try {const started=await runNextFollowup(id,undefined,{replaceStale:req.body?.replaceStaleLogin===true});res.json({ok:true,started:Boolean(started)});}catch(e){queueError(res,e);}
+  try {const started=await runNextFollowup(id,undefined,{replaceStale:req.body?.replaceStaleLogin===true,by:'owner'});res.json({ok:true,started:Boolean(started)});}catch(e){queueError(res,e);}
 });
 
 // Per-thread callbacks for Codex turns; also handed to sessions reattached after a restart.
@@ -3276,8 +3445,18 @@ function codexHooks(id) {
     auditApproval,onApproval:turn=>{const sid=id||(codex.CX+turn.threadId);const aid=turn.approvals.list().at(-1)?.id;if(aid&&turn.approvalNotified!==aid&&!mutes.has(sid)){turn.approvalNotified=aid;pushNotify(sid,'Waiting for your OK','Open Pocket Code to review the pending action.').catch(()=>{});}},
     onQuestion:turn=>{const sid=id||(codex.CX+turn.threadId);const qid=turn.questions.list().at(-1)?.id;if(!mutes.has(sid)&&turn.questionNotified!==qid){turn.questionNotified=qid;pushNotify(sid,'Codex has a question','Open Pocket Code to answer it.').catch(()=>{});}},
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
+    // 1.117: a turn Codex started by itself: nobody's queue or retry, and stopped at once while paused (no push for it)
+    onAutonomous: turn => {
+      const sid = id || (codex.CX + turn.threadId);
+      noteStart(sid, null);
+      if (pausedNow()) { codex.stopCodexTurn(turn.threadId); log(`stop requested (paused; the agent started a reply) thread=${turn.threadId}`); }
+    },
   };
 }
+// 1.117: refused where a start that is not the owner's would become a turn, because Pocket was paused after its gate passed.
+// Nothing started: a queue row stays pending (queue.mjs) and a retry is held again (fireRetry).
+const pausedRefusal = () => Object.assign(new Error('Pocket is paused.'), { code: 409, status: 409, paused: true, keepPending: true });
+const refuseIfPaused = from => { if (from?.origin && from.origin !== 'owner' && pausedNow()) throw pausedRefusal(); };
 // 1.87: the Claude Code commands that have a Codex counterpart. /compact and /review run Codex's own turns; /recap asks
 // for the same short summary Claude's gives. (/context opens Pocket's context panel in the app.)
 const RECAP_PROMPT = 'Sum up where this conversation stands: what was asked, what is done, what is left and anything waiting on me, in a few short lines.';
@@ -3291,7 +3470,9 @@ function codexCommand(text) {
 }
 // `projectMode` (Project mode): the mode a new thread starts with, known before Codex mints its id; an existing thread's
 // is read from its board link.
-async function startCodexFromApi({ id, threadId, forkFrom, cwd, text, body, onForked, projectMode }) {
+async function startCodexFromApi({ id, threadId, forkFrom, cwd, text, body, onForked, projectMode, from }) {
+  from = startOrigin(from); // 1.117
+  refuseIfPaused(from); // 1.117: and again just before the turn exists (mayStart), after the awaits below
   if (id) cancelRetry(id); // 1.87: a reply you start replaces a pending usage-limit resume, as on Claude
   if (id && threadId && await folderGone(id, cwd)) cwd = HOME; // 1.98: also moves a kept process out of the deleted folder
   if (!threadId || !codex.codexSessions.has(threadId)) reclaimProcess();
@@ -3306,8 +3487,11 @@ async function startCodexFromApi({ id, threadId, forkFrom, cwd, text, body, onFo
   opts.launch.context = { projectMode: pm }; // the thread's instructions use the same mode (codex.mjs choiceInstructions)
   const cmd = threadId ? codexCommand(text) : null; // a command needs a thread; on a new conversation it is just text
   if (id && !cmd && !codex.codexTurns.has(threadId)) text = coordNotice(id, text); // 1.99
-  if (cmd?.prompt) return codex.startCodexTurn({ threadId, forkFrom, cwd, text: cmd.prompt, ...opts, ...codexHooks(id) });
-  return codex.startCodexTurn({ threadId, forkFrom, cwd, text, ...opts, ...(cmd?.action ? { action: cmd.action } : {}), ...codexHooks(id), onForked });
+  const mayStart = () => refuseIfPaused(from);
+  const turn = cmd?.prompt ? await codex.startCodexTurn({ threadId, forkFrom, cwd, text: cmd.prompt, ...opts, ...from, ...codexHooks(id), mayStart })
+    : await codex.startCodexTurn({ threadId, forkFrom, cwd, text, ...opts, ...(cmd?.action ? { action: cmd.action } : {}), ...from, ...codexHooks(id), onForked, mayStart });
+  noteStart(id || (turn?.threadId ? codex.CX + turn.threadId : null), from); stampReplyLimit(turn); // 1.117
+  return turn;
 }
 // ---------- ACP/OpenRouter engine bridge (mirrors the codex bridge; gated on ACP_ON) ----------
 function acpHooks(id) {
@@ -3319,7 +3503,9 @@ function acpHooks(id) {
     onFinish: (result, turn) => acpTurnFinished(id || (acp.ACP + turn.sessionId), turn, { ok: !turn.stopped && result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}) }),
   };
 }
-async function startAcpFromApi({ id, sessionId, cwd, text, body, resume }) {
+async function startAcpFromApi({ id, sessionId, cwd, text, body, resume, from }) {
+  from = startOrigin(from); // 1.117
+  refuseIfPaused(from); // 1.117: and again just before the turn exists (mayStart), after the awaits below
   if (id) cancelRetry(id); // 1.87: as on Claude and Codex
   if (id && resume && await folderGone(id, cwd)) { if (acp.acpSessions.get(acp.bareAcpId(id))?.cwd !== HOME) acp.closeAcpSession(id); cwd = HOME; } // 1.98
   if (id && resume && !ownedTurn(id)) text = coordNotice(id, text); // 1.99
@@ -3340,8 +3526,9 @@ async function startAcpFromApi({ id, sessionId, cwd, text, body, resume }) {
   const bare = sessionId ? acp.bareAcpId(sessionId) : id ? acp.bareAcpId(id) : null;
   const launch = bare && acp.acpSessions.has(bare) ? acpLaunch() : acpTurnLaunch(); // a live process keeps its own config
   const turn = await acp.startAcpTurn({ sessionId: sessionId || id, cwd, text, prompt: promptText(text, opts.attachments), images, model, effort, approvalMode: opts.approvalMode, executionMode: opts.executionMode,
-    costBaseline, ...launch, resume, hooks: acpHooks(id) });
+    costBaseline, ...launch, resume, hooks: acpHooks(id), ...from, mayStart: () => refuseIfPaused(from) });
   setSmeta(id || acp.ACP + turn.sessionId, { acpRunning: Date.now() }); // a restart mid-reply is recorded as a stop (below)
+  noteStart(id || acp.ACP + turn.sessionId, from); stampReplyLimit(turn); // 1.117
   return turn;
 }
 const IMAGE_MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
@@ -3383,6 +3570,8 @@ for (const id of overlayIds(smeta)) if (isAcpId(id) && smeta[id]?.acpRunning) se
 // The history shown when an OpenRouter conversation opens (session/load replay), by session id. A live turn
 // streams its own events; this is what came before it. Dropped when a turn ends.
 const acpHistory = new Map();
+// 1.117: this reply's OpenRouter cost, from its result line (acp.mjs works it out from OpenCode's running total).
+const acpReplyCost = turn => [...(turn.events || [])].reverse().find(e => e.type === 'result')?.cost;
 async function acpTurnFinished(id, turn, ev) {
   const watching = turn.subs.size > 0;
   acpHistory.delete(id); acpListCache.at = 0;
@@ -3392,23 +3581,31 @@ async function acpTurnFinished(id, turn, ev) {
   if (limited) {
     scheduleRetry(id, turn, limited.resetAt);
     recordOutcome(id, turn, ev, limited.resetAt);
-    if (!mutes.has(id)) pushNotify(id, smeta[id]?.name || 'OpenRouter conversation', `Rate limited. Picks up again at ${fmtOwnerTime(limited.resetAt)}`).catch(() => { });
+    const label = noteFinish(id, turn, { cost: acpReplyCost(turn), outcome: 'limit' }); // 1.117
+    if (!mutes.has(id)) pushNotify(id, smeta[id]?.name || 'OpenRouter conversation', withOriginLabel(label, limitPushText('Rate limited', id, limited.resetAt))).catch(() => { });
     return;
   }
   const settled = recordOutcome(id, turn, ev);
+  const originLabel = noteFinish(id, turn, { cost: acpReplyCost(turn), outcome: turn.stopped ? 'stopped' : ev.ok ? 'ok' : 'error' }); // 1.117
   retitler.request(id);
   // the reply's own messages carry times (the replayed history does not), which auto-keep matches files by
   if (!turn.stopped) autoKeepTurnFiles(id, turn.startedAt || 0, turn.events.filter(e => e.type === 'assistant').map(e => e.msg));
-  if (!turn.stopped && ev.ok && followups.list(id)[0]?.status === 'pending') {
+  if (!turn.stopped && !pausedNow() && ev.ok && followups.list(id)[0]?.status === 'pending') { // 1.117: as on Codex
     if (ownedTurn(id)) return;
-    await runNextFollowup(id, turn.cwd).catch(e => log(`acp queue start failed session=${id}: ${e.message}`));
-    return;
+    const next = await runNextFollowup(id, turn.cwd).catch(e => { log(`acp queue start failed session=${id}: ${e.message}`); return false; });
+    if (next !== null) return; // 1.117: as on Codex, a held row leaves this reply's push to go out
   }
-  if (!watching && !turn.stopped && !settled && !mutes.has(id)) pushNotify(id, smeta[id]?.name || 'OpenRouter conversation', ev.ok ? completePush(id) || 'Ready' : 'Something went wrong. Tap to see what happened').catch(() => { });
+  if (!watching && !turn.stopped && !settled && !mutes.has(id)) pushNotify(id, smeta[id]?.name || 'OpenRouter conversation', withOriginLabel(originLabel, ev.ok ? completePush(id) || 'Ready' : 'Something went wrong. Tap to see what happened')).catch(() => { });
 }
 if (CODEX_ON) codex.adoptCodexSessions(threadId => codexHooks(codex.CX + threadId));
 if (CODEX_ON) codex.pruneTranscriptCache(); // 1.53.5: the on-disk transcript cache keeps its newest files only
 
+// 1.117: while Pocket is paused with "Your own messages while paused" set to Blocked, the owner's sends are refused too. Adding
+// to the queue (mode queue) still works: it starts nothing.
+function ownerSendGate(req, res, next) {
+  if (!ownMessagesBlocked() || (req.path.endsWith('/message') && req.body?.mode === 'queue')) return next();
+  res.status(409).json({ error: 'Pocket is paused. Resume to send.', paused: true });
+}
 function validateApprovalMode(req,res,next){
   try{approvalMode(req.body?.approvalMode,DEFAULT_APPROVAL_MODE,ALLOW_FULL_ACCESS);next();}
   catch(e){res.status(e.status||400).json({error:e.message});}
@@ -3429,7 +3626,7 @@ function secretGuard(req, res, next) {
   log(`message held: looks like ${hits.length} secret(s) (${[...new Set(hits.map(h => h.kind))].join(', ')})${req.params?.id ? ' session=' + req.params.id : ' new session'}`);
   res.status(422).json({ error: 'This message looks like it contains a secret, so it was not sent.', code: 'secret_detected', matches: hits.map(({ kind, label, name, vaultKind, start, end }) => ({ kind, label, name, vaultKind, start, end })) });
 }
-app.post('/api/session/:id/message', requireAuth, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
+app.post('/api/session/:id/message', requireAuth, ownerSendGate, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const id = req.params.id;
   if(!anyId(id))return res.status(400).json({error:'Invalid conversation'});
   const text = String(req.body?.text || '').trim();
@@ -3581,7 +3778,7 @@ function linkProjectStart(ps, id) {
   linkStartedSession(ps.project, id);
   if (ps.project && settings.projects && board.projects.some(p => p.id === ps.project && p.mode === 'conductor')) setSmeta(id, { projectMode: { project: ps.project, start: ps.start } });
 }
-app.post('/api/new', requireAuth, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, handoffOnce(async (req, res) => {
+app.post('/api/new', requireAuth, ownerSendGate, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, handoffOnce(async (req, res) => {
   let cwd = String(req.body?.cwd || '').trim();
   if (LOCK_CWD && cwd !== DEFAULT_CWD) { if (cwd) log(`new session asked for ${cwd}; this Pocket starts every session in ${DEFAULT_CWD}`); cwd = DEFAULT_CWD; } // 1.55
   const text = String(req.body?.text || '').trim();
@@ -3932,7 +4129,7 @@ function sideSearch(id, requested) {
   return mode === 'full' || Boolean(matchTrusted(trustedRules(), 'WebSearch', {}));
 }
 const sideView = c => ({ side: c.id, parent: c.parentId, provider: c.provider, model: c.model, busy: c.busy, closed: c.closed, total: c.provider === 'codex' ? null : c.total, turns: c.turns });
-app.post('/api/session/:id/side', requireAuth, secretGuard, async (req, res) => {
+app.post('/api/session/:id/side', requireAuth, ownerSendGate, secretGuard, async (req, res) => { // 1.117: Blocked refuses a side chat too
   if (!SIDE_ON) return res.status(404).json({ error: 'Side chat is switched off on this Pocket.' });
   const id = req.params.id;
   if (isCx(id) && !CODEX_ON) return res.status(400).json({ error: 'Codex is not available on this server.' });
@@ -4008,7 +4205,7 @@ async function branchFolder(id, start) {
   const f = await conversationFolders(id).catch(() => null);
   return [f?.activePath, start].find(d => d && fs.existsSync(d)) || (start ? HOME : null); // 1.98: a forked Codex thread would keep the deleted folder
 }
-app.post('/api/session/:id/branch', requireAuth, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
+app.post('/api/session/:id/branch', requireAuth, ownerSendGate, validateApprovalMode, validateTurnModel, secretGuard, withDeliveryReceipt(deliveryReceipts, async (req, res) => {
   const id = req.params.id;
   if (!anyId(id)) return res.status(400).json({ error: 'Invalid conversation' });
   const text = String(req.body?.text || '').trim();
@@ -4135,7 +4332,7 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
     const tid = codex.bareId(id);
     const cxTurn = codex.codexTurns.get(tid);
     if (cxTurn) { // our own turn: replay what the client missed, then stream live
-      res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${cxTurn.startedAt}` })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${cxTurn.startedAt}`, ...originView(cxTurn) })}\n\n`); // 1.117: origin
       const from = replayFrom(req, cxTurn);
       for (let i = from; i < cxTurn.events.length; i++) {
         res.write(`id: ${i}\ndata: ${JSON.stringify(cxTurn.events[i])}\n\n`);
@@ -4154,7 +4351,7 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   if (isAcpId(id)) {
     const aTurn = acp.ownedAcpTurn(id);
     if (aTurn) { // our own acp turn: replay what the client missed, then stream live (same shape as codex/claude)
-      res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${aTurn.startedAt}` })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${aTurn.startedAt}`, ...originView(aTurn) })}\n\n`); // 1.117: origin
       const from = replayFrom(req, aTurn);
       for (let i = from; i < aTurn.events.length; i++) res.write(`id: ${i}\ndata: ${JSON.stringify(aTurn.events[i])}\n\n`);
       aTurn.subs.add(res);
@@ -4165,7 +4362,7 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
     clearInterval(ka); res.write(`data: {"type":"idle"}\n\n`); return res.end();
   }
   if (turn) { // a turn our daemon is running: replay + live events
-    res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${turn.startedAt}` })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'attach', key: `${BOOT}:${turn.startedAt}`, ...originView(turn) })}\n\n`); // 1.117: origin
     const from = replayFrom(req, turn);
     for (let i = from; i < turn.events.length; i++) {
       res.write(`id: ${i}\ndata: ${JSON.stringify(turn.events[i])}\n\n`);
@@ -4499,10 +4696,11 @@ async function coordWake(offer, note = '') {
     let row;
     try {
       if (!await engineOf(id).exists(id)) throw new Error('the conversation is gone');
-      row = followups.add(id, { text: `[Pocket coordination] ${next.name} is free. You asked to wait for it. It is not yours yet: claim it with pocket-coord hold before you go on, because someone else may have got there first.${note ? ` The last holder left this note: ${note}` : ''}`, ...next.run });
+      row = followups.add(id, { text: `[Pocket coordination] ${next.name} is free. You asked to wait for it. It is not yours yet: claim it with pocket-coord hold before you go on, because someone else may have got there first.${note ? ` The last holder left this note: ${note}` : ''}`, ...next.run,
+        origin: 'coordination', rootOrigin: auto.normRoot(next.run?.rootOrigin) }); // 1.117: owner when the wait did not say
     } catch (e) { log(`coordination wake skipped name=${next.name} session=${id}: ${e.message}`); continue; }
     log(`coordination woke session=${id} for ${next.name}`);
-    if (followups.list(id)[0]?.id === row.id && !ownedTurn(id)) await runNextFollowup(id, await engineOf(id).cwd(id)).catch(e => log(`coordination wake start failed session=${id}: ${e.message}`));
+    if (followups.list(id)[0]?.id === row.id && !ownedTurn(id)) await runNextFollowup(id, await engineOf(id).cwd(id), { by: 'coordination' }).catch(e => log(`coordination wake start failed session=${id}: ${e.message}`));
     return coordHolderTitle(next);
   }
   return null;
@@ -4532,7 +4730,7 @@ app.post('/api/coordination/hold', requireBoardAuth, coordOn, (req, res) => {
 app.post('/api/coordination/wait', requireBoardAuth, coordOn, (req, res) => {
   const waiter = coordCaller(req, res); if (!waiter) return;
   const b = req.body || {}, turn = waiter.session ? ownedTurn(waiter.session) : null;
-  const run = turn ? { approvalMode: turn.approvalMode, executionMode: turn.executionMode, model: turn.model, effort: turn.effort } : {};
+  const run = turn ? { approvalMode: turn.approvalMode, executionMode: turn.executionMode, model: turn.model, effort: turn.effort, rootOrigin: auto.normRoot(turn.rootOrigin), ...(turn.originRef && turn.rootOrigin !== 'owner' ? { originRef: turn.originRef } : {}) } : {}; // 1.117: the wake carries the root of the turn that set the wait
   try { const out = coord.wait(b.name, { waiter, block: b.block === true, id: typeof b.id === 'string' ? b.id : '', run }); res.json({ ...out, ...(out.hold ? { hold: coordShown(out.hold) } : {}), now: Date.now() }); }
   catch (e) { coordError(res, e); }
 });
@@ -5213,7 +5411,7 @@ app.get('/api/acp/models', requireAuth, async (_req, res) => {
 
 // What changed in the current asset version — shown under "What's new" in the settings
 // sheet. Replace (don't append) on each release; the ledger keeps the history.
-const RELEASE_NOTES = ["You can hide Mark all reviewed. The bar at the top of Attention and New clears every waiting reply and failed reply in one tap, including replies that end with a question for you, and after its ten-second Undo nothing shows what was cleared. If you would rather not have it, turn off Mark all reviewed bar in Settings, under Conversation: it goes from every device on this server. It stays on unless you change it, and Mark as reviewed on a single conversation (long-press it or tap the three dots) works either way. Asked for by Brad.", "When new mail lands on an Inbox entry you already have a conversation for, you now choose where it goes. Opening the entry gives three options: Continue the conversation, which opens it and brings the new mail in; New conversation, hand-off from the last one, where the earlier conversation writes a briefing and a fresh one picks up from it, for when the first has grown too large; and New conversation, separate subject, which moves the new mail to an Inbox entry of its own with its own briefing, for when it is really about something else. Inside the conversation, a card under the latest reply shows the new mail with Bring it in, New conversation and Not now. It takes the place of the green Complete card, so a conversation with unread mail no longer offers Close conversation, and it reads New mail in the list, on its tab and in its header. Asked for by Brad.", "A conversation you start from an Inbox alert now opens with the email itself. The agent still checks for other mail on the story and merges duplicate entries first, but its first reply leads with what the email says (who wrote, what they are asking, the key lines quoted), then a few lines on what the check added, then where things stand and the next step. Before, the reply could be all about the side search and barely mention the email you opened it for. Asked for by Brad.", "Inbox Watch keeps the Pocket Inbox label honest on promotional mail. A label you add yourself in Gmail now puts mail from the Promotions tab on your list like any other. When a Gmail filter labels promotional mail, which the watcher does not read, the label comes off at the next check and the email stays in your inbox. A labelled email that never got judged is tried again after 30 minutes. Asked for by Brad.", "Inbox Watch keeps one entry per story. When more mail comes in on something already on your list, that entry is updated and moves back to the top as unread, instead of a second entry appearing beside it; what it said before stays below the new text. A conversation you start from an alert now opens with a short check: the agent looks for other mail on the story and tells you what it adds, and merges any other open entry about the same thing into this one, so only one thread keeps the Pocket Inbox label in Gmail. Restore on a merged entry undoes it. And a conversation you already started from an alert catches up instead of a second one starting: when more mail arrives on that story, the conversation shows “New mail on this story since you started” with Bring it in, which sends the new mail as your next message, and a reply that is running when it arrives gets it straight away. Asked for by Brad.","Tabs go where you put them. On a computer, drag a tab along the strip to move it (on a touch screen, hold it a moment first), or press Alt Shift [ or Alt Shift ] on a tab. Pinned tabs stay ahead of the others, and moving one changes the pinned order on all your devices; the rest keep the order you leave them in on this browser. With more than 12 tabs, the one you opened longest ago closes, not the leftmost. Also fixed: a new Codex conversation's tab kept saying New conversation until you switched away and back; a tab now takes the conversation's name as soon as it has one. And a conversation you start from the Inbox (or any start link) now opens in its own tab until you send it: start another and it gets a tab of its own, and pressing the plus for a new conversation leaves both alone. Each keeps what you typed, and opening the same alert's Start again brings it back. The Complete card is also easier to spot: it is now green, with a filled tick and a green Close conversation button, instead of a quiet outline that looked like part of the reply. Asked for by Brad.", "When an agent has finished everything you asked for and has nothing more to recommend, its reply now ends with a Complete card that states the outcome in one line, so you don't have to read the reply to know where things stand. Tap the card to close the conversation: it leaves Attention on all your devices, its tab closes and its server process is released. Nothing is deleted; the conversation stays in Recent and a message reopens it. The conversation list shows Complete with the same line, and the tick on that row closes it without opening it. Undo is offered for ten seconds. Asked for by Brad.", "Inbox Watch no longer archives mail you starred. When you finish an entry (Resolved, Not useful, Dismiss or the tidy pass), the Pocket Inbox label still comes off in Gmail, but a thread with a star stays in your Gmail inbox, so it keeps showing wherever you look for starred mail. Asked for by Brad.", "Ask someone is in the sidebar too. On a computer, the Vault panel in the sidebar now has Ask someone beside Add secret, so you can send someone a one-time link without opening the full Vault page. Asked for by Brad.", "Ask someone outside for a secret. In the Vault, Ask someone (or `pocket-vault request` from an agent) makes a one-time link to a plain page with your organisation's name and colour. The person types the login there and it goes straight into the Vault under the name you chose, with nothing sent by email, chat or phone. The link works once, expires after 1 to 7 days (3 by default), and can be cancelled or replaced from Links sent. You get a notification when it is filled in, and agents still ask you before using it. Asked for by Brad.", "Inbox Watch's list is now a work queue. An email goes on your list when it leaves something to do: a failure or problem to look into (a site, server, job, backup, device, licence, payment or account), a person waiting on your reply, or mail like what you worked on before. Starting a conversation from an alert now teaches the watcher that such mail belongs on the list. A problem it had only followed quietly, sometimes for weeks, is listed once with how long it has gone on. Not useful is now final: that story stays off your list unless it turns critical, until you restore it or label the mail yourself. With the morning digest off, nothing is written for a digest nobody gets. The rules box now holds 12,000 characters, up from 8,000, so the rules it learns from your choices have room to grow. Which alerts push to your phone is unchanged. Asked for by Brad.", "Pocket Code tells you when it is behind. The daily 4 a.m. update check now also looks for a newer Pocket Code release, and the notice at the top names it (for example: Pocket Code update available). Settings, About & updates, Updates shows the version this server runs, the latest release, its release notes and how to update. Nothing is installed from here: whoever manages the server upgrades Pocket Code, and the notice goes away once it runs the new version. Asked for by Brad.", "Starting a project conversation from the sidebar works on New conversation too. With New conversation already open, Start a conversation in a project's ⋯ options in the sidebar's Projects list left the screen as it was: no project, no Conductor chip and no briefing in the box, so the conversation would have started unlinked on your usual model. It now opens New with the project, its start and its briefing, as it does from the Projects page. Start on a task in the sidebar had the same problem and is fixed too.", "Start a project from New conversation, and Conductor mode explained wherever you choose it. New conversation has a Start a project button: name the project (it offers the first line of your message), switch Conductor mode on if the work is big, say what done means if you like, and the message you send starts the conversation linked to the new card. A handoff card from a Conductor or Solo conversation shows the start as a chip: tap it to pick the other one before Start, and Review first carries the project and that choice to New conversation. An info button (ⓘ) beside every Conductor choice says what the mode is and when to use it: point at it on a computer, tap it on a phone. Fixed: Review first on a handoff card opened the link viewer instead of New conversation. Asked for by Brad.", "Conductor mode shows what it runs, and stays out of Assistant mode. Starting a conversation from a Conductor project now shows a Conductor chip beside the project chip, and the model and effort chips name what will run (the lead, at High) instead of your usual model; tap the chip for Solo. The project's ⋯ options say which model leads and can turn Conductor mode on or off. In Assistant mode, where Pocket never runs Conductor mode, the switch, Works in and the Conductor or Solo choice are hidden; Done when and a step's Passes when check still show. Asked for by Brad.", "Conductor mode for projects. A project card has a new Conductor mode switch. While it is on, a conversation started in that project runs with the newest top model as the lead at high effort: it plans the work, hands each piece to a cheaper model, checks what comes back and stops only for a decision from you. Start conversation also offers Solo, one model doing the work itself, for a small task. The card gains Done when and Works in, and a step can carry a Passes when check. Handoffs keep the project and the mode, and a chip in the conversation shows which one is on. Off until you switch it on for a project. Asked for by Brad.", "Suggested-reply buttons survive a sources list. A reply that looked something up on the web ended with a Sources list after its choices, and Pocket then showed the choices as a plain code box with no buttons. A Sources or References list after the choices no longer stops them: the buttons show, and the sources stay in the reply above them. Agents are also asked to put sources above the question. Reported by Brad.", "Inbox Watch separates your list from your phone. Every alert still goes on the list, and the new Push notifications section of its schedule sheet decides which also push: every alert (as before), only what can't wait (emergencies, outages you're the escalation for, money at risk, security incidents, someone waiting on you, deadlines today, each a switch, with a daily limit and one push per story until it gets worse), or nothing. An open alert says whether it pushed and why.", "Inbox Watch's email checks use about a fifth fewer tokens. Each check used to carry every alert of the last day and up to six earlier threads per email; it now carries the newest few alerts plus any that relate to the emails being checked, and up to three earlier threads per email (plus the same sender's). Tested on 30 past checks: decisions stayed within the judge's own run-to-run variation. Asked for by Brad.", "Inbox Watch's learned rules get more room: up to about 3,300 characters (was about 2,300), still within the rules box beside your own rules. On a busy install the rebuilt rules filled the old limit on the first day, so new lessons would have had to squeeze out older ones. Asked for by Brad.", "Inbox Watch no longer loses what you teach it. A learned rule that ran long was cut off mid-sentence, and once the learned rules filled their space the newest ones were dropped without a word, so recent hand labels stopped counting. The watcher now splits a long rule in two, sends an answer that does not fit back once, and logs anything it still has to cut. The learned rules get more room (up to 20 lines, about 2,300 characters), and a new learn --rebuild command folds every lesson in again to bring back rules an earlier version dropped. Reported by Brad.", "Inbox Watch's tidy pass no longer takes an entry off your list while someone is waiting on your assistant. It already kept an entry when the latest email asked you for something; a request to your assistant (send me the current sheets, say) now counts the same, and so does a reply like send me X and I'll do Y, which waits on your side until X is sent. Reported by Brad.", "Closing a tab no longer opens another one. Closing the tab you are on now takes you to a new conversation, as the plus does, so you pick what to open next, and a conversation waiting in Attention stays there until you open it. And Dismiss says what it does in Gmail: with the Pocket Inbox label on, the X on an Inbox row and Dismiss in the entry's sheet now say the label comes off in Gmail at the next check, as it already did. Requested by Brad.", "Pocket now offers a handoff when a conversation gets large. A Handoff button sits beside Branch (and in Conversation options), and once a conversation passes 200K tokens a line under the latest finished reply says how large it is, with Hand off and Not now. Hand off asks the agent for the briefing and card; Not now hides the line until the conversation grows by another 200K. When the reply ends with suggested replies, they get a Hand off first button instead, and the new conversation opens by offering those same choices. The context ring turns amber at the same point. Change the size or turn it off in Settings → Context and subagents. Pocket never hands off by itself. Requested by Brad.", "Wrap-up replies no longer wait in Attention. When you tap Mark resolved, Remind me …, Add a task …, No thanks or a similar closing reply, the agent's short confirmation now counts as read the moment it finishes, on every device, and sends no notification, so you no longer have to open the conversation again or scroll to clear it, even after closing its tab. If the agent answers with a question, reply buttons or a long report, the conversation waits in Attention as before, and an ordinary request still does. Reported by Brad.", "What it reads: choose which mail Inbox Watch looks at. Settings → Inbox Watch now offers Everything (every thread but spam, trash and drafts, as before), Inbox only, and Inbox and these labels, with your Gmail labels to pick from. Everything is the default, so nothing changes until you choose. In the narrower choices your replies still count, so the watcher sees that you answered; a new email you start is not read. Requested by Damon and Brad.", "New Coordination view shows which conversation holds staging or a deploy, who is waiting, and what ended lately. Agents claim with pocket-coord, a clash names the holder, and the first waiter is woken on release. Holds are advice, not a lock. Off until you turn it on in Settings.", "The Git panel now lists every worktree of a repository as In use, Has work or Ready to remove, and says why. Remove only appears when nothing would be lost, names any ignored files and conversations affected, and keeps the branch. A conversation whose folder was removed carries on from your home folder and says so once.", "The Git panel now follows the work. It shows the repository the conversation is working in, not the folder it started in, offers a picker when it touched several, and names other running conversations in the same repository. Branch starts in that folder too and says so.", "Pass work to a fresh conversation with one tap. When a conversation has grown long, ask the agent to hand off (or type /handoff). It writes a briefing and the reply shows a card with the title, folder, agent and permissions, a Start button and Review first. Start opens a new conversation that begins with only the briefing, so it reads far less than the old one, and each conversation links to the other. A handoff starts once, even from two devices, and it never gets more permission than the conversation it came from. Requested by Brad.", "The morning digest is readable and each line has its own buttons. The digest used to open as one block of text; it now shows each line as a card under its heading (Worth knowing, Held overnight, and so on), and the whole digest is shown rather than cut off after 2,000 characters. Under each card: Start a conversation, which opens a new conversation briefed with that one story and teaches Inbox Watch nothing; Add to Inbox, which puts that story on your Inbox as an alert right away and teaches Inbox Watch to alert on that kind of email from now on; Resolved and Not useful, which land on that story rather than on the whole digest; Dismiss; and Gmail. Undo takes any of them back, except an alert already sent. Each story has one status: lines on the same story share a card, and a story that is an open alert on your list appears under Already on your list as a link to that entry, showing what you decide there, so nothing is worked twice. Look-aheads work the same way: each item is a card with the same choices, most pressing first, and the whole look-ahead is shown rather than cut off after 2,000 characters. Add to Inbox on a look-ahead item teaches nothing, since it is a finding rather than a kind of email. Requested by Damon after a client's text message was filed for the digest instead of alerting him, with the one-status rule and the look-ahead cards from Brad.", "The morning digest can be turned off. Settings → Inbox Watch now has Off for Morning digest, as the look-aheads do. With it off, alerts held overnight arrive one by one when quiet hours end, and lines that would only have been in the digest are not sent. Requested by Brad.", "Pin and unpin in one click. Every conversation in the list now has a pin beside its ⋯ button: faint gray on an unpinned conversation (click it to pin) and orange on a pinned one (click it to unpin). Pin conversation is also the first choice in Conversation options now, instead of near the bottom. Requested by Damon.", "Finding a secret and answering the Vault is easier. The Vault list now shows the newest secrets first (Order switches to A–Z), a secret stored in the last day is marked New with the conversation that stored it, and Search secrets narrows the list by name, kind, tag or website. A conversation that stores a secret shows a card for it, and agents now link the name; either opens the Vault with that secret open. A request reads as one sentence, such as The agent in “Staging site” wants to use staging-wp for this command, with Allow once as an orange button beside Deny. Tapping the notification opens that request instead of the list; only the notification's Allow button approves, and if that Allow could not be recorded (signed out, locked, offline, or already ended) the request says so and you can answer it there. Requested by Damon.", "Keep long conversations and subagents in check. Settings → Agents & instance has a new Context and subagents group. Each reply reads the whole conversation again, so a conversation left to grow toward a million tokens uses the most of your plan. Compact conversations has the agent summarize the older part before a size you choose (150K to 600K tokens). Subagent model runs subagents one tier below the conversation: Fable conversations get Opus subagents, Opus gets Sonnet and GPT Astra gets GPT Sol; a conversation can still name a model for one subagent. Subagent effort sets how hard they think. It applies to Claude Code and Codex conversations from their next reply; OpenRouter keeps its own behavior for now. Nothing changes until you choose. Requested by Brad.", "Inbox Watch set up with Codex uses the newest models. When Pocket sets up Inbox Watch on a server where only Codex is signed in, the judge now runs the newest GPT Sol the installed Codex lists (GPT-6.1 Sol today, not GPT-6 Sol), and reading mail the newest GPT Luna. A Codex too old for GPT-6.1 Sol keeps GPT-6 Sol. A watcher that is already set up keeps its models. Requested by Brad.", "Only the newest model versions are shown, and new ones appear by themselves. The Codex menu lists GPT-6.1 Sol instead of GPT-6 Sol, and Default says GPT-6.1 Sol; the Claude menu lists the newest Fable, Opus, Sonnet and Haiku, without Sonnet 5 and Haiku 4.5 beside their newer versions. A conversation, saved prompt or Pocket default that names an older version now runs the newest one. Codex's menu was already its live list; for Claude, Pocket now reads Anthropic's model list once a day with the sign-in Claude Code already has, so a new model such as an Opus 6 joins the menu and replaces the older one without a Pocket update. Requested by Brad.", "Inbox Watch learns from what you put on your list, and no longer says you added something a Gmail filter labelled. An email that arrives already carrying the Pocket Inbox label (because one of your Gmail filters adds it) now reads Your Gmail filter put this on your list, not You added this. When you label an email yourself, the watcher notes what it had done with it (ignored it, kept it for the digest, skipped it as routine) and turns that into a short rule, as narrow as the examples allow: one email teaches it about that sender and topic, several of a kind teach it the kind. Not useful works the same way in the other direction, and the rules it has learned are merged, widened or dropped as you go on. They sit at the end of your rules under Learned from your choices, where you can edit or delete any of them, and the quick first pass now reads the whole rules file. Reported by Brad.", "Switching Claude accounts no longer makes you wait or start over. A message you send to a conversation whose background job (a build, a watcher) still holds the earlier sign-in now waits in its queue and sends by itself, on the new account, as soon as the job finishes. Stop background jobs and send now beside it skips the wait, and the Queue shows what it is waiting for. Reported by Brad.", "Switching Claude accounts no longer leaves a conversation stuck. When you sign in with another account, a conversation with a background job still running (a test run, a watcher) keeps the earlier sign-in so the job is not cut off, and Pocket refused your messages there until the job ended, which for a watcher could be never. The Not sent card now names the job and offers Stop background jobs and send, which ends the job and continues the conversation on the new account. And Retry same message now really asks again: a refused message used to get the same refusal back without checking, even after the reason had gone. Reported by Brad.", "Fixes from Casey's second review, checked against 1.88.1. Side chats: a Codex side chat now switches off every MCP server Codex knows about, however it is written in the config file, and refuses to start when it cannot ask; a Claude side chat searches the web only when the conversation is in Full access; Stop on a stuck Codex side chat closes it; a side chat that reconnects after a long run gets the right events. Processes: a replacement Claude process waits for the old one to exit, a Pocket restart adopts the right process and stops duplicates, and work the agent did while Pocket was down counts as Pocket's own instead of as another app's. A background agent's request that is waiting when a reply ends with an After this reply message now reaches you, and a subagent working alone no longer makes the conversation read Running. Transcript bookkeeping (a task notification, a compaction summary) no longer shows as a message you sent, a steered message with a file shows once, long first prompts no longer bloat the conversation list, a skill whose description spans several lines shows it in the / list, and a pasted HEIC or TIFF keeps its name. Security: notification links can only open Pocket's own pages, file previews and downloads read the file they checked, pictures are decoded only as what their name says, and the login and Vault attempt limits can no longer be reset by a caller naming its own address (see POCKET_TRUSTED_PROXY in the install guide). Reported by Casey.", "Finished replies stay in Attention. A conversation whose reply you had not opened could drop out of Attention and read Recent, with its reply buttons still waiting inside. When Pocket closes an idle conversation's process (after an hour, or seconds after a reply when several conversations start at once, such as a burst of Inbox Watch alerts), Claude Code writes a little bookkeeping to the transcript, and Pocket took that for work in another app. It now counts only messages, so Response ready stays until you open the conversation. Replies hidden this way since the problem began reappear in Attention once; Mark all reviewed clears them. Reported by Brad.", "The OpenRouter model menu has a search box. OpenRouter offers hundreds of models; type any words of a model's name or maker, such as kimi or sonnet 5.5, and the list narrows as you type, with Default and the tested models still first. It says how many match, or that none do. Enter picks the first match and the arrow keys move through the list; on a phone the keyboard waits until you tap the box. Escape clears the box, a second Escape closes the menu. Requested by Brad.", "Codex conversations now have what Claude Code conversations had over them. Changed files shows each Codex edit's diff, and files Codex writes become file cards and are kept in Files like Claude's. When Codex hits its usage limit, the conversation waits for the reset and picks the task up again by itself, as Claude's do, and tells you when. The / list offers compact, review (the uncommitted changes, or against a base branch), recap and context. Your attachments show as file chips, a subagent's activity opens, the trusted read-only actions in Settings apply to Codex (and OpenRouter) commands, each reply shows the tokens it used, a reply Codex moves to another model says so, the Usage sheet reads 5-hour and Weekly, and Plan first shows its plan. OpenRouter gets the same diffs in Changed files and picks up again after a rate limit. Requested by Brad.", "After a CLI upgrade, Pocket shows which Claude Code and Codex conversations still have an older process. The update notice stays visible until they switch. The review names each conversation, shows whether it is idle or working, and offers Switch now for idle work. Stop work & switch asks before interrupting a running reply; the next turn opens the selected CLI. Restarting Pocket does not switch those processes.", "OpenRouter conversations now have the everyday features Claude Code and Codex conversations have. Your message shows as soon as you send it. A question from the model is a question card with its options as buttons, and a reply that asks you to choose ends with reply buttons, because Pocket's instructions now reach OpenRouter too. Attachments and images reach it, Plan first works, Stop stops (a queued message waits), a message queued with After this reply runs on OpenRouter, and the context meter, Results, Search and the Git panel work. What OpenRouter cannot do yet (Steer, Side chat, Branch, While you were away) is hidden on its conversations instead of offered and failing. And OpenCode needs no setup of its own any more: Pocket starts it with the ask-first permissions it needs. Behind this, every feature now goes through one layer for all three agents, with one test run against each. Requested by Brad.", "Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to Ari only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by Brad.", "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.", "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.", "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by Brad.", "OpenRouter conversations now work the way they should. Before, every reply ran on OpenCode's own free model whatever you picked, a conversation waiting for your OK said Recent with no Allow button, and there was no way to set the effort. Now the reply runs on the model you picked (Pocket checks with OpenCode first and stops rather than let it run on another), the approval shows on the banner with Allow and Don't allow, and the effort chip offers the levels the chosen model has, such as None, Low, High and Max for DeepSeek V4.1 Flash; a model with no effort setting shows no chip. Reported by Brad.", "OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by Brad.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
+const RELEASE_NOTES = ["Pause all. One control now stops every running reply on Claude Code, Codex and OpenRouter, holds usage-limit retries and queued messages, and pauses Inbox Watch. Your own messages still run, and a banner with Resume shows on every device until you resume. The pause survives a restart. Find it under More (the three dots beside Filters), in the Ctrl/⌘ K switcher, at the top of the new Automation section in Settings, or say \"pause everything\". Automation also holds limits on work that runs without you: plan ceilings for Claude Code and Codex, a daily count, a daily OpenRouter spend and a longest reply, each with Reset to defaults. They are for check-backs and jobs, which arrive in the next releases; two switches extend them to your own queued messages, retries and coordination wakes, and both are off unless you turn them on. A conversation whose newest reply you did not start now says what started it: a queued message, a usage-limit retry or a coordination wake.", "You can hide Mark all reviewed. The bar at the top of Attention and New clears every waiting reply and failed reply in one tap, including replies that end with a question for you, and after its ten-second Undo nothing shows what was cleared. If you would rather not have it, turn off Mark all reviewed bar in Settings, under Conversation: it goes from every device on this server. It stays on unless you change it, and Mark as reviewed on a single conversation (long-press it or tap the three dots) works either way. Asked for by Brad.", "When new mail lands on an Inbox entry you already have a conversation for, you now choose where it goes. Opening the entry gives three options: Continue the conversation, which opens it and brings the new mail in; New conversation, hand-off from the last one, where the earlier conversation writes a briefing and a fresh one picks up from it, for when the first has grown too large; and New conversation, separate subject, which moves the new mail to an Inbox entry of its own with its own briefing, for when it is really about something else. Inside the conversation, a card under the latest reply shows the new mail with Bring it in, New conversation and Not now. It takes the place of the green Complete card, so a conversation with unread mail no longer offers Close conversation, and it reads New mail in the list, on its tab and in its header. Asked for by Brad.", "A conversation you start from an Inbox alert now opens with the email itself. The agent still checks for other mail on the story and merges duplicate entries first, but its first reply leads with what the email says (who wrote, what they are asking, the key lines quoted), then a few lines on what the check added, then where things stand and the next step. Before, the reply could be all about the side search and barely mention the email you opened it for. Asked for by Brad.", "Inbox Watch keeps the Pocket Inbox label honest on promotional mail. A label you add yourself in Gmail now puts mail from the Promotions tab on your list like any other. When a Gmail filter labels promotional mail, which the watcher does not read, the label comes off at the next check and the email stays in your inbox. A labelled email that never got judged is tried again after 30 minutes. Asked for by Brad.", "Inbox Watch keeps one entry per story. When more mail comes in on something already on your list, that entry is updated and moves back to the top as unread, instead of a second entry appearing beside it; what it said before stays below the new text. A conversation you start from an alert now opens with a short check: the agent looks for other mail on the story and tells you what it adds, and merges any other open entry about the same thing into this one, so only one thread keeps the Pocket Inbox label in Gmail. Restore on a merged entry undoes it. And a conversation you already started from an alert catches up instead of a second one starting: when more mail arrives on that story, the conversation shows “New mail on this story since you started” with Bring it in, which sends the new mail as your next message, and a reply that is running when it arrives gets it straight away. Asked for by Brad.","Tabs go where you put them. On a computer, drag a tab along the strip to move it (on a touch screen, hold it a moment first), or press Alt Shift [ or Alt Shift ] on a tab. Pinned tabs stay ahead of the others, and moving one changes the pinned order on all your devices; the rest keep the order you leave them in on this browser. With more than 12 tabs, the one you opened longest ago closes, not the leftmost. Also fixed: a new Codex conversation's tab kept saying New conversation until you switched away and back; a tab now takes the conversation's name as soon as it has one. And a conversation you start from the Inbox (or any start link) now opens in its own tab until you send it: start another and it gets a tab of its own, and pressing the plus for a new conversation leaves both alone. Each keeps what you typed, and opening the same alert's Start again brings it back. The Complete card is also easier to spot: it is now green, with a filled tick and a green Close conversation button, instead of a quiet outline that looked like part of the reply. Asked for by Brad.", "When an agent has finished everything you asked for and has nothing more to recommend, its reply now ends with a Complete card that states the outcome in one line, so you don't have to read the reply to know where things stand. Tap the card to close the conversation: it leaves Attention on all your devices, its tab closes and its server process is released. Nothing is deleted; the conversation stays in Recent and a message reopens it. The conversation list shows Complete with the same line, and the tick on that row closes it without opening it. Undo is offered for ten seconds. Asked for by Brad.", "Inbox Watch no longer archives mail you starred. When you finish an entry (Resolved, Not useful, Dismiss or the tidy pass), the Pocket Inbox label still comes off in Gmail, but a thread with a star stays in your Gmail inbox, so it keeps showing wherever you look for starred mail. Asked for by Brad.", "Ask someone is in the sidebar too. On a computer, the Vault panel in the sidebar now has Ask someone beside Add secret, so you can send someone a one-time link without opening the full Vault page. Asked for by Brad.", "Ask someone outside for a secret. In the Vault, Ask someone (or `pocket-vault request` from an agent) makes a one-time link to a plain page with your organisation's name and colour. The person types the login there and it goes straight into the Vault under the name you chose, with nothing sent by email, chat or phone. The link works once, expires after 1 to 7 days (3 by default), and can be cancelled or replaced from Links sent. You get a notification when it is filled in, and agents still ask you before using it. Asked for by Brad.", "Inbox Watch's list is now a work queue. An email goes on your list when it leaves something to do: a failure or problem to look into (a site, server, job, backup, device, licence, payment or account), a person waiting on your reply, or mail like what you worked on before. Starting a conversation from an alert now teaches the watcher that such mail belongs on the list. A problem it had only followed quietly, sometimes for weeks, is listed once with how long it has gone on. Not useful is now final: that story stays off your list unless it turns critical, until you restore it or label the mail yourself. With the morning digest off, nothing is written for a digest nobody gets. The rules box now holds 12,000 characters, up from 8,000, so the rules it learns from your choices have room to grow. Which alerts push to your phone is unchanged. Asked for by Brad.", "Pocket Code tells you when it is behind. The daily 4 a.m. update check now also looks for a newer Pocket Code release, and the notice at the top names it (for example: Pocket Code update available). Settings, About & updates, Updates shows the version this server runs, the latest release, its release notes and how to update. Nothing is installed from here: whoever manages the server upgrades Pocket Code, and the notice goes away once it runs the new version. Asked for by Brad.", "Starting a project conversation from the sidebar works on New conversation too. With New conversation already open, Start a conversation in a project's ⋯ options in the sidebar's Projects list left the screen as it was: no project, no Conductor chip and no briefing in the box, so the conversation would have started unlinked on your usual model. It now opens New with the project, its start and its briefing, as it does from the Projects page. Start on a task in the sidebar had the same problem and is fixed too.", "Start a project from New conversation, and Conductor mode explained wherever you choose it. New conversation has a Start a project button: name the project (it offers the first line of your message), switch Conductor mode on if the work is big, say what done means if you like, and the message you send starts the conversation linked to the new card. A handoff card from a Conductor or Solo conversation shows the start as a chip: tap it to pick the other one before Start, and Review first carries the project and that choice to New conversation. An info button (ⓘ) beside every Conductor choice says what the mode is and when to use it: point at it on a computer, tap it on a phone. Fixed: Review first on a handoff card opened the link viewer instead of New conversation. Asked for by Brad.", "Conductor mode shows what it runs, and stays out of Assistant mode. Starting a conversation from a Conductor project now shows a Conductor chip beside the project chip, and the model and effort chips name what will run (the lead, at High) instead of your usual model; tap the chip for Solo. The project's ⋯ options say which model leads and can turn Conductor mode on or off. In Assistant mode, where Pocket never runs Conductor mode, the switch, Works in and the Conductor or Solo choice are hidden; Done when and a step's Passes when check still show. Asked for by Brad.", "Conductor mode for projects. A project card has a new Conductor mode switch. While it is on, a conversation started in that project runs with the newest top model as the lead at high effort: it plans the work, hands each piece to a cheaper model, checks what comes back and stops only for a decision from you. Start conversation also offers Solo, one model doing the work itself, for a small task. The card gains Done when and Works in, and a step can carry a Passes when check. Handoffs keep the project and the mode, and a chip in the conversation shows which one is on. Off until you switch it on for a project. Asked for by Brad.", "Suggested-reply buttons survive a sources list. A reply that looked something up on the web ended with a Sources list after its choices, and Pocket then showed the choices as a plain code box with no buttons. A Sources or References list after the choices no longer stops them: the buttons show, and the sources stay in the reply above them. Agents are also asked to put sources above the question. Reported by Brad.", "Inbox Watch separates your list from your phone. Every alert still goes on the list, and the new Push notifications section of its schedule sheet decides which also push: every alert (as before), only what can't wait (emergencies, outages you're the escalation for, money at risk, security incidents, someone waiting on you, deadlines today, each a switch, with a daily limit and one push per story until it gets worse), or nothing. An open alert says whether it pushed and why.", "Inbox Watch's email checks use about a fifth fewer tokens. Each check used to carry every alert of the last day and up to six earlier threads per email; it now carries the newest few alerts plus any that relate to the emails being checked, and up to three earlier threads per email (plus the same sender's). Tested on 30 past checks: decisions stayed within the judge's own run-to-run variation. Asked for by Brad.", "Inbox Watch's learned rules get more room: up to about 3,300 characters (was about 2,300), still within the rules box beside your own rules. On a busy install the rebuilt rules filled the old limit on the first day, so new lessons would have had to squeeze out older ones. Asked for by Brad.", "Inbox Watch no longer loses what you teach it. A learned rule that ran long was cut off mid-sentence, and once the learned rules filled their space the newest ones were dropped without a word, so recent hand labels stopped counting. The watcher now splits a long rule in two, sends an answer that does not fit back once, and logs anything it still has to cut. The learned rules get more room (up to 20 lines, about 2,300 characters), and a new learn --rebuild command folds every lesson in again to bring back rules an earlier version dropped. Reported by Brad.", "Inbox Watch's tidy pass no longer takes an entry off your list while someone is waiting on your assistant. It already kept an entry when the latest email asked you for something; a request to your assistant (send me the current sheets, say) now counts the same, and so does a reply like send me X and I'll do Y, which waits on your side until X is sent. Reported by Brad.", "Closing a tab no longer opens another one. Closing the tab you are on now takes you to a new conversation, as the plus does, so you pick what to open next, and a conversation waiting in Attention stays there until you open it. And Dismiss says what it does in Gmail: with the Pocket Inbox label on, the X on an Inbox row and Dismiss in the entry's sheet now say the label comes off in Gmail at the next check, as it already did. Requested by Brad.", "Pocket now offers a handoff when a conversation gets large. A Handoff button sits beside Branch (and in Conversation options), and once a conversation passes 200K tokens a line under the latest finished reply says how large it is, with Hand off and Not now. Hand off asks the agent for the briefing and card; Not now hides the line until the conversation grows by another 200K. When the reply ends with suggested replies, they get a Hand off first button instead, and the new conversation opens by offering those same choices. The context ring turns amber at the same point. Change the size or turn it off in Settings → Context and subagents. Pocket never hands off by itself. Requested by Brad.", "Wrap-up replies no longer wait in Attention. When you tap Mark resolved, Remind me …, Add a task …, No thanks or a similar closing reply, the agent's short confirmation now counts as read the moment it finishes, on every device, and sends no notification, so you no longer have to open the conversation again or scroll to clear it, even after closing its tab. If the agent answers with a question, reply buttons or a long report, the conversation waits in Attention as before, and an ordinary request still does. Reported by Brad.", "What it reads: choose which mail Inbox Watch looks at. Settings → Inbox Watch now offers Everything (every thread but spam, trash and drafts, as before), Inbox only, and Inbox and these labels, with your Gmail labels to pick from. Everything is the default, so nothing changes until you choose. In the narrower choices your replies still count, so the watcher sees that you answered; a new email you start is not read. Requested by Damon and Brad.", "New Coordination view shows which conversation holds staging or a deploy, who is waiting, and what ended lately. Agents claim with pocket-coord, a clash names the holder, and the first waiter is woken on release. Holds are advice, not a lock. Off until you turn it on in Settings.", "The Git panel now lists every worktree of a repository as In use, Has work or Ready to remove, and says why. Remove only appears when nothing would be lost, names any ignored files and conversations affected, and keeps the branch. A conversation whose folder was removed carries on from your home folder and says so once.", "The Git panel now follows the work. It shows the repository the conversation is working in, not the folder it started in, offers a picker when it touched several, and names other running conversations in the same repository. Branch starts in that folder too and says so.", "Pass work to a fresh conversation with one tap. When a conversation has grown long, ask the agent to hand off (or type /handoff). It writes a briefing and the reply shows a card with the title, folder, agent and permissions, a Start button and Review first. Start opens a new conversation that begins with only the briefing, so it reads far less than the old one, and each conversation links to the other. A handoff starts once, even from two devices, and it never gets more permission than the conversation it came from. Requested by Brad.", "The morning digest is readable and each line has its own buttons. The digest used to open as one block of text; it now shows each line as a card under its heading (Worth knowing, Held overnight, and so on), and the whole digest is shown rather than cut off after 2,000 characters. Under each card: Start a conversation, which opens a new conversation briefed with that one story and teaches Inbox Watch nothing; Add to Inbox, which puts that story on your Inbox as an alert right away and teaches Inbox Watch to alert on that kind of email from now on; Resolved and Not useful, which land on that story rather than on the whole digest; Dismiss; and Gmail. Undo takes any of them back, except an alert already sent. Each story has one status: lines on the same story share a card, and a story that is an open alert on your list appears under Already on your list as a link to that entry, showing what you decide there, so nothing is worked twice. Look-aheads work the same way: each item is a card with the same choices, most pressing first, and the whole look-ahead is shown rather than cut off after 2,000 characters. Add to Inbox on a look-ahead item teaches nothing, since it is a finding rather than a kind of email. Requested by Damon after a client's text message was filed for the digest instead of alerting him, with the one-status rule and the look-ahead cards from Brad.", "The morning digest can be turned off. Settings → Inbox Watch now has Off for Morning digest, as the look-aheads do. With it off, alerts held overnight arrive one by one when quiet hours end, and lines that would only have been in the digest are not sent. Requested by Brad.", "Pin and unpin in one click. Every conversation in the list now has a pin beside its ⋯ button: faint gray on an unpinned conversation (click it to pin) and orange on a pinned one (click it to unpin). Pin conversation is also the first choice in Conversation options now, instead of near the bottom. Requested by Damon.", "Finding a secret and answering the Vault is easier. The Vault list now shows the newest secrets first (Order switches to A–Z), a secret stored in the last day is marked New with the conversation that stored it, and Search secrets narrows the list by name, kind, tag or website. A conversation that stores a secret shows a card for it, and agents now link the name; either opens the Vault with that secret open. A request reads as one sentence, such as The agent in “Staging site” wants to use staging-wp for this command, with Allow once as an orange button beside Deny. Tapping the notification opens that request instead of the list; only the notification's Allow button approves, and if that Allow could not be recorded (signed out, locked, offline, or already ended) the request says so and you can answer it there. Requested by Damon.", "Keep long conversations and subagents in check. Settings → Agents & instance has a new Context and subagents group. Each reply reads the whole conversation again, so a conversation left to grow toward a million tokens uses the most of your plan. Compact conversations has the agent summarize the older part before a size you choose (150K to 600K tokens). Subagent model runs subagents one tier below the conversation: Fable conversations get Opus subagents, Opus gets Sonnet and GPT Astra gets GPT Sol; a conversation can still name a model for one subagent. Subagent effort sets how hard they think. It applies to Claude Code and Codex conversations from their next reply; OpenRouter keeps its own behavior for now. Nothing changes until you choose. Requested by Brad.", "Inbox Watch set up with Codex uses the newest models. When Pocket sets up Inbox Watch on a server where only Codex is signed in, the judge now runs the newest GPT Sol the installed Codex lists (GPT-6.1 Sol today, not GPT-6 Sol), and reading mail the newest GPT Luna. A Codex too old for GPT-6.1 Sol keeps GPT-6 Sol. A watcher that is already set up keeps its models. Requested by Brad.", "Only the newest model versions are shown, and new ones appear by themselves. The Codex menu lists GPT-6.1 Sol instead of GPT-6 Sol, and Default says GPT-6.1 Sol; the Claude menu lists the newest Fable, Opus, Sonnet and Haiku, without Sonnet 5 and Haiku 4.5 beside their newer versions. A conversation, saved prompt or Pocket default that names an older version now runs the newest one. Codex's menu was already its live list; for Claude, Pocket now reads Anthropic's model list once a day with the sign-in Claude Code already has, so a new model such as an Opus 6 joins the menu and replaces the older one without a Pocket update. Requested by Brad.", "Inbox Watch learns from what you put on your list, and no longer says you added something a Gmail filter labelled. An email that arrives already carrying the Pocket Inbox label (because one of your Gmail filters adds it) now reads Your Gmail filter put this on your list, not You added this. When you label an email yourself, the watcher notes what it had done with it (ignored it, kept it for the digest, skipped it as routine) and turns that into a short rule, as narrow as the examples allow: one email teaches it about that sender and topic, several of a kind teach it the kind. Not useful works the same way in the other direction, and the rules it has learned are merged, widened or dropped as you go on. They sit at the end of your rules under Learned from your choices, where you can edit or delete any of them, and the quick first pass now reads the whole rules file. Reported by Brad.", "Switching Claude accounts no longer makes you wait or start over. A message you send to a conversation whose background job (a build, a watcher) still holds the earlier sign-in now waits in its queue and sends by itself, on the new account, as soon as the job finishes. Stop background jobs and send now beside it skips the wait, and the Queue shows what it is waiting for. Reported by Brad.", "Switching Claude accounts no longer leaves a conversation stuck. When you sign in with another account, a conversation with a background job still running (a test run, a watcher) keeps the earlier sign-in so the job is not cut off, and Pocket refused your messages there until the job ended, which for a watcher could be never. The Not sent card now names the job and offers Stop background jobs and send, which ends the job and continues the conversation on the new account. And Retry same message now really asks again: a refused message used to get the same refusal back without checking, even after the reason had gone. Reported by Brad.", "Fixes from Casey's second review, checked against 1.88.1. Side chats: a Codex side chat now switches off every MCP server Codex knows about, however it is written in the config file, and refuses to start when it cannot ask; a Claude side chat searches the web only when the conversation is in Full access; Stop on a stuck Codex side chat closes it; a side chat that reconnects after a long run gets the right events. Processes: a replacement Claude process waits for the old one to exit, a Pocket restart adopts the right process and stops duplicates, and work the agent did while Pocket was down counts as Pocket's own instead of as another app's. A background agent's request that is waiting when a reply ends with an After this reply message now reaches you, and a subagent working alone no longer makes the conversation read Running. Transcript bookkeeping (a task notification, a compaction summary) no longer shows as a message you sent, a steered message with a file shows once, long first prompts no longer bloat the conversation list, a skill whose description spans several lines shows it in the / list, and a pasted HEIC or TIFF keeps its name. Security: notification links can only open Pocket's own pages, file previews and downloads read the file they checked, pictures are decoded only as what their name says, and the login and Vault attempt limits can no longer be reset by a caller naming its own address (see POCKET_TRUSTED_PROXY in the install guide). Reported by Casey.", "Finished replies stay in Attention. A conversation whose reply you had not opened could drop out of Attention and read Recent, with its reply buttons still waiting inside. When Pocket closes an idle conversation's process (after an hour, or seconds after a reply when several conversations start at once, such as a burst of Inbox Watch alerts), Claude Code writes a little bookkeeping to the transcript, and Pocket took that for work in another app. It now counts only messages, so Response ready stays until you open the conversation. Replies hidden this way since the problem began reappear in Attention once; Mark all reviewed clears them. Reported by Brad.", "The OpenRouter model menu has a search box. OpenRouter offers hundreds of models; type any words of a model's name or maker, such as kimi or sonnet 5.5, and the list narrows as you type, with Default and the tested models still first. It says how many match, or that none do. Enter picks the first match and the arrow keys move through the list; on a phone the keyboard waits until you tap the box. Escape clears the box, a second Escape closes the menu. Requested by Brad.", "Codex conversations now have what Claude Code conversations had over them. Changed files shows each Codex edit's diff, and files Codex writes become file cards and are kept in Files like Claude's. When Codex hits its usage limit, the conversation waits for the reset and picks the task up again by itself, as Claude's do, and tells you when. The / list offers compact, review (the uncommitted changes, or against a base branch), recap and context. Your attachments show as file chips, a subagent's activity opens, the trusted read-only actions in Settings apply to Codex (and OpenRouter) commands, each reply shows the tokens it used, a reply Codex moves to another model says so, the Usage sheet reads 5-hour and Weekly, and Plan first shows its plan. OpenRouter gets the same diffs in Changed files and picks up again after a rate limit. Requested by Brad.", "After a CLI upgrade, Pocket shows which Claude Code and Codex conversations still have an older process. The update notice stays visible until they switch. The review names each conversation, shows whether it is idle or working, and offers Switch now for idle work. Stop work & switch asks before interrupting a running reply; the next turn opens the selected CLI. Restarting Pocket does not switch those processes.", "OpenRouter conversations now have the everyday features Claude Code and Codex conversations have. Your message shows as soon as you send it. A question from the model is a question card with its options as buttons, and a reply that asks you to choose ends with reply buttons, because Pocket's instructions now reach OpenRouter too. Attachments and images reach it, Plan first works, Stop stops (a queued message waits), a message queued with After this reply runs on OpenRouter, and the context meter, Results, Search and the Git panel work. What OpenRouter cannot do yet (Steer, Side chat, Branch, While you were away) is hidden on its conversations instead of offered and failing. And OpenCode needs no setup of its own any more: Pocket starts it with the ask-first permissions it needs. Behind this, every feature now goes through one layer for all three agents, with one test run against each. Requested by Brad.", "Inbox fixes. An email you label Pocket Inbox in Gmail no longer gets stuck outside your list: when you label two copies of the same email (yours and the one sent to Ari only, say), both now follow the one entry they share, and labelling an email again after its entry was finished brings it back. An entry the tidy pass took off and you restored now stays until you finish it. And the Inbox opens as a tab you can close, like Tasks and the Vault; the link under the list now says how many are finished and opens Done. Reported by Brad.", "Pocket checks for Claude Code and Codex releases daily at 4 a.m. in your time zone. A notice opens the installed and available versions, release notes, and Upgrade selected. Nothing installs until you choose it. Upgrades run in the background, test startup compatibility in isolation, keep the previous version for restoration, and let active conversations finish before switching. Find CLI updates in Settings → Help & updates → About & updates.", "Codex conversations keep showing Running while the main agent is working. A subagent finishing could previously mark the whole conversation finished. Child-thread events now stay separate from the parent turn, while subagent activity remains visible. Reported during the CLI updater build.", "OpenRouter replies follow Full access, show what they are doing and what they cost. With Full access a reply ran no command until you allowed it, because the permission choice never reached OpenCode; now Full access runs without asking and Review actions asks as before. While a reply works you see its thinking and each file it reads and command it runs, as with Claude and Codex, and they are still there when you reopen the conversation. And each reply shows its cost under it, to a fraction of a cent (DeepSeek replies often cost less than one), with its time and how much was read from cache. Reported by Brad.", "OpenRouter conversations now work the way they should. Before, every reply ran on OpenCode's own free model whatever you picked, a conversation waiting for your OK said Recent with no Allow button, and there was no way to set the effort. Now the reply runs on the model you picked (Pocket checks with OpenCode first and stops rather than let it run on another), the approval shows on the banner with Allow and Don't allow, and the effort chip offers the levels the chosen model has, such as None, Low, High and Max for DeepSeek V4.1 Flash; a model with no effort setting shows no chip. Reported by Brad.", "OpenRouter is a new agent, beside Claude Code and Codex, for models you pay for by the token with your own OpenRouter key instead of a Claude or ChatGPT subscription, such as DeepSeek V4.1 Flash. It is off until the person who runs Pocket turns it on (it needs OpenCode installed, an OpenRouter key and POCKET_ACP_ENABLE). With it on, OpenRouter joins the Agent choice on New conversation; its model menu is OpenRouter's live catalogue of models that can use tools, a tested set first and the rest marked experimental, and a model OpenRouter adds shows up without a Pocket update. Replies stream, approvals, the conversation list, reopening and continuing all work the same way; the model's questions arrive as text, and billing is per token to your key. See the manual's Conversations page for the setup. Requested by Brad.", "Inbox Watch through the Gmail connector reads new mail again. Since Monday, October 27, the claude.ai Gmail connector has answered a search bounded by a time in seconds with nothing and no error, so a watcher reading through it saw no new mail and reported healthy. The watcher now bounds its searches by date, a day wider than it needs, and skips what it has already seen; mail from the last two days that was missed is caught up on the first check after the update. And a check that finds nothing while a search for the last day's mail does is now reported as a failure in the Inbox and, after three in a row, as a push, instead of as a quiet day. Reported by Damon.", "Typing / opens a list of commands, like the terminal. It shows the Claude Code commands worth having (compact, context, recap, init, code-review and more, only the ones your Claude Code has), Pocket's own actions (side chat, branch, new conversation, model, effort and plan usage) and your skills, grouped and narrowed as you type. On a computer use the arrow keys, then Enter or Tab; on a phone, tap. A command that needs nothing more runs as soon as you pick it. New conversation has the list too. The answer to a command such as /context or /usage now stays in the conversation after a reload, and a skill you ran reads back as you typed it rather than as the skill's own instructions. Requested by Brad.", "Vault fixes from a new kind of bug review, where one agent describes how the Vault should behave without seeing its tests and another tests that description without seeing the code. A command run with a secret can no longer leave a helper process behind that ignored the request to stop and kept the secret. A username and password sent as an HTTP Basic login header, and a secret carried inside any longer base64 text, are now hidden in a command's output. An approval you give near the end of its 15 minutes stays good for 15 minutes after you answer instead of vanishing a minute later. A wrong passphrase is always refused and counted, even when the Vault's activity log cannot be written. And agents are pointed at the Vault skill correctly when Pocket is installed in a folder whose name has a space. Prompted by Casey's description of how he finds bugs.", "Answer from the banner. When one action waits for your OK, the banner under the conversation header says what it is in plain words, shows the command or file, and carries Allow and Don't allow, so one tap decides it. One question with a few options shows the options as buttons the same way. Details or Answer still open the full sheet, and the sheet now closes itself once nothing is left waiting, instead of asking you to close it. Requested by Brad after talking with Casey.", "Subagents in view, and their requests reach you. The Subagents row under the conversation controls now also reports work left running in the background, and each agent has Show activity, which follows the agent's own transcript while it works. A permission request or question from a subagent is shown with the agent's name, including one that arrives after the reply that started it has ended; before, those were dropped and the agent, and the conversation, waited for an answer that could not come. Codex subagents' requests are passed on too. Requested by Brad after talking with Casey.", "Assistant mode has a Features section in Settings. Switch Projects, Files, Tasks, Inbox Watch and the Vault on or off there, and Automatic model choice. When Assistant mode is locked, it says which are on and to ask the person who runs Pocket to change them, and a library that is off says the same instead of sending you to Settings.", "Fixes found while writing the manual. A message sent with After this reply keeps the model, effort and Codex mode you picked. A start link opens New conversation in its own folder. Steer now falls back to After this reply when the reply cannot take it. A finished Codex reply no longer buzzes your phone while you are watching it. On a computer, the plus on New conversation clears it. On a Mac, Codex conversations survive a Pocket restart. Inbox Watch sets itself up even after another job has posted to the Inbox, keeps its Start a conversation button, and notices when Gmail is connected to a different account. The Vault counts only wrong unlock attempts, and the Files share link stays the same when an agent looks it up.", "Pocket Code has a manual: one page per feature (conversations, approvals, Projects, Files, Tasks, Inbox Watch, the Vault, voice, Settings and more) saying what it does, how to turn it on, how to use it and what to do when it misbehaves. It is written for you and for your agents: every agent Pocket starts is told where it is, and each Pocket skill names its page, so asking an agent how something in Pocket works gets an answer from the manual instead of a read through the code. It lives in docs/manual in the Pocket Code directory.", "Inbox Watch reads back only memory that is about the email. The memory search always brought three past sessions or notes with each email, related or not, so an email about one customer's billing came with a session about another's. Now an item has to share the email's names, numbers or subject words, which cuts what each decision reads by about a third. The tidy pass also keeps an entry on your list while part of what it asked for has no one on it. Requested by Brad.", "Typing / in a Codex conversation now offers /btw too, and picking it types /btw, ready for your question. Before, it was only suggested in Claude conversations, though typing it in full already worked in both."];
 
 // version/about info, computed once at boot. assetV comes from index.html, so the
 // settings sheet can tell a stale cached client "the server has something newer".
@@ -5351,6 +5549,151 @@ app.post('/api/claude/stop-all',requireAuth,(req,res)=>{
   }
   res.json({stopping,active:turns.size});
 });
+
+// ---------- 1.117: Pause all (docs/plans/unattended-work.md 1.2) ----------
+// Install-wide and persisted (settings.paused). Pausing stops every running reply on all three engines through their
+// own stop paths, holds pending usage-limit retries, and pauses Inbox Watch through its own Pause flag (recorded here,
+// so Resume clears only what Pause all set). While paused the gate refuses every unattended start: the queue does not
+// drain and coordination wakes only queue their message. The owner's own messages run, unless the owner chose Blocked.
+const liveTurns = () => ({
+  claude: [...turns.entries()].filter(([, t]) => !t.stopped && !t.finalized),
+  codex: CODEX_ON ? [...codex.codexTurns.entries()].filter(([, t]) => !t.stopped && !t.done) : [],
+  openrouter: ACP_ON ? [...acp.acpTurns.entries()].filter(([, t]) => !t.stopped && !t.done) : [],
+});
+const pausedView = () => pausedNow() ? { at: pausedNow().at, by: pausedNow().by || 'owner' } : null;
+// Side chats answering now count with the replies of their engine; they are stopped the same way.
+const liveSides = () => [...sideChats.chats.values()].filter(c => c.busy && !c.closed);
+// Claude conversations Working in background: no reply runs, but their process has background jobs, and the CLI starts a
+// reply by itself when one finishes. Stopped through the same path as Stop background jobs (the process and its jobs end),
+// unless the owner turned that off; then the reply they start is stopped instead (handleRunnerLine).
+const backgroundRunners = () => autoValues('pause').backgroundJobs
+  ? [...runners.values()].filter(r => !r.turn && !turns.has(r.sessionId) && !r.exited && !r.closing && r.bgTasks.length) : [];
+// A reply still running whose process has background jobs: stopping the reply (signalTurn on turn.pid, the runner's process
+// group, as Stop does) ends the process and its jobs with it, whatever the switch says. Counted here, once each.
+const runningJobRunners = live => live.claude.map(([id, turn]) => runners.get(id)).filter(r => r && r.turn && turns.get(r.sessionId) === r.turn && !r.exited && !r.closing && r.bgTasks.length);
+const jobCount = rs => rs.reduce((n, r) => n + r.bgTasks.length, 0);
+function pauseWould() {
+  const live = liveTurns(), pause = autoValues('pause'), sides = liveSides();
+  const side = p => sides.filter(c => (c.provider === 'codex') === (p === 'codex')).length;
+  return { replies: { claude: live.claude.length + side('claude'), codex: live.codex.length + side('codex'), openrouter: live.openrouter.length },
+    background: jobCount(backgroundRunners()) + jobCount(runningJobRunners(live)), retries: retryTimers.size, checkbacks: 0,
+    inboxWatch: Boolean(settings.inbox) && pause.inboxWatch && !inboxStore.paused() };
+}
+// The banner's part (also carried on /api/sessions); GET /api/pause adds what Pause all would stop, for the confirmation.
+function pauseBanner() {
+  const pause = autoValues('pause');
+  return { paused: pausedView(), held: { retries: heldRetries.size, checkbacks: 0 }, ownMessages: pause.ownMessages, confirm: pause.confirm };
+}
+function pauseView() {
+  const b = pauseBanner();
+  return { paused: b.paused, would: pauseWould(), held: b.held, ownMessages: b.ownMessages, confirm: b.confirm };
+}
+const NOTHING_STOPPED = Object.freeze({ replies: { claude: 0, codex: 0, openrouter: 0 }, background: 0, retries: 0, checkbacks: 0, inboxWatch: false });
+function pauseAll() {
+  // Already paused: nothing new is started while paused, so there is nothing to stop, and no second audit line.
+  if (pausedNow()) return structuredClone(NOTHING_STOPPED);
+  const would = pauseWould(), live = liveTurns(), sides = liveSides(), background = backgroundRunners();
+  const record = { at: new Date().toISOString(), by: 'owner' };
+  // Inbox Watch: its own Pause, set only when it is running and the owner wants it paused with everything else.
+  if (would.inboxWatch && !record.inboxWatch) {
+    try {
+      const src = inboxStore.watchSource(), cur = inboxStore.watchView(src);
+      const view = inboxStore.setWatch(src, { ...(cur.settings || {}), paused: true }, { actor: 'ui' });
+      record.inboxWatch = { source: view.source, revision: view.revision, wasNull: cur.settings === null };
+      inboxRunner.kick?.();
+    } catch (e) { log(`pause: Inbox Watch not paused: ${e.message}`); }
+  }
+  settings.paused = record; saveSettings(); // saved before anything stops, so nothing new starts behind it
+  for (const r of runningJobRunners(live)) log(`stopping ${r.bgTasks.length} background job(s) with the running reply (Pause all) session=${r.sessionId}`);
+  for (const [id, turn] of live.claude) { turn.stopped = true; signalTurn(turn); log(`stop requested (Pause all) session=${id}`); }
+  for (const [tid] of live.codex) { codex.stopCodexTurn(tid); log(`stop requested (Pause all) thread=${tid}`); }
+  for (const [sid] of live.openrouter) { acp.stopAcpTurn(sid, 'Stopped by Pause all'); log(`stop requested (Pause all) session=${acp.ACP + sid}`); }
+  for (const c of sides) { sideChats.stop(c); log(`side chat stop requested (Pause all) session=${c.parentId}`); }
+  for (const r of background) { signalTurn(r); log(`stopping ${r.bgTasks.length} background job(s) (Pause all) session=${r.sessionId}`); }
+  for (const id of [...retryTimers.keys()]) {
+    let m = null; try { m = JSON.parse(fs.readFileSync(turnFiles(id).retry, 'utf8')); } catch { }
+    if (m?.sessionId) holdRetry(m); // without a readable marker the timer stays, and the gate holds it when it fires
+  }
+  const stopped = { ...would, inboxWatch: Boolean(record.inboxWatch) };
+  autoAudit({ action: 'pause', replies: stopped.replies, background: stopped.background, retries: stopped.retries, inboxWatch: stopped.inboxWatch });
+  log(`Pause all: stopped ${would.replies.claude + would.replies.codex + would.replies.openrouter} repl(ies) and ${would.background} background job(s), held ${would.retries} retr(ies)`);
+  return stopped;
+}
+// Returns what was re-armed, and what became of an Inbox Watch that Pause all paused: 'resumed', 'left_paused' (the owner
+// changed its settings while paused and it is still paused; they are left as they are), or null (Pause all did not pause
+// it, or the owner's change already resumed it).
+function resumeAll() {
+  const was = pausedNow();
+  let inboxWatch = null;
+  if (was?.inboxWatch) {
+    try {
+      const w = was.inboxWatch, cur = inboxStore.watchView(w.source);
+      if (cur.revision === w.revision) { inboxStore.setWatch(w.source, w.wasNull ? null : { ...(cur.settings || {}), paused: false }, { actor: 'ui' }); inboxRunner.kick?.(); inboxWatch = 'resumed'; }
+      else { inboxWatch = inboxStore.paused(w.source) ? 'left_paused' : null; log(`resume: Inbox Watch settings changed while paused; left as they are${inboxWatch ? ', paused' : ', running'}`); }
+    } catch (e) { inboxWatch = 'left_paused'; log(`resume: Inbox Watch not resumed: ${e.message}`); }
+  }
+  delete settings.paused; saveSettings();
+  if (was) resumeAfterJobs(); // a message the owner sent while background jobs held the login, kept while Blocked
+  let rearmed = 0;
+  if (autoValues('pause').rearmRetries) for (const m of [...heldRetries.values()]) { rearmRetry(m); rearmed++; }
+  if (was) autoAudit({ action: 'resume', rearmed, ...(inboxWatch ? { inboxWatch } : {}), pausedFor: Date.now() - Date.parse(was.at) || 0 });
+  log(`Resume: re-armed ${rearmed} retr(ies)${inboxWatch === 'left_paused' ? '; Inbox Watch left paused' : ''}`);
+  return { rearmed, inboxWatch };
+}
+// Owner only: the cookie (or Cloudflare Access), JSON, and not from another site. The CLI token is refused (requireAuth).
+const ownerControl = (req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (!req.is('application/json') || req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({ error: 'Open this control from Pocket Code.' });
+  next();
+};
+app.get('/api/pause', requireAuth, (_req, res) => { res.setHeader('Cache-Control', 'private, no-store'); res.json(pauseView()); });
+app.post('/api/pause', requireAuth, ownerControl, (_req, res) => { const stopped = pauseAll(); res.json({ ok: true, paused: pausedView(), stopped }); });
+app.post('/api/resume', requireAuth, ownerControl, (_req, res) => { const { rearmed, inboxWatch } = resumeAll(); res.json({ ok: true, paused: null, rearmed, inboxWatch }); });
+
+// ---------- 1.117: Settings → Automation ----------
+function automationView() {
+  const d = auto.describe(settings.automation);
+  return { paused: pausedView(), groups: d.groups, warnings: d.warnings, notices: autoState.notices(), usage: autoState.usage() };
+}
+app.get('/api/automation', requireAuth, (_req, res) => { res.setHeader('Cache-Control', 'private, no-store'); res.json(automationView()); });
+// All or nothing, checked here; a saved value applies to the next start or tick (a running reply keeps what it started with).
+app.post('/api/automation/settings', requireAuth, ownerControl, (req, res) => {
+  const r = auto.applySave(settings.automation, req.body);
+  if (r.error) return res.status(r.status || 400).json({ error: r.error });
+  if (Object.keys(r.automation).length) settings.automation = r.automation; else delete settings.automation;
+  saveSettings();
+  autoAudit({ action: 'settings', group: req.body.group, ...(req.body.reset === true ? { reset: true } : { keys: Object.keys(req.body.values) }) });
+  res.json(automationView());
+});
+
+// ---------- 1.117: the longest unattended reply ----------
+// The one limit that stops a running reply: a check-back or job reply still running at its limit (as it stood when the
+// reply started) is stopped and the owner told. Time waiting on an approval or question is left out unless the owner
+// counts it. Checked every POCKET_AUTOMATION_TICK_MS.
+function stampReplyLimit(turn) {
+  if (!turn || (turn.rootOrigin !== 'checkback' && turn.rootOrigin !== 'job') || turn.autoLimit) return;
+  const lim = autoValues('limits');
+  turn.autoLimit = { limit: lim.longestReply, countWaiting: lim.countWaiting === true, waitingMs: 0, waitingSince: null };
+}
+function longestReplyTick(now = Date.now()) {
+  const live = liveTurns();
+  const all = [...live.claude.map(([id, t]) => [id, t, 'claude']), ...live.codex.map(([tid, t]) => [codex.CX + tid, t, 'codex']), ...live.openrouter.map(([sid, t]) => [acp.ACP + sid, t, 'acp'])];
+  for (const [id, t, engine] of all) {
+    if (t.rootOrigin !== 'checkback' && t.rootOrigin !== 'job') continue;
+    stampReplyLimit(t);
+    const a = t.autoLimit, waiting = Boolean(t.questions?.list().length || t.approvals?.list().length);
+    if (waiting && !a.waitingSince) a.waitingSince = now;
+    if (!waiting && a.waitingSince) { a.waitingMs += now - a.waitingSince; a.waitingSince = null; }
+    if (!auto.replyOverLimit({ rootOrigin: t.rootOrigin, startedAt: t.startedAt, waitingMs: a.waitingMs, waitingSince: a.waitingSince, limit: a.limit, countWaiting: a.countWaiting, now })) continue;
+    log(`longest unattended reply reached (${a.limit} min) session=${id}`);
+    if (engine === 'claude') { t.stopped = true; signalTurn(t); }
+    else if (engine === 'codex') codex.stopCodexTurn(codex.bareId(id));
+    else acp.stopAcpTurn(id, `Stopped at the longest unattended reply (${a.limit} min)`);
+    autoAudit({ action: 'longest_reply', origin: t.origin, ...(t.originRef ? { originRef: t.originRef } : {}), rootOrigin: t.rootOrigin, engine, sessionId: id, limitMin: a.limit });
+    pushNotify(id, smeta[id]?.name || `${ENGINES[engine].label} conversation`, withOriginLabel(auto.originLabel(t.origin, t.originRef), `Stopped at the longest unattended reply (${a.limit} min)`)).catch(() => { });
+  }
+}
+if (AUTOMATION_TICK_MS > 0) setInterval(() => { try { longestReplyTick(); } catch (e) { log(`automation tick: ${e.message}`); } }, AUTOMATION_TICK_MS).unref();
 app.get('/api/claude/login',requireAuth,(_req,res)=>{
   res.setHeader('Cache-Control','private, no-store');
   res.json(claudeLogin.snapshot());

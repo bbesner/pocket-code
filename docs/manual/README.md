@@ -24,6 +24,7 @@ say conversation.
 | [Files](files.md) | The Files library, sharing and publishing, and the `pocket-docs` command |
 | [Tasks](tasks.md) | To-dos with due times, reminders and a Start button, and the `pocket-tasks` command |
 | [Coordination](coordination.md) | Which conversation holds staging or a deploy, who is waiting, and the `pocket-coord` command |
+| [Automation](automation.md) | Pause all, who started a reply, and limits on work that runs without you |
 | [Inbox Watch](inbox-watch.md) | Alerts, digests and look-aheads from your mailbox, setup, and the `pocket-inbox` command |
 | [Gmail, Calendar and Drive](google.md) | Using Google through each agent's connectors, and the drafts-first rule |
 | [Vault](vault.md) | Credentials agents use by name and never see, approvals, and the `pocket-vault` command |
@@ -44,6 +45,8 @@ Code, and [Operations](../operations.md) covers upgrades, restarts, backups and 
 | How do I have the top model plan a big job and hand the work to cheaper models? | [Projects](projects.md#conductor-mode) |
 | When should I start Conductor and when Solo? | [Projects](projects.md#conductor-mode) |
 | Why didn't a reminder or due task reach me? | [Tasks](tasks.md#troubleshooting) and [Projects](projects.md#troubleshooting) |
+| How do I stop everything at once? | [Automation](automation.md#pause-all) |
+| How do I keep unattended work from using up my plan? | [Automation](automation.md#limits-on-unattended-work) |
 | How do I set up Inbox Watch? | [Inbox Watch](inbox-watch.md#set-it-up) |
 | How do I connect Gmail, Calendar or Drive? | [Gmail, Calendar and Drive](google.md#connect-gmail-calendar-and-drive) |
 | How do I give an agent an API key without pasting it? | [Vault](vault.md#store-a-secret-from-a-conversation) |
