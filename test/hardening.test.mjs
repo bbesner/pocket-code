@@ -208,6 +208,17 @@ test('CodeQL: the upload routes refuse a JSON body instead of failing on it',asy
   assert.equal(ok.status,200,'a real upload still works');
 });
 
+// CodeQL js/path-injection (codex.mjs threadLocked) and js/command-line-injection (binVersion).
+test('CodeQL: GET /api/session/:id checks the id, and the CLI version is read without a shell',async t=>{
+  const home=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-hard-bin-'));t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
+  const bin=path.join(home,"it's here",'claude');fs.mkdirSync(path.dirname(bin));fs.copyFileSync(path.join(repo,'test/fake-claude.mjs'),bin);fs.chmodSync(bin,0o755);
+  const s=await server(t,20541,{CLAUDE_BIN:bin});
+  const owner=(await s.login()).cookie;
+  for(const id of ['cx:..%2F..%2Fetc%2Fpasswd','cx:not-a-thread','..%2F..%2Fx'])assert.equal((await s.fetch('/api/session/'+id,{headers:{cookie:owner}})).status,400,id);
+  assert.equal((await s.fetch('/api/session/11111111-1111-4111-8111-111111111111',{headers:{cookie:owner}})).status,404,'a well-formed id is looked up as before');
+  assert.equal((await (await s.fetch('/api/about',{headers:{cookie:owner}})).json()).cli,'test-cli','a quote in the path does not break the version check');
+});
+
 test('PC-09: the installed and vendored dependencies are the fixed versions',()=>{
   const v=name=>JSON.parse(fs.readFileSync(path.join(repo,'node_modules',name,'package.json'),'utf8')).version.split('.').map(Number);
   const atLeast=(name,min)=>{const a=v(name);for(let i=0;i<3;i++)if(a[i]!==min[i])return assert.ok(a[i]>min[i],`${name} ${a.join('.')} is older than ${min.join('.')}`);};

@@ -2717,6 +2717,7 @@ function withPendingUser(messages, turn) {
 }
 
 app.get('/api/session/:id', requireAuth, async (req, res) => {
+  if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid conversation' }); // 1.117: a Codex id reaches a lock-file path below
   if (isAcpId(req.params.id)) { // OpenRouter (ACP): history from OpenCode's session/load; a live turn streams the rest
     const id = req.params.id, turn = acp.ownedAcpTurn(id);
     if (!ACP_ON) return res.status(404).json({ error: 'not found' });
@@ -5339,7 +5340,7 @@ function binVersion(bin) {
   const hit = verCache.get(bin);
   if (hit && hit.stamp === stamp) return hit.v;
   let v = null;
-  try { v = execSync(`'${bin}' --version`, { timeout: 5000 }).toString().trim(); } catch { }
+  try { v = execFileSync(bin, ['--version'], { timeout: 5000 }).toString().trim(); } catch { } // 1.117: no shell between the path and the CLI
   verCache.set(bin, { stamp, v });
   return v;
 }
