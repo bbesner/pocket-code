@@ -107,7 +107,7 @@ trusted actions and the audit log don't change.
 `pocket-settings.json` (same pattern as `autoTitles`). `locked` (seats): the person can't turn it
 off. `on`: on, and Settings can switch to the full view. Exposed at `/api/me` →
 `features.assistantMode`, read by an `assistantMode()` helper beside `projectsOn()`. Seats get
-`agent-seats/provision/22-assistant-mode.sh`, which also sets `POCKET_LOCK_CWD`, Review actions
+a provisioning step, which also sets `POCKET_LOCK_CWD`, Review actions
 and no Full access (already available).
 
 **Home is the start screen.** "What would you like done?", the saved-prompt buttons and the
@@ -127,7 +127,7 @@ Projects and tasks still work by asking ("remind me Friday to follow up").
 subagents panel becomes one line under the reply ("Working on 2 things at once").
 
 **No meters.** Cost, timing, cache and token counts are hidden. Push notifications say what
-finished: "Ready: Proposal for Lakeside HOA" (all Pockets get this wording; the developer
+finished: "Ready: Proposal for Cedar Hollow HOA" (all Pockets get this wording; the developer
 Pocket keeps the cost after it).
 
 **Settings.** Appearance, Notifications (this device), Voice, Accounts (Claude sign-in and Google
@@ -161,7 +161,7 @@ When a reply mentions a file Pocket can serve (pdf, docx, pptx, xlsx, csv, html,
 ## Release 1.62: choosing the model automatically (Assistant mode; optional "Auto" elsewhere)
 
 1. **Saved prompts carry a model and effort.** Two optional fields in `saved-prompts.json` and
-   the seats' `seat-config/prompts/*.json`: "Check my email" → Sonnet 5.5 low; "Draft a reply"
+   the seats' own saved-prompt files: "Check my email" → Sonnet 5.5 low; "Draft a reply"
    → Sonnet 5.5 medium; "Proposal from a quote", "Slide deck" → Opus 5.5 high.
 2. **A router for typed requests.** One decision-model call picks among the combinations the
    managed policy allows before the first turn. Candidates: TypeSafe Jev through OpenRouter
