@@ -60,7 +60,7 @@ const vaultRequestNames=r=>Array.isArray(r.itemNames)&&r.itemNames.length?r.item
 const vaultRequests=()=>(vaultSnap?.requests||[]).filter(r=>!r.answer&&!(r.expiresAt&&Date.parse(r.expiresAt)<=Date.now()));
 const vaultRequestCount=()=>vaultRequests().length;
 const vaultViewTitle=()=>'Vault';
-/* 1.93 (Damon): finding a secret. A search box over the list, newest first (or A–Z, remembered on this device), a New mark
+/* 1.93 (colleague request): finding a secret. A search box over the list, newest first (or A–Z, remembered on this device), a New mark
    for a day, and links that open one secret or one request. A link's address is put back to #/vault, so there is one Vault
    tab whatever was linked; the target is kept in localStorage for five minutes, so a Vault that opens in a pane, a window of
    its own or after signing in finds it too, and a Vault already open in a pane or window hears of it from the storage event. */
@@ -263,7 +263,7 @@ function vaultTrashRowHTML(i){
   <span class="row"><span class="body"><span class="title vault-name">${esc(i.name)}</span><span class="session-status"><span>${esc(VAULT_KIND_WORD[i.kind]||'Secret')}</span>${until?`<span aria-hidden="true">·</span><span>Kept until ${esc(until)}</span>`:''}</span></span></span>
   <button class="chip vault-restore" data-vault-restore="${esc(i.id)}" aria-label="Restore ${esc(i.name)}">Restore</button></div>`;
 }
-// A request, said as a sentence (1.93, Damon: "<agent> wants to use <name> for this command"), then the exact command, where it
+// A request, said as a sentence (1.93, a colleague: "<agent> wants to use <name> for this command"), then the exact command, where it
 // runs and when. Allow once is the filled accent button and Deny its outlined twin; Always allow stays the quieter choice.
 function vaultRequestHTML(r,where='main'){
  const hid=`vr-${where}-${r.id}`,title=r.session?(r.sessionTitle||(typeof sessionName==='function'?sessionName(r.session):'')||''):'';

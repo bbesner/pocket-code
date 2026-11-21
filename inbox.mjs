@@ -39,7 +39,7 @@ const sameStory = (a, b) => Boolean((a.story && a.story === b.story) || (a.gmail
 const remember = (x, id, at, extra = {}) => { if (x.sessions.some(s => s.id === id)) return false; x.sessions = [...x.sessions, { id, at, ...(x.newsN ? { seen: x.newsN } : {}), ...extra }].slice(-SESSIONS_MAX); return true; };
 const WHY_MAX = 200; // 1.105: why an entry pushed, or why it did not
 const NOTE_MAX = 300, URL_MAX = 500, DEDUPE_MAX = 200, SESSIONS_MAX = 5, DAY = 86400_000;
-// 1.113 (Brad): one entry per story. What an entry took in from other entries or earlier alerts on its story: the Gmail thread,
+// 1.113 (owner request): one entry per story. What an entry took in from other entries or earlier alerts on its story: the Gmail thread,
 // title, start link and (for a merged entry) its id. The watcher reads `merged` to take the Gmail label off those threads, so
 // only the entry's own thread carries it. EARLIER marks where an updated entry's previous text begins.
 const MERGED_MAX = 10, EARLIER = '\n\nEarlier on this entry: ';
@@ -50,7 +50,7 @@ const checkMerged = v => Array.isArray(v) ? v.filter(m => m && typeof m === 'obj
 const DOC_RE = /^[0-9a-f]{12}$/, START_RE = /^[0-9a-f]{12}$/, SESSION_RE = /^(cx:)?[0-9A-Za-z][0-9A-Za-z_-]{7,79}$/;
 const checkSessions = v => Array.isArray(v) ? v.filter(s => s && SESSION_RE.test(String(s.id)) && !Number.isNaN(ms(s.at))).slice(-SESSIONS_MAX)
   .map(s => ({ id: s.id, at: s.at, ...(Number.isInteger(s.seen) && s.seen >= 0 ? { seen: s.seen } : {}), ...(s.story === true ? { story: true } : {}), ...(s.handed === true ? { handed: true } : {}) })) : [];
-// 1.113.1 (Brad): what reached an entry after a conversation started from it, so that conversation can catch up instead of a
+// 1.113.1 (owner request): what reached an entry after a conversation started from it, so that conversation can catch up instead of a
 // second one starting. `n` counts up per entry (newsN); the last NEWS_MAX are kept.
 // 1.115: each also keeps what taking it back off needs (split): the alert's own start link and priority, the merged entry's
 // id (`from`), and what the entry was before the update (`was`: title, links, priority, time, read or not).
@@ -282,7 +282,7 @@ export class InboxStore {
       const seen = this.entries.find(x => x.dedupe === e.dedupe && ms(x.at) >= now - DAY);
       if (seen) return { ...this.view(seen), duplicate: true };
     }
-    // 1.113 (Brad): an alert on a story that already has an open alert entry updates that entry instead of adding a second one.
+    // 1.113 (owner request): an alert on a story that already has an open alert entry updates that entry instead of adding a second one.
     // `merge: false` keeps the old behaviour for a job that wants separate entries.
     const host = input.merge === false ? null : this.splitOn(e) || this.openOnStory(e);
     if (host) return this.update(host, e, now);
@@ -323,7 +323,7 @@ export class InboxStore {
     return { ...this.view(host), updated: true };
   }
 
-  // 1.113 (Brad): a conversation started from an entry found another open entry on the same story. The other entry leaves the
+  // 1.113 (owner request): a conversation started from an entry found another open entry on the same story. The other entry leaves the
   // list (dismissed, with a note naming the entry it went into) and the entry keeps its thread, title and conversations, so the
   // Gmail label comes off the other thread and only one carries it. `into` is the entry's id; `session` finds it from the
   // conversation instead (the entry that conversation was started from). Restore undoes it.
@@ -357,7 +357,7 @@ export class InboxStore {
     return { entry: this.view(e), into: this.view(host) };
   }
 
-  // 1.113.1 (Brad): an entry updated after a conversation started from it. The conversation catches up (Bring it in, or steered
+  // 1.113.1 (owner request): an entry updated after a conversation started from it. The conversation catches up (Bring it in, or steered
   // into a reply that is running) instead of a second conversation starting on the same story.
   addNews(host, { kind, title, text, gmail, ...more }, now) {
     host.newsN = (host.newsN || 0) + 1;
@@ -415,7 +415,7 @@ export class InboxStore {
     return `New on this Inbox story since this conversation started ("${e.title}"):\n\n${parts.join('\n\n')}\n\n${ask}`;
   }
 
-  // 1.115 (Brad): a conversation started from an entry was handed off. The conversation that continues it takes its place on the
+  // 1.115 (owner request): a conversation started from an entry was handed off. The conversation that continues it takes its place on the
   // entry (and on any digest card): it is the one later mail goes to, with as much of the news as the old one had. The old one
   // stays listed as handed off and is offered nothing more.
   linkHandoff(from, to) {
@@ -440,7 +440,7 @@ export class InboxStore {
     return out;
   }
 
-  // 1.115 (Brad): "it's really a separate subject". The newest mail an entry took in comes back off as an entry of its own, under
+  // 1.115 (owner request): "it's really a separate subject". The newest mail an entry took in comes back off as an entry of its own, under
   // a story of its own, and the watcher is told (feedback action 'split') so later mail on that thread stays with it.
   // An update leaves as a new entry and the host goes back to what it said before; a merged entry is restored. `session` is the
   // conversation asking: one that came with a merged entry splits that entry back out.
@@ -511,7 +511,7 @@ export class InboxStore {
   // The split entry's own start link, minted by the server once the entry exists.
   relink(id, url) { const e = this.get(str(id, 40)); e.url = checkUrl(url); e.revision += 1; this.save(); return this.view(e); }
 
-  // 1.95 (Brad): nothing already on the owner's list comes back as a new card. A digest item whose story (or Gmail thread) has an
+  // 1.95 (owner request): nothing already on the owner's list comes back as a new card. A digest item whose story (or Gmail thread) has an
   // open alert entry becomes a 'listed' line that links to that entry (/#/inbox/<id>), whatever section the watcher gave it.
   foldListed(e) {
     if (!e.items.length) return;
@@ -529,7 +529,7 @@ export class InboxStore {
     for (const e of this.entries) if (e.source === src) for (const it of e.items) if (it !== skip && it.section !== 'resolved' && it.section !== 'tidied' && sameStory(x, it)) out.push({ e, it });
     return out;
   }
-  // One status per item (Brad): an alert that reaches the list after the digest, or comes back to it by Restore, takes over the
+  // One status per item (owner request): an alert that reaches the list after the digest, or comes back to it by Restore, takes over the
   // open cards on its story. Each becomes the line that links to it, and a conversation started from the card moves to the alert.
   // A card already decided Resolved, Not useful or Dismissed stays as it is: this alert is news since that decision.
   foldCards(a) {

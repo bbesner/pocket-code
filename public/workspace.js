@@ -6,7 +6,7 @@ const PANE=new URLSearchParams(location.search).has('pane');
 const PANE_KEY=(k=>/^[0-9a-f-]{36}$/.test(k||'')?k:'')(new URLSearchParams(location.search).get('pane'));
 const NEW_BASE=PANE&&PANE_KEY?'new-pane-'+PANE_KEY:'new';
 // 1.112: a start link (Inbox, a handoff, pocket-start) opens in its own unsent conversation, #/new/<start id>, with its own
-// draft, settings and tab, so starting another never replaces one you have not sent yet (Brad). The route sets NEW_KEY to
+// draft, settings and tab, so starting another never replaces one you have not sent yet (owner request). The route sets NEW_KEY to
 // that draft's key while it shows; everything else on New keeps the plain key.
 let NEW_KEY=NEW_BASE,newView=null;
 const newSlotKey=id=>'new-s-'+id;
@@ -281,7 +281,7 @@ function rememberOpenSession(s){
  rememberTab(s.id,s.title);writeLocal('pc-last-session',s.id);paintOpenSessions();
 }
 // 1.112: a tab's name follows the conversation's. It was saved once, when the conversation opened, so a new Codex thread
-// (named after its first turn) kept "New conversation" until you left and came back (Brad). Views name themselves.
+// (named after its first turn) kept "New conversation" until you left and came back (owner request). Views name themselves.
 function followTabTitles(){
  if(typeof allSessions==='undefined'||!allSessions.length)return;
  const live=new Map(allSessions.map(s=>[s.id,s.title]));let changed=false;
@@ -334,13 +334,13 @@ function paintOpenSessions(){
   const id=b.dataset.closeSession;
   openSessions=openSessions.filter(s=>s.id!==id);writeLocal('pc-open-sessions',openSessions);
   // 1.103: closing the tab you are on opens New, as the plus does, and never a neighbouring tab. Opening one counted as
-  // seeing it and took a conversation that was waiting for you out of Attention before you had looked (Brad).
+  // seeing it and took a conversation that was waiting for you out of Attention before you had looked (owner request).
   if(chatId===id||currentView()===id){if(typeof openFreshNew==='function')openFreshNew(typeof assistantMode==='function'&&assistantMode()?'#/':'#/new');else location.hash='#/new';}else paintOpenSessions();
  });
  bindTabDrag(el);
  el.querySelector('[aria-current]')?.scrollIntoView({block:'nearest',inline:'nearest'});
 }
-/* 1.112: tabs go in the order you put them (Brad). Drag a tab, or press Alt Shift [ / ] on it. Pinned tabs stay before the
+/* 1.112: tabs go in the order you put them (owner request). Drag a tab, or press Alt Shift [ / ] on it. Pinned tabs stay before the
    rest and moving one reorders the pins themselves, on every device; the others keep their order on this browser. */
 function moveTab(id,targetId,after){
  if(id===targetId)return false;

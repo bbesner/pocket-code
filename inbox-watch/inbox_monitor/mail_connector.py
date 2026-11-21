@@ -12,7 +12,7 @@ retypes a message and its answer is ignored.
 The connector has no history API, so changes are found by time: every check searches `after:<cursor - overlap>` and a
 thread counts as changed when its newest message is one the watcher has not seen (`connector_seen` in mail.sqlite).
 Time bounds reach the connector in Gmail's date form (`after:YYYY/MM/DD`, a day of margin either side): since
-2026-10-27 the claude.ai connector answers the Unix-seconds form with no threads and no error (Damon's report,
+2026-10-27 the claude.ai connector answers the Unix-seconds form with no threads and no error (a colleague's report,
 2026-10-28), and a check that finds nothing while `newer_than:1d` does is reported as a failure, not as a quiet day.
 
 Why the call loads the user's settings: claude.ai connectors only load with the user setting source and without
@@ -77,7 +77,7 @@ def date_form(query: str) -> str:
     """`after:`/`before:` with Unix seconds rewritten as Gmail dates with a day of margin on the outside.
 
     Since 2026-10-27 the claude.ai Gmail connector answers the seconds form with no threads and no error, while the date
-    form and `newer_than:` still work (Damon, 2026-10-28; the Gmail API itself takes both). Gmail reads a date as midnight
+    form and `newer_than:` still work (reported by a colleague, 2026-10-28; the Gmail API itself takes both). Gmail reads a date as midnight
     in the mailbox's time zone, which the watcher does not know here, so `after:` goes a day back and `before:` two days
     on: wide in any zone. The extra threads cost nothing: a check skips mail it has seen (`connector_seen`), and a
     lookup is clipped to its own time bound by the archive."""

@@ -14,7 +14,7 @@ const IC = {
   // 1.76.2: the rail switch's own glyphs, one silhouette each (a bubble, a flag, a page, a circle, a lock, an envelope),
   // since a folder, a page, a checkbox and a tray all read as the same small box. The folder stays the workspace glyph.
   railChats: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h15v10.5h-8.5l-4.5 3.8v-3.8h-2z"/><path d="M8.5 9.5h7M8.5 12.5h4.5"/></svg>',
-  railProjects: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V3.5"/><path d="M6 4.5h12.5l-3.5 4.5 3.5 4.5H6"/></svg>', // 1.76.4: a flag, a goal with a next step (Damon's glyph)
+  railProjects: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V3.5"/><path d="M6 4.5h12.5l-3.5 4.5 3.5 4.5H6"/></svg>', // 1.76.4: a flag, a goal with a next step (a colleague's glyph)
   railFiles: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3h7.5l4.5 4.5V21h-12z"/><path d="M14 3v4.5h4.5M9.5 12h6M9.5 15.5h6"/></svg>',
   railTasks: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M8.3 12.3l2.6 2.6 4.9-5.3"/></svg>',
   railInbox: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M4 7l8 6 8-6"/></svg>',
@@ -1774,7 +1774,7 @@ function bindPinDrag(container) {
     };
   });
 }
-// 1.94 (Damon): the row's pin button and Conversation options share one toggle.
+// 1.94 (colleague request): the row's pin button and Conversation options share one toggle.
 async function togglePin(s, refresh) {
   try {
     const r = await api(`/session/${s.id}/pin`, { method: 'POST', body: JSON.stringify({ pinned: !s.pinned }) });
@@ -2388,7 +2388,7 @@ async function paintFileCards(container, fresh = false) {
     list.insertAdjacentHTML('beforeend', html);
     list.lastElementChild.querySelector('.file-card-img')?.addEventListener('error', e => e.target.remove());
   }
-  // 1.93 (Damon): a secret this conversation stored in the Vault gets a card under the first reply after it was stored,
+  // 1.93 (colleague request): a secret this conversation stored in the Vault gets a card under the first reply after it was stored,
   // which opens the Vault at that secret. Only the name and kind are shown; the value never reaches the page.
   const secrets = typeof vaultOn === 'function' && vaultOn() && typeof vaultSnap !== 'undefined' && vaultSnap?.items ? vaultSnap.items.filter(i => i.addedIn?.session === id) : [];
   container.querySelectorAll('.file-card[data-card-vault]').forEach(el => { if (!secrets.some(i => i.id === el.dataset.cardVault)) el.remove(); });
@@ -2885,13 +2885,13 @@ const briefingKey = () => 'pc-new-briefing-' + NEW_BASE;
 const saveBriefing = text => { saveDraft(NEW_BASE, text); writeLocal(briefingKey(), text); };
 // 1.107.1: New with what a Start just left for it (a project's or task's briefing and pc-new-start). Already on New, setting the
 // hash it has fires no hashchange, so the screen kept its old state: a project started from the sidebar while New was open
-// showed no project, no Conductor chip and no briefing (Brad).
+// showed no project, no Conductor chip and no briefing (owner request).
 function showNew() { if (location.hash === '#/new') return route(); location.hash = '#/new'; }
 function openFreshNew(hash = '#/new') {
   const here = location.hash === hash || (hash === '#/' && !location.hash);
   // The plus pressed on the New conversation screen itself starts over: setting the hash it already has did nothing,
   // so a desktop left on New kept its old draft and the button looked dead. The agent and workspace stay; a start
-  // still being delivered is never dropped. Reported by Brad.
+  // still being delivered is never dropped. Reported by the owner.
   if (here && document.getElementById('first') && !loadOutbox(NEW_BASE)) {
     clearDraft(NEW_BASE);
     try { ['pc-new-start', briefingKey(), 'pc-attachments-' + NEW_BASE].forEach(k => localStorage.removeItem(k)); } catch { }
@@ -2925,7 +2925,7 @@ function railSwitchHTML() {
   // 1.69: each entry is an icon with its name; with five or more entries the rail shows the name only on the pressed one
   // (the icon, aria-label and title carry it for the rest), so Inbox fits beside the other four.
   // 1.76.2: the pressed entry is the rail's list; aria-current marks what the main area shows (a clay bar when the two
-  // differ), so Files opened in a tab is marked while the rail keeps listing chats. Reported by Damon.
+  // differ), so Files opened in a tab is marked while the rail keeps listing chats. Reported by a colleague.
   const main = mainAreaView();
   const seg = (key, icon, label, badge) => `<button data-rail-view="${key}" aria-pressed="${v === key}"${main === key ? ' aria-current="page"' : ''} aria-label="${label}" title="${label}">${icon}<span class="rail-label">${label}</span>${badge ? `<span class="badge" ${badge} hidden></span>` : ''}</button>`;
   const segs = [seg('sessions', IC.railChats, 'Chats'), projectsOn() ? seg('projects', IC.railProjects, 'Projects', 'data-projects-badge') : '', documentsOn() ? seg('documents', IC.railFiles, 'Files') : '', tasksOn() ? seg('tasks', IC.railTasks, 'Tasks', 'data-tasks-badge') : '', vaultOn() ? seg('vault', IC.vault, 'Vault', 'data-vault-badge') : '', inboxOn() ? seg('inbox', IC.railInbox, 'Inbox', 'data-inbox-badge') : ''].filter(Boolean);
@@ -2974,7 +2974,7 @@ function wireShell() {
 }
 let railCache = { at: 0, sessions: [] };
 // 1.50: the counts on the rail switch (due tasks and reminders, Vault requests) show on every view, not only after a
-// segment has been opened: paint from what is cached at once, then from a fresh list. Reported by Brad.
+// segment has been opened: paint from what is cached at once, then from a fresh list. Reported by the owner.
 function paintRailBadges() {
   if (!document.querySelector('.rail-switch')) return;
   if (projectsOn()) { if (boardSnap) paintProjectBadges(); loadBoard().then(paintProjectBadges).catch(() => { }); }

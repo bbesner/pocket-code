@@ -79,7 +79,7 @@ const inboxStateWord=e=>({resolved:'Resolved',not_useful:'Not useful',dismissed:
 // The watcher writes citations as [label](msg:<gmail id>); they become Gmail links. Plain text otherwise.
 // 1.70.1: a digest's "## Worth knowing" heading and "- " lines read as a heading and bullets, not as raw marks.
 // 1.95: headings, bullets and paragraphs are blocks with room between them. Until now a digest's items ran together with
-// single line breaks and read as one paragraph (Damon).
+// single line breaks and read as one paragraph (colleague request).
 const inboxCite=s=>esc(s||'').replace(/\[([^\]\n]{1,80})\]\(msg:([0-9a-f]{6,24})\)/g,(m,label,id)=>`<a href="${INBOX_GMAIL_MSG}${id}" target="_blank" rel="noopener">${label}</a>`);
 function inboxText(text){
  const out=[];let list=null;
@@ -102,7 +102,7 @@ const inboxItemWord=it=>it.state==='alerted'&&!it.ackedAt?'Adding to Inbox':INBO
 const inboxActable=it=>it.section==='worth'||it.section==='held'||it.section==='ahead';
 function inboxItemHTML(it,e){
  const ahead=e?.kind==='lookahead';
- if(it.section==='listed'&&!ahead){ // 1.95 (Brad): an open entry already has this story; one line that opens it, never a new card
+ if(it.section==='listed'&&!ahead){ // 1.95 (owner request): an open entry already has this story; one line that opens it, never a new card
   const t=inboxTarget({url:it.url||''}),first=inboxFirst(it.text);
   return `<p class="inbox-item-listed">${t?`<a href="${esc(t.startsWith('#')?t:'#'+t)}">${esc(it.title)}</a>`:`<strong>${esc(it.title)}</strong>`}${it.state!=='open'&&INBOX_ITEM_STATE[it.state]?` <strong class="inbox-item-state">${esc(inboxItemWord(it))}</strong>`:''}${first?` <span>${esc(first)}</span>`:''}</p>`;
  }
@@ -281,7 +281,7 @@ function inboxSheet(id){
   <button class="opt" data-dismiss>${IC.x}<span>Dismiss<span class="sub">${inboxLabelName()?`Off your list and out of ${esc(inboxLabelName())} in Gmail; the watcher learns nothing`:'Off your list; the watcher learns nothing'}</span></span></button>`}`;
  sh.querySelector('[data-go]')?.addEventListener('click',()=>{closeCurrentSheet?.();inboxOpen(id);});
  sh.querySelector('[data-chat]')?.addEventListener('click',()=>closeCurrentSheet?.());
- // 1.115 (Brad): the choice is made here, before anything is sent. Continue opens the conversation and brings the mail in;
+ // 1.115 (owner request): the choice is made here, before anything is sent. Continue opens the conversation and brings the mail in;
  // hand-off opens it and asks for the briefing; separate subject takes the mail off this entry.
  sh.querySelector('[data-continue]')?.addEventListener('click',()=>{closeCurrentSheet?.();InboxNews.go(sess.id,'bring');});
  sh.querySelector('[data-handoff]')?.addEventListener('click',()=>{closeCurrentSheet?.();InboxNews.go(sess.id,'handoff');location.hash='#/chat/'+sess.id;});
@@ -521,10 +521,10 @@ async function inboxWatchSheet(){
  const poll=setInterval(async()=>{if(!sh.isConnected)return clearInterval(poll);try{const n=await api('/inbox/watch?source='+encodeURIComponent(w.source));w={...w,profile:n.profile,revision:n.revision};$w('#w-status').textContent=watchStatus(w);if(dev&&$w('#w-usage'))$w('#w-usage').innerHTML=watchUsageHTML(n.profile?.usage);}catch{}},20000);
 }
 
-/* 1.113.1 (Brad): a conversation started from an Inbox entry catches up when the entry gets more mail (or takes in a merged
+/* 1.113.1 (owner request): a conversation started from an Inbox entry catches up when the entry gets more mail (or takes in a merged
    duplicate), instead of a second conversation starting on the same story. A reply that is running gets the news steered
    in by the server, so the card waits until nothing is running.
-   1.115 (Brad): the quiet line under a loud Complete card was missed. The news is now a card in the Complete card's place
+   1.115 (owner request): the quiet line under a loud Complete card was missed. The news is now a card in the Complete card's place
    (never both: a conversation with mail it has not read is not finished), in clay because its main button sends a message.
    It says what the mail is and offers the three ways on: Bring it in (the news as your next message), New conversation
    (hand-off from this one, or a separate subject) and Not now, which puts the Complete card back until more mail comes.

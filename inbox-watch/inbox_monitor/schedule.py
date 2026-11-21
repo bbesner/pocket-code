@@ -25,8 +25,8 @@ The shape (JSON in Pocket, the same keys in the TOML as snake_case where noted):
                 off what has been resolved or handled (TOML [tidy] enabled, every_hours)
   gmailLabel    {enabled}: the owner's open Inbox entries carry a "Pocket Inbox" label in Gmail; labelling a thread there puts it on
                 the list, taking the label off takes it off (TOML [gmail_label] enabled, name; on by default; needs gmail.modify)
-  scope         {mode: all | inbox | inbox_labels, labels: [Gmail label names]}: which mail the watcher reads at all (1.100, Damon and
-                Brad). "all" is every thread but spam, trash and drafts (the behaviour before 1.100); "inbox" only threads in the
+  scope         {mode: all | inbox | inbox_labels, labels: [Gmail label names]}: which mail the watcher reads at all (1.100, colleague and
+                owner request). "all" is every thread but spam, trash and drafts (the behaviour before 1.100); "inbox" only threads in the
                 Gmail inbox; "inbox_labels" the inbox plus threads under the named labels. Mail outside the scope is never fetched
                 or judged; a thread the owner labels Pocket Inbox still joins the check, and so does a thread the owner
                 replies on. A new email the owner starts does not. (TOML [mail] scope, scope_labels)
